@@ -105,14 +105,46 @@ def test_a_complete_result_says_so():
 
 
 def test_a_count_only_result_reports_that_it_kept_no_rows():
-    """wesselr 428: "which labs are those mouse samples from?" after a count query."""
+    """wesselr 428: "which labs are those mouse samples from?" after a count query.
+
+    The shape is the one tool_neo4j_query really emits: it sets total to len(records),
+    so an aggregate stores total=1 and the number it computed sits in the row. This
+    test used to hand-write total=705, which the producer can never do, and so it
+    passed while F5's defect was live.
+    """
     bundle = {
         "id": 2, "user_query": "how many mouse samples", "mode": "graph_query",
-        "graph_result": {"ok": True, "count": 1, "total": 705, "data": [{"n": 705}]},
+        "graph_result": {"ok": True, "count": 1, "total": 1, "data": [{"n": 705}]},
     }
     described = describe_stored_result(bundle)
     assert described["uid_count"] == 0
-    assert described["capped"] is True
+    assert described["aggregate_values"] == {"n": 705}
+    assert described["total"] == 705, "the value it computed, not the row count"
+    assert described["capped"] is False, "an aggregate is complete, not truncated"
+    assert "aggregate" in described["note"]
+
+
+def test_the_recalled_number_is_the_aggregate_not_the_row_count():
+    """memory.number_recall_within_chat: turn 1 said 890, turn 2 said "there is 1"."""
+    bundle = {
+        "id": 3, "user_query": "how many mass spectrometry data samples", "mode": "graph_query",
+        "graph_result": {"ok": True, "count": 1, "total": 1, "data": [{"n": 890}]},
+        "terminal_reply": "There are 890 Mass Spectrometry Data samples.",
+    }
+    described = describe_stored_result(bundle)
+    assert described["total"] == 890
+    assert described["previous_reply"] == "There are 890 Mass Spectrometry Data samples."
+
+
+def test_rows_carrying_a_uid_are_records_not_an_aggregate():
+    bundle = {
+        "id": 4, "user_query": "one sample", "mode": "graph_query",
+        "graph_result": {"ok": True, "count": 1, "total": 1,
+                         "data": [{"uuid": "TIS-200901ENG-1", "type": "TIS"}]},
+    }
+    described = describe_stored_result(bundle)
+    assert described["aggregate_values"] is None
+    assert described["total"] == 1
 
 
 def test_the_description_never_carries_rows():

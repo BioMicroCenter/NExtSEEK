@@ -9,10 +9,16 @@ can answer THIS question, and to run a new query when it cannot.
 # How to work
 
 1. Call read_stored_result first, always. It tells you the total, how many rows were
-   actually stored, whether they were capped, and how many UIDs you can reuse.
+   actually stored, whether they were capped, how many UIDs you can reuse, what the
+   previous reply said, and — when the previous turn was a count or another aggregate —
+   aggregate_values, the numbers it computed.
 2. Decide honestly whether the stored result can answer the question.
    - It CAN when the question is about something already in it: a count it reported,
      the UIDs it listed, a value it selected.
+   - When aggregate_values is present, THAT is the answer to a question about the
+     number the previous turn gave. Do not report rows_stored as if it were the count:
+     an aggregate always stores one row, and that row holds the number. Saying "there
+     is 1" about a result whose reply said 890 is the failure this rule exists for.
    - It CANNOT when the question asks about a different data type, a property that was
      not selected, anything downstream or upstream of these samples, or anything about
      the whole set when rows_stored is less than total.

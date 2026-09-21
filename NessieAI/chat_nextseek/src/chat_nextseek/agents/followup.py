@@ -154,17 +154,31 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     uids = _uids_from_rows(rows)
     rows_stored = len(rows)
 
+    aggregate = _aggregate_values(rows, len(uids))
+    if aggregate:
+        numbers = [v for v in aggregate.values() if isinstance(v, (int, float))]
+        if len(numbers) == 1:
+            # The stored total is the row count of an aggregate, which is always 1.
+            total = numbers[0]
+
     capped = False
     if isinstance(total, int) and rows_stored and total > rows_stored:
         capped = True
     if graph_result.get("truncated"):
         capped = True
+    if aggregate:
+        # An aggregate stores one row holding the whole answer. It is complete, not capped:
+        # total is now the value it computed, and comparing that to a row count of 1 would
+        # tell the agent to re-query for a number it already has.
+        capped = False
 
     return {
         "bundle_id": bundle.get("id"),
         "user_query": bundle.get("user_query"),
         "mode": bundle.get("mode"),
         "total": total,
+        "aggregate_values": aggregate,
+        "previous_reply": bundle.get("terminal_reply"),
         "rows_stored": rows_stored,
         "capped": capped,
         "uid_count": len(uids),
@@ -176,12 +190,34 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
             if capped else
             "The stored copy holds every row of this result."
             if rows_stored and rows_stored == total else
+            "This result is an aggregate: aggregate_values holds what it computed, and "
+            "total is that value, not a row count. Anything about individual samples "
+            "needs a new query."
+            if aggregate else
             "This result kept no rows (a count-only query), so anything about "
             "individual samples needs a new query."
             if not rows_stored else
             "The stored copy holds the rows listed above."
         ),
     }
+
+
+def _aggregate_values(rows: list, uid_count: int) -> dict[str, Any] | None:
+    """The values an aggregate computed, or None when the rows are sample records.
+
+    ``tool_neo4j_query`` sets ``total = len(records)`` unless the query hit a trailing
+    LIMIT, so a count query stores ``count=1, total=1`` and the number it actually
+    computed sits inside its single row. A follow-up that read ``total`` therefore
+    answered "There is 1 mass-spectrometry data sample in the database" to a question
+    about a result whose own reply had said 890.
+
+    One row, no UIDs and scalar values only: a breakdown has rows the agent can read
+    for itself, and anything carrying a UID is a record, not an aggregate.
+    """
+    if uid_count or len(rows) != 1 or not isinstance(rows[0], dict) or not rows[0]:
+        return None
+    values = {k: v for k, v in rows[0].items() if isinstance(v, (int, float, str))}
+    return values if len(values) == len(rows[0]) else None
 
 
 def _stored_rows(bundle: dict) -> list:
