@@ -36,6 +36,7 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
     "lab_codes": [string]
   },
   "target_result_id": int or null,
+  "refine_engine": "graph" | null,
   "endpoint_candidates": [string],
   "notes": string
 }

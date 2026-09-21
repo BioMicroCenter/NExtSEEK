@@ -53,6 +53,13 @@ class ParserPlan(BaseModel):
     filters: ParserFilters = Field(default_factory=ParserFilters)
     resolved: EntityAgentOutput = Field(default_factory=EntityAgentOutput)
     target_result_id: int | None = None
+    #: F13: which engine a refine belongs on. The orchestrator used to pick it from the
+    #: PREVIOUS bundle's mode alone, so a REST search could never be refined into the graph
+    #: however clearly the new turn needed it -- "and come from China instead", "swap MiSeq
+    #: for NovaSeq" all stayed on REST and answered the wrong question or none. Set "graph"
+    #: when the refined intent would route to graph_query as a fresh question; leave None to
+    #: keep the previous turn's engine, which is the old behaviour.
+    refine_engine: str | None = Field(default=None, json_schema_extra={"enum": ["graph", "rest"]})
     endpoint_candidates: list[str | EndpointCandidate] = Field(default_factory=list)
     notes: str = ""
     previous_api_plan: dict[str, Any] | None = None
@@ -82,6 +89,8 @@ class ParserCandidate(BaseModel):
     candidate_id: str | None = None
     mode: str  # new_search | refine_last_search | ask_about_last_results | graph_query | reporter | system_question | unsupported
     target_endpoint: str | None = None
+    #: F13, as on ParserPlan: a refine is not locked to the previous turn's engine.
+    refine_engine: str | None = Field(default=None, json_schema_extra={"enum": ["graph", "rest"]})
     filters: ParserFilters = Field(default_factory=ParserFilters)
     report_mode: str | None = None
     report_type: str | None = None

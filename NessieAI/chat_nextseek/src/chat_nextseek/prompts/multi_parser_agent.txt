@@ -161,6 +161,7 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
       "candidate_id": string,
       "mode": "new_search" | "refine_last_search" | "ask_about_last_results" | "graph_query" | "reporter" | "system_question" | "unsupported",
       "target_endpoint": string or null,
+      "refine_engine": "graph" | null,
       "filters": {
         "sampletype_code": string or null,
         "assay_codes": [string],

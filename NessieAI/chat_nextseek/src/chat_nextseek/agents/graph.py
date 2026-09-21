@@ -2090,6 +2090,10 @@ PARSER_PLAN_KEPT: tuple[str, ...] = ("resolved", "filters")
 PARSER_PLAN_DROPPED: tuple[str, ...] = (
     "mode", "target_endpoint", "intent_summary", "notes", "endpoint_candidates",
     "previous_api_plan", "previous_user_query", "target_result_id", "report_mode", "report_type", "metadata",
+    # refine_engine says WHICH engine runs the turn, which the orchestrator has already acted
+    # on by the time the graph agent is called. It is not something the parser resolved about
+    # the question, so it is not the graph agent's business.
+    "refine_engine",
 )
 PROJECTED_PLAN_HEADING = "RESOLVED ENTITIES AND FILTERS (from the Parser Agent):"
 

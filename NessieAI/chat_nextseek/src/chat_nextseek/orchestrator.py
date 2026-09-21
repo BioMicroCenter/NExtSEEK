@@ -503,15 +503,33 @@ def _write_graph_debug(log_dir: str, ts: str, payload: dict) -> str | None:
 
 
 def _build_graph_refine_context(last_bundle: dict) -> str:
-    """Prior graph-query context for a refine, mirroring the REST refine block
-    in api_agent_build_request (prior user query + prior plan)."""
+    """Prior context for a refine the graph will run.
+
+    Mirrors the REST refine block in api_agent_build_request (prior user query + prior plan).
+    When the previous turn was REST there is no Cypher to carry, so the filters it actually
+    sent are carried instead: without them a re-routed refine loses the scope the user set in
+    the turn before and silently widens the question (F13).
+    """
+    prior_query = last_bundle.get("user_query") or ""
     graph_plan = last_bundle.get("graph_plan") or {}
     prior_cypher = graph_plan.get("cypher") or ""
-    prior_query = last_bundle.get("user_query") or ""
+    if prior_cypher:
+        return (
+            "Previous graph query context (you are refining it):\n"
+            f"Prior user query: {prior_query or '[none]'}\n"
+            f"Prior Cypher:\n{prior_cypher}"
+        )
+
+    parser_plan = last_bundle.get("parser_plan") or {}
+    filters = {k: v for k, v in (parser_plan.get("filters") or {}).items() if v}
+    api_plan = last_bundle.get("api_plan") or {}
+    body = {k: v for k, v in (api_plan.get("requestBody") or {}).items() if v}
     return (
-        "Previous graph query context (you are refining it):\n"
+        "Previous REST search context (you are refining it, and it is moving to the graph):\n"
         f"Prior user query: {prior_query or '[none]'}\n"
-        f"Prior Cypher:\n{prior_cypher or '[none]'}"
+        f"Filters it resolved: {json.dumps(filters, default=str) if filters else '[none]'}\n"
+        f"What it sent: {json.dumps(body, default=str) if body else '[none]'}\n"
+        "Keep every constraint above that the user has not changed in this turn."
     )
 
 
@@ -1532,7 +1550,15 @@ def run_query(
 
                 _history = session.get("results_history", []) or []
                 _prior, debug_payload["refine_target"] = select_refine_bundle(_history, plan.target_result_id)
-                if _prior and _prior.get("mode") == "graph_query":
+                # F13: the engine used to come from the PREVIOUS bundle's mode alone, so a
+                # REST search could never be refined into the graph however clearly the new
+                # turn needed it. The parser now marks a refine it would have routed to the
+                # graph as a fresh question, and that mark counts as well as the prior mode.
+                _graph_refine = bool(_prior) and (
+                    _prior.get("mode") == "graph_query"
+                    or getattr(plan, "refine_engine", None) == "graph"
+                )
+                if _graph_refine:
                     current_agent = "graph"
                     outcome = _execute_graph_turn(
                         config=config, session=session, user_text=user_text,

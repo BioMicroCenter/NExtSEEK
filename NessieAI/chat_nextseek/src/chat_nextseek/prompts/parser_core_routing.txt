@@ -140,6 +140,12 @@ PATH: refine_last_search
 --------------------------------------------------
 
 Use when the user is clearly modifying or re-running their most recent query. The user must be explicitly referring back to it: "same thing but with X", "try again with Y", "change it to Z", "run that again but filter by...". Reuse the previous endpoint unless the intent clearly changes.
+A refine is NOT locked to the engine the previous turn used. Apply the same test you would to
+a fresh question: if the REFINED intent is one you would send to graph_query, set
+"refine_engine": "graph", and the refine runs there with the previous turn's filters carried
+over. A refine of a REST search that swaps one attribute value for another, adds a numeric or
+date comparison, or reaches through a relationship is exactly that case. Leave refine_engine
+out to stay on the previous turn's engine.
 
 --------------------------------------------------
 PATH: ask_about_last_results
