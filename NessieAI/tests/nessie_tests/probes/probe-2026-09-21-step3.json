@@ -1,0 +1,788 @@
+{
+  "_name": "probe-2026-09-21-step3 - the 40-question re-run set",
+  "_why": "Run with: manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-21-step3.json",
+  "_source": ".claude/work/2026-09-21-step3-tickets/QUESTION-SET.md (outside git). Read that for the per-question 'Accept when' column and the SHOULD CHANGE / SHOULD HOLD / STILL OPEN marks.",
+  "_criteria_note": "Deliberately loose, per the house convention for new families: route where the engine is known, and last_reply nonempty everywhere, so a budget-capped or errored turn cannot score green. The real acceptance is the 'Accept when' column and is read by a human -- most of these are judgements about wording ('never an invented pagination story'), which no regex should be asked to settle. The two step3_mixed cases DO pin numbers, because their truths were measured.",
+  "_cost_note": "~45 turns. One (step3.cc_big_csv_turn_limit) is deliberately a Container-CC request big enough to hit the 180 s cap: that is the point of it, and CC turns are the expensive ones.",
+  "_not_included": "mixed.flow_from_rhesus_lymph_node and mixed.ivbcg_nhp_with_sequencing are NOT in nessie_tests/corpus.json -- they are Pilot A mixed-r4 cases. They are written inline here from PilotAPOC/cases/mixed-r4.json with their measured truths.",
+  "include_ids": [
+    "harmon.organ_lung_case_split",
+    "search.hela_trap",
+    "vocab.mtb_is_a_species_not_a_strain",
+    "report.longest_running_investigation",
+    "advanced.show_me_tis_samples_that_have",
+    "report.shoulders_inventory",
+    "advanced.rna_from_the_kamm_lab",
+    "memory.number_recall_within_chat",
+    "memory.fresh_session_has_no_history",
+    "harmon.immport_repository",
+    "cat.people_versus_scientists"
+  ],
+  "families": {
+    "step3_user_questions": {
+      "description": "Part A: the production-review questions in the researchers' own words.",
+      "variants": [
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q01_nhp_mdl_downstream_flow",
+          "name": "T1 provider 503 - never 'Internal pipeline error'",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "For all of the NHP samples associated with MDL-250912LAU-1, how many have a D.FLOW sample downstream?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q02_mtb_converters",
+          "name": "T2 empty completion - a plan runs or an honest refusal",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "show samples for human subjects who convert to Mtb infection positive",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q03_impact_flow_cytof",
+          "name": "T4 lineage + T17 type naming",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you provide a list of samples from the Impact project that have flow cytometry / CyTOF data available?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q04_impact_flow_cytof_human",
+          "name": "T4 regression partner - the patient-scoped answer",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you provide a list of samples from the Impact project that have flow cytometry / CyTOF data available, and come from a human?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            },
+            {
+              "label": "followup_rna",
+              "query": "Do any of those 129 human patient samples also have RNA sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "followup_types",
+              "query": "What other types of data are available for the 129 UIDs you mentioned above?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q07_impact_human_then_investigators",
+          "name": "T5 DISTINCT - both turns report the same number",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many human samples are in Impact?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Which investigators are the 1,411 human patient samples associated with?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q08_pmid_lookup",
+          "name": "T10 identifier by value, never a substituted search on 'PMID'",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples associated with this PMID: 40449485",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q09_doi_lookup",
+          "name": "T10 identifier - same set as the PMID question",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples associated with this DOI: 10.1016/j.immuni.2025.05.004",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q10_collaborative_cross",
+          "name": "T10 + F15 - found by genotype, not a substituted search on 'cross'",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "do you have any datasets with collaborative cross mice ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q11_cc_mice",
+          "name": "T10 + F15 - genotype-scoped, not the letters 'cc' inside 'Vaccination'",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q12_pat_for_mdl",
+          "name": "T4 type filter - every row is the requested type",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you list all the human patient samples (PAT) associated with MDL-250912LAU-1?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q13_d_prefix_count",
+          "name": "T6 live catalog count",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many sample types begin with a D. prefix?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q14_bridges_files",
+          "name": "T12 people + files (STILL OPEN)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What files are associated with investigator Kate Bridges?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q15_who_is_lauffenburger",
+          "name": "T12 people (STILL OPEN)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who is Doug Lauffenburger?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q16_lab_code_boo",
+          "name": "T12 lab codes (STILL OPEN)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What is the full name of the investigator with code BOO?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q17_dseq_sha_then_limit",
+          "name": "T8 cap disclosure, then T13 invented mechanism",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you individual search all the 4,095 Sequencing Data (D.SEQ) files for if they have 'SHA' in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "followup_limit",
+              "query": "Is the limit of 20 due to memory limitations or something else?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q19_table_for_excel",
+          "name": "T9 rows + T11 delivery (STILL OPEN)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you provide a table of these 250 samples for download/copy into Excel with the metadata info?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q20_cel_to_mus_assays",
+          "name": "T16 recall - the follow-up agrees with the first count",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What assays exist that go from CEL to MUS",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "What are the three assays that you found?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q21_mice_then_labs",
+          "name": "T3 + T9 - the follow-up answers rather than reporting no rows kept",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "how many mice are there?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "which labs are those mouse samples from?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q22_most_recent_sample",
+          "name": "date sorting - a real date, not a text value sorted above dates",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "give me the most recent sample with a creation date",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q23_scrnaseq_impactb",
+          "name": "invented assay name - non-zero, or name the filter that emptied it",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "I am looking for single cell RNA sequencing datasets from across the IMPAcTB projects",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q24_impact_species",
+          "name": "metadata aggregation - a species breakdown",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What species are the samples in the IMPACT project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q25_export_session",
+          "name": "T24 - names the chat link or session id",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Is there a way to export this session to send to the development team?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_user_questions",
+          "id": "step3.q26_download_model_file",
+          "name": "T23 - an honest account of what NExtSEEK holds",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you help me download model file MDL-250912LAU-2?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "step3_mixed": {
+      "description": "Part B's two Pilot A cases, which the nessie_tests corpus does not carry.",
+      "variants": [
+        {
+          "family": "step3_mixed",
+          "id": "step3.flow_from_rhesus_lymph_node",
+          "name": "F10 synonym width: rhesus only (482), not widened to cynomolgus (929)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many flow cytometry data files come from lymph node tissue of rhesus macaques?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])482(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "step3_mixed",
+          "id": "step3.ivbcg_nhp_with_sequencing",
+          "name": "F10 regression partner: the harmonised IV-BCG answer (operator accepted 20; key said 13)",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many monkeys in the IV-BCG study arm have sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(?:13|20)(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "step3_cc_turn_limit": {
+      "description": "F20: the turn-limit question the set said it was missing.",
+      "variants": [
+        {
+          "family": "step3_cc_turn_limit",
+          "id": "step3.cc_big_csv_turn_limit",
+          "name": "F20: a stopped Container-CC turn hands back what it had, with the 'say continue' wording",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Please build me a CSV of all 731 samples in the Shoulders project with every metadata column filled in, one row per sample.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
