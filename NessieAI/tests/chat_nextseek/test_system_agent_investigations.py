@@ -9,6 +9,7 @@ map that is not a dict (a MagicMock config) reads as empty. Every row here is in
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from chat_nextseek.agents import system as system_mod
@@ -110,3 +111,23 @@ def test_a_legacy_project_row_is_never_labelled_an_investigation(monkeypatch):
 def test_a_study_row_is_sent_as_neither(monkeypatch):
     config = _config({"Alder Core": STUDY}, {"Alder Core": STUDY})
     assert _entity_details(monkeypatch, config, ["Alder Core"]) == {}
+
+
+# --------------------------------------------------------------------------
+# T13: the system agent may not explain mechanism it cannot observe.
+# --------------------------------------------------------------------------
+
+_SYSTEM_PROMPT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "chat_nextseek" / "src" / "chat_nextseek" / "prompts" / "system_agent.txt"
+)
+
+
+def test_the_prompt_forbids_explaining_a_run_it_cannot_see():
+    """mchao 118: asked why a result stopped at 20, it described API pagination and named
+    an endpoint. There was no pagination and that endpoint never ran."""
+    text = _SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    assert "cannot see that run" in text
+    assert "Never explain the cause by naming a mechanism" in text
+    for cue in ("why a result was", "cut off", "debug panel"):
+        assert cue in text, cue

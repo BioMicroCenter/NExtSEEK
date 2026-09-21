@@ -272,3 +272,48 @@ def test_the_zero_row_retry_does_not_invite_a_substitute_answer(monkeypatch, tmp
     assert "closest value that really exists" not in ctx
     assert "never replace the thing the user asked for" in ctx
     assert "SAME query unchanged" in ctx
+
+
+# --------------------------------------------------------------------------
+# T14: the error a turn reports must name the agent that failed.
+# --------------------------------------------------------------------------
+
+
+def test_the_turn_reports_which_agent_it_is_on(monkeypatch, tmp_path):
+    """Production turns 463/464 labelled a chatter failure as the graph agent.
+
+    run_query's error handlers report its own ``current_agent`` local, and the graph
+    turn runs in another function, so the label stayed "graph" for the whole turn even
+    though the graph query had succeeded and the chatter was what failed.
+    """
+    seen: list[str] = []
+    plan_iter = iter([GraphAgentPlan(cypher="MATCH (s) RETURN count(*)", context_mode="catalog")])
+    result_iter = iter([_ok(890)])
+
+    monkeypatch.setattr(orch, "graph_agent", lambda *a, **k: next(plan_iter))
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: next(result_iter))
+    monkeypatch.setattr(orch, "chatter_agent_answer", lambda *a, **k: "reply")
+    monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
+
+    config = MagicMock()
+    config.MODEL_MODE = "test"
+    orch._execute_graph_turn(
+        config=config, session={}, user_text="how many", entity_result=EntityAgentOutput(),
+        plan=ParserPlan(mode="graph_query", intent_summary="count"), log_dir=str(tmp_path),
+        artifact_store=MagicMock(register_path=MagicMock(return_value=None)),
+        send_event=lambda *a, **k: None, debug_payload={}, t_total_start=time.perf_counter(),
+        note_agent=seen.append,
+    )
+
+    assert seen[0] == "graph"
+    assert seen[-1] == "chatter", "the caller must be told the turn moved on to the chatter"
+
+
+def test_the_turn_runs_without_a_reporting_callback(monkeypatch, tmp_path):
+    """note_agent is optional: every other caller passes nothing."""
+    payload, _, _ = _run(
+        monkeypatch, tmp_path,
+        plans=[GraphAgentPlan(cypher="MATCH (s) RETURN count(*)", context_mode="catalog")],
+        results=[_ok(3)],
+    )
+    assert payload is not None

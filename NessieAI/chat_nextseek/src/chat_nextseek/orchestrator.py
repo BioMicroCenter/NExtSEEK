@@ -695,7 +695,21 @@ def _execute_graph_turn(
     debug_payload: dict,
     t_total_start: float,
     refine_context: str | None = None,
+    note_agent: Callable[[str], None] | None = None,
 ):
+    """``note_agent`` lets the caller follow which agent this turn is on.
+
+    run_query's error handlers report ``current_agent``, a local of the caller. The
+    graph turn runs in this function, so that local stayed "graph" for the whole turn:
+    production turns 463 and 464 emitted a provider failure labelled as the graph
+    agent when the graph query had already succeeded and the chatter was what failed.
+    The REST path updates its own local in place and never had the problem.
+    """
+    def _on(agent: str) -> None:
+        if note_agent is not None:
+            note_agent(agent)
+
+    _on("graph")
     send_event("agent_started", {"agent": "graph", "mode": "graph_query"})
     _t0 = time.perf_counter()
 
@@ -852,6 +866,7 @@ def _execute_graph_turn(
     debug_payload["graph_plan"] = graph_plan.model_dump()
     debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
 
+    _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
     _t1 = time.perf_counter()
     reply = chatter_agent_answer(
@@ -991,6 +1006,17 @@ def run_query(
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
     current_agent = "catalog"
+
+    def _note_agent(agent: str) -> None:
+        """Follow the agent through a turn that runs in another function.
+
+        The error handlers at the bottom report current_agent; _execute_graph_turn is a
+        separate function, so without this the whole graph turn -- the chatter included
+        -- is reported as the graph agent.
+        """
+        nonlocal current_agent
+        current_agent = agent
+
     _t_total_start = time.perf_counter()
     session["last_files"] = []
 
@@ -1491,6 +1517,7 @@ def run_query(
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
+                note_agent=_note_agent,
             )
             if not isinstance(outcome, GraphScopeFallback):
                 return outcome
@@ -1513,6 +1540,7 @@ def run_query(
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
                         refine_context=_build_graph_refine_context(_prior),
+                        note_agent=_note_agent,
                     )
                     if not isinstance(outcome, GraphScopeFallback):
                         return outcome
