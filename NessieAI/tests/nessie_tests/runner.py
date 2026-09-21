@@ -417,7 +417,7 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
               pace_s=0.0, run_consistency: bool = False, sample: float = 1.0, seed: int = 0,
               cases_path=None, force_route=None, force_parser_mode=None,
               sleep=time.sleep, clock=time.monotonic, prompt_variant=None,
-              session_clients=None) -> NessieManifest:
+              session_clients=None, on_case=None) -> NessieManifest:
     """One whole run.
 
     `force_route` forces every turn, the consistency groups' included (a normal run
@@ -431,6 +431,15 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     instance at `base_url`. A reader that fails either raises BundleReaderUnavailable
     with nothing sent. `session_clients` is the free chat open/close pair that proof
     uses; by default `http_driver.make_session_clients(base_url, auth_header)`.
+
+    `on_case(done, total, entry)` is called after each case finishes, for a caller
+    that wants to show progress. A paid full-tier run is upwards of half an hour of
+    real model turns and the manifest is written only at the end, so without this the
+    terminal says nothing at all until it is over -- and a run that dies at case 40 of
+    44 leaves the operator with no record of the 39 that worked. Default None keeps
+    the previous silence, so no existing caller changes. It must never break the run:
+    the loop swallows anything it raises, because a progress printer failing is not a
+    reason to lose paid turns.
     """
     _check_force(force_route, force_parser_mode, prompt_variant)
     if tier == "full":
@@ -467,12 +476,19 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     }
     started = _iso(clock)
     entries: list[NessieManifestEntry] = []
+    total = len(variants)
     for v in variants:
-        entries.append(run_case(
+        entry = run_case(
             v, tier=tier, post_query=post_query, get_progress=get_progress,
             bundle_reader=bundle_reader, pace_s=pace_s, force_route=force_route,
             force_parser_mode=force_parser_mode, prompt_variant=prompt_variant,
-            strip_route_criteria=force_route is not None, sleep=sleep, clock=clock))
+            strip_route_criteria=force_route is not None, sleep=sleep, clock=clock)
+        entries.append(entry)
+        if on_case is not None:
+            try:
+                on_case(len(entries), total, entry)
+            except Exception as exc:  # noqa: BLE001 - never lose a paid turn to the printer
+                print(f"[WARN][NESSIE] progress callback raised {type(exc).__name__}: {exc}")
     if run_consistency:
         from NessieAI.tests.nessie_tests import consistency
         for g in corpus.load_consistency_groups(corpus_path):

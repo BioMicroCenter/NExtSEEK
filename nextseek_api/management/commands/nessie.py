@@ -32,6 +32,7 @@ in an arm is the measurement, so an arms run never exits non-zero for one.
 from __future__ import annotations
 
 import os
+import time
 import urllib.error
 from pathlib import Path
 
@@ -143,6 +144,7 @@ class Command(BaseCommand):
                 force_route=opts["force_route"],
                 force_parser_mode=opts["force_parser_mode"],
                 prompt_variant=opts["prompt_variant"],
+                on_case=self._progress_printer(),
             )
         except runner.BundleReaderUnavailable as e:
             # Raised before the first turn (runner.check_bundle_reader), e.g. when the
@@ -230,6 +232,61 @@ class Command(BaseCommand):
                 f"could not talk to {opts['base_url']}: {e}. Every completed (question, arm) "
                 f"is on disk under {opts['out']}, and --resume skips it.") from e
         self._summarize_arms(result, opts["out"], runner)
+
+    #: How a status reads in the live line. The summary's own vocabulary, so the
+    #: running tally and the final block cannot describe the same run differently.
+    _STATUS_MARK = {
+        "passed": "PASS", "failed": "FAIL", "error": "ERR ", "skipped": "SKIP",
+        "xpass": "XPASS", "no_assertions": "NOASRT",
+    }
+
+    def _progress_printer(self):
+        """One line per case, as it finishes, flushed.
+
+        A paid full-tier run drives dozens of real model turns over half an hour or
+        more and the manifest is written only at the end. Before this the terminal
+        said nothing for the whole run, so there was no way to tell a working run
+        from a hung one without going and reading the per-turn folders under
+        outputs/ -- and a run that died near the end left no record at all of the
+        cases that had worked.
+
+        Deliberately one line, not a progress bar: this output is routinely piped to
+        a file or read back out of a container log, where a redrawing bar is noise.
+        """
+        w, style = self.stdout.write, self.style
+        state = {"cost": 0.0, "t0": time.monotonic()}
+
+        def paint(status: str, text: str) -> str:
+            if status in ("failed", "error", "xpass", "no_assertions"):
+                return style.ERROR(text)
+            if status == "skipped":
+                return style.WARNING(text)
+            return style.SUCCESS(text)
+
+        def on_case(done: int, total: int, entry) -> None:
+            if entry.cost:
+                state["cost"] += entry.cost
+            mark = self._STATUS_MARK.get(entry.status, entry.status.upper())
+            # A known_fail that failed as expected is not a red: say so, so the
+            # running tally cannot look worse than the summary that follows it.
+            if entry.status == "failed" and getattr(entry, "expected_fail", False):
+                mark = "xfail"
+            route = entry.route or "-"
+            # The first failed criterion is the one worth seeing while it runs; the
+            # rest are in the report. Without it a FAIL line says nothing actionable.
+            why = ""
+            if entry.failed_criteria:
+                why = f"  <- {entry.failed_criteria[0]}"
+            elif getattr(entry, "outage", False):
+                why = "  <- provider outage (rerun with --resume)"
+            ran = time.monotonic() - state["t0"]
+            w(paint(entry.status,
+                    f"[{done:>3}/{total}] {mark:<6} {entry.id:<46} {route:<16} "
+                    f"{entry.elapsed_s:>6.1f}s  ${state['cost']:.2f}  "
+                    f"{int(ran) // 60}m{int(ran) % 60:02d}s{why}"))
+            self.stdout.flush()
+
+        return on_case
 
     def _summarize_arms(self, result, out, runner) -> None:
         w = self.stdout.write
