@@ -61,6 +61,14 @@ def test_the_api_prompts_use_invented_lab_codes():
 # --------------------------------------------------------------------------- investigations
 
 
+def _context_rows(entity_type: str) -> list[str]:
+    """Names of one kind from the hand-owned context source the generator reads."""
+    import json as _json
+    root = NESSIE.parent / "context" / "projects.json"
+    return sorted(r["name"] for r in _json.loads(root.read_text(encoding="utf-8"))
+                  if r.get("entity_type") == entity_type)
+
+
 def _generated_investigations() -> list[str]:
     caps = read(CONTEXT / "capabilities.md")
     block = caps[caps.index("<!-- BEGIN CONTEXT-GEN:investigations -->"):caps.index("<!-- END CONTEXT-GEN:investigations -->")]
@@ -173,3 +181,26 @@ def test_an_unrecognised_organisation_routes_to_the_graph_not_to_unsupported(nam
     ladder_9b = text.index("9b.")
     step_10 = text.index("10. Does no available path satisfy the request?")
     assert ladder_9b < step_10, "the rule has to be read before the terminal refusal"
+
+
+@pytest.mark.parametrize("name", sorted(CORES))
+def test_each_core_lists_every_project_title_the_context_holds(name):
+    """A project is the layer researchers actually name, and the prompt listed none of them.
+
+    report.shoulders_inventory was refused with "not a recognized investigation title" while
+    the project of that name holds hundreds of samples. The project rows were in the context
+    source the whole time; only the investigation rows ever reached a prompt. Keeping this in
+    sync by hand is what went stale, so the test is the sync.
+    """
+    line = next(l for l in read(CORES[name]).splitlines() if l.startswith("Known project titles:"))
+    for project in _context_rows("project"):
+        assert project in line, (name, project)
+
+
+@pytest.mark.parametrize("name", sorted(CORES))
+def test_each_core_says_a_project_missing_from_a_list_is_still_real(name):
+    # The prompt is wrapped prose, so a sentence can straddle a line break.
+    text = " ".join(read(CORES[name]).split())
+    assert "A title here that is missing from the investigation list above is still real" in text
+    assert "route it graph_query rather than refusing it" in text
+    assert "Neither list carries the alternative names people use" in text

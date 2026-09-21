@@ -23,6 +23,12 @@ The graph agent writes Cypher over all of this, so it can filter on any attribut
 Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
 This list is NOT exhaustive: it is the set the context generator knows about, and the graph
 holds more. Never refuse a project or investigation because it is missing from it.
+Known project titles: BPRC, Break Through Cancer, CSBC, Griffith, Impact, MIT-Koch, MetNet, NAMs, PUBLISHED, RMS-NGC, SRP, Shoulders. A project is the layer ABOVE an investigation and
+is what researchers usually name: they ask about the project by its own title, or by a lab or
+consortium name for it, and the samples hang off the project. A title here that is missing from
+the investigation list above is still real, and several are: route it graph_query rather than
+refusing it. Neither list carries the alternative names people use, which is another reason
+never to treat either as closed.
 Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
 full paper titles, not short codes, because in this instance a study IS a published paper.
 
