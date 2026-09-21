@@ -42,6 +42,19 @@ def _load_memory_json_payload(result_bundle: dict) -> tuple[str, Any, list[tuple
     if isinstance(memory_payload, dict) and memory_payload:
         return "bundle memory_payload", strip_html_recursive(memory_payload), file_entries
 
+    # T9: a graph turn's only artifact is its debug JSON, which holds a 20-row slice of the
+    # result (orchestrator._write_graph_debug), while the bundle carries every row inline. The
+    # file sorted ahead of the bundle here, so a follow-up that reached this loader answered a
+    # question about 250 rows from 20 of them and reported 20 as the count. The REST path has
+    # no equivalent problem: it writes its rows whole. The primary follow-up path reads the
+    # bundle already; this is the fallback it degrades to.
+    graph_rows = ((result_bundle.get("graph_result") or {}).get("data")
+                  if isinstance(result_bundle.get("graph_result"), dict) else None)
+    if isinstance(graph_rows, list) and graph_rows:
+        return ("bundle graph_result rows",
+                {"data": {"rows": strip_html_recursive(graph_rows)}},
+                file_entries)
+
     def _memory_file_priority(entry: tuple[str, str]) -> int:
         label, path = entry
         text = f"{label} {path}".lower()
