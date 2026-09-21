@@ -321,7 +321,11 @@
     "project_id": 6,
     "entity_type": "project",
     "parent_project": null,
-    "alternative_names": [],
+    "alternative_names": [
+      "Published Data",
+      "Published",
+      "PUB"
+    ],
     "pi": null,
     "description": "Published data: samples and data from NExtSEEK's research programs that already appear in published papers, gathered in one shared project so any registered member can explore them. Most of these samples also belong to their program's own project (Impact, SRP, MetNet, Griffith, Shoulders and CSBC).",
     "research_focus": null,

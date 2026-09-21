@@ -125,11 +125,23 @@ def test_failed_refresh_does_not_write_marker(tmp_path):
     assert calls["n"] == 2, "a failed refresh must be retried on the next load"
 
 
-def test_committed_baked_projects_db_resolves_published_data_to_1(tmp_path):
-    """Option C: the baked projects_db.json shipped in the source tree must
-    resolve 'Published Data' (and its aliases) to project_id 1 via the same
-    _merge_project_name_to_id the config uses — guarding against a future
-    stale-catalog regression (the BUG-2 symptom was 'Published Data' -> 6)."""
+def test_committed_baked_projects_db_resolves_every_published_spelling(tmp_path):
+    """The baked projects_db.json must resolve "Published Data" and its aliases to ONE id,
+    through the same _merge_project_name_to_id the config uses.
+
+    That is the guard, and it still is. What changed is the id. This test used to pin 1 and
+    called 6 the stale value (the BUG-2 symptom). The committed export it read was a
+    dev-instance file: "Published Data", project 1, a single row. The curated source
+    `context/projects.json` is the house catalog and says PUBLISHED is project **6**, and on
+    the box this was measured on `seek_production.projects` holds no id 1 at all while
+    `dmac.projects_context` holds PUBLISHED = 6 — so 1 pointed at a project that did not
+    exist, and the direction of the old assertion was backwards.
+
+    The operator kept both spellings working rather than dropping them: "Published Data",
+    "Published" and "PUB" are now aliases on the curated PUBLISHED row, so every spelling
+    still resolves, to 6. The expected id is read from the curated source rather than written
+    here, so this cannot rot the same way again.
+    """
     import json
 
     baked = (
@@ -137,10 +149,17 @@ def test_committed_baked_projects_db_resolves_published_data_to_1(tmp_path):
         / "src" / "chat_nextseek" / "context" / "projects_db.json"
     )
     projects = json.loads(baked.read_text(encoding="utf-8"))
+    curated = json.loads(
+        (paths.CHAT_NEXTSEEK_DIR.parents[1] / "context" / "projects.json").read_text(encoding="utf-8")
+    )
+    expected = next(
+        r["project_id"] for r in curated
+        if r["name"] == "PUBLISHED" and r["entity_type"] == "project"
+    )
 
     cfg = _bare_config(tmp_path)
-    merged = cfg._merge_project_name_to_id({"PUBLISHED": 6}, projects)
+    # A base map carrying a different id, so the assertions prove the catalog overrides it.
+    merged = cfg._merge_project_name_to_id({"PUBLISHED": 999}, projects)
 
-    assert merged["PUBLISHED DATA"] == 1
-    assert merged["PUBLISHED"] == 1  # stale hardcoded 6 must be overridden
-    assert merged["PUB"] == 1
+    for spelling in ("PUBLISHED", "PUBLISHED DATA", "PUBLISHED", "PUB"):
+        assert merged[spelling] == expected, spelling

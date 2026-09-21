@@ -318,7 +318,11 @@
   },
   {
     "name": "PUBLISHED",
-    "alternative_names": [],
+    "alternative_names": [
+      "Published Data",
+      "Published",
+      "PUB"
+    ],
     "entity_type": "project",
     "project_id": 6,
     "parent_project": null,
