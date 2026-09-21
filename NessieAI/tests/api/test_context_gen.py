@@ -1902,7 +1902,7 @@ def test_the_capabilities_mode_writes_the_block_between_the_committed_markers(tm
     import pytest
 
     parser_text = _repo(Path("scripts/context_gen.py"))
-    assert '"update", "seed", "capabilities"' in parser_text
+    assert '"update", "seed", "exports", "capabilities"' in parser_text
     rows = cg.curated_rows("projects")
     local = {r["name"]: 5 for r in rows if r["entity_type"] == "investigation"}
     counts = _counts_file(tmp_path, "local.json", _doc(local))

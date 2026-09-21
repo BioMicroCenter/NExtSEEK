@@ -41,7 +41,7 @@ groups, each defined by what it reads and what it writes.
 |---|---|---|---|
 | A. Repo-convention validators | `validate_issue.py`, `validate_viewset_conventions.py`, `seed_issue_labels.sh`, `dump_routes.py` | repo source, `docs/ISSUE-CONVENTIONS.md` | stdout, GitHub labels |
 | B. Test wrapper | `run_tests.sh` | this checkout | a pytest run inside the stack image |
-| C. The context generator | `context_gen.py`, `generate_assay_context_seed.py` | `context/*.json`; a committed JSON export | update SQL for a live database, the held `startup/seed/sql/*_context.curated.sql` seeds, the generated investigation block in `capabilities.md`; the installer's `startup/seed/sql/assay_context.sql` |
+| C. The context generator | `context_gen.py`, `generate_assay_context_seed.py` | `context/*.json`; a committed JSON export | update SQL for a live database, the held `startup/seed/sql/*_context.curated.sql` seeds, the generated investigation block in `capabilities.md`, the committed JSON context exports in `NessieAI/chat_nextseek/src/chat_nextseek/context/`; the installer's `startup/seed/sql/assay_context.sql` |
 | D. Attribute-API verification lane | `attribute_api_test.sh`, `attribute_pytest_reporter.py`, `freeze_attribute_baseline.py`, `run_attribute_coverage.py`, `run_attribute_mutants.py`, `select_attribute_chunk_defaults.py`, `select_attribute_evidence.py`, `validate_attribute_api_evidence.py` | an out-of-repo state root | an out-of-repo evidence root |
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
@@ -91,6 +91,21 @@ key the generator reads and never writes (`context/README.md`). Nothing here
 connects to a database: the operator applies the SQL, after a restore-tested backup, and
 never with `mysql --force` (the commit is conditional, so `--force` rolls back too, but it
 exits 0). `context/README.md` owns the source conventions and the review gate.
+
+**The JSON exports have two readers, and only one sees a database.** `--emit exports`
+writes `sampletypes_db.json`, `min_sampletypes_db.json`, `assays_db.json`, `min_assays_db.json`
+and `projects_db.json` from `context/`, field for field with `map_sampletype`,
+`map_sampletype_min`, `map_assay`, `map_assay_min` and `map_project` in `config.py`. Inside the
+**app** `_fetch_context_files_from_db` rewrites them from the context tables once per UTC day, so
+the app converges on the database and these copies are only its fallback. The **cc-agent** does
+not: its Dockerfile COPYs three of them out of the checkout at build time
+(`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`), the container holds no database connection,
+and its own `MANIFEST.md` sends the agent to `min_sampletypes_db.json` to map a kind of sample to
+its code. So run `--emit exports` in the same change as `--emit update` and rebuild both images:
+the stack-health check `cc-agent context` compares the checkout with the image, so two stale
+copies of one file read as green and nothing reports the drift. Two deliberate differences from
+the runtime export, both because nothing here connects to anything: a project row gets no `labs`
+key (the runtime reads those from SEEK's institutions), and row order is the curated file's.
 
 **The curated seeds are held.** `--emit seed` writes
 `startup/seed/sql/{sample_types_context,assay_context,projects_context}.curated.sql`, and

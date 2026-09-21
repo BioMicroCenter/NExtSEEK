@@ -16,8 +16,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 NESSIE = Path(__file__).resolve().parents[2]
 PACKAGE = NESSIE / "chat_nextseek" / "src" / "chat_nextseek"
 PROMPT = (PACKAGE / "prompts" / "entity_agent.txt").read_text(encoding="utf-8")
@@ -60,15 +58,15 @@ def test_the_terms_the_failing_questions_used_are_in_the_source():
         assert term in tags, term
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "The curated tags have not reached the catalog Nessie reads. The chain is "
-    "context/sample_types.json -> scripts/context_gen.py -> dmac.sample_types_context in "
-    "MySQL -> the daily export -> min_sampletypes_db.json. The source carries 'mice', "
-    "'collaborative cross' and 'CC' on the Mouse row; the export does not, so the DB write "
-    "has not been run since they were added. Until it is, a question about CC mice cannot "
-    "resolve the type no matter what the prompt says. Run the write, re-export, then turn "
-    "this into a plain assert -- strict xfail makes it fail once it starts passing."))
 def test_the_export_carries_the_same_tags_as_the_source():
+    """Was a strict xfail: the curated tags stopped at the database and never reached here.
+
+    The chain is context/sample_types.json -> scripts/context_gen.py -> dmac.sample_types_context
+    in MySQL -> the daily export -> min_sampletypes_db.json, and the write had not been run since
+    the Mouse row gained "mice", "collaborative cross" and "CC". `--emit exports` now writes this
+    file from the same curated source the database write is generated from, so the two cannot
+    drift apart without a failing test here and in test_context_exports.py.
+    """
     missing = {}
     for src in SOURCE:
         code = src.get("sample_type")

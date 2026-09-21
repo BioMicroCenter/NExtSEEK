@@ -11,11 +11,15 @@ how it reaches a database.
 
     python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
     python scripts/context_gen.py --emit seed --table all
+    python scripts/context_gen.py --emit exports --table all
     python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
 
 `--emit update` writes one re-runnable script (stdout when `--out` is left off),
 `--emit seed` rewrites the held `startup/seed/sql/*.curated.sql` seeds in place,
-`--out` naming the directory rather than a file, and `--emit capabilities` rewrites
+`--out` naming the directory rather than a file, `--emit exports` rewrites the
+committed JSON context files in `chat_nextseek/context/` (the app's fallback and
+the cc-agent's only copy, since that image bakes them and never refreshes), and
+`--emit capabilities` rewrites
 the generated investigation block in `capabilities.md` from the investigation rows,
 refusing unless every counts file agrees with them. A counts file comes from
 `manage.py graph_sync --investigation-counts --instance <profile> --json`, one per
@@ -2181,13 +2185,159 @@ def emit_capabilities(counts_paths, out=None, ignore=()) -> int:
     return 0
 
 
+# --- the JSON exports Nessie reads -------------------------------------------
+#
+# `_fetch_context_files_from_db` rewrites these five files once per UTC day from the three
+# context tables, so the APP converges on the database by itself. The cc-agent does not:
+# `NessieAI/docker/cc-runtime/Dockerfile` COPYs three of them out of the checkout at build
+# time (`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`) and the container has no refresh
+# path and no database, so whatever is committed here is what Container-CC reads for the
+# life of the image. Its own MANIFEST.md sends the agent to `min_sampletypes_db.json` to
+# map "a kind of sample" to its code, which is the resolution step the curated `Tags` exist
+# for. The committed copies are also the app's fallback when a refresh fails.
+#
+# So the source has two consumers and only one of them reads the database. This emitter
+# writes the files from `context/` with the same field mapping the runtime export uses, so
+# one source feeds both. Apply `--emit update` and commit `--emit exports` in the same
+# change, or the database and the image disagree with nobody to say so: the stack-health
+# check `cc-agent context` compares the checkout with the image, and two stale copies of
+# the same file read as green.
+#
+# Field-for-field with `map_sampletype`, `map_sampletype_min`, `map_assay`, `map_assay_min`
+# and `map_project` in NessieAI/chat_nextseek/src/chat_nextseek/config.py. Two deliberate
+# differences, both because this program never connects to anything:
+#   - a project row gets no `labs` key. The runtime reads those from SEEK's institutions
+#     over the same connection as the export; offline there is nothing to read. The runtime
+#     adds them on the first refresh.
+#   - row order is the curated file's, not `SELECT *`'s.
+CONTEXT_EXPORT_DIR = Path("NessieAI/chat_nextseek/src/chat_nextseek/context")
+
+
+def _export_sampletype(row: dict) -> dict:
+    """One `sampletypes_db.json` row: `config.map_sampletype` over a curated row."""
+    return {
+        "ID": row.get("sampletype_id"),
+        "SampleType": row.get("sample_type"),
+        "Name": row.get("name"),
+        "Description": row.get("description"),
+        "Tags": row.get("Tags"),
+        "Required Metadata": row.get("required_metadata"),
+        "Standard Metadata": row.get("standard_metadata"),
+        "Possible Metadata Fields": row.get("possible_metadata_fields"),
+        "Clade": row.get("clade"),
+        "SampleType File Link": row.get("sampletype_file_link"),
+        "Associated Assay Parents": row.get("associated_assay_parents"),
+        "Associated Assay Children": row.get("associated_assay_children"),
+        "Parent_SampleTypes": row.get("parent_sampletypes"),
+        "Child_SampleTypes": row.get("child_sampletypes"),
+    }
+
+
+def _export_sampletype_min(row: dict) -> dict:
+    """One `min_sampletypes_db.json` row, from an already-mapped full row."""
+    return {k: row.get(k) for k in ("SampleType", "ID", "Name", "Description", "Tags")}
+
+
+def _export_assay(row: dict) -> dict:
+    """One `assays_db.json` row: `config.map_assay` over a curated row."""
+    return {
+        "Name": row.get("assay_name"),
+        "Description": row.get("Description"),
+        "Tags": row.get("Tags"),
+        "Alternative Assay Names": row.get("Alternative_Assay_Names"),
+        "Required Parent Sample Types": row.get("Required_Parent_Sample_Types"),
+        "Optional Parent Sample Types": row.get("Optional_Parent_Sample_Types"),
+        "Children Sample Types": row.get("Children_Sample_Types"),
+        "Parent Clade Type": row.get("Parent_Clade_Type"),
+        "Child Clade Type": row.get("Child_Clade_Type"),
+        "AssaySheet Link": row.get("AssaySheet_Link"),
+        "AssociatedRepository": row.get("AssociatedRepository"),
+        "Critical Attributes": row.get("Critical_Attributes"),
+        "Protocols_Phrases": row.get("Protocols_Phrases"),
+        "Protocols_UIDs": row.get("Protocols_UIDs"),
+        "Internal Assay ID": row.get("internal_assay_id"),
+    }
+
+
+def _export_assay_min(row: dict) -> dict:
+    """One `min_assays_db.json` row, from an already-mapped full row."""
+    return {k: row.get(k) for k in ("Name", "Description", "Tags")}
+
+
+def _export_project(row: dict) -> dict:
+    """One `projects_db.json` row: `config.map_project` over a curated row, without `labs`.
+
+    The two JSON columns are already lists in the curated source, which is what the
+    runtime's `_coerce_json_list` produces from the text the database stores.
+    """
+    def as_list(value):
+        if isinstance(value, list):
+            return value
+        if isinstance(value, tuple):
+            return list(value)
+        return []
+
+    return {
+        "name": row.get("name"),
+        "alternative_names": as_list(row.get("alternative_names")),
+        "entity_type": row.get("entity_type"),
+        "project_id": row.get("project_id"),
+        "parent_project": row.get("parent_project"),
+        "pi": row.get("pi"),
+        "research_focus": row.get("research_focus"),
+        "key_data_types": as_list(row.get("key_data_types")),
+        "description": row.get("description"),
+        "nih_reporter_link": row.get("nih_reporter_link"),
+        "fairdomhub_published_link": row.get("fairdomhub_published_link"),
+        "tags": row.get("tags"),
+    }
+
+
+#: filename -> (source table, row mapper, mapper applied to the mapped row or None).
+EXPORTS = {
+    "sampletypes_db.json": ("sample_types", _export_sampletype, None),
+    "min_sampletypes_db.json": ("sample_types", _export_sampletype, _export_sampletype_min),
+    "assays_db.json": ("assays", _export_assay, None),
+    "min_assays_db.json": ("assays", _export_assay, _export_assay_min),
+    "projects_db.json": ("projects", _export_project, None),
+}
+
+#: Of those, the ones the cc-agent image bakes (`startup/lib/layout.py`).
+CC_AGENT_EXPORTS = ("min_sampletypes_db.json", "min_assays_db.json", "projects_db.json")
+
+
+def render_export(filename: str, rows: list[dict]) -> str:
+    """The text of one export file, as `json.dump(..., indent=2)` writes it at runtime."""
+    table, mapper, min_mapper = EXPORTS[filename]
+    mapped = [mapper(row) for row in rows]
+    if min_mapper is not None:
+        mapped = [min_mapper(row) for row in mapped]
+    return json.dumps(mapped, indent=2) + "\n"
+
+
+def emit_exports(tables: list[str], out=None) -> int:
+    """Write every export whose source table is in `tables`."""
+    directory = Path(out) if out else (REPO_ROOT / CONTEXT_EXPORT_DIR)
+    wanted = [name for name, (table, _, _) in EXPORTS.items() if table in tables]
+    if not wanted:
+        raise ValueError(f"no export comes from {tables}; they come from "
+                         f"{sorted({t for t, _, _ in EXPORTS.values()})}")
+    for filename in wanted:
+        table = EXPORTS[filename][0]
+        _emit(render_export(filename, rows_for(table)), directory / filename)
+    return 0
+
+
 def main(argv=None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--emit", required=True, choices=("update", "seed", "capabilities"),
+    parser.add_argument("--emit", required=True,
+                        choices=("update", "seed", "exports", "capabilities"),
                         help="update: SQL for a live database. seed: a fresh install's "
-                             "file. capabilities: the investigation block in capabilities.md.")
+                             "file. exports: the committed JSON context files Nessie and the "
+                             "cc-agent read. capabilities: the investigation block in "
+                             "capabilities.md.")
     parser.add_argument("--table", default="all",
                         choices=("all",) + tuple(TABLES) + tuple(TABLES_EXTRA),
                         help="which table, or all of them")
@@ -2200,7 +2350,9 @@ def main(argv=None) -> int:
     parser.add_argument("--out", default=None,
                         help="a file for --emit update (default stdout), or the seed "
                              f"directory for --emit seed (default {SEED_DIR}), or the "
-                             "markdown file for --emit capabilities")
+                             f"context directory for --emit exports (default "
+                             f"{CONTEXT_EXPORT_DIR}), or the markdown file for "
+                             "--emit capabilities")
     args = parser.parse_args(argv)
 
     if args.emit == "capabilities":
@@ -2215,6 +2367,11 @@ def main(argv=None) -> int:
         tables = list(UPDATE_ORDER) if args.emit == "update" else list(TABLES)
     else:
         tables = [args.table]
+    if args.emit == "exports":
+        if "mappings" in tables:
+            parser.error("--emit exports has no mappings file; the mappings are a database "
+                         "table the exports do not carry")
+        return emit_exports(tables, args.out)
     if args.emit == "seed":
         if "mappings" in tables:
             render_seed("mappings", [])            # raises, saying why

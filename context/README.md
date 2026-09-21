@@ -9,14 +9,23 @@ database will hold.
 ```
 python scripts/context_gen.py --emit update --table all --out /tmp/context.sql
 python scripts/context_gen.py --emit seed --table all
+python scripts/context_gen.py --emit exports --table all
 python scripts/context_gen.py --emit capabilities --counts /tmp/counts-local.json
 ```
 
 `--emit update` writes re-runnable SQL for a live database; the operator applies it.
 `--emit seed` rewrites the held `startup/seed/sql/*_context.curated.sql` files, which no
-install step reads until the content is signed off (`scripts/README.md` group C). Nessie's JSON exports need no generator: `_fetch_context_files_from_db`
-rewrites them from these tables once per UTC day, which is also why editing an export
-changes nothing that survives a day. `--emit capabilities` writes the investigation list in
+install step reads until the content is signed off (`scripts/README.md` group C).
+`--emit exports` rewrites Nessie's committed JSON exports in
+`NessieAI/chat_nextseek/src/chat_nextseek/context/`. Those have two readers and only one of
+them sees a database: `_fetch_context_files_from_db` rewrites them from these tables once
+per UTC day inside the **app**, so editing one by hand changes nothing that survives a day,
+but the **cc-agent** image bakes three of them out of the checkout at build time
+(`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`) and has no refresh path, so the committed
+bytes are what Container-CC reads for the life of the image. Run `--emit exports` in the same
+change as `--emit update`, or the database and the image disagree and nothing reports it: the
+stack-health check `cc-agent context` compares the checkout with the image, so two stale
+copies of one file read as green. `--emit capabilities` writes the investigation list in
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` from the investigation
 rows of `projects.json`. `scripts/README.md` group C is the generator's
 reference and `NessieAI/tests/api/test_context_gen.py` is its test lane.
