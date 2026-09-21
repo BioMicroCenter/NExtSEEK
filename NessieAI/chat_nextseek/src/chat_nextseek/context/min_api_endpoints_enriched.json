@@ -16,7 +16,7 @@
       "metadata",
       "associated with"
     ],
-    "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' \u2014 not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
+    "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' — not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
     "example_intents": [
       "Retrieve all metadata for SLD-230105ABC-12-PUB and its derived samples",
       "Download an Excel spreadsheet with data for samples 12345 and 67890"
@@ -52,7 +52,7 @@
   {
     "path": "/nextseek_api/sample-tree/{uid}/tree/",
     "method": "GET",
-    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent\u2013child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
+    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent–child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
     "category": "sample_lineage",
     "requires_uids": true,
     "supports_free_text": false,
@@ -99,7 +99,7 @@
   {
     "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
     "method": "POST",
-    "description": "Find parent samples that have derived samples of ALL specified child types (AND logic). Only returns parents with descendants matching every requested type. Optionally filter by parent sample type. Use when the user wants to find ancestors that have multiple specific types of derived data \u2014 e.g., monkeys that have BOTH flow cytometry AND sequencing data.",
+    "description": "Find parent samples that have derived samples of ALL specified child types (AND logic). Only returns parents with descendants matching every requested type. Optionally filter by parent sample type. Use when the user wants to find ancestors that have multiple specific types of derived data — e.g., monkeys that have BOTH flow cytometry AND sequencing data.",
     "category": "sample_parent_search",
     "requires_uids": false,
     "supports_free_text": false,
@@ -123,7 +123,7 @@
   {
     "path": "/nextseek_api/samples/advanced_search/",
     "method": "POST",
-    "description": "Search and filter samples by type, attribute values, and free-text keywords. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. This is a broad-purpose search endpoint \u2014 use it for attribute/keyword-based queries when no more specific endpoint applies.",
+    "description": "Search and filter samples by type, attribute values, and free-text keywords. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. This is a broad-purpose search endpoint — use it for attribute/keyword-based queries when no more specific endpoint applies.",
     "category": "sample_search",
     "requires_uids": false,
     "supports_free_text": true,
@@ -267,7 +267,7 @@
       "SOPs",
       "procedures"
     ],
-    "llm_hint": "Use when the user wants to list available protocols or SOPs.",
+    "llm_hint": "Use when the user wants the LIST of protocol records themselves: what protocols are on file, their titles, descriptions and attachments. DO NOT USE WHEN the question filters, counts or analyses protocols -- which samples followed one, how many did, which protocol a sample used, protocols by keyword or lab. This endpoint cannot filter: it returns the whole list and the reply then has to admit it could not constrain it. Those questions are graph_query: the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes.",
     "example_intents": [
       "Show me all available protocols",
       "What procedures are documented for sample collection?"

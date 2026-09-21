@@ -204,3 +204,34 @@ def test_each_core_says_a_project_missing_from_a_list_is_still_real(name):
     assert "A title here that is missing from the investigation list above is still real" in text
     assert "route it graph_query rather than refusing it" in text
     assert "Neither list carries the alternative names people use" in text
+
+
+# --------------------------------------------------------------------------- F19
+
+
+@pytest.mark.parametrize("name", sorted(CATALOGS))
+def test_the_protocol_endpoint_is_not_offered_for_a_filtered_question(name):
+    """cat.sops_including_test_artifacts: "There are 243 protocols on file... but this result
+    could not be constrained by the keywords." The endpoint cannot filter, and the catalog
+    offered it anyway, so the reply had to admit the constraint was dropped."""
+    entry = _entry(CATALOGS[name], "/nextseek_api/sops/")
+    assert entry is not None
+    hint = entry["llm_hint"]
+    assert "DO NOT USE WHEN" in hint
+    for cue in ("filters, counts or analyses protocols", "cannot filter", "graph_query", "protocol_title"):
+        assert cue in hint, cue
+
+
+@pytest.mark.parametrize("name", sorted(CATALOGS))
+def test_the_people_endpoint_keeps_its_clause(name):
+    """The promoted catalog already carries the other half of F19; it must not regress."""
+    entry = _entry(CATALOGS[name], "/nextseek_api/people/")
+    assert entry is not None
+    assert "never to this endpoint" in entry["llm_hint"]
+
+
+@pytest.mark.parametrize("name", sorted(GRAPH_AGENTS))
+def test_the_graph_agent_knows_where_a_protocol_lives(name):
+    text = " ".join(read(GRAPH_AGENTS[name]).split())
+    assert "a question ABOUT protocols" in text
+    assert "`protocol_title` on the DERIVED_FROM edge" in text

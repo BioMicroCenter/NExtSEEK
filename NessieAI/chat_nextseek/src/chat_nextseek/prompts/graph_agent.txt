@@ -41,6 +41,7 @@ Take each term the question constrains on and classify it. The class decides the
 | a word or phrase to find anywhere in the record ("mentioning", "associated with", "related to", "all samples ... X", a topic word with no field) | `search_text` across every sample unless a type is asked for (STEP 2, branch B) |
 | a number or date compared ("above", "at least", "before 2021", "between") | a typed comparison on the attribute (STEP 2, branch A) |
 | an assay or protocol applied ("underwent", "processed via", "assayed by", "following protocol X") | the DERIVED_FROM edge (STEP 4) |
+| a question ABOUT protocols (which samples followed one, how many did, protocols matching a word) | `protocol_title` on the DERIVED_FROM edge, and the sample's own protocol attributes. The protocol catalog endpoint cannot filter, so a filtered or counted protocol question belongs here |
 | a sample the question says was used on these ("treated with", "stained with", "made with", "that used" a named sample or a sample of a named type) | one hop to that parent (STEP 4) |
 | derived from, came from, descends from, parents, children, lineage, or data of one type about samples of another type ("slide data from mice") | a relationship pattern (STEP 4) |
 | conditions on samples of two types joined by a relationship ("liver tissues from female mice", "mice whose tissues have sequencing data") | the mixed recipe (STEP 4, "Filters and relationships together") |
