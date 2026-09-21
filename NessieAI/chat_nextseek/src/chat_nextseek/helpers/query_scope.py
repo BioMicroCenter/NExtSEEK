@@ -122,8 +122,8 @@ def _label(kind: str, value: str, name: str | None = None) -> str:
 
 def _asked_for(
     entity_result: dict, parser_plan: dict, user_query: str | None = None,
-) -> list[tuple[str, str, str]]:
-    """Every constraint the turn asked for, as ``(kind, value, label)``.
+) -> list[tuple[str, str, str, str | None]]:
+    """Every constraint the turn asked for, as ``(kind, value, label, name)``.
 
     Both the entity agent's resolution and the parser's filters are read: the parser
     can add a filter the entity agent never resolved (a UID, a lab code) and the
@@ -146,16 +146,21 @@ def _asked_for(
     NHP without saying it.
     """
     filters = parser_plan.get("filters") or {}
-    asked: list[tuple[str, str, str]] = []
+    asked: list[tuple[str, str, str, str | None]] = []
     _guessable = {"assay", "project", "keyword"}
 
     def _add(kind: str, value: str, name: str | None = None) -> None:
         label = _label(kind, value, name)
-        if not value or any(label == existing for _, _, existing in asked):
+        # Deduplicate on (kind, value), not on the label: the entity agent resolves a
+        # sample type with its name and the parser's filter carries the bare code, so
+        # labelling alone let one type be asked for twice and reported twice.
+        if not value or any(kind == k and value == v for k, v, _, _ in asked):
+            return
+        if any(label == existing for _, _, existing, _ in asked):
             return
         if user_query is not None and kind in _guessable and not _named_in(user_query, value, name):
             return
-        asked.append((kind, value, label))
+        asked.append((kind, value, label, name))
 
     def _surname(name: str) -> str:
         family = name.split(",", 1)[0] if "," in name else name
@@ -195,8 +200,8 @@ def _asked_for(
     for name in scientists:
         label = f"scientist {name}"
         surname = _surname(name)
-        if surname and all(label != existing for _, _, existing in asked):
-            asked.append(("scientist", surname, label))
+        if surname and all(label != existing for _, _, existing, _ in asked):
+            asked.append(("scientist", surname, label, name))
     for value in _uniq(filters.get("uids")):
         _add("sample", value)
     for value in _uniq(entity_result.get("projects")):
@@ -262,10 +267,55 @@ def _keyword_is_applied(keyword: str, haystack: str) -> bool:
     characters, is in the query: "RIN score" is constrained by ``s.RIN > 7``. Looser
     than the other kinds on purpose, in the direction this module errs in: it can miss
     a dropped keyword, never invent one."""
-    if _is_applied(keyword, haystack):
-        return True
-    words = [w for w in re.split(r"[^A-Za-z0-9]+", keyword) if len(w) >= 3]
+    return _is_applied(keyword, haystack) or _fragment_is_applied(keyword, haystack)
+
+
+def _fragment_is_applied(value: str, haystack: str) -> bool:
+    """Whether any word of ``value`` of three or more characters is in the query.
+
+    The looser half of ``_keyword_is_applied``, lifted out so assays can use it too.
+    """
+    words = [w for w in re.split(r"[^A-Za-z0-9]+", value) if len(w) >= 3]
     return len(words) > 1 and any(_is_applied(w, haystack) for w in words)
+
+
+def _in_a_type_token(word: str, haystack: str) -> bool:
+    """Whether ``word`` appears inside a sample-type label or code in the query.
+
+    Flow Cytometry's data lands on D.FLOW samples, which the graph agent writes as the
+    label ``T_D_FLOW``. The word is not a free match: it has to sit inside a ``T_`` label
+    or a dotted type code, so "Flow" counts against ``:T_D_FLOW`` and not against a
+    property called ``Workflow``.
+    """
+    for token in re.findall(r"T_[A-Za-z0-9_]+|\b[A-Z]\.[A-Z0-9]+\b", haystack):
+        if word.lower() in re.sub(r"[^a-z0-9]", "", token.lower()):
+            return True
+    return False
+
+
+def _assay_is_applied(code: str, name: str | None, haystack: str) -> bool:
+    """Whether the query constrained on an assay.
+
+    An assay is asked for by its full title, and the query almost never carries that
+    title verbatim. The graph agent is told to write a lowercased fragment of it, or to
+    filter the edge property ``internal_assay_title``, or to reach the assay's data type
+    by its label. An exact containment test sees none of those, so six correct answers in
+    the 2026-09-18 runs opened by saying the assay had not been applied -- one of them
+    over a Cypher that filtered ``internal_assay_title`` on exactly the right term.
+
+    Three ways to count, in the direction this module errs (it can miss a dropped assay,
+    it does not invent one): the title or code itself, any substantial word of it, or a
+    word of it inside a sample-type label.
+    """
+    for candidate in (code, name):
+        if not candidate:
+            continue
+        if _is_applied(candidate, haystack) or _fragment_is_applied(candidate, haystack):
+            return True
+        for word in re.split(r"[^A-Za-z0-9]+", candidate):
+            if len(word) >= 3 and word.lower() not in _GENERIC_LAST_WORDS and _in_a_type_token(word, haystack):
+                return True
+    return False
 
 
 def _folded(text: str) -> str:
@@ -357,11 +407,23 @@ def describe_query_scope(
         return scope
 
     scope.measurable = True
-    for kind, value, label in _asked_for(entity_result, parser_plan, user_query):
+    asked = _asked_for(entity_result, parser_plan, user_query)
+    # A keyword the entity step also resolved to a sample type is constrained whenever that
+    # type is: "mouse" is realised as the label T_MUS and appears nowhere as a word.
+    type_by_name = {
+        _folded(name).strip(): value
+        for kind, value, _, name in asked if kind == "sample type" and name
+    }
+    for kind, value, label, name in asked:
         if kind == "sample type":
             applied = _type_is_applied(value, haystack)
+        elif kind == "assay":
+            applied = _assay_is_applied(value, name, haystack)
         elif kind == "keyword":
             applied = _keyword_is_applied(value, haystack)
+            if not applied:
+                code = type_by_name.get(_folded(value).strip())
+                applied = bool(code) and _type_is_applied(code, haystack)
         else:
             applied = _is_applied(value, haystack)
         (scope.applied if applied else scope.not_applied).append(label)

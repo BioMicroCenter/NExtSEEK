@@ -469,3 +469,75 @@ def test_a_multiword_keyword_counts_as_applied_when_one_of_its_words_is_used():
     )
 
     assert scope.not_applied == []
+
+
+# --------------------------------------------------------------------------
+# F2: an assay is asked for by its full title and almost never written that way.
+# Six correct answers in the 2026-09-18 runs opened by saying the assay had not
+# been applied. The decisive one filtered internal_assay_title on the right term.
+# --------------------------------------------------------------------------
+
+
+def test_an_assay_filtered_on_the_edge_property_counts_as_applied():
+    """The case that made a right answer read as a partial one."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="CometChip Assay", name="CometChip Assay")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={
+            "cypher": "MATCH (img:T_D_IMG) WHERE EXISTS { MATCH (img)-[r:DERIVED_FROM]->(:Sample) "
+                      "WHERE toLower(r.internal_assay_title) CONTAINS $term } RETURN count(img) AS n",
+            "parameters": {"term": "cometchip"},
+        },
+        user_query="How many CometChip imaging datasets are there?",
+    )
+
+    assert not scope.not_applied, scope.not_applied
+    assert any("CometChip" in item for item in scope.applied)
+
+
+def test_an_assay_reached_through_its_data_type_label_counts_as_applied():
+    """Flow Cytometry's data lands on D.FLOW samples, written as the label T_D_FLOW."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Flow Cytometry", name="Flow Cytometry")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (d:T_D_FLOW)-[:DERIVED_FROM*1..12]->(s:T_PAT) RETURN count(DISTINCT s) AS n"},
+        user_query="Which patients have flow cytometry data?",
+    )
+
+    assert not scope.not_applied, scope.not_applied
+
+
+def test_an_assay_word_does_not_count_against_an_unrelated_property():
+    """The type-label route is not a free word match: Workflow is not Flow Cytometry."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Flow Cytometry", name="Flow Cytometry")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) WHERE s.Workflow IS NOT NULL RETURN count(*) AS n"},
+        user_query="Which tissues went through flow cytometry?",
+    )
+
+    assert any("Flow Cytometry" in item for item in scope.not_applied)
+
+
+def test_a_keyword_the_entity_step_resolved_to_a_type_is_applied_through_it():
+    """"mouse" is realised as the label T_MUS and appears nowhere in the query as a word."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="MUS", name="Mouse")], keywords=["mouse"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_MUS) RETURN count(*) AS n"},
+        user_query="How many RNA-seq files come from mice?",
+    )
+
+    assert not scope.not_applied, scope.not_applied
+
+
+def test_a_sample_type_asked_for_on_both_sides_is_reported_once():
+    """The entity agent resolves it with a name and the parser's filter carries the code."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="TIS", name="Tissue")]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "TIS"}),
+        graph_plan={"cypher": "MATCH (s:T_TIS) RETURN count(*) AS n"},
+        user_query="How many tissue samples are there?",
+    )
+
+    assert len([i for i in scope.applied + scope.not_applied if "TIS" in i]) == 1
