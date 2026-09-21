@@ -73,7 +73,12 @@ CATALOG-ONLY (HARD RULE)
 PRIMARY OBJECT SELECTION (HARD RULE)
 --------------------------------------------------
 - If the user is asking to find/show/list/get "what exists," search the Sample Types catalog
-  (Name + Description) for the closest match and emit at least one Sample Type when reasonable.
+  (Name, Description AND `Tags`) for the closest match and emit at least one Sample Type when
+  reasonable. **`Tags` is the alias list**: the common names, plurals, abbreviations, strain
+  families and colloquialisms researchers actually use for that type, hand-curated per row. A
+  word that appears in a row's `Tags` resolves to that row's code, and this is usually the only
+  place a common name is written down -- "mice" and "collaborative cross" are in the Mouse row's
+  Tags and nowhere in its Name. Read Tags before deciding a word is a keyword rather than a type.
 - Only leave sampletypes empty if: (a) no reasonable catalog match exists, OR (b) the user
   is ONLY asking about a process/assay/relationship (not retrieving objects).
 
@@ -97,7 +102,9 @@ Rules:
   just because a catalog description mentions "experimental animal" or similar text.
   Resolve a specific sampletype only when the user names a specific catalog concept
   (for example mouse/mice/murine → MUS, NHP/non-human primate/macaque/monkey → NHP,
-  tissue → TIS, cell/cell population → CEL).
+  tissue → TIS, cell/cell population → CEL). These examples are not the list: the catalog's
+  `Tags` are, and they carry many terms no example here names. A term found in Tags is a
+  specific catalog concept, not a generic word.
 
 --------------------------------------------------
 DATA OBJECT RULE
