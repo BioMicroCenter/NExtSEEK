@@ -653,6 +653,26 @@ def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
     return plan.model_copy(update=updates)
 
 
+#: Modes the parser may emit that the orchestrator dispatches under another name.
+#: ``schemas/router.py`` has documented ``memory_lookup`` as an alias of
+#: ``ask_about_last_results`` since it was added, and nothing ever performed the
+#: normalisation, so a parser that took the schema at its word produced a mode with no
+#: branch: "The parser returned an unexpected mode='memory_lookup'. I don't yet know how
+#: to handle this case." The planner's own step mapping is separate and already correct.
+_MODE_ALIASES: dict[str, str] = {"memory_lookup": "ask_about_last_results"}
+
+
+def _normalise_mode_aliases(plan: ParserPlan) -> ParserPlan:
+    """Rewrite an aliased mode to the one the orchestrator dispatches on."""
+    target = _MODE_ALIASES.get(plan.mode)
+    if target is None:
+        return plan
+    return plan.model_copy(update={
+        "mode": target,
+        "notes": ((plan.notes + " | ") if plan.notes else "") + f"mode {plan.mode} normalised to {target}",
+    })
+
+
 def _apply_parser_guardrails(
     user_query: str,
     plan: ParserPlan,
@@ -664,6 +684,7 @@ def _apply_parser_guardrails(
     ``force_mode`` is the evaluation switch (``_force_parser_mode``); it runs last,
     after every product guardrail, and is None outside an evaluation run.
     """
+    plan = _normalise_mode_aliases(plan)
     plan = _note_refine_without_bundle(session, plan)
     plan = _force_graph_for_uid_lineage(user_query, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
