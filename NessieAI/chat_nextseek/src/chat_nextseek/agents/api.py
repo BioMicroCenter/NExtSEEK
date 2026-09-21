@@ -215,6 +215,25 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
                       rb["filter_searchText"])
             else:
                 rb["filter_searchText"] = ""  # genuinely unfiltered: the user asked for everything
+
+        # F4 (4): a lab-scoped question with no keywords searches the lab code, as its own
+        # term. advanced_search has no lab field, so the code goes in the search text -- and
+        # the agent fused it with a word the parser had deliberately set aside, producing
+        # "KAM MetNet", which matched nothing and sent the question down the retry ladder.
+        # The api agent reads `resolved`, not `filters`, so it never saw that the parser had
+        # excluded the other term; this reads `filters`, which is where that decision lives.
+        # A list is the request model's own shape (filter_searchText is str | list[str]), and
+        # one element carries no searchText_logic, so this narrows nothing.
+        lab_codes = [c.strip() for c in (filters.get("lab_codes") or [])
+                     if isinstance(c, str) and c.strip()]
+        parser_keywords = [k.strip() for k in (filters.get("keywords") or [])
+                           if isinstance(k, str) and k.strip()]
+        if lab_codes and not parser_keywords and rb.get("filter_searchText") != lab_codes:
+            print("[DEBUG][API_AGENT] Lab-scoped search with no parser keywords; "
+                  f"filter_searchText={rb.get('filter_searchText')!r} -> {lab_codes!r}")
+            rb["filter_searchText"] = lab_codes
+            rb.setdefault("filter_matchType", "PARTIAL")
+
         api_plan = api_plan.model_copy(update={"requestBody": rb})
 
     # If the agent selected a method not in the allowed list, fall back to default
