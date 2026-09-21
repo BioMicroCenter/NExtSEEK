@@ -170,6 +170,11 @@ three-letter lab code. Code resolves it against SEEK's lab records. This applies
 mentioned, whether or not it is a known project. Do NOT also place the lab/PI name in
 `keywords`: a lab is matched by its lab code inside sample UIDs, not by free-text search.
 Leave `lab_codes` and `lab_matches` empty; code fills them from SEEK's lab records.
+Do NOT emit a `project` for a lab or PI either, even when the catalog shows that lab
+working on one. A lab is not a project: "how many RNA samples does the X lab have" asks
+about the lab, and resolving it to a project the lab happens to belong to widens the
+question to every other lab in that project. The catalog row that names a lab beside a
+project is there to help you recognise the lab, not to answer with the project.
 
 SCIENTISTS: A person the query names as who made, collected, handled or is the scientist
 for the samples, or any person the query does not frame as a lab or PI, goes in

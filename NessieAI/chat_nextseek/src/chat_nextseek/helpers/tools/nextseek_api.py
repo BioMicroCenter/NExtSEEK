@@ -518,16 +518,40 @@ def _retry_terms(plan: dict, api_plan: dict) -> list[str]:
     deduped in order. Sourcing from the sent filter_searchText (and lab_codes) — not
     filters.keywords alone — lets a lab-scoped search whose 3-letter code the api_agent
     fused with other terms (e.g. "KAM MetNet") fall back to the code alone ("KAM")."""
+    return [term for term, _kind in _retry_terms_with_kind(plan, api_plan)]
+
+
+def _retry_terms_with_kind(plan: dict, api_plan: dict) -> list[tuple[str, str]]:
+    """``_retry_terms`` with each term's kind: ``identifier``, ``lab_code`` or ``keyword``.
+
+    The kind decides what the ladder may do with a term. A lab code is a conjunctive
+    constraint, so ORing it with anything can only add other labs' samples; an
+    identifier names one study, so a rung that drops it answers a different question.
+    """
     filters = plan.get("filters") or {}
     sent = ((api_plan.get("requestBody") or {}).get("filter_searchText") or "")
-    candidates = list(_split_retry_keyword(sent)) if sent else []
-    candidates += [k for k in (filters.get("keywords") or []) if isinstance(k, str)]
-    candidates += [c for c in (filters.get("lab_codes") or []) if isinstance(c, str)]
-    out: list[str] = []
-    for term in candidates:
-        term = term.strip()
-        if term and term not in out:
-            out.append(term)
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(term: str, kind: str) -> None:
+        term = (term or "").strip()
+        if term and term not in seen:
+            seen.add(term)
+            out.append((term, kind))
+
+    # Identifiers first: they are the most specific thing the question carried.
+    for source in (sent, *(k for k in (filters.get("keywords") or []) if isinstance(k, str))):
+        for value in _identifier_terms(source):
+            _add(value, "identifier")
+    for code in (filters.get("lab_codes") or []):
+        if isinstance(code, str):
+            _add(code, "lab_code")
+    if sent:
+        for term in _split_retry_keyword(sent):
+            _add(term, "keyword")
+    for keyword in (filters.get("keywords") or []):
+        if isinstance(keyword, str):
+            _add(keyword, "keyword")
     return out
 
 
@@ -565,6 +589,30 @@ RETRY_SINGLE_TOTAL_CEILING = 200
 _USELESS_RETRY_TOKEN_RE = re.compile(r"^(?:\d+|PUB\d*)$", re.IGNORECASE)
 
 
+#: A publication identifier written with its label. The value is what is stored on the
+#: samples; the label is not stored anywhere.
+_IDENTIFIER_LABEL_RE = re.compile(r"\b(?:pmid|pubmed(?:\s*id)?|doi|pmcid)\b[\s:#=]*([^\s,;]+)", re.IGNORECASE)
+
+
+def _identifier_terms(text: str) -> list[str]:
+    """The values of any labelled publication identifiers in a search string.
+
+    A question naming a PMID is sent as the label and the number together, and the
+    stored value is the number alone, so the search matches nothing. The ladder then
+    drops the number -- a purely numeric token is UID structure, not a search term --
+    and keeps the word "PMID", which matched unrelated rows and served them as the
+    answer. Measured on the production case: the identifier is on every sample row of
+    the study, and a search for the bare value returns exactly the set the graph's
+    study lookup does.
+    """
+    out: list[str] = []
+    for match in _IDENTIFIER_LABEL_RE.finditer(text or ""):
+        value = match.group(1).strip(".,;:")
+        if value and value.lower() not in ("pmid", "doi", "pmcid") and value not in out:
+            out.append(value)
+    return out
+
+
 def _is_useful_retry_token(term: str) -> bool:
     """A retry term must be at least 3 characters and not a bare increment or PUB suffix."""
     return len(term) >= 3 and not _USELESS_RETRY_TOKEN_RE.match(term)
@@ -598,18 +646,42 @@ def _has_expandable_keyword(keywords: list[str]) -> bool:
     return any(len(_split_retry_keyword(k)) > 1 for k in keywords if isinstance(k, str))
 
 
-def _advanced_search_retry_attempts(keywords: list[str]) -> list[tuple[str, str]]:
+def _advanced_search_retry_attempts(
+    keywords: list[str], kinds: dict[str, str] | None = None,
+) -> list[tuple[str, str]]:
     """
     Generate labeled keyword variants for retrying advanced_search.
     Produces OR-joined and single-keyword attempts so the API gets multiple matching chances.
     Also handles single-keyword retries (e.g. after a timeout on the first attempt).
+
+    ``kinds`` maps a term to ``identifier``, ``lab_code`` or ``keyword``. Two rungs are
+    withheld when it is supplied:
+
+    * an identifier is tried alone and never ORed. A question naming a PMID was
+      answered from a search for the word "PMID" after the number was dropped;
+    * an OR rung is not built for a set spanning more than one kind. A lab code is a
+      conjunctive constraint, and ORing it with a project name returned rows from the
+      project rather than the lab -- right only by luck, because the other term
+      happened to match nothing of the requested type.
+
+    With no ``kinds`` every term is a keyword and the ladder is what it was.
     """
     kws = [k.strip() for k in keywords if isinstance(k, str) and k.strip()]
     if not kws:
         return []
+    kinds = kinds or {}
+    identifiers = [k for k in kws if kinds.get(k) == "identifier"]
+    lab_codes = [k for k in kws if kinds.get(k) == "lab_code"]
+    mixed = len({kinds.get(k, "keyword") for k in kws}) > 1
 
     attempts: list[tuple[str, str]] = []
-    if len(kws) >= 2:
+    # Most specific first: the identifier that names one study, then the lab code.
+    attempts.extend(("SINGLE", term) for term in identifiers)
+    attempts.extend(("SINGLE", term) for term in lab_codes)
+
+    if identifiers or mixed:
+        pass  # no OR rung: it would drop or dilute the constraint that carries the question
+    elif len(kws) >= 2:
         attempts.append(("OR", " OR ".join(kws)))
     elif len(kws) == 1:
         split_terms = _split_retry_keyword(kws[0])
@@ -637,12 +709,14 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
     if not _should_retry_advanced_search(plan, api_plan, api_result_full):
         return api_plan, api_result_full
 
-    terms = _retry_terms(plan, api_plan)
+    terms_with_kind = _retry_terms_with_kind(plan, api_plan)
+    terms = [t for t, _ in terms_with_kind]
+    kinds = dict(terms_with_kind)
     base_body = dict(api_plan.get("requestBody") or {})
     original_search = (base_body.get("filter_searchText") or "").strip()
     unfiltered = _original_search_was_unfiltered(api_plan)
 
-    for label, search_text in _advanced_search_retry_attempts(terms):
+    for label, search_text in _advanced_search_retry_attempts(terms, kinds):
         retry_body = dict(base_body)
         retry_body["filter_searchText"] = search_text
 
@@ -663,11 +737,16 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
             # A single leftover token that matches a large slice of the database is
             # the ladder falling off the bottom, not an answer. Task 797 "succeeded"
             # on the term "1" with 2,057 rows for a two-UID question.
-            if label == "SINGLE" and not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
+            # F4: every rung, not only SINGLE. The previous rule read "the ceiling guards
+            # degradation to one token, not a legitimate broad OR", which left the rung
+            # that actually substituted a different question unguarded. Any rung here is
+            # already a substitution of the user's terms, and a substitution matching
+            # this much of the database is not an answer to a filtered question.
+            if not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
                 print(
                     f"[DEBUG][API][RETRY] Rejecting {label}: filter_searchText={search_text!r} "
                     f"total={total} exceeds ceiling {RETRY_SINGLE_TOTAL_CEILING}; "
-                    "a single leftover term is not an answer to a filtered question"
+                    "a substituted search is not an answer to a filtered question"
                 )
                 continue
 
