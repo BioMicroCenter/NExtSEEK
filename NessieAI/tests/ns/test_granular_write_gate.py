@@ -81,13 +81,13 @@ class WriteGateTests(SimpleTestCase):
 # (identifier/type list) so they cannot be GETs. Kept here so the SHIPPED
 # read_safe_endpoints.json can never silently drop them (regression guard for the
 # T6 nextseek-api-read WRITE_BLOCKED failure on /admin/samples/retrieve/).
+# Five audited POSTs left the list on purpose on 2026-09-18: parents_by_child_types
+# and entity_tree/lineage when sample lineage moved to the graph, and
+# batch-upload/validate, data_files/download and sops/download because the REST
+# tool behind api-read refuses them (NessieAI/tests/cc/test_cc_context_drift_guard.py,
+# test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check).
 AUDIT_READ_ENDPOINTS = [
     ("/nextseek_api/admin/samples/retrieve/", "POST"),
-    ("/nextseek_api/sample_types/get_parents/parents_by_child_types/", "POST"),
-    ("/nextseek_api/entity_tree/lineage/", "POST"),
-    ("/nextseek_api/batch-upload/validate/", "POST"),
-    ("/nextseek_api/data_files/download/", "POST"),
-    ("/nextseek_api/sops/download/", "POST"),
     ("/nextseek_api/investigations/", "GET"),
     ("/nextseek_api/people/", "GET"),
     ("/nextseek_api/sops/", "GET"),

@@ -235,6 +235,24 @@ def _dispatch_graph_schema(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_aggregate(args):
+    if not args.query:
+        _err("VALIDATION", "missing --query", 3)
+    if _dry_run():
+        return {"question": args.query, "complete": True, "elapsed_s": 0.0, "deadline_s": 50.0,
+                "parts": [], "notes": []}
+    import _sidecar_client as sc
+    body = {"query": args.query}
+    if args.parts:
+        body["parts"] = args.parts
+    try:
+        return sc.call_op("aggregate", body,
+                          ns_login=(_api_user(), _api_pass()),
+                          sidecar_url=sc.sidecar_url_from_env())
+    except sc.SidecarCallError as e:
+        _err(e.code, e.message, e.exit_code)
+
+
 def _dispatch_report(args):
     if args.mode not in ("samples", "protocols", "published", "rppr"):  # pragma: no cover
         _err("VALIDATION",  # pragma: no cover
@@ -502,6 +520,7 @@ _DISPATCH = {
     "api-write": _dispatch_api_write,
     "graph": _dispatch_graph,
     "graph-schema": _dispatch_graph_schema,
+    "aggregate": _dispatch_aggregate,
     "report": _dispatch_report,
     "generate-submission": _dispatch_generate_submission,
     "pipeline": _dispatch_pipeline,
@@ -517,6 +536,7 @@ def main() -> None:
     p.add_argument("--parser-plan")  # for api-read / api-write
     p.add_argument("--confirmed-write", action="store_true")
     p.add_argument("--types")  # for graph-schema (comma-separated sample type codes)
+    p.add_argument("--parts")  # for aggregate (JSON array of 1 to 4 sub-questions)
     p.add_argument("--mode")  # for report
     p.add_argument("--project")  # for report
     p.add_argument("--type")  # for generate-submission

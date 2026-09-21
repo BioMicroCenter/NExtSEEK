@@ -13,7 +13,8 @@ statement to the caller's project scope, which the view puts on the config. A
 statement refused for its scope is answered through graph_search, the
 project-scoped sample search, exactly as the NS orchestrator falls back
 (``_fall_back_to_graph_search``): the parser plan retargeted to graph_search, built
-by the API agent, gated as a read and run, returned under ``fallback``.
+by the API agent, gated as a read and run, returned under ``fallback``. That chain is
+``run_graph_question``, which the ``aggregate`` op (``aggregate.py``) runs once per part.
 
 Error taxonomy (mirrors dmac _ws_contract.ERROR_EXIT):
 * :class:`OpValidationError` -> VALIDATION
@@ -25,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
@@ -102,13 +104,15 @@ GRAPH_SCOPE_FALLBACK_NOTE = (
 )
 
 
-def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float) -> dict:
+def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elapsed_s: float, *,
+                           budget_s: float = GRAPH_FALLBACK_START_BUDGET_S) -> dict:
     """Answer a scope-refused graph question through graph_search, as the NS orchestrator does.
 
     Never raises: a fallback that cannot run reports why, and the refusal it answers stays in the op's ``result``.
     ``parser_plan`` is always the parser's plan retargeted to graph_search, as JSON, so the agent can ask it
     through nextseek-api-read when the fallback did not answer here. It runs here only when the op is still inside
-    ``GRAPH_FALLBACK_START_BUDGET_S``. ``ok`` is graph_search's own answer: an error status is a failed fallback.
+    ``budget_s`` (the graph op's ``GRAPH_FALLBACK_START_BUDGET_S``; the aggregate op passes its own). ``ok`` is
+    graph_search's own answer: an error status is a failed fallback.
     Only graph_search is ever called here, and only through the read gate.
     """
     from chat_nextseek import helpers
@@ -128,7 +132,7 @@ def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elaps
         "codes": list(scope.get("codes") or ()), "reasons": list(scope.get("reasons") or ()),
         "parser_plan": plan_json,
     }
-    if elapsed_s > GRAPH_FALLBACK_START_BUDGET_S:
+    if elapsed_s > budget_s:
         out["error"] = (
             f"not run here: the op had already used {elapsed_s:.0f} s of its 60 s; run nextseek-api-read with "
             "fallback.parser_plan to ask graph_search"
@@ -159,36 +163,130 @@ def _graph_search_fallback(config, parser_plan, refused: dict, write_gate, elaps
     return out
 
 
-def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
-    from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
-    started = _monotonic()
-    entity_out = entity_agent(config, args["query"])
-    # Run the parser and pass its plan to graph_agent, mirroring the NS
-    # orchestrator (orchestrator.py:869 graph_agent(config, query, entity, plan)).
-    # Without the parser_plan the graph agent gets no PARSER PLAN block and emits
-    # unbounded, pathological Cypher that overruns the 60s proxy timeout (#20).
-    parser_plan = parser_agent(session, config, args["query"], entity_out)
-    plan = graph_agent(config, args["query"], entity_out, parser_plan)
+@dataclass
+class GraphAnswer:
+    """What one pass of the graph op's chain produced.
+
+    ``plan`` is the dumped graph agent plan whose statement ``result`` answers, ``cypher`` the statement that was
+    submitted for it (after ``prepare_cypher``), ``fallback`` the graph_search answer to a scope refusal (None when
+    there was none), ``attempts`` one record per statement run, and ``retry_changed_answer`` whether a zero-row
+    retry replaced a first query that matched nothing.
+    """
+
+    plan: Any
+    result: dict
+    fallback: dict | None
+    parser_plan: Any
+    cypher: str | None
+    attempts: list = field(default_factory=list)
+    retry_changed_answer: bool = False
+
+
+def _attempt(reason: str, result: dict) -> dict:
+    """One statement's record: why it ran, whether it answered, and how many rows or which refusal codes."""
+    out: dict[str, Any] = {"reason": reason, "ok": bool(result.get("ok"))}
+    if result.get("ok"):
+        out["rows"] = result.get("count", len(result.get("data") or []))
+    scope = result.get("scope")
+    if isinstance(scope, dict) and scope.get("codes"):
+        out["codes"] = list(scope["codes"])
+    return out
+
+
+def _run_plan(plan, exec_fn, config, prepare_cypher) -> tuple[Any, str | None, str | None, dict]:
+    """``(plan dump, the agent's cypher, the submitted cypher, result)`` for one graph agent plan."""
     plan_dump = _dump(plan)
     cypher = plan_dump.get("cypher") if isinstance(plan_dump, dict) else getattr(plan, "cypher", None)
     params = (
         plan_dump.get("parameters") if isinstance(plan_dump, dict) else getattr(plan, "parameters", {})
     ) or {}
+    if not cypher:
+        return plan_dump, cypher, cypher, {"ok": False, "error": "graph agent produced no cypher", "data": []}
+    submitted = prepare_cypher(cypher, params) if prepare_cypher is not None else cypher
+    return plan_dump, cypher, submitted, exec_fn(config, submitted, params)
+
+
+def run_graph_question(
+    query: str,
+    *,
+    config: Any,
+    session: Any,
+    write_gate: Callable,
+    neo4j_exec: Callable | None = None,
+    entity_out: Any = None,
+    refine_context: str | None = None,
+    prepare_cypher: Callable[[str, dict], str] | None = None,
+    retry: Callable[[dict, str], "tuple[str, str] | None"] | None = None,
+    started: float | None = None,
+    clock: Callable[[], float] | None = None,
+    fallback_budget_s: float = GRAPH_FALLBACK_START_BUDGET_S,
+) -> GraphAnswer:
+    """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
+
+    ``_graph`` calls it with no options and returns what it always returned. The aggregate op calls it once per
+    part and passes: ``entity_out`` (resolved once for the whole question), ``refine_context`` (its brief, handed
+    to every graph agent call), ``prepare_cypher`` (its row cap, applied to every statement before the tool sees
+    it), ``retry`` (given the first result and the agent's own statement, it returns ``(reason, retry_context)``
+    for at most one more statement, or None), and its own clock, start and fallback budget.
+
+    Every statement, a retry's too, runs through ``neo4j_exec`` (the scoped ``tool_neo4j_query`` when None) on the
+    ``config`` it was handed: nothing here builds or changes a scope. A retry is kept only when it answered and,
+    after a first query that matched nothing, found something. Whatever answers last and was refused for its scope
+    goes to ``_graph_search_fallback``.
+    """
+    from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
+    now = clock or _monotonic
+    if started is None:
+        started = now()
+    if entity_out is None:
+        entity_out = entity_agent(config, query)
+    # Run the parser and pass its plan to graph_agent, mirroring the NS
+    # orchestrator (orchestrator.py:869 graph_agent(config, query, entity, plan)).
+    # Without the parser_plan the graph agent gets no PARSER PLAN block and emits
+    # unbounded, pathological Cypher that overruns the 60s proxy timeout (#20).
+    parser_plan = parser_agent(session, config, query, entity_out)
+    brief = {"refine_context": refine_context} if refine_context else {}
+    plan = graph_agent(config, query, entity_out, parser_plan, **brief)
     exec_fn = neo4j_exec
     if exec_fn is None:
         from chat_nextseek.helpers import tool_neo4j_query
         exec_fn = tool_neo4j_query
-    if cypher:
-        result = exec_fn(config, cypher, params)
-    else:
-        result = {"ok": False, "error": "graph agent produced no cypher", "data": []}
+    plan_dump, own_cypher, cypher, result = _run_plan(plan, exec_fn, config, prepare_cypher)
+    attempts = [_attempt("initial", result)]
+    changed = False
+    spec = retry(result, own_cypher) if retry is not None and own_cypher else None
+    if spec:
+        from chat_nextseek.helpers.tools.neo4j import matched_nothing
+        reason, retry_context = spec
+        again = graph_agent(config, query, entity_out, parser_plan, retry_context=retry_context, **brief)
+        again_dump, _, again_cypher, again_result = _run_plan(again, exec_fn, config, prepare_cypher)
+        keep = bool(again_result.get("ok")) and not (reason == "zero_rows" and matched_nothing(again_result))
+        attempts.append({**_attempt(reason, again_result), "kept": keep})
+        if keep:
+            changed = matched_nothing(result)
+            plan_dump, cypher, result = again_dump, again_cypher, again_result
     from chat_nextseek.helpers.tools.neo4j import is_scope_refusal
     if is_scope_refusal(result):
-        fallback = _graph_search_fallback(config, parser_plan, result, write_gate, _monotonic() - started)
+        fallback = _graph_search_fallback(config, parser_plan, result, write_gate, now() - started,
+                                          budget_s=fallback_budget_s)
         hint = GRAPH_SCOPE_FALLBACK_HINT if fallback["ok"] else GRAPH_SCOPE_FALLBACK_RETRY_HINT
         result = {**result, "error": f"{result.get('error') or ''} {hint}".strip()}
-        return {"plan": plan_dump, "result": result, "fallback": fallback}
-    return {"plan": plan_dump, "result": result}
+        return GraphAnswer(plan_dump, result, fallback, parser_plan, cypher, attempts, changed)
+    return GraphAnswer(plan_dump, result, None, parser_plan, cypher, attempts, changed)
+
+
+def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
+                                neo4j_exec=neo4j_exec)
+    if answer.fallback is not None:
+        return {"plan": answer.plan, "result": answer.result, "fallback": answer.fallback}
+    return {"plan": answer.plan, "result": answer.result}
+
+
+def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
+    from NessieAI.ns.aggregate import run_aggregate
+    return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec)
 
 
 def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir):
@@ -370,6 +468,7 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
     return {"saved_files": saved_files, "qa": qa}
 
 _HANDLERS: dict[str, Callable] = {
+    "aggregate": _aggregate,
     "entity": _entity,
     "parse": _parse,
     "graph": _graph,

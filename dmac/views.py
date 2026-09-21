@@ -109,7 +109,7 @@ def userSynchronization(user_seek):
 
 def login_seek(request):
     seekdb = SeekDB(None, None, None)
-    user_seek = seekdb.getSeekLogin(request)
+    user_seek = seekdb.getSeekLogin(request, fromLoginForm=True)  # body credentials, once SEEK accepts them
 
     # Never log user_seek itself: it carries the plaintext SEEK password, and this
     # line put every user's password into `docker logs` on production.

@@ -18,8 +18,9 @@ from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
 
+from .exports import newExport
 from .samples import LOGIN_REQUIRED
-from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK, SEEK_DATABASE, UPLOAD_DIRECTORY, report
+from .shared import SEEK_DATABASE, UPLOAD_DIRECTORY, report
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +100,8 @@ def sampleUploadAjax(request):
                 n = len(names)
                 
                 datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-                filename = '.'.join(names[:(n-1)]) + '_feedback-' + datenow + '.xls'
-                feedbackfile = DOWNLOAD_DIRECTORY + filename
-                link = DOWNLOAD_DIRECTORY_LINK + filename
+                feedbackfile, link = newExport(request, '.'.join(names[:(n-1)]) + '_feedback-' + datenow + '.xls')
+                filename = link.rsplit('/', 1)[-1]  # private to the uploader (and a superuser), never under /media/
                 logger.debug(feedbackfile)
                 
                 backupfile = '.'.join(names[:(n-1)]) + '_v' + datenow + '.' + names[-1]

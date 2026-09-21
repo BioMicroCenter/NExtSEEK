@@ -25,6 +25,7 @@ from chat_nextseek.graph_scope import SCOPE_ATTR, SCOPE_PARAM, GraphScope, with_
 from chat_nextseek.helpers.tools import neo4j as tool_module
 from chat_nextseek.helpers.tools.neo4j import (
     NO_SCOPE_REFUSED,
+    RUNTIME_ERROR_WITHHELD,
     SCOPE_REFUSED,
     is_scope_refusal,
     tool_neo4j_query,
@@ -337,7 +338,8 @@ def test_a_failing_query_carries_what_ran_and_the_scope(fake):
 
     out = tool_neo4j_query(_cfg(MEMBER), TYPED, {"organ": "Lung"})
 
-    assert out["ok"] is False and "query blew up" in out["error"]
+    # A member is told the failure's codes only, never its message (test_neo4j_error_redaction.py).
+    assert out["ok"] is False and out["error"] == RUNTIME_ERROR_WITHHELD.format(codes="RuntimeError")
     assert out["cypher"] == injected.cypher
     assert out["submitted_cypher"] == TYPED
     assert out["parameters"][SCOPE_PARAM] == [1, 3]

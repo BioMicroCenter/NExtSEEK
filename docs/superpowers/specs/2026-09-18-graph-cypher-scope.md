@@ -398,7 +398,7 @@ node), `__scope_n<k>` (a name given to an anonymous node that needs a predicate)
 
 | Where | Insertion |
 |---|---|
-| a `MATCH` / `OPTIONAL MATCH` with new sample or project bindings | its `WHERE` becomes `WHERE (<model's predicate>) AND <clauses>`; with no `WHERE`, ` WHERE <clauses>` goes after the pattern list |
+| a `MATCH` / `OPTIONAL MATCH` with new sample or project bindings | its `WHERE` becomes `WHERE (<model's predicate>) AND <clauses>` when no top-level conjunct of the predicate could raise; otherwise the span from the first such conjunct to the last becomes `CASE WHEN <clauses> THEN (...) ELSE false END` (amended 2026-09-18, below); with no `WHERE`, ` WHERE <clauses>` goes after the pattern list |
 | a path part with a variable-length relationship | `__scope_path<k> = ` before it (or the model's own path name), and the path clause over `nodes(...)`; nodes inside that part get no separate clause |
 | an anonymous node that needs a predicate | a generated name inside its parentheses |
 | a bare `EXISTS { pattern }` / `COUNT { pattern }` | `MATCH ` after the brace, then its `WHERE` as above |
@@ -434,6 +434,25 @@ CALL db.index.fulltext.queryNodes('sample_search_text', $q) YIELD node AS s, sco
 RETURN s.uuid AS uuid ORDER BY score DESC LIMIT 5000
 -- out: ... YIELD node AS s, score WHERE (s:T_MUS) AND any(__scope_p1 IN s.project_ids WHERE ...)
 ```
+
+**Amended 2026-09-18 (the guard).** Neo4j orders the predicates of one selection by cost, and on a real Neo4j it
+evaluated `(<model's predicate>) AND <clauses>` model-first: a predicate that raises on some value (`1/0` inside a
+CASE, `toLower` of a number) failed the statement when a foreign node matched and returned a clean 0 when none did, a
+bit about a foreign node per turn. The clauses therefore guard every conjunct that could raise. Only these stay
+outside, because Neo4j cannot seek an index on a predicate inside CASE: `<operand> <op> <operand>` with `=`, `<>`,
+`!=`, `<`, `<=`, `>`, `>=`, `STARTS WITH`, `ENDS WITH` or `CONTAINS`; `<operand> IN` a list literal of operands or a
+list parameter; `<operand> IS [NOT] NULL`; a label test on a variable the pattern binds. An operand is a literal, a
+parameter, a bare name, or a property of a node or single relationship the pattern binds. Still open: a later clause
+(a second `MATCH`, a `WITH ... WHERE`) that reads a node an earlier pattern scoped can be evaluated before that node's
+clause, since Neo4j merges those predicates into one selection; the graph scope lane pins it as a strict xfail.
+
+**Amended 2026-09-18 (the error text).** Until that closes, what the error says is held back. Neo4j's message for a
+runtime failure quotes the value it failed on: on the lane, `date()` of a foreign string raised
+`Neo.ClientError.Statement.SyntaxError` with the string in its message. So for a caller who is not an admin,
+`tool_neo4j_query` returns `RUNTIME_ERROR_WITHHELD` with the error's Neo4j code and GQLSTATUS only. The code alone
+cannot tell a data failure from a statement's own mistake, so the tool plans the statement again with `EXPLAIN`,
+which reads no data: a failure EXPLAIN reproduces with the same code keeps EXPLAIN's message, which the graph agent's
+retry needs. An admin keeps the full text. What stays open is one bit per statement: whether it raised, and its code.
 
 `tool_neo4j_query`'s total probe (`_probe_total`) wraps the statement that ran, so the probe is scoped too, and its
 `CALL () { }` is the tool's own text, never the model's.

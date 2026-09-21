@@ -414,7 +414,9 @@ def test_every_endpoint_the_cc_guidance_names_is_read_safe():
     NessieAI/docker/CLAUDE.md: an endpoint the skill sends the agent to must be read-safe. A named
     endpoint the gate refuses costs the agent a WRITE_BLOCKED and one of its two attempts, as the
     single-record and tree-view endpoints did when the skill first promised them (2026-09-18
-    review). Writes are named without the /nextseek_api/ prefix, so they are not caught here.
+    review). "Runs" means both checks pass: the write gate's list, and the REST tool's own policy
+    behind it (``test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check``). Writes are
+    named without the /nextseek_api/ prefix, so they are not caught here.
     """
     import re
 
@@ -422,11 +424,74 @@ def test_every_endpoint_the_cc_guidance_names_is_read_safe():
                 *paths.CC_PLUGIN_DIR.glob("commands/*.md")]
     named = {m for f in guidance for m in re.findall(r"/nextseek_api/[A-Za-z0-9_./{}-]+/",
                                                    f.read_text(encoding="utf-8"))}
-    read_safe = {e["endpoint"] for e in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))}
+    allowed = _rest_tool_read_only_check()
+    runs = {e["endpoint"] for e in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))
+            if all(allowed(e["endpoint"], method) for method in e.get("methods", []))}
     assert named, "the guidance names no endpoint at all; the pattern above has gone stale"
-    assert not named - read_safe, (
-        f"the CC guidance names endpoints api-read refuses: {sorted(named - read_safe)}"
+    assert not named - runs, (
+        f"the CC guidance names endpoints api-read refuses: {sorted(named - runs)}"
     )
+
+
+# The REST tool every api-read ends in. After the write gate passes a (method, path) from
+# read_safe_endpoints.json, NessieAI/ns/granular.py hands it to tool_nextseek_api_request, which
+# applies its own read-only policy and refuses the rest with a nested ok:false that the op still
+# returns as a 200. The two lists are kept by hand in two places, so a read-safe POST the tool
+# does not know is advertised to the agent and never runs (2026-09-18 review, M5).
+REST_TOOL = (paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "helpers" / "tools"
+             / "nextseek_api.py")
+_REST_TOOL_POLICY = frozenset({"_READ_METHODS", "_READ_POST_PATHS", "_normalize_endpoint_path",
+                               "_canonical_method", "_is_read_only_pair", "_is_read_only_request"})
+
+
+def _rest_tool_read_only_check():
+    """The REST tool's own ``_is_read_only_request(endpoint, method)``, executed from its source.
+
+    Parsed and executed rather than imported, so this module stays stdlib-only: importing the tool
+    pulls in chat_nextseek's config and requests. Only the policy's own definitions are taken, and
+    the check fails if any of them has moved, so it cannot quietly test a stale copy.
+    """
+    tree = ast.parse(REST_TOOL.read_text(encoding="utf-8"))
+    kept = [node for node in tree.body
+            if (isinstance(node, ast.FunctionDef) and node.name in _REST_TOOL_POLICY)
+            or (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id in _REST_TOOL_POLICY for t in node.targets))]
+    found = {node.name if isinstance(node, ast.FunctionDef) else node.targets[0].id for node in kept}
+    assert found == _REST_TOOL_POLICY, (
+        f"{REST_TOOL} no longer defines {sorted(_REST_TOOL_POLICY - found)} at module level; "
+        "point this guard at wherever the REST tool's read-only policy went"
+    )
+    namespace: dict = {}
+    exec(compile(ast.Module(body=kept, type_ignores=[]), str(REST_TOOL), "exec"), namespace)  # noqa: S102
+    return namespace["_is_read_only_request"]
+
+
+def test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check():
+    """A read-safe entry api-read cannot run is worse than none: the agent is told it may call it,
+    the gate lets it through, and the answer is 200 with ok:false "Write operations are not
+    permitted". Every (method, endpoint) the gate allows must pass the tool's policy as well."""
+    allowed = _rest_tool_read_only_check()
+    refused = sorted(
+        (method.upper(), entry["endpoint"])
+        for entry in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))
+        for method in entry.get("methods", [])
+        if not allowed(entry["endpoint"], method)
+    )
+    assert not refused, (
+        "read_safe_endpoints.json lets api-read ask for pairs the REST tool behind it refuses: "
+        f"{refused}. Take them off the read-safe list (both copies), or give them a real read path "
+        f"in {REST_TOOL.name} (_READ_POST_PATHS) after auditing them."
+    )
+
+
+def test_the_rest_tool_check_this_guard_runs_is_the_real_policy():
+    """The executed copy must answer as the tool does: GET passes anywhere, graph_search's POST
+    passes, a POST that creates a sample and any other verb are refused."""
+    allowed = _rest_tool_read_only_check()
+    assert allowed("/nextseek_api/projects/", "GET")
+    assert allowed("nextseek_api/samples/graph_search", " post ")
+    assert not allowed("/nextseek_api/samples/", "POST")
+    assert not allowed("/nextseek_api/samples/{uid}/", "DELETE")
 
 
 # ---------------------------------------------------------------------------

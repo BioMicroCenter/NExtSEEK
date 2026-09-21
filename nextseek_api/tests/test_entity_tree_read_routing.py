@@ -29,6 +29,9 @@ def _request(method="get", data=None):
         req = getattr(factory, method)("/")
     user = MagicMock()
     user.is_authenticated = True
+    # A superuser: lineage reads no graph for a caller whose scope cannot be resolved, and routing is the point here
+    # (test_entity_tree_lineage_scope.py covers the scope).
+    user.is_superuser = True
     req.user = user
     req.query_params = req.GET
     return req

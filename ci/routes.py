@@ -295,9 +295,11 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^media/(?P<path>.*)$",
           path="/media/download/nextseek-ci-probe-no-such-file.xlsx",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
-          note="Django's static serve; probed with a nonexistent file, so the entry "
-               "proves the route resolves and denies and downloads nothing"),
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
+          note="MEDIA_ROOT behind a login (dmac/media.py): an anonymous caller is sent "
+               "to /login/, and a logged-in one gets only the legacy data-file tree. "
+               "Probed anonymously, so the entry proves the login gate and downloads "
+               "nothing; the static serve it replaced answered this probe 404"),
     Route(pattern=r"^signup/", path="/signup/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
@@ -476,6 +478,13 @@ REGISTRY: list[Route] = [
           note="resolves a SEEK document to a download URL and returns it as JSON. "
                "Unknown id: proves the route resolves and denies, at status 200 "
                "with status:0 in the body"),
+    Route(pattern=r"^seek/^exports/(?P<token>[0-9a-f]{32})/(?P<filename>[\w.-]+)$",
+          path="/seek/exports/" + "0" * 32 + "/nextseek-ci-probe-no-such-file.xlsx",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="web", expect=404,
+          note="a legacy export's file, streamed only to the caller who made it or to a "
+               "superuser. Unknown token: proves the route resolves and denies, and "
+               "downloads nothing"),
     Route(pattern=r"^seek/^eventdata/(?P<nhp_name>[\w-]+)/(?P<event_type>[\w.-]+)/(?P<date>[\w-]+)/$",
           path="/seek/eventdata/" + _NO_SUCH_NHP + "/imaging/2026-01-01/",
           effect="reads",
@@ -1137,6 +1146,11 @@ REGISTRY: list[Route] = [
     # ----------------------------------------------------------------- #
     # nextseek_api: excluded
     # ----------------------------------------------------------------- #
+    Route(pattern=r"^nextseek_api/^^assistant/aggregate/$", path=None,
+          effect="reads",
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
+          note="granular assistant op: counts and breakdowns, the graph op's chain run once per "
+               "part (1 to 4) in parallel"),
     Route(pattern=r"^nextseek_api/^^assistant/api-read/$", path=None,
           effect="reads",
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",

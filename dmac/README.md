@@ -107,15 +107,18 @@ inside the application image, which reached `dmac.views.logout_seek` with no pre
 | `^admin/` | `dmac/urls.py:26` |
 | `^seek/` | `seek.urls`, at `dmac/urls.py:27` |
 | `^nextseek_api/` | `nextseek_api.urls`, at `dmac/urls.py:29` |
-| `^media/(?P<path>.*)$` | Django's static serve, at `dmac/urls.py:37-40` |
+| `^media/(?P<path>.*)$` | `dmac.media.serve_media`, at `dmac/urls.py:37-40` |
 | `^$` | `dmac/views.py:285` |
 | `^accounts/signup/` | `dmac/views.py:267` again, at `dmac/urls.py:54` |
 | `^` | `mezzanine.urls`, at `dmac/urls.py:55` |
 | `^accounts/login/` | `dmac/views.py:110` again, at `dmac/urls.py:56` |
 
-The media route is unusual and its reason is recorded in place: `DEBUG` is off under
-Docker, so Django's `static()` helper is a no-op and the serve view is wired directly
-(`dmac/urls.py:32-36`). Both error handlers are Mezzanine's (`dmac/urls.py:60-61`).
+The media route is unusual and its reason is recorded in place: nginx has no `/media`
+location and `DEBUG` is off under Docker, so Django serves it with a view of its own
+(`dmac/urls.py:32-36`). `dmac/media.py` sends an anonymous caller to `/login/` and serves
+a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
+`MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
+(`dmac/urls.py:60-61`).
 
 There is one legacy include, and it is disabled rather than deleted: `^api/` pointing at
 `api_app.urls` is commented out at `dmac/urls.py:28`, while `dmac/urls.py:13` still

@@ -63,6 +63,7 @@ from .helpers import (
     matched_nothing,
     tool_neo4j_query,
 )
+from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
@@ -763,23 +764,9 @@ def _execute_graph_turn(
         elif matched_nothing(graph_result) and not zero_row_retry_used:
             zero_row_retry_used = True
             print("[GRAPH] Query ran but matched nothing, retrying once with that context")
-            # Pilot A v2 (2026-09-18), ChIP-seq: this message used to say "use the closest
-            # value that really exists". The first query had correctly found nothing; the
-            # agent took the invitation, swapped in every Chromatin Sequencing Analysis
-            # sample, and the reply led with 12 Hi-C samples. A retry may repair a guess.
-            # It may not answer a different question.
-            retry_ctx = (
-                "Your previous Cypher query ran without error and matched 0 records:\n"
-                f"{graph_plan.cypher}\n\n"
-                "Find the one filter that was a guess and change only that one: a field you "
-                "inferred, a whole-value match on free text, a code or name you did not read "
-                "from the catalog, a capitalisation or punctuation you assumed. Keep every "
-                "term the user actually wrote, and never replace the thing the user asked for "
-                "with a different one: not another technique, assay, sample type, person or "
-                "sample. A named technique, product or UID that matches nothing under its own "
-                "spellings is a real zero. If every filter was certain, return the SAME query "
-                "unchanged - zero is a valid answer and a second guess would be worse than it."
-            )
+            # The wording, and why it no longer says "use the closest value", is in
+            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
+            retry_ctx = zero_row_retry_context(graph_plan.cypher)
             reason = "zero_rows"
         else:
             break
@@ -813,11 +800,7 @@ def _execute_graph_turn(
     query_notes: list[str] = list(uid_reply_notes)
     if first_ok_empty and not matched_nothing(graph_result):
         debug_payload["graph_retry_changed_answer"] = True
-        query_notes.append(
-            "The first query for this question matched nothing. This result comes from a "
-            "second query with a changed filter, so say that the original filter found "
-            "nothing and what was used instead."
-        )
+        query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
 
     send_event(
         "search_complete",

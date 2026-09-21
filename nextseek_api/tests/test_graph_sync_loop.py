@@ -10,11 +10,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone as dt_timezone
+from importlib import import_module
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
+from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from nextseek_api.graph_sync import drift, loop, run, state, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
@@ -168,6 +173,9 @@ def test_a_child_that_records_no_run_is_told_so(work):
 @pytest.mark.parametrize("code, outcome, done", [(0, loop.DONE, True), (2, loop.DONE, True),
                                                  (1, loop.FAILED, False), (None, loop.FAILED, False)])
 def test_a_childs_exit_status_decides_its_row(work, code, outcome, done):
+    """2 is a refusal the operator must read (a graph below the writer's version, a preflight problem), so the row is
+    done and the refusal is in its run record. A graph-write lock that stayed busy is exit 1, not 2: see
+    ``test_a_child_that_found_the_graph_write_lock_busy_keeps_its_slot_owed``."""
     state.enqueue("drift", TODAY, now=before(minutes=1))       # the oldest row, so it takes the first exit
     work.exits = [code]
 
@@ -181,6 +189,55 @@ def test_a_childs_exit_status_decides_its_row(work, code, outcome, done):
         assert r.attempts == 1 and r.claimed_by is None
         assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("drift"))
         assert r.last_error and "graph_sync --drift" in r.last_error
+
+
+_REAL_CATALOG_SYNC = run.catalog_sync          # ``work`` stubs it; a reconcile child run for real needs the real one
+
+
+@contextmanager
+def _lock_never_free(timeout_s):
+    """The graph-write lock as a write that outlasts every wait leaves it: never acquired."""
+    yield False
+
+
+def in_process(work, monkeypatch, settings):
+    """A launcher that runs each ``--full`` and ``--reconcile`` child as the real ``manage.py graph_sync`` command, in
+    this process, and answers the status it exits with. Every other child exits 0."""
+    command = import_module("nextseek_api.management.commands.graph_sync")
+    monkeypatch.setattr(command, "GraphDatabase", SimpleNamespace(driver=lambda uri, auth=None: nullcontext(DRIVER)))
+    monkeypatch.setattr(run, "catalog_sync", _REAL_CATALOG_SYNC)
+    settings.NEO4J_DATABASE = {"NAME": DB, "URI": "neo4j://neo4j:7687", "AUTH": ("neo4j", "x")}
+
+    def launch(argv, timeout_s):
+        work.launched.append(SimpleNamespace(argv=list(argv), timeout_s=timeout_s))
+        if argv[3] not in ("--full", "--reconcile"):
+            return 0
+        try:
+            call_command(*argv[2:], stdout=StringIO(), stderr=StringIO())
+        except CommandError as exc:
+            return exc.returncode
+        return 0
+    return launch
+
+
+@pytest.mark.django_db
+def test_a_child_that_found_the_graph_write_lock_busy_keeps_its_slot_owed(work, monkeypatch, settings):
+    """Another write holding the lock past a child's wait is not a refusal of this graph: nothing was written, nothing
+    is wrong, and the same run succeeds once the lock is free. So the child exits 1 and its slot backs off and runs
+    again. It used to exit 2, from ``--full`` and from a reconcile whose catalog step lost the lock, and the slot was
+    closed as done: that week's full sync, or that night's reconcile, was recorded done having done nothing."""
+    monkeypatch.setattr(state, "graph_write_lock", _lock_never_free)
+
+    report = one_pass(work, launch=in_process(work, monkeypatch, settings))
+
+    for kind, key in (("full", THIS_WEEK), ("reconcile", TODAY)):
+        (entry,) = [d for d in report["drained"] if d["kind"] == kind]
+        assert (entry["outcome"], entry["exit"], entry["refused"]) == (loop.FAILED, 1, False), kind
+        r = row(kind, key)
+        assert r.done_at is None and r.attempts == 1 and r.claimed_by is None, kind
+        assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s(kind)), kind
+    assert {r.kind: r.status for r in GraphSyncRun.objects.filter(kind__in=("full", "catalog", "reconcile"))} == {
+        "full": "refused", "catalog": "refused", "reconcile": "refused"}
 
 
 def reporting(work, kind: str, saved, code: int = 1):

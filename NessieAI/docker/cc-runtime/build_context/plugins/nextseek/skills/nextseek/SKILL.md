@@ -45,7 +45,8 @@ is the complete contract; there are no hidden flags.
 | `nextseek-parse` | Turn an NL question into a parser plan. | `--query "<text>"` | parser plan `{mode, target_endpoint, filters, ...}` |
 | `nextseek-api-read` | Execute a read-safe REST call from a parser plan. | `--parser-plan '<json>'` | API response |
 | `nextseek-api-write` | Execute a write (POST/PUT/DELETE) from a parser plan. | `--parser-plan '<json>' --confirmed-write` | API response |
-| `nextseek-graph` | Answer any question about samples from the graph: find, filter, count, break down, lineage, attribute values. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. | `--query "<text>"` | `{plan, result, fallback?}` |
+| `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>"` | `{plan, result, fallback?}` |
+| `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]']` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated, fallback}], notes}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
 | `nextseek-generate-submission` | Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline. | `--type {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE} --uids <csv>` | `{report, type}` |
 | `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
@@ -57,15 +58,16 @@ is the complete contract; there are no hidden flags.
 
 ## Choosing the op for a task
 
-**Every question about samples — `nextseek-graph`.** Finding, filtering and counting samples;
-breaking them down by sample type, attribute value, keyword, assay, project or person; UIDs and
-lab codes; lineage (parents, children, what was derived from what, in either direction); and which
-values an attribute holds. The graph holds every sample's metadata as properties, not only its
-lineage, so one call answers the whole question. Ask it in full, in plain words:
+**Every other question about samples — `nextseek-graph`.** Finding and filtering samples by sample
+type, attribute value, keyword, assay, project or person; UIDs and lab codes; lineage (parents,
+children, what was derived from what, in either direction); and the attribute values of the samples
+found. Counting them or breaking them down is `nextseek-aggregate` (below). The graph holds every
+sample's metadata as properties, not only its lineage, so one call answers the whole question. Ask
+it in full, in plain words:
 
 ```bash
-nextseek-graph --query "How many mouse samples treated with NDMA are female?"
-nextseek-graph --query "Count TIS samples by Organ in the MetNet project."
+nextseek-graph --query "Which mouse samples treated with NDMA are female?"
+nextseek-graph --query "List the TIS samples in the MetNet project whose Organ is lung."
 nextseek-graph --query "Which NHP samples have both CT scan data and sequencing data derived from them?"
 # -> {"plan": {...}, "result": {"ok": true, "data": [...], "count": N, "scope": {...}}}
 ```
@@ -93,19 +95,58 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
   lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
   are not on the read-safe list, so `api-read` refuses them.
 
-**Catalog lists, people, downloads and writes — the REST API, parse then read.** A REST lookup
+**Counts and breakdowns — `nextseek-aggregate`.** "How many", "break down by", tallies, histograms,
+"which values does this attribute hold, and how often", and duplicate or variant spellings all go
+here, not to `nextseek-graph`. Never count by pulling records and tallying them yourself: a page of
+records is not the population. Ask the whole question; when it needs more than one independent number
+or breakdown, also pass `--parts`, one plain-language sub-question per number, each complete on its
+own (restate the project, sample type and filters in every part):
+
+```bash
+nextseek-aggregate --query "What species are the samples in the IMPACT project?"
+nextseek-aggregate --query "How many samples have no parent at all, and how many have nothing derived from them?" \
+  --parts '["How many samples have no parent sample?", "How many samples have no samples derived from them?"]'
+# -> {"question": "...", "complete": true, "notes": [...], "parts": [{"part": 1, "status": "ok",
+#     "kind": "breakdown", "columns": ["species", "n"], "groups": [{"species": "...", "n": 327}, ...],
+#     "group_count": 5, "sum_of_group_counts": 704, "groups_may_overlap": true, "null_group": 13,
+#     "truncated": false, ...}]}
+```
+
+- **Read each part's table.** `groups` holds one row per stored value with its count (`kind`
+  `breakdown`), or one row of numbers (`kind` `count`). `null_group` is the samples with no value for
+  the grouping attribute: report it, never drop the missing-value bucket. `kind` `rows` means the query
+  returned records, not counts: read them as a list.
+- **`sum_of_group_counts` is not a number of samples.** It adds the counts of the groups returned, so a
+  sample that falls in several groups (several assays, projects or studies, a list attribute) is counted
+  once in each. `groups_may_overlap` is true for every breakdown of two groups or more, because the rows
+  cannot show otherwise: then never report the sum as "N samples". When the answer needs the number of
+  samples as well as a breakdown, ask it as its own part. For a `count` part it is that one number.
+- **Relay every line of `notes`.** They carry what the user must be told: a UID stored under another
+  spelling, a changed filter, a truncated table, a part that could not be answered.
+- **`status`.** `ok` and `empty` are answers (an empty part is a real zero). `fallback` means the
+  breakdown could not be confirmed to stay inside the user's projects: `sum_of_group_counts` is the
+  project-scoped sample search's total (a number of samples), and there is no breakdown; say so.
+  `refused` and `error` mean that part has no answer. `timed_out` means the op answered before that part
+  finished (`complete` is false): say it did not finish and never estimate it.
+- **Charts and spellings.** Draw a chart or cluster spellings in `/data/scratch` from `groups` only,
+  and say the counts are per stored spelling: "rhesus", "Rhesus" and "Macaca mulatta" are separate
+  groups until you say otherwise, and no spelling is changed in NExtSEEK.
+- **People and other catalog lists** (registered users, protocols, projects) are REST lists, not graph
+  counts: count those with `nextseek-parse` then `nextseek-api-read`, and add that number yourself.
+
+**Catalog lists, people and writes — the REST API, parse then read.** A REST lookup
 is two stages: parse the question into a plan, then execute the plan. `nextseek-api-read` runs
 only the read-safe endpoints (`context/read_safe_endpoints.json`), which are: the lists of
 projects, investigations, sample types, assays, protocols (`/nextseek_api/sops/`) and registered
-SEEK users (`/nextseek_api/people/`); downloading a data file or a protocol document
-(`/nextseek_api/data_files/download/`, `/nextseek_api/sops/download/`); one sample's full record
-export by UID (`/nextseek_api/admin/samples/retrieve/`, superusers only); checking an upload
-workbook (`/nextseek_api/batch-upload/validate/`); and graph_search. Read the baked catalogs below
-before any of the lists. Single-record endpoints (`.../{uid}/`) and the sample tree view are not
-read-safe, and `api-read` refuses them: find the record in its list instead, and ask
-`nextseek-graph` for a sample's lineage or the files a sample points to (its `File_PrimaryData`,
-`Link_PrimaryData` and `Checksum_PrimaryData` attributes). Every write goes through
-`nextseek-api-write`.
+SEEK users (`/nextseek_api/people/`); one sample's full record export by UID
+(`/nextseek_api/admin/samples/retrieve/`, superusers only); and graph_search. Read the baked
+catalogs below before any of the lists. Single-record endpoints (`.../{uid}/`) and the sample
+tree view are not read-safe, and `api-read` refuses them: find the record in its list instead,
+and ask `nextseek-graph` for a sample's lineage or the files a sample points to (its
+`File_PrimaryData`, `Link_PrimaryData` and `Checksum_PrimaryData` attributes). `api-read`
+downloads no file, neither a data file nor a protocol document, and checks no upload workbook:
+say so, and point to the record instead (a sample's file attributes, a protocol's entry in its
+list). Every write goes through `nextseek-api-write`.
 
 ```bash
 nextseek-parse --query "Show me the protocol documents registered for the MetNet project."
@@ -225,7 +266,7 @@ nextseek-plan --query "Find me mouse samples in the Kamm project, then filter th
 `nextseek-plan` is read-only: it executes the read-safe steps and returns recommended actions. If
 the plan advises a write, stop and route that write through `nextseek-api-write` under Layer 3 —
 the planner never writes. For a single non-compound question about samples, use `nextseek-graph`; for a record,
-people, file or write lookup, `nextseek-parse` → `nextseek-api-read`.
+people or write lookup, `nextseek-parse` → `nextseek-api-read`.
 
 ## Composing the reply
 
@@ -274,7 +315,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op.
+The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
 
 ## Errors
 
@@ -294,12 +335,13 @@ The runner emits a one-line JSON error to stderr with a code (exit code in paren
 - `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
 
 <!-- BEGIN PLAN005-GEN:skill-ops -->
+aggregate	nextseek-aggregate	Count samples or break them down (by type, attribute value, project, person), held to the user's projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small table with the sum of its group counts (not a sample total when groups may overlap) and its missing-value bucket, never sample records.	sidecar	read	true	true
 api-read	nextseek-api-read	Execute a read-safe REST call from a parser plan.	sidecar	read	true	true
 api-write	nextseek-api-write	Execute a write (POST/PUT/DELETE) from a parser plan.	sidecar	write_confirm	true	true
 build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.	sidecar	read	true	true
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
-graph	nextseek-graph	Answer any question about samples from the graph (find, filter, count, break down, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback.	sidecar	read	true	true
+graph	nextseek-graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.	sidecar	read	true	true
 graph-schema	nextseek-graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.	sidecar	read	true	true
 parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	true
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true

@@ -193,7 +193,7 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/entity_tree/nodes/` | `EntityTreeViewSet.list_nodes` | `IsAuthenticated` (`services/entity_tree.py:85`) | **None.** `SELECT ... FROM dmac.sample_types_context` at `services/entity_tree.py:138-148`. See note D | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:303-311` | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:388-397` | public-to-authenticated |
-| `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **None.** Auth-only gate at `services/entity_tree.py:846-850`; walks Neo4j from caller-supplied ids. See note D | project-scoped |
+| `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **Yes** (2026-09-18): the sample and every sample on each lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers as one that does not exist; superuser unscoped. See note D | project-scoped (done) |
 | `GET /nextseek_api/sops/` | `SopProxyViewSet.list` | `IsAuthenticated` (`services/sops.py:48`) | Delegated to SEEK (`services/sops.py:84` -> `helpers.py:135-148`) | public-to-authenticated |
 | `GET /nextseek_api/sops/{uid}/` | `SopProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sops.py:140`) | public-to-authenticated |
 | `POST /nextseek_api/sops/download/` | `SopProxyViewSet.download` | `IsAuthenticated` (same) | Delegated to SEEK, blob streamed under caller creds (`services/content_blobs.py:220-221` -> `helpers.py:334-342`). See note E | public-to-authenticated |
@@ -393,6 +393,12 @@ exit 1). This confirms the claim in the task brief, and is in fact stronger than
 case-insensitive grep also finds nothing. All four actions gate on authentication only
 (`services/entity_tree.py:132-134, :296-298, :380-382, :846-850`) and then query without any
 membership filter.
+
+**`lineage` resolved 2026-09-18.** It now resolves the caller with `graph_search/scope.py::resolve_scope` and, for
+anyone but a superuser, requires graph_search's scope clause on the named sample and on every sample of each
+`DERIVED_FROM` path, so lineage stops at the edge of the caller's projects. A sample outside them answers exactly as
+one that does not exist, and a caller whose scope cannot be resolved, or who has no projects, reads no graph. The
+paragraph below describes the code before that change; `nodes`, `edges` and `edge_attributes` are unchanged.
 
 `lineage` (`services/entity_tree.py:844`) is the one that returns per-sample data: it resolves
 each caller-supplied identifier via `_resolve_uid_to_seek_id` and walks Neo4j from there, so an

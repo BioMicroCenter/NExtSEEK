@@ -13,7 +13,8 @@
 The whole run, preflight included, holds the graph-write lock (``state.graph_write_lock``), so no other graph_sync
 writer can add a sample between the MySQL scan and the graph read. A run that is not a dry run records itself in
 ``graph_sync_run`` (best-effort) and, when it ends ``ok``, marks done every outbox row enqueued before it started: it
-read everything those rows ask for. A drift slot is the exception, a check the graph still owes after a sync.
+read everything those rows ask for. A drift slot is the exception, a check the graph still owes after a sync, and so
+is a row still inside its writer's delay when the sync started (``state.mark_done_before``).
 
 The deletion rule (the sync design, section 9): a graph-only Sample id goes to ``writer.retire_samples``, which
 archives to ``retired.tsv`` and deletes a node graph_sync wrote and makes an ``:OrphanSample`` (no ``T_`` label) of
@@ -140,6 +141,12 @@ class PreflightError(RuntimeError):
         super().__init__("graph_sync refused before writing: " + "; ".join(problems))
         self.problems = list(problems)
         self.report = report
+
+
+class LockTimeout(PreflightError):
+    """A run that refused because another graph_sync write held the graph-write lock past its wait. Nothing was
+    written and nothing is wrong with the graph, so unlike every other refusal it is retried: the command exits 1 on it,
+    not 2, and the loop backs its slot off instead of closing it."""
 
 
 # --- the catalog ---------------------------------------------------------------------------------
@@ -835,8 +842,8 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
     rule; without it only new labels are written and the rest are counted in the report. ``lock_timeout_s`` bounds
     the wait for the graph-write lock. ``record`` writes a ``graph_sync_run`` row started by ``trigger``.
 
-    Raises PreflightError, before any write, when the lock is not acquired or the preflight finds a problem
-    (``problems`` in the report).
+    Raises PreflightError, before any write, when the preflight finds a problem (``problems`` in the report), and its
+    subclass LockTimeout when the lock is not acquired.
     """
     if chunk <= 0:
         raise ValueError(f"chunk must be positive, got {chunk}")
@@ -862,7 +869,7 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
         report["run_dir"] = run_dir
         with state.graph_write_lock(lock_timeout_s) as held:
             if not held:
-                raise PreflightError([_lock_problem(lock_timeout_s)], report)
+                raise LockTimeout([_lock_problem(lock_timeout_s)], report)
             preflight = _preflight(driver, db, chunk, report)
             if preflight.problems:
                 raise PreflightError(preflight.problems, report)
@@ -921,9 +928,9 @@ def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = C
     ``dry_run`` reads and writes nothing, takes no lock and records no run.
 
     Holds the graph-write lock (``lock_timeout_s``) and records a ``graph_sync_run`` row (``record``, ``trigger``).
-    Raises PreflightError, before any write, when the lock is not acquired, a SampleType title is held under another
-    id in the graph, or the graph is not at the writer's schema version (``graph_schema_version``): a catalog sync
-    stamps GraphMeta with that version, which only a full sync may do first.
+    Raises PreflightError, before any write, when a SampleType title is held under another id in the graph, or the
+    graph is not at the writer's schema version (``graph_schema_version``): a catalog sync stamps GraphMeta with that
+    version, which only a full sync may do first. Raises its subclass LockTimeout when the lock is not acquired.
     """
     report = {"mode": "catalog", "dry_run": dry_run, "schema_version": writer.SCHEMA_VERSION,
               "started_at": _now(), "timings_s": {}, "steps": {}}
@@ -939,7 +946,7 @@ def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = C
     try:
         with state.graph_write_lock(lock_timeout_s) as held:
             if not held:
-                raise PreflightError([_lock_problem(lock_timeout_s)], report)
+                raise LockTimeout([_lock_problem(lock_timeout_s)], report)
             cat, attributes, counts, catalog_hash = _catalog_plan(driver, db, report)
             problems = []
             if report["sample_type_title_conflicts"]:

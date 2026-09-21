@@ -332,6 +332,18 @@ rather than shipping a broken button.
 
 ---
 
+## Where export files go
+
+No export is written under `MEDIA_ROOT`, the tree `/media/` serves from (`dmac/media.py`: a
+login, and only the legacy data-file tree). The two retrieve endpoints
+(`AdminSampleViewSet.admin_retrieve_samples` and `adminRetrieveSamples`) write a private
+temporary file, answer with its bytes and remove it. The legacy views that answer with a
+`link` (`sampleDownload`, `sampleExport`, `sampleFindAjax`, `sampleDelete`), and the sample
+upload page for its feedback workbook (`sampleUploadAjax`), write into the private store in
+`seek/views/exports.py` and link to `/seek/exports/<token>/<file>`, which streams the file
+only to the caller who made it or to a superuser. Those legacy exports also need a login
+and, for anyone but a superuser, read only the caller's samples, lineage included.
+
 ## Deliberately left alone
 
 - ~~**`is_superuser or is_staff`**~~ — **no longer left alone.** Fixed since, in

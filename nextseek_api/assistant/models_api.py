@@ -279,6 +279,21 @@ class GraphOpRequest(EntityOpRequest):
     """POST /assistant/graph/ body."""
 
 
+class AggregateOpRequest(BaseModel):
+    """POST /assistant/aggregate/ body.
+
+    ``parts`` is a JSON array of 1 to 4 plain-language sub-questions, sent as text (one shim flag); empty means
+    the question itself is the one part. The body carries no Cypher and no project scope: the scope comes from
+    the caller's account on the server, and any extra field is refused.
+    """
+    query: str = Field(..., min_length=1, max_length=32000)
+    parts: str = Field("", max_length=16000,
+                       description="JSON array of 1 to 4 sub-questions, as text; empty means the question alone.")
+    use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
+    session_id: Optional[UUID] = Field(None, description="Optional session for parser continuity.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class GraphSchemaOpRequest(BaseModel):
     """POST /assistant/graph-schema/ body.
 
@@ -430,6 +445,51 @@ class GraphResult(BaseModel):
 class GraphOpResponse(BaseModel):
     op: Literal["graph"] = "graph"
     result: GraphResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class AggregatePart(BaseModel):
+    """One part's answer: a small table (``groups``) with the sum of its group counts and its missing-value bucket
+    (``null_group``).
+
+    ``status`` is ok, empty, fallback (graph_search's scoped total only, no breakdown), refused, error or
+    timed_out; ``kind`` is count, breakdown (group columns then a trailing count) or rows (returned as is).
+    ``sum_of_group_counts`` adds the groups' counts, so a sample in several groups counts once in each; it is not a
+    number of samples when ``groups_may_overlap`` is true (every breakdown of two groups or more).
+    """
+    part: int
+    question: str
+    status: Literal["ok", "empty", "fallback", "refused", "error", "timed_out"]
+    kind: Optional[Literal["count", "breakdown", "rows"]] = None
+    columns: List[str] = Field(default_factory=list)
+    groups: List[Dict[str, Any]] = Field(default_factory=list)
+    group_count: Optional[int] = None
+    sum_of_group_counts: Optional[float] = None
+    groups_may_overlap: Optional[bool] = None
+    null_group: Optional[int] = None
+    truncated: bool = False
+    cypher: Optional[str] = None
+    scope: Optional[Dict[str, Any]] = None
+    attempts: List[Dict[str, Any]] = Field(default_factory=list)
+    fallback: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    model_config = ConfigDict(extra="allow")
+
+
+class AggregateResult(BaseModel):
+    """Every part, in order, with the notes the agent must relay; ``complete`` is false when a part timed out."""
+    question: str
+    complete: bool
+    elapsed_s: float
+    deadline_s: float
+    parts: List[AggregatePart]
+    notes: List[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="allow")
+
+
+class AggregateOpResponse(BaseModel):
+    op: Literal["aggregate"] = "aggregate"
+    result: AggregateResult
     model_config = ConfigDict(extra="forbid")
 
 

@@ -1,7 +1,9 @@
 """
 What the prover injects, exactly, and the properties every injection keeps.
 
-Goldens pin the output text for a dozen statements (spec section 5.6). The properties hold for every accepted
+Goldens pin the output text for a dozen statements (spec section 5.6). Where the model's WHERE could raise, the
+clauses guard it (``CASE WHEN <clauses> THEN (...) ELSE false END``) so it is never evaluated on a node outside the
+scope; conjuncts that cannot raise stay outside for Neo4j's index seeks. The properties hold for every accepted
 statement in the battery: the output is the input plus insertions only (deleting the inserted spans gives the input
 back byte for byte), every generated name starts with __scope, the parameters are the input's plus the one scope
 parameter, an admin gets the input back unchanged, and an empty project set binds []. strip_hidden turns a
@@ -57,8 +59,9 @@ GOLDENS = [
     (
         "exists_lineage",
         "MATCH (s:T_SLD) WHERE EXISTS { (s)-[:DERIVED_FROM*1..12]->(:T_MUS) } RETURN count(s) AS n",
-        "MATCH (s:T_SLD) WHERE (EXISTS { MATCH __scope_path1 = (s)-[:DERIVED_FROM*1..12]->(:T_MUS) WHERE "
-        + path_clause(1, 1, "__scope_path1") + " }) AND " + clause(2, "s") + " RETURN count(s) AS n",
+        "MATCH (s:T_SLD) WHERE CASE WHEN " + clause(2, "s") + " THEN (EXISTS { MATCH __scope_path1 = "
+        "(s)-[:DERIVED_FROM*1..12]->(:T_MUS) WHERE " + path_clause(1, 1, "__scope_path1") + " }) ELSE false END "
+        "RETURN count(s) AS n",
     ),
     (
         "optional_parent",
@@ -87,17 +90,17 @@ GOLDENS = [
         "toLower($project) }\n"
         "RETURN count(DISTINCT s) AS n",
         "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\n"
-        "WHERE (toLower(st.title) CONTAINS toLower($project)\n"
+        "WHERE CASE WHEN " + clause(1, "s") + " THEN (toLower(st.title) CONTAINS toLower($project)\n"
         "   OR EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE toLower(inv.title) CONTAINS "
-        "toLower($project) }) AND " + clause(1, "s") + "\n"
+        "toLower($project) }) ELSE false END\n"
         "RETURN count(DISTINCT s) AS n",
     ),
     (
         "project_node",
         "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE toLower(p.title) CONTAINS toLower($project) "
         "RETURN count(DISTINCT s) AS n",
-        "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE (toLower(p.title) CONTAINS toLower($project)) AND "
-        + clause(1, "s") + f" AND p.id IN {SP} RETURN count(DISTINCT s) AS n",
+        "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE CASE WHEN " + clause(1, "s") + f" AND p.id IN {SP} "
+        "THEN (toLower(p.title) CONTAINS toLower($project)) ELSE false END RETURN count(DISTINCT s) AS n",
     ),
     (
         "anonymous_parent",
@@ -127,8 +130,8 @@ GOLDENS = [
         "bare_exists_with_where",
         "MATCH (s:T_SLD) WHERE EXISTS { (s)-[:DERIVED_FROM]->(m:T_MUS) WHERE m.Strain = $strain } "
         "RETURN count(s) AS n",
-        "MATCH (s:T_SLD) WHERE (EXISTS { MATCH (s)-[:DERIVED_FROM]->(m:T_MUS) WHERE (m.Strain = $strain) AND "
-        + clause(1, "m") + " }) AND " + clause(2, "s") + " RETURN count(s) AS n",
+        "MATCH (s:T_SLD) WHERE CASE WHEN " + clause(2, "s") + " THEN (EXISTS { MATCH (s)-[:DERIVED_FROM]->(m:T_MUS) "
+        "WHERE (m.Strain = $strain) AND " + clause(1, "m") + " }) ELSE false END RETURN count(s) AS n",
     ),
     (
         "comma_list",
@@ -174,9 +177,11 @@ def test_injection_golden(name, cypher, expected):
 ACCEPTED_TEXTS = [(c.id, c.cypher, c.params) for c in TAUGHT + ACCEPTED] + [
     (v[0], v[1], {}) for v in hidden_variants() if not v[2]]
 
-_CARRIER = re.compile(r"^(\(|MATCH |__scope_(?:path|n)\d+(?: = )?| WHERE .*|\) AND .*)$", re.DOTALL)
+_CARRIER = re.compile(r"^(\(|MATCH |__scope_(?:path|n)\d+(?: = )?| WHERE .*|\) AND .*|CASE WHEN .* THEN \(|"
+                      r"\) ELSE false END)$", re.DOTALL)
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_FIXED_WORDS = {"any", "all", "nodes", "IN", "WHERE", "AND", "MATCH", "project_ids", "id"}
+_FIXED_WORDS = {"any", "all", "nodes", "IN", "WHERE", "AND", "MATCH", "project_ids", "id",
+                "CASE", "WHEN", "THEN", "ELSE", "false", "END"}
 
 
 @pytest.mark.parametrize("name, cypher, params", ACCEPTED_TEXTS, ids=[a[0] for a in ACCEPTED_TEXTS])

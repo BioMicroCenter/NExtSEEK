@@ -113,7 +113,7 @@ class GraphEndpointTests(GranularEndpointBase):
 class ApiReadEndpointTests(GranularEndpointBase):
     def test_api_read_allowlisted_returns_response(self):
         with patch("chat_nextseek.portable.api_agent_build_request",
-                   return_value=_plan("/nextseek_api/samples/advanced_search/", "POST")), \
+                   return_value=_plan("/nextseek_api/samples/graph_search/", "POST")), \
              patch("chat_nextseek.helpers.tool_nextseek_api_request",
                    return_value={"ok": True, "data": {"rows": [{"uid": "MUS-1"}]}}):
             resp = self.client.post(f"{self.BASE}/api-read/",
@@ -391,4 +391,84 @@ class GraphSchemaEndpointTests(GranularEndpointBase):
     def test_graph_schema_needs_authentication(self):
         anon = APIClient()
         resp = anon.post(f"{self.BASE}/graph-schema/", {}, format="json")
+        self.assertEqual(resp.status_code, 401)
+
+
+class AggregateEndpointTests(GranularEndpointBase):
+    """POST /assistant/aggregate/ — counts and breakdowns, the graph op's chain once per part.
+
+    The agents and the Neo4j tool are patched (no model, no graph), and so is
+    ``_granular_chat_config``, for the same reason as GraphSchemaEndpointTests: the hermetic
+    lane's settings carry no ``NEXTSEEK_CHAT_CONFIG``. What is proved here is the route, the auth
+    gate, the request model (no Cypher, no scope), the arg projection and the session the parser
+    reads."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch("nextseek_api.services.assistant._granular_chat_config",
+                        return_value=SimpleNamespace())
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _post(self, body):
+        captured = {}
+
+        def fake_parser(session, config, query, entity):
+            captured.setdefault("sessions", []).append(session)
+            return _dumpable({"mode": "graph_query"})
+
+        with patch("chat_nextseek.portable.entity_agent", return_value=_dumpable({"sampletypes": []})), \
+             patch("chat_nextseek.portable.parser_agent", side_effect=fake_parser), \
+             patch("chat_nextseek.portable.graph_agent",
+                   return_value=_dumpable({"cypher": "MATCH (s:T_TIS) RETURN s.Organ AS organ, "
+                                                     "count(DISTINCT s) AS n", "parameters": {}})), \
+             patch("chat_nextseek.helpers.tool_neo4j_query",
+                   return_value={"ok": True, "data": [{"organ": "lung", "n": 3}, {"organ": None, "n": 1}],
+                                 "count": 2, "total": 2, "truncated": False,
+                                 "scope": {"decision": "proven", "project_ids": [2]}}):
+            resp = self.client.post(f"{self.BASE}/aggregate/", body, format="json")
+        return resp, captured
+
+    def test_aggregate_returns_one_table_per_part(self):
+        resp, captured = self._post({"query": "TIS by organ, twice",
+                                     "parts": '["TIS samples by organ", "TIS samples by organ again"]'})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["op"], "aggregate")
+        self.assertNotIn("download", body)
+        result = body["result"]
+        self.assertTrue(result["complete"])
+        self.assertEqual([p["part"] for p in result["parts"]], [1, 2])
+        self.assertEqual(result["parts"][0]["sum_of_group_counts"], 4)
+        self.assertTrue(result["parts"][0]["groups_may_overlap"])
+        self.assertEqual(result["parts"][0]["null_group"], 1)
+        self.assertEqual(len(captured["sessions"]), 2)
+        self.assertTrue(all(s is not None for s in captured["sessions"]))
+
+    def test_aggregate_without_parts_answers_the_question(self):
+        resp, _ = self._post({"query": "TIS samples by organ"})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(len(resp.json()["result"]["parts"]), 1)
+
+    def test_aggregate_rejects_cypher_and_scope_fields(self):
+        for field, value in (("cypher", "MATCH (n) RETURN n"), ("projects", [1, 2]),
+                             ("scope", {"is_admin": True}), ("is_admin", True)):
+            with self.subTest(field=field):
+                resp = self.client.post(f"{self.BASE}/aggregate/", {"query": "q", field: value}, format="json")
+                self.assertEqual(resp.status_code, 422)
+                self.assertEqual(resp.json()["code"], "VALIDATION")
+
+    def test_aggregate_bad_parts_are_422(self):
+        with patch("chat_nextseek.portable.entity_agent") as entity:
+            resp = self.client.post(f"{self.BASE}/aggregate/", {"query": "q", "parts": "not json"}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+        entity.assert_not_called()
+
+    def test_aggregate_missing_query_is_422(self):
+        resp = self.client.post(f"{self.BASE}/aggregate/", {"parts": '["x"]'}, format="json")
+        self.assertEqual(resp.status_code, 422)
+
+    def test_aggregate_needs_authentication(self):
+        resp = APIClient().post(f"{self.BASE}/aggregate/", {"query": "q"}, format="json")
         self.assertEqual(resp.status_code, 401)

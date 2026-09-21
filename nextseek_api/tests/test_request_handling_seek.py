@@ -22,7 +22,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http import HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.template import engines
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 
 import seek.views.samples  # noqa: F401  -- so @patch can resolve the targets
 import seek.views.upload  # noqa: F401
@@ -31,13 +31,21 @@ ROOT = Path(__file__).resolve().parents[2]
 PAGES = ROOT / "seek" / "templates" / "pages"
 
 
+@pytest.fixture(autouse=True)
+def _export_root(tmp_path):
+    """The export store the deletion and upload views write into, kept inside the test's own directory."""
+    with override_settings(NEXTSEEK_EXPORT_ROOT=str(tmp_path / "exports")):
+        yield
+
+
 def _user(username="demo", superuser=False):
-    return SimpleNamespace(is_authenticated=True, is_superuser=superuser, username=username)
+    # A pk, as every real user has: the views write their exports into a store that records who made them.
+    return SimpleNamespace(is_authenticated=True, is_superuser=superuser, username=username, pk=7)
 
 
 def _logged_out():
     """What ``request.user`` is when nobody is logged in."""
-    return SimpleNamespace(is_authenticated=False, is_superuser=False, username="")
+    return SimpleNamespace(is_authenticated=False, is_superuser=False, username="", pk=None)
 
 
 def _seek_login(username="demo", status=True):

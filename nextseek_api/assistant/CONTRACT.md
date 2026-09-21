@@ -28,11 +28,12 @@ All endpoints are **additive** to the existing `AssistantViewSet`; existing endp
 
 ## Op table
 
-The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds **ten** handlers: the
+The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds **eleven** handlers: the
 seven ops ported from the sidecar, plus `run-ls` (`_run_ls`) and `build-upload-xlsx`
-(`_build_upload_xlsx`), the NExtSEEK-only reingest pair added afterwards, and `graph-schema`
+(`_build_upload_xlsx`), the NExtSEEK-only reingest pair added afterwards, `graph-schema`
 (`_graph_schema`), which serves the live graph catalog so the CC agent stops reading a snapshot
-baked into its image. `run_op` refuses any
+baked into its image, and `aggregate` (`_aggregate`, body in `NessieAI/ns/aggregate.py`), which
+answers counts and breakdowns in one call. `run_op` refuses any
 label absent from that table. The sidecar's own table (`_HANDLERS` in
 `NessieAI/docker/ns-sidecar/app/ops.py`) matches it handler for handler. The last two rows below
 are not dispatched here at all: they are the pre-existing chat endpoints, listed so the whole
@@ -43,6 +44,7 @@ surface is in one place.
 | **entity** | POST `/assistant/entity/` | `EntityOpRequest{query}` | `EntityOpResponse` | `entity_agent(config, query)` → `EntityAgentOutput` |
 | **parse** | POST `/assistant/parse/` | `ParseOpRequest{query}` | `ParseOpResponse` | `parser_agent(session, config, query, entity_agent(config, query))` → `ParserPlan` |
 | **graph** | POST `/assistant/graph/` | `GraphOpRequest{query}` | `GraphOpResponse` | `graph_agent(config, query, entity_agent(config, query))` → `GraphAgentPlan`, **then** `tool_neo4j_query(config, plan.cypher, plan.parameters)`. Result = `{plan, result}`. **Note:** a superset of the sidecar's original op, which returned the plan only |
+| **aggregate** | POST `/assistant/aggregate/` | `AggregateOpRequest{query, parts?}` | `AggregateOpResponse` | `run_aggregate`: `parts` is a JSON array of 1 to 4 plain-language sub-questions (empty: the question is the one part); `entity_agent` runs **once** over the question and the parts, then each part runs the graph op's chain (`run_graph_question` in `granular.py`: `parser_agent`, `graph_agent` with the aggregate brief as `refine_context`, `tool_neo4j_query` on the statement with `LIMIT 1001` appended when it has none, at most one retry, graph_search on a scope refusal) on a pool of up to 4 threads. Answers at 50 s with what finished; the other parts are `timed_out`. Result = `{question, complete, elapsed_s, deadline_s, parts: [{part, question, status, kind, columns, groups, group_count, sum_of_group_counts, groups_may_overlap, null_group, truncated, cypher, scope, attempts, fallback, error?}], notes}`. `sum_of_group_counts` adds the groups' counts, so a sample in several groups (project, assay, study, a list value) counts once in each: `groups_may_overlap` is true for every breakdown of two or more groups, and then the sum is not a number of samples. No sample records and no Cypher or scope from the caller. |
 | **graph-schema** | POST `/assistant/graph-schema/` | `GraphSchemaOpRequest{types?, query?}` | `GraphSchemaOpResponse` | no agent and **no LLM**: `graph_schema_snapshot(config, types=[...], question=query)` reads the live v1.1/1.2 catalog through `graph_catalog` and renders it with `graph_context`. Result = `{source, schema_version, catalog_hash, synced_at, sample_types, resolved_types, unknown_types, schema, vocabulary, unavailable_reason, fallback_fetched_at}`. `source` is `catalog` or `fallback` (the committed `NessieAI/chat_nextseek/src/chat_nextseek/context/neo4j_schema.json`, with the reason). Read-only: the caller sends no Cypher. |
 | **api-read** | POST `/assistant/api-read/` | `ApiReadRequest{parser_plan}` | `ApiReadResponse` | `api_agent_build_request(config, json.loads(parser_plan))` → gate `(endpoint, METHOD)` against `read_safe_endpoints.json` → `tool_nextseek_api_request(config, endpoint, method, requestBody, queryParameters)`. Result = `{endpoint, method, api_plan, response}` |
 | **api-write** | POST `/assistant/api-write/` | `ApiWriteRequest{parser_plan, confirmed_write=false, query?}` | `ApiWriteResponse` | gate: **executes only when `confirmed_write is True`** (strict bool) else `WRITE_BLOCKED`; then `api_agent_build_request` → `tool_nextseek_api_request`. Result = `{endpoint, method, api_plan, response}` |
@@ -59,6 +61,7 @@ surface is in one place.
 |----|-----------------------------------|----------------------------|
 | entity / parse / graph | `query` | `use_prod?`, `session_id?` (optional, default-safe) |
 | graph-schema | *(not in the sidecar's original set)* `types?` (comma-sep sample type codes), `query?` | `use_prod?` |
+| aggregate | *(not in the sidecar's original set)* `query`, `parts?` (JSON array of 1 to 4 strings, as text) | `use_prod?`, `session_id?` |
 | api-read | `parser_plan` (JSON string) | `use_prod?` |
 | api-write | `parser_plan`, `confirmed_write` (strict bool), `query?` | `use_prod?` |
 | report | `mode` ∈ {samples,protocols,published,rppr}, `project` | `use_prod?` |
@@ -110,10 +113,12 @@ gate (`is True`). The gate fires **before** any agent/LLM call or DB write, so a
 cannot reach the database. `api-read` is allowlist-gated against
 `NessieAI/ns/read_safe_endpoints.json`. Source: `build_gate` in `NessieAI/ns/write_gate.py`.
 
-Only two handlers call the gate at all: the `api-read` and `api-write` handlers in
-`NessieAI/ns/granular.py`. The other eight, `run-ls` and `build-upload-xlsx` among them, never
-reach it, which is why the gate's own `SIDECAR_OPS` frozenset holds the **eight** labels it has a
-policy for (the seven ported ones plus `graph-schema`) while the dispatcher holds ten. That set is not a second op catalog: it is the gate's
+Only two labels ever reach the gate: `api-read` and `api-write`. The `api-read` and `api-write`
+handlers in `NessieAI/ns/granular.py` call it, and so does the graph_search fallback of `graph` and
+`aggregate`, which gates its one request as an `api-read`. No handler calls it with its own label;
+`run-ls` and `build-upload-xlsx` never reach it at all, which is why the gate's own `SIDECAR_OPS`
+frozenset holds the **nine** labels it has a policy for (the seven ported ones plus `graph-schema`
+and `aggregate`) while the dispatcher holds eleven. That set is not a second op catalog: it is the gate's
 known-label list, and anything outside it is default-denied. A handler added later that *does*
 call the gate with its own label is refused with `WRITE_BLOCKED` until the label is added there.
 

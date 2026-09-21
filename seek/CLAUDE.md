@@ -121,11 +121,11 @@
   `grep -rl 'seek/views\.py'` excluding `.superpowers/`, `.git/` and this
   directory's own two documents; some of those are deliberate history.
 - **Credentials go into a shell command line, and TLS verification is off.**
-  `seek/seekapi.py:21` interpolates the SEEK username and password into a `curl`
-  string that `seek/seekapi.py:37-40` runs with `shell=True`; `-k` there and
-  `verify=False` at `seek/seekapi.py:113-115` disable certificate checks. The
-  password is visible in the process table and a metacharacter in it changes the
-  command.
+  `SeekAPI.__curlPrefix` puts the SEEK username and password into a `curl`
+  string that `SeekAPI.__queryRaw` runs with `shell=True`; `-k` there and
+  `verify=False` in `SeekAPI.getPageRequests` disable certificate checks. The
+  password is visible in the process table. It is one `shlex.quote`d word: before
+  that, a quote in a password ended the word and the rest ran as a command.
 - **`seek/templates/content.embed.html` is never the file that renders.**
   `themes/NextSeek/templates` is the filesystem `DIRS` entry
   (`dmac/settings.py:108-110`) and its loader runs before the app-directories one

@@ -13,7 +13,8 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 - ``finish_done`` marks the row done only if ``enqueued_at`` is unchanged since the claim. A row re-enqueued meanwhile
   carries a write the worker may not have read, so it goes back to pending instead.
 - ``finish_failed`` releases the claim with a back-off (``backoff_s``: 6 h for a full sync, 1 h otherwise).
-- ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all.
+- ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
+  row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
 
 ``lease_expires_at`` is the time before which no worker may claim the row: a live claim's lease while ``claimed_by`` is
 set, a failure's back-off after ``finish_failed`` clears it. An expired lease is claimable again, so a worker that dies
@@ -294,8 +295,15 @@ def finish_failed(claim: Claim, error: BaseException | str, backoff_s: float, *,
 def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: datetime | None = None) -> int:
     """Mark done every open row enqueued before ``ts`` (of ``kinds``, when given), claimed or not, and return how many.
     A successful full sync passes its start: it read everything those rows ask for. A worker holding one of them then
-    finds it done, and ``finish_done`` leaves it so."""
+    finds it done, and ``finish_done`` leaves it so.
+
+    Except a row still held back by its ``delay_s`` at ``ts``: its writer could not tell whether its write had landed,
+    and the sync may have read MySQL before it did. A delay is stored as a back-off is, in ``lease_expires_at`` with
+    no claim, and told apart by the attempts: none since the row was enqueued, where a failure's back-off follows a
+    claim that counted one."""
     qs = _outbox().filter(done_at__isnull=True, enqueued_at__lt=ts)
+    qs = qs.filter(Q(claimed_by__isnull=False) | Q(attempts__gt=0) | Q(lease_expires_at__isnull=True)
+                   | Q(lease_expires_at__lte=ts))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
     return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)

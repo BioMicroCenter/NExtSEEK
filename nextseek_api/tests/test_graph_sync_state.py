@@ -410,6 +410,37 @@ def test_mark_done_before_can_be_limited_to_some_kinds():
 
 
 @pytest.mark.django_db
+def test_mark_done_before_spares_a_row_still_inside_its_delay_when_the_sync_started():
+    """A writer that cannot tell whether its write has landed enqueues with a delay (the samples proxy's retire after
+    SEEK gave no answer to a delete). A full sync that started before that delay ran out may have read MySQL before
+    the write landed, so it did not cover the row: closing it left the deleted sample's node in the graph."""
+    state.enqueue("retire", "sample:5", now=T0, delay_s=300)
+
+    assert state.mark_done_before(at(seconds=10), now=at(minutes=30)) == 0
+    r = row("retire", "sample:5")
+    assert r.done_at is None and r.lease_expires_at == at(seconds=300)
+    assert state.claim_next("w1", now=at(minutes=30)).key == "sample:5"
+
+
+@pytest.mark.django_db
+def test_mark_done_before_closes_a_delayed_row_whose_delay_ran_out_before_the_sync_started():
+    state.enqueue("retire", "sample:5", now=T0, delay_s=300)
+
+    assert state.mark_done_before(at(minutes=10), now=at(minutes=30)) == 1
+    assert row("retire", "sample:5").done_at == at(minutes=30)
+
+
+@pytest.mark.django_db
+def test_mark_done_before_still_closes_a_row_backing_off_after_a_failure():
+    """A back-off is stored where a delay is, but it waits on nothing: the sync read what the row asks for."""
+    state.enqueue("samples", "sample:1", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 3600, now=at(seconds=2))
+
+    assert state.mark_done_before(at(minutes=5), now=at(minutes=30)) == 1
+    assert row("samples", "sample:1").done_at == at(minutes=30)
+
+
+@pytest.mark.django_db
 def test_mark_done_before_does_not_touch_a_row_already_done():
     state.enqueue("samples", "sample:1", now=T0)
     state.finish_done(state.claim_next("w", now=at(seconds=1)), now=at(seconds=2))

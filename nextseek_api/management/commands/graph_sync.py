@@ -29,10 +29,11 @@ takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``
 graph. Every other mode still
 needs the flag by hand, and the loop passes it to its children.
 
-Exit status: 0 on success; 1 when a check fails or a run failed part way; 2 on a refusal, which means nothing was
-written; 3 when ``--drift`` could not complete. With ``--json`` stdout holds only the JSON result; progress goes to
-stderr. The package, its modules and the graph it writes: ``nextseek_api/graph_sync/README.md`` and
-``docs/neo4j-schema.md`` section "v1.2".
+Exit status: 0 on success; 1 when a check fails, a run failed part way, or ``--full``, ``--catalog`` or
+``--reconcile`` could not take the graph-write lock, which another write held past its wait (the loop retries it);
+2 on a refusal, which means nothing was written; 3 when ``--drift`` could not complete. With ``--json`` stdout holds
+only the JSON result; progress goes to stderr. The package, its modules and the graph it writes:
+``nextseek_api/graph_sync/README.md`` and ``docs/neo4j-schema.md`` section "v1.2".
 """
 from __future__ import annotations
 
@@ -264,7 +265,9 @@ class Command(BaseCommand):
                                        record=record, trigger=trigger)
         except run.PreflightError as exc:
             self._emit(exc.report, as_json)
-            raise CommandError(str(exc), returncode=2) from exc
+            # A lock another write held past the wait is not a refusal of this graph: exit 1, so the loop retries
+            # its child rather than closing the slot as done (loop.py).
+            raise CommandError(str(exc), returncode=1 if isinstance(exc, run.LockTimeout) else 2) from exc
         self._emit(result, as_json)
 
     def _reconcile(self, driver, db, options):

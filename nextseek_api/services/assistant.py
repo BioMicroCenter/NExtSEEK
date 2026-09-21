@@ -73,6 +73,8 @@ from nextseek_api.assistant.models_api import (
     ApiReadResponse,
     ApiWriteRequest,
     ApiWriteResponse,
+    AggregateOpRequest,
+    AggregateOpResponse,
     EntityOpRequest,
     EntityOpResponse,
     GraphOpRequest,
@@ -208,6 +210,7 @@ def _most_recent_session(user) -> "ChatSession | None":
 # ----------------------------------------------------------------------
 
 _GRANULAR_REQUEST_MODELS = {
+    "aggregate": AggregateOpRequest,
     "entity": EntityOpRequest,
     "parse": ParseOpRequest,
     "graph": GraphOpRequest,
@@ -1173,10 +1176,10 @@ class AssistantViewSet(viewsets.ViewSet):
             return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         chat_config = _granular_chat_config(request, req)
-        # parse and graph both run parser_agent, which reads results_history off
-        # the session — build a (transient) session for both, else parser_agent
+        # parse, graph and aggregate all run parser_agent, which reads results_history
+        # off the session — build a (transient) session for them, else parser_agent
         # crashes on None. Other ops don't touch the session.
-        session = self._granular_session(request, req) if op in ("parse", "graph") else None
+        session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
         # report + generate-submission both persist real artifacts to disk (the
@@ -1272,6 +1275,25 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="graph")
     def graph(self, request):
         return self._run_granular_op(request, "graph")
+
+    @extend_schema(
+        operation_id="Assistant: Aggregate",
+        description=(
+            "Counts and breakdowns inside the caller's projects, in one call: the question, or 1 to 4 "
+            "plain-language parts, each answered by the graph op's own chain in parallel, as a small table "
+            "per part (`groups`, `sum_of_group_counts`, `groups_may_overlap`, `null_group`), never sample "
+            "records; a breakdown's `sum_of_group_counts` counts a sample once per group it falls in, so it is "
+            "not a number of samples when `groups_may_overlap` is true. Answers what finished within "
+            "50 s and marks the rest `timed_out`. A part refused for its project scope carries the "
+            "project-scoped sample search's total only (`status` fallback). The body takes no Cypher and "
+            "no scope."
+        ),
+        request=AggregateOpRequest,
+        responses={200: AggregateOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="aggregate")
+    def aggregate(self, request):
+        return self._run_granular_op(request, "aggregate")
 
     @extend_schema(
         operation_id="Assistant: Graph Schema",

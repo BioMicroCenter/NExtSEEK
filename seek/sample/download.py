@@ -248,6 +248,7 @@ class SampleDownloadMixin:
                 else:
                     sampleTypes[sampleType] = uids_i
             '''
+        parentList = self._scopeLineage(parentList)
         sampleTypes = self._getTreeSampleTypes(parentList)
         return sampleTypes
 

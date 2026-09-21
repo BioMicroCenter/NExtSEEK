@@ -39,6 +39,8 @@ urlpatterns = [
     re_path(r'^samples/download/', views.sampleDownload, name='sampleDownload'),
     re_path(r'^samples/export/', views.sampleExport, name='sampleExport'),
     re_path(r'^samples/delete/', views.sampleDelete, name='sampleDelete'),
+    # The files those exports write, streamed only to the caller who made them (seek/views/exports.py).
+    re_path(r'^exports/(?P<token>[0-9a-f]{32})/(?P<filename>[\w.-]+)$', views.exportFile, name='exportFile'),
     
     re_path(r'^samplefind/', views.sampleFindAjax, name='sampleFindAjax'),
     

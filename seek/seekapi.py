@@ -22,7 +22,8 @@ class SeekAPI(object):
         if self.__username is None:
             curl_prefix = "curl -k "
         else:    
-            curl_prefix = "curl -u '" + self.__username + ":" + self.__password + "' -k "
+            # One shell word whatever the password holds: these command lines run with shell=True.
+            curl_prefix = "curl -u " + shlex.quote(self.__username + ":" + self.__password) + " -k "
         
         return curl_prefix
             

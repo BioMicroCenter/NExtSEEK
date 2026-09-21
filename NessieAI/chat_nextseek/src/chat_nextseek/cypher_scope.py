@@ -17,6 +17,10 @@ recognizer for one fixed grammar (spec section 5.3), classifies every node and r
   (a sibling of a visible sample's study, possibly holding only samples the caller cannot see).
 - Every node on a variable-length ``DERIVED_FROM`` path is scoped by one clause over ``nodes(path)``, so lineage stops
   at the caller's project edge.
+- The clauses guard the model's own ``WHERE``: whatever part of it could raise on a node's values runs only inside
+  ``CASE WHEN <clauses> THEN (...) ELSE false END``, so a node outside the scope never reaches it and an error cannot
+  report on a foreign node. Only conjuncts that cannot raise (a comparison of plain operands, ``IS NULL``, a label
+  test) stay outside, where Neo4j can seek an index on them (``_Parser.harmless``).
 - The sample fulltext search is scoped in its ``YIELD``'s ``WHERE``.
 - Catalog nodes (``SampleType``, ``Attribute``), ``GraphMeta``, ``OrphanSample``, unknown labels, untyped or other
   relationships, subqueries other than ``EXISTS``/``COUNT``, procedures, pattern expressions, path selectors, the hidden
@@ -187,6 +191,8 @@ def _scope_with_insertions(cypher: Any, parameters: Any, scope: Any) -> tuple[Sc
                 findings.add("reserved_name", tok.start, f"the name {tok.value} uses the reserved prefix "
                                                          f"{RESERVED_PREFIX}")
         parser = _Parser(cypher, tokens, findings)
+        parser.list_params = frozenset(key for key, value in parameters.items()
+                                       if isinstance(key, str) and (value is None or isinstance(value, (list, tuple))))
         try:
             parser.statement()
         except _Stop:
@@ -424,6 +430,9 @@ _CLAUSE_START = frozenset({"MATCH", "OPTIONAL", "WITH", "UNWIND", "CALL", "RETUR
 _SKIP_STOP = frozenset({"MATCH", "OPTIONAL", "WITH", "UNWIND", "CALL", "RETURN", "ORDER", "SKIP", "LIMIT", "UNION",
                         "YIELD"})
 _COMPARISON = frozenset({"=", "<>", "!=", "<", ">", "<=", ">=", "=~"})
+# Comparisons that return null, never raise, whatever the types of their operands (not =~, whose pattern can be
+# invalid).
+_HARMLESS_COMPARISON = frozenset({"=", "<>", "!=", "<", ">", "<=", ">="})
 _OPENERS = {"(": ")", "[": "]", "{": "}"}
 
 
@@ -519,6 +528,7 @@ class _Parser:
         self.counters = {"p": 0, "m": 0, "n": 0, "path": 0}
         self.paren_closes: set[int] = set()
         self.anon = 0
+        self.list_params: frozenset[str] = frozenset()   # parameters whose value is a list (or null): IN cannot raise
 
     # ------------------------------------------------------------------ token helpers
     @property
@@ -688,13 +698,35 @@ class _Parser:
         self.finalize(plist, names, where)
         return inner
 
-    def optional_where(self, names: _Names) -> tuple[int, int] | None:
+    def optional_where(self, names: _Names) -> tuple[int, int, tuple[tuple[int, int], ...]] | None:
+        """(start offset, end offset, top-level conjuncts as token spans) of a WHERE, or None when there is none."""
         if not self.at_kw("WHERE"):
             return None
         self.i += 1
         start = self.tok.start
-        self.expr(names)
-        return start, self.toks[self.i - 1].end
+        conjuncts = self.conjuncts(names)
+        return start, self.toks[self.i - 1].end, conjuncts
+
+    def conjuncts(self, names: _Names) -> tuple[tuple[int, int], ...]:
+        """Parse an expression exactly as ``expr`` does; return its top-level AND operands as token spans
+        [first, end), or the whole expression as one span when OR or XOR joins them at the top."""
+        first = self.i
+        self.not_(names)
+        spans = [(first, self.i)]
+        while self.at_kw("AND"):
+            self.i += 1
+            start = self.i
+            self.not_(names)
+            spans.append((start, self.i))
+        if self.at_kw("XOR") or self.at_kw("OR"):
+            while self.at_kw("XOR"):
+                self.i += 1
+                self.and_(names)
+            while self.at_kw("OR"):
+                self.i += 1
+                self.xor_(names)
+            return ((first, self.i),)
+        return tuple(spans)
 
     def with_clause(self, names: _Names) -> _Names:
         self.i += 1
@@ -889,7 +921,7 @@ class _Parser:
             alias, alias_raw, offset = node
             element = self.gen("p")
             clause = SCOPE_CLAUSE_TEMPLATE.format(element=element, var=alias_raw, param=SCOPE_PARAM)
-            self.add_where([clause], where, end_off)
+            self.add_where([clause], where, end_off, frozenset({alias}))
             self.injected.append((offset, f"{alias_raw}: sample clause"))
         return names
 
@@ -1229,7 +1261,11 @@ class _Parser:
         if clauses:
             if bare_first_off is not None:
                 self.insert(bare_first_off, "MATCH ", seq=seq_start + 0.5)
-            self.add_where(clauses, where, plist.end_off)
+            # The nodes and single relationships this pattern binds: reading a property of one never raises. A name
+            # bound earlier, a path and a variable-length relationship (a list) are not among them.
+            bound_here = {v.var for v in order if v.var and not v.reference}
+            bound_here |= {rel.var for path in live_paths for rel in path.rels if rel.var and not rel.varlen}
+            self.add_where(clauses, where, plist.end_off, frozenset(bound_here))
 
     def name_for(self, v: _Vertex) -> str:
         if v.ref_text:
@@ -1305,13 +1341,128 @@ class _Parser:
                 stack.append(other)
         return False
 
-    def add_where(self, clauses: list[str], where: tuple[int, int] | None, end_off: int) -> None:
+    def add_where(self, clauses: list[str], where: tuple[int, int, tuple[tuple[int, int], ...]] | None, end_off: int,
+                  pattern_vars: frozenset[str] = frozenset()) -> None:
+        """Put the clauses on a pattern. With no WHERE: `` WHERE <clauses>``. With one, the clauses guard the model's
+        predicate: from its first conjunct that could raise to its last, it becomes
+        ``CASE WHEN <clauses> THEN (...) ELSE false END``, so it is never evaluated on a node outside the scope, where
+        an error, against a clean empty answer, would tell the caller something about that node. Neo4j may evaluate
+        ``(<predicate>) AND <clauses>`` in either order, and does evaluate the predicate first (the graph scope lane,
+        ``test_scope_error_oracle_lane.py``). Conjuncts before and after that span cannot raise and stay outside, where
+        Neo4j can still seek an index on them. When no conjunct could raise, ``(<predicate>) AND <clauses>``."""
         text = " AND ".join(clauses)
         if where is None:
             self.insert(end_off, " WHERE " + text)
-        else:
-            self.insert(where[0], "(")
-            self.insert(where[1], ") AND " + text)
+            return
+        start, end, spans = where
+        risky = [span for span in spans if not self.harmless(span, pattern_vars)]
+        if not risky:
+            self.insert(start, "(")
+            self.insert(end, ") AND " + text)
+            return
+        self.insert(self.toks[risky[0][0]].start, "CASE WHEN " + text + " THEN (")
+        self.insert(self.toks[risky[-1][1] - 1].end, ") ELSE false END")
+
+    def harmless(self, span: tuple[int, int], pattern_vars: frozenset[str]) -> bool:
+        """Can this top-level conjunct of the model's WHERE never raise, whatever the values it reads? Only these
+        shapes (exactly, to the end of the conjunct):
+
+        - ``<operand> <op> <operand>``, ``<op>`` one of = <> != < <= > >= STARTS WITH, ENDS WITH, CONTAINS;
+        - ``<operand> IN [<operand>, ...]``, or ``<operand> IN $p`` when ``$p`` is a list or null;
+        - ``<operand> IS [NOT] NULL``;
+        - ``<var>:<Label>[:<Label>...]`` for a variable this pattern binds.
+
+        An operand is a literal, a parameter, a bare name, or ``<var>.<property>`` for a node or single relationship
+        this pattern binds. Cypher's comparisons and string predicates answer null on mismatched types instead of
+        raising, reading a node's or a relationship's property never raises, and a list literal of operands cannot
+        raise. Everything else (a function, arithmetic, a subscript, a nested property, a parenthesis, a subquery,
+        a quantifier, a map projection) may, and is guarded.
+        """
+        first, end = span
+        j = self._operand_end(first, end, pattern_vars)
+        if j is None or j >= end:
+            return j is None and self._label_test_end(first, end, pattern_vars) == end
+        t = self.toks[j]
+        if t.kind == "punct" and t.value in _HARMLESS_COMPARISON:
+            return self._operand_end(j + 1, end, pattern_vars) == end
+        if t.kind != "name":
+            return False
+        word = t.value.upper()
+        if word in ("STARTS", "ENDS") and j + 1 < end and self.toks[j + 1].kind == "name" \
+                and self.toks[j + 1].value.upper() == "WITH":
+            return self._operand_end(j + 2, end, pattern_vars) == end
+        if word == "CONTAINS":
+            return self._operand_end(j + 1, end, pattern_vars) == end
+        if word == "IN":
+            nxt = self.toks[j + 1] if j + 1 < end else None
+            if nxt is not None and nxt.kind == "param":
+                return nxt.value in self.list_params and j + 2 == end
+            return self._list_end(j + 1, end, pattern_vars) == end
+        if word == "IS":
+            k = j + 1
+            if k < end and self.toks[k].kind == "name" and self.toks[k].value.upper() == "NOT":
+                k += 1
+            return k + 1 == end and self.toks[k].kind == "name" and self.toks[k].value.upper() == "NULL"
+        return False
+
+    def _operand_end(self, k: int, end: int, pattern_vars: frozenset[str]) -> int | None:
+        """The token after a harmless operand starting at k (see ``harmless``), or None."""
+        if k >= end:
+            return None
+        t = self.toks[k]
+        nxt = self.toks[k + 1] if k + 1 < end else None
+        if t.kind in ("string", "param", "number"):
+            return k + 1
+        if t.kind == "punct" and t.value == "-" and nxt is not None and nxt.kind == "number":
+            return k + 2
+        if t.kind not in ("name", "bname"):
+            return None
+        if t.kind == "name" and t.value.upper() in ("TRUE", "FALSE", "NULL"):
+            return k + 1
+        if t.kind == "name" and t.value.upper() in _RESERVED:
+            return None
+        if nxt is not None and nxt.kind == "punct" and nxt.value == ".":
+            key = self.toks[k + 2] if k + 2 < end else None
+            after = self.toks[k + 3] if k + 3 < end else None
+            if t.value in pattern_vars and key is not None and key.kind in ("name", "bname") \
+                    and not (after is not None and after.kind == "punct" and after.value in (".", "(", "[", "{", ":")):
+                return k + 3
+            return None
+        if nxt is not None and nxt.kind == "punct" and nxt.value in ("(", "[", "{", ":"):
+            return None
+        return k + 1
+
+    def _list_end(self, k: int, end: int, pattern_vars: frozenset[str]) -> int | None:
+        """The token after a list literal of harmless operands starting at k, or None."""
+        if k >= end or not (self.toks[k].kind == "punct" and self.toks[k].value == "["):
+            return None
+        k += 1
+        if k < end and self.toks[k].kind == "punct" and self.toks[k].value == "]":
+            return k + 1
+        while True:
+            j = self._operand_end(k, end, pattern_vars)
+            if j is None or j >= end or self.toks[j].kind != "punct":
+                return None
+            if self.toks[j].value == "]":
+                return j + 1
+            if self.toks[j].value != ",":
+                return None
+            k = j + 1
+
+    def _label_test_end(self, k: int, end: int, pattern_vars: frozenset[str]) -> int | None:
+        """The token after ``<var>:<Label>[:<Label>...]`` starting at k, for a variable this pattern binds, or None."""
+        t = self.toks[k] if k < end else None
+        if t is None or t.kind not in ("name", "bname") or t.value not in pattern_vars:
+            return None
+        k += 1
+        if not (k < end and self.toks[k].kind == "punct" and self.toks[k].value == ":"):
+            return None
+        while k < end and self.toks[k].kind == "punct" and self.toks[k].value == ":":
+            if k + 1 < end and self.toks[k + 1].kind in ("name", "bname"):
+                k += 2
+            else:
+                return None
+        return k
 
     # ------------------------------------------------------------------ expressions
     def expr(self, names: _Names) -> None:

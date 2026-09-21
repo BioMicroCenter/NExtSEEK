@@ -81,6 +81,7 @@ COPY build_context/plugins/nextseek/bin/_ws_contract.py /opt/dmac/_ws_contract.p
 COPY build_context/plugins/nextseek/bin/_assistant_models.py /opt/dmac/_assistant_models.py
 COPY build_context/plugins/nextseek/bin/_assistant_client.py /opt/dmac/_assistant_client.py
 COPY build_context/plugins/nextseek/bin/_sidecar_client.py /opt/dmac/_sidecar_client.py
+COPY build_context/plugins/nextseek/bin/_turn_deadline.py /opt/dmac/_turn_deadline.py
 
 # claude-code discovers CLAUDE.md from cwd / project tree, not /app/. Symlink
 # the image-baked spec into the WORKDIR so the in-container Claude Code sees

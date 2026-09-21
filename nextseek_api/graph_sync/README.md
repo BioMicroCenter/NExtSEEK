@@ -68,7 +68,7 @@ Exit status:
 | Code | Means |
 |---|---|
 | 0 | success, and for `--drift` and `--verify` no failing check |
-| 1 | a check failed, or a run failed part way (its report says where) |
+| 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it) |
 | 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem |
 | 3 | the run could not complete |
 
@@ -80,9 +80,9 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
 memory returns when they end and a crash cannot take the loop with it. A child's exit status decides its row: 0 and
-2 (a refusal) are done, anything else backs off, except a `drift` child that exits 1 having saved a result that
-reports drift: that check did its job, so its row is done and the drift is in its run record, never retried into the
-same answer. The newest 20 run directories per kind are kept.
+2 (a refusal) are done, anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child
+that exits 1 having saved a result that reports drift: that check did its job, so its row is done and the drift is in
+its run record, never retried into the same answer. The newest 20 run directories per kind are kept.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
@@ -105,7 +105,8 @@ scheduled slot is inserted once. A claim is a compare-and-set that counts an att
 the row claimable again; a failure backs off (6 hours for a full sync, an hour otherwise); a row at
 `state.MAX_ATTEMPTS` is dead until a new write resets it. A writer that cannot tell whether its write has landed yet
 enqueues with a delay (`delay_s`), which holds the row back the way a back-off does. A successful full sync closes
-every row enqueued before it started, because it read them all.
+every row enqueued before it started, because it read them all, except a row still inside its delay when the sync
+started: the sync may have read MySQL before that write landed.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|

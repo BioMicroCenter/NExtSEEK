@@ -23,6 +23,7 @@ When a user asks about NExtSEEK data, read the SKILL.md first. The plugin's CLI 
 Installed bin ops (see SKILL.md for the full matrix):
 
 <!-- BEGIN PLAN005-GEN:operations -->
+nextseek-aggregate	aggregate	Count samples or break them down (by type, attribute value, project, person), held to the user's projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small table with the sum of its group counts (not a sample total when groups may overlap) and its missing-value bucket, never sample records.
 nextseek-api-read	api-read	Execute a read-safe REST call from a parser plan.
 nextseek-api-write	api-write	Execute a write (POST/PUT/DELETE) from a parser plan.
 nextseek-assay-resolve	assay-resolve	Resolve assay titles against the selected project.
@@ -31,7 +32,7 @@ nextseek-build-upload-xlsx	build-upload-xlsx	**Reingest step 2** — render NExt
 nextseek-entity-extract	entity	Resolve NL terms to NExtSEEK vocabulary.
 nextseek-extract-text	extract	Extract text from a file.
 nextseek-generate-submission	generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.
-nextseek-graph	graph	Answer any question about samples from the graph (find, filter, count, break down, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback.
+nextseek-graph	graph	Find and read samples from the graph (filter, lineage, attribute values), held to the user's projects; a query refused for its scope is answered through graph_search under fallback. Counts and breakdowns: nextseek-aggregate.
 nextseek-graph-schema	graph-schema	Read the deployed graph's schema live: structure, sample types, vocabulary. Never read a baked schema file instead.
 nextseek-parse	parse	Turn an NL question into a parser plan.
 nextseek-pipeline	pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.

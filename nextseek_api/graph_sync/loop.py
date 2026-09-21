@@ -17,16 +17,21 @@ the loop claims nothing but the read-only drift check: the writing rows wait in 
 attempts untouched, and the loop never turns a 1.1 graph into a 1.2 one by itself (the design, section 12; R2).
 
 **Work it could not do is put back, not punished.** A claim counts an attempt and a row dies at
-``state.MAX_ATTEMPTS``, so the two outcomes that are not the row's fault, the graph-write lock being held by another
-graph_sync write and a graph below the writer's version, are *deferred*: the row is re-enqueued, which resets its
-attempts, and released with a short back-off (``DEFER_BACKOFF_S``). A real failure backs off by the kind's own
-``state.backoff_s`` with its attempt counted.
+``state.MAX_ATTEMPTS``, so for a row drained in this process the two outcomes that are not the row's fault, the
+graph-write lock being held by another graph_sync write and a graph below the writer's version, are *deferred*: the
+row is re-enqueued, which resets its attempts, and released with a short back-off (``DEFER_BACKOFF_S``). A real
+failure backs off by the kind's own ``state.backoff_s`` with its attempt counted.
 
-**A child's exit status decides its row**: 0 done, 2 done with the refusal recorded (nothing was written, and its
-own run record says why), anything else, a timeout included, failed with a back-off. A lock timeout inside a child
-is exit 1, not 2, so it is retried rather than marked done. The one exit 1 that is done is a drift check that ran to
-its end and found drift, proven by the result it saved in its run directory: the check reports and does not repair,
-so a retry would find the same drift an hour later, until the row died, with the outbox reported stale all along.
+**A child's exit status decides its row**: 0 done, 2 done with the refusal recorded (a graph below the writer's
+version, a preflight problem: nothing was written, its own run record says why, and a retry would meet it again),
+anything else, a timeout included, failed with its kind's back-off. A graph-write lock another write held past the
+child's wait is exit 1, not 2, whichever step met it: ``--full`` and a reconcile's catalog step raise
+``run.LockTimeout``, which the command exits 1 on, and a later reconcile step answers ``lock_timeout``. So its slot
+backs off and runs again instead of being closed as done having done nothing; an exit status says no more than that,
+so unlike a deferred row it keeps the attempt its claim counted. The one exit 1 that is done is a drift check that
+ran to its end and found drift, proven by the result it saved in its run directory: the check reports and does not
+repair, so a retry would find the same drift an hour later, until the row died, with the outbox reported stale all
+along.
 
 **Nothing but a signal ends the loop.** A failing pass is logged and the next one runs: a loop that exits on one bad
 row stops draining every other one, and the entrypoint would only restart it into the same failure a minute later.

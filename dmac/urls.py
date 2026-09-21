@@ -29,14 +29,14 @@ urlpatterns = i18n_patterns(
     re_path("^nextseek_api/", include(nextseek_api.urls)),
 )
 
-# Serve generated download files (Excel exports from retrieve / delete / publish,
-# written under MEDIA_ROOT/download/). DEBUG is off in the docker deployment, so
-# Django's static() media helper is a no-op — use the static serve view directly.
-# Kept outside i18n_patterns so /media/... resolves without a language prefix, and
-# placed before the mezzanine catch-all ("^") below so it isn't swallowed into a 404.
-from django.views.static import serve as _static_serve
+# MEDIA_ROOT behind a login, and only the tree the application links to (dmac/media.py
+# says which, and why the rest is private). nginx has no /media location and DEBUG is
+# off in the docker deployment, so Django serves it with a view of its own. Kept outside
+# i18n_patterns so /media/... resolves without a language prefix, and placed before the
+# mezzanine catch-all ("^") below so it isn't swallowed into a 404.
+from .media import serve_media
 urlpatterns += [
-    re_path(r"^media/(?P<path>.*)$", _static_serve, {"document_root": settings.MEDIA_ROOT}),
+    re_path(r"^media/(?P<path>.*)$", serve_media),
 ]
 
 if settings.USE_MODELTRANSLATION:

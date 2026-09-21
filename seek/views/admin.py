@@ -15,12 +15,14 @@ from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtabl
 from neo4j import GraphDatabase
 from django.http import HttpResponse
 import MySQLdb
+from ..dbtable_sample import DBtable_sample
 from ..seekdb import SeekDB
 import datetime
 import json
 from ..responses import json_response
 import os
 import pandas as pd
+import tempfile
 from django.shortcuts import render
 from ..decorators import requires_seek_login
 from ..decorators import requires_seek_login_redirect
@@ -31,7 +33,7 @@ from ..decorators import verifySuperUser
 from nextseek_api.graph_sync import hooks
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
-from .shared import DOWNLOAD_DIRECTORY, SEEK_DATABASE
+from .shared import SEEK_DATABASE
 
 logger = logging.getLogger(__name__)
 
@@ -60,19 +62,32 @@ def adminRetrieveSamples(request):
 
             datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
             filename = 'download-samples-' + datenow + '.xlsx'
-            downloadfile = DOWNLOAD_DIRECTORY + filename
+            # A private temporary file with a random name, removed once read: never MEDIA_ROOT/download, which /media/
+            # serves to anyone and where two exports in the same minute shared one name.
+            fd, downloadfile = tempfile.mkstemp(prefix='download-samples-', suffix='.xlsx')
+            os.close(fd)
+            try:
+                sample_retrieval_data(children_uids, downloadfile)
 
-            sample_retrieval_data(children_uids, downloadfile)
-
-            with open(downloadfile, 'rb') as fh:
-                response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
-                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(downloadfile)
-                return response
+                with open(downloadfile, 'rb') as fh:
+                    response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
+            finally:
+                os.unlink(downloadfile)
+            response['Content-Disposition'] = 'inline; filename=' + filename
+            return response
         else:
             return render(request, "admin_retrieval.html")
 
 def get_children_uids(sample_uids, user_project_ids, admin):
     db = settings.DATABASES[SEEK_DATABASE]
+    if not admin:
+        # The walk starts only from requested samples in the caller's projects, as getChildrenUIDs does for
+        # /nextseek_api/admin/samples/retrieve/: a UID outside them reads as an unknown one instead of listing the
+        # caller's own samples related to it. user_project_ids is a single-pass map() (the caller), read once here.
+        user_project_ids = [str(pid) for pid in user_project_ids]
+        sample_uids = DBtable_sample().getVisibleUIDs(sample_uids, user_project_ids)
+        if not sample_uids:
+            return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
     NEO4J_DATABASE = settings.NEO4J_DATABASE
     with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
         r,s,k = driver.execute_query("""
@@ -107,9 +122,8 @@ def get_children_uids(sample_uids, user_project_ids, admin):
         """
         params = list(uids)
     else:
-        # user_project_ids is a single-pass map() (admin.py's caller), so it is
-        # consumed here and only on the branch that needs it. The sentinel keeps
-        # the statement valid, and matching nothing, when the caller has no
+        # user_project_ids is already a list here (read once above). The sentinel
+        # keeps the statement valid, and matching nothing, when the caller has no
         # mapped projects; it used to emit `IN ()`, a MySQL syntax error.
         scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
         project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))

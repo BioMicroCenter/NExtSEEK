@@ -12,7 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SIDECAR_OPS = frozenset(
-    {"entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
+    {"aggregate", "entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
      "generate-submission", "run-ls", "build-upload-xlsx"}
 )
 
@@ -148,6 +148,14 @@ class _GraphSchemaArgs(BaseModel):
     query: str = ""
 
 
+class _AggregateArgs(BaseModel):
+    """aggregate: the whole question, and optionally its parts as a JSON array of 1 to 4 plain-language
+    sub-questions sent as text. No Cypher and no scope: NExtSEEK takes the scope from the caller's account."""
+    model_config = ConfigDict(extra="forbid")
+    query: str
+    parts: str = ""
+
+
 class _RunLsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_dir: str
@@ -160,6 +168,7 @@ class _BuildUploadXlsxArgs(BaseModel):
 
 
 _OP_ARG_MODELS = {
+    "aggregate": _AggregateArgs,
     "entity": _QueryArg,
     "parse": _QueryArg,
     "graph": _QueryArg,

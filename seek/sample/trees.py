@@ -26,8 +26,62 @@ def unwrap_self_createSampleChildrenTreeParallel_i(arg, **kwarg):
 class SampleTreesMixin:
     """Mixin for :class:`~seek.sample.table.DBtable_sample`."""
 
+    # The projects a lineage export may carry samples from; None (unset, or a superuser) is unscoped.
+    _exportProjectIds = None
+
+    def restrictToProjects(self, project_ids):
+        """Limit this instance's lineage exports to samples in ``project_ids``; None leaves them unscoped.
+
+        The legacy export views call it for a caller who is not a superuser, before any export method: the lineage
+        walk from a sample in the caller's projects reaches relatives in other projects, and ``_scopeLineage`` keeps
+        those out of the workbook."""
+        self._exportProjectIds = None if project_ids is None else [str(pid) for pid in project_ids]
+
+    def _scopeLineage(self, parentList):
+        """Each lineage path without the samples outside ``restrictToProjects``' projects, and without the paths left
+        empty; unchanged when the instance is unscoped. One ``getVisibleUIDs`` query for every UID on every path."""
+        if self._exportProjectIds is None:
+            return parentList
+        uids = [str(uid) for path in parentList for uid in path]
+        visible = set(self.getVisibleUIDs(uids, self._exportProjectIds))
+        scoped = [[uid for uid in path if str(uid) in visible] for path in parentList]
+        return [path for path in scoped if path]
+
+    def getVisibleUIDs(self, sample_uids, user_project_ids):
+        """The requested sample UIDs whose sample is in one of ``user_project_ids`` (``projects_samples``), in request
+        order, once each. Fails closed: no UID, no project or a failed query answers []."""
+        uids = list(dict.fromkeys(str(uid) for uid in sample_uids))
+        project_ids = [str(pid) for pid in user_project_ids]
+        if not uids or not project_ids:
+            return []
+
+        db = settings.DATABASES[SEEK_DATABASE]
+        # Bound, never inlined; only the schema name is interpolated.
+        uid_placeholders = ', '.join(['%s'] * len(uids))
+        project_placeholders = ', '.join(['%s'] * len(project_ids))
+        query = f"""
+        SELECT DISTINCT s.uuid
+        FROM {db["NAME"]}.samples s
+        JOIN {db["NAME"]}.projects_samples ps
+        ON s.id = ps.sample_id
+        WHERE s.uuid IN ({uid_placeholders}) AND ps.project_id IN ({project_placeholders})
+        """
+        result = self._runQuery(query, params=uids + project_ids)
+        if not result:
+            return []
+        visible = {str(row[0]) for row in result if row and row[0] is not None}
+        return [uid for uid in uids if uid in visible]
+
     def getChildrenUIDs(self, sample_uids, user_project_ids, admin):
         db = settings.DATABASES[SEEK_DATABASE]
+        if not admin:
+            # The walk starts only from requested samples in the caller's projects. Walking from every requested UID
+            # and filtering afterwards let a UID outside them answer with the caller's own samples related to it,
+            # which confirmed it exists and how it relates to theirs; dropped here, it answers as an unknown UID does.
+            user_project_ids = [str(pid) for pid in user_project_ids]
+            sample_uids = self.getVisibleUIDs(sample_uids, user_project_ids)
+            if not sample_uids:
+                return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
             r,s,k = driver.execute_query("""
@@ -297,6 +351,7 @@ class SampleTreesMixin:
             parentList_i = self._getChildrenListLoop(upTreeList)
             parentList += parentList_i
         
+        parentList = self._scopeLineage(parentList)
         sampleTypes, sampleTypeCount, headers, headersMapping = self._getSampleTypeAttributes(parentList)       
         headers_new, diclist_new = self._convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
         return headers_new, diclist_new, headersMapping
@@ -327,6 +382,7 @@ class SampleTreesMixin:
             parentList_i = self._getChildrenListLoop(upTreeList)
             parentList += parentList_i
         
+        parentList = self._scopeLineage(parentList)
         sampleTypes, sampleTypeCount, headers, headersMapping = self._getSampleTypeAttributes(parentList)       
         headers_new, diclist_new = self._convertSampleTreeToList(parentList, sampleTypes, sampleTypeCount, headers)       
         return headers_new, diclist_new, headersMapping

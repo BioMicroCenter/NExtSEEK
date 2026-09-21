@@ -26,8 +26,9 @@ a graph the weekly full sync should rebuild, not a nightly one that should strea
 
 **Refusals.** A graph that is not at the writer's schema version is refused before anything runs
 (``not_at_version``), as in ``targeted``. A step that cannot take the graph-write lock stops the run
-(``lock_timeout``, ``stopped_at``); a catalog sync that refuses gives ``refused`` with its ``problems``. Each of them
-leaves what earlier steps wrote, which is correct in itself, and the next run finishes the rest.
+(``lock_timeout``, ``stopped_at``), the catalog step included; a catalog sync that refuses for any other reason gives
+``refused`` with its ``problems``. Each of them leaves what earlier steps wrote, which is correct in itself, and the
+next run finishes the rest.
 
 ``dry_run`` reads MySQL and the graph, writes nothing, takes no lock, touches no file and records no run: it reports
 the same detection counts, whether the guard would trip and what it would sync.
@@ -169,7 +170,9 @@ def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> bool:
         if not _step(report, "catalog", run.catalog_sync, driver, db, record=opts.record, trigger=opts.trigger):
             return False
     except run.PreflightError as exc:
-        report.update(status=REFUSED, stopped_at="catalog", problems=list(exc.problems))
+        # A busy lock stops the run as it does at every other step, not as a refusal of this graph.
+        status = LOCK_TIMEOUT if isinstance(exc, run.LockTimeout) else REFUSED
+        report.update(status=status, stopped_at="catalog", problems=list(exc.problems))
         log.warning("reconcile: the catalog sync refused: %s", "; ".join(exc.problems))
         return False
     if not _step(report, "small_tables", targeted.sync_small_tables, driver, db):

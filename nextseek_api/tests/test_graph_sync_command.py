@@ -10,6 +10,7 @@ import copy
 import json
 import os
 from collections import Counter
+from contextlib import contextmanager
 from datetime import date
 from importlib import import_module
 from inspect import isgenerator
@@ -799,6 +800,25 @@ def test_a_preflight_refusal_exits_2_and_prints_the_report(graphdb, monkeypatch)
         call_command("graph_sync", "--full", "--json", stdout=out, stderr=StringIO())
     assert exc.value.returncode == 2
     assert json.loads(out.getvalue()) == {"problems": ["dup"], "ghosts": 79}
+
+
+@contextmanager
+def _lock_never_free(timeout_s):
+    yield False
+
+
+@pytest.mark.parametrize("mode", ["--full", "--catalog"])
+def test_a_busy_graph_write_lock_exits_1_and_prints_the_report(graphdb, monkeypatch, tmp_path, mode):
+    """Another write held the lock past the run's wait. Nothing was written and nothing is wrong with this graph, so
+    it is not a refusal (2, which the loop closes as done) but exit 1, which the loop retries."""
+    monkeypatch.setattr(sync_state, "graph_write_lock", _lock_never_free)
+    out = StringIO()
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", mode, "--no-record", "--run-dir", str(tmp_path), "--json",
+                     stdout=out, stderr=StringIO())
+    assert exc.value.returncode == 1
+    assert "graph-write lock" in str(exc.value)
+    assert json.loads(out.getvalue())["status"] == "refused"
 
 
 def test_catalog_dry_run_calls_catalog_sync_dry(graphdb, monkeypatch):

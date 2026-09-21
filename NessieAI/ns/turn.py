@@ -108,6 +108,8 @@ def _granular_args(op: str, req) -> dict:
         return {"query": req.query}
     if op == "graph-schema":
         return {"types": req.types, "query": req.query}
+    if op == "aggregate":
+        return {"query": req.query, "parts": req.parts}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":

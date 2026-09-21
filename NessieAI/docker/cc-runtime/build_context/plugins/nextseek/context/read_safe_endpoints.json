@@ -36,24 +36,6 @@
     "rationale": "Retrieve/export sample metadata by UID or SEEK ID (incl. parent/child lineage) via dbsample.searchAdvanced; read-only. POST carries the identifier list, not a mutation. Verified non-mutating in AdminSampleViewSet.admin_retrieve_samples."
   },
   {
-    "endpoint": "/nextseek_api/batch-upload/validate/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Dry-run validation of a batch-upload workbook; parses and validates only, no DB commit (unlike batch-upload/start). Read-only. Verified non-mutating in BatchUploadViewSet.validate."
-  },
-  {
-    "endpoint": "/nextseek_api/data_files/download/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Download a data file (or zip of files) by identifier; read-only export. POST carries the identifier list. Verified non-mutating in DataFileViewSet.download."
-  },
-  {
-    "endpoint": "/nextseek_api/sops/download/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Download an SOP file (or zip) by identifier; read-only export. POST carries the identifier list. Verified non-mutating in SopViewSet.download."
-  },
-  {
     "endpoint": "/nextseek_api/investigations/",
     "methods": ["GET"],
     "source": "read_safety_audit_2026-07-06",

@@ -28,7 +28,7 @@
     }
   ],
   "context_file_inventory": [
-    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 3088, "sha256": "af540e5ffb108bd73a02891c2c667789ce3a1f6ca3d7feadcca9cf537570d457"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 2152, "sha256": "dbecafd7bebfdadcfc0b76a0e3741481488d271c5c770c6e7625f77d3258808b"},
     {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
     {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
     {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},
@@ -134,6 +134,19 @@
           "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7",
           "now_from": "nothing: the plugin skill carries the CC routing rule"
         }
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-18",
+      "path": "build_context/plugins/nextseek/context/read_safe_endpoints.json",
+      "change": "Three POSTs left the read-safe list, byte-identical in both copies (NessieAI/ns/read_safe_endpoints.json, which the write gate enforces, and this baked copy): /nextseek_api/batch-upload/validate/, /nextseek_api/data_files/download/ and /nextseek_api/sops/download/. The write gate let api-read ask for them, but the REST tool every api-read ends in (tool_nextseek_api_request in chat_nextseek's helpers/tools/nextseek_api.py) allows only the POSTs in its own _READ_POST_PATHS, so each answered 200 with a nested ok:false 'Write operations are not permitted'. The skill (skills/nextseek/SKILL.md) and the manifest (context/MANIFEST.md) no longer promise downloads or workbook checks through api-read. The endpoints themselves stay: the pages and the nextseek-validate-upload op call them directly.",
+      "why": "Advertising a read the tool behind the gate refuses costs the agent one of its two attempts on every file download or workbook check (2026-09-18 review, M5).",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_every_endpoint_the_cc_guidance_names_is_read_safe",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
       ],
       "context_file_inventory_affected": true
     }

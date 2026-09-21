@@ -7,8 +7,6 @@ The assistant_prefix (with/without the i18n locale segment) is resolved by T0a.
 """
 from __future__ import annotations
 
-import math
-import os
 import time
 from collections.abc import Callable
 
@@ -22,6 +20,7 @@ from _assistant_models import (
     SessionDetailResponse,
     TaskProgressResponse,
 )
+from _turn_deadline import MIN_WAIT_S, TURN_DEADLINE_ENV, TURN_DEADLINE_HEADROOM_S, wait_s
 
 # Sentinel string emitted when polling ends without a terminal event.
 # runner_ns._STREAM_ENDED_WITHOUT_TERMINAL must equal this value (drift-pinned in test_runner_ns.py).
@@ -33,35 +32,27 @@ _monotonic = time.monotonic
 _wallclock = time.time
 
 # 13b.2: the host stops a Container-CC turn at a fixed moment and hands it to the
-# agent here, as Unix seconds (NessieAI/cc/cc_engine.py build_agent_environment,
-# from the turn's own clamped timeout; the default ceiling is 180 s). Polling
-# must end before it, or a long query is killed along with the turn and the
-# agent never gets to say what happened. The engine uses the same name.
-_TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
+# agent (_turn_deadline.py, shared with the sidecar client). Polling must end
+# before it, or a long query is killed along with the turn and the agent never
+# gets to say what happened.
+_TURN_DEADLINE_ENV = TURN_DEADLINE_ENV
 # Seconds kept back from the turn deadline. The loop checks its deadline before
 # each progress GET, so one GET can run a full request_timeout (30 s) past it;
 # the rest is for the agent to act on the failed query and finish its turn.
-_TURN_DEADLINE_HEADROOM_S: float = 45.0
+_TURN_DEADLINE_HEADROOM_S: float = TURN_DEADLINE_HEADROOM_S
 # Used when the deadline is absent or unreadable (a host older than 13b.2, or
 # the bin run by hand): below the default 180 s turn ceiling, with room for the
 # work a turn does before its first query.
 _FALLBACK_POLL_TIMEOUT_S: float = 120.0
 # Never poll for less than this, so a query issued late in a turn still gets one
 # short chance to return.
-_MIN_POLL_TIMEOUT_S: float = 10.0
+_MIN_POLL_TIMEOUT_S: float = MIN_WAIT_S
 
 
 def poll_timeout_from_env() -> float:
     """Seconds run_query may poll: the time left in this turn, less headroom."""
-    raw = os.environ.get(_TURN_DEADLINE_ENV, "").strip()
-    try:
-        deadline = float(raw)
-    except ValueError:
-        return _FALLBACK_POLL_TIMEOUT_S
-    if not math.isfinite(deadline):
-        return _FALLBACK_POLL_TIMEOUT_S
-    left = deadline - _wallclock() - _TURN_DEADLINE_HEADROOM_S
-    return max(_MIN_POLL_TIMEOUT_S, left)
+    return wait_s(_wallclock(), fallback_s=_FALLBACK_POLL_TIMEOUT_S,
+                  headroom_s=_TURN_DEADLINE_HEADROOM_S, floor_s=_MIN_POLL_TIMEOUT_S)
 
 _DEFAULT_POLL_INTERVAL: float = 0.5
 

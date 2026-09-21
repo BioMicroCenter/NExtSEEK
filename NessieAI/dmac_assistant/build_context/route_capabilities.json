@@ -177,6 +177,7 @@
         "nextseek-entity-extract",
         "nextseek-parse",
         "nextseek-graph",
+        "nextseek-aggregate",
         "nextseek-graph-schema",
         "nextseek-api-read",
         "nextseek-api-write",

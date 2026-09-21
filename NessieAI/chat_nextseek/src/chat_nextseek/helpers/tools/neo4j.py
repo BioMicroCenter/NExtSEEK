@@ -16,6 +16,11 @@ caller who is not an admin, `strip_hidden` over the rows. Every result names the
 that ran (`cypher`), the one submitted (`submitted_cypher`), the parameters that ran and the
 scope decision (`scope`). Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
 section 6.
+
+A statement that fails while it runs tells a caller who is not an admin only the error's codes
+(`RUNTIME_ERROR_WITHHELD`), never Neo4j's message, which can quote the stored value it failed
+on; a statement Neo4j cannot even plan keeps its message (`_member_error`). An admin keeps the
+full text.
 """
 from __future__ import annotations
 
@@ -34,6 +39,19 @@ QUERY_TIMEOUT_S = 60
 _WRITE_REFUSED = "Write operations are not permitted; only read (MATCH/RETURN) queries are allowed."
 SCOPE_REFUSED = "This graph query could not be confirmed to stay within your projects, so it was not run."
 NO_SCOPE_REFUSED = "No project scope is set for this request, so no graph query can run."
+
+#: What a caller who is not an admin is told when a statement failed while it ran. Neo4j's message for such a failure
+#: can quote the stored value it failed on (a type error prints the value, a date it cannot parse prints the text), and
+#: the prover still accepts statements where a later clause reads a node an earlier pattern scoped, which Neo4j may
+#: evaluate on a node outside the caller's projects before that node's scope clause. So only the codes are kept.
+RUNTIME_ERROR_WITHHELD = (
+    "The graph query failed while it ran ({codes}). Neo4j's message is withheld because it can quote a stored value "
+    "from outside your projects."
+)
+# The shapes of the only parts of an error a withheld failure keeps, so nothing but a code can pass through.
+_NEO4J_CODE_RE = re.compile(r"Neo\.[A-Za-z]+\.[A-Za-z]+\.[A-Za-z]+")
+_GQL_STATUS_RE = re.compile(r"[0-9A-Z]{5}")
+_UNKNOWN_GQL_STATUS = "50N42"  # the driver's stand-in when the server sent no GQLSTATUS
 
 
 # A trailing `[SKIP n] LIMIT n`, which is the shape the graph prompt asks for.
@@ -161,6 +179,51 @@ def _scope_record(decision: str, scope: GraphScope | None, *, injected=(), joine
     return record
 
 
+def _neo4j_code(error: BaseException) -> str | None:
+    """The server's classification code (``Neo.ClientError.Statement.TypeError``); None when ``error`` did not come
+    from the server with one."""
+    code = getattr(error, "code", None)
+    return code if isinstance(code, str) and _NEO4J_CODE_RE.fullmatch(code) else None
+
+
+def _error_codes(error: BaseException) -> str:
+    """What a withheld failure keeps: the Neo4j code and the GQLSTATUS when the server sent them, else the exception's
+    class name. Never its message."""
+    code = _neo4j_code(error)
+    if code is None:
+        return type(error).__name__
+    gql = getattr(error, "gql_status", None)
+    if isinstance(gql, str) and _GQL_STATUS_RE.fullmatch(gql) and gql != _UNKNOWN_GQL_STATUS:
+        return f"{code}, GQLSTATUS {gql}"
+    return code
+
+
+def _explain(tx, statement: str, params: dict) -> None:
+    """Transaction function: have Neo4j plan the statement without running it. EXPLAIN reads no data."""
+    tx.run(f"EXPLAIN {statement}", params).consume()
+
+
+def _member_error(error: BaseException, driver: Any, config: Any, statement: str, params: dict, work) -> str:
+    """The failure text for a caller who is not an admin.
+
+    The code alone cannot say whether Neo4j's message quotes data: an unparsable date is filed under
+    ``Neo.ClientError.Statement.SyntaxError`` with the text in its message. So a server error is planned again with
+    EXPLAIN (``work`` is ``_explain`` with the tool's timeout). When the plan fails with the same code, the statement
+    failed on its own text (a variable out of scope, an aggregate mixed into a grouping key), whatever the graph holds,
+    and EXPLAIN's message, which no stored value reached, is returned: the graph agent's retry needs it. Anything else
+    failed on the data, or cannot be told apart, and gets ``RUNTIME_ERROR_WITHHELD`` with the error's codes.
+    """
+    code = _neo4j_code(error)
+    if code is not None and driver is not None:
+        try:
+            with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
+                db_session.execute_read(work, statement, params)
+        except Exception as planned:
+            if _neo4j_code(planned) == code:
+                return str(planned)
+    return RUNTIME_ERROR_WITHHELD.format(codes=_error_codes(error))
+
+
 def _failure(error: str, *, ran: Any, submitted: Any, parameters: Any, scope: dict) -> dict:
     return {"ok": False, "error": error, "data": None, "cypher": ran, "submitted_cypher": submitted,
             "parameters": parameters, "scope": scope}
@@ -278,7 +341,9 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
             }
     except Exception as e:
         print(f"[DEBUG][GRAPHDB] Query failed: {e!r}")
-        return failed(str(e))
+        if scope.is_admin:
+            return failed(str(e))
+        return failed(_member_error(e, driver, config, ran, params, timed(_explain)))
     finally:
         if driver is not None:
             try:

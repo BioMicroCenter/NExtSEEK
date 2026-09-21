@@ -31,12 +31,15 @@ _PUB_SUFFIX = re.compile(r"-PUB\d*$", re.IGNORECASE)
 #: Written in the subset of Cypher the graph scope prover (``cypher_scope.scope_cypher``) can prove, so a
 #: caller who is not a superuser gets the check with a project clause on every Sample node instead of a
 #: refusal: no COLLECT or CALL subquery. A sample outside the caller's projects is then "not found",
-#: which tells them nothing about other projects.
+#: which tells them nothing about other projects. The suffixed prefix is computed before the last MATCH, so
+#: its WHERE compares the property with a plain name: the prover leaves that outside its guard and Neo4j
+#: seeks the uuid index instead of scanning every sample for each UID.
 CHECK_CYPHER = (
     "UNWIND $checks AS c\n"
+    "WITH c, c.base + '-PUB' AS pub\n"
     "OPTIONAL MATCH (a:Sample {uuid: c.uid})\n"
     "OPTIONAL MATCH (b:Sample {uuid: c.base})\n"
-    "OPTIONAL MATCH (p:Sample) WHERE p.uuid STARTS WITH c.base + '-PUB'\n"
+    "OPTIONAL MATCH (p:Sample) WHERE p.uuid STARTS WITH pub\n"
     "RETURN c.uid AS uid, count(a) > 0 AS exact, head(collect(DISTINCT b.uuid)) AS base_uuid,\n"
     "       collect(DISTINCT p.uuid)[..2] AS suffixed"
 )

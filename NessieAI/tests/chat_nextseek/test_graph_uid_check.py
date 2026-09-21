@@ -125,6 +125,17 @@ def test_the_scope_prover_proves_the_check_for_a_caller_limited_to_projects():
     assert sorted(out.injected) == ["a: sample clause", "b: sample clause", "p: sample clause"]
 
 
+def test_the_scoped_check_keeps_the_suffix_search_seekable():
+    """The prover guards any WHERE that could raise with CASE, where Neo4j cannot seek an index; the suffix search
+    compares the uuid with a plain name, so it stays outside the guard and seeks rather than scanning every sample."""
+    out = scope_cypher(uid_check.CHECK_CYPHER, {"checks": [{"uid": "X-1-PUB", "base": "X-1"}]},
+                       GraphScope.for_projects([2, 13], source="test"))
+
+    assert isinstance(out, Scoped)
+    assert "CASE WHEN" not in out.cypher
+    assert "WHERE (p.uuid STARTS WITH pub) AND any(" in out.cypher
+
+
 # --------------------------------------------------------------------------
 # The graph turn: the agent is told before it writes, the reply is told before it speaks.
 # --------------------------------------------------------------------------

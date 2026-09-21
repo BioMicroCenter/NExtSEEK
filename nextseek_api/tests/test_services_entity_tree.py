@@ -33,6 +33,8 @@ def _auth_request(method="get", path="/", data=None, user=None, query=None):
     if user is None:
         user = MagicMock()
         user.is_authenticated = True
+        # A superuser: lineage scopes anyone else (test_entity_tree_lineage_scope.py covers that).
+        user.is_superuser = True
     req.user = user
     if data is not None:
         req.data = data

@@ -8,6 +8,7 @@ tables in the SQLite test database.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone as dt_timezone
 from types import SimpleNamespace
 
@@ -318,12 +319,37 @@ def test_refuses_a_graph_not_at_the_writers_version_and_does_nothing(steps, tmp_
 
 
 def test_a_catalog_sync_that_refuses_stops_the_run(steps, tmp_path):
-    steps.catalog = run.PreflightError(["the graph-write lock was not acquired within 60 s"], {"mode": "catalog"})
+    problem = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
+    steps.catalog = run.PreflightError([problem], {"mode": "catalog"})
     result = _reconcile(tmp_path)
 
     assert result["status"] == "refused"
-    assert result["problems"] == ["the graph-write lock was not acquired within 60 s"]
+    assert result["problems"] == [problem]
     assert result["stopped_at"] == "catalog"
+    assert _names(steps) == ["catalog"]
+
+
+_REAL_CATALOG_SYNC = run.catalog_sync          # ``steps`` stubs it; the lock refusal below is the real one's
+
+
+@contextmanager
+def _lock_never_free(timeout_s):
+    yield False
+
+
+def test_a_catalog_step_that_found_the_lock_busy_is_a_lock_timeout_not_a_refusal(steps, tmp_path, monkeypatch):
+    """The same status as any other step that could not take the lock, so the command exits 1 and the loop retries
+    the night's reconcile rather than closing its slot as done (a refusal is exit 2)."""
+    monkeypatch.setattr(state, "graph_write_lock", _lock_never_free)
+    with pytest.raises(run.PreflightError) as refused:
+        _REAL_CATALOG_SYNC(None, DB, record=False)
+    steps.catalog = refused.value
+
+    result = _reconcile(tmp_path)
+
+    assert result["status"] == "lock_timeout"
+    assert result["stopped_at"] == "catalog"
+    assert result["problems"] == refused.value.problems
     assert _names(steps) == ["catalog"]
 
 
