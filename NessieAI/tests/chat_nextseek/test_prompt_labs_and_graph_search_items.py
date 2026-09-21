@@ -27,15 +27,12 @@ PROMPTS = PACKAGE / "prompts"
 CONTEXT = PACKAGE / "context"
 CORES = {
     "default": PROMPTS / "parser_core_routing.txt",
-    "v2": PROMPTS / "variants" / "v2" / "parser_core_routing.txt",
-    "v3": PROMPTS / "variants" / "v3" / "parser_core_routing.txt",
 }
 GRAPH_SCHEMAS = {"default": CONTEXT / "min_graph_schema.json",
-                 "v2": PROMPTS / "variants" / "v2" / "min_graph_schema.json"}
+}
 CATALOGS = {"default": CONTEXT / "min_api_endpoints_enriched.json",
-            "v2": PROMPTS / "variants" / "v2" / "min_api_endpoints_enriched.json"}
-GRAPH_AGENTS = {"v2": PROMPTS / "variants" / "v2" / "graph_agent.txt",
-                "v3": PROMPTS / "variants" / "v3" / "graph_agent.txt"}
+}
+GRAPH_AGENTS = {"default": PROMPTS / "graph_agent.txt"}
 GRAPH_SEARCH = "/nextseek_api/samples/graph_search/"
 
 
@@ -56,7 +53,7 @@ def test_no_parser_core_derives_a_lab_code_from_a_name(name):
 
 
 def test_the_api_prompts_use_invented_lab_codes():
-    for path in (PROMPTS / "api_agent.txt", PROMPTS / "variants" / "v2" / "api_agent.txt"):
+    for path in (PROMPTS / "api_agent.txt",):
         text = read(path)
         assert '"KAM"' not in text and '"SHA"' not in text, path
 

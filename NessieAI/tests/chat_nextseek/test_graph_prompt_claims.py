@@ -23,7 +23,19 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # Re-pinned once, reviewed: the "Investigation titles to recognize" rule gained TCGA (not on every instance), as the
 # generated capabilities block and spec 2026-09-18-projects-labs-context.md section 13.3 have it. No other rule or
 # trigger changed (was bc8391287bc866bf1429c340177457713ef82acd6268fe05a8e6a68e8bedb0ef).
-FROZEN_ROUTING_SHA256 = "bd507252054c17c8332fd306db5112a6711754038ceb789bed43519c8c3be0ea"
+#
+# Re-pinned again, reviewed, by F1: this file is now the measured one, and the routing it carries IS the change.
+# Read before re-pinning a third time -- a moving hash that nobody diffs is not a guard.
+#   disambiguation rules 10 -> 12. Four rewritten from "prefer API" to graph_query (an unscoped "how many X" is a
+#     count of samples; a sampletype + assay keyword filter; parents with children of several types). Two new: a
+#     plain keyword or attribute search with no scope is graph_query, and a person's name resolves to the lab code
+#     inside UIDs for a lab or PI and to the Scientist attribute for anyone else, never the people endpoint.
+#   graph_query triggers 10 -> 16, all six additions metadata shapes REST used to take: typed numeric and date
+#     comparisons, conditions that must all hold, counts and breakdowns and spelling variants, lab and person scope,
+#     and a count across every type.
+#   api_preferred triggers 5 -> 4: the three sample-search ones go, replaced by catalog records, the full record or
+#     an export by UID, and "any NON-METADATA intent that maps cleanly to a known endpoint".
+FROZEN_ROUTING_SHA256 = "c7d01c88e6d5423790af2562358cac2f5186acfa8ac11d28768cc48f1f908c47"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 
@@ -60,16 +72,19 @@ def test_the_prompt_says_metadata_is_on_the_node_under_the_type_label():
 def test_the_prompt_forbids_whole_sample_nodes_and_names_the_alternative():
     at = PROMPT.lower().find("whole sample node")
     assert at != -1, "a rule about whole Sample nodes"
-    rule = PROMPT[at:at + 500]
+    # The prohibition is the last bullet of the "return the answer" section and the alternatives are
+    # the bullets above it, so the window spans the section rather than only what follows the rule.
+    rule = PROMPT[max(0, at - 2500):at + 500]
     for alternative in ("s.id", "s.uuid", "s.type", "count(*)"):
-        assert alternative in rule
+        assert alternative in rule, alternative
     assert "never" in PROMPT[max(0, at - 80):at + 40].lower()
 
 
 def test_the_prompt_says_the_label_and_sample_type_both_identify_the_type():
     assert "have no `code` property" not in PROMPT
     assert "SampleType.code" not in PROMPT.replace("`", "")
-    assert re.search(r"Sample\.type.{0,200}T_", PROMPT, re.DOTALL)
+    # The promoted prompt states it the other way round: the label first, then the code s.type holds.
+    assert re.search(r"T_<code>.{0,400}`s\.type` holds the code", PROMPT, re.DOTALL)
 
 
 def test_the_prompt_keeps_its_three_steps():
@@ -116,4 +131,7 @@ def test_the_routing_rules_are_unchanged():
     digest = hashlib.sha256(json.dumps(frozen, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
     assert digest == FROZEN_ROUTING_SHA256
     assert descriptive == 7
-    assert "→ API" in rules[descriptive]
+    # F1: a descriptive attribute is a property of the Sample node, so the rule that used to send it
+    # to advanced_search now sends it to the graph. This is the rule the promotion exists to change;
+    # it is excluded from the frozen hash above precisely because it moves.
+    assert "→ graph_query" in rules[descriptive]

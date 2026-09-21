@@ -113,6 +113,8 @@ When the chosen endpoint is advanced_search but the intent needs one of these (a
 
 graph_search's "total" is the graph's count of every match; "rows" is one page read from the database. The two can disagree: a sample the graph still holds but the database no longer has is counted in "total" with no row. When you use graph_search, say in "notes": "total is the graph's count of every match; rows are one page read from the database and can hold fewer samples than total implies".
 
+A graph question whose query could not be confirmed to stay within the caller's projects is answered through this endpoint instead: the plan then names /nextseek_api/samples/graph_search/ and carries the question's entities and filters. Build the fullest body its fields allow (sampletype, filter_searchText, attribute, extensions.where, extensions.lineage), and say in "notes" which conditions of the question it could not express. Results are limited to the caller's projects.
+
 =====================================================
 Endpoint Guardrail – /nextseek_api/sample_types/get_parents/parents_by_child_types/
 =====================================================

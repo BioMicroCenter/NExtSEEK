@@ -560,7 +560,10 @@ def test_structure_node_properties_are_in_the_doc():
 
 
 def test_structure_is_compact():
-    assert len(gc.STRUCTURE_PATH.read_bytes()) <= 4096
+    # This block goes into every graph turn's context, so it stays budgeted. F1 promoted the
+    # measured structure, which is larger than the previous default: the ceiling moved once,
+    # deliberately, to the size that was measured, not to whatever the file happens to be.
+    assert len(gc.STRUCTURE_PATH.read_bytes()) <= 5120
 
 
 # ---------------------------------------------------------------------------------------------------------------

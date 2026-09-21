@@ -183,3 +183,36 @@ def test_the_parser_wrapper_carries_the_lab_fields_and_the_core_placeholder():
     for field in ('"labs": ["string"]', '"lab_codes": ["string"]', '"uids": [string]', '"lab_codes": [string]'):
         assert field in wrapper, field
     assert pv.PARSER_CORE_PLACEHOLDER in wrapper
+
+
+# --- F9 to F12: the query-shape rules the 2026-09-18 runs paid for ---------------------------------------------------
+
+
+def test_f9_the_total_is_named_as_a_row_count_and_distinct_is_required():
+    """A list reached through a relationship counted one sample per edge (105,899 against 105,859)."""
+    agent = prompt("graph_agent.txt")
+    assert "The tool's total counts rows, not samples." in agent
+    assert "RETURN DISTINCT" in agent and "EXISTS { }" in agent
+
+
+def test_f10_a_synonym_may_not_widen_to_a_sibling_in_the_same_catalog():
+    """'rhesus' expanded to macaque/macaca, which also match Macaca fascicularis: 929 against 482."""
+    agent = prompt("graph_agent.txt")
+    assert "never to a broader group" in agent
+    assert "fascicularis" in agent, "the rule names the sibling it must not match"
+    assert "could match a sibling in the same catalog" in agent
+
+
+def test_f11_a_day_span_is_not_the_residual_day_component():
+    """A span of ~696 days was reported as 26: duration.between(a,b).days is a component, not a total."""
+    agent = prompt("graph_agent.txt")
+    assert "duration.inDays(a, b).days" in agent or "duration.inDays" in agent
+    assert "epochDays" in agent
+    assert "duration.between(a, b).days` is the day component" in agent
+
+
+def test_f12_a_breakdown_groups_on_the_folded_value():
+    """A breakdown returned Lung and lung as two rows where the truth is one organ."""
+    agent = prompt("graph_agent.txt")
+    assert "Group a free-text attribute on its folded value" in agent
+    assert "toLower(trim(toString(s.Organ))) AS organ" in agent
