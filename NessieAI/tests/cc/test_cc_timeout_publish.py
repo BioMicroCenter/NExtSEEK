@@ -18,6 +18,7 @@ docker, no network, no database.
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -31,7 +32,10 @@ USER = "alice"
 API_USER = "alice-login"
 PROJECT = "proj"
 TIMEOUT_S = 0.3
-TIMEOUT_TEXT = f"Container-CC turn exceeded the {TIMEOUT_S}s limit and was stopped."
+TIMEOUT_TEXT = (
+    f"Container-CC turn exceeded the {TIMEOUT_S}s limit and was stopped. "
+    "A comprehensive request can take several turns; say continue to carry on from here."
+)
 
 
 class _Container:
@@ -54,10 +58,17 @@ class _Container:
 class _OverrunningAgent:
     """Runs ``work`` once on the first read, then idles until the watchdog stops it."""
 
-    def __init__(self, container: _Container, work):
+    def __init__(self, container: _Container, work, reply_parts=()):
         self._container = container
         self._work = work
         self._worked = False
+        # Real assistant frames, so the real translator accumulates them: F20 reads
+        # what it accumulated, and a test that patched the translator would prove nothing.
+        self._pending = [
+            json.dumps({"type": "assistant",
+                        "message": {"content": [{"type": "text", "text": text}]}})
+            for text in reply_parts
+        ]
 
     def send_stdin(self, _data):
         return None
@@ -69,6 +80,8 @@ class _OverrunningAgent:
         if not self._worked:
             self._worked = True
             self._work()
+        if self._pending:
+            return self._pending.pop(0)
         time.sleep(0.02)
         if self._container.stopped:
             return None
@@ -92,7 +105,7 @@ def _writes(root: Path, files: dict[str, bytes]):
     return work
 
 
-def _run(tmp_path, monkeypatch, work, **kwargs):
+def _run(tmp_path, monkeypatch, work, reply_parts=(), **kwargs):
     container = _Container()
 
     class _Containers:
@@ -105,7 +118,7 @@ def _run(tmp_path, monkeypatch, work, **kwargs):
     monkeypatch.setattr(docker_mod, "from_env", lambda: _Client())
     monkeypatch.setattr(
         cc_engine, "BridgeAttachSocket",
-        lambda raw, stdout_stream=None: _OverrunningAgent(container, work),
+        lambda raw, stdout_stream=None: _OverrunningAgent(container, work, reply_parts),
     )
     events: list[tuple[str, dict]] = []
     cc_engine.run_cc_turn(
@@ -229,3 +242,38 @@ def test_a_publish_failure_after_an_overrun_still_reports_the_timeout(tmp_path, 
         "the user is owed with a generic 'turn failed: OSError'"
     )
     assert data["error"] == TIMEOUT_TEXT
+
+
+
+# --------------------------------------------------------------------------
+# F20: the turn hands back what it had, not only its files.
+# --------------------------------------------------------------------------
+
+
+def test_an_overrun_turn_carries_the_text_the_agent_had_written(tmp_path, monkeypatch):
+    """The files were already salvaged; the user still got no words at all.
+
+    A researcher asked for a summary file, the turn overran, and the reply was the bare
+    limit message. Whatever the agent had worked out by then existed only in the
+    transcript row.
+    """
+    events = _run(tmp_path, monkeypatch, lambda: None,
+                  reply_parts=["Found 731 matching samples.", "Building the table now."])
+
+    [(event, data)] = _terminals(events)
+    assert event == "query_error"
+    assert data["reason"] == "exec_timeout"
+    assert data["partial_reply"] == "Found 731 matching samples.\n\nBuilding the table now."
+
+
+def test_an_overrun_turn_with_nothing_said_carries_no_partial(tmp_path, monkeypatch):
+    events = _run(tmp_path, monkeypatch, lambda: None)
+
+    [(_event, data)] = _terminals(events)
+    assert data["partial_reply"] is None
+
+
+def test_the_limit_message_says_how_to_carry_on():
+    """D5 keeps the limit where it is, so the message has to do the work."""
+    assert "say continue to carry on" in TIMEOUT_TEXT
+    assert "can take several turns" in TIMEOUT_TEXT

@@ -1297,10 +1297,24 @@ def run_cc_turn(
             # (it writes a "completed" chat_log entry, which the sticky-CC rule
             # reads). The transcript row and raw/ copy come from the #68 fallback
             # in the finally, as for every turn that did not complete.
+            # F20: hand back what the turn had. Its files are published above, but the
+            # user was given no text at all -- no partial answer and no account of how
+            # far it got, with the agent's own words left only in the transcript row.
+            partial = ""
+            try:
+                partial = translator.partial_reply()
+            except Exception:  # pragma: no cover - never lose the timeout to a salvage
+                logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
+            message = (
+                f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped. "
+                "A comprehensive request can take several turns; say continue to carry on "
+                "from here."
+            )
             send_event("query_error", {
-                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
+                "error": message,
                 "reason": "exec_timeout", "agent": "container_cc",
                 "cc_session_id": translator.session_id,
+                "partial_reply": partial or None,
                 "artifacts": result["artifacts"] or None,
                 "cc_raw_files": result["raw"],
             })
