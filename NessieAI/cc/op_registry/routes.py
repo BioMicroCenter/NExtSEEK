@@ -28,7 +28,11 @@ CONTAINER_CC_ROUTE = RouteSpec(
     ),
     best_for=(
         "Open-ended reasoning, file I/O, code, multi-tool workflows, and "
-        "building/validating NExtSEEK batch-upload create/update sheets."
+        "building/validating NExtSEEK batch-upload create/update sheets. Also a "
+        "question that must JOIN two sources the NS route reads separately -- "
+        "comparing a REST catalog against sample metadata in the graph, such as "
+        "the registered people against the scientists named on samples -- and any "
+        "question whose answer is a FILE the user takes away."
     ),
     not_for=(
         "Pure deterministic NExtSEEK lookups that the NS route handles without "
@@ -36,6 +40,10 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "the NS route already resolves; catalog bookkeeping the NS route answers "
         "without shell access; and nf-core pipeline build/launch work that belongs "
         "on the NS route. Having a shell is not a reason to route here when "
-        "NExtSEEK already holds the answer."
+        "NExtSEEK already holds the answer. The dividing line: a question "
+        "answerable from sample metadata alone is the NS route, however large or "
+        "analytical -- counts, breakdowns and harmonisation over metadata all run "
+        "in the graph. It is only a question needing a source the graph does not "
+        "hold, or a produced file, that belongs here."
     ),
 )
