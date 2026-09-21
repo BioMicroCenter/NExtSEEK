@@ -147,3 +147,29 @@ def test_no_catalog_sends_a_sample_maker_to_the_people_endpoint(name):
     assert not any("scientist" in p.lower() or p.lower() == "who" for p in entry["intent_patterns"])
     assert not any("scientist" in x.lower() for x in entry["example_intents"])
     assert "never" in entry["llm_hint"].lower()
+
+
+# --------------------------------------------------------------------------- F3
+
+
+@pytest.mark.parametrize("name", sorted(CORES))
+def test_the_investigation_list_is_not_presented_as_closed(name):
+    """report.shoulders_inventory was refused with "'Shoulders' is not a recognized
+    investigation title", quoting this prompt's list verbatim. The project is real and
+    holds hundreds of samples; the generator that writes the list knows 9 investigations
+    and the graph holds more."""
+    text = read(CORES[name])
+    assert "This list is NOT exhaustive" in text
+    assert "Never refuse a project or investigation because it is missing from it" in text
+
+
+@pytest.mark.parametrize("name", sorted(CORES))
+def test_an_unrecognised_organisation_routes_to_the_graph_not_to_unsupported(name):
+    """The graph agent is handed the live project and investigation titles; the parser
+    is not. So the parser must not be the one deciding a name does not exist."""
+    text = read(CORES[name])
+    assert "9b." in text
+    assert "That is not grounds for unsupported" in text
+    ladder_9b = text.index("9b.")
+    step_10 = text.index("10. Does no available path satisfy the request?")
+    assert ladder_9b < step_10, "the rule has to be read before the terminal refusal"

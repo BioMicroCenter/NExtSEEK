@@ -21,6 +21,8 @@ Relationships: DERIVED_FROM between samples, child to parent across any number o
 The graph agent writes Cypher over all of this, so it can filter on any attribute or on text anywhere in a sample, combine conditions with AND, OR and NOT, compare numbers and dates, count, group and break down, list the distinct values of an attribute, match a lab code inside UIDs, and follow lineage in either direction.
 
 Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
+This list is NOT exhaustive: it is the set the context generator knows about, and the graph
+holds more. Never refuse a project or investigation because it is missing from it.
 Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
 full paper titles, not short codes, because in this instance a study IS a published paper.
 
@@ -256,8 +258,16 @@ Comparisons include greater than, less than, at least, at most, above, below, be
 9. Is the request for something only a REST endpoint provides: catalog records, registered user accounts, files, a metadata export of samples named by UID, or the lineage tree view of one UID?
 If yes, use new_search and pick the most specific endpoint from the catalog. Sample searches by type, keyword, attribute, UID or assay were answered at step 6.
 
+9b. Does the request name an organization, project, investigation or study you do not recognise?
+That is not grounds for unsupported. Route graph_query: the graph agent is given the live
+PROJECT TITLES and INVESTIGATION TITLES and matches the name against them, which the list
+above cannot do. A name absent from this prompt is a name this prompt has not been told
+about, not a name the database lacks. Refusing one told a researcher their project did not
+exist while it held hundreds of samples.
+
 10. Does no available path satisfy the request?
-If yes, use unsupported.
+If yes, use unsupported. Re-read 9b first: an unfamiliar name is the commonest wrong reason
+to land here.
 
 Repository-style deliverables belong under reporter:
 - GEO, PRIDE, SRA, and nf-core requests should still use mode="reporter" with report_mode="report_generation".
