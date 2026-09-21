@@ -51,7 +51,21 @@ class Question:
 # asked after it would be answered by CC.
 QUESTIONS: tuple[Question, ...] = (
     Question("capabilities", "What can you do?", "nextseek_query", "system", False, False),
-    Question("ndma_mice", "What mice are treated with NDMA?", "nextseek_query", "api", True, False),
+    # Changed from "api" to "graph" knowingly on 2026-09-21, and the old value is the
+    # point of the note. This question is a sample type plus a treatment attribute, which
+    # is metadata, and F1 (promoting the measured prompt set to the default) moved exactly
+    # that shape from advanced_search to graph_query: the descriptive-attribute rule now
+    # reads "-> graph_query", and six metadata triggers were added to the graph while the
+    # three sample-search ones left api_preferred. So the graph path IS the correct answer
+    # here and the old pin was asserting pre-F1 behaviour.
+    #
+    # COVERAGE NOTE: with this and impact_studies both on the graph, the lane no longer
+    # exercises the NS **api** path at all. That is a real gap, not a tidy-up. What is
+    # still api_preferred after F1 is catalog records, the full record or an export of a
+    # named UID, PATCH on a UID, and any non-metadata intent -- so an api-path question
+    # for this lane would have to be one of those (e.g. the full metadata record for a
+    # known UID), which is a new paid turn and the operator's call to add.
+    Question("ndma_mice", "What mice are treated with NDMA?", "nextseek_query", "graph", True, False),
     Question("impact_studies", "What studies are in IMPACT?", "nextseek_query", "graph", True, False),
     Question("nhp_graph", "Make me a histogram image of NHP species", "container_cc", "cc", False, True),
 )
