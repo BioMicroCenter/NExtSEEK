@@ -1,0 +1,368 @@
+{
+  "_name": "probe-2026-09-22-post-rebuild - the eight fixes of 2026-09-22, checked against measured truth",
+  "_why": "Run after the app rebuild (and the cc-agent rebuild for the last case):\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-22-post-rebuild.json --out /app/runs/post-rebuild-20260922\nNine turns. Every number below was measured in the live local graph on 2026-09-22, not taken from an engine's own answer.",
+  "_truths": {
+    "srp_total": "57,441 samples reach a Project or Investigation whose title contains SRP",
+    "kamm_rna": "140 T_RNA samples carry KAM at the lab position of the UID",
+    "shoulders": "568 samples are in the Shoulders project through IN_PROJECT",
+    "hela": "4 T_CEL samples: HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA (15 TIS and 4 D.IMG also mention hela, so a whole-database count is not 4 and is not what this asks)",
+    "cc_mice": "745 T_MUS carry a Genotype matching ^CC[0-9]; only 209 of them carry the phrase 'collaborative cross' in their metadata, and none of CC042's 427 do, so an answer of 209 means the tag was searched instead of the attribute",
+    "ndma_downstream": "23 downstream sample types under the 1,549 NDMA mice, led by TIS 18,397, D.IMG 2,830, DNA 560, D.SEq 531"
+  },
+  "_cost_note": "Eight of the nine turns are ordinary NExtSEEK turns. The last case is a Container-CC request, which is the expensive engine (~$0.48 on 2026-09-21) and the only way to exercise the host-path fix, because SKILL.md is baked into that image. Drop that case if the cc-agent has not been rebuilt.",
+  "_criteria_note": "Negative criteria are written as a lookahead over the whole reply, because the DSL has matches_re and no not_matches_re. They are the point of several of these cases: the fixes remove sentences, and a reply can carry the right number and still be the old behaviour.",
+  "include_ids": [],
+  "families": {
+    "post_rebuild": {
+      "description": "One case per fix committed on 2026-09-22, in the order they were built.",
+      "variants": [
+        {
+          "family": "post_rebuild",
+          "id": "post.srp_count_answers_first",
+          "name": "Ticket 1: the answer, and nothing about the query that found it",
+          "_why": "Turn 1151 answered 'There are 57,441 samples in the SRP project. This count was determined by a graph query over the sample network, ...' on an image that already carried the prompt. Nothing about this result needs qualifying, so nothing about the search belongs in the reply.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the SRP project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])57,?441(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*graph query over the sample network)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*constrained by)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.kamm_rna_names_a_type_once",
+          "name": "Ticket 1: a type is named once, by its name or its code",
+          "_why": "'The Kamm lab (KAM) has 140 RNA samples (RNA Sample), based on a graph query over the sample network' was 19 words, all of them machinery or duplication.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many RNA samples does the Kamm lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])140(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*\\(RNA Sample\\))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*graph query over the sample network)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.cc_mice_by_genotype",
+          "name": "Ticket 2: the strain family is matched on Genotype, not as free text",
+          "_why": "Answered a confident 0 on 2026-09-21 against 737, now 745. The metadata write of 2026-09-22 tagged 209 of them, so 209 is the new wrong answer and is harder to spot.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "do you have any datasets with collaborative cross mice ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])745(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.hela_names_its_variants",
+          "name": "Ticket 2: a count over a contained name returns the distinct values",
+          "_why": "'We have 4 HeLa cell-line samples' described HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA. The count was defensible; calling all four HeLa was not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many HeLa cell-line samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "HeLa-(ActD|GSK|TSA)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.shoulders_by_project",
+          "name": "Ticket 2: an investigation or project in the vocabulary is matched structurally",
+          "_why": "The right answer, 568, reached through a text OR on the word 'Shoulders' after a scoped query found nothing. The number is not the test; the route to it is. 568 was already the right number, so only the query can show the difference: the relationship must be there and the text arm must not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the Shoulders project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])568(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "IN_PROJECT|IN_INVESTIGATION"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*search_text)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.misspelled_lab_suggests_the_record",
+          "name": "Item 7: a misspelled lab is asked about, not answered with zero",
+          "_why": "'What samples do the engleward lab have?' answered 'There are no samples associated with the Engleward lab in the database.' Engelward is ENG and is on record; the resolver still must not guess the code, so the reply names it and asks.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What samples do the engleward lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "engelward"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\(ENG\\)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.followup_downstream_types",
+          "name": "Item 5: a follow-up that queried the graph is never answered from the bundle",
+          "_why": "The seeded result holds five columns and no lineage. On 2026-09-22 the follow-up agent ran three correct DERIVED_FROM queries, exhausted its six iterations without answering, and the orchestrator threw them away and reported absence.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with ndma",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Of those mice, what downstream data types are associated with them?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\bTIS\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.IMG"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no downstream data types)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "post_rebuild",
+          "id": "post.cc_artifact_quotes_the_user_facing_path",
+          "name": "Item 6: the path mapping the engine writes is the one the skill documents",
+          "_why": "A CC turn said 'Host path: I couldn't translate it, DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it'. The mapping was well formed; the instruction asked for a host path the cutover had removed. NEEDS THE CC-AGENT REBUILD.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Write a CSV of the samples in the Shoulders project and tell me exactly where the file is.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/dmac/users/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*couldn't parse a mapping)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
