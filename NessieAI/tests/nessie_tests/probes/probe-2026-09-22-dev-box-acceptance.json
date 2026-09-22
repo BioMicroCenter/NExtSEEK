@@ -885,7 +885,7 @@
           "family": "buckets",
           "id": "bucket2.followup_sees_more_than_the_stored_rows",
           "name": "Bucket 2: the follow-up reads the whole result, not the stored preview",
-          "_why": "The stored bundle keeps a preview; the read path was fixed to use the full rows and the follow-up agent can re-query. A liver count over 36,614 SRP tissues cannot come from a 20-row preview, so the number is the proof. 13,433 folded, measured 2026-09-22.",
+          "_why": "The stored bundle keeps a preview; the read path was fixed to use the full rows and the follow-up agent can re-query. A liver count over 36,614 SRP tissues cannot come from a 20-row preview, so the number is the proof. 13,433 folded, measured 2026-09-22. The review's remaining OPEN item here is about disk, not the session: 'only 20 rows are still written to disk ... REST turns save every row; graph turns do not'. Reading the code, orchestrator.py:887's data[:20] is the DEBUG json's preview, and the rows themselves go to a separate graph_result artifact with every row, so the seed turn now asserts that file exists. If it passes, the OPEN item is stale; if it fails, the review was right and I was wrong. The basename carries bundle id 1, which holds for a fresh session's first graph result.",
           "tags": [
             "nessie",
             "probe",
@@ -906,6 +906,11 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
+                },
+                {
+                  "field": "api_artifact.graph_result_bundle_1.json",
+                  "op": "true",
+                  "value": null
                 }
               ]
             },
@@ -1057,7 +1062,7 @@
         {
           "family": "buckets",
           "id": "bucket7.cc_aggregates_metadata",
-          "name": "Bucket 7: metadata aggregation, the thing the REST path cannot do",
+          "name": "Bucket 7: metadata aggregation by genotype, the shape the CC op was built for",
           "_why": "schema 1.2 plus the Container-CC aggregate op exist and have never been proven against a real question. THE SECOND PAID CASE in this file, after the artifact one.",
           "tags": [
             "nessie",
@@ -1084,6 +1089,123 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])(3,?589|1,?183|848)(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "buckets",
+          "id": "bucket7.species_over_a_project",
+          "name": "Bucket 7: the question the review recorded, aggregating metadata over a project",
+          "_why": "Turn 429 verbatim, the single question in that bucket: it matched 84,527 samples and answered that the data does not contain species names. Measured 2026-09-22: IMPAcTb holds 84,474 samples of which 892 carry a Species value, in at least eight spellings over four species plus the pathogen and one misspelling (macaca fascicularis 327, macaca mulatta (rhesus) 239, mus musculus 163, rhesus macaque 88, macaca mulatta 37, homo sapiens 16, mycobacterium tuberculosis 12, myobacterium tuberculosis 4). So the honest answer names the species AND says the field is filled on a small fraction; what it may never do is repeat that the data does not contain them. The question also says 'IMPACT' where the project is IMPAcTb, which the projects context carries as an alternative name, so resolving it is part of the test.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What species are the samples in the IMPACT project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(macaca|macaque)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(mus musculus|mouse|mice)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*does not contain)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no species)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "buckets",
+          "id": "bucket6.a_readme_for_what_nessie_is",
+          "name": "Bucket 6: the README page, second of the three things to build",
+          "_why": "Turn 120 ('How do I export?') and turn 503 ('how do i query/find those data in the database?'). The review's second TO BUILD is a README page, including that NExtSEEK does not house the data files. Tagged known_fail: the page does not exist, so what matters is that the reply says the honest thing rather than inventing a link.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "known_fail"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How do I export the results of a search, and where does NExtSEEK keep the actual data files?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(does not (house|store|host)|metadata|points to)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*https?://)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "buckets",
+          "id": "bucket6.export_this_session",
+          "name": "Bucket 6: send us the chat link, third of the three things to build",
+          "_why": "Turn 498 ('Is there way to export this session to send to the development team for feedback?') was told there is no such feature, while the endpoint already returns a whole chat by id. Tagged known_fail until the wording is built; the failure to avoid is a flat denial of something that exists.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "known_fail"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Is there a way to export this session to send to the development team for feedback?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*no such feature)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*not possible)"
                 }
               ]
             }
@@ -1221,5 +1343,6 @@
         "MATCH (s:T_MUS) WHERE toLower(toString(s.Genotype)) CONTAINS 'aag' RETURN count(s) AS mentions_aag, count(DISTINCT s.Genotype) AS spellings"
       ]
     }
-  }
+  },
+  "_gaps_no_case_can_honestly_cover": "Two OPEN items from the seven-bucket review that this file deliberately does not test. BUCKET 4, the provider-failure path: no provider failed in 46 turns and one cannot be provoked on demand, so both fixes there stay code-checked only. BUCKET 4's other half, a turn stopped at the 180 s limit handing back what it had: the case built for it on 2026-09-21 was refused by the model rather than answered ('contains 568 samples, not 731. I won't fabricate 163 rows to hit it'), which was the right answer to the wrong test, and no honest question that cannot finish in 180 s has been found yet. Inventing one that only works by being absurd would test the harness, not the product."
 }
