@@ -67,8 +67,73 @@ function nsCsrfToken() {
 	return m ? decodeURIComponent(m[1]) : '';
 }
 
+/* The page sizes both pagers offer: one page of graph_search's maximum, or ALL.
+   graph_search caps page_size at 1,000 (nextseek_api/graph_search/query.py, MAX_PAGE_SIZE),
+   so ALL cannot be one request: nsSearchAllRest reads page after page of NS_MAX_PAGE_SIZE
+   and loads them into the grid together. NS_ALL_PAGE_SIZE is only the value of the pager's
+   ALL option and is never sent as a page_size; it is large enough that the pager reads a
+   loaded result as one page ("Page 1 of 1", "Displaying 1 to <total> of <total> items").
+   Past NS_ALL_CONFIRM_AT rows that is many requests and a DOM of that many rows, so ALL
+   asks first. */
+var NS_MAX_PAGE_SIZE = 1000;
+var NS_ALL_PAGE_SIZE = 1000000;
+var NS_ALL_CONFIRM_AT = 10000;
+
 function nsSearchPageSize(key) {
-	return $('#' + key + '_pager').pagination('options').pageSize || 100;
+	return $('#' + key + '_pager').pagination('options').pageSize || NS_MAX_PAGE_SIZE;
+}
+
+function nsIsAllPageSize(size) {
+	return Number(size) >= NS_ALL_PAGE_SIZE;
+}
+
+/* easyui builds the page-size options from pageList, each labelled by its own number, and
+   rebuilds them on every pagination(...) call. This relabels the NS_ALL_PAGE_SIZE option
+   "ALL": the value attribute keeps the number the pager reads back out of the select
+   (jquery.easyui.min.js, select.pagination-page-list), the text is what the person sees. */
+function nsLabelAllOption(key) {
+	$('#' + key + '_pager').find('select.pagination-page-list > option').each(function () {
+		var option = $(this);
+		if (option.val() === String(NS_ALL_PAGE_SIZE)) {
+			option.attr('value', NS_ALL_PAGE_SIZE).text('ALL');
+		}
+	});
+}
+
+$(document).ready(function () {
+	nsLabelAllOption('simple');
+	nsLabelAllOption('advanced');
+});
+
+function nsSearchFetch(body, page, size) {
+	return fetch(SampleSearchCore.searchUrl(page, size), {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', 'X-CSRFToken': nsCsrfToken() },
+		body: JSON.stringify(body)
+	}).then(function (resp) {
+		return resp.json().catch(function () { return null; }).then(function (payload) {
+			return { resp: resp, payload: payload };
+		});
+	});
+}
+
+/* The text of the open progress dialog, so the ALL loop can say how far it has read. */
+function nsProgressMsg(text) {
+	$('body > div.messager-window').find('div.messager-p-msg').text(text);
+}
+
+/* A box's grid and pager after a search: the rows it now holds, and the size the pager
+   reads as the page size -- NS_ALL_PAGE_SIZE once ALL has loaded everything, so the pager
+   reads those rows as the whole result. */
+function nsSearchShow(key, rows, data, page, size) {
+	$('#' + key + '_dgtable').datagrid('loadData', rows);
+	$('#' + key + '_pager').pagination({ total: data.total, pageNumber: page, pageSize: size });
+	nsLabelAllOption(key);
+	if (key === 'advanced') {
+		document.getElementById('numberSamplesFound').innerHTML = data.total;
+		document.getElementById('numberSampleTypesFound').innerHTML = data.noSampleTypes;
+	}
 }
 
 function nsSearchRun(key, built, page, size) {
@@ -80,37 +145,88 @@ function nsSearchRun(key, built, page, size) {
 	state.body = built.body;
 	state.highlight = built.highlight;
 	var seq = ++state.seq;
+	// ALL starts at the first page of graph_search's maximum: that page carries the total
+	// this needs to know how many more pages to read.
+	var all = nsIsAllPageSize(size);
+	var askPage = all ? 1 : page;
+	var askSize = all ? NS_MAX_PAGE_SIZE : size;
 	$.messager.progress({
 		title: 'Please waiting',
 		msg: 'Searching for samples...'
 	});
-	fetch(SampleSearchCore.searchUrl(page, size), {
-		method: 'POST',
-		credentials: 'same-origin',
-		headers: { 'Content-Type': 'application/json', 'X-CSRFToken': nsCsrfToken() },
-		body: JSON.stringify(built.body)
-	}).then(function (resp) {
-		return resp.json().catch(function () { return null; }).then(function (payload) {
-			return { resp: resp, payload: payload };
-		});
-	}).then(function (r) {
-		$.messager.progress('close');
+	nsSearchFetch(state.body, askPage, askSize).then(function (r) {
 		if (seq !== state.seq) { return; }  // a newer search of this box has been sent
 		if (!r.resp.ok || !r.payload) {
+			$.messager.progress('close');
 			alert(SampleSearchCore.errorText(r.resp.status, r.payload));
 			return;
 		}
 		var data = r.payload;
-		$('#' + key + '_dgtable').datagrid('loadData', SampleSearchCore.prepareRows(data.rows, state.highlight));
-		$('#' + key + '_pager').pagination({ total: data.total, pageNumber: page, pageSize: size });
-		if (key === 'advanced') {
-			document.getElementById('numberSamplesFound').innerHTML = data.total;
-			document.getElementById('numberSampleTypesFound').innerHTML = data.noSampleTypes;
+		var rows = SampleSearchCore.prepareRows(data.rows, state.highlight);
+		if (all && data.total > rows.length) {
+			nsSearchAllRest(key, seq, rows, data);
+			return;
 		}
+		$.messager.progress('close');
+		nsSearchShow(key, rows, data, askPage, all ? NS_ALL_PAGE_SIZE : size);
 	}).catch(function (err) {
 		$.messager.progress('close');
 		alert('The search failed: ' + err);
 	});
+}
+
+/* ALL, for a result larger than one graph_search page: the pages after the first, read one
+   after another into the rows the first page gave. A request that fails, and a No to the
+   confirmation, leave the grid on what has been read so far at the 1,000 page size. */
+function nsSearchAllRest(key, seq, rows, first) {
+	var state = nsSearchState[key];
+	var total = first.total;
+	var pages = Math.ceil(total / NS_MAX_PAGE_SIZE);
+
+	function stop(size) {
+		$.messager.progress('close');
+		nsSearchShow(key, rows, first, 1, size);
+	}
+
+	function step(page) {
+		if (seq !== state.seq) { return; }
+		if (page > pages) {
+			stop(NS_ALL_PAGE_SIZE);
+			return;
+		}
+		nsProgressMsg('Loading ' + rows.length + ' of ' + total + ' samples...');
+		nsSearchFetch(state.body, page, NS_MAX_PAGE_SIZE).then(function (r) {
+			if (seq !== state.seq) { return; }
+			if (!r.resp.ok || !r.payload) {
+				stop(NS_MAX_PAGE_SIZE);
+				alert(SampleSearchCore.errorText(r.resp.status, r.payload));
+				return;
+			}
+			rows = rows.concat(SampleSearchCore.prepareRows(r.payload.rows, state.highlight));
+			step(page + 1);
+		}).catch(function (err) {
+			stop(NS_MAX_PAGE_SIZE);
+			alert('The search failed: ' + err);
+		});
+	}
+
+	if (total > NS_ALL_CONFIRM_AT) {
+		$.messager.progress('close');
+		$.messager.confirm('Load ALL results',
+			'This search matches ' + total + ' samples. Loading all of them takes ' + pages
+			+ ' requests and leaves the page slow to scroll and filter. Load them all?',
+			function (yes) {
+				if (seq !== state.seq) { return; }
+				if (!yes) {
+					nsSearchShow(key, rows, first, 1, NS_MAX_PAGE_SIZE);
+					return;
+				}
+				$.messager.progress({ title: 'Please waiting', msg: 'Loading 0 of ' + total + ' samples...' });
+				step(2);
+			});
+		return;
+	}
+	step(2);
 }
 
 /* A pager's onSelectPage: another page, or another page size, of the box's last search. */

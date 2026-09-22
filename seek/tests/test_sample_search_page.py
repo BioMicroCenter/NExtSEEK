@@ -125,7 +125,38 @@ def test_results_are_paged_in_the_database_by_standalone_pagers():
         assert re.search(r"pagination\s*:\s*false", _grid_options(body, grid)), grid
         options = _pager_options(body, grid)
         assert "onSelectPage" in options, grid
-        assert "pageList: [20, 50, 100, 500, 1000]" in options, grid  # graph_search caps page_size at 1000
+        # graph_search caps page_size at 1000 (nextseek_api/graph_search/query.py), so 1000
+        # is both the default and the largest page a single request can ask for; 1000000 is
+        # the pager's ALL option, which nsSearchAllRest reads a page at a time.
+        assert "pageSize: 1000," in options, grid
+        assert "pageList: [1000, 1000000]" in options, grid
+
+
+def test_the_pager_offers_one_page_of_1000_or_all():
+    """Two page sizes: 1000, the largest graph_search answers in one request, and ALL.
+    easyui labels every page-size option by its own number, so nsLabelAllOption relabels the
+    ALL option: its value attribute keeps the number the pager reads back out of the select
+    (jquery.easyui.min.js writes it with pagination('options').pageSize), its text is ALL."""
+    _, body = _render()
+    assert "var NS_MAX_PAGE_SIZE = 1000;" in body
+    assert "var NS_ALL_PAGE_SIZE = 1000000;" in body
+    assert "option.attr('value', NS_ALL_PAGE_SIZE).text('ALL')" in body
+    for grid in ("simple", "advanced"):
+        assert f"nsLabelAllOption('{grid}')" in body, grid
+
+
+def test_all_reads_every_page_of_the_result_and_asks_first_past_10000():
+    """ALL cannot be one request, because graph_search caps page_size at 1000: it reads page
+    after page of 1000 into the rows the first page gave. Past NS_ALL_CONFIRM_AT rows that is
+    many requests and a DOM of that many rows, so the person is asked before it runs."""
+    _, body = _render()
+    assert "var NS_ALL_CONFIRM_AT = 10000;" in body
+    assert "function nsSearchAllRest(key, seq, rows, first)" in body
+    # every page after the first, at graph_search's maximum, appended to what is held
+    assert "nsSearchFetch(state.body, page, NS_MAX_PAGE_SIZE)" in body
+    assert "rows = rows.concat(SampleSearchCore.prepareRows(r.payload.rows, state.highlight));" in body
+    assert "if (total > NS_ALL_CONFIRM_AT) {" in body
+    assert "$.messager.confirm('Load ALL results'," in body
 
 
 def test_the_page_includes_the_core_once():
