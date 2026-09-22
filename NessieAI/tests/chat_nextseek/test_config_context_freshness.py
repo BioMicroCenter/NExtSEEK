@@ -163,3 +163,56 @@ def test_committed_baked_projects_db_resolves_every_published_spelling(tmp_path)
 
     for spelling in ("PUBLISHED", "PUBLISHED DATA", "PUBLISHED", "PUB"):
         assert merged[spelling] == expected, spelling
+
+
+# --------------------------------------------------------------------------
+# 2026-09-22: the marker itself got baked, and did exactly what BUG-2 did.
+#
+# `.dockerignore` excluded `labs_db.json` and not `.context_db_refresh`, so a rebuild
+# on a day when the host checkout carried the marker baked it with a today mtime. The
+# container then printed "DB refresh already verified for today; skipping DB export",
+# never ran the refresh, and never wrote `labs_db.json` -- which is dockerignored, so
+# the image has none. `ChatConfig.LABS` stayed None for the rest of the UTC day and
+# every lab-name question degraded: no lab codes, no Engelward -> ENG, no near-miss
+# suggestion. Measured on the 16:27 image, where the marker's mtime was 15:12.
+#
+# The module docstring above and `config.py`'s own comment both already said the marker
+# is "never baked into the image (runtime-only)". Nothing enforced it. This does.
+#
+# Deliberately NOT fixed by adding the labs document to the refresh trigger: a box whose
+# SEEK holds no lab-shaped institution title legitimately has no labs document (see
+# `NessieAI/chat_nextseek/CLAUDE.md`), and triggering on its absence would re-export
+# every context table on every ChatConfig build on such a box.
+# --------------------------------------------------------------------------
+
+_MARKER_PATH = "NessieAI/chat_nextseek/src/chat_nextseek/context/.context_db_refresh"
+
+
+def test_the_refresh_marker_is_never_baked_into_the_image():
+    ignored = (paths.REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    entries = {line.strip() for line in ignored if line.strip() and not line.startswith("#")}
+
+    assert _MARKER_PATH in entries, (
+        "the refresh marker must be dockerignored: baked with a today mtime it suppresses the "
+        "first refresh, which is the defect the marker exists to prevent"
+    )
+
+
+def test_the_marker_and_the_labs_document_are_both_runtime_only():
+    """They are written by the same refresh, so they must be excluded together."""
+    ignored = (paths.REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+    for path in (_MARKER_PATH, "NessieAI/chat_nextseek/src/chat_nextseek/context/labs_db.json"):
+        assert path in ignored, path
+
+
+def test_a_baked_marker_would_have_suppressed_the_refresh(tmp_path):
+    """The mechanism, so the dockerignore line above is not a mystery to the next reader."""
+    _write_all_targets_today(tmp_path)
+    (tmp_path / ChatConfig._REFRESH_MARKER_NAME).write_text("", encoding="utf-8")  # a baked marker
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert calls["n"] == 0, "a today marker skips the refresh, which is why it must not be baked"

@@ -113,10 +113,12 @@ def resolve_followup_outcome(outcome: dict | None) -> tuple[str | None, bool]:
 def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
     """The three tools, in the order a follow-up naturally uses them.
 
-    ``final`` offers only ``answer``. On 2026-09-22 turn 1147 the loop spent all six
-    iterations on tool calls and never reached ``answer``, so it returned nothing while
-    holding three completed lineage queries; a last turn that can only answer cannot end
-    that way. The model has every tool result in its conversation by then.
+    ``final`` offers only ``answer``, which is what the extra terminal pass in
+    ``run_followup`` uses. Restricting the SIXTH iteration this way was tried first and
+    was not enough: on 2026-09-22 the model called ``run_new_query`` on that iteration
+    anyway, the dispatch ran it because it never checked what had been offered, and the
+    turn was spent. The loop now keeps its six working iterations and takes one extra
+    pass that can only answer, with the refusal enforced in the dispatch.
     """
     schemas = [
         {
@@ -357,12 +359,25 @@ def run_followup(
 
     queries: list[dict] = []
     tool_calls: list[str] = []
+    read_already = False
 
-    for iteration in range(MAX_ITER):
+    # MAX_ITER working iterations, then one pass that can only answer -- taken only when
+    # something was queried, because a loop that just read the bundle has nothing to
+    # report and the stored-result path is then the only thing that can speak.
+    for iteration in range(MAX_ITER + 1):
+        terminal = iteration == MAX_ITER
+        if terminal:
+            if not queries:
+                break
+            messages.append({"role": "user", "content": (
+                "This is your final turn and only `answer` is available. Answer now from the "
+                "results you already have, and put anything you could not establish in "
+                "`caveats`. Nothing else can run."
+            )})
         resp = call_tools(
             config,
             messages=messages,
-            tools=build_followup_tool_schemas(final=iteration == MAX_ITER - 1),
+            tools=build_followup_tool_schemas(final=terminal),
             system=system_prompt,
             model_name=model_name,
             client=client,
@@ -396,8 +411,24 @@ def run_followup(
                     "tool_calls": tool_calls,
                 }
 
-            if name == "read_stored_result":
-                payload = describe_stored_result(bundle)
+            if terminal:
+                # It called something that was not offered. Run nothing: the point of this
+                # pass is that the answer comes from what is already in the conversation.
+                payload = {"ok": False, "error": (
+                    f"`{name}` was not available on this turn and did not run. Only `answer` "
+                    "was, and this was the last turn."
+                )}
+            elif name == "read_stored_result":
+                if read_already:
+                    # It cannot have changed, and it is the largest payload in the loop: three
+                    # of six iterations went on re-reading it on 2026-09-22.
+                    payload = {"ok": False, "already_read": True, "note": (
+                        "You have already read the stored result this turn and it cannot have "
+                        "changed. Run a query or call `answer`."
+                    )}
+                else:
+                    read_already = True
+                    payload = describe_stored_result(bundle)
             elif name == "run_new_query":
                 question = (tool_input.get("question") or "").strip() or user_text
                 seed = bool(tool_input.get("seed_uids", True))

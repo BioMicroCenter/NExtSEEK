@@ -332,15 +332,22 @@ def test_the_followup_agent_is_registered_in_every_profile():
 from chat_nextseek.agents.followup import resolve_followup_outcome  # noqa: E402
 
 
-def test_the_final_iteration_offers_only_the_answer_tool():
-    """Six iterations of tool_use and no `answer` is what ran the budget out."""
+def test_the_working_iterations_keep_the_whole_tool_surface():
+    """Six iterations of tool_use and no `answer` is what ran the budget out.
+
+    First fix was to restrict the SIXTH iteration to `answer`. The live run of
+    2026-09-22 showed that is not enough: the model called `run_new_query` there anyway.
+    So the six working iterations keep every tool, and the restriction moved to an extra
+    terminal pass whose refusal is enforced in the dispatch, not just in the tool list --
+    see test_an_exhausted_loop_gets_one_terminal_turn_to_answer below.
+    """
     client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 3))
     run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
 
     assert len(client.turns) == MAX_ITER
-    assert [t["name"] for t in client.turns[-1]["tools"]] == ["answer"], "the last turn must be terminal"
-    assert [t["name"] for t in client.turns[-2]["tools"]] == [
-        "read_stored_result", "run_new_query", "answer"], "earlier turns keep the whole surface"
+    for i in range(MAX_ITER):
+        assert [t["name"] for t in client.turns[i]["tools"]] == [
+            "read_stored_result", "run_new_query", "answer"], i
 
 
 def test_an_exhausted_loop_that_ran_a_query_answers_from_what_it_found():
@@ -409,3 +416,94 @@ def test_the_stored_summary_drops_the_previous_reply_s_debug_block():
 
     assert summary["previous_reply"] == "There are 1,549 mouse samples treated with NDMA."
     assert "Debug info" not in json.dumps(summary)
+
+
+# --------------------------------------------------------------------------
+# The live run of 2026-09-22 (probe post.followup_downstream_types), after the fixes
+# above shipped. The plumbing was right and the loop still did not answer:
+#
+#   tool_calls: read_stored_result, run_new_query, read_stored_result, run_new_query,
+#               run_new_query, run_new_query        exhausted: true
+#   queries:    counts 41, null, 23, 23, every one with uids_applied 1549
+#
+# Two things that restriction-by-tool-list could not fix. The model called
+# `run_new_query` on the SIXTH iteration, where only `answer` was offered, and the
+# dispatch executed it because it never checked what had been offered. And it called
+# `read_stored_result` twice, against a new prompt line telling it to call it once,
+# spending a third of the budget re-reading a payload that cannot change.
+#
+# The reply the user got was honest ("23 records match ... treat this as partial") and
+# carried the right number, which is the previous commits working. It is still not the
+# answer, and the answer was in the conversation from iteration three onward.
+# --------------------------------------------------------------------------
+
+def test_an_exhausted_loop_gets_one_terminal_turn_to_answer():
+    """The model holds four query results by then; give it a turn that can only answer."""
+    script = [_tool_use("run_new_query", {"question": "downstream types"})] * MAX_ITER
+    script.append(_tool_use("answer", {"text": "23 downstream types, led by TIS and D.IMG.",
+                                       "caveats": []}))
+    client = _ScriptedClient(script)
+    out = run_followup(_Cfg(client), user_text="what downstream types?", bundle=_bundle(),
+                       run_query=lambda **kw: {"ok": True, "count": 23, "examples": ["TIS"]})
+
+    assert out["reply"] == "23 downstream types, led by TIS and D.IMG."
+    assert not out.get("exhausted")
+    assert len(client.turns) == MAX_ITER + 1
+    assert [t["name"] for t in client.turns[-1]["tools"]] == ["answer"]
+    last_message = client.turns[-1]["messages"][-1]["content"]
+    assert "final turn" in str(last_message).lower()
+
+
+def test_the_terminal_turn_is_only_for_a_loop_that_actually_queried():
+    """A loop that only read the bundle has nothing to report, so the old path still runs."""
+    client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 3))
+    out = run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
+
+    assert out["exhausted"] is True
+    assert out["reply"] is None
+    assert len(client.turns) == MAX_ITER, "no extra call when there is nothing to answer from"
+    assert resolve_followup_outcome(out) == (None, True)
+
+
+def test_a_terminal_turn_that_still_will_not_answer_falls_back_to_the_queries():
+    script = [_tool_use("run_new_query", {"question": "x"})] * (MAX_ITER + 2)
+    client = _ScriptedClient(script)
+    out = run_followup(_Cfg(client), user_text="q", bundle=_bundle(),
+                       run_query=lambda **kw: {"ok": True, "count": 23, "examples": ["TIS"]})
+
+    assert out["reply"] is None and out["exhausted"] is True
+    reply, may_fall_back = resolve_followup_outcome(out)
+    assert may_fall_back is False and "23" in reply
+
+
+def test_a_tool_the_terminal_turn_did_not_offer_is_refused_not_run():
+    """It called run_new_query where only answer was available; that must cost nothing."""
+    script = [_tool_use("run_new_query", {"question": "x"})] * (MAX_ITER + 2)
+    client = _ScriptedClient(script)
+    ran = {"n": 0}
+
+    def _count(**kw):
+        ran["n"] += 1
+        return {"ok": True, "count": 23, "examples": ["TIS"]}
+
+    run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=_count)
+
+    assert ran["n"] == MAX_ITER, "the terminal turn must not execute a query"
+    refusal = client.turns[-1]["messages"][-1] if len(client.turns) > MAX_ITER else None
+    assert refusal is not None
+
+
+def test_a_second_read_of_the_stored_result_is_refused_rather_than_served():
+    """Three of the six iterations went on a payload that cannot change."""
+    client = _ScriptedClient([
+        _tool_use("read_stored_result", {}),
+        _tool_use("read_stored_result", {}),
+        _tool_use("answer", {"text": "done", "caveats": []}),
+    ])
+    run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
+
+    first = json.dumps(client.turns[1]["messages"][-1]["content"])
+    second = json.dumps(client.turns[2]["messages"][-1]["content"])
+    assert "uid_sample" in first, "the first read is served in full"
+    assert "uid_sample" not in second, "the second read must not re-send the payload"
+    assert "already" in second.lower()
