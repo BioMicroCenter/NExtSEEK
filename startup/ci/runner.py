@@ -118,6 +118,25 @@ def render_nessie_without_summary(evidence_dir: str | None) -> list[str]:
     return lines + [""]
 
 
+#: The Playwright the smoke suite runs on, pinned. Unpinned, `--with playwright` resolved to
+#: whatever PyPI held that day: on 2026-09-22 fairdata-dev got 1.63.0, whose browser build
+#: (chromium_headless_shell-1243) had never been downloaded for the account running CI, and
+#: every browser test errored at setup. ci/smoke/README.md and the smoke module headers carry
+#: the same pin; bump them together.
+PLAYWRIGHT = "playwright==1.60.0"
+
+
+def browser_install_command() -> list[str]:
+    """The argv that makes sure the pinned Playwright's Chromium is present.
+
+    `playwright install` is a no-op when the build is already in the running account's
+    ~/.cache/ms-playwright, so run_ci calls it before every run: after a pin bump, or on a
+    new account, the browser arrives by itself. It downloads the browser only; system
+    libraries remain the host's (a one-time package install).
+    """
+    return ["uv", "run", "--no-project", "--with", PLAYWRIGHT, "playwright", "install", "chromium"]
+
+
 def build_command(repo_root: Path, state: InstanceState, *, wait_ready: bool,
                   profile: str | None = None,
                   force_profile: str | None = None,
@@ -130,7 +149,7 @@ def build_command(repo_root: Path, state: InstanceState, *, wait_ready: bool,
     port = state.ports.get("nextseek", 8000)
     cmd = [
         "uv", "run", "--no-project",
-        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "--with", "pytest", "--with", "requests", "--with", PLAYWRIGHT,
         "pytest", "ci/smoke/",
         "--base-url", f"http://127.0.0.1:{port}",
         f"--junitxml={junit_path(repo_root)}",
@@ -174,6 +193,12 @@ def run_ci(repo_root: Path, state: InstanceState, *, wait_ready: bool,
     nessie_summary_path(repo_root).unlink(missing_ok=True)
     shutil.rmtree(nessie_evidence_path(repo_root), ignore_errors=True)
     try:
+        # The browser first. A failure here is reported, not fatal: the suite still runs, and
+        # its browser tests then fail with Playwright's own "Executable doesn't exist" message.
+        installed = subprocess.run(browser_install_command(), cwd=repo_root, env=env).returncode
+        if installed != 0:
+            print(f"warning: '{' '.join(browser_install_command())}' exited {installed}; "
+                  "the browser tests may fail at setup.", file=sys.stderr)
         return subprocess.run(cmd, cwd=repo_root, env=env).returncode
     except FileNotFoundError:
         # This module stays free of the UI layer -- startup.lib.ui and the rich

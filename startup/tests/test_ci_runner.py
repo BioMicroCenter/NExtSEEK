@@ -37,7 +37,7 @@ def test_build_command_keeps_the_suite_invocation_and_flags(tmp_path: Path) -> N
     cmd = runner.build_command(tmp_path, _state(port=8123), wait_ready=True,
                                profile="prod", force_profile=None)
     assert cmd[:9] == ["uv", "run", "--no-project", "--with", "pytest", "--with",
-                       "requests", "--with", "playwright"]
+                       "requests", "--with", runner.PLAYWRIGHT]
     assert cmd[9:11] == ["pytest", "ci/smoke/"]
     assert cmd[cmd.index("--base-url") + 1] == "http://127.0.0.1:8123"
     assert "--wait-ready" in cmd
@@ -382,3 +382,38 @@ def test_write_report_puts_the_nessie_section_after_stack_health(tmp_path):
     text = runner.write_report(tmp_path, label="run3", nessie_summary=dict(SUMMARY),
                                health=[("app + front door", True, "running")]).read_text()
     assert text.index("## Stack health") < text.index("## Nessie")
+
+
+# --------------------------------------------------------------------------- #
+# the browser: pinned, and installed by the run itself
+# --------------------------------------------------------------------------- #
+
+def test_playwright_is_pinned_to_one_exact_version():
+    assert runner.PLAYWRIGHT.startswith("playwright==") and runner.PLAYWRIGHT.count(".") == 2
+
+
+def test_the_suite_and_the_browser_install_use_the_same_pin(tmp_path):
+    assert runner.PLAYWRIGHT in runner.build_command(tmp_path, _state(), wait_ready=False)
+    assert runner.browser_install_command()[:5] == ["uv", "run", "--no-project", "--with", runner.PLAYWRIGHT]
+    assert runner.browser_install_command()[-2:] == ["install", "chromium"]
+
+
+def test_run_ci_installs_the_browser_before_the_suite(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd, env):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    assert runner.run_ci(tmp_path, _state(), wait_ready=False) == 0
+    assert calls[0] == runner.browser_install_command()
+    assert calls[1][9:11] == ["pytest", "ci/smoke/"]
+
+
+def test_a_failed_browser_install_still_runs_the_suite(tmp_path, monkeypatch, capsys):
+    codes = iter([1, 0])
+    monkeypatch.setattr(runner.subprocess, "run",
+                        lambda cmd, cwd, env: SimpleNamespace(returncode=next(codes)))
+    assert runner.run_ci(tmp_path, _state(), wait_ready=False) == 0
+    assert "may fail at setup" in capsys.readouterr().err

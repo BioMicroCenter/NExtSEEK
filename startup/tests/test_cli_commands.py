@@ -585,7 +585,7 @@ def test_ci_builds_the_expected_argv_and_env(
     call = _suite_call(calls)
     assert call.cmd == [
         "uv", "run", "--no-project",
-        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "--with", "pytest", "--with", "requests", "--with", ci_runner.PLAYWRIGHT,
         "pytest", "ci/smoke/",
         "--base-url", "http://127.0.0.1:8000",
         f"--junitxml={repo / 'startup' / '.ci-last-run.xml'}",
@@ -605,8 +605,8 @@ def test_ci_base_url_follows_the_instance_port(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert "--base-url" in calls[0].cmd
-    assert calls[0].cmd[calls[0].cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
+    assert "--base-url" in _suite_call(calls).cmd
+    assert _suite_call(calls).cmd[_suite_call(calls).cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
 
 
 def test_ci_absent_box_profile_means_prod(
@@ -617,7 +617,7 @@ def test_ci_absent_box_profile_means_prod(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
 
 
 def test_ci_passes_wait_ready_and_profile_through(
@@ -629,10 +629,10 @@ def test_ci_passes_wait_ready_and_profile_through(
     result = runner.invoke(cli.app, ["ci", "--wait-ready", "--profile", "prod"])
 
     assert result.exit_code == 0, result.output
-    assert "--wait-ready" in calls[0].cmd
+    assert "--wait-ready" in _suite_call(calls).cmd
     # Narrowed to prod, the run gets prod's rule: no Nessie lane.
-    assert calls[0].cmd[-3:] == ["--profile", "prod", "--no-nessie"]
-    assert calls[0].env["CI_BOX_PROFILE"] == "dev"
+    assert _suite_call(calls).cmd[-3:] == ["--profile", "prod", "--no-nessie"]
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "dev"
 
 
 def test_ci_inherits_the_ambient_environment(
@@ -644,7 +644,7 @@ def test_ci_inherits_the_ambient_environment(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
+    assert _suite_call(calls).env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
 
 
 def test_ci_force_profile_declined_runs_nothing(
@@ -670,10 +670,10 @@ def test_ci_force_profile_accepted_confirms_for_that_call_only(
 
     assert result.exit_code == 0, result.output
     # A box declaring prod never runs the Nessie lane, however far it is widened.
-    assert calls[0].cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
-    assert calls[0].env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
+    assert _suite_call(calls).cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
+    assert _suite_call(calls).env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
     # The box's own declaration is untouched by a forced run.
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
     assert load_instance(repo).ci_profile == "prod"
     assert "CI_FORCE_PROFILE_CONFIRM" not in os.environ
 

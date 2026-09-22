@@ -6,7 +6,8 @@ user does. Same command locally, on fairdata-dev, and in CI.
 ## Run it
 
 ```bash
-# one time, per host
+# ./startup.sh ci runs this itself before every run (a no-op once the browser is there).
+# By hand, per account that runs the suite (browsers live in ~/.cache/ms-playwright):
 uv run --no-project --with playwright==1.60.0 playwright install chromium
 
 # everything except the write lane. That includes the Nessie lane, which sends
