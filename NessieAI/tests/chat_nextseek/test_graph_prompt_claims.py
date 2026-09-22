@@ -135,3 +135,13 @@ def test_the_routing_rules_are_unchanged():
     # to advanced_search now sends it to the graph. This is the rule the promotion exists to change;
     # it is excluded from the frozen hash above precisely because it moves.
     assert "→ graph_query" in rules[descriptive]
+
+
+def test_a_collection_date_question_reads_sample_creation_date():
+    """Operator ruling 2026-09-22: "collection dates" means SampleCreationDate (726,166 samples carry
+    it locally, CollectionDate 134). The local run asked for the longest span of collection dates and
+    the agent used CollectionDate, which the prompt's own date example had modelled."""
+    assert "**Which date.**" in PROMPT
+    rule = PROMPT.split("**Which date.**", 1)[1].split("\n", 1)[0]
+    assert "`SampleCreationDate`" in rule and "only when the user names that attribute" in rule
+    assert "s.CollectionDate STARTS WITH" not in PROMPT
