@@ -6,10 +6,11 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 # from drf_spectacular.types import OpenApiTypes
 from django.conf import settings
 from pydantic import ValidationError
+import requests
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.helpers import resolve_seek_auth
@@ -143,6 +144,25 @@ def _graph_sync_type_id(data, fallback: Optional[str] = None) -> Optional[str]:
     return fallback if fallback.isdigit() else None
 
 
+def _seek_unanswered(action: str, seek_id, exc: Exception, timeout_s) -> HttpResponse:
+    """The response for a SEEK call that raised instead of answering: 504 on a timeout, 502 otherwise.
+
+    Uncaught, the requests exception reached the caller as a bare 500 (measured on fairdata-dev 2026-09-22:
+    SEEK took 23-25 s to serve GET /sample_types/11 against the proxy's 20 s timeout), which says the proxy is
+    broken when the truth is that SEEK was too slow or unreachable.
+    """
+    if isinstance(exc, requests.Timeout):
+        logging.getLogger(__name__).warning("sample_types_proxy.%s: SEEK did not answer for sample type %s "
+                                            "within %s s", action, seek_id, timeout_s)
+        payload = {"errors": [{"title": "Upstream timeout",
+                               "detail": f"SEEK did not answer within {timeout_s} s."}]}
+        return HttpResponse(json.dumps(payload).encode(), status=504, content_type='application/json')
+    logging.getLogger(__name__).warning("sample_types_proxy.%s: SEEK could not be reached for sample type %s: %s",
+                                        action, seek_id, type(exc).__name__)
+    payload = {"errors": [{"title": "Upstream connection error", "detail": "SEEK could not be reached."}]}
+    return HttpResponse(json.dumps(payload).encode(), status=502, content_type='application/json')
+
+
 class SampleTypeProxyViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     client = SeekAPIClient()
@@ -197,7 +217,12 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or title (resolved to id)'),
         ],
-        responses={200: SampleTypeSingleResponse},
+        responses={
+            200: SampleTypeSingleResponse,
+            502: OpenApiResponse(description="SEEK could not be reached, or answered with something that is not "
+                                             "a sample type document"),
+            504: OpenApiResponse(description="SEEK did not answer within the proxy's timeout"),
+        },
         tags=['SampleTypes'],
     )
     def retrieve(self, request, uid=None, pk=None):
@@ -206,7 +231,10 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.get_sample_type(request, str(seek_id))
+        try:
+            body, code, headers, resp = self.client.get_sample_type(request, str(seek_id))
+        except requests.RequestException as exc:
+            return _seek_unanswered("retrieve", seek_id, exc, self.client.timeout_s)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
