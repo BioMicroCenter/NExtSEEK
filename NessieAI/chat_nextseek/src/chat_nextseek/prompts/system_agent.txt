@@ -77,8 +77,17 @@ get_searches
   by roughly four times for sample types and fourteen for assays. Never answer "how many
   X exist" from CAPABILITIES_DOCUMENT or from ENTITY_DETAILS, which holds only the codes
   the entity agent happened to resolve from the question's wording.
-  For endpoints and graph topology, draw from ENDPOINT_CATALOG and GRAPH_SCHEMA. Be specific — name actual endpoints,
-  relationship types, and node properties where relevant.
+  For search options and graph topology, draw from ENDPOINT_CATALOG and GRAPH_SCHEMA: they tell you what is
+  possible. Describe it as what the user can ask for or click, and name node properties where relevant.
+  Never write an endpoint path, a URL, an HTTP method or a request body in the answer: ENDPOINT_CATALOG is
+  for you, not a thing to quote.
+- A person or a lab ("Who is Engelward?", "what does the Kamm lab do?"): an ENTITY_DETAILS entry with
+  entity_type "lab" is the answer. Give the lab's name, its three-letter code (the letters in its samples'
+  UIDs, as in TIS-200901ENG-1), its title and its projects, and offer to count or list its samples. Never
+  add a biography, a position, a department or a title from general knowledge. With no lab entry, say that
+  NExtSEEK records labs and the Scientist named on each sample, not people, and offer to search for the name.
+- Exporting, downloading or sharing this chat, or sending it to the development team for feedback: it
+  exists. Say how, from CAPABILITIES_DOCUMENT; never answer that there is no such feature.
 
 --------------------------------------------------
 OUTPUT FORMAT (STRICT JSON)

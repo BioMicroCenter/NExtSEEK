@@ -131,3 +131,51 @@ def test_the_prompt_forbids_explaining_a_run_it_cannot_see():
     assert "Never explain the cause by naming a mechanism" in text
     for cue in ("why a result was", "cut off", "debug panel"):
         assert cue in text, cue
+
+
+# --------------------------------------------------------------------------
+# Labs reach the system agent. "Who is Engelward?" was answered from general knowledge
+# (local run 2026-09-22, bucket5.who_is_a_person). Every record here is invented.
+# --------------------------------------------------------------------------
+
+LAB = {"code": "ZEP", "name": "Zephyrson", "affiliation": "MIT", "title": "ZEP-Zephyrson Lab (MIT)",
+       "institution_id": 7, "project_ids": [4, 99]}
+OTHER_LAB = {"code": "ALD", "name": "Alderman", "affiliation": "BWH", "title": "ALD-Alderman Lab (BWH)",
+             "institution_id": 8, "project_ids": [4]}
+
+
+def _details_for(monkeypatch, config, entity) -> dict:
+    seen = {}
+
+    def fake(**kwargs):
+        seen["messages"] = kwargs["messages"]
+        return SystemAgentOutput(mode="get_entities", narrative="ok")
+
+    monkeypatch.setattr(system_mod, "live_catalog_context", lambda *args, **kwargs: None)
+    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
+    system_mod.system_agent(config, "Who is Zephyrson?", entity, ParserPlan(mode="system_question"))
+    block = next(m["content"] for m in seen["messages"] if m["content"].startswith("ENTITY_DETAILS"))
+    return json.loads(block.split("\n", 1)[1])
+
+
+def test_a_lab_named_as_a_scientist_reaches_the_agent_with_its_projects(monkeypatch):
+    config = _config({"Zephyr": PROJECT})
+    config.LABS = [LAB, OTHER_LAB]
+    details = _details_for(monkeypatch, config, {"scientists": ["Zephyrson"], "projects": []})
+    assert list(details) == ["Zephyrson lab (ZEP)"]
+    lab = details["Zephyrson lab (ZEP)"]
+    assert (lab["entity_type"], lab["code"], lab["title"]) == ("lab", "ZEP", "ZEP-Zephyrson Lab (MIT)")
+    assert lab["projects"] == ["Zephyr"] and lab["project_ids"] == [4, 99]
+
+
+def test_a_resolved_lab_code_reaches_the_agent(monkeypatch):
+    config = _config({})
+    config.LABS = [LAB, OTHER_LAB]
+    details = _details_for(monkeypatch, config, {"lab_codes": ["ald"]})
+    assert list(details) == ["Alderman lab (ALD)"]
+
+
+def test_no_labs_on_the_config_adds_nothing(monkeypatch):
+    config = _config({})
+    config.LABS = None
+    assert _details_for(monkeypatch, config, {"scientists": ["Zephyrson"]}) == {}
