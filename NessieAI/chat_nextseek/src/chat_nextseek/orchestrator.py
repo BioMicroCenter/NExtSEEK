@@ -1048,6 +1048,31 @@ def _handle_pipeline_agent_turn(
     return _emit_query_complete(send_event, reply, debug_payload, None)
 
 
+
+#: What a user is told when the parser routes a turn to "unsupported". The parser's own notes
+#: are routing prose ("No downstream path supports ...", "not a data query ... system_question")
+#: and stay in the debug payload; printing them after "Reason from parser:" showed the user the
+#: machinery (local run 2026-09-22, bucket6.export_this_session).
+UNSUPPORTED_REPLY = (
+    "I can't do that one from here. I can search, count and compare sample metadata, follow "
+    "samples through their lineage, build reports and submission workbooks, and explain what "
+    "NExtSEEK holds. If you tell me what you're after in those terms, I'll try again."
+)
+
+
+def unsupported_reply(plan) -> str:
+    """The reply for an unsupported plan: a planning fault says so, anything else says what is possible.
+
+    "We could not run this" and "this request is not supported" are different answers and only
+    one of them is worth retrying, so an infrastructure fault is never reported as a limitation
+    of the user's question. Neither shows the parser's notes, which are internal.
+    """
+    if (plan.metadata or {}).get("failure"):
+        return ("Something went wrong on our side while planning that query, so I haven't run it. "
+                "Please try again in a moment.")
+    return UNSUPPORTED_REPLY
+
+
 def run_query(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -1169,21 +1194,7 @@ def run_query(
         }
 
         if mode == "unsupported":
-            notes = plan.notes or "No additional notes."
-            # "We could not run this" and "this request is not supported" are different
-            # answers and only one of them is worth retrying. Do not report an
-            # infrastructure fault as a limitation of the user's question.
-            if (plan.metadata or {}).get("failure"):
-                reply = (
-                    "Something went wrong on our side while planning that query, "
-                    "so I haven't run it.\n\n"
-                    f"{notes}"
-                )
-            else:
-                reply = (
-                    "I can't turn that request into a valid NExtSEEK operation yet.\n\n"
-                    f"Reason from parser: {notes}"
-                )
+            reply = unsupported_reply(plan)
             session["last_debug"] = debug_payload
             append_turn(
                 session,

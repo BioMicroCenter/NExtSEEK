@@ -660,10 +660,8 @@ def _plan_tool_unsupported(
 ) -> dict:
     """Planner-visible terminal path for out-of-scope or unsupported requests."""
     query = step.execution.tool_query or query
-    reply = (
-        "I can't turn that request into a valid NExtSEEK operation yet.\n\n"
-        f"Reason from planner: {step.notes or query}"
-    )
+    from ...orchestrator import UNSUPPORTED_REPLY  # lazy: the orchestrator imports this module
+    reply = UNSUPPORTED_REPLY  # the planner's notes are routing prose, kept out of the reply
     return {"ok": True, "tool": "unsupported", "output": {"reply": reply, "count": 1}, "error": None}
 
 
