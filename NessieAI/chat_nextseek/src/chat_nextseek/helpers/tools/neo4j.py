@@ -85,10 +85,31 @@ def split_trailing_limit(cypher: str, parameters: dict | None = None) -> "tuple[
     return cypher[: m.start()], limit
 
 
+def plain_value(value: Any) -> Any:
+    """A row value with every Neo4j temporal (Date, DateTime, Time, Duration) as its ISO string.
+
+    `RETURN min(date(s.SampleCreationDate))` hands back a `neo4j.time.Date`, which `json.dumps`
+    cannot encode. The row then travels into the bundle, the task row and the session, and the
+    first save raised `TypeError: Object of type Date is not JSON serializable`: the user saw
+    "Internal pipeline error" for a reply the chatter had already written (local run
+    2026-09-22, report.longest_running_investigation). Converting here, where rows leave the
+    driver, covers every consumer at once. Lists and maps are walked; anything else is kept.
+    """
+    # Temporals first: `neo4j.time.Duration` is a tuple subclass and would be walked as a list.
+    iso = getattr(value, "iso_format", None)
+    if callable(iso) and type(value).__module__.startswith("neo4j.time"):
+        return iso()
+    if isinstance(value, Mapping):
+        return {key: plain_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [plain_value(item) for item in value]
+    return value
+
+
 def _read_rows(tx, cypher: str, params: dict) -> "tuple[list[dict], dict]":
     """Transaction function: the rows and the counters, read before the transaction closes."""
     result = tx.run(cypher, params)
-    records = [dict(record) for record in result]
+    records = [plain_value(dict(record)) for record in result]
     summary = result.consume()
     counters = {}
     if summary and summary.counters:
