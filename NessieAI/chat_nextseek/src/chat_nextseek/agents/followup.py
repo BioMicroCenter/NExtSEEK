@@ -50,9 +50,75 @@ MAX_ITER = 6
 UID_SAMPLE = 5
 
 
-def build_followup_tool_schemas() -> list[dict]:
-    """The three tools, in the order a follow-up naturally uses them."""
-    return [
+#: A NExtSEEK reply carries a fenced debug block. On turn 1147 `read_stored_result`
+#: returned ~1,000 tokens, mostly that block, and it is re-sent on every later iteration.
+_DEBUG_MARKER = "**Debug info**"
+
+
+def _without_debug_block(reply: Any) -> str | None:
+    """The user-facing half of an earlier reply."""
+    if not isinstance(reply, str) or not reply:
+        return reply if reply is None else ""
+    at = reply.find(_DEBUG_MARKER)
+    return (reply[:at] if at > 0 else reply).strip()
+
+
+def _reply_from_queries(queries: list[dict]) -> str | None:
+    """What the loop established, when it ran out of turns before saying it.
+
+    Worse than an answer the model composed, and far better than the stored-result path,
+    which cannot see what these queries returned and on turn 1147 reported its absence.
+    """
+    ran = [q for q in queries or [] if isinstance(q, dict)]
+    if not ran:
+        return None
+    found = [q for q in ran if (q.get("result") or {}).get("ok") and (q.get("result") or {}).get("count")]
+    if not found:
+        return ("I could not finish checking this. The follow-up query I ran did not come back with "
+                "anything I can stand behind, so ask it as a fresh question and I will run it properly.")
+    last = found[-1]
+    result = last["result"]
+    examples = [str(e) for e in (result.get("examples") or [])][:5]
+    parts = [f"{result['count']:,} records match, from a follow-up query over the previous result."
+             if isinstance(result.get("count"), int) else "The follow-up query found records."]
+    if examples:
+        parts.append("Examples: " + ", ".join(examples) + ".")
+    parts.append("I ran out of steps before I could finish, so treat this as partial: "
+                 "ask it again and I will answer it properly.")
+    return " ".join(parts)
+
+
+def resolve_followup_outcome(outcome: dict | None) -> tuple[str | None, bool]:
+    """``(reply, the stored-result path may answer instead)``.
+
+    The whole of turn 1147's defect is that the caller had only ``if reply:`` to tell
+    three completed graph queries from a profile with no tool surface, so it answered a
+    lineage question from a five-column bundle and asserted the absence of what the
+    queries had found. The rule: the stored path answers only when nothing queried the
+    graph on this turn.
+    """
+    if not outcome or outcome.get("unsupported"):
+        return None, True
+    reply = outcome.get("reply")
+    if reply:
+        caveats = [str(c) for c in (outcome.get("caveats") or []) if str(c).strip()]
+        if caveats:
+            reply = reply + "\n\n" + "\n".join(f"- {c}" for c in caveats)
+        return reply, False
+    if outcome.get("queries"):
+        return _reply_from_queries(outcome["queries"]), False
+    return None, True
+
+
+def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
+    """The three tools, in the order a follow-up naturally uses them.
+
+    ``final`` offers only ``answer``. On 2026-09-22 turn 1147 the loop spent all six
+    iterations on tool calls and never reached ``answer``, so it returned nothing while
+    holding three completed lineage queries; a last turn that can only answer cannot end
+    that way. The model has every tool result in its conversation by then.
+    """
+    schemas = [
         {
             "name": "read_stored_result",
             "description": (
@@ -129,6 +195,7 @@ def build_followup_tool_schemas() -> list[dict]:
             },
         },
     ]
+    return [t for t in schemas if t["name"] == "answer"] if final else schemas
 
 
 def describe_stored_result(bundle: dict) -> dict[str, Any]:
@@ -178,7 +245,7 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
         "mode": bundle.get("mode"),
         "total": total,
         "aggregate_values": aggregate,
-        "previous_reply": bundle.get("terminal_reply"),
+        "previous_reply": _without_debug_block(bundle.get("terminal_reply")),
         "rows_stored": rows_stored,
         "capped": capped,
         "uid_count": len(uids),
@@ -291,11 +358,11 @@ def run_followup(
     queries: list[dict] = []
     tool_calls: list[str] = []
 
-    for _ in range(MAX_ITER):
+    for iteration in range(MAX_ITER):
         resp = call_tools(
             config,
             messages=messages,
-            tools=build_followup_tool_schemas(),
+            tools=build_followup_tool_schemas(final=iteration == MAX_ITER - 1),
             system=system_prompt,
             model_name=model_name,
             client=client,

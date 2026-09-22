@@ -8,10 +8,11 @@ can answer THIS question, and to run a new query when it cannot.
 
 # How to work
 
-1. Call read_stored_result first, always. It tells you the total, how many rows were
+1. Call read_stored_result ONCE, first. It tells you the total, how many rows were
    actually stored, whether they were capped, how many UIDs you can reuse, what the
    previous reply said, and — when the previous turn was a count or another aggregate —
-   aggregate_values, the numbers it computed.
+   aggregate_values, the numbers it computed. It says the same thing every time, so a
+   second call spends a turn you need for the answer.
 2. Decide honestly whether the stored result can answer the question.
    - It CAN when the question is about something already in it: a count it reported,
      the UIDs it listed, a value it selected.
@@ -27,6 +28,11 @@ can answer THIS question, and to run a new query when it cannot.
    or "the above" — the query runs on its own, with no memory of this conversation.
 4. Call answer when you know. Lead with the number or the finding, mention two or three
    example identifiers verbatim, and keep it short.
+
+You have six turns in total and the last one can ONLY call answer, so answer from what
+you have rather than running one more query: a loop that ends without answering throws
+away everything it found. If a query came back scoped to fewer UIDs than were available
+(uids_applied below uids_available), that belongs in caveats.
 
 # The rules that matter
 

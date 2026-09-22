@@ -307,3 +307,105 @@ def test_the_followup_agent_is_registered_in_every_profile():
             for agent in item["agents"]
         }
         assert FOLLOWUP_AGENT_KEY in agents, f"profile {profile} has no followup entry"
+
+
+# --------------------------------------------------------------------------
+# 2026-09-22, turn 1147: the loop ran, found the answer, and was thrown away.
+#
+# "of those mice you just found, what downstream data types are associated with them?"
+# after "Find me mice treated with ndma" (1,549 MUS). Measured from the task row and
+# `logs/llm_calls.jsonl`: six `followup` calls, every one ending `tool_use`, none
+# reaching `answer`; three of them ran `run_new_query` and a `graph_agent` call sits
+# behind each, with correctly shaped DERIVED_FROM Cypher. Re-run read-only, those
+# queries return 23 downstream types (TIS 18,397, D.IMG 2,830, DNA 560, D.SEQ 531).
+#
+# The loop then exhausted, returned `reply: None`, and `orchestrator.py`'s `if answer:`
+# could not tell that from "this profile has no tool-capable model", so it answered
+# from the stored five-column bundle instead: "No downstream data types or associated
+# data fields were found in the metadata of the 1,549 mice records." A path that cannot
+# see lineage asserted its absence, which is the exact failure this module exists to
+# prevent (`followup_agent.txt`: "NEVER say something does not exist because the stored
+# result does not contain it") -- the prohibition binds the agent, and the fallback
+# never sees it.
+# --------------------------------------------------------------------------
+
+from chat_nextseek.agents.followup import resolve_followup_outcome  # noqa: E402
+
+
+def test_the_final_iteration_offers_only_the_answer_tool():
+    """Six iterations of tool_use and no `answer` is what ran the budget out."""
+    client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 3))
+    run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
+
+    assert len(client.turns) == MAX_ITER
+    assert [t["name"] for t in client.turns[-1]["tools"]] == ["answer"], "the last turn must be terminal"
+    assert [t["name"] for t in client.turns[-2]["tools"]] == [
+        "read_stored_result", "run_new_query", "answer"], "earlier turns keep the whole surface"
+
+
+def test_an_exhausted_loop_that_ran_a_query_answers_from_what_it_found():
+    client = _ScriptedClient([_tool_use("run_new_query", {"question": "downstream types"})] * (MAX_ITER + 2))
+    out = run_followup(_Cfg(client), user_text="what downstream data types?", bundle=_bundle(),
+                       run_query=lambda **kw: {"ok": True, "count": 23, "examples": ["TIS", "D.IMG"],
+                                               "uids_available": 1549, "uids_applied": 1549})
+
+    assert out["exhausted"] is True
+    reply, may_fall_back = resolve_followup_outcome(out)
+    assert may_fall_back is False, "the stored bundle must not answer over three completed queries"
+    assert reply and "23" in reply
+    assert "TIS" in reply
+
+
+def test_an_exhausted_loop_that_only_read_the_bundle_leaves_the_stored_path_alone():
+    """Nothing was queried, so the old path is the only one that can answer."""
+    client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 2))
+    out = run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
+
+    assert resolve_followup_outcome(out) == (None, True)
+
+
+def test_a_profile_with_no_tool_surface_leaves_the_stored_path_alone():
+    out = {"reply": None, "caveats": [], "queries": [], "tool_calls": [], "unsupported": True}
+    assert resolve_followup_outcome(out) == (None, True)
+    assert resolve_followup_outcome(None) == (None, True)
+
+
+def test_a_finished_answer_carries_its_caveats_and_blocks_the_stored_path():
+    out = {"reply": "23 downstream types.", "caveats": ["Only the first 200 UIDs were applied."],
+           "queries": [{"question": "x", "result": {"ok": True, "count": 23}}], "tool_calls": ["answer"]}
+    reply, may_fall_back = resolve_followup_outcome(out)
+
+    assert may_fall_back is False
+    assert reply.startswith("23 downstream types.")
+    assert "Only the first 200 UIDs were applied." in reply
+
+
+def test_a_query_that_failed_is_not_reported_as_a_finding():
+    out = {"reply": None, "queries": [{"question": "x", "result": {"ok": False, "error": "boom"}}],
+           "caveats": [], "tool_calls": ["run_new_query"], "exhausted": True}
+    reply, may_fall_back = resolve_followup_outcome(out)
+
+    assert may_fall_back is False, "a query ran, so the stored bundle still may not claim absence"
+    assert reply and "could not" in reply.lower()
+    assert "boom" not in reply, "no raw error text in a user-facing reply"
+
+
+# --------------------------------------------------------------------------
+# The stored-result summary was half debug block.
+#
+# `previous_reply` is the earlier turn's terminal reply, and a NExtSEEK reply carries a
+# fenced `**Debug info**` JSON block. Measured on turn 1147: the `read_stored_result`
+# payload was ~1,000 tokens, re-sent on every later iteration of the loop, and three of
+# the six iterations spent themselves on it.
+# --------------------------------------------------------------------------
+
+def test_the_stored_summary_drops_the_previous_reply_s_debug_block():
+    bundle = _bundle()
+    bundle["terminal_reply"] = (
+        "There are 1,549 mouse samples treated with NDMA.\n\n**Debug info**\n\n```json\n"
+        + json.dumps({"entity": {"sampletypes": [{"code": "MUS"}]}}) + "\n```"
+    )
+    summary = describe_stored_result(bundle)
+
+    assert summary["previous_reply"] == "There are 1,549 mouse samples treated with NDMA."
+    assert "Debug info" not in json.dumps(summary)

@@ -24,7 +24,7 @@ from .artifacts import (
 )
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from .pipeline import agent as pipeline_agent
-from .agents.followup import run_followup
+from .agents.followup import resolve_followup_outcome, run_followup
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -544,13 +544,20 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     def _run_query(*, question: str, seed_uids: list[str]) -> dict:
         refine = None
         if seed_uids:
-            shown = ", ".join(seed_uids[:200])
+            # The UIDs used to be pasted into the prompt, capped at 200, and the graph
+            # agent copied that truncated list into `$uids` verbatim: on 2026-09-22 turn
+            # 1147 three queries bound 28, 200 and 200 of 1,549 while the payload below
+            # reported `seeded_uid_count` 1,549, so a 200-mouse answer would have been
+            # reported as the whole set. Bind them as a parameter instead and show only a
+            # handful for orientation.
+            shown = ", ".join(seed_uids[:10])
             refine = (
-                "Scope this query to the following sample UIDs, which are the result "
-                "the user is asking a follow-up about. Filter on them explicitly; do "
-                "not widen to every sample of the same type.\n"
-                f"UIDs ({len(seed_uids)} total): {shown}"
-                + ("" if len(seed_uids) <= 200 else " ... (truncated)")
+                "Scope this query to the sample UIDs of the result the user is asking a "
+                "follow-up about. They are ALREADY BOUND as the query parameter $uids: "
+                "filter with `WHERE s.uuid IN $uids` and never paste UIDs into the query "
+                "text. Do not widen to every sample of the same type.\n"
+                f"$uids holds {len(seed_uids)} UIDs. A few of them, so you can see their "
+                f"shape: {shown}"
             )
         graph_plan = graph_agent(
             config, question, EntityAgentOutput(),
@@ -559,7 +566,12 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         )
         if not graph_plan.cypher:
             return {"ok": False, "error": "no query could be generated for that question"}
-        result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+        parameters = dict(graph_plan.parameters or {})
+        applied = None
+        if seed_uids and "$uids" in graph_plan.cypher:
+            parameters["uids"] = list(seed_uids)  # every one of them, not the ten shown
+            applied = len(seed_uids)
+        result = tool_neo4j_query(config, graph_plan.cypher, parameters)
         rows = result.get("data") or []
         # Counts and a few examples. Never rows: this goes back into a conversation
         # that is re-sent in full on every later iteration of the loop.
@@ -570,7 +582,13 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "truncated": bool(result.get("truncated")),
             "examples": _followup_examples(rows),
             "error": result.get("error"),
-            "seeded_uid_count": len(seed_uids),
+            "uids_available": len(seed_uids),
+            # None when the query did not filter on $uids: it then covers whatever it
+            # matched, which is not the same set, and the answer has to say so.
+            "uids_applied": applied,
+            "scope_note": (None if applied or not seed_uids else
+                           "This query did not filter on $uids, so it is not scoped to "
+                           "the previous result. Say so, or run it again scoped."),
         }
 
     try:
@@ -1231,22 +1249,32 @@ def run_query(
             followup_outcome = _run_followup_agent(
                 config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
             )
-            answer = (followup_outcome or {}).get("reply")
-            if answer:
+            # Written whatever happened: on turn 1147 the loop ran six times, queried the
+            # graph three times and produced no reply, and because this block sat inside
+            # `if answer:` the turn's debug carried no `followup` key at all, which is why
+            # the failure read as "the memory agent is wrong" for a day.
+            if followup_outcome is not None:
                 debug_payload["followup"] = {
                     "tool_calls": followup_outcome.get("tool_calls"),
                     "queries": [
                         {"question": q.get("question"), "seeded": q.get("seeded"),
-                         "count": (q.get("result") or {}).get("count")}
+                         "count": (q.get("result") or {}).get("count"),
+                         "uids_applied": (q.get("result") or {}).get("uids_applied")}
                         for q in followup_outcome.get("queries") or []
                     ],
                     "caveats": followup_outcome.get("caveats"),
+                    "exhausted": bool(followup_outcome.get("exhausted")),
+                    "unsupported": bool(followup_outcome.get("unsupported")),
                 }
-                caveats = followup_outcome.get("caveats") or []
-                if caveats:
-                    answer = answer + "\n\n" + "\n".join(f"- {c}" for c in caveats)
-            else:
+            # `if reply:` could not tell an exhausted loop from a profile with no tool
+            # surface, so a lineage question was answered from a five-column bundle which
+            # then reported the absence of what the loop had already found.
+            answer, may_use_stored = resolve_followup_outcome(followup_outcome)
+            if may_use_stored:
                 answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
+            elif not answer:
+                answer = ("I could not finish this follow-up. Ask it as a fresh question and "
+                          "I will run it properly.")
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             append_turn(
                 session,
