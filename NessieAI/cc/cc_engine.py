@@ -152,6 +152,27 @@ _BASE_CMD = [
 
 _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
+
+
+def path_mappings_for(*, output_mnt: str, run_scratch_mnt: str | None) -> dict[str, dict[str, str]]:
+    """D19: how the in-container agent turns a container path into the path a person can use.
+
+    One entry per mounted root: ``container_root`` is the prefix the agent sees,
+    ``logical_root`` the prefix under ``user_root_mount`` it should quote instead, so
+    reporting a file is a prefix replacement and nothing else. G7-10 retired host-bind
+    ``host_root`` strings for ``logical_root``, and the agent-facing instruction was not
+    updated with it: on 2026-09-22 a turn read a perfectly good mapping, found no host
+    path in it, and fell back to quoting the container path. The key names live here and
+    `NessieAI/tests/cc/test_plugin_skill_md.py` requires the skill document to name them.
+
+    A root with no logical path is left out. An entry whose ``logical_root`` is None is
+    worse than a missing one: it is exactly what the agent cannot translate, and a turn
+    with no run id has no per-run scratch root.
+    """
+    mappings = {"output": {"container_root": _CONTAINER_OUTPUT, "logical_root": output_mnt}}
+    if run_scratch_mnt:
+        mappings["scratch"] = {"container_root": _CONTAINER_SCRATCH, "logical_root": run_scratch_mnt}
+    return mappings
 _CONTAINER_INPUT = "/data/input"
 _CONTAINER_SHARED = "/data/shared"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
@@ -1121,15 +1142,8 @@ def run_cc_turn(
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)
 
-    # D19: tell the in-container agent how to translate container paths to the
-    # user-facing logical paths (under user_root_mount) when it reports artifact
-    # locations. G7-10 retires host-bind ``host_root`` strings for ``logical_root``.
-    path_mappings = {
-        "output": {"container_root": _CONTAINER_OUTPUT,
-                   "logical_root": dirs.output_mnt},
-        "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "logical_root": dirs.run_scratch_mnt},
-    }
+    path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
+                                      run_scratch_mnt=dirs.run_scratch_mnt)
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
     environment = build_agent_environment(

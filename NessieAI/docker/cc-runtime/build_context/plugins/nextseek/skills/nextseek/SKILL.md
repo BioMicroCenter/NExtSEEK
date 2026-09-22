@@ -276,10 +276,21 @@ Compose the user-facing answer from each op's JSON output.
   / "show me the API response").
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
-- Quote the **host-side path** of any artifact produced (submission workbook, report, file under
-  `/data/scratch/`). Read `DMAC_PATH_MAPPINGS` from the env to translate container paths to host
-  paths. If it is absent or unparseable, report the container path and note the mapping was
-  unavailable.
+- Quote the **user-facing path** of any artifact produced (submission workbook, report, file
+  under `/data/scratch/`), not the container path. `DMAC_PATH_MAPPINGS` in the env is a JSON
+  object of one entry per mounted root:
+
+  ```json
+  {"output":  {"container_root": "/data/output",  "logical_root": "/dmac/users/<project>/<user>/output"},
+   "scratch": {"container_root": "/data/scratch", "logical_root": "/dmac/users/<project>/<user>/scratch/<run id>"}}
+  ```
+
+  To report a file, find the entry whose `container_root` is a prefix of the file's path and
+  replace that prefix with the same entry's `logical_root`. That result is the path to quote:
+  `/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`.
+  There is no host path in the mapping and you are not expected to produce one. Report the
+  container path, and say the mapping was unavailable, ONLY when the variable is missing, is not
+  valid JSON, or holds no entry whose `container_root` is a prefix of the path.
 
 ## Write safety — 3 layers
 
