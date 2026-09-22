@@ -60,15 +60,22 @@ def variants(spec: dict):
 
 
 def emit_cypher(spec: dict) -> str:
-    """The read-only batch, in the probe's own order, one labelled statement per case."""
+    """The read-only batch, in the probe's own order, one labelled statement per case.
+
+    Comments are Cypher's `//`: cypher-shell rejects a `--` line outright, which is how the
+    first run on fairdata-dev (2026-09-22) produced four lines of error and no numbers. Each
+    case also opens with `RETURN '<case_id>' AS case`, so the output labels its own numbers
+    instead of relying on statement order.
+    """
     measure = spec.get("_measure") or {}
     if not measure:
-        return "-- this probe carries no _measure block, so no number travels with it"
-    lines = ["-- Read-only. Run against the target instance, then put the answers in a JSON",
-             "-- file as {case_id: number} (or {case_id: [n, m]} where two are acceptable)",
-             "-- and re-pin with:  pin_probe_truths.py --pin <probe> --from <that file>", ""]
+        return "// this probe carries no _measure block, so no number travels with it"
+    lines = ["// Read-only. Pipe into cypher-shell (--format plain), then put the answers in a JSON",
+             "// file as {case_id: number} (or {case_id: [n, m]} where two are acceptable)",
+             "// and re-pin with:  pin_probe_truths.py --pin <probe> --from <that file>", ""]
     for case_id, entry in measure.items():
-        lines.append(f"-- {case_id}: here {entry.get('locals')}")
+        lines.append(f"// {case_id}: here {entry.get('locals')}")
+        lines.append(f"RETURN '{case_id}' AS case;")
         for statement in _as_list_str(entry.get("cypher")):
             lines.append(statement.strip().rstrip(";") + ";")
         lines.append("")

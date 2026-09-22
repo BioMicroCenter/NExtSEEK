@@ -121,6 +121,19 @@ def test_the_cypher_batch_names_every_measured_case():
     assert "Read-only" in batch
 
 
+def test_the_batch_is_cypher_that_labels_its_own_output():
+    """cypher-shell rejects `--` comment lines (fairdata-dev, 2026-09-22: four lines of error,
+    no numbers). Every non-blank line is a `//` comment or a statement, and each case opens
+    with a one-row RETURN of its id so the output maps back without counting statements."""
+    spec = json.loads(DEV_BOX_PROBE.read_text(encoding="utf-8"))
+    lines = [line for line in pin_probe_truths.emit_cypher(spec).splitlines() if line.strip()]
+
+    assert not [line for line in lines if line.lstrip().startswith("--")]
+    assert all(line.startswith("//") or line.rstrip().endswith(";") for line in lines)
+    for case_id in spec["_measure"]:
+        assert f"RETURN '{case_id}' AS case;" in lines, case_id
+
+
 def test_the_committed_dev_box_probe_has_not_drifted_from_its_measure_block():
     """Re-pinning it with its own values must change nothing, byte for byte."""
     text = DEV_BOX_PROBE.read_text(encoding="utf-8")
