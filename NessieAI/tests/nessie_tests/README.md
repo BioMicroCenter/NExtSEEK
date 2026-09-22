@@ -511,8 +511,8 @@ curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
 and **362 of 365 are still red**, with all six floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **129**
-and `api_plan.endpoint` on **105**. Those cases stay red until the corpus
+fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
+and `api_plan.endpoint` on **104**. Those cases stay red until the corpus
 itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC

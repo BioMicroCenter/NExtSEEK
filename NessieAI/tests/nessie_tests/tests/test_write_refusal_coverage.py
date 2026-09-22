@@ -858,14 +858,19 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
         for f in fields:
             counts[f] = counts.get(f, 0) + 1
 
-    # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106] -> [250, 212, 129, 105].
+    # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106] -> [250, 212, 129, 105]
+    # -> [250, 212, 128, 104]: `advanced.show_me_tis_samples_that_have` was re-pinned to
+    # the graph path (F1 moved a sampletype-plus-assay-keyword filter from REST to
+    # graph_query on purpose), so its `api_ok` and `api_plan.endpoint` criteria are gone
+    # and `parser_plan.mode` stays, now asserting `graph_query`. Same correction
+    # c241c6e6 made to the CI lane's ndma_mice case.
     # The question set adds 58 variants into route-policy'd families (`route` +19)
     # and retires or reworks a handful that asserted a parser mode or an endpoint
     # inline (`parser_plan.mode` -5, `api_ok` -1, `api_plan.endpoint` -1). Not one
     # of the 58 additions asserts NS plumbing: they assert ground truth on the
     # reply, which is the only field a forced container_cc arm can produce.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [250, 212, 129, 105], (
+                                    "api_plan.endpoint")] == [250, 212, 128, 104], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

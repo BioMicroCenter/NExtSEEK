@@ -4565,22 +4565,17 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "TIS"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }

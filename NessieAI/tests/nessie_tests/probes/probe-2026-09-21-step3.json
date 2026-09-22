@@ -2,7 +2,7 @@
   "_name": "probe-2026-09-21-step3 - the 40-question re-run set",
   "_why": "Run with: manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-21-step3.json",
   "_source": ".claude/work/2026-09-21-step3-tickets/QUESTION-SET.md (outside git). Read that for the per-question 'Accept when' column and the SHOULD CHANGE / SHOULD HOLD / STILL OPEN marks.",
-  "_criteria_note": "Deliberately loose, per the house convention for new families: route where the engine is known, and last_reply nonempty everywhere, so a budget-capped or errored turn cannot score green. The real acceptance is the 'Accept when' column and is read by a human -- most of these are judgements about wording ('never an invented pagination story'), which no regex should be asked to settle. The two step3_mixed cases DO pin numbers, because their truths were measured.",
+  "_criteria_note": "Deliberately loose on wording, strict on numbers. Route where the engine is known, and last_reply nonempty everywhere, so a budget-capped or errored turn cannot score green. The real acceptance is still the 'Accept when' column and is read by a human: most of these are judgements about wording ('never an invented pagination story') that no regex should settle. BUT a case whose truth is a NUMBER now asserts that number, because route-plus-nonempty let two confidently wrong answers score green in the 2026-09-21 run: q10 and q11 both answered 0 against a measured 737. Numbers pinned here and where they come from: 737 = T_MUS carrying a Genotype matching ^CC[0-9], counted live on 2026-09-21 (CC042 427, CC024J 75, CC027J 12, CC045J 12, CC051 12, plus a CC0xx tail); 482 and 13-or-20 = the two step3_mixed cases' measured Pilot A truths. Re-measure 737 before trusting a red on it: writing 'collaborative cross' into the mouse metadata, which the operator was doing on 2026-09-22, changes which query finds them but not the population, so the number holds unless the tagging covers a different set.",
   "_cost_note": "~45 turns. One (step3.cc_big_csv_turn_limit) is deliberately a Container-CC request big enough to hit the 180 s cap: that is the point of it, and CC turns are the expensive ones.",
   "_not_included": "mixed.flow_from_rhesus_lymph_node and mixed.ivbcg_nhp_with_sequencing are NOT in nessie_tests/corpus.json -- they are Pilot A mixed-r4 cases. They are written inline here from PilotAPOC/cases/mixed-r4.json with their measured truths.",
   "include_ids": [
@@ -256,7 +256,7 @@
         {
           "family": "step3_user_questions",
           "id": "step3.q10_collaborative_cross",
-          "name": "T10 + F15 - found by genotype, not a substituted search on 'cross'",
+          "name": "T10 retry ladder - found by genotype (737), not a text search that finds nothing",
           "tags": [
             "nessie",
             "probe",
@@ -277,6 +277,11 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])737(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -285,7 +290,7 @@
         {
           "family": "step3_user_questions",
           "id": "step3.q11_cc_mice",
-          "name": "T10 + F15 - genotype-scoped, not the letters 'cc' inside 'Vaccination'",
+          "name": "T10 retry ladder - 'CC' mice by genotype (737), not the letters cc inside Vaccination",
           "tags": [
             "nessie",
             "probe",
@@ -306,6 +311,11 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])737(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -775,6 +785,45 @@
               "pass_criteria": [
                 {
                   "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "step3_rest_path": {
+      "description": "Coverage, not a fix: F1's promotion sent every sample question to the graph, so this set made zero REST calls in 46 turns. A red here means the api path is unreachable, which is the finding, not that the answer is wrong.",
+      "variants": [
+        {
+          "family": "step3_rest_path",
+          "id": "step3.rest_full_record_by_uid",
+          "name": "ANN-19: the whole record for one UID, the api_preferred shape F1 kept",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Show me the full record for MDL-250912LAU-1, every field it has.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
                   "op": "nonempty",
                   "value": null
                 }
