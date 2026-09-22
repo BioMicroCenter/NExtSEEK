@@ -639,3 +639,46 @@ def test_the_turn_instructions_no_longer_ask_for_a_code_and_a_name(captured):
 
     assert "not codes alone" not in text
     assert "Name a sample type, assay or project ONCE" in text
+
+
+# The condition above shipped wrong, and turn 1151 on the rebuilt image caught it.
+# "How many samples are in the SRP project?" answered "There are 57,441 samples in the
+# SRP project. This count was determined by a graph query over the sample network, ..."
+# -- the exact boilerplate, from an image that really did carry the new prompt.
+#
+# `describe_query_scope` appends the graph agent's own `explanation` to `scope.notes` on
+# EVERY graph turn (helpers/query_scope.py:414-417), so keying the disclosure off
+# `scope.notes` made it qualify always and the code emitted the permission. The tests
+# above passed only because `_graph_turn` builds `explanation: ""`, which no real turn
+# has. A qualification is a note the CALLER passed (`query_notes`, the retry-changed-
+# answer channel), not the query author describing what it did.
+
+def _graph_turn_with_explanation(captured, *, explanation, total=57441, query_notes=None):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "How many samples are in the SRP project?", _entity(projects=["SRP"]),
+        _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"project": "SRP"}, "explanation": explanation},
+        graph_result={"ok": True, "count": 1, "total": total, "truncated": False, "data": [{"n": total}]},
+        query_notes=query_notes,
+        log_dir="",
+    )
+    return captured["user_content"]
+
+
+def test_the_query_authors_own_explanation_is_not_a_qualification(captured):
+    text = _graph_turn_with_explanation(
+        captured, explanation="Counts distinct samples associated with the SRP project or investigation.")
+
+    assert "Note from whoever built the query" in text, "the explanation still reaches the writer"
+    assert _PROHIBITION in text
+    assert _PERMISSION not in text
+
+
+def test_a_note_the_caller_passed_is_a_qualification(captured):
+    text = _graph_turn_with_explanation(
+        captured, explanation="Counts distinct samples.",
+        query_notes=["The first query matched nothing; this number comes from a changed filter."])
+
+    assert _PERMISSION in text
+    assert _PROHIBITION not in text

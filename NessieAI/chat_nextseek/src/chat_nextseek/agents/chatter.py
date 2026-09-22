@@ -422,9 +422,14 @@ def chatter_agent_answer(
     # behaves (NOT APPLIED, TRUNCATED, substitution) fires only when it changes the
     # reading. Grant it on the same footing.
     slim_flags = api_result_slim if isinstance(api_result_slim, dict) else {}
+    # `query_notes`, not `scope.notes`: the scope's notes also carry the graph agent's own
+    # `explanation` on every graph turn (helpers/query_scope.py), so using them qualified
+    # every turn and turn 1151 answered "There are 57,441 samples in the SRP project. This
+    # count was determined by a graph query over the sample network, ..." on an image that
+    # carried this fix. A qualification is something the CALLER knows and the answer needs.
     disclosure_qualifies = bool(
         scope.not_applied
-        or scope.notes
+        or query_notes
         or graph_truncated
         or slim_flags.get("search_text_substituted")
         or slim_flags.get("result_capped")
