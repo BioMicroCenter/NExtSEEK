@@ -64,7 +64,7 @@ from .helpers import (
     tool_neo4j_query,
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
-from .helpers.lab_code import clamp_lab_codes
+from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -851,6 +851,14 @@ def _execute_graph_turn(
     if first_ok_empty and not matched_nothing(graph_result):
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
+    # A lab the question misspells resolves to no code, by design, and used to leave the
+    # turn with a keyword and a confident zero ("There are no samples associated with the
+    # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.
+    near_miss_notes = lab_near_miss_notes(getattr(entity_result, "lab_near_misses", None))
+    if near_miss_notes:
+        debug_payload["lab_near_misses"] = [m.model_dump() if hasattr(m, "model_dump") else m
+                                            for m in entity_result.lab_near_misses]
+        query_notes.extend(near_miss_notes)
 
     send_event(
         "search_complete",

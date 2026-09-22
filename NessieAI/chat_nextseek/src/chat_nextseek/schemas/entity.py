@@ -25,6 +25,21 @@ class LabMatch(BaseModel):
     rule: str                # "code" | "lab_phrase" | "possessive" | "honorific" | "name"
     ambiguous: bool = False  # several records share the surname and nothing chose between them
 
+
+class LabNearMiss(BaseModel):
+    """A name that matched no lab record but is one small mistake from one.
+
+    Written by code after the LLM returns, like ``LabMatch``, and it never becomes a
+    filter: the spec's rule is that a name matching no record produces no code. It exists
+    so the reply can ask ("no lab is recorded as engleward; did you mean Engelward, ENG?")
+    instead of reporting a confident zero, which is what turn 1152 did on 2026-09-22.
+    """
+
+    text: str    # the spelling the question used
+    code: str    # the near record's three-letter UID code
+    name: str    # that record's surname as SEEK spells it
+    ratio: float = 0.0
+
     model_config = ConfigDict(extra="ignore")
 
 
@@ -40,5 +55,7 @@ class EntityAgentOutput(BaseModel):
     scientists: list[str] = Field(default_factory=list)
     #: Overwritten after the LLM returns, like ``lab_codes``.
     lab_matches: list[LabMatch] = Field(default_factory=list)
+    #: Also written by code, and deliberately not acted on. See ``LabNearMiss``.
+    lab_near_misses: list[LabNearMiss] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")

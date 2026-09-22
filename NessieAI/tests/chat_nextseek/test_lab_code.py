@@ -531,3 +531,80 @@ def test_malformed_records_are_skipped():
     assert res.lab_codes == ["ASH"]
     assert res.lab_matches[0]["project_ids"] == [4]
     assert res.lab_matches[0]["affiliation"] is None
+
+
+# --------------------------------------------------------------------------
+# 2026-09-22: "What samples do the engleward lab have?" -- one transposition away from a
+# lab that is on record. Measured against the live 40-record document: "Engelward"
+# resolves to ENG with or without the entity agent naming it, and "engleward" matches
+# nothing, becomes a keyword, goes to `search_text CONTAINS` and answers "There are no
+# samples associated with the Engleward lab in the database."
+#
+# The spec's rule stands: a name that matches no record NEVER produces a code (section
+# 7, "A person name that matches no lab is a Scientist value, never a guessed code"), so
+# a near miss changes nothing about what the query filters on. It is reported instead, so
+# the reply can ask, and the code the user meant is one exchange away rather than absent.
+# --------------------------------------------------------------------------
+
+def test_a_transposed_surname_is_reported_as_a_near_miss_and_filters_nothing():
+    res = resolve_labs("What samples do the fenwcik lab have?", ["fenwcik"], records=LABS)
+
+    assert res.lab_codes == [], "a near miss never becomes a filter"
+    assert res.labs == []
+    assert [(n["text"], n["code"], n["name"]) for n in res.near_misses] == [
+        ("fenwcik", "FEN", "Fenwick"), ("fenwcik", "FEW", "Fenwick")]
+
+
+def test_a_name_that_matched_has_no_near_miss():
+    res = resolve_labs("What samples do the Ashby lab have?", ["Ashby"], records=LABS)
+
+    assert res.lab_codes == ["ASB"]
+    assert res.near_misses == []
+
+
+def test_a_word_that_is_nothing_like_a_lab_suggests_nothing():
+    for term in ("cisplatin", "engleward"):
+        res = resolve_labs(f"samples about {term}", [term], records=LABS)
+        assert res.near_misses == [], term
+
+
+def test_a_short_term_is_never_near_anything():
+    """Three letters are a code, and a two-letter word is inside half the alphabet."""
+    res = resolve_labs("the ash lab", ["ash"], records=LABS)
+    assert res.near_misses == []
+
+
+def test_the_near_miss_survives_a_missing_labs_document():
+    res = resolve_labs("the fenwcik lab", ["fenwcik"], records=None)
+    assert res.available is False
+    assert res.near_misses == []
+
+
+def test_the_note_names_the_spelling_asked_for_and_the_record():
+    from chat_nextseek.helpers.lab_code import lab_near_miss_notes
+
+    res = resolve_labs("What samples do the fenwcik lab have?", ["fenwcik"], records=LABS)
+    (note,) = lab_near_miss_notes(res.near_misses)
+
+    assert "fenwcik" in note
+    assert "Fenwick" in note and "FEN" in note and "FEW" in note
+    assert "not" in note.lower(), "it has to say the lab filter was NOT applied"
+
+
+def test_no_near_misses_means_no_note():
+    from chat_nextseek.helpers.lab_code import lab_near_miss_notes
+
+    assert lab_near_miss_notes([]) == []
+    assert lab_near_miss_notes(None) == []
+
+
+def test_the_note_builder_takes_the_models_the_orchestrator_holds():
+    """The turn passes `EntityAgentOutput.lab_near_misses`, which is models, not dicts."""
+    from chat_nextseek.helpers.lab_code import lab_near_miss_notes
+    from chat_nextseek.schemas.entity import EntityAgentOutput, LabNearMiss
+
+    entity = EntityAgentOutput(lab_near_misses=[LabNearMiss(text="fenwcik", code="FEN", name="Fenwick",
+                                                            ratio=0.857)])
+    (note,) = lab_near_miss_notes(entity.lab_near_misses)
+
+    assert "fenwcik" in note and "Fenwick (FEN)" in note

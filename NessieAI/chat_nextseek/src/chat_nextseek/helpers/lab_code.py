@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-__all__ = ["LabResolution", "clamp_lab_codes", "fold", "resolve_labs"]
+__all__ = ["LabResolution", "clamp_lab_codes", "fold", "lab_near_miss_notes", "resolve_labs"]
 
 # ---------------------------------------------------------------------------
 # 7.2 normalisation
@@ -170,6 +171,9 @@ class LabResolution:
     lab_matches: list[dict] = field(default_factory=list)
     scientists: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
+    #: Names that matched no record but are one or two characters from one. Reported, never
+    #: applied: the code stays unguessed and the reply can ask. See ``_near_misses``.
+    near_misses: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -511,6 +515,56 @@ class _Matcher:
         return name
 
 
+#: A near miss is a spelling this document can recognise as a mistake, not a fuzzy filter.
+#: 0.82 takes one transposition or one wrong letter in a surname ("fenwcik" for Fenwick is
+#: 0.857, "engleward" for Engelward 0.889) and rejects unrelated words. Four characters is
+#: the floor: a three-letter term is a lab code, and a shorter one is inside half the
+#: alphabet. Measured 2026-09-22 against the live 40-record document.
+_NEAR_MISS_RATIO = 0.82
+_NEAR_MISS_MIN_CHARS = 4
+
+
+def _near_misses(text: str, records: list[_Record]) -> list[dict]:
+    """The records whose surname the term is one small mistake away from, best only."""
+    folded = fold(text)
+    if len(folded) < _NEAR_MISS_MIN_CHARS:
+        return []
+    if not folded.replace("-", "").replace("'", "").replace(" ", "").isalpha():
+        return []
+    scored: list[tuple[float, _Record]] = []
+    for rec in records:
+        name = fold(rec.name)
+        if not name or name == folded:
+            return []  # it matched a record's name exactly; this is not a near miss
+        ratio = SequenceMatcher(None, folded, name).ratio()
+        if ratio >= _NEAR_MISS_RATIO:
+            scored.append((ratio, rec))
+    if not scored:
+        return []
+    best = max(ratio for ratio, _ in scored)
+    return [{"text": text, "code": rec.code, "name": rec.name, "ratio": round(ratio, 3)}
+            for ratio, rec in sorted(scored, key=lambda pair: pair[1].order)
+            if ratio >= best - 1e-9]
+
+
+def lab_near_miss_notes(near_misses: Any) -> list[str]:
+    """One note per misspelled name, for the reply. It asks; it never assumes."""
+    grouped: dict[str, list[dict]] = {}
+    for miss in near_misses or []:
+        if not isinstance(miss, dict):
+            miss = {"text": getattr(miss, "text", ""), "code": getattr(miss, "code", ""),
+                    "name": getattr(miss, "name", "")}
+        grouped.setdefault(str(miss.get("text") or ""), []).append(miss)
+    notes = []
+    for text, candidates in grouped.items():
+        named = " or ".join(f"{c.get('name')} ({c.get('code')})" for c in candidates)
+        notes.append(
+            f'No lab is recorded as "{text}". The closest on record is {named}, and this query '
+            f"was not restricted to it, so say so and offer that spelling."
+        )
+    return notes
+
+
 def resolve_labs(
     question: str,
     llm_labs: Any,
@@ -546,6 +600,7 @@ def resolve_labs(
     matched = {rec.order for hit in hits for rec in hit.records}
     new_scientists: list[str] = []
     new_keywords: list[str] = []
+    unmatched: list[str] = []
     for entry in labs_in:
         hit, failed_m5 = matcher.match_entry(entry)
         if hit is not None:
@@ -565,11 +620,14 @@ def resolve_labs(
             continue                           # U2: a project, which the LLM also lists
         elif failed_m5:
             new_keywords.append(core)          # U3: most likely the common word
+            unmatched.append(core)
         elif (person := matcher.person_name(entry)) is not None:
             new_scientists.append(person)      # U4
             new_keywords.append(person)        # E4
+            unmatched.append(person)
         else:
             new_keywords.append(core)          # U5
+            unmatched.append(core)
 
     labs: list[str] = []
     codes: list[str] = []
@@ -597,7 +655,16 @@ def resolve_labs(
     _extend_unique(scientists, new_scientists)
     _extend_unique(keywords, new_keywords)
     _extend_unique(keywords, scientists)  # E4
+    near: list[dict] = []
+    seen_terms: set[str] = set()
+    for term in unmatched:
+        folded = fold(term)
+        if folded in seen_terms:
+            continue
+        seen_terms.add(folded)
+        near.extend(_near_misses(term, matcher.records))
     return LabResolution(available=True, labs=labs, lab_codes=codes, lab_matches=matches,
+                         near_misses=near,
                          scientists=scientists, keywords=keywords)
 
 

@@ -19,7 +19,7 @@ from ..schemas.schema_helper import StructuredOutputError, call_llm_structured, 
 from ..schemas import (
     EntityAgentOutput,
 )
-from ..schemas.entity import LabMatch
+from ..schemas.entity import LabMatch, LabNearMiss
 
 
 def _as_list(value: Any) -> list:
@@ -64,6 +64,7 @@ def _resolve_lab_names(
         print(f"[WARN][ENTITY] Lab resolution failed, labs left unresolved: {exc!r}")
         result.lab_codes = []
         result.lab_matches = []
+        result.lab_near_misses = []
         return
     if not resolution.available:
         print(
@@ -73,6 +74,7 @@ def _resolve_lab_names(
     result.labs = resolution.labs
     result.lab_codes = resolution.lab_codes
     result.lab_matches = [LabMatch(**match) for match in resolution.lab_matches]
+    result.lab_near_misses = [LabNearMiss(**miss) for miss in resolution.near_misses]
     result.scientists = resolution.scientists
     result.keywords = resolution.keywords
 
