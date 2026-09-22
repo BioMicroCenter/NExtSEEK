@@ -49,6 +49,11 @@ ONTOLOGY (GRAPH)
   expression), A.ALN (alignment), A.VCF, A.CNV, A.CHRM (chromatin), A.SCXP / A.SCCL
   (single cell), A.DBMM. When the phrasing is ambiguous, emit BOTH the D.* and the A.*
   candidates rather than dropping either.
+- **"file", "data file", "download", "raw data" is not the sample type D.FILE.** A question
+  about where the files of some samples are, or how to download them, is about those
+  samples' file-location fields, which every data type carries. Emit D.FILE only when the
+  user names D.FILE or the "Data File" type itself; otherwise emit the sample types the
+  question names, or none.
 
 --------------------------------------------------
 CORE PRIORITY

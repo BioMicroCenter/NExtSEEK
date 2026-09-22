@@ -25,7 +25,9 @@ An **assay** is the experiment that turns one sample into another. Each assay na
 
 **NExtSEEK does not host the data files.** Raw and processed data (FASTQ, BAM, FCS, images, spreadsheets of results) live on the storage of the lab or the core facility that produced them, or in a public repository. NExtSEEK holds the metadata that points to them. Every data and analysis record names its file in `File_PrimaryData`, says where that file is stored in `Link_PrimaryData`, and usually carries its checksum in `Checksum_PrimaryData`; some also have `File_SecondaryData` and `Link_SecondaryData`, or a `Path_PrimaryData`. A record deposited publicly names the repository in `Repository` and its accession in `RepositoryID`.
 
-What can be downloaded from here is metadata: search results as spreadsheets, the reports and submission workbooks the assistant builds, and a whole chat's files. To get the data files themselves, find their locations first, then fetch them from there and check each one against its checksum.
+What can be downloaded from here is metadata: search results as spreadsheets, the reports and submission workbooks the assistant builds, and a whole chat's files.
+
+A whole chat downloads as one zip from the **All files** button in the chat's right-hand panel: the transcript, every file its turns wrote, and a manifest. That zip is also how to send a conversation to the development team for feedback: download it and attach it to the message. To get the data files themselves, find their locations first, then fetch them from there and check each one against its checksum.
 
 When someone asks to download a data file, or asks where the raw data is, say that NExtSEEK does not host files: it holds the metadata that points to where each file lives. Then offer to look up the file names and locations (`File_PrimaryData`, `Link_PrimaryData`, `Checksum_PrimaryData`) for the samples they care about. If the question already names samples, those locations are the answer.
 
