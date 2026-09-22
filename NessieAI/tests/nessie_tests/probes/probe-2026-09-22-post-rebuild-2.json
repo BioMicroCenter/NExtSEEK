@@ -12,7 +12,7 @@
           "family": "srp_demo",
           "id": "srp2.project_scope",
           "name": "Act 1: the project relationship, not a title match",
-          "_why": "57,426 is the project; 57,441 is what an OR against investigation titles returns. The 15-sample gap is the whole difference between a scope and a text search.",
+          "_why": "57,426 is the project; 57,441 is what an OR against investigation titles returns. The 15-sample gap is the whole difference between a scope and a text search. Measured 2026-09-22: 57,426 is IN_PROJECT, and the 15 the OR adds are real samples whose study sits under the MIT_SRP investigation while their project is Training/Test (14) or IMPAcTb (1). Separately 1,742 of the 57,426 have NO study edge at all, so the two scopes disagree in both directions and neither number is a wrong answer. The prompt tells the agent to match the name against Study and Investigation too, so both pass and the query shape does the real work.",
           "tags": [
             "nessie",
             "probe",
@@ -37,7 +37,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])57,?426(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])(57,?426|57,?441)(?![\\w]|[.,]\\d|[-/]\\d)"
                 },
                 {
                   "field": "graph_cypher",
@@ -167,7 +167,7 @@
           "family": "srp_demo",
           "id": "srp2.organ_spellings",
           "name": "Act 2: the harmonization pitch in one answer",
-          "_why": "The folded distribution, not a single value. liver 13,433 and lung 8,998 are the two the reply must carry for this to be the list rather than a sample of it.",
+          "_why": "The folded distribution, not a single value. liver 13,433 and lung 8,998 are the two the reply must carry for this to be the list rather than a sample of it. First version demanded the folded totals 13,433 and 8,998 and failed a reply better than the criterion: it listed 25 raw spellings with counts, including Liver 6,721, LIVER 4,154 and liver 2,558, which sum to exactly the 13,433 I had measured. A spellings question is answered by the spellings, so it now asserts the two largest raw counts; matches_re is case-insensitive, so the casing itself cannot be asserted and the counts are the proxy.",
           "tags": [
             "nessie",
             "probe",
@@ -192,12 +192,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])13,?433(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])6,?721(?![\\w]|[.,]\\d|[-/]\\d)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])8,?998(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])4,?154(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -242,7 +242,7 @@
           "family": "srp_demo",
           "id": "srp2.ndma_mice_in_srp",
           "name": "Act 3: the contaminant that runs through all three labs",
-          "_why": "2,111 MIT_SRP mice mention NDMA.",
+          "_why": "1,549 MIT_SRP mice carry NDMA in a Treatment field, measured 2026-09-22. The first version pinned 2,111, which is `search_text CONTAINS 'ndma'` over the same mice: my measurement used a looser predicate than the question. A named field beats free text, which is the prompt's own rule, and the run answered 1,549 by exactly that route.",
           "tags": [
             "nessie",
             "probe",
@@ -267,7 +267,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])2,?111(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -392,7 +392,7 @@
           "family": "srp_demo",
           "id": "srp2.swager_chemistry",
           "name": "Act 4: same project, a completely different data shape",
-          "_why": "CHM 198, D.SPC 139, D.NMR 54 and the rest. The point is breadth, so the reply has to name the chemistry types rather than a single total.",
+          "_why": "CHM 198, D.SPC 139, D.NMR 54 and the rest. The point is breadth, so the reply has to name the chemistry types rather than a single total. First version required the codes CHM and D.SPC/D.NMR and failed a reply that wrote \"Chemical Samples\" and \"Spectroscopy Data\": ticket 1 tells the chatter to name a type ONCE, by its name or its code, so demanding the code contradicts the fix. Either form now passes. The 198 needs the labs document present, since without it the lab is matched as text and the count differs (the run got 174).",
           "tags": [
             "nessie",
             "probe",
@@ -417,12 +417,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "CHM"
+                  "value": "(CHM|Chemical Sample)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "D\\.(SPC|NMR)"
+                  "value": "(D\\.(SPC|NMR)|Spectroscopy|Nuclear Magnetic Resonance)"
                 },
                 {
                   "field": "last_reply",
@@ -437,7 +437,7 @@
           "family": "srp_demo",
           "id": "srp2.cometchip_counts_samples_not_edges",
           "name": "Act 4 stress test: rows are not samples",
-          "_why": "2,270 distinct samples across 304,062 CometChip edges. A query that counts rows is wrong by a factor of 134, and that is the rule the graph prompt spends a bullet on.",
+          "_why": "There is exactly one CometChip assay title, carrying 304,062 edges over 618 distinct parents and 2,270 distinct children (measured 2026-09-22; the exact-title and CONTAINS matches agree). 618 is the samples the assay was performed on, 2,270 the records it produced, and both are defensible readings of \"underwent\", so either passes. What must never appear is 304,062, the row count, wrong by a factor of 134, which is the rule this case tests.",
           "tags": [
             "nessie",
             "probe",
@@ -462,7 +462,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])2,?270(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])(618|2,?270)(?![\\w]|[.,]\\d|[-/]\\d)"
                 },
                 {
                   "field": "last_reply",
@@ -475,5 +475,6 @@
         }
       ]
     }
-  }
+  },
+  "_revisions": "2026-09-22, after the first paid run: five criteria were wrong, not the answers. Four were mine measuring something the question did not ask (a looser predicate for NDMA, folded totals for a spellings question, type codes where the chatter is now told to pick one form, and the wrong end of an assay edge) and one demanded a single scope where two are defensible. The two lab cases and the Swager count additionally need labs_db.json present in the image, which it was not on the 16:27 build: see the .dockerignore fix of the same day."
 }

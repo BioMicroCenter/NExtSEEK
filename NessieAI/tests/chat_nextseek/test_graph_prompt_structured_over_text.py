@@ -115,3 +115,19 @@ def test_a_zero_reached_only_through_text_is_not_reported_as_settled():
 def test_the_prompt_still_names_its_steps_and_output_format():
     for step in ("## STEP 1", "## STEP 5", "## STEP 6", "## Output format"):
         assert step in PROMPT
+
+
+# The SRP run of 2026-09-22: "How many Aag-knockout mice are there?" answered "There are
+# 1,183 Aag-knockout mice" from `toLower(toString(s.Genotype)) CONTAINS 'aag'`. Measured
+# in the graph, that field holds SIX distinct spellings of the genotype for those 1,183
+# samples, and the knockout itself ("aag -/-") is 848 of them. The rule for a count over
+# a contained name was already in the prompt and its trigger list did not mention a
+# genotype, which is the field where the spellings differ most.
+
+
+def test_a_genotype_is_a_name_with_variants():
+    rule = _window("A COUNT OF A NAME THAT HAS VARIANTS")
+    lowered = rule.lower()
+
+    assert "genotype" in lowered or "allele" in lowered
+    assert "1,183" in rule, "the measured failure is the example"
