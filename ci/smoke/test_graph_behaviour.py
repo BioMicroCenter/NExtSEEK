@@ -38,7 +38,11 @@ from ci.smoke.graph_assert import (  # noqa: F401
     wait_for_total,
 )
 
-pytestmark = pytest.mark.graphwrite
+# local and dev only, like test_graph_sync_status.py and test_graph_search.py: every case here reads
+# /nextseek_api/admin/graph-sync/status/ or graph_search, which the registry enables for local and dev.
+# Unmarked, production CI ran three of them and the client refused each call (ProfileViolation), so
+# prod went red on 2026-09-22 for a gate working as designed.
+pytestmark = [pytest.mark.graphwrite, pytest.mark.profiles("local", "dev")]
 
 SAMPLE_TYPES = "/nextseek_api/sample_types/"
 
