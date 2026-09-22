@@ -78,7 +78,6 @@ def schema_version_supported(value) -> bool:
     return version is not None and version >= _version_tuple(SCHEMA_VERSION)
 
 # The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more.
-TOP_VALUES_MAX = 10
 
 # The clock; tests patch this name.
 _now = time.monotonic
@@ -109,7 +108,7 @@ RETURN t.label AS label, collect(DISTINCT a.title) AS titles
 ORDER BY label
 """.strip()
 
-# $types: SampleType titles (the entity codes); $top: TOP_VALUES_MAX.
+# $types: SampleType titles (the entity codes).
 TYPES_ADMIN = """
 MATCH (t:SampleType)
 WHERE t.title IN $types
@@ -120,8 +119,7 @@ RETURN t.title AS title, t.label AS label, t.name AS name, t.summary AS summary,
          MATCH (t)-[:HAS_ATTRIBUTE]->(a:Attribute)
          WHERE a.sample_count > 0
          RETURN a { .title, .value_type, .declared, .needs_backticks, .sample_count, .meaning, .unit_key, .role,
-                    .num_min, .num_max, .date_min, .date_max,
-                    top_values: a.top_values[0..$top], top_counts: a.top_counts[0..$top] } AS attribute
+                    .num_min, .num_max, .date_min, .date_max } AS attribute
          ORDER BY a.sample_count DESC, a.title
        } AS attributes,
        COUNT {
@@ -249,8 +247,6 @@ class AttributeRow:
     meaning: str | None
     unit_key: str | None
     role: str | None
-    top_values: tuple = ()
-    top_counts: tuple = ()
     num_min: float | None = None
     num_max: float | None = None
     date_min: str | None = None
@@ -450,7 +446,7 @@ def _snapshot_locked(entry: _Entry, key: tuple[str, str], config) -> CatalogSnap
 
 
 def _redacted_attribute(attribute: AttributeRow) -> AttributeRow:
-    return replace(attribute, sample_count=None, top_values=(), top_counts=(),
+    return replace(attribute, sample_count=None,
                    num_min=None, num_max=None, date_min=None, date_max=None)
 
 
@@ -499,7 +495,7 @@ def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
         if missing:
             try:
                 rows = _read(_driver_locked(entry, config), key[1], TYPES_ADMIN,
-                             {"types": missing, "top": TOP_VALUES_MAX})
+                             {"types": missing})
             except CatalogUnavailable as exc:
                 _fail_locked(entry, str(exc), now, close=False)
                 raise
@@ -733,8 +729,6 @@ def _attribute_row(attr: dict) -> AttributeRow:
         meaning=_opt_str(attr.get("meaning")),
         unit_key=_opt_str(attr.get("unit_key")),
         role=_opt_str(attr.get("role")),
-        top_values=tuple(v if isinstance(v, str) else str(v) for v in (attr.get("top_values") or ())),
-        top_counts=tuple(_opt_int(c) or 0 for c in (attr.get("top_counts") or ())),
         num_min=_opt_float(attr.get("num_min")),
         num_max=_opt_float(attr.get("num_max")),
         date_min=_opt_str(attr.get("date_min")),

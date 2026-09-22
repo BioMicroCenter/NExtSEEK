@@ -35,8 +35,8 @@ code, a number. The stored UID may carry or lack the -PUB suffix; a UID CHECK bl
    variable may use any attribute some type carries. Backtick names outside [A-Za-z0-9_]: s.`Catalog#`.
 2. Stored values keep their spelling and case, and one concept is often stored several ways (case variants, a
    word and its code, an abbreviation and its full name). Compare text as toLower(trim(toString(s.X))), never with
-   a bare =. Never toString a list (project_ids, parent_titles, parent_title_hashes). A section shows value lists
-   and bounds only where the catalog has them; with none shown the spellings are unknown, not absent.
+   a bare =. Never toString a list (project_ids, parent_titles, parent_title_hashes). A section shows numeric and date
+   bounds where the values parsed, never the values themselves: the spellings are unknown, not absent.
 3. float, integer and date attributes hold typed values (compare with <, >); a value that did not parse stays a
    string. Every other attribute is a string, so guard a numeric test on one with toFloat(...) IS NOT NULL.
 4. Empty metadata is never stored: test presence with IS NOT NULL, never with = ''.

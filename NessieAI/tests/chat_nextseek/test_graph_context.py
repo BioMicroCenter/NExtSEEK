@@ -29,12 +29,9 @@ def index_row(title, *, label=None, name=None, clade=None, sample_count=0, depre
 
 
 def attr(title, *, value_type="string", declared=True, needs_backticks=False, sample_count=1, meaning=None,
-         unit_key=None, role="data", top_values=(), top_counts=(), num_min=None, num_max=None, date_min=None,
-         date_max=None):
+         unit_key=None, role="data", num_min=None, num_max=None, date_min=None, date_max=None):
     return SimpleNamespace(title=title, value_type=value_type, declared=declared, needs_backticks=needs_backticks,
-                           sample_count=sample_count, meaning=meaning, unit_key=unit_key, role=role,
-                           top_values=None if top_values is None else tuple(top_values),
-                           top_counts=None if top_counts is None else tuple(top_counts), num_min=num_min,
+                           sample_count=sample_count, meaning=meaning, unit_key=unit_key, role=role, num_min=num_min,
                            num_max=num_max, date_min=date_min, date_max=date_max)
 
 
@@ -69,8 +66,7 @@ def tis_detail(**overrides):
     )
     fields.update(overrides)
     attributes = fields.pop("attributes", (
-        attr("Organ", sample_count=16841, meaning="Organ of origin; the anatomical site.",
-             top_values=("Lung", "lung"), top_counts=(16841, 5893)),
+        attr("Organ", sample_count=16841, meaning="Organ of origin; the anatomical site."),
     ))
     return detail("TIS", attributes, **fields)
 
@@ -86,7 +82,7 @@ def attribute_lines(text):
 def test_constants():
     assert gc.BUDGET_BYTES == 32_768
     assert gc.K_STEPS == (25, 15, 10, 0)
-    assert (gc.MAX_TYPES, gc.MEANING_MAX, gc.VALUE_MAX) == (3, 120, 60)
+    assert (gc.MAX_TYPES, gc.MEANING_MAX) == (3, 120)
     assert gc.STRUCTURE_PATH.name == "graph_schema_structure.txt"
     assert gc.STRUCTURE_PATH.parent.name == "prompts"
     assert gc.STRUCTURE_PATH.is_file()
@@ -162,7 +158,7 @@ def test_section_header_zero_samples_and_missing_optional_fields():
 
 def test_attribute_line_format():
     lines = attribute_lines(gc.render_type_section(tis_detail(), 25))
-    assert lines == ['- Organ [string] n=16,841 | values: "Lung" 16,841, "lung" 5,893 | Organ of origin']
+    assert lines == ["- Organ [string] n=16,841 | Organ of origin"]
 
 
 def test_attribute_backticks_and_undeclared():
@@ -190,30 +186,10 @@ def test_attribute_ranges_for_numbers_and_dates():
     ]
 
 
-def test_values_over_sixty_characters_are_skipped():
-    long_value = "x" * 61
-    d = detail("TIS", [
-        attr("Notes", sample_count=5, top_values=(long_value, "short"), top_counts=(4, 1)),
-        attr("Path", sample_count=3, top_values=(long_value,), top_counts=(3,)),
-        attr("Edge", sample_count=2, top_values=("y" * 60,), top_counts=(2,)),
-    ])
-    lines = attribute_lines(gc.render_type_section(d, 25))
-    assert lines[0] == '- Notes [string] n=5 | values: "short" 1'
-    assert lines[1] == "- Path [string] n=3"
-    assert lines[2] == '- Edge [string] n=2 | values: "' + "y" * 60 + '" 2'
-
-
 def test_values_part_absent_without_catalog_values():
+    """No Attribute node ever carried values, so the line never has a values part."""
     d = detail("TIS", [attr("Organ", sample_count=5)])
     assert attribute_lines(gc.render_type_section(d, 25)) == ["- Organ [string] n=5"]
-
-
-def test_at_most_ten_values_per_attribute():
-    values = tuple(f"v{i}" for i in range(15))
-    d = detail("TIS", [attr("Organ", sample_count=99, top_values=values, top_counts=tuple(range(15, 0, -1)))])
-    line = attribute_lines(gc.render_type_section(d, 25))[0]
-    assert '"v9"' in line
-    assert '"v10"' not in line
 
 
 def test_meaning_is_the_first_clause_within_120_characters():
@@ -293,7 +269,7 @@ def test_only_catalog_attributes_appear():
 
 
 def test_rendering_without_values_meanings_or_usage():
-    d = detail("TIS", [attr("Organ", sample_count=5, top_values=None, top_counts=None, meaning=None)],
+    d = detail("TIS", [attr("Organ", sample_count=5, meaning=None)],
                summary=None, name=None, clade=None, sample_count=None)
     text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=None)], has_usage=False), [d])
     assert "- Organ [string] n=5" in text.splitlines()
@@ -351,9 +327,7 @@ def test_codes_accept_models_and_plain_strings():
 
 def big_type(code, n_attributes=190):
     attributes = [
-        attr(f"{code}_attribute_{i:03d}", sample_count=100_000 - i, meaning="m" * 120,
-             top_values=tuple(f"value {i:03d} {j:02d}" for j in range(10)),
-             top_counts=tuple(range(1000, 990, -1)))
+        attr(f"{code}_attribute_{i:03d}", sample_count=100_000 - i, meaning="m" * 120)
         for i in range(n_attributes)
     ]
     return detail(code, attributes, name=f"Type {code}", clade="Processed", sample_count=100_000,
@@ -577,8 +551,8 @@ VENUE_RESOLVED_RE = re.compile(r"^## Resolved sample types: .*?\((?:the (\d+) mo
 def heavy_type(code, n_attributes):
     """A synthetic type shaped like the heaviest: a full head of 25 lines, then a long, sparse named tail."""
     attributes = [
-        attr(f"{code}_Measured_Property_{i:03d}", sample_count=50_000 - i, meaning="Synthetic meaning of it. More.",
-             top_values=("value 00", "value 01"), top_counts=(900, 899))
+        attr(f"{code}_Measured_Property_{i:03d}", sample_count=50_000 - i,
+             meaning="Synthetic meaning of it. More.")
         for i in range(25)
     ]
     attributes += [attr(f"{code}_Sparse_{i:03d}", sample_count=900 - i) for i in range(n_attributes - 25)]

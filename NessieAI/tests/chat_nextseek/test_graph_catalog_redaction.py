@@ -57,8 +57,7 @@ TYPE_ROWS = {
              "role": "measurement", "num_min": 0.25, "num_max": 911.5},
             {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
              "sample_count": 4388, "meaning": "The organ the tissue came from.", "unit_key": None,
-             "role": "descriptive", "top_values": ["marker-organ-a", "marker-organ-b"],
-             "top_counts": [3101, 1287]},
+             "role": "descriptive"},
             {"title": "Collected", "value_type": "date", "declared": False, "needs_backticks": False,
              "sample_count": 3770, "meaning": None, "unit_key": None, "role": None,
              "date_min": "2011-03-04", "date_max": "2019-08-27"},
@@ -85,10 +84,14 @@ VOCAB_ROWS = {
 }
 
 # How each admin-only value renders (graph_context formats counts with thousands separators).
-ADMIN_ONLY_TEXT = ("58,731", "6,047", "1,913", "5,902", "4,388", "3,770", "4,919", "3,101", "1,287",
-                   "0.25", "911.5", "47..263", "2011-03-04", "2019-08-27", "marker-organ-a", "marker-organ-b")
+# 3,101 / 1,287 / marker-organ-a / marker-organ-b were the Organ attribute's example values.
+# No Attribute node in the graph ever carried any (every one NULL, no writer anywhere), so the
+# reader, the renderer and the column they fed are gone and there is no longer a value here for
+# the redaction to strip. The counts and ranges it strips are real.
+ADMIN_ONLY_TEXT = ("58,731", "6,047", "1,913", "5,902", "4,388", "3,770", "4,919",
+                   "0.25", "911.5", "47..263", "2011-03-04", "2019-08-27")
 # The attribute columns a non-admin must not get.
-COLUMN_TOKENS = ("n=", "values:", "range")
+COLUMN_TOKENS = ("n=", "range")
 # The one line that names those columns for every caller: the resolved-types legend in graph_context._assemble.
 LEGEND_PREFIX = "## Resolved sample types:"
 
@@ -197,14 +200,13 @@ def test_admin_snapshot_carries_the_stored_counts():
         ("CEL", 1913), ("D.SEQ", 6047), ("OLD", 0), ("TIS", 58731)]
 
 
-def test_admin_type_details_carry_the_stored_counts_values_and_ranges():
+def test_admin_type_details_carry_the_stored_counts_and_ranges():
     tis, dseq = gc.get_type_details(admin(), ["TIS", "D.SEQ"])
 
     assert tis.sample_count == 58731
     weight, organ, collected = tis.attributes  # stored order: most filled first
     assert (weight.title, weight.sample_count, weight.num_min, weight.num_max) == ("Weight", 5902, 0.25, 911.5)
     assert (organ.title, organ.sample_count) == ("Organ", 4388)
-    assert (organ.top_values, organ.top_counts) == (("marker-organ-a", "marker-organ-b"), (3101, 1287))
     assert (collected.date_min, collected.date_max) == ("2011-03-04", "2019-08-27")
     assert (dseq.sample_count, dseq.attributes[0].num_min, dseq.attributes[0].num_max) == (6047, 47.0, 263.0)
 
@@ -241,7 +243,7 @@ def test_snapshot_keeps_names_structure_and_the_guard(redacted):
         "hash-redaction", "2026-01-02T03:04:05Z", "1.2", False)
 
 
-def test_type_details_drop_counts_top_values_and_ranges(redacted):
+def test_type_details_drop_counts_and_ranges(redacted):
     details = gc.get_type_details(redacted, ["TIS", "D.SEQ"])
 
     assert [d.title for d in details] == ["TIS", "D.SEQ"]
@@ -249,7 +251,6 @@ def test_type_details_drop_counts_top_values_and_ranges(redacted):
         assert detail.sample_count is None
         for attribute in detail.attributes:
             assert attribute.sample_count is None, attribute.title
-            assert (attribute.top_values, attribute.top_counts) == ((), ()), attribute.title
             assert (attribute.num_min, attribute.num_max) == (None, None), attribute.title
             assert (attribute.date_min, attribute.date_max) == (None, None), attribute.title
 
@@ -377,10 +378,10 @@ def test_the_scoped_statements_carry_graph_searchs_scope_clause():
 # --- the cache ------------------------------------------------------------------------------------------------------
 
 
-def test_an_admin_call_after_a_non_admin_call_still_sees_the_full_values(reader):
+def test_an_admin_call_after_a_non_admin_call_still_sees_the_full_counts(reader):
     other = REDACTED["non_admin"]()
     assert gc.get_snapshot(other).index[3].sample_count is None
-    assert gc.get_type_details(other, ["TIS"])[0].attributes[1].top_values == ()
+    assert gc.get_type_details(other, ["TIS"])[0].attributes[1].sample_count is None
 
     snap = gc.get_snapshot(admin())
     (tis,) = gc.get_type_details(admin(), ["TIS"])
@@ -388,7 +389,6 @@ def test_an_admin_call_after_a_non_admin_call_still_sees_the_full_values(reader)
     assert snap.index[3].sample_count == 58731
     assert tis.sample_count == 58731
     assert [a.sample_count for a in tis.attributes] == [5902, 4388, 3770]
-    assert tis.attributes[1].top_values == ("marker-organ-a", "marker-organ-b")
     assert (tis.attributes[0].num_min, tis.attributes[2].date_max) == (0.25, "2019-08-27")
     # and a non-admin after that is redacted again
     assert gc.get_snapshot(other).index[3].sample_count is None
@@ -429,7 +429,7 @@ def _data_lines(text: str) -> list[str]:
     return [line for line in text.splitlines() if not line.startswith(LEGEND_PREFIX)]
 
 
-def test_the_admin_context_shows_counts_values_and_ranges():
+def test_the_admin_context_shows_counts_and_ranges():
     # The control: the tokens the next test looks for are really there for an admin.
     text = _context(admin())
 
@@ -439,7 +439,7 @@ def test_the_admin_context_shows_counts_values_and_ranges():
         assert value in text, value
 
 
-def test_the_rendered_context_for_a_non_admin_has_no_counts_values_or_ranges(redacted):
+def test_the_rendered_context_for_a_non_admin_has_no_counts_or_ranges(redacted):
     text = _context(redacted)
 
     for line in _data_lines(text):

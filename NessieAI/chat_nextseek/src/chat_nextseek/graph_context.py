@@ -36,8 +36,7 @@ K_STEPS = (25, 15, 10, 0)  # 0 means names only
 # what the bound trims today is a question firing all three groups at once. It trims what the question does not
 # name, never what it does (fit_vocabulary).
 VOCAB_BUDGET_BYTES = 28_672
-MAX_TYPES, MEANING_MAX, VALUE_MAX = 3, 120, 60
-TOP_VALUES = 10  # values rendered per attribute at most (the catalog stores up to 10)
+MAX_TYPES, MEANING_MAX = 3, 120
 SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary cannot outgrow the budget
 
 # The keyword gates of the protocol and assay blocks, on both the catalog path and the committed-files path
@@ -283,20 +282,6 @@ def _filled(attributes) -> list:
                                        str(_get(a, "title"))))
 
 
-def _values(attribute: Any) -> str | None:
-    values = list(_get(attribute, "top_values") or ())
-    counts = list(_get(attribute, "top_counts") or ())
-    rendered = []
-    for i, value in enumerate(values):
-        if value is None or len(str(value)) > VALUE_MAX:
-            continue
-        count = counts[i] if i < len(counts) else None
-        rendered.append(_quote(value) + (f" {_count(count)}" if isinstance(count, int) else ""))
-        if len(rendered) == TOP_VALUES:
-            break
-    return "values: " + ", ".join(rendered) if rendered else None
-
-
 def _range(low: Any, high: Any, fmt) -> str | None:
     if low is None and high is None:
         return None
@@ -316,7 +301,6 @@ def _attribute_line(attribute: Any) -> str:
         parts.append(f"unit of {_KEY_PREFIX_RE.sub('', str(unit_key))}")
     for piece in (_range(_get(attribute, "num_min"), _get(attribute, "num_max"), _number),
                   _range(_get(attribute, "date_min"), _get(attribute, "date_max"), str),
-                  _values(attribute),
                   first_clause(_get(attribute, "meaning"))):
         if piece:
             parts.append(piece)
@@ -392,7 +376,7 @@ def _assemble(structure: str, index: str, titles: list[str], sections: list[str]
             how = "attribute names only" + ("," + with_n if with_n else "")
         parts.append(
             f"## Resolved sample types: {', '.join(titles)} ({how}; per attribute: [value type] n=samples "
-            "holding a value | range | most frequent values with their sample counts | meaning)")
+            "holding a value | range | meaning)")
         parts += sections
     if omitted:
         parts.append(f"Left out to fit the context budget: {', '.join(omitted)} (see the type index).")

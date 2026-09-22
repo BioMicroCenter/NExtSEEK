@@ -45,7 +45,7 @@ def _type_rows() -> dict:
             "attributes": [
                 {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
                  "sample_count": 16841, "meaning": "The organ the tissue came from, as a word.", "unit_key": None,
-                 "role": "descriptive", "top_values": ["Lung", "lung"], "top_counts": [16841, 5893]},
+                 "role": "descriptive"},
                 {"title": "Catalog#", "value_type": "string", "declared": False, "needs_backticks": True,
                  "sample_count": 12},
             ],
@@ -510,10 +510,9 @@ def test_type_details_carry_the_admin_form(harness):
     organ, catalog = tis.attributes
     assert organ == gc.AttributeRow(
         title="Organ", value_type="string", declared=True, needs_backticks=False, sample_count=16841,
-        meaning="The organ the tissue came from, as a word.", unit_key=None, role="descriptive",
-        top_values=("Lung", "lung"), top_counts=(16841, 5893))
+        meaning="The organ the tissue came from, as a word.", unit_key=None, role="descriptive")
     assert (catalog.title, catalog.declared, catalog.needs_backticks) == ("Catalog#", False, True)
-    assert catalog.top_values == () and catalog.top_counts == () and catalog.meaning is None
+    assert catalog.meaning is None
 
     # a list of curated parents is joined, numbers and dates come through as their fields
     assert dseq.curated_parents == "TIS, CEL" and dseq.curated_children is None and dseq.summary is None
