@@ -42,14 +42,16 @@ from ci.smoke.test_reachability import _callable_routes
 # was retired (Sample Search's own boxes now call graph_search), then 172 -> 173
 # the same day for /nextseek_api/assistant/aggregate/, then 173 -> 174 for
 # /seek/exports/{token}/{filename}, the private store the legacy sample exports
-# now link to instead of /media/download/. Each step was
+# now link to instead of /media/download/, then 174 -> 175 on 2026-09-22 for
+# /seek/admin/internal_assays/suggestions (the association workbench, merged in
+# f8ed4b0c). Each step was
 # confirmed by the completeness gate passing against the live resolver on the
 # branch that added them. When the application gains or loses a route this number
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 174
+OWNED_ROUTE_COUNT = 175
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.

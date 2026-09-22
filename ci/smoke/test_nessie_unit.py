@@ -123,7 +123,7 @@ BASE = "http://127.0.0.1:8000"
 def test_the_questions_are_three_ns_then_one_cc_with_unique_keys():
     assert [q.route for q in QUESTIONS] == [
         "nextseek_query", "nextseek_query", "nextseek_query", "container_cc"]
-    assert [q.path for q in QUESTIONS] == ["system", "api", "graph", "cc"]
+    assert [q.path for q in QUESTIONS] == ["system", "graph", "graph", "cc"]  # NDMA moved to the graph in c241c6e6
     assert len({q.key for q in QUESTIONS}) == len(QUESTIONS)
     assert MAX_CHAT_POSTS == len(QUESTIONS) == 4
     assert SPEND_CEILING_USD == 1.00
