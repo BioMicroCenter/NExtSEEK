@@ -37,18 +37,20 @@ Useful flags:
 against the instance's own port, and derives the profile from `ci_profile` in
 `startup/.instance.json`, so nobody has to remember which box they are on.
 
-Eight files need no stack, no credentials and no browser, because they test the
-registry, the guard, the fixtures' own logic and the Nessie lane's pure helpers
-rather than a deployment: `test_registry_unit.py`, `test_registry_contents.py`,
+Nine files need no stack, no credentials and no browser, because they test the
+registry, the guard, the fixtures' own logic and the Nessie and write lanes' pure
+helpers rather than a deployment: `test_registry_unit.py`, `test_registry_contents.py`,
 `test_guard_unit.py`, `test_profile_unit.py`, `test_assertions_unit.py`,
-`test_readiness_unit.py`, `test_terminal_unit.py`, `test_nessie_unit.py`.
+`test_readiness_unit.py`, `test_terminal_unit.py`, `test_nessie_unit.py`,
+`test_attribute_jobs_unit.py`.
 
 ```bash
 CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests \
   pytest ci/smoke/test_registry_unit.py ci/smoke/test_registry_contents.py \
          ci/smoke/test_guard_unit.py ci/smoke/test_profile_unit.py \
          ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
-         ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py -q
+         ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py \
+         ci/smoke/test_attribute_jobs_unit.py -q
 ```
 
 ## Tiers
