@@ -262,12 +262,32 @@ def _type_is_applied(code: str, haystack: str) -> bool:
     return _is_applied(code, haystack) or _is_applied(_type_label(code), haystack)
 
 
+#: A graph label (``:T_D_SEQ``), removed before ``_name_is_applied`` splits on underscores, so
+#: a name never counts as applied because it is one segment of a sample type's label.
+_GRAPH_LABEL = re.compile(r":\s*`?T_[A-Za-z0-9_]+`?")
+
+
+def _name_is_applied(value: str, haystack: str) -> bool:
+    """``_is_applied``, also reading ``_`` in the query's values as a word break.
+
+    ``_`` is an identifier character, so the project or keyword ``SRP`` was never found in a
+    query that scoped on ``'MIT_SRP'``: every MIT_SRP-scoped reply opened by saying the SRP
+    scope was not applied (local run 2026-09-22, bucket3.a_mixed_result_is_not_named_after_one_type:
+    "I could not apply the requested constraints for the SRP project or keyword" over a
+    correct 57,441). For project and keyword names only; sample types keep the strict test
+    (``test_a_label_counts_only_as_a_whole_label``), and graph labels are removed first.
+    """
+    if _is_applied(value, haystack):
+        return True
+    return _is_applied(value, _GRAPH_LABEL.sub(" ", haystack).replace("_", " "))
+
+
 def _keyword_is_applied(keyword: str, haystack: str) -> bool:
     """A keyword counts as applied when it, or any of its words of three or more
     characters, is in the query: "RIN score" is constrained by ``s.RIN > 7``. Looser
     than the other kinds on purpose, in the direction this module errs in: it can miss
     a dropped keyword, never invent one."""
-    return _is_applied(keyword, haystack) or _fragment_is_applied(keyword, haystack)
+    return _name_is_applied(keyword, haystack) or _fragment_is_applied(keyword, haystack)
 
 
 def _fragment_is_applied(value: str, haystack: str) -> bool:
@@ -443,6 +463,8 @@ def describe_query_scope(
             if not applied:
                 code = type_by_name.get(_folded(value).strip())
                 applied = bool(code) and _type_is_applied(code, haystack)
+        elif kind == "project":
+            applied = _name_is_applied(value, haystack)
         else:
             applied = _is_applied(value, haystack)
         (scope.applied if applied else scope.not_applied).append(label)

@@ -562,3 +562,60 @@ def test_a_sample_type_asked_for_on_both_sides_is_reported_once():
     )
 
     assert len([i for i in scope.applied + scope.not_applied if "TIS" in i]) == 1
+
+
+# --------------------------------------------------------------------------
+# `_` is an identifier character, so SRP was never found in 'MIT_SRP'. Local run
+# 2026-09-22: "Break the MIT_SRP project down by sample type" answered 57,441 correctly
+# and opened by saying it could not apply the SRP project or keyword.
+# --------------------------------------------------------------------------
+
+_SRP_CYPHER = (
+    "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'MIT_SRP' "
+    "RETURN s.type AS type, count(s) AS n ORDER BY n DESC"
+)
+
+
+def test_a_project_inside_an_underscored_title_is_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["SRP"], keywords=["SRP"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": _SRP_CYPHER},
+        user_query="Break the MIT_SRP project down by sample type.",
+    )
+
+    assert scope.not_applied == []
+
+
+def test_a_project_in_a_parameter_with_an_underscore_is_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["SRP"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $p RETURN count(s)",
+                    "parameters": {"p": "MIT_SRP"}},
+        user_query="How many samples are in the SRP project?",
+    )
+
+    assert scope.not_applied == []
+
+
+def test_a_keyword_is_not_applied_by_a_segment_of_a_graph_label():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["SEQ"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ) RETURN count(*) AS n"},
+        user_query="How many SEQ samples?",
+    )
+
+    assert any("SEQ" in item for item in scope.not_applied)
+
+
+def test_a_dropped_project_is_still_reported():
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["SRP"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) RETURN count(s) AS n"},
+        user_query="How many tissue samples are in the SRP project?",
+    )
+
+    assert any("SRP" in item for item in scope.not_applied)
