@@ -14,7 +14,9 @@ output-skill/
 ├── scripts/
 │   ├── fetch_run.py            Read-only pull of per-turn evidence (+ manifest, raw rows,
 │   │                           output files) off any instance: --instance local|dev|prod.
-│   └── build_report.py         Join run data + your triage.json -> report.html
+│   ├── build_report.py         Join run data + your triage.json -> report.html
+│   └── reply_style.py          Count machinery vs answer across a run's replies,
+│                               offline: the before/after number for a prompt change.
 ├── templates/
 │   └── report.html.tpl         The page. Fully data-driven; no run specifics baked in.
 └── examples/
