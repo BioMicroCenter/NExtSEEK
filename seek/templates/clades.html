@@ -5,15 +5,44 @@
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-detailview.js"></script>
+<script type="text/javascript" src="{{STATIC_URL}}js/custom/ns-vocab-workbench.js"></script>
 
 <script type="text/javascript">
 
   var clades = {{ clades | safe }};
   var sample_types = {{ stc | safe }};
 
+  var nsWorkbench;
+
   $(document).ready(function(){
-    window.stc_dg = $('#stc_dg').datagrid();
-    window.stc_dg.datagrid('loadData', sample_types);
+    window.stc_dg = $('#stc_dg').datagrid({
+      view: detailview,
+      // Synthetic tier group-header rows (row._nsHeader, minted by
+      // ns-vocab-workbench.js's layout()) render their own arrow in
+      // titleFormatter and open nothing when expanded — there is no detail
+      // to show. Mark the <tr> so nextseek.css can hide the row's own
+      // (redundant) expander control; see the .ns-wb-header-row rule there
+      // for why visibility:hidden rather than display:none.
+      rowStyler: function(index, row){
+        return (row && row._nsHeader) ? 'ns-wb-header-row' : '';
+      },
+      detailFormatter: function(index, row){
+        return nsWorkbench.detailFormatter(index, row);
+      }
+    });
+    nsWorkbench = nsVocabWorkbench({
+      grid: window.stc_dg,
+      entityLabel: 'Sample Type',
+      entityIdField: 'sample_type_id',
+      entityTitleField: 'sample_type_title',
+      vocabIdField: 'clade_id',
+      vocabTitleField: 'clade_title',
+      rows: sample_types,
+      saveUrl: '/seek/clade/sampleTypes/save/',
+      suggestionsUrl: null,
+      csrfToken: '{{ csrf_token }}'
+    });
   });
 
   $(function() {
@@ -21,159 +50,142 @@
     window.dg.datagrid('loadData', clades);
   });
 
+  // The combobox editor on the association grid writes only the id. Nothing
+  // else populates the matching title field, so without this the workbench's
+  // suggested-value formatter would take its "already mapped" branch and
+  // render an empty cell right after the curator picked a value. easyui calls
+  // onEndEdit before it refreshes the row (jquery.easyui.min.js `_773`:
+  // onEndEdit -> destroy editors -> refreshRow), so the title set here is what
+  // the formatter renders.
+  function nsCladeAssociationEndEdit(index, row) {
+    // Never touch a synthetic group-header row.
+    if (!row || row._nsHeader) { return; }
+    var ed = $(this).datagrid('getEditor', {index: index, field: 'clade_id'});
+    if (!ed || !$(ed.target).data('combobox')) { return; }
+    row.clade_title = $(ed.target).combobox('getText');
+  }
+
   function cladesSyncSampleTypes() {
     fetch('syncSampleTypes/', {
       method: 'POST',
       headers: {"X-CSRFToken": "{{ csrf_token }}"},})
     .then(data => console.log(data))
   }
-  
-  function saveSelectedIntoDB(dg, url) {
-    var records = [];
-    var rows = dg.datagrid('getChanges');
-
-    if (rows.length == 0) {
-      alert("You have not entered any new clade information!");
-      return false;
-    }
-
-    for (var i=0; i<rows.length; i++) {
-      var row = rows[i];
-      var record = {};
-
-      for (var key in row) {
-        var value = row[key];
-        record[key] = value;
-      }
-      records.push(record);
-    }
-
-    var msg = 'You have entered ' +
-              rows.length +
-              ' records for saving. Do you really want to save?';
-
-    $.messager.confirm('Saving record', msg, function(r) {
-      if (r) {
-        
-      } else {
-        return false;
-      }
-
-      var win = $.messager.progress({
-        title: 'Please wait',
-        msg: 'Saving record ...'
-      });
-
-      $.get(url, { records: JSON.stringify(records)}, function(data) {
-        $.messager.progress('close');
-
-        var obj = jQuery.parseJSON(data);
-        var msg = obj.msg;
-        var link = obj.link;
-        var status = obj.status;
-        if (!status) {
-					var msg2 = "Error in saving record. <br/><br/>";
-					msg2 += msg;
-					alert(msg);
-					window.location.href = link;
-					return false;
-				} else{
-					$.messager.alert('Saving record',msg,'info');
-				}
-				window.location.href = link;
-				return true;
-      });
-      return true;
-    });
-    return true;
-  }
 </script>
 
-<div id="clade_tab" class="easyui-tabs" style="width:auto;height:900px;">
-  <div title="Clades" data-options="closable:false" style="overflow:auto;padding:20px;display:none;">
-  	<div class="easyui-layout" style="width:auto;height:900px;">
-      <div id="center_div" data-options="region:'center',border:false" style="display:flex;flex-direction:column;gap:2em;height: 600px;">
-        <div id="clades_table_div" style="height:auto">
-        	<div style="margin:20px 0;"></div>
-          <h1>Clades</h1>
-        	<table id="dg_clade" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				url:'',
-        				method:'get',
-        				toolbar: '#tb_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: onClickCell,
-                onEndEdit: onEndEdit,
-        				showFooter: false,
-        				remoteFilter: false
-        			">
-        		<thead>
-        			<tr>
-        				<th data-options="field:'id',width:60"><B>ID</B></th>
-        				<th data-options="field:'title',width:60,editor:'text'"><B>Title</B></th>
-        				<th data-options="field:'color',width:200,editor:'text'"><B>Color</B></th>
-        				<th data-options="field:'order',width:200,editor:'text'"><B>Order</B></th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="tb_toolbar" style="height:auto">
-        		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_clade'))">Add a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="removeit($('#dg_clade'), '/seek/clade/delete')">Remove a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#dg_clade'), '/seek/clade/save')">Save a clade</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_clade'))">Cancel</a>
-          </div>
-        </div>
-        <div id="stc_table_div">
-          <h1>Sample Types Clade Association</h1>
-        	<table id="stc_dg" class="easyui-datagrid" title="" style="width:auto; height:fit-content;"
-        			data-options="
-        				iconCls: 'icon-edit',
-        				singleSelect: true,
-        				selectOnCheck: false,
-        				toolbar: '#stc_tb_toolbar',
-        				striped: true,
-        				pagination : false,
-                onClickCell: onClickCell,
-                onEndEdit: onEndEdit,
-        				showFooter: false,
-        				remoteFilter: false
-        			">
-        		<thead>
-        			<tr>
-                <th data-options="field:'sample_type_id', width:60">
-                  <B>Sample Type ID</B>
-                </th>
-        				<th data-options="field:'sample_type_title',width:60">
-                  <B>Sample Type Title</B>
-                </th>
-        				<th data-options='field:"clade_title",width:60,
-        						editor:{
-        							type:"combobox",
-        							options:{
-        								valueField: "id",
-        								textField: "title",
-        								data: clades,
-        								required:true
-        							}
-        						}'>
-                  <B>Clade</B>
-                </th>
-        			</tr>
-        		</thead>
-        	</table>
-        	<div id="stc_tb_toolbar" style="height:auto">
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="cladesSyncSampleTypes()">Sync Sample Types</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="accept($('#stc_dg'), '/seek/clade/sampleTypes/save')">Save</a>
-            <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#stc_dg'))">Cancel</a>
-          </div>
-        </div>
-      </div>
+<!-- Page structure follows seek/templates/sampleAttributes.html, the same way
+     seek/templates/internal_assays.html does; see the longer note there for what
+     the easyui-tabs / easyui-layout wrappers were doing and why they are gone. -->
+<div class="ns-workbench">
+
+  <header class="ns-page-header">
+    <h1 class="ns-page-title">Clades</h1>
+    <p class="ns-page-subtitle">
+      A clade is the broad stage a sample type sits at in the pipeline, and it is what colours
+      the sample graph. Every sample type is associated with exactly one.
+    </p>
+  </header>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Clade vocabulary</h2>
+    <p class="ns-wb-section-note">
+      The controlled list itself. Colour and order decide how the clade is drawn in the graph.
+    </p>
+    <table id="dg_clade" class="easyui-datagrid" title="" style="width:auto; height:300px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          url:'',
+          method:'get',
+          toolbar: '#tb_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: onClickCell,
+          onEndEdit: onEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <th data-options="field:'id',width:60"><B>ID</B></th>
+          <th data-options="field:'title',width:160,editor:'text'"><B>Title</B></th>
+          <th data-options="field:'color',width:200,editor:'text'"><B>Color</B></th>
+          <th data-options="field:'order',width:200,editor:'text'"><B>Order</B></th>
+        </tr>
+      </thead>
+    </table>
+    <div id="tb_toolbar" style="height:auto">
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-add',plain:true" onclick="append($('#dg_clade'))">Add a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="nsRemovePost($('#dg_clade'), '/seek/clade/delete/', '{{ csrf_token }}')">Remove a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#dg_clade'), '/seek/clade/save/', '{{ csrf_token }}')">Save a clade</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#dg_clade'))">Cancel</a>
     </div>
-  </div>
+  </section>
+
+  <section class="ns-wb-section">
+    <h2 class="ns-wb-section-title">Sample type association</h2>
+    <table id="stc_dg" class="easyui-datagrid" title="" style="width:auto; height:560px;"
+        data-options="
+          iconCls: 'icon-edit',
+          singleSelect: true,
+          selectOnCheck: false,
+          toolbar: '#stc_tb_toolbar',
+          striped: false,
+          pagination : false,
+          onClickCell: nsWbClickCell,
+          onEndEdit: nsCladeAssociationEndEdit,
+          showFooter: false,
+          remoteFilter: false,
+          nowrap: false,
+          autoRowHeight: true
+        ">
+      <thead>
+        <tr>
+          <!-- Declared here, not left to datagrid-detailview.js to inject as a
+               FROZEN column; see the long note on the same column in
+               seek/templates/internal_assays.html for the alignment this buys.
+               This grid reached the same end by a different route: it was left
+               on easyui's `nowrap: true` default, so every row was one line tall
+               and the frozen caret table happened to stay level with the content
+               table. It now wraps like the other workbench grid -- which is what
+               makes a long sample type readable -- and that coincidence would
+               not have survived the change. -->
+          <th data-options="field:'_expander', width:32, expander:true">
+            <B>&nbsp;</B>
+          </th>
+          <th data-options="field:'sample_type_id', width:60">
+            <B>ID</B>
+          </th>
+          <th data-options="field:'sample_type_title',width:420, formatter: function(v,r){ return nsWorkbench.titleFormatter(v,r); }">
+            <B>Sample Type</B>
+          </th>
+          <th data-options='field:"clade_id",width:300,
+              formatter: function(v,r){ return nsWorkbench.suggestedFormatter(v,r); },
+              editor:{
+                type:"combobox",
+                options:{
+                  valueField: "id",
+                  textField: "title",
+                  data: clades,
+                  required: true
+                }
+              }'>
+            <B>Clade</B>
+          </th>
+        </tr>
+      </thead>
+    </table>
+    <div id="stc_tb_toolbar" style="height:auto">
+      <span id="ns-wb-count" class="ns-wb-count attrs-count"></span>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-reload',plain:true" onclick="cladesSyncSampleTypes()">Sync Sample Types</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="nsAcceptPost($('#stc_dg'), '/seek/clade/sampleTypes/save/', '{{ csrf_token }}')">Save</a>
+      <a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-undo',plain:true" onclick="reject($('#stc_dg'))">Cancel</a>
+    </div>
+  </section>
+
 </div>
-    
+
 {% endblock %}

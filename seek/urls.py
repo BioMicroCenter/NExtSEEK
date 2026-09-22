@@ -24,6 +24,7 @@ urlpatterns = [
 
     re_path(r'^admin/internal_assays/$', views.internalAssays, name="internalAssays"),
     re_path(r'^admin/internal_assays/syncInternalAssays$', views.syncInternalAssays, name="syncInternalAssays"),
+    re_path(r'^admin/internal_assays/suggestions$', views.internalAssaySuggestions, name="internalAssaySuggestions"),
     re_path(r'^internal_assays/assayAssociation/save$', views.assayAssociationSave, name='assayAssociationSave'), 
     re_path(r'^internal_assays/save$', views.internalAssaySave, name="internalAssaySave"),
     re_path(r'^internal_assays/delete$', views.internalAssayDelete, name="internalAssayDelete"),

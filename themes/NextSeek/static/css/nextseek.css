@@ -1098,6 +1098,122 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 }
 .attrs-ro-msg { color: var(--ns-muted); padding: 1rem 0.6rem; }
 
+/* ---------- attrs-* shared components -------------------------------------
+   Extracted verbatim from the inline <style> block of
+   seek/templates/sampleAttributes.html so the sample-attributes editor and the
+   association workbench (seek/templates/internal_assays.html,
+   seek/templates/clades.html, static/js/custom/ns-vocab-workbench.js) share one
+   definition instead of two drifting copies. The .attrs-ro-table family above
+   is the precedent.
+
+   Rules here are byte-identical to the ones deleted from that template (modulo
+   the single added `.ns-wb-evidence dt` selector noted below). Only genuinely
+   reusable component rules moved: anything bound to the attributes page's own
+   table/tray/modal structure (.attrs-row*, .attrs-table*, .attrs-tray*,
+   .attrs-detail-inner, .attrs-review-*, .attrs-diff*) stayed inline.
+
+   CASCADE NOTE. This stylesheet is loaded from base.html and therefore comes
+   BEFORE that page's inline <style>, so a moved rule now loses to any inline
+   rule of EQUAL specificity that survived. Checked one by one; the only inline
+   rules that touch these components are higher-specificity and so were already
+   winning on specificity alone, order irrelevant:
+     .attrs-tray .attrs-btn / --primary (0,2,0) > .attrs-btn (0,1,0)
+     .attrs-row.is-open .attrs-chevron  (0,3,0) > .attrs-chevron (0,1,0)
+     .attrs-detail-field .attrs-input   (0,2,0) — different property set
+   No equal-specificity inline rule targets any moved selector, and nothing
+   later in this stylesheet matches an .attrs-* class.
+   -------------------------------------------------------------------------- */
+
+.attrs-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.83rem;
+    font-weight: 600;
+    font-family: var(--ns-font-body);
+    border-radius: 6px;
+    border: 1px solid var(--ns-border);
+    background: var(--ns-white);
+    color: var(--ns-body);
+    padding: 0.42rem 0.85rem;
+    cursor: pointer;
+    transition: all 0.15s var(--ns-ease);
+    white-space: nowrap;
+}
+.attrs-btn:hover:not(:disabled) { border-color: var(--ns-crimson-border); color: var(--ns-crimson); }
+.attrs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.attrs-btn--primary {
+    background: var(--ns-crimson);
+    border-color: var(--ns-crimson);
+    color: #fff;
+}
+.attrs-btn--primary:hover:not(:disabled) {
+    background: var(--ns-crimson-hover);
+    border-color: var(--ns-crimson-hover);
+    color: #fff;
+}
+.attrs-btn--ghost { border-color: transparent; background: transparent; color: var(--ns-muted); }
+.attrs-btn--ghost:hover:not(:disabled) { background: var(--ns-sidebar-hover); color: var(--ns-body); }
+.attrs-chevron { transition: transform 0.15s var(--ns-ease); display: inline-block; }
+.attrs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.08rem 0.45rem;
+    border: 1px solid var(--ns-crimson-border);
+    color: var(--ns-crimson);
+    background: var(--ns-white);
+    white-space: nowrap;
+}
+.attrs-chip--quiet { border-color: var(--ns-border); color: var(--ns-muted); }
+.attrs-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.attrs-badge {
+    font-size: 0.7rem;
+    color: var(--ns-muted);
+    background: var(--ns-bg);
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.1rem 0.5rem;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.attrs-badge b { color: var(--ns-body); font-weight: 600; }
+/* The one moved rule that is not byte-identical: `.ns-wb-evidence dt` is added
+   to the selector list so the workbench's evidence panel wears the same field
+   label as the attributes page's detail row instead of a second copy of these
+   six declarations. The declarations are untouched, and the added selector has
+   the same specificity (0,1,1) and cannot match anything on sampleAttributes.html
+   (no .ns-wb-evidence there), so .attrs-detail-field label behaves exactly as
+   before. */
+.attrs-detail-field label,
+.ns-wb-evidence dt {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ns-muted);
+    margin-bottom: 0.25rem;
+}
+.attrs-count {
+    font-size: 0.75rem;
+    border: 1px solid var(--ns-border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+    color: var(--ns-body);
+    background: var(--ns-bg);
+}
+.attrs-count b { font-family: var(--ns-font-mono); }
+.attrs-count--loud { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); color: var(--ns-crimson); }
+.attrs-muted { color: var(--ns-muted); font-size: 0.82rem; }
+
 /* ---------- Sample type detail: lineage strip + tags ---------- */
 .cat-lineage { display: flex; flex-direction: column; gap: 0.5rem; margin: 1rem 0 0.5rem; }
 .lin-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem; }
@@ -1796,3 +1912,499 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 /* Tighten the search-criteria panel so there is less blank space around it. */
 #search_tab .well { padding: 12px 16px !important; margin-bottom: 10px !important; }
 #search_tab .well .table { margin-bottom: 8px !important; }
+
+/* --- Association workbench (see docs/superpowers/specs/2026-09-10-…-design.md)
+   Dressed in the shared attrs-* components defined near the top of this file
+   (.attrs-btn, .attrs-chip, .attrs-count, .attrs-chevron, .attrs-muted, and the
+   `.attrs-detail-field label, .ns-wb-evidence dt` field label), so this page and
+   seek/templates/sampleAttributes.html read as one design system rather than two.
+   What remains below is only what those components cannot say: the tier
+   semantics, and what the markup needs because it lives inside an easyui grid.
+   ------------------------------------------------------------------------- */
+
+/* Toolbar "N unmapped" readout. On seek/templates/internal_assays.html the span
+   also carries .attrs-count, which supplies the bordered pill; these two
+   declarations are the weight and the gap to the buttons that follow.
+   seek/templates/clades.html has not been given .attrs-count yet, so its
+   readout keeps exactly the plain bold text this rule produced on its own —
+   i.e. adding the shared class there is the only change that page needs. */
+.ns-wb-count { font-weight: 700; margin-right: 1em; }
+/* updateCount() does not run until render(), which on a page with a
+   suggestionsUrl waits for that fetch; without this the toolbar would show an
+   empty .attrs-count pill for the length of the round trip. */
+.ns-wb-count:empty { display: none; }
+
+/* Tier group-header row: one flex line — caret, label, count pill, and the
+   bulk-accept button pushed out to the right edge of the title column. */
+.ns-wb-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ns-ink);
+  cursor: pointer;
+}
+/* The caret itself is .attrs-chevron (shared: inline-block + the 0.15s
+   transform transition). Only the turned state is workbench-specific, because
+   the attributes page hangs its `is-open` off the table ROW
+   (.attrs-row.is-open .attrs-chevron) and there is no such row here. Same
+   glyph and same 90deg turn as .ns-workbench .datagrid-row-expander below, so
+   the two expanders in this grid move alike. */
+.ns-wb-caret { color: var(--ns-muted); font-size: 15px; line-height: 1; }
+.ns-wb-caret.is-open { transform: rotate(90deg); }
+
+/* Bulk accept. .attrs-btn supplies the whole shape; these four declarations are
+   what an <a> inside a datagrid cell needs on top of it — Bootstrap's reboot
+   underlines every bare anchor, the uppercase/letter-spacing inherited from
+   .ns-wb-group has to be unwound for sentence-case button text, and
+   margin-left:auto is what parks it at the far end of the flex line. */
+.ns-wb-accept-tier {
+  margin-left: auto;
+  text-decoration: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* --- Tier semantics ---------------------------------------------------------
+   The SHAPE comes from a shared component — .attrs-chip for the candidate
+   badges in the suggestion column, .attrs-count for the counts in a group
+   header — and these variants carry nothing but colour. Splitting it that way
+   is what stops a tier drifting into a differently-shaped pill later.
+
+   Exact = green, precedent/fuzzy = amber, conflict/none = the theme crimson
+   (already this design language's error colour: see .attrs-status--error and
+   .attrs-error in sampleAttributes.html), unavailable/mapped = the neutral grey
+   pair .attrs-chip--quiet uses. Semantics unchanged from the workbench's first
+   release; the green and amber hex values are literally the ones it shipped.
+
+   Those two hues get no --ns-* token on purpose: the theme palette is crimson
+   plus neutrals, and minting :root tokens for two workbench-only colours would
+   push them at the whole app for the sake of three rules.
+
+   These must stay AFTER the .attrs-chip / .attrs-count definitions above — same
+   specificity (0,1,0), so source order is what lets a variant repaint the
+   component's border-color and background. */
+.ns-tier-exact       { color: #1a7f4b; border-color: #1a7f4b; background: rgba(26,127,75,0.07); }
+.ns-tier-precedent   { color: #8a6100; border-color: #8a6100; background: rgba(138,97,0,0.07); }
+.ns-tier-fuzzy       { color: #8a4b00; border-color: #8a4b00; background: rgba(138,75,0,0.07); }
+.ns-tier-conflict,
+.ns-tier-none        { color: var(--ns-crimson); border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); }
+/* "Suggestions unavailable" and the "Already mapped" group header. Muted on
+   purpose, and for two different reasons: one reports that the resolver was
+   never reached, the other counts work already done, and neither must compete
+   with the actionable tiers. Same two values as .attrs-chip--quiet. */
+.ns-tier-unavailable,
+.ns-tier-mapped      { color: var(--ns-muted); border-color: var(--ns-border); background: var(--ns-bg); }
+
+/* Evidence panel under an expanded row. The geometry deliberately repeats
+   .attrs-detail-inner's padding and .attrs-detail > td's background from
+   sampleAttributes.html, so an expanded row here and an expanded row there are
+   recognisably the same object. The <dt>s take their label typography from the
+   shared `.attrs-detail-field label, .ns-wb-evidence dt` rule near the top of
+   this file; only the spacing between successive pairs is set here. */
+.ns-wb-evidence {
+  padding: 0.9rem 1.1rem 1rem 3rem;
+  background: var(--ns-sidebar-bg);
+  font-size: 0.85rem;
+  color: var(--ns-body);
+}
+.ns-wb-evidence dl { margin: 0; }
+.ns-wb-evidence dt { margin-top: 0.6rem; }
+.ns-wb-evidence dt:first-child { margin-top: 0; }
+.ns-wb-evidence dd { margin: 0.15rem 0 0; color: var(--ns-body); }
+
+/* The resolver's per-candidate reasoning: the mapped entities behind a
+   precedent, the shared words and overlap score behind a fuzzy guess, the
+   suffix and comparison key behind an exact match. A list, not prose, because
+   the items are independent facts a curator scans rather than reads, and one
+   of them is routinely a list of titles that would otherwise run together.
+
+   No bullet glyph: these sit under a <dd> that is already indented under a
+   field label, and a disc at this size read as noise against the rest of the
+   pane. The hanging indent does the grouping instead. Entity titles come
+   through in the curator's own spelling, so they are left in the body face --
+   only the counts and scores around them are the resolver's words. */
+.ns-wb-basis {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0 0 0 0.9rem;
+  border-left: 2px solid var(--ns-border);
+}
+.ns-wb-basis li {
+  margin: 0.15rem 0 0;
+  color: var(--ns-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+.ns-wb-basis li:first-child { margin-top: 0; }
+
+/* Separator between the candidates of a conflict row. The span also carries
+   .attrs-muted, which supplies the colour and size; this is the gap. */
+.ns-wb-vs { margin: 0 0.35em; }
+
+/* --- Workbench grid geometry ------------------------------------------------
+   Vendored easyui (static/jquery-easyui-1.5.2/themes/default/easyui.css, frozen)
+   gives every .datagrid-cell `height:18px; line-height:18px; white-space:nowrap;
+   overflow:hidden`. The .datagrid-cell rule further up this file already raises
+   the font to 0.875rem (14px) but leaves all four of those alone, so each cell
+   is a fixed 18px non-wrapping box holding 14px text, and anything longer is cut
+   off with no ellipsis. Long titles and the multi-candidate conflict rendering
+   are the visible casualties.
+
+   Scoped to .ns-workbench deliberately: every other datagrid in the app (search,
+   samples, sops, datafiles, batch search, publish) keeps today's geometry
+   exactly. The scoping works because easyui builds the grid *in the original
+   <table>'s position* — jquery.easyui.min.js does
+   `$('<div class="datagrid-wrap">…</div>').insertAfter(table)` and then
+   `panel({cls:'datagrid'})`, whose own wrapper is
+   `$('<div class="panel"></div>').insertBefore(target)` — so the generated
+   panel is the table's sibling and stays inside this wrapper div. easyui also
+   *moves* the element named by the grid's `toolbar:` option into that panel, so
+   the toolbar is covered by the same scope.
+
+   Horizontal padding is inherited unchanged from the .datagrid-cell rule above
+   (10px), so column widths and header/body alignment are untouched; only the
+   vertical box changes. Header cells use .datagrid-cell too, which is what keeps
+   the header row on the same rhythm as the body rows.
+
+   No `height` is declared here on purpose. Both workbench grids now set
+   `nowrap:false, autoRowHeight:true` (seek/templates/internal_assays.html), so
+   easyui writes `white-space:normal;height:auto;` *inline* on every body cell
+   div itself — jquery.easyui.min.js's stock view renderRow and the vendored
+   themes/NextSeek/static/js/easyui/datagrid-detailview.js:99-103 share that
+   branch. Header cells already get `height:auto` from the vendored
+   static/jquery-easyui-1.5.2/themes/default/easyui.css
+   (`.datagrid-header .datagrid-cell{height:auto}`), as does an open editor
+   (`.datagrid-row-editing .datagrid-cell{height:auto}`). An `!important` height
+   here would sit on top of a property easyui now owns and writes during row
+   equalisation, so it is gone; `min-height` is kept because it only raises the
+   floor above the vendored 18px and cannot stop a row growing. */
+.ns-workbench .datagrid-cell,
+.ns-workbench .datagrid-cell-group {
+  min-height: 22px !important;
+  line-height: 1.45 !important;
+  white-space: normal !important;
+  /* Not `hidden`: with height:auto nothing would in fact be clipped, but making
+     the no-silent-clipping property structural rather than a side effect of the
+     height is the whole point of the change. The two wrap properties below are
+     what stop a single unbreakable token spilling into the next column now that
+     the overflow is visible — the column width itself is set by easyui on a
+     generated .datagrid-cell-c…-<field> class and is not affected here. */
+  overflow: visible !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+}
+/* The detailview expander column holds a caret, not text. It is declared as an
+   ordinary (unfrozen) column by both consumer templates -- see the long note on
+   the <th> in seek/templates/internal_assays.html -- specifically so that it is
+   NOT frozen into a second <table> the way datagrid-detailview.js's
+   onBeforeRender would otherwise arrange. Caret and row content are therefore
+   cells of one <tr>, and stay level because the browser lays a table row out,
+   not because easyui's fixRowHeight was able to keep two tables in step across
+   every later re-wrap. Nothing here may reintroduce a fixed height, for the
+   ordinary reason that the row's height belongs to its tallest cell.
+
+   `height:auto` defeats the `height:16px` datagrid-detailview.js hardcodes
+   inline on this one cell div (renderRow, the `col.expander` branch), which
+   would otherwise clip the 22px caret. Vertical centring is the table cell's
+   own `vertical-align`; horizontal centring comes from the `text-align:center`
+   the plugin sets inline. */
+.ns-workbench td[field="_expander"] {
+  vertical-align: middle;
+}
+.ns-workbench td[field="_expander"] .datagrid-cell {
+  min-height: 0 !important;
+  height: auto !important;
+}
+
+/* --- Row expander: rotating caret ------------------------------------------
+   Replaces the vendored plus/minus sprite (frozen —
+   static/jquery-easyui-1.5.2/themes/default/datagrid.css:
+   .datagrid-row-expand / .datagrid-row-collapse each paint a different
+   offset of images/datagrid_icons.png) with one triangle that rotates 90deg
+   on expand, matching the caret the tier-group header rows now use
+   (.ns-wb-caret, an .attrs-chevron carrying the same &#9656; that
+   titleFormatter in static/js/custom/ns-vocab-workbench.js renders, turned
+   90deg by .ns-wb-caret.is-open) instead of a stock 2010 toolbar icon. Both
+   expanders in this grid therefore show one glyph in two rotations; the
+   earlier &#9654;/&#9660; character swap on the header rows is gone.
+
+   Scoped to .ns-workbench: every other datagrid in the app (search, samples,
+   sops, datafiles, batch search, publish) keeps the stock sprite untouched —
+   see the scoping note above this block for why that selector cannot leak
+   (.ns-workbench appears only on the wrapper divs in
+   seek/templates/internal_assays.html and seek/templates/clades.html).
+
+   The span itself (datagrid-detailview.js:118, frozen) carries an inline
+   `style="display:inline-block;width:16px;height:16px;cursor:pointer;"`,
+   which only `!important` can beat, so every property that must move off
+   that baseline is declared `!important` below. */
+.ns-workbench .datagrid-row-expander {
+  background: none !important;   /* suppress the sprite in both states */
+  display: inline-block !important;
+  /* The plugin sets width/height inline on the span, hence the !important.
+     The column is 32px wide (declared in both templates), so a 22px box clears
+     it with 5px either side. The column width is now an ordinary column width
+     and can be changed freely -- there is no second table to keep it in step
+     with any more. */
+  width: 22px !important;
+  height: 22px !important;
+  line-height: 22px;
+  text-align: center;
+  cursor: pointer;
+}
+.ns-workbench .datagrid-row-expander::before {
+  /* Same glyph both states (collapsed default); .datagrid-row-collapse below
+     only rotates it, so the motion reads as a turn, not a character swap. */
+  content: '\25B8';
+  display: inline-block;
+  color: var(--ns-muted);
+  /* Sized to sit just above the 14px body text rather than below it: at 11px
+     the caret read as debris next to the row content it controls. */
+  font-size: 15px;
+  transform: rotate(0deg);
+  transition: transform 150ms ease, color 150ms ease;
+}
+.ns-workbench .datagrid-row-expander:hover::before {
+  color: var(--ns-body);   /* darker on hover; reuses the theme's body-text token */
+}
+.ns-workbench .datagrid-row-collapse::before {
+  transform: rotate(90deg);   /* expanded: same ▸, turned to point down */
+}
+
+/* Tier group-header rows (row._nsHeader — see ns-vocab-workbench.js's
+   layout()) open nothing when "expanded": there is no detail row content for
+   a synthetic row. The rowStyler in both consumer templates puts this class
+   on the row's <tr> in every one of the plugin's synchronized row instances,
+   so hide the now-inert control rather than leave a control that visibly
+   does nothing. visibility:hidden, not display:none: the plugin measures and
+   moves these spans directly (getExpander(), and the footer masking a few
+   lines below in datagrid-detailview.js uses this exact same
+   `.css('visibility','hidden')` for the same "should not appear" case), and
+   an empty cell of the declared width keeps the header row's columns aligned
+   with every other row's. visibility:hidden also removes it from
+   hit-testing, so the routing above (nsWbClickCell already returns early for
+   row._nsHeader before this control would even be reached) is not relied on
+   to keep it unclickable. */
+.ns-workbench tr.ns-wb-header-row .datagrid-row-expander {
+  visibility: hidden;
+}
+
+/* Per-row selection column, rendered by ns-vocab-workbench.js's
+   selectFormatter() rather than by easyui's `checkbox: true` column (which
+   cannot be suppressed for individual rows, so every synthetic tier-header row
+   would grow one). */
+.ns-wb-check { margin: 0; vertical-align: middle; cursor: pointer; }
+/* Stands in for the checkbox on rows that must not be bulk-accepted: already
+   mapped, conflicting candidates, or no candidate at all. A disabled checkbox
+   would still read as "selectable, currently off". */
+.ns-wb-nocheck { color: var(--ns-muted); cursor: default; }
+
+
+/* --- Workbench page skin: easyui chrome, attrs-* clothes --------------------
+   The workbench pages are easyui datagrids; seek/templates/sampleAttributes.html
+   is hand-built markup and says so at the top of its <style> block ("No EasyUI
+   on this page"). Sharing the small components was therefore never going to make
+   the two pages look alike on its own -- what the eye reads first is the chrome
+   around the table, and on these pages that chrome was still easyui's: a tab bar
+   with one tab, a panel header, a grey gradient column header, dotted cell
+   borders, zebra striping, an amber selection and 2010 sprite buttons.
+
+   The templates dropped the tabs/layout/.well wrappers. This block dresses what
+   is left -- the generated grid -- in the attributes page's own values, taken
+   from its .attrs-table-wrap / .attrs-table / .attrs-row rules rather than
+   invented here:
+     container   1px var(--ns-border), radius 10px, white, --ns-shadow-xs
+     head        --ns-sidebar-bg, 0.68rem/700/0.07em uppercase --ns-muted, left
+     body        0.85rem --ns-font-body, 1px solid --ns-border under each row
+     hover       #fbfbfc          selected  --ns-crimson-soft
+     detail row  --ns-sidebar-bg
+
+   SPECIFICITY, not order, is what makes these win. The app-wide easyui retune
+   earlier in this file (".datagrid-header", ".datagrid-cell", ".l-btn" and the
+   direction-C background block) declares everything !important at one class of
+   specificity; every rule here is !important at two or more, so it takes
+   precedence wherever it overlaps and this block could sit anywhere in the file.
+   That is also why `!important` appears on declarations that would not otherwise
+   need it: it is the price of entry against those rules, not emphasis.
+
+   Scoped to .ns-workbench, which appears only on the single page wrapper in
+   seek/templates/internal_assays.html and seek/templates/clades.html. Every
+   other datagrid in the app (search, samples, sops, datafiles, batch search,
+   publish) is untouched.
+   -------------------------------------------------------------------------- */
+
+/* Page column. sampleAttributes.html caps itself at the same width with its own
+   page-local `.attrs-page { max-width: 1500px }`; that rule stayed inline with
+   the rest of that page's structure, so the value is repeated here rather than
+   the class borrowed for a shell these pages would otherwise get nothing from. */
+.ns-workbench { max-width: 1500px; }
+
+.ns-wb-section { margin-bottom: 2.25rem; }
+.ns-wb-section:last-child { margin-bottom: 0; }
+/* Sits a step below .ns-page-title (1.8rem) in the same display face, so the two
+   sections read as parts of one page rather than as two stacked pages. */
+.ns-wb-section-title {
+  font-family: var(--ns-font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ns-ink);
+  margin: 0 0 0.25rem;
+}
+.ns-wb-section-note {
+  font-size: 0.85rem;
+  color: var(--ns-muted);
+  margin: 0 0 0.75rem;
+  max-width: 74ch;
+}
+
+/* --- the grid container ---------------------------------------------------- */
+/* .attrs-table-wrap. overflow:hidden is what lets the radius actually clip the
+   header and the last row; easyui scrolls inside .datagrid-body, so nothing
+   here is what makes the grid scrollable and nothing is lost to the clip. */
+.ns-workbench .datagrid-wrap {
+  border: 1px solid var(--ns-border) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+  background: var(--ns-white) !important;
+  box-shadow: var(--ns-shadow-xs);
+}
+/* Both grids are built with `title:""`, so the panel header is an empty bar of
+   easyui's blue gradient sitting above the table. */
+.ns-workbench .panel-header { display: none !important; }
+.ns-workbench .panel-body { border: 0 !important; padding: 0 !important; }
+.ns-workbench .datagrid-view,
+.ns-workbench .datagrid-body,
+.ns-workbench .datagrid-row { background-color: var(--ns-white) !important; }
+
+/* --- column header --------------------------------------------------------- */
+.ns-workbench .datagrid-header {
+  background: var(--ns-sidebar-bg) !important;
+  border-width: 0 0 1px 0 !important;
+  border-style: solid !important;
+  border-color: var(--ns-border) !important;
+}
+.ns-workbench .datagrid-header-row { background-color: transparent !important; }
+/* Vendored easyui draws every header and body cell with a DOTTED right and
+   bottom border (themes/default/datagrid.css). The attributes page has no
+   vertical rules at all and one hairline under each row. */
+.ns-workbench .datagrid-header td {
+  border-width: 0 !important;
+  border-style: solid !important;
+  border-color: transparent !important;
+}
+.ns-workbench .datagrid-header .datagrid-cell,
+.ns-workbench .datagrid-header .datagrid-cell span,
+.ns-workbench .datagrid-header td,
+.ns-workbench .datagrid-header th {
+  font-family: var(--ns-font-body) !important;
+  font-size: 0.68rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.07em !important;
+  text-transform: uppercase !important;
+  color: var(--ns-muted) !important;
+  text-align: left !important;
+}
+.ns-workbench .datagrid-header .datagrid-cell {
+  padding: 0.55rem 0.6rem !important;
+  line-height: 1.3 !important;
+}
+/* The header cell of the expander column carries only a &nbsp;, and of the
+   selection column only a &nbsp;; neither should reserve label height. */
+.ns-workbench .datagrid-header td[field="_expander"] .datagrid-cell,
+.ns-workbench .datagrid-header td[field="_nsSelect"] .datagrid-cell {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* --- body rows ------------------------------------------------------------- */
+.ns-workbench .datagrid-body td {
+  border-width: 0 0 1px 0 !important;
+  border-style: solid !important;
+  border-color: var(--ns-border) !important;
+}
+.ns-workbench .datagrid-body .datagrid-cell {
+  font-family: var(--ns-font-body) !important;
+  font-size: 0.85rem !important;
+  color: var(--ns-body) !important;
+  padding: 0.45rem 0.6rem !important;
+}
+/* No zebra. Both templates now pass `striped:false`, so .datagrid-row-alt is not
+   emitted at all; this is belt and braces for a grid rebuilt with striping on. */
+.ns-workbench .datagrid-row-alt { background-color: var(--ns-white) !important; }
+.ns-workbench .datagrid-row-over,
+.ns-workbench .datagrid-header td.datagrid-header-over {
+  background-color: #fbfbfc !important;
+  color: var(--ns-body) !important;
+}
+/* easyui's stock selection is an amber (#ffe48d) band. .attrs-row's own dirty/
+   selected states are all crimson tints. */
+.ns-workbench .datagrid-row-selected {
+  background-color: var(--ns-crimson-soft) !important;
+  color: var(--ns-body) !important;
+}
+
+/* Expanded evidence row. The padding and background are .ns-wb-evidence's job
+   (above); this only stops the cell it sits in drawing the row hairline twice
+   and clears easyui's cell padding from around it. */
+.ns-workbench .datagrid-body td:has(> .datagrid-row-detail) { padding: 0 !important; }
+.ns-workbench .datagrid-row-detail { background: var(--ns-sidebar-bg); }
+
+/* --- toolbar --------------------------------------------------------------- */
+/* easyui moves the element named by the grid's `toolbar:` option into the panel
+   above the header, so this is the bar holding the count pill and the actions. */
+.ns-workbench .datagrid-toolbar {
+  background: var(--ns-white) !important;
+  border-width: 0 0 1px 0 !important;
+  border-style: solid !important;
+  border-color: var(--ns-border) !important;
+  padding: 0.55rem 0.6rem !important;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+/* The toolbar buttons are easyui linkbuttons -- `<a class="l-btn l-btn-plain">`
+   wrapping a text span and a 16px PNG sprite -- and are given .attrs-btn's box
+   here rather than the class itself, because easyui rebuilds that markup and
+   would not carry an added class through. Values are .attrs-btn's, verbatim. */
+.ns-workbench .datagrid-toolbar .l-btn {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--ns-font-body) !important;
+  font-size: 0.83rem !important;
+  font-weight: 600 !important;
+  border: 1px solid var(--ns-border) !important;
+  border-radius: 6px !important;
+  background: var(--ns-white) !important;
+  color: var(--ns-body) !important;
+  padding: 0.42rem 0.85rem !important;
+  transition: all 0.15s var(--ns-ease) !important;
+  white-space: nowrap;
+  text-decoration: none !important;
+}
+.ns-workbench .datagrid-toolbar .l-btn:hover {
+  background: var(--ns-white) !important;
+  border-color: var(--ns-crimson-border) !important;
+  color: var(--ns-crimson) !important;
+  padding: 0.42rem 0.85rem !important;   /* beats `.l-btn-plain:hover{padding:0}` */
+}
+/* The sprite icons (icon-add / icon-save / icon-undo / icon-reload) are the most
+   dated thing left on the page and have no counterpart on the attributes page,
+   whose buttons are text plus a Font Awesome glyph. Hidden rather than replaced:
+   the class that selects each sprite is written by easyui from `iconCls`. */
+.ns-workbench .datagrid-toolbar .l-btn .l-btn-icon { display: none !important; }
+.ns-workbench .datagrid-toolbar .l-btn .l-btn-text {
+  margin: 0 !important;
+  line-height: 1.3 !important;
+  font-size: 0.83rem !important;
+  color: inherit !important;
+}
+.ns-workbench .datagrid-toolbar .l-btn .l-btn-left { display: inline-flex; align-items: center; }
+
