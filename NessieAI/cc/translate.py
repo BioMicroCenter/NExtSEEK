@@ -225,3 +225,14 @@ class CCStreamTranslator:
     # ------------------------------------------------------------------ helpers
     def _joined_reply(self) -> str:
         return "\n\n".join(p for p in self._reply_parts if p).strip()
+
+    def partial_reply(self) -> str:
+        """What the agent had said when a turn was stopped before it finished.
+
+        F20: a timed-out turn publishes the files it wrote and sends them with the
+        error, so the work survives, but the user gets no text at all -- no partial
+        answer and no account of how far it got. The agent's own words exist only in
+        the transcript row. This is the same accumulation the terminal reply falls
+        back to, exposed so the timeout path can use it.
+        """
+        return self._joined_reply()

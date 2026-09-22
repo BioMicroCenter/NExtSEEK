@@ -58,7 +58,9 @@ as a detail lookup (`nextseek_api/services/assays.py:41`).
 `nextseek_api/services/entity_tree.py:75`, `nextseek_api/services/sampletype_connections.py:796`,
 `nextseek_api/services/sample_types.py:270`, `nextseek_api/services/sample_types.py:383`,
 `nextseek_api/services/samples.py:357`, `nextseek_api/services/schema_rag.py:43`,
-`nextseek_api/services/users.py:359` and `nextseek_api/services/project_export.py:256`.
+`nextseek_api/services/users.py:359`, `nextseek_api/services/project_export.py:256` and
+`nextseek_api/services/graph_search.py:138`. The last, `samples/graph_search`, was registered
+on 2026-09-14, after the count above; it reads Neo4j for ids and MySQL for the rows.
 
 *The chat pair*: `nextseek_api/services/assistant.py:276` with 18 actions, and
 `nextseek_api/services/cc_assistant.py:86` with 8. Their query endpoints share a shape
@@ -78,7 +80,7 @@ reads what those two wrote back out, normalized for retry by `NessieAI/ns/retry.
 | `nextseek_api/services/sample_provenance.py` | pure graph functions, no ORM and no openpyxl, per `nextseek_api/services/sample_provenance.py:1-4` | the workbook writer |
 | `nextseek_api/services/type_requirements.py` | `classify` at `nextseek_api/services/type_requirements.py:69`, `classify_companions` at `nextseek_api/services/type_requirements.py:130` | a management command |
 | `nextseek_api/services/content_blobs.py` | `download_single` at `nextseek_api/services/content_blobs.py:191`, `download_batch` at `nextseek_api/services/content_blobs.py:276`, `upload_content_blobs` at `nextseek_api/services/content_blobs.py:417` | the SOP and DataFile proxies |
-| `nextseek_api/services/seek_rails_runner.py` | `run_seek_rails_runner` at `nextseek_api/services/seek_rails_runner.py:60` | the Users admin ViewSet |
+| `nextseek_api/services/seek_rails_runner.py` | `run_seek_rails_runner` at `nextseek_api/services/seek_rails_runner.py:85` | the Users admin ViewSet |
 
 **The data file.** `nextseek_api/services/controlled_vocabularies.json` is load-bearing
 input, not scratch: `nextseek_api/services/sample_workbook.py:76` binds it by
@@ -156,7 +158,7 @@ modules and splitting module-scope imports from in-function ones:
 - `pandas` and `openpyxl`, at `nextseek_api/services/sample_workbook.py:16-17`, which is why
   importing the workbook writer is not free.
 - The `docker` SDK, imported lazily and turned into a typed error when absent
-  (`nextseek_api/services/seek_rails_runner.py:48-57`), so a runtime without the Docker socket
+  (`nextseek_api/services/seek_rails_runner.py:73-82`), so a runtime without the Docker socket
   degrades rather than failing to import.
 - Django settings read at module import rather than per request:
   `nextseek_api/services/assistant.py:37-38` binds two, and
@@ -164,7 +166,7 @@ modules and splitting module-scope imports from in-function ones:
 - Exactly one module-scope import in this directory is guarded against failure:
   `nextseek_api/services/samples.py:35-38`, which falls back to `None`. A grep for `except
   ImportError` and for a `try:` at column zero across all 25 modules returns that block and the
-  in-function one at `nextseek_api/services/seek_rails_runner.py:52`, and nothing else.
+  in-function one at `nextseek_api/services/seek_rails_runner.py:77`, and nothing else.
 
 Depended on by. Derived from a repo-wide grep for `nextseek_api.services` and `from .services`
 over every `.py` file, then a second pass for the string `nextseek_api/services/` in
@@ -175,7 +177,7 @@ non-Python and non-import contexts, then grouped. Test modules are omitted:
   imports, which is how everything routed here reaches HTTP.
 - `seek/`, in the reverse direction, and this is the edge most likely to surprise: the legacy
   app imports this directory's library half at `seek/sample/download.py:17`,
-  `seek/views/admin.py:25`, `seek/views/assets.py:17-24`, `seek/views/catalog.py:16` and
+  `seek/views/admin.py:32`, `seek/views/assets.py:17-24`, `seek/views/catalog.py:16` and
   `seek/views/projects.py:19-22`. Both directions are module-scope, so the two apps are
   mutually dependent at import time.
 - Three sibling packages import one class from `nextseek_api/services/assistant.py`:

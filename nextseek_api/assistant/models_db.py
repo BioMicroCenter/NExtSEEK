@@ -70,10 +70,27 @@ class QueryTask(models.Model):
 
 
 class TurnLedger(models.Model):
-    """Durable per-turn identity for evaluation export and judgment cache."""
+    """Durable per-turn identity for evaluation export and judgment cache.
+
+    One row per routed turn, failed turns included. ``turn_number`` is allocated by
+    ``NessieAI/router/turn_ledger.py`` (``record_next_turn``) as the session's next free
+    number, so a turn that never reached the chat log cannot cost the next turn its row.
+    """
 
     session = models.ForeignKey(
         ChatSession, on_delete=models.CASCADE, related_name="turn_ledger"
+    )
+    # The QueryTask this turn ran as: the join from a row to the turn's status, progress
+    # events and result. Named query_task, not task, because QueryTask.task_id is the
+    # task's UUID and an FK named task would put the integer pk in a task_id column.
+    # Nullable: rows written before the link existed have none. SET_NULL keeps the ledger
+    # the durable record of the turn if the task row goes.
+    query_task = models.ForeignKey(
+        QueryTask,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ledger_rows",
     )
     turn_number = models.IntegerField()
     route = models.CharField(max_length=64)
@@ -94,7 +111,13 @@ class TurnLedger(models.Model):
                 fields=["session", "turn_number"], name="uniq_turn_per_session"
             )
         ]
-        indexes = [models.Index(fields=["task_family", "route"])]
+        # The name is the one migration 0010 created and the database already has. Without it
+        # Django regenerates the hash suffix from the model as it stands now
+        # (assistant_t_task_fa_0b3487_idx), sees it differ from the stored
+        # assistant_t_task_fa_6d0f8a_idx, and proposes a rename on every makemigrations run, which
+        # is why the blocking CI step could carry no migration check. Naming it needs no migration
+        # and no DDL.
+        indexes = [models.Index(fields=["task_family", "route"], name="assistant_t_task_fa_6d0f8a_idx")]
 
 
 class TurnJudgment(models.Model):

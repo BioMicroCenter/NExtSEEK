@@ -3,6 +3,7 @@ import io
 import datetime
 import logging
 import os
+import tempfile
 import MySQLdb
 from django.conf import settings
 from django.http import FileResponse
@@ -58,6 +59,7 @@ from .services.sampletype_connections import SampleTypeConnectionsViewSet as Sam
 from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
+from .services.graph_search import GraphSearchViewSet as GraphSearchViewSet
 from .services.schema_rag import SchemaRAGViewSet
 from .services.assistant import AssistantViewSet
 # Additive dmac_assistant integration (router + Container-Claude-Code).
@@ -65,6 +67,7 @@ from .services.cc_assistant import CCAssistantViewSet
 from .services.evaluator import EvaluatorViewSet
 from .services.entity_tree import EntityTreeViewSet
 from .services.project_export import ProjectExportViewSet
+from .services.graph_sync_status import GraphSyncStatusViewSet
 from .services.nessie import NessieChatViewSet, NessieViewSet
 from .helpers import resolve_seek_auth
 from nextseek_api.helpers import StandardResultsSetPagination
@@ -942,21 +945,28 @@ class AdminSampleViewSet(viewsets.GenericViewSet):
 
         datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
         filename = f"download-samples-{datenow}.xlsx"
-        download_dir = os.path.join(settings.MEDIA_ROOT, "download")
-        os.makedirs(download_dir, exist_ok=True)
-        downloadfile = os.path.join(download_dir, filename)
-
-        dbs.sampleRetrievalData(children_uids_df, downloadfile)
-
-        # Stream the file (let FileResponse manage the file handle)
+        # A private temporary file with a random name, never MEDIA_ROOT/download: /media/ serves that tree to anyone,
+        # and a per-minute name there was guessable and shared by two exports in the same minute. It is unlinked as
+        # soon as it is open, so the response streams it and nothing is left on disk; the download name is unchanged.
+        fd, downloadfile = tempfile.mkstemp(prefix="download-samples-", suffix=".xlsx")
+        os.close(fd)
         try:
-            fh = open(downloadfile, 'rb')
-            response = FileResponse(
-                fh,
-                content_type="application/vnd.ms-excel",
-                as_attachment=True,
-                filename=filename,
-            )
-            return response
-        except FileNotFoundError:
-            return Response({"detail": "Export failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            dbs.sampleRetrievalData(children_uids_df, downloadfile)
+
+            # Stream the file (let FileResponse manage the file handle)
+            try:
+                fh = open(downloadfile, 'rb')
+            except FileNotFoundError:
+                return Response({"detail": "Export failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            try:
+                os.unlink(downloadfile)
+            except OSError:
+                pass
+        response = FileResponse(
+            fh,
+            content_type="application/vnd.ms-excel",
+            as_attachment=True,
+            filename=filename,
+        )
+        return response

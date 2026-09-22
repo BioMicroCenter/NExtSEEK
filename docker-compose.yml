@@ -216,6 +216,11 @@ services:
     image: nextseek-ns-sidecar:latest
     container_name: nextseek-sidecar
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: "${SIDECAR_MEMORY:-1G}"
+    memswap_limit: "${SIDECAR_MEMORY:-1G}"
     environment:
       NEXTSEEK_BASE_URL: http://nextseek_nginx
       SIDECAR_STAGING_DIR: /home/sidecar/staging
@@ -260,6 +265,12 @@ services:
       start_period: 40s
     restart: always
     stop_grace_period: 1m30s
+    # InnoDB grows its buffer pool and per-connection buffers without a bound.
+    deploy:
+      resources:
+        limits:
+          memory: "${SEEK_DB_MEMORY:-2G}"
+    memswap_limit: "${SEEK_DB_MEMORY:-2G}"
     ports:
       - "127.0.0.1:${DB_PORT:-3306}:3306"
     env_file:
@@ -272,6 +283,15 @@ services:
     image: neo4j
     container_name: ${INSTANCE_PREFIX:-}neo4j
     restart: always
+
+    # The graph holds about 6 GB of store. Cap the container so a runaway query or
+    # sync cannot take the host with it, and never let it swap past the cap
+    # (pinned by nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    deploy:
+      resources:
+        limits:
+          memory: "${NEO4J_MEMORY:-6G}"
+    memswap_limit: "${NEO4J_MEMORY:-6G}"
     volumes:
       - neo4j-data:/data
     environment:
@@ -306,6 +326,30 @@ services:
       # catch driver errors, so a terminated transaction surfaces as one failed
       # graph step rather than an outage.
       NEO4J_db_transaction_timeout: "120s"
+      # Bound what one transaction may allocate. On 2026-09-16 the first graph
+      # sync at schema 1.2 needed more than 512 MiB for a single 5,000-sample
+      # write; against this service, which had no bound at all, it would have
+      # grown into the JVM heap on a host whose swap was already full. A
+      # transaction that asks for more is killed and reported to its caller.
+      NEO4J_db_memory_transaction_max: "${NEO4J_TRANSACTION_MAX:-1g}"
+      # Size the heap and the page cache explicitly: unset, the JVM sizes the heap
+      # from host RAM and can exceed the container cap below, which would have the
+      # kernel kill the database rather than the query. Together they stay inside
+      # the cap with room for off-heap and index population.
+      NEO4J_server_memory_heap_initial__size: "${NEO4J_HEAP:-2g}"
+      NEO4J_server_memory_heap_max__size: "${NEO4J_HEAP:-2g}"
+      NEO4J_server_memory_pagecache_size: "${NEO4J_PAGECACHE:-2g}"
+      # Optional plugins, off unless a box opts in from its project-root .env. The image
+      # ships APOC core in /var/lib/neo4j/labs at its own version and copies it into
+      # plugins/ at start when named here, so enabling it needs no download:
+      #   NEO4J_PLUGINS=["apoc"]
+      # An empty value loads nothing, which is how every box ran before this line.
+      NEO4J_PLUGINS: "${NEO4J_PLUGINS:-}"
+      # Which plugin procedures and functions load. Unset, the image loads every one it
+      # finds. A box that enables APOC should name the read-only families it wants here
+      # (see .env.example) rather than take the loaders, periodic writers and dynamic
+      # Cypher runners with them.
+      NEO4J_dbms_security_procedures_allowlist: "${NEO4J_PROCEDURES_ALLOWLIST:-*}"
     ports:
       - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
       - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
@@ -316,6 +360,19 @@ services:
     container_name: ${INSTANCE_PREFIX:-}seek
     command: docker/entrypoint.sh
     restart: always
+
+    # SEEK's puma workers grow with every request they serve and never give the
+    # memory back: this one reached 10 GiB on the operator's workstation on
+    # 2026-09-16 and left the host with nothing. The cap makes the kernel kill a
+    # runaway worker inside the container instead; puma respawns it, and
+    # `restart: always` covers the container. Raise it per box with SEEK_MEMORY in
+    # the project-root .env (pinned by
+    # nextseek_api/tests/repo_guards/test_compose_app_memory_cap.py).
+    deploy:
+      resources:
+        limits:
+          memory: "${SEEK_MEMORY:-4G}"
+    memswap_limit: "${SEEK_MEMORY:-4G}"
     environment:
       RAILS_ENV: production
       SOLR_PORT: 8983
@@ -350,6 +407,15 @@ services:
         SOLR_HOST: solr
         RAILS_LOG_LEVEL: info # debug, info, warn, error or fatal
         QUIET_SUPERCRONIC: 1 # remove to show supercronic activity logs
+      # The delayed-job workers are the same Rails process as `seek` and bloat the
+      # same way. On 2026-09-16 the two SEEK services together held 11.2 GiB
+      # across 24 `bundle` processes when the host ran out; `seek` was capped and
+      # this one was not, so the kill landed on the host instead of in here.
+      deploy:
+        resources:
+          limits:
+            memory: "${SEEK_WORKERS_MEMORY:-3G}"
+      memswap_limit: "${SEEK_WORKERS_MEMORY:-3G}"
       env_file:
         - ./docker/db.env
       volumes:
@@ -366,6 +432,13 @@ services:
     image: fairdom/seek-solr:8.11
     container_name: ${INSTANCE_PREFIX:-}seek-solr
     restart: always
+    # SOLR_JAVA_MEM bounds the JVM heap, not the container: off-heap and page
+    # cache are unbounded without this.
+    deploy:
+      resources:
+        limits:
+          memory: "${SOLR_MEMORY:-2G}"
+    memswap_limit: "${SOLR_MEMORY:-2G}"
     environment:
       SOLR_JAVA_MEM: -Xms512m -Xmx1024m
     volumes:

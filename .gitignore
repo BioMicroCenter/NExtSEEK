@@ -232,6 +232,13 @@ docs/superpowers/specs/*
 # detail for any unresolved issue.
 !docs/superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md
 !docs/superpowers/specs/2026-09-11-nessie-ci-lane-design.md
+!docs/superpowers/specs/2026-09-14-graph-search-poc-design.md
+!docs/superpowers/specs/2026-09-15-graph-search-nessie-design.md
+!docs/superpowers/specs/2026-09-15-graph-search-sync-design.md
+!docs/superpowers/specs/2026-09-15-graph-search-sync-inventory.md
+!docs/superpowers/specs/2026-09-16-graph-behaviour-tests-design.md
+!docs/superpowers/specs/2026-09-16-ci-coverage-gaps-design.md
+!docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
 # Exception: the association-workbench design, cited by seek/views/admin.py and by the
 # workbench CSS block in themes/NextSeek/static/css/nextseek.css. Same public-repo review
 # applied: no environment concretes, no credentials, no unresolved-issue reproduction.
@@ -242,6 +249,12 @@ docs/superpowers/plans/*
 # design and the work it implies travel together. Same public-repo review applied: no
 # environment concretes, no credentials, no reproduction detail for any unresolved issue.
 !docs/superpowers/plans/2026-09-11-nessie-ci-lane.md
+!docs/superpowers/plans/2026-09-14-graph-search-poc.md
+!docs/superpowers/plans/2026-09-15-graph-search-nessie.md
+!docs/superpowers/plans/2026-09-15-graph-search-sync.md
+!docs/superpowers/plans/2026-09-16-graph-behaviour-tests.md
+!docs/superpowers/plans/2026-09-16-ci-coverage-gaps.md
+!docs/superpowers/plans/2026-09-16-ci-coverage-gaps-findings.md
 # Exception: the association-workbench plan, tracked alongside its design for the same
 # reason. Same public-repo review applied.
 !docs/superpowers/plans/2026-09-10-assay-association-workbench.md

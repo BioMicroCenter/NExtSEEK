@@ -223,3 +223,63 @@ def test_compose_ps_running_filters_to_requested_services(monkeypatch):
     assert running == ["bedrock-proxy"]
     assert calls["cmd"][:4] == ["docker", "compose", "ps", "--services"]
     assert "--status=running" in calls["cmd"]
+
+
+# ---------------------------------------------------------------------------
+# copy_from_image: read a built image's files without running anything
+# ---------------------------------------------------------------------------
+
+def _fake_docker(monkeypatch, *, create=0, cp=0, rm=0):
+    """Answer docker create/cp/rm with the given exit codes; record every argv."""
+    calls: list[list[str]] = []
+    codes = {"create": create, "cp": cp, "rm": rm}
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        code = codes[cmd[1]]
+        stdout = "c0ffee\n" if cmd[1] == "create" and code == 0 else ""
+        return subprocess.CompletedProcess(cmd, code, stdout=stdout,
+                                           stderr="" if code == 0 else f"{cmd[1]} broke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return calls
+
+
+def test_copy_from_image_creates_copies_and_removes_without_starting(monkeypatch):
+    calls = _fake_docker(monkeypatch)
+
+    docker_ops.copy_from_image("dmac-assistant:poc", "/app/plugins/nextseek/context", "/tmp/out")
+
+    assert calls == [
+        ["docker", "create", "dmac-assistant:poc", "true"],
+        ["docker", "cp", "c0ffee:/app/plugins/nextseek/context", "/tmp/out"],
+        ["docker", "rm", "c0ffee"],
+    ]
+    # Nothing in the image is ever executed, and no running container is touched.
+    assert not any(cmd[1] in {"start", "run", "exec", "compose"} for cmd in calls)
+
+
+def test_copy_from_image_removes_the_container_when_the_copy_fails(monkeypatch):
+    calls = _fake_docker(monkeypatch, cp=1)
+
+    with pytest.raises(DockerOpsError, match="cp broke"):
+        docker_ops.copy_from_image("dmac-assistant:poc", "/nope", "/tmp/out")
+
+    assert calls[-1] == ["docker", "rm", "c0ffee"]
+
+
+def test_copy_from_image_copies_nothing_when_the_image_cannot_be_created(monkeypatch):
+    calls = _fake_docker(monkeypatch, create=1)
+
+    with pytest.raises(DockerOpsError, match="create broke"):
+        docker_ops.copy_from_image("dmac-assistant:poc", "/app", "/tmp/out")
+
+    assert [cmd[1] for cmd in calls] == ["create"]
+
+
+def test_copy_from_image_names_a_container_it_could_not_remove(monkeypatch):
+    """A stray created container is litter the operator should hear about."""
+    _fake_docker(monkeypatch, rm=1)
+
+    with pytest.raises(DockerOpsError, match="c0ffee"):
+        docker_ops.copy_from_image("dmac-assistant:poc", "/app", "/tmp/out")

@@ -301,3 +301,225 @@ def test_the_route_tier_probe_still_observes_the_routing_decision():
                             get_progress=get_progress, force_new=True, force_route="ns")
     assert res.aborted_early is True, "route tier must break at route_decided"
     assert (res.route_obs.route, res.route_obs.source) == ("nextseek_query", "forced")
+
+
+# --------------------------------------------------------------------------- #
+# The parser-force probe (graph_search Nessie POC, spec E2). The server honours
+# `force_parser_mode` only for a superuser, and only when the process sets
+# NEXTSEEK_EVAL_PARSER_FORCE=1; otherwise it drops the field without a word.
+# One full forced turn per arm proves the switch landed before any question.
+# --------------------------------------------------------------------------- #
+
+import pathlib
+
+_PARSER_SRC = (pathlib.Path(__file__).resolve().parents[3]
+               / "chat_nextseek" / "src" / "chat_nextseek" / "agents" / "parser.py")
+OUTAGE_REPLY = "All provider fallbacks exhausted: agent 'parser' gave up"
+
+
+def _parser_fakes(*, source="forced", route="nextseek_query", note=True,
+                  graph_mode="graph_query", api_mode="new_search", context="catalog",
+                  status="completed", reply="There are 107,412 tissue samples."):
+    """One task per posted body; each answers as the switch would for its arm."""
+    def post_query(body):
+        post_query.bodies.append(body)
+        return {"task_id": f"t{len(post_query.bodies)}", "session_id": "s"}
+    post_query.bodies = []
+
+    def get_progress(task_id):
+        body = post_query.bodies[int(task_id[1:]) - 1]
+        arm = body.get("force_parser_mode")
+        mode = graph_mode if arm == "graph" else api_mode
+        notes = (f"forced to {arm} {preflight.FORCE_NOTE_MARKER} (parser chose new_search)"
+                 if note else None)
+        debug = {"parser_plan": {"mode": mode, "notes": notes}}
+        if arm == "graph" and context is not None:
+            debug["graph_context"] = context
+        return {"status": status, "progress": [
+            {"event": "route_decided", "data": {"route": route, "source": source}},
+            {"event": "query_complete", "data": {"reply": reply, "debug": debug}},
+        ]}
+    return post_query, get_progress
+
+
+def _ticking(step=7.0):
+    now = {"t": -step}
+
+    def clock():
+        now["t"] += step
+        return now["t"]
+    return clock
+
+
+def _assert_parser_force(post_query, get_progress, arms=("graph", "api"), **kw):
+    kw.setdefault("clock", lambda: 0.0)
+    preflight.assert_parser_force_works(post_query, get_progress, list(arms),
+                                        sleep=_no_sleep, **kw)
+
+
+def test_the_marker_is_the_one_the_parser_writes():
+    """Pinned against the product's source text, not by import: the host lane has
+    no chat_nextseek dependencies. A reworded note would otherwise refuse every
+    paid run at the preflight with the wrong diagnosis."""
+    src = _PARSER_SRC.read_text(encoding="utf-8")
+    assert f'FORCE_NOTE_MARKER = "{preflight.FORCE_NOTE_MARKER}"' in src
+    assert preflight.FORCE_NOTE_MARKER == "by the evaluation switch"
+
+
+def test_parser_force_passes_when_the_switch_landed_on_both_arms():
+    post_query, get_progress = _parser_fakes()
+    _assert_parser_force(post_query, get_progress)
+    bodies = post_query.bodies
+    assert [b["force_parser_mode"] for b in bodies] == ["graph", "api"]
+    assert all(b["force_route"] == "ns" and b["force_new"] is True for b in bodies)
+    assert all(b["query"] == preflight.PARSER_FORCE_PROBE_QUERY for b in bodies)
+    assert all(b["mode"] == "standard" for b in bodies), "the switch acts in standard mode only"
+
+
+def test_parser_force_spends_one_turn_per_arm():
+    post_query, get_progress = _parser_fakes()
+    _assert_parser_force(post_query, get_progress, arms=("graph",))
+    assert len(post_query.bodies) == 1
+
+
+def test_parser_force_drives_each_probe_to_completion_with_the_given_timeout(monkeypatch):
+    seen = []
+    real_drive = preflight.http_driver.drive
+
+    def spy(query, **kw):
+        seen.append(kw)
+        return real_drive(query, **kw)
+
+    monkeypatch.setattr(preflight.http_driver, "drive", spy)
+    post_query, get_progress = _parser_fakes()
+    _assert_parser_force(post_query, get_progress, timeout_s=900.0)
+    assert [k["tier"] for k in seen] == ["full", "full"]
+    assert [k["full_timeout_s"] for k in seen] == [900.0, 900.0]
+
+
+def test_a_missing_note_refuses_and_names_the_flag_the_account_and_the_snapshot():
+    post_query, get_progress = _parser_fakes(note=False)
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "NEXTSEEK_EVAL_PARSER_FORCE=1" in msg
+    assert "superuser" in msg
+    assert "snapshot" in msg
+    assert "'graph'" in msg, "the arm whose probe failed is not named"
+
+
+def test_the_graph_arm_refuses_a_plan_that_did_not_end_on_the_graph():
+    post_query, get_progress = _parser_fakes(graph_mode="new_search")
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "graph_query" in msg and "'new_search'" in msg
+
+
+def test_the_api_arm_refuses_a_plan_that_stayed_on_the_graph():
+    post_query, get_progress = _parser_fakes(api_mode="graph_query")
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "'api'" in msg and "graph_query" in msg
+
+
+def test_a_fallback_context_refuses_the_graph_arm_and_names_the_catalog():
+    post_query, get_progress = _parser_fakes(context="fallback")
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "fallback" in msg and "catalog" in msg
+    assert "nessie_venue.sh check" in msg
+
+
+def test_no_context_record_names_the_snapshot_not_the_catalog():
+    """`debug.graph_context` is written by this branch's graph turn (spec D15). A
+    turn without it ran code that predates the branch: a venue check cannot fix
+    that, a fresh snapshot can."""
+    post_query, get_progress = _parser_fakes(context=None)
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "graph_context" in msg and "prepare" in msg
+    assert "nessie_venue.sh check" not in msg
+
+
+def test_the_api_arm_needs_no_context_record():
+    post_query, get_progress = _parser_fakes(context=None)
+    _assert_parser_force(post_query, get_progress, arms=("api",))
+
+
+def test_a_dropped_force_route_is_a_force_route_refusal():
+    post_query, get_progress = _parser_fakes(source="baml")
+    with pytest.raises(preflight.ForceRouteRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    assert "superuser" in str(e.value)
+    assert isinstance(e.value, preflight.PreflightRefused)
+
+
+def test_each_refusal_names_its_own_remedy():
+    """Four failures, four fixes; a shared message sends an operator to the wrong one."""
+    messages = []
+    for kw in ({"note": False}, {"graph_mode": "new_search"}, {"context": "fallback"},
+               {"source": "baml"}):
+        post_query, get_progress = _parser_fakes(**kw)
+        with pytest.raises(preflight.PreflightRefused) as e:
+            _assert_parser_force(post_query, get_progress)
+        messages.append(str(e.value).split("\n", 1)[1])
+    assert len(set(messages)) == 4
+
+
+def test_a_probe_that_never_finished_is_inconclusive():
+    post_query, get_progress = _parser_fakes(status="running")
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress, arms=("graph",),
+                             clock=_ticking(), timeout_s=10.0)
+    msg = str(e.value)
+    assert "INCONCLUSIVE" in msg
+    assert "NEXTSEEK_EVAL_PARSER_FORCE" not in msg, "a hung turn says nothing about the flag"
+
+
+def test_an_outaged_probe_is_inconclusive_and_says_so():
+    post_query, get_progress = _parser_fakes(reply=OUTAGE_REPLY, note=False)
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress)
+    msg = str(e.value)
+    assert "INCONCLUSIVE" in msg and "outage" in msg
+    assert "NEXTSEEK_EVAL_PARSER_FORCE" not in msg
+
+
+def test_a_parser_that_chose_a_non_retrieval_mode_is_not_blamed_on_the_flag():
+    """The switch leaves ask_about_last_results, system_question, reporter and
+    unsupported alone and writes no note for them. A probe read that way proves
+    nothing about the flag, the account or the snapshot."""
+    post_query, get_progress = _parser_fakes(note=False, graph_mode="system_question")
+    with pytest.raises(preflight.ParserForceRejected) as e:
+        _assert_parser_force(post_query, get_progress, arms=("graph",))
+    msg = str(e.value)
+    assert "system_question" in msg and "INCONCLUSIVE" in msg
+    assert "NEXTSEEK_EVAL_PARSER_FORCE" not in msg
+
+
+def test_the_note_may_follow_an_earlier_guardrail_note():
+    """The UID-lineage guard writes its note first; the switch appends with ' | '."""
+    post_query, _ = _parser_fakes()
+
+    def get_progress(task_id):
+        return {"status": "completed", "progress": [
+            {"event": "route_decided", "data": {"route": "nextseek_query", "source": "forced"}},
+            {"event": "query_complete", "data": {"reply": "r", "debug": {
+                "parser_plan": {"mode": "graph_query", "notes": (
+                    "multi-UID lineage | forced to graph by the evaluation switch "
+                    "(parser chose graph_query)")},
+                "graph_context": "catalog"}}}]}
+
+    _assert_parser_force(post_query, get_progress, arms=("graph",))
+
+
+@pytest.mark.parametrize("arms", [("graph", "cypher"), ()])
+def test_a_bad_arm_list_is_refused_before_any_turn(arms):
+    post_query, get_progress = _parser_fakes()
+    with pytest.raises(ValueError):
+        _assert_parser_force(post_query, get_progress, arms=arms)
+    assert post_query.bodies == []

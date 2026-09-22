@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 
 # Sibling imports (same dir on PATH inside the image; sys.path patched by the runner)
+from _turn_deadline import wait_s
 from _ws_contract import ERROR_EXIT, SIDECAR_OPS
+
+# The longest a call waits for the sidecar's answer, and the wait when the turn's deadline is
+# absent or unreadable. Finite so a stalled sidecar cannot hang the op (Important-1).
+_RECV_CEILING_S: float = 300.0
+# Module level so tests can freeze it.
+_wallclock = time.time
 
 
 class SidecarCallError(RuntimeError):
@@ -27,6 +35,14 @@ def _connect(url: str):
     return connect(url, open_timeout=10, close_timeout=5, max_size=16 * 1024 * 1024)
 
 
+def recv_timeout_s() -> float:
+    """Seconds call_op waits for the sidecar's answer: the time left in this turn, less the
+    headroom the assistant client keeps back too, and never more than _RECV_CEILING_S (13b.2,
+    _turn_deadline.py). The sidecar ops carry every sample question (nextseek-graph); a wait
+    that outlives the turn is killed with it and the agent never reports what happened."""
+    return wait_s(_wallclock(), fallback_s=_RECV_CEILING_S, ceiling_s=_RECV_CEILING_S)
+
+
 def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,
             request_id: str | None = None) -> dict:
     if op not in SIDECAR_OPS:
@@ -41,9 +57,12 @@ def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,
         ws = _connect(sidecar_url)
     except Exception as exc:  # noqa: BLE001 — DNS/refused/unavailable
         raise SidecarCallError("TRANSPORT_ERROR", f"sidecar unreachable: {type(exc).__name__}") from exc
+    timeout_s = recv_timeout_s()
     try:
         ws.send(payload)
-        raw = ws.recv(timeout=300)  # Important-1: finite timeout prevents hang on stalled sidecar
+        raw = ws.recv(timeout=timeout_s)
+    except TimeoutError as exc:
+        raise SidecarCallError("TRANSPORT_ERROR", f"the sidecar did not answer within {timeout_s:.0f} s") from exc
     except Exception as exc:  # noqa: BLE001
         raise SidecarCallError("TRANSPORT_ERROR", f"sidecar I/O failed: {type(exc).__name__}") from exc
     finally:

@@ -9,7 +9,7 @@ import simplejson
 from dmac.conversion import toString
 import zipfile
 
-from .constants import DOWNLOAD_DIRECTORY, IMMPORT_TEMPLATES, IMMPORT_TEMPLATES_VERSION, IMMPORT_TEMPLATE_FILE
+from .constants import IMMPORT_TEMPLATES, IMMPORT_TEMPLATES_VERSION, IMMPORT_TEMPLATE_FILE
 
 
 class SampleImmportMixin:
@@ -178,7 +178,7 @@ class SampleImmportMixin:
         msg = "Start generating zip file"
         for sheetname in IMMPORT_TEMPLATES:
             filename = sheetname + '.txt'
-            sheetfile = DOWNLOAD_DIRECTORY + filename
+            sheetfile = os.path.join(os.path.dirname(downloadfile), filename)   # beside the zip, as private as it
             fileLabel = IMMPORT_TEMPLATES[sheetname]
             self._exportImmportSheetInfoZip(user_seek, headersMapping, diclist_new, filedata, sheetname, sheetfile, fileLabel, zf)
             zf.write(sheetfile, filename)

@@ -1,7 +1,11 @@
 """Post-install health checks."""
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
+import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,12 +16,16 @@ from startup.steps.config import read_rendered_seek_public_url
 from startup.lib.docker_ops import (
     compose_exec,
     compose_ps_running,
+    copy_from_image,
     image_exists,
     DockerOpsError,
 )
 from startup.lib.rebuild_policy import app_runtime_services, component_policies
 from startup.lib.env import read_env
 from startup.lib.layout import (
+    CANONICAL_CONTEXT_DIR,
+    CANONICAL_CONTEXT_FILES,
+    CC_AGENT_CONTEXT_DIR,
     LEGACY_PROXY_SECRET_ENV,
     PROXY_SECRET_ENV,
     legacy_proxy_secret_env,
@@ -287,9 +295,10 @@ class StackHealth:
 
     ``blocking`` holds the checks without which every smoke test fails the same
     way, so the suite is not started. ``advisory`` holds the ones the suite
-    cannot see -- the CC image and services are never requested by it -- which
-    are reported, recorded, and make a rebuild exit non-zero, but do not stop
-    the run, because its result still says something true about the deploy.
+    cannot see -- the CC image, the context it bakes and the CC services are
+    never requested by it -- which are reported, recorded, and make a rebuild
+    exit non-zero, but do not stop the run, because its result still says
+    something true about the deploy.
     """
     blocking: tuple[HealthResult, ...]
     advisory: tuple[HealthResult, ...]
@@ -308,13 +317,21 @@ class StackHealth:
 
 
 def stack_health(
-    repo_root: Path, env: dict[str, str], compose_project_name: str
+    repo_root: Path,
+    env: dict[str, str],
+    compose_project_name: str,
+    *,
+    checkout: Path | None = None,
 ) -> StackHealth:
+    """``checkout`` is the tree the images were built from, which the cc-agent's
+    baked context is compared with. It defaults to ``repo_root``, the runtime
+    checkout; a ``--source-tree`` rebuild passes the clean tree it built."""
     return StackHealth(
         blocking=(check_app_runtimes(repo_root, env),),
         advisory=(
             check_first_party_images(compose_project_name),
             check_cc_services(repo_root, env),
+            check_cc_agent_context(checkout or repo_root, compose_project_name),
         ),
     )
 
@@ -383,6 +400,83 @@ def check_first_party_images(compose_project_name: str = "nextseek") -> HealthRe
     )
 
 
+def _cc_agent_image(compose_project_name: str) -> str:
+    """The image ``./startup.sh rebuild --component cc-agent`` builds."""
+    (image,) = component_policies(compose_project_name)["cc-agent"].images
+    return image.local_image
+
+
+def _context_mismatches(checkout_dir: Path, baked_dir: Path) -> list[str]:
+    """Each canonical file whose baked bytes are not the checkout's, with why."""
+    stale: list[str] = []
+    for name in CANONICAL_CONTEXT_FILES:
+        source, baked = checkout_dir / name, baked_dir / name
+        if not source.is_file():
+            stale.append(f"{name} (absent from the checkout)")
+        elif not baked.is_file():
+            stale.append(f"{name} (absent from the image)")
+        elif source.read_bytes() != baked.read_bytes():
+            stale.append(f"{name} (differs)")
+    return stale
+
+
+def check_cc_agent_context(
+    checkout: Path, compose_project_name: str = "nextseek"
+) -> HealthResult:
+    """Whether the cc-agent image still bakes the checkout's canonical context.
+
+    The six chat_nextseek context files (``startup/lib/layout.py``) are baked
+    into the app image and, through the Compose named context
+    ``chat_nextseek``, into the cc-agent image. A bare ``./startup.sh rebuild``
+    builds only the first, so editing one of them and skipping
+    ``--component cc-agent`` leaves the CC agent reading its old copy for as
+    long as the image lives, and every guard that compares files in the
+    checkout stays green. This reads the files out of the built image, without
+    running it, and compares bytes with ``checkout``: the tree the images were
+    built from.
+
+    Advisory, like the rest of stack health: the smoke suite never asks the
+    agent anything, so its result still stands, and ``rebuild`` exits non-zero
+    at the end. An absent image is a warning, not a second failure: first-party
+    images already names it and says how to build it.
+    """
+    name = "cc-agent context"
+    image = _cc_agent_image(compose_project_name)
+    try:
+        present = image_exists(image)
+    except (DockerOpsError, OSError) as exc:
+        return HealthResult(name=name, ok=False, detail=str(exc))
+    if not present:
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=(f"skipped: {image} is absent, so there is no baked context to "
+                    "compare (first-party images says how to build it)"),
+        )
+    with tempfile.TemporaryDirectory(prefix="cc-agent-context-") as tmp:
+        baked = Path(tmp) / "context"
+        try:
+            copy_from_image(image, CC_AGENT_CONTEXT_DIR, baked)
+        except (DockerOpsError, OSError) as exc:
+            return HealthResult(
+                name=name, ok=False,
+                detail=f"could not read {CC_AGENT_CONTEXT_DIR} out of {image}: {exc}",
+            )
+        stale = _context_mismatches(checkout / CANONICAL_CONTEXT_DIR, baked)
+    total = len(CANONICAL_CONTEXT_FILES)
+    if stale:
+        return HealthResult(
+            name=name, ok=False,
+            detail=(f"STALE: {image} bakes {len(stale)} of {total} canonical context "
+                    f"files unlike the checkout: {', '.join(stale)}. The CC agent "
+                    "reads its baked copy until you run: "
+                    "./startup.sh rebuild --component cc-agent"),
+        )
+    return HealthResult(
+        name=name, ok=True,
+        detail=f"{image} bakes all {total} canonical context files as the checkout has them",
+    )
+
+
 def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
     """DEPLOYMENT.md section 6 step 6, run for the operator rather than by them.
 
@@ -421,6 +515,138 @@ def check_cc_runner(repo_root: Path, env: dict[str, str]) -> HealthResult:
         ok=False,
         detail=reported or "cc_runner_available() printed nothing",
     )
+
+
+# Drift after every app rebuild (the sync design, CI-4). The app container's own
+# manage.py answers it: exit 0 no drift, 1 drift, 2 a refusal carrying its reason,
+# 3 it could not complete.
+GRAPH_DRIFT_SERVICE = "nextseek"
+GRAPH_DRIFT_COMMAND = (
+    # The app image carries no bare `python` on PATH; `uv run --no-sync` executes
+    # in /app/.venv without modifying it, as the CC runner check does above.
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync", "--drift", "--json",
+)
+# The check reads every sample in MySQL and every Sample node in the graph, about
+# a million of each on the merged snapshot. The ceiling is generous on purpose: it
+# exists only so that a wedged read cannot hold a deploy open for ever.
+GRAPH_DRIFT_TIMEOUT_S = 1800
+# Failing check names to put on one terminal line. The run record keeps them all.
+GRAPH_DRIFT_NAMES_SHOWN = 6
+
+
+def _stream_text(stream) -> str:
+    if isinstance(stream, bytes):
+        return stream.decode("utf-8", "replace")
+    return stream or ""
+
+
+def _last_line(text: str) -> str:
+    """The last non-empty line, clipped. Progress and tracebacks end with the reason."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[-1][:300] if lines else ""
+
+
+def _graph_drift_payload(stdout: str) -> dict:
+    """The result object ``--json`` printed, or an empty dict.
+
+    Tolerant of a line that is not JSON: an older image, or a library that writes
+    to stdout, must cost the report its detail rather than its verdict.
+    """
+    for text in (stdout, stdout[stdout.find("{"):stdout.rfind("}") + 1]):
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _graph_drift_result(name: str, returncode: int, stdout: str, stderr: str) -> HealthResult:
+    """Read the drift command's exit status and its JSON into one health line."""
+    payload = _graph_drift_payload(stdout)
+    checks = payload.get("checks") or []
+    if returncode == 0:
+        detail = f"no drift: {len(checks)} checks passed" if checks else "no drift"
+        counts = (payload.get("stats") or {}).get("detection") or {}
+        if "mysql_samples" in counts and "graph_samples" in counts:
+            detail += (f"; {counts['mysql_samples']} samples in MySQL, "
+                       f"{counts['graph_samples']} in the graph")
+        return HealthResult(name=name, ok=True, detail=detail)
+    if returncode == 2:
+        # A refusal, which is not a fault of this deploy: until the operator has
+        # run the first `graph_sync --full`, every box is on the older schema and
+        # there is nothing to compare. Reported, never red.
+        reason = (payload.get("reason") or _last_line(stderr)
+                  or "the command refused to compare this graph")
+        return HealthResult(name=name, ok=True, warn=True, detail=f"skipped: {reason}")
+    if returncode == 1:
+        failed = [c.get("name", "?") for c in checks if not c.get("pass")]
+        if failed:
+            shown = ", ".join(failed[:GRAPH_DRIFT_NAMES_SHOWN])
+            if len(failed) > GRAPH_DRIFT_NAMES_SHOWN:
+                shown += f" and {len(failed) - GRAPH_DRIFT_NAMES_SHOWN} more"
+            return HealthResult(
+                name=name, ok=False,
+                detail=f"DRIFT: {len(failed)} of {len(checks)} checks failed: {shown}",
+            )
+        return HealthResult(
+            name=name, ok=False,
+            detail=f"DRIFT (exit 1): {_last_line(stderr) or _last_line(stdout)}",
+        )
+    return HealthResult(
+        name=name, ok=False,
+        detail=(f"graph_sync --drift could not complete (exit {returncode}): "
+                f"{_last_line(stderr) or _last_line(stdout) or 'no output'}"),
+    )
+
+
+def check_graph_drift(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Whether the graph the site searches still equals MySQL (the design, CI-4).
+
+    Deliberately not through ``compose_exec``: that raises ``DockerOpsError`` on a
+    non-zero exit and keeps only its message, so "the graph has drifted" would
+    arrive as an exception with the JSON naming the drifted checks thrown away.
+    Here the exit status is the answer and stdout is the detail.
+
+    Advisory by construction. Drift is a failure, which ``rebuild`` exits on at
+    the end, after the smoke suite has had its say; a refusal is a pass with a
+    warning. Nothing here writes to the graph: ``--drift`` only reads.
+    """
+    name = "graph drift"
+    if not (repo_root / "docker-compose.yml").is_file():
+        # No compose project in this tree, so there is no service to exec into
+        # and nothing to ask. Said out loud rather than reported as a failure.
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_DRIFT_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_DRIFT_SERVICE, *GRAPH_DRIFT_COMMAND]
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(repo_root),
+            env={**os.environ, **env},
+            # Empty stdin, never the caller's. `exec -T` reads whatever it is
+            # given, and a rebuild is routinely run from a pipe or a hook, where
+            # it would swallow the rest of the script that started it.
+            input=b"",
+            capture_output=True,
+            timeout=GRAPH_DRIFT_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return HealthResult(
+            name=name, ok=False,
+            detail=(f"timed out after {GRAPH_DRIFT_TIMEOUT_S}s; run `docker compose exec "
+                    f"{GRAPH_DRIFT_SERVICE} {' '.join(GRAPH_DRIFT_COMMAND)}` by hand"),
+        )
+    except OSError as exc:
+        return HealthResult(name=name, ok=False, detail=f"cannot run docker: {exc}")
+    return _graph_drift_result(name, result.returncode,
+                               _stream_text(result.stdout), _stream_text(result.stderr))
 
 
 def check_seek_url_consistency(

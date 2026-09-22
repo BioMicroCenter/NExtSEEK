@@ -13,6 +13,64 @@ from ..artifacts import load_api_result_full
 DEFAULT_API_PAGE_SIZE = 1000
 
 
+#: `POST admin/samples/retrieve/` answers `{total_samples, total_sample_types,
+#: total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}]}`
+#: (`AdminSampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
+#: so every row-counting and row-previewing helper below "recognised" it and then
+#: counted and previewed the sample TYPES rather than the samples.
+_GROUP_LABEL_KEY = "sample_type"
+_GROUP_RECORDS_KEY = "samples"
+
+
+def _grouped_records(data: object) -> list[dict] | None:
+    """The groups of a grouped-by-sample-type body, or None for any other shape.
+
+    Deliberately exact rather than structural: it matches only a list whose every
+    member carries both a ``sample_type`` label and a ``samples`` list. A SEEK
+    JSON:API passthrough also puts a list at ``data["data"]`` (its members carry
+    ``id``/``type``/``attributes``), and that one must keep its existing handling.
+    """
+    if not isinstance(data, dict):
+        return None
+    groups = data.get("data")
+    if not isinstance(groups, list) or not groups:
+        return None
+    for group in groups:
+        if not isinstance(group, dict):
+            return None
+        if _GROUP_LABEL_KEY not in group or not isinstance(group.get(_GROUP_RECORDS_KEY), list):
+            return None
+    return groups
+
+
+def _flatten_groups(groups: list[dict]) -> list[dict]:
+    """Records from every group, round-robin, each tagged with its group label.
+
+    Round-robin, not group order, so a preview of a mixed lineage shows every type
+    present. B7 is the reply that reported 1,904 lineage records and showed none of
+    the PAT samples the user asked about; a preview drawn from the first group only
+    would reproduce that.
+    """
+    tagged = [
+        [
+            {_GROUP_LABEL_KEY: group.get(_GROUP_LABEL_KEY), **record}
+            for record in group.get(_GROUP_RECORDS_KEY) or []
+            if isinstance(record, dict)
+        ]
+        for group in groups
+    ]
+    out: list[dict] = []
+    for index in range(max((len(rows) for rows in tagged), default=0)):
+        for rows in tagged:
+            if index < len(rows):
+                out.append(rows[index])
+    return out
+
+
+def _group_record_count(groups: list[dict]) -> int:
+    return sum(len(group.get(_GROUP_RECORDS_KEY) or []) for group in groups)
+
+
 def api_row_count(api_result: dict | None) -> int | None:
     """How many rows an API result actually returned, or None if not countable.
 
@@ -29,6 +87,9 @@ def api_row_count(api_result: dict | None) -> int | None:
         return len(data)
     if not isinstance(data, dict):
         return None
+    groups = _grouped_records(data)
+    if groups is not None:
+        return _group_record_count(groups)
     # advanced_search/new_search pin rows under 'samples'; graph under 'nodes'.
     for key in ("samples", "rows", "nodes", "data"):
         value = data.get(key)
@@ -65,6 +126,9 @@ def _rows_actually_returned(api_result: dict | None) -> int | None:
         return len(data)
     if not isinstance(data, dict):
         return None
+    groups = _grouped_records(data)
+    if groups is not None:
+        return _group_record_count(groups)
     for key in ("samples", "rows", "nodes", "data"):
         value = data.get(key)
         if isinstance(value, list):
@@ -187,8 +251,43 @@ def slim_api_result_for_llm(
     new_data = data
     preview_items = None
     preview_key = None
+    preview_rows: int | None = None
+    #: The key that says the preview is not the whole list, so the size shrink below
+    #: can set it. Whichever branch builds a preview names its own.
+    truncated_key: str | None = None
 
-    if isinstance(data, dict):
+    groups = _grouped_records(data)
+    if groups is not None:
+        # The grouped body, rebuilt so that both numbers in it mean samples.
+        #
+        # Measured before this branch existed, on a 101-sample / 3-type lineage:
+        # `max_rows` trimmed 3 groups to 3 groups, so the size cap never bound and
+        # the "slimmed" payload came out LARGER than the raw one (28,232 -> 28,342
+        # chars) for a budget of 5,000. `rows_returned` was 3.
+        #
+        # What replaces it is the two facts a reply actually needs and could not
+        # reach: how many samples of each type there are (B7's missing sentence,
+        # "1,904 records, 40 of them PAT"), and a preview whose every record names
+        # the type it came from (B8's fix, "name types from the query that ran").
+        flat = _flatten_groups(groups)
+        preview_key = "samples_preview"
+        preview_items = flat[:max_rows]
+        preview_rows = len(preview_items)
+        new_data = {
+            **{k: v for k, v in data.items() if k != "data"},
+            "samples_by_type": {
+                str(group.get(_GROUP_LABEL_KEY)): (
+                    group.get("n_samples")
+                    if isinstance(group.get("n_samples"), int)
+                    else len(group.get(_GROUP_RECORDS_KEY) or [])
+                )
+                for group in groups
+            },
+            "samples_preview": preview_items,
+            "samples_truncated": len(preview_items) < len(flat),
+        }
+        truncated_key = "samples_truncated"
+    elif isinstance(data, dict):
         if isinstance(data.get("rows"), list):
             preview_key = "rows"
         elif isinstance(data.get("nodes"), list):
@@ -202,8 +301,8 @@ def slim_api_result_for_llm(
 
     slimmed = {**api_result, "data": new_data}
 
-    text = json.dumps(slimmed)
-    if len(text) > max_chars:
+    text = json.dumps(slimmed, default=str)
+    if len(text) > max_chars and groups is None:
         total = None
         total_key = "total"
         if isinstance(new_data, dict):
@@ -215,23 +314,71 @@ def slim_api_result_for_llm(
         # Keep a small preview even when truncating for size
         preview_items = preview_items if preview_items is not None else []
         preview_label = f"{preview_key}_preview" if preview_key else "items_preview"
+        # `<list>_truncated` is built from the ORIGINAL key ("rows_truncated"), not
+        # from the relabelled preview key, which is how it has always read.
+        truncated_key = f"{preview_key or 'items'}_truncated"
         slimmed = {
             **{k: v for k, v in api_result.items() if k != "data"},
             "data": {
                 total_key: total,
                 preview_label: preview_items,
-                f"{preview_key or 'items'}_truncated": True,
+                truncated_key: True,
                 "note": f"Result truncated for LLM context (>{max_chars} chars).",
             },
         }
+        preview_key = preview_label
+
+    # Relabelling the keys is not trimming. The branch above rewrote the envelope
+    # and kept every previewed row whole, so a result whose individual rows are
+    # large stayed over budget: nine 3 KB rows slimmed to 15,314 chars against a
+    # 5,000-char cap. Drop previewed rows until it fits, never below one -- an
+    # empty preview leaves the chatter with a total and nothing to name, which is
+    # the state that produces a generic reply.
+    if preview_key:
+        slimmed, preview_rows = _shrink_preview_to_budget(
+            slimmed, preview_key, max_chars, truncated_key=truncated_key,
+        )
 
     # Row counts come from the ORIGINAL result; `preview_rows` is what actually
     # survived into the payload the chatter reads. Passing both is what lets the
     # chatter say "324, showing 5" instead of "5".
-    slimmed.update(
-        build_result_disclosure(api_result, api_plan, preview_rows=_rows_actually_returned(slimmed))
-    )
+    if preview_rows is None:
+        preview_rows = _rows_actually_returned(slimmed)
+    slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
     return slimmed
+
+
+def _shrink_preview_to_budget(
+    slimmed: dict,
+    preview_key: str,
+    max_chars: int,
+    *,
+    truncated_key: str | None = None,
+) -> tuple[dict, int | None]:
+    """Drop previewed rows until the payload fits, keeping at least one.
+
+    Returns the payload and how many rows survived. A single row larger than the
+    whole budget is kept and the payload stays over it: one real record the chatter
+    can quote beats a preview of none.
+
+    Anything dropped here is dropped AFTER the caller decided whether the preview
+    was complete, so ``truncated_key`` is re-asserted: a payload that silently lost
+    records while still claiming to hold all of them is the quiet lie these flags
+    exist to close.
+    """
+    data = slimmed.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get(preview_key), list):
+        return slimmed, None
+
+    items = list(data[preview_key])
+    while len(items) > 1 and len(json.dumps(slimmed, default=str)) > max_chars:
+        items = items[:-1]
+        data = {**data, preview_key: items,
+                "note": f"Result truncated for LLM context (>{max_chars} chars)."}
+        if truncated_key:
+            data[truncated_key] = True
+        slimmed = {**slimmed, "data": data}
+    return slimmed, len(items)
 
 
 def collect_bundle_files(bundle: dict) -> list[tuple[str, str]]:

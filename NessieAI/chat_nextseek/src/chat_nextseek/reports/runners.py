@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .. import graph_scope
 from ..artifacts import ArtifactStore
 from ..config import live_db_conn
 from ..helpers.dates import (
@@ -25,6 +26,41 @@ from ..helpers.dates import (
 from ..helpers.tools.neo4j import tool_neo4j_query
 from .nfcore import top_items
 from .outputs import persist_report_file
+
+
+# --- the caller's project scope on the relational reads ------------------------------------------------------------
+# The sample, protocol and published reports read seek_production directly, so the project scope the Neo4j tool
+# enforces does not reach them. The same GraphScope on the per-request config decides here: an admin reads every
+# project; anyone else reads only its own projects' rows; a config without a scope refuses before any statement runs
+# (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 4.3).
+
+REPORT_NO_SCOPE = ("This report reads project records and needs the caller's project scope, which this request did "
+                   "not carry, so it did not run.")
+REPORT_FOREIGN_PROJECT = ("This report covers only the projects this account belongs to, and the requested project "
+                          "is not one of them, so it did not run.")
+
+
+def _report_projects(config, project_id) -> "tuple[tuple[int, ...] | None, str | None]":
+    """The project ids a relational report may read for ``config``'s caller, or why it must not run.
+
+    ``(None, None)`` for an admin (no filter); ``(ids, None)`` for a caller limited to ``ids``, which reads nothing
+    when ``ids`` is empty; ``(None, reason)`` when there is no scope, or ``project_id`` names a project outside it.
+    """
+    scope = graph_scope.scope_of(config)
+    if scope is None:
+        return None, REPORT_NO_SCOPE
+    if scope.is_admin:
+        return None, None
+    if project_id is not None and project_id not in scope.project_ids:
+        return None, REPORT_FOREIGN_PROJECT
+    return scope.project_ids, None
+
+
+def _project_condition(column: str, ids: "tuple[int, ...]") -> "tuple[str, list]":
+    """A SQL condition keeping ``column`` to ``ids``; an empty set keeps nothing."""
+    if not ids:
+        return "1 = 0", []
+    return f"{column} IN ({', '.join(['%s'] * len(ids))})", list(ids)
 
 
 def _resolve_investigation(config, name) -> "tuple[int, str] | None":
@@ -207,7 +243,8 @@ def run_project_sample_report(
 ) -> dict:
     """
     Project-scoped sample UUID reporting with optional date filters extracted from UUID.
-    If project is None, the report runs across all projects.
+    If project is None, the report runs across every project the caller may read: all of them for an admin, the
+    caller's own for anyone else (``_report_projects``); a named project outside the caller's is refused.
 
     UUID format: SampleType-YYMMDDLAB-Incrementer (e.g., TIS-240422DFC-6)
     Assay-derived/sample-like UIDs may include dots in the sample type (e.g., D.FCS-240306SAS-10).
@@ -236,6 +273,10 @@ def run_project_sample_report(
             config, scope, project, years, month_range, day_range, outputs_root
         )
     project_id = scope if kind == "project" else None
+    visible, refusal = _report_projects(config, project_id)
+    if refusal:
+        print(f"[DEBUG][REPORTER][SCOPE] sample report refused: {refusal}")
+        return {"ok": False, "error": refusal, "project_id": project_id}
 
     conn = live_db_conn(config, env="prod")
     if conn is None:
@@ -246,6 +287,11 @@ def run_project_sample_report(
 
     conditions: list[str] = []
     params: list = []
+
+    if visible is not None:
+        condition, ids = _project_condition("ps.project_id", visible)
+        conditions.append(condition)
+        params.extend(ids)
 
     if project_id is not None:
         conditions.append("ps.project_id = %s")
@@ -426,7 +472,7 @@ def run_project_protocols_report(
 ) -> dict:
     """
     Project-scoped SOP/protocol reporting with optional date filters extracted from title.
-    If project is None, runs across all projects.
+    If project is None, runs across every project the caller may read (``_report_projects``), as the sample report.
 
     Title format: P.<LAB>-<YYMMDD>-<rest>  (e.g. P.SAS-240827-V1_RSTR_BMDM_protocol.docx)
 
@@ -463,6 +509,10 @@ def run_project_protocols_report(
         project_id = None
     else:
         project_id = scope if kind == "project" else None
+    visible, refusal = _report_projects(config, project_id)
+    if refusal:
+        print(f"[DEBUG][REPORTER][SCOPE] protocols report refused: {refusal}")
+        return {"ok": False, "summary_mode": "protocols", "error": refusal, "project_id": project_id}
 
     conn = live_db_conn(config, env="prod")
     if conn is None:
@@ -474,6 +524,11 @@ def run_project_protocols_report(
 
     conditions: list[str] = []
     params: list = []
+
+    if visible is not None:
+        condition, ids = _project_condition("ps.project_id", visible)
+        conditions.append(condition)
+        params.extend(ids)
 
     if project_id is not None:
         conditions.append("ps.project_id = %s")
@@ -741,15 +796,25 @@ def run_project_published_report(  # noqa: C901
 
     # ── 2. Published protocols via prod ∩ dev MySQL ───────────────────────────
     protocols_result: dict = {}
+    # The graph half above runs through the Neo4j tool, which holds the scope itself; this half reads MySQL.
+    visible, refusal = _report_projects(config, project_id)
     try:
         # Step A: prod titles for this project + date range
-        prod_conn = live_db_conn(config, env="prod")
-        if prod_conn is None:
+        prod_conn = None if refusal else live_db_conn(config, env="prod")
+        if refusal:
+            print(f"[DEBUG][REPORTER][SCOPE] published protocols refused: {refusal}")
+            protocols_result = {"ok": False, "error": refusal}
+        elif prod_conn is None:
             protocols_result = {"ok": False, "error": "Prod DB connection failed"}
         else:
             date6_expr = "LEFT(SUBSTRING_INDEX(SUBSTRING_INDEX(sop.title, '-', 2), '-', -1), 6)"
             prod_conditions: list[str] = []
             prod_params: list = []
+
+            if visible is not None:
+                condition, ids = _project_condition("ps.project_id", visible)
+                prod_conditions.append(condition)
+                prod_params.extend(ids)
 
             if project_id is not None:
                 prod_conditions.append("ps.project_id = %s")
@@ -1051,7 +1116,9 @@ def reporter_reply_footer(
              or {})
     if isinstance(scope, dict) and scope.get("kind") == "lab":
         codes = ", ".join(scope.get("lab_codes") or [])
-        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {})
+        # Investigation titles are every project's; only an admin is shown them. The config does not record which
+        # investigations a caller's projects hold, so anyone else is shown none.
+        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}) if graph_scope.sees_all(config) else []
         note = (
             f"- **Scope:** this report covers lab {codes}, not a project. "
             "The name you gave is recorded as a lab code rather than an investigation"
@@ -1116,11 +1183,12 @@ def run_reporter_summary(
     # A scoped request whose project did not resolve would otherwise silently run
     # across every project. Fall back to the lab codes the entity agent resolved.
     #
-    # Read them from the plan when the caller did not pass any: planner/tools.py:305
-    # and granular.py:132 both call this without lab_codes, so once scoping worked
-    # they would have gone on reporting the whole database. Task 812 shows the
-    # reporter already populates reporter_context.lab_codes.
-    if not lab_codes:
+    # Read them from the plan only when the caller did not pass any: planner/tools.py
+    # calls this without lab_codes. A list the caller passed, even an empty one, is
+    # the entity agent's answer: it emits a code only from a lab record it matched
+    # (spec 2026-09-18-projects-labs-context OD4), so an empty list means no lab
+    # matched, and the plan's LLM-written codes must not stand in for it.
+    if lab_codes is None:
         ctx = getattr(reporter_plan, "reporter_context", None)
         lab_codes = list(getattr(ctx, "lab_codes", None) or []) if ctx is not None else []
         if lab_codes:
@@ -1244,6 +1312,11 @@ def run_reporter_summary(
         "scope": reporter_result.get("scope")
                  or (reporter_result.get("samples") or {}).get("scope"),
     }
+    # A caller who is not an admin reads only its own projects' rows (_report_projects): say so, so an unnamed
+    # project is not narrated as every project.
+    caller_scope = graph_scope.scope_of(config)
+    if caller_scope is not None and not caller_scope.is_admin:
+        reporter_summary["project_scope"] = {"project_ids": list(caller_scope.project_ids)}
     if summary_mode == "RPPR":
         reporter_summary["samples"] = _sub_summary(reporter_result.get("samples") or {})
         reporter_summary["protocols"] = {

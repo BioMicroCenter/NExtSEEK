@@ -1,0 +1,324 @@
+<script>
+/* Sample Search page (/seek/search/): every decision that needs no browser.
+
+   Both search boxes send their searches to POST /nextseek_api/samples/graph_search/,
+   which takes advanced_search's body plus an optional `extensions` block and pages in
+   the database. This block builds the body each box sends (the Simple box's rules, the
+   Advanced box's query text), says which Simple rules graph_search can express, builds
+   the paging URL, and turns a page of graph_search rows into what the grids show: the
+   UID link and the Attribute:Value cell the old engine built on the server.
+   No DOM, no jQuery and no template tags here: seek/tests/js/sample_search_cases.js runs
+   this block verbatim under node. */
+var SampleSearchCore = (function () {
+  var ENDPOINT = '/nextseek_api/samples/graph_search/';
+
+  /* The Simple box's rules (seek/dbtable_sampleattribute.py, OPERATOR_SETS) as graph_search
+     operators. Less, Greater, Before and After are inclusive there, so they map to <= and >=.
+     Not Contain, True and False are graph_search's NOT CONTAINS, IS TRUE and IS FALSE, with
+     advanced_search's rows (nextseek_api/graph_search/README.md); True and False take no value. */
+  var RULES = {
+    'Contain': 'CONTAINS',
+    'Not Contain': 'NOT CONTAINS',
+    'Equal': '=',
+    'Not Equal': '<>',
+    'Less': '<=',
+    'Before': '<=',
+    'Greater': '>=',
+    'After': '>=',
+    'Between': 'BETWEEN',
+    'True': 'IS TRUE',
+    'False': 'IS FALSE'
+  };
+  var NO_VALUE = { 'True': true, 'False': true };
+  var ANY_VALUE = { 'Contain': true, 'Not Contain': true };
+  var NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+  var KEY_STYLE = 'color:blue;font-weight:bold;';
+  var HIT_STYLE = 'color:red;';
+  var SEPARATOR = ',   ';
+
+  function trim(s) {
+    return String(s == null ? '' : s).trim();
+  }
+
+  function has(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj, key);
+  }
+
+  /* Python's html.escape, which the old engine applied to every highlighted key and value. */
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c];
+    });
+  }
+
+  function highlight(terms, matchType, attribute) {
+    return { terms: terms, matchType: matchType, attribute: attribute };
+  }
+
+  var NO_HIGHLIGHT = highlight([], null, null);
+
+  function offeredRules(rules) {
+    return (rules || []).filter(function (rule) {
+      return rule === 'No Filter' || has(RULES, rule);
+    });
+  }
+
+  /* The title of the sample type whose id the combobox holds, or '' when it holds none. */
+  function typeTitle(typeOptions, value) {
+    var id = trim(value);
+    if (!id || id === '0') {
+      return '';
+    }
+    var found = (typeOptions || []).filter(function (o) { return o && String(o.id) === id; });
+    return found.length ? String(found[0].title) : '';
+  }
+
+  /* A term without its tag: with exactly one [...] pair, the text before it, as graph_search
+     (nextseek_api/graph_search/text_query.py) and the old parser read a term[TYPE] tag. */
+  function untagged(term) {
+    var open = term.indexOf('[');
+    var close = term.indexOf(']');
+    if (open >= 0 && close > open && term.indexOf('[', open + 1) < 0 && term.indexOf(']', close + 1) < 0) {
+      return trim(term.slice(0, open));
+    }
+    return term;
+  }
+
+  /* The terms of a query text, negated ones included, without their tags, in order: what the
+     Attribute:Value cell highlights, as the old engine highlighted every term of the text. */
+  function queryTerms(text) {
+    return String(text == null ? '' : text).replace(/[()]/g, ' ')
+      .split(/(?:^|\s)(?:AND|OR|NOT)(?=\s|$)/)
+      .map(function (part) { return untagged(trim(part)); })
+      .filter(function (term) { return term.length > 0; });
+  }
+
+  /* The Advanced box and the phone form. The query text is what the Add button builds
+     (terms joined by upper-case AND, OR or NOT, grouped in parentheses, a term optionally
+     tagged term[TYPE]) or what the person typed; graph_search reads it as extensions.query
+     with advanced_search's rows, and answers a text it cannot read with a 422 that says why.
+     The phone form's sample type is ANDed with the text. */
+  function queryBody(state) {
+    var text = trim(state.text);
+    if (!text) {
+      return { error: 'No search term entered.' };
+    }
+    var matchType = state.matchType === 'EXACT' ? 'EXACT' : 'PARTIAL';
+    var body = { filter_searchText: '', filter_matchType: matchType, extensions: { query: text } };
+    var chosen = trim(state.sampletype);
+    if (chosen) {
+      body.sampletype = chosen;
+    }
+    var terms = queryTerms(text);
+    return { body: body, highlight: terms.length ? highlight(terms, matchType, null) : NO_HIGHLIGHT };
+  }
+
+  /* The Simple box: one sample type (its title), one attribute, one rule, as graph_search
+     typed conditions. No attribute, or "none", searches the value in From across every
+     attribute value of the type's samples, and asks for every sample of the type when From
+     is empty. "No Filter" on a chosen attribute ignores From, as the old engine did; so do
+     True and False. Contain and Not Contain take an empty From as the old engine did: every
+     sample holding the attribute, and none. */
+  function simpleBody(state) {
+    var type = trim(state.sampletype);
+    if (!type) {
+      return { error: 'No sample type is selected.' };
+    }
+    var attribute = trim(state.attribute);
+    var rule = trim(state.rule);
+    var typeOnly = { body: { sampletype: type, filter_searchText: '' }, highlight: NO_HIGHLIGHT };
+    if (!attribute || attribute === 'none') {
+      var keyword = trim(state.from);
+      return keyword
+        ? { body: { sampletype: type, filter_searchText: keyword, filter_matchType: 'PARTIAL' },
+            highlight: highlight([keyword], 'PARTIAL', null) }
+        : typeOnly;
+    }
+    if (!rule || rule === 'No Filter') {
+      return typeOnly;
+    }
+    if (!has(RULES, rule)) {
+      return { error: '“' + rule + '” has no graph_search operator.' };
+    }
+    if (has(NO_VALUE, rule)) {
+      return { body: { filter_searchText: '', extensions: { where: [
+                 { sample_type: type, attribute: attribute, op: RULES[rule] }] } },
+               highlight: highlight([], null, attribute) };
+    }
+    var from = trim(state.from);
+    var to = trim(state.to);
+    if (!from && !has(ANY_VALUE, rule)) {
+      return { error: 'Enter a value in From.' };
+    }
+    if (rule === 'Between' && !to) {
+      return { error: 'Between needs both a From and a To value.' };
+    }
+    var numeric = state.filterType === 'numeric';
+    if (numeric) {
+      var bad = [from].concat(rule === 'Between' ? [to] : []).filter(function (v) { return !NUMBER.test(v); });
+      if (bad.length) {
+        return { error: 'Warning: Not a valid numeric value: ' + bad[0] };
+      }
+    }
+    function condition(op, raw) {
+      return { sample_type: type, attribute: attribute, op: op, value: numeric ? Number(raw) : raw };
+    }
+    var where = rule === 'Between'
+      ? [condition('>=', from), condition('<=', to)]
+      : [condition(RULES[rule], from)];
+    return { body: { filter_searchText: '', extensions: { where: where } },
+             highlight: highlight([], null, attribute) };
+  }
+
+  /* Associated with: keep only the samples with a sample of the chosen type somewhere in their
+     lineage tree, as graph_search's extensions.lineage. 12 hops is the whole tree (the longest
+     DERIVED_FROM chain is 11); graph_search keeps a non-superuser's path inside their projects.
+     The direction control's empty value is Either, so the page's Reset (which empties it)
+     puts it back to the default. */
+  var LINEAGE_HOPS = 12;
+  var DIRECTIONS = { '': 'either', 'either': 'either', 'ancestor': 'ancestor', 'descendant': 'descendant' };
+
+  /* The Associated with dropdown: every sample type the page loads, by name and code. */
+  function associatedOptions(typeOptions) {
+    return (typeOptions || []).map(function (o) {
+      var code = String(o.title);
+      var name = trim(o.name);
+      return { title: code, label: name ? name + ' (' + code + ')' : code, group: o.group };
+    });
+  }
+
+  function lineage(state) {
+    var type = trim(state && state.sampletype);
+    if (!type) {
+      return null;
+    }
+    var direction = has(DIRECTIONS, trim(state.direction)) ? DIRECTIONS[trim(state.direction)] : 'either';
+    return { direction: direction, sample_type: type, max_hops: LINEAGE_HOPS };
+  }
+
+  /* A box's built request with the lineage condition added; a refusal, or no condition, as it came. */
+  function withLineage(built, condition) {
+    if (!built || built.error || !condition) {
+      return built;
+    }
+    var body = JSON.parse(JSON.stringify(built.body));
+    body.extensions = body.extensions || {};
+    body.extensions.lineage = condition;
+    return { body: body, highlight: built.highlight };
+  }
+
+  function searchUrl(page, size) {
+    return ENDPOINT + '?page=' + page + '&page_size=' + size;
+  }
+
+  /* The UID as the old engine linked it (seek/sample/core.py, _getSamplelink). */
+  function uidLink(row) {
+    return '<a href="/seek/sample/id=' + encodeURIComponent(String(row.id)) + '/" target="_blank">'
+      + escapeHtml(row.uuid) + '</a>';
+  }
+
+  function replaceAll(value, find, replacement) {
+    return value.split(find).join(replacement);
+  }
+
+  /* seek/sample/queries.py, _highlightKeyword: escape both, then wrap every occurrence of
+     the keyword, or of the first case-insensitive match of it. */
+  function highlightKeyword(keyword, value, style) {
+    var k = escapeHtml(keyword);
+    var v = escapeHtml(value);
+    var span = function (text) { return '<span style="' + style + '">' + text + '</span>'; };
+    if (k && v.indexOf(k) >= 0) {
+      return replaceAll(v, k, span(k));
+    }
+    var pos = k ? v.toLowerCase().indexOf(k.toLowerCase()) : -1;
+    if (pos >= 0) {
+      var found = v.substr(pos, k.length);
+      return replaceAll(v, found, span(found));
+    }
+    return v;
+  }
+
+  /* The Attribute:Value cell: seek/sample/queries.py, _highlightKeyValues. graph_search
+     returns attributeValue empty, so the page builds it from json_metadata: with an
+     attribute, that attribute's value; with terms, every value holding a term (PARTIAL,
+     case-insensitive) or equal to one (EXACT); with neither, nothing. */
+  function attributeValueHtml(metadata, hl) {
+    hl = hl || NO_HIGHLIGHT;
+    var terms = hl.terms || [];
+    if (!metadata || typeof metadata !== 'object' || (!hl.attribute && !terms.length)) {
+      return '';
+    }
+    var cells = [];
+    Object.keys(metadata).sort().forEach(function (key) {
+      var raw = metadata[key];
+      if (raw == null) {
+        return;
+      }
+      var value = String(raw);
+      var shownKey = highlightKeyword(key, key, KEY_STYLE);
+      if (hl.attribute) {
+        if (key === hl.attribute) {
+          cells.push(shownKey + ':' + highlightKeyword(value, value, HIT_STYLE));
+        }
+        return;
+      }
+      terms.forEach(function (term) {
+        var t = String(term);
+        var hit = hl.matchType === 'EXACT'
+          ? (t === value || t.toUpperCase() === value.toUpperCase())
+          : value.toLowerCase().indexOf(t.toLowerCase()) >= 0;
+        if (hit) {
+          cells.push(shownKey + ':' + highlightKeyword(t, value, HIT_STYLE));
+        }
+      });
+    });
+    return cells.join(SEPARATOR);
+  }
+
+  /* A page of graph_search rows as the grids show them: the UID linked, the cell built,
+     and the plain-text columns escaped (the grids' formatter renders HTML). uuid, id and
+     json_metadata stay as they came: download, delete and export read them. */
+  function prepareRows(rows, hl) {
+    return (rows || []).map(function (row) {
+      var shown = {};
+      Object.keys(row).forEach(function (k) { shown[k] = row[k]; });
+      shown.uid = uidLink(row);
+      shown.sample_type = escapeHtml(row.sample_type);
+      shown.assays = escapeHtml(row.assays);
+      shown.first_name = escapeHtml(row.first_name);
+      shown.attributeValue = attributeValueHtml(row.json_metadata, hl);
+      return shown;
+    });
+  }
+
+  function errorText(status, payload) {
+    var detail = '';
+    var errors = payload && payload.errors;
+    if (errors && errors.length) {
+      detail = errors[0].detail || errors[0].title || '';
+    } else if (payload && payload.msg) {
+      detail = payload.msg;
+    }
+    if (detail && typeof detail !== 'string') {
+      detail = JSON.stringify(detail);
+    }
+    return 'graph_search answered ' + status + (detail ? ': ' + detail : '');
+  }
+
+  return {
+    ENDPOINT: ENDPOINT,
+    offeredRules: offeredRules,
+    typeTitle: typeTitle,
+    queryBody: queryBody,
+    simpleBody: simpleBody,
+    associatedOptions: associatedOptions,
+    lineage: lineage,
+    withLineage: withLineage,
+    searchUrl: searchUrl,
+    uidLink: uidLink,
+    attributeValueHtml: attributeValueHtml,
+    prepareRows: prepareRows,
+    errorText: errorText
+  };
+})();
+</script>

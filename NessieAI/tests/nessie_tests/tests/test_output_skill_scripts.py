@@ -388,3 +388,84 @@ def test_files_are_matched_to_the_turn_that_wrote_them_by_local_mtime(tmp_path):
     assert idx["463"]["files"] == ["260904_132113_u/files/graph/a.json"]
     # console.txt is written by every turn in the process, so it is listed, never matched
     assert idx["463"]["shared"] == ["260904_132113_u/console.txt"]
+
+
+# --------------------------------------------------------------------------
+# T15: the LLM ledger travels with the evidence pull.
+# --------------------------------------------------------------------------
+
+
+def test_the_ledger_files_are_the_two_the_engine_writes():
+    assert fetch_run.LEDGER_FILES == ("llm_calls.jsonl", "llm_responses.jsonl")
+
+
+def test_the_ledger_is_pulled_from_the_log_dir_not_the_outputs_dir(monkeypatch, tmp_path):
+    """The ledger records stop_reason and request_id, which is exactly what a provider
+    incident needs. It is written to LOG_DIR, a sibling of the outputs directory, and every
+    pull before this tarred outputs only -- so the one file that would have explained an
+    empty-completion failure was the one file the evidence could not reach."""
+    seen: list[str] = []
+
+    class _Done:
+        returncode = 0
+        stdout = b"llm_calls.jsonl\nllm_responses.jsonl\ndjango.log\n"
+        stderr = b""
+
+    def fake_run(cmd, **kw):
+        seen.append(" ".join(cmd))
+        return _Done()
+
+    class _Popen:
+        def __init__(self, cmd, **kw):
+            seen.append(" ".join(cmd))
+            self.stdout, self.stderr = _Empty(), _Empty()
+
+        def wait(self):
+            return 0
+
+    class _Empty:
+        def close(self):
+            pass
+
+        def read(self):
+            return b""
+
+    monkeypatch.setattr(fetch_run.subprocess, "run", fake_run)
+    monkeypatch.setattr(fetch_run.subprocess, "Popen", _Popen)
+
+    got = fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs")
+
+    # remote_cmd base64-encodes the script it sends, so read the decoded payload rather
+    # than the wrapper: the path this test is about is inside it.
+    import base64
+    import re as _re
+
+    decoded = " ".join(
+        base64.b64decode(blob).decode(errors="replace")
+        for cmd in seen for blob in _re.findall(r"echo ([A-Za-z0-9+/=]{16,})", cmd)
+    )
+    assert got == ["llm_calls.jsonl", "llm_responses.jsonl"]
+    assert "/app/logs" in decoded, decoded
+    assert "/app/outputs" not in decoded, "the ledger does not live under outputs"
+    assert "llm_calls.jsonl" in decoded
+
+
+def test_a_box_without_a_ledger_does_not_fail_the_pull(monkeypatch, tmp_path):
+    """A pull that got the turns and the outputs is worth having without it."""
+    class _Done:
+        returncode = 0
+        stdout = b"django.log\nnextseek.log\n"
+        stderr = b""
+
+    monkeypatch.setattr(fetch_run.subprocess, "run", lambda cmd, **kw: _Done())
+    assert fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs") == []
+
+
+def test_the_ledger_can_be_skipped():
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-ledger", action="store_true")
+    ap.add_argument("--logs-dir", default="/app/logs")
+    assert ap.parse_args(["--no-ledger"]).no_ledger is True
+    assert ap.parse_args([]).logs_dir == "/app/logs"

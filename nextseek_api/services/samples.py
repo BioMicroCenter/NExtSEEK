@@ -4,17 +4,20 @@ import json
 import logging
 
 import orjson
+import requests
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 from pydantic import ValidationError
 from django.conf import settings
 
+from nextseek_api.services.uid_suffix import resolve_uid_with_suffix
 from seek.seekdb import SeekDB
 from nextseek_api.helpers import SeekAPIClient, resolve_sampletype_to_seek_id, resolve_seek_auth
 from nextseek_api.helpers import paginate_rows_in_envelope
 from nextseek_api.batch_upload.helpers import UID_RE
+from nextseek_api.graph_sync import hooks
 from nextseek_api.endpoint_descriptions import (
     SAMPLE_FETCH_DESC,
     SAMPLE_CREATE_DESC,
@@ -31,6 +34,11 @@ from nextseek_api.models import (
 )
 
 log = logging.getLogger(__name__)
+
+# How long the retire waits after a delete SEEK did not answer: long enough for Rails to finish a delete that outran
+# the proxy's timeout. A delete still running after this is left to the nightly targeted sync, which retires any node
+# whose row MySQL no longer holds.
+UNCONFIRMED_RETIRE_DELAY_S = 300
 
 try:
     from seek.dbtable_sample import DBtable_sample
@@ -52,23 +60,41 @@ def _nest_boolean_search_terms(terms: list[str], op: str) -> str:
     return f"({terms[0]}){op}(" + _nest_boolean_search_terms(terms[1:], op) + ")"
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
-    """Resolve a path segment to a SEEK sample id.
-    - If numeric, use as-is.
-    - Else: attempt to resolve via DBtable_sample().getSampleID(uid) when available.
-    """
-    s = str(uid_or_id)
-    if s.isdigit():
-        return s
+def _lookup_sample_id(uid: str) -> Optional[str]:
+    """One spelling, through SEEK's own resolver. Returns None rather than raising."""
     try:
         if DBtable_sample is None:
             return None
-        dbs = DBtable_sample()
-        sid = dbs.getSampleID(s)
+        sid = DBtable_sample().getSampleID(uid)
         sid = int(sid) if sid is not None else 0
         return str(sid) if sid > 0 else None
     except Exception:
         return None
+
+
+def resolve_sample_uid(uid_or_id: str) -> tuple[Optional[str], Optional[str]]:
+    """``(seek_id, the spelling that resolved)``. F14/D2: a UID resolves with or without -PUB."""
+    text = str(uid_or_id)
+    if text.isdigit():
+        return text, text
+    return resolve_uid_with_suffix(text, _lookup_sample_id)
+
+
+def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID."""
+    return resolve_sample_uid(uid_or_id)[0]
+
+
+def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]:
+    """The sample id a graph_sync hook enqueues: the one SEEK returned, else the one the request resolved to."""
+    try:
+        seek_id = str(((data or {}).get("data") or {}).get("id") or "")
+    except Exception:
+        seek_id = ""
+    if seek_id.isdigit():
+        return seek_id
+    fallback = str(fallback or "")
+    return fallback if fallback.isdigit() else None
 
 
 class SampleProxyViewSet(viewsets.ViewSet):
@@ -227,6 +253,12 @@ class SampleProxyViewSet(viewsets.ViewSet):
             log.warning("samples_proxy.validation_exception action=create error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # Rails committed the row: the graph follows it through one outbox row (spec 5 E1).
+            sample_id = _graph_sync_sample_id(data)
+            if sample_id is not None:
+                hooks.enqueue("samples", f"sample:{sample_id}")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -327,6 +359,12 @@ class SampleProxyViewSet(viewsets.ViewSet):
             log.warning("samples_proxy.validation_exception action=partial_update error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+        if 200 <= code < 300:
+            # Rails committed the update: the graph follows it through one outbox row (spec 5 E1, E2).
+            sample_id = _graph_sync_sample_id(data, seek_id)
+            if sample_id is not None:
+                hooks.enqueue("samples", f"sample:{sample_id}")
+
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -337,7 +375,14 @@ class SampleProxyViewSet(viewsets.ViewSet):
         parameters=[
             OpenApiParameter(name='uid', type=str, location=OpenApiParameter.PATH, description='SEEK id (numeric) or Sample UUID (string)')
         ],
-        responses={200: None},
+        responses={
+            200: None,
+            202: OpenApiResponse(description=(
+                "SEEK did not answer within the proxy's timeout: it received the delete and may still complete it. "
+                "Body: {\"status\": \"unconfirmed\", \"detail\": ...}. The graph node is retired once the row "
+                "has left the database.")),
+            502: OpenApiResponse(description="SEEK could not be reached; the delete may or may not have happened"),
+        },
         tags=['Samples'],
     )
     def destroy(self, request, uid=None, pk=None):
@@ -346,9 +391,38 @@ class SampleProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.delete_sample(request, str(seek_id))
+        try:
+            body, code, headers, resp = self.client.delete_sample(request, str(seek_id))
+        except requests.RequestException as exc:
+            # SEEK gave no answer, so the delete may still be running there: measured, SEEK's own delete outruns
+            # SeekAPIClient.timeout_s and Rails completes it after the proxy has given up. The retire is enqueued
+            # anyway, held back long enough for Rails to finish; it takes the node down only if the row has left
+            # MySQL by then (targeted.retire_samples leaves an id MySQL still holds alone).
+            if str(seek_id).isdigit():
+                hooks.enqueue("retire", f"sample:{seek_id}", delay_s=UNCONFIRMED_RETIRE_DELAY_S)
+            if isinstance(exc, requests.ReadTimeout):
+                log.warning("samples_proxy.destroy: SEEK did not answer the delete of %s within %s s",
+                            seek_id, self.client.timeout_s)
+                detail = (f"SEEK did not answer within {self.client.timeout_s} s. It received the delete and may "
+                          "still complete it; the sample's graph node is retired once its row has left the "
+                          "database.")
+                return HttpResponse(json.dumps({"status": "unconfirmed", "detail": detail}).encode(),
+                                    status=202, content_type='application/json')
+            log.warning("samples_proxy.destroy: SEEK could not be reached for the delete of %s: %s", seek_id, exc)
+            detail = ("SEEK could not be reached, so the delete may or may not have happened; the sample's graph "
+                      "node is retired only if its row has left the database.")
+            return HttpResponse(json.dumps({"errors": [{"title": "Upstream connection error",
+                                                        "detail": detail}]}).encode(),
+                                status=502, content_type='application/json')
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
+
+        if (200 <= code < 300 or code >= 500) and str(seek_id).isdigit():
+            # A 2xx: the row left MySQL, and the deletion rule takes its node down (spec 9, E17). A 5xx: SEEK's work
+            # is over but the proxy cannot tell whether the row went, so it retires anyway, which is safe because the
+            # retire leaves an id MySQL still holds alone.
+            hooks.enqueue("retire", f"sample:{seek_id}")
+
         # Pass through upstream response on success; SEEK returns okResponse JSON
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

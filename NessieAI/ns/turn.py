@@ -106,6 +106,10 @@ def _granular_args(op: str, req) -> dict:
     """Project a validated request model into the op's chat_nextseek arg dict."""
     if op in ("entity", "parse", "graph"):
         return {"query": req.query}
+    if op == "graph-schema":
+        return {"types": req.types, "query": req.query}
+    if op == "aggregate":
+        return {"query": req.query, "parts": req.parts}
     if op == "api-read":
         return {"parser_plan": req.parser_plan}
     if op == "api-write":
@@ -163,27 +167,64 @@ def make_sse_send_event(event_queue, resolved_session_id):
     return send_event
 
 
+def _error_tracking_send_event(send_event):
+    """Wrap ``send_event`` so the caller can tell whether the orchestrator already
+    reported the real failure.
+
+    ``run_query`` emits a ``query_error`` carrying the provider's own message and then
+    re-raises, and both pipeline bodies below caught that re-raise and emitted a SECOND
+    ``query_error`` reading "Internal pipeline error". The generic one arrives last, so
+    that is what the user saw: production turns 463/464 lost
+    ``503 UNAVAILABLE ... experiencing high demand`` this way, and the review filed it as
+    "the user got no answer" with no visible cause. Returns the wrapper and a state dict
+    whose ``sent`` flag is True once any ``query_error`` has gone out.
+    """
+    state = {"sent": False}
+
+    def wrapped(event_type: str, data: dict[str, Any]) -> None:
+        if event_type == "query_error":
+            state["sent"] = True
+        send_event(event_type, data)
+
+    return wrapped, state
+
+
+def _scope_kwargs(graph_scope) -> dict:
+    """The orchestrator's ``graph_scope`` keyword, when the ViewSet resolved one.
+
+    ``graph_scope`` is the caller's scope as plain data (``nextseek_api/graph_search/scope.py::plain_scope``,
+    resolved in the ViewSet: this package never imports that module). ``None`` means it could not be resolved; the
+    keyword is then left out and the turn runs on the request's config, which never carries a scope (the Django
+    singletons carry none, a test pins it), so every graph query refuses. Either way ``None`` refuses.
+    """
+    return {} if graph_scope is None else {"graph_scope": graph_scope}
+
+
 def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                     chat_session, resolved_session_id, event_queue) -> None:
+                     chat_session, resolved_session_id, event_queue, graph_scope=None) -> None:
     """Pipeline body of the ``query`` (SSE) endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan`` or standard), turns an
     unhandled error into a ``query_error`` event, saves the turn, and always
     ends the stream with the ``None`` sentinel on ``event_queue``.
+    ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
     """
+    tracked_send_event, error_state = _error_tracking_send_event(send_event)
+    scope_kw = _scope_kwargs(graph_scope)
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
-                run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
-                run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except Exception:
         logger.exception("Unhandled pipeline error")
-        send_event("query_error", {
-            "error": "Internal pipeline error",
-            "agent": "unknown",
-            "session_id": resolved_session_id,
-        })
+        if not error_state["sent"]:
+            send_event("query_error", {
+                "error": "Internal pipeline error",
+                "agent": "unknown",
+                "session_id": resolved_session_id,
+            })
     finally:
         _save_session_or_report(
             adapter, chat_session, send_event, resolved_session_id)
@@ -191,28 +232,32 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id) -> None:
+                       chat_session, resolved_session_id, graph_scope=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
+    ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
     """
+    tracked_send_event, error_state = _error_tracking_send_event(send_event)
+    scope_kw = _scope_kwargs(graph_scope)
     try:
         match getattr(req, "mode", "standard"):
             case "plan":
-                run_query_plan(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case "pipeline":
-                run_pipeline_launch(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
-                run_query(adapter, chat_config, req.query, send_event, credentials={"api_user": api_user, "api_pass": api_pass})
+                run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except Exception:
         logger.exception("Unhandled pipeline error (async)")
-        send_event("query_error", {
-            "error": "Internal pipeline error",
-            "agent": "unknown",
-            "session_id": resolved_session_id,
-        })
+        if not error_state["sent"]:
+            send_event("query_error", {
+                "error": "Internal pipeline error",
+                "agent": "unknown",
+                "session_id": resolved_session_id,
+            })
     finally:
         _save_session_or_report(
             adapter, chat_session, send_event, resolved_session_id)

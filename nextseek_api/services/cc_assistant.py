@@ -48,12 +48,12 @@ from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.graph_search.scope import plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
     CsrfExemptSessionAuthentication,
     _error_response,
-    _most_recent_session,
 )
 
 # The turn body and its helpers live in NessieAI/cc/turn.py (NessieAI Phase B).
@@ -102,12 +102,18 @@ class CCAssistantViewSet(viewsets.ViewSet):
 
     # ------------------------------------------------------------------ session
     def _resolve_session(self, request, req) -> ChatSession:
+        """The chat this turn runs in: the caller's own ``session_id``, else a new one.
+
+        A turn never falls back to the caller's most recently updated chat. That
+        chat's state steers the turn (sticky CC, an open pipeline wizard, its
+        results_history and pinned bundles), so a session-less API call used to
+        land on Container-CC, or refine another conversation's results, for a
+        reason the caller could not see. ``force_new`` is accepted and changes
+        nothing here; the legacy ``assistant/query/`` routes keep the fallback.
+        """
         if req.session_id:
             return ChatSession.objects.get(session_id=req.session_id, user=request.user)
-        if getattr(req, "force_new", False):
-            return ChatSession.objects.create(user=request.user)
-        existing = _most_recent_session(request.user)
-        return existing or ChatSession.objects.create(user=request.user)
+        return ChatSession.objects.create(user=request.user)
 
     def _resolve_credentials(self, request):
         basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
@@ -133,12 +139,15 @@ class CCAssistantViewSet(viewsets.ViewSet):
         api_user, api_pass = self._resolve_credentials(request)
 
         # The turn itself (routing, the NS or CC run, the chat_log writes) runs
-        # on a daemon thread that NessieAI/cc/turn.py starts.
+        # on a daemon thread that NessieAI/cc/turn.py starts. The caller's project
+        # scope for graph queries is resolved here, in the request thread, and
+        # handed down as plain data (None refuses every graph query).
         cc_turn.start_task(
             request, req, force_cc=force_cc, chat_session=chat_session,
             query_task=query_task, send_event=send_event, adapter=adapter,
             api_user=api_user, api_pass=api_pass,
             resolved_session_id=resolved_session_id,
+            graph_scope=plain_scope(request.user),
         )
 
         return Response(

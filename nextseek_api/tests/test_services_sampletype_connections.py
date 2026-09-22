@@ -359,6 +359,20 @@ class TestConnectionsSchema:
         assert not (used - set(dj.API_TAG_ORDER)), \
             f"tags used but not ordered: {sorted(used - set(dj.API_TAG_ORDER))}"
 
+    def test_root_tags_are_tag_objects_redoc_can_slugify(self):
+        """The root "tags" array must hold Tag objects, never bare strings.
+
+        redoc builds its menu with slugify(tag.name). A bare string has no .name,
+        so /nextseek_api/redoc/ died with "slugify: string argument expected"
+        while Swagger, which ignores the root array, rendered normally. The order
+        must still match API_TAG_ORDER, since both read one list.
+        """
+        from django.conf import settings as dj
+        tags = self._schema()["tags"]
+        bad = [t for t in tags if not (isinstance(t, dict) and isinstance(t.get("name"), str))]
+        assert not bad, f"root tags that redoc cannot slugify: {bad!r}"
+        assert [t["name"] for t in tags] == list(dj.API_TAG_ORDER)
+
 
 def test_unauthenticated_caller_is_refused():
     """401, not 403: the gate must challenge rather than leak that the route exists."""

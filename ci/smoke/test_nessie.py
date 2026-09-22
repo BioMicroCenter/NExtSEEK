@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import time
+import uuid
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,7 +51,21 @@ class Question:
 # asked after it would be answered by CC.
 QUESTIONS: tuple[Question, ...] = (
     Question("capabilities", "What can you do?", "nextseek_query", "system", False, False),
-    Question("ndma_mice", "What mice are treated with NDMA?", "nextseek_query", "api", True, False),
+    # Changed from "api" to "graph" knowingly on 2026-09-21, and the old value is the
+    # point of the note. This question is a sample type plus a treatment attribute, which
+    # is metadata, and F1 (promoting the measured prompt set to the default) moved exactly
+    # that shape from advanced_search to graph_query: the descriptive-attribute rule now
+    # reads "-> graph_query", and six metadata triggers were added to the graph while the
+    # three sample-search ones left api_preferred. So the graph path IS the correct answer
+    # here and the old pin was asserting pre-F1 behaviour.
+    #
+    # COVERAGE NOTE: with this and impact_studies both on the graph, the lane no longer
+    # exercises the NS **api** path at all. That is a real gap, not a tidy-up. What is
+    # still api_preferred after F1 is catalog records, the full record or an export of a
+    # named UID, PATCH on a UID, and any non-metadata intent -- so an api-path question
+    # for this lane would have to be one of those (e.g. the full metadata record for a
+    # known UID), which is a new paid turn and the operator's call to add.
+    Question("ndma_mice", "What mice are treated with NDMA?", "nextseek_query", "graph", True, False),
     Question("impact_studies", "What studies are in IMPACT?", "nextseek_query", "graph", True, False),
     Question("nhp_graph", "Make me a histogram image of NHP species", "container_cc", "cc", False, True),
 )
@@ -74,6 +89,13 @@ GRAPH_MODE = "graph_query"       # the mode the NS graph branch records on its b
 API_MODES = ("new_search", "refine_last_search")
 ROUTE_ENTRY_AGENT = "router"     # the Debug panel's agent label for a route_decided entry
 NESSIE_PREFIXES = ("assistant/", "cc-assistant/", "nessie/", "evaluator/", "schema_rag/")
+# A passing lane keeps its chat too (finish_chat), so an intermittent failure has a
+# passing chat to be diffed against. It titles the chat with this marker plus the UTC
+# time, and deletes the write account's older marked chats beyond this many, the one
+# it just kept included. A failing lane's chat never carries the marker, so it is
+# never pruned.
+PASSING_CHAT_TITLE = "CI Nessie lane passed"
+KEEP_PASSING_CHATS = 3
 
 # The retrieve body (RetrieveRequest in nextseek_api/models.py). Its only required
 # field is `query`, but a body naming neither session_id nor schema_url always
@@ -251,7 +273,7 @@ _SUMMARY_FIELDS = ("key", "text", "expected_route", "route", "source", "path", "
 def summary_payload(records: list, budget: ChatBudget, kept_session: dict | None,
                     evidence_dir: str | None, *, cleanup_error: str | None = None) -> dict:
     """What the lane reports to the CI record (startup/ci/runner.py renders it).
-    cleanup_error says why a passing lane's chat was not deleted (finish_chat)."""
+    cleanup_error says what finish_chat could not title or delete."""
     return {
         "questions": [{k: getattr(r, k) for k in _SUMMARY_FIELDS} for r in records],
         "posts": budget.posts,
@@ -595,35 +617,111 @@ def _describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: " + " ".join(str(exc).split())[:600]
 
 
+def _answered(r) -> str:
+    body = " ".join((r.text or "").split())[:200]
+    return f"{r.status_code}" + (f": {body}" if body else "")
+
+
+def _session_key(session_id) -> str:
+    """One spelling per chat id, so the list's id and the chat POST's compare equal."""
+    try:
+        return str(uuid.UUID(str(session_id)))
+    except ValueError:
+        return str(session_id)
+
+
+def _delete_chat(api, base_url: str, session_id: str) -> str | None:
+    """DELETE one chat of the write account; None when it went, else why not."""
+    try:
+        r = api.delete(f"{base_url}/nextseek_api/assistant/sessions/{session_id}/", timeout=60)
+    except Exception as exc:
+        return f"the chat {session_id} was not deleted: {_describe(exc)}"
+    if r.status_code != 204:
+        return f"the chat {session_id} was not deleted: DELETE answered {_answered(r)}"
+    return None
+
+
+def prune_passing_chats(api, base_url: str, kept_id: str) -> list[str]:
+    """Delete the write account's passing-lane chats beyond the newest
+    KEEP_PASSING_CHATS, `kept_id` (the chat this lane just kept) counted first and
+    never deleted. Returns one line per thing that did not work; never raises.
+
+    It finds them by PASSING_CHAT_TITLE in assistant/sessions/, which lists a user's
+    newest 50 chats by last update, and orders them by creation. So a passing chat
+    pushed past 50 newer chats of the write account (a CI account, so that takes
+    months of runs) is not seen, and stays until deleted by hand.
+    """
+    try:
+        r = api.get(f"{base_url}/nextseek_api/assistant/sessions/", timeout=60)
+    except Exception as exc:
+        return [f"older passing chats were not pruned: {_describe(exc)}"]
+    if r.status_code != 200:
+        return [f"older passing chats were not pruned: assistant/sessions/ answered "
+                f"{_answered(r)}"]
+    try:
+        rows = r.json().get("sessions")
+    except (ValueError, AttributeError) as exc:
+        rows, why = None, _describe(exc)
+    else:
+        why = f"no sessions list in its answer: {' '.join(r.text.split())[:200]}"
+    if not isinstance(rows, list):
+        return [f"older passing chats were not pruned: assistant/sessions/ gave {why}"]
+    keep = _session_key(kept_id)
+    older = [row for row in rows
+             if isinstance(row, dict) and row.get("session_id")
+             and str(row.get("title") or "").startswith(PASSING_CHAT_TITLE)
+             and _session_key(row["session_id"]) != keep]
+    older.sort(key=lambda row: str(row.get("created_at") or ""), reverse=True)
+    errors = []
+    for row in older[KEEP_PASSING_CHATS - 1:]:
+        error = _delete_chat(api, base_url, row["session_id"])
+        if error:
+            errors.append(error)
+    return errors
+
+
 def finish_chat(api, base_url: str, session_id: str | None, *, failed: bool,
                 evidence_dir: Path) -> tuple[dict | None, str | None]:
-    """Decision 8: keep the chat when the lane failed, delete it when it passed.
+    """Decision 8, amended 2026-09-18: keep the chat whether the lane failed or passed.
 
-    Returns (kept, cleanup_error). `kept` names the kept chat and its /debug/
-    URL, whose answer is saved as evidence_dir/debug.json. `cleanup_error` says
-    why a passing lane's chat was not deleted, so a leftover chat is reported
-    rather than silent. Never raises: chat_run writes the summary after this.
+    A failing lane keeps its chat as it is and saves its /debug/ answer as
+    evidence_dir/debug.json. A passing lane keeps its chat too, so that a later
+    intermittent failure has a passing chat to be diffed against: it titles it
+    PASSING_CHAT_TITLE plus the UTC time, then deletes the older marked chats beyond
+    KEEP_PASSING_CHATS (prune_passing_chats). A passing chat that cannot be titled is
+    deleted instead, because no later run could find it to prune it.
+
+    Returns (kept, cleanup_error). `kept` names the kept chat and its /debug/ URL.
+    `cleanup_error` says what did not work (the title, a DELETE, the sessions list),
+    so a leftover chat is reported rather than silent. Never raises: chat_run writes
+    the summary after this.
     """
     if not session_id:
         return None, None
+    kept = {"session_id": session_id,
+            "debug_url": f"{base_url}/nextseek_api/nessie/sessions/{session_id}/debug/"}
     if failed:
-        kept = {"session_id": session_id,
-                "debug_url": f"{base_url}/nextseek_api/nessie/sessions/{session_id}/debug/"}
         try:
             r = api.get(f"{kept['debug_url']}?include=all", timeout=60)
             (evidence_dir / "debug.json").write_text(r.text)
         except Exception as exc:
             (evidence_dir / "debug.json").write_text(json.dumps({"error": _describe(exc)}))
         return kept, None
+    title = f"{PASSING_CHAT_TITLE} {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}"
     try:
-        r = api.delete(f"{base_url}/nextseek_api/assistant/sessions/{session_id}/", timeout=60)
+        r = api.patch(f"{base_url}/nextseek_api/assistant/sessions/{session_id}/",
+                      json={"title": title}, timeout=60)
+        untitled = None if r.status_code == 200 else f"the title PATCH answered {_answered(r)}"
     except Exception as exc:
-        return None, f"the chat {session_id} was not deleted: {_describe(exc)}"
-    if r.status_code != 204:
-        body = " ".join((r.text or "").split())[:200]
-        return None, (f"the chat {session_id} was not deleted: DELETE answered "
-                      f"{r.status_code}" + (f": {body}" if body else ""))
-    return None, None
+        untitled = f"the title PATCH failed: {_describe(exc)}"
+    if untitled:
+        errors = [f"the passing chat {session_id} was not kept, since {untitled}"]
+        error = _delete_chat(api, base_url, session_id)
+        if error:
+            errors.append(error)
+        return None, "; ".join(errors)
+    errors = prune_passing_chats(api, base_url, session_id)
+    return kept, "; ".join(errors) or None
 
 
 def _ask(page, q: Question, rec: TurnRecord, index: int, *, api, base_url: str,

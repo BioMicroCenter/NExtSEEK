@@ -46,7 +46,11 @@ tool with a contract stated in its module docstring
 
 Beneath those sit the agent modules (`NessieAI/chat_nextseek/src/chat_nextseek/agents/__init__.py:15-29`),
 the shared helpers and I/O tools (`NessieAI/chat_nextseek/src/chat_nextseek/helpers/__init__.py:10-40`),
-the nf-core tool loop (`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:211-225`),
+the two tool loops and the one call they share
+(`NessieAI/chat_nextseek/src/chat_nextseek/tool_loop.py`: recovery, prompt caching and a
+ledger entry per tool call; the nf-core builder at
+`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:211-225` and the follow-up
+agent at `NessieAI/chat_nextseek/src/chat_nextseek/agents/followup.py` are its two callers),
 the Luria launch backend, whose cluster host is hardcoded and whose three
 required environment variables are checked together
 (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:46-59`), the prompt files in
@@ -87,6 +91,13 @@ are the only copies the agent image bakes: it takes them from the named build co
 plugin copy at `NessieAI/docker/cc-runtime/Dockerfile:52`, and a generator check enforces
 that ordering (`validate_canonical_context_final_writers` in
 `NessieAI/build_tools/gen_op_surfaces/docker_blocks.py`).
+
+`labs_db.json`, which the daily context export writes beside those catalogs, is the
+opposite: runtime-only. It holds the labs mined from SEEK institution titles
+(`NessieAI/chat_nextseek/src/chat_nextseek/labs.py`), real lab titles included, so it is
+gitignored in the context directory, excluded from the app build context by the root
+`.dockerignore`, and absent from `CANONICAL_CONTEXT_FILES`: no image bakes it and no commit
+carries it. The CC route gets lab resolution through the entity op, which runs in the app.
 
 ## Running and testing
 
@@ -135,6 +146,7 @@ Depends on, outside this directory:
 - `nextseek_api.assistant.excel_export`, imported lazily and behind a guard by the orchestrator: an allowed back-edge (`NessieAI/CLAUDE.md` "Boundary").
 - The NExtSEEK REST API, whose base URL and Basic-auth pair are read from the environment at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:561-563` and then overridden per turn with the caller's own identity at `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py:195-199`.
 - Neo4j, whose URI defaults to a localhost bolt endpoint at `NessieAI/chat_nextseek/src/chat_nextseek/config.py:600`.
+- The SEEK database, read by the daily context export (`_fetch_context_files_from_db` in `NessieAI/chat_nextseek/src/chat_nextseek/config.py`) over the MySQL connection it already holds for the `dmac.*_context` tables. Its first statement is one fixed SELECT over `seek_production.institutions` and `seek_production.work_groups` (`INSTITUTIONS_SQL` in `NessieAI/chat_nextseek/src/chat_nextseek/labs.py`), run inside a read-only transaction, at most once per UTC day per starting process and never per turn. It writes `labs_db.json` and adds each project's labs to the project rows of `projects_db.json`; the config exposes them as `ChatConfig.LABS` and `LABS_STATUS`. `python -m chat_nextseek.labs --report` runs the same read and prints the result without writing anything.
 
 Depended on by. Non-test importers only; the test modules under `NessieAI/tests/` that
 import this package are omitted. So is the import at
@@ -151,6 +163,7 @@ it is fixture source inside the string literal opened at
 - `NessieAI/ns/retry.py:378` (`_get_orchestrator`) imports the orchestrator inside a function body, for the evaluator retry endpoint in `nextseek_api/services/evaluator.py`.
 - `startup/dev/lane_local_settings.py:19` constructs the Django-wide config singleton at settings-import time, and `startup/dev/lane_local_settings.py:69` optionally builds a second one for the production toggle.
 - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:35` reads the capabilities document as generator input, not as an import.
+- `_project_context_row` in `nextseek_api/services/context_catalog.py` imports `PROJECT_ROW_SQL` from `chat_nextseek.context_rows` inside the function, so the SEEK project page filters `projects_context` by the same project-row rule as the config's maps and never needs this package to import.
 - See `NessieAI/chat_nextseek/CLAUDE.md` for what breaks when any of these edges moves.
 
 Not a dependency, despite appearances: `NessieAI/dmac_assistant/` does **not** import this

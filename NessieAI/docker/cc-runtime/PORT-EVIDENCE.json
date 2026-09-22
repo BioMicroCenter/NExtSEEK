@@ -28,9 +28,7 @@
     }
   ],
   "context_file_inventory": [
-    {"path": "build_context/plugins/nextseek/context/min_graph_schema.json", "size_bytes": 4165, "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7"},
-    {"path": "build_context/plugins/nextseek/context/neo4j_schema.json", "size_bytes": 13542, "sha256": "f8b0334e8e886cc0e7f1fe632826fb2eee50f241eafb980bd8458ae813a959ea"},
-    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 3860, "sha256": "216144b92545339ade4cc15e1478519c1fa0318101cccdd2125425477ec54ef8"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 2152, "sha256": "dbecafd7bebfdadcfc0b76a0e3741481488d271c5c770c6e7625f77d3258808b"},
     {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
     {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
     {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},
@@ -64,9 +62,30 @@
       "context_file_inventory_affected": false
     },
     {
+      "date": "2026-09-17",
+      "path": "build_context/plugins/nextseek/context/neo4j_schema.json",
+      "change": "Removed from this build context, with its context_file_inventory entry. The cc-agent image no longer bakes any graph-schema capture. The agent gets the graph's schema from the nextseek-graph-schema op (registered in NessieAI/cc/op_registry/ops.py), which calls POST /nextseek_api/assistant/graph-schema/; that reads the live Neo4j catalog through chat_nextseek's graph_catalog, renders it with graph_context, and falls back to the committed NessieAI/chat_nextseek/src/chat_nextseek/context/neo4j_schema.json -- naming the fallback and the reason -- when the graph cannot serve the catalog. min_graph_schema.json stays baked and unchanged: despite the name it is hand-authored routing prose, not a capture.",
+      "why": "Measured 2026-09-17: this file's own fetched_at read 2026-04-23 and the chat_nextseek copy's 2026-08-21, while the deployed graph was at schema 1.2. Neither described it -- neither named the Attribute, Project, Person, GraphMeta or OrphanSample labels or the source_hash / project_ids / search_text / synced_at properties, and the chat_nextseek copy still listed CHILD_OF, a relationship type the graph work deleted. A capture baked into an image cannot be kept in step with a synced graph, and nothing told the agent it was stale. Nessie master plan 2026-09-17, task 7.3.",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_baked_file_set_is_pinned",
+        "NessieAI/tests/cc/test_plugin_hooks_and_manifest.py::test_manifest_lists_context_files_and_when_to_consult",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
+      ],
+      "removed_inventory_entries": [
+        {
+          "path": "build_context/plugins/nextseek/context/neo4j_schema.json",
+          "size_bytes": 13542,
+          "sha256": "f8b0334e8e886cc0e7f1fe632826fb2eee50f241eafb980bd8458ae813a959ea",
+          "now_from": "the live graph, through the nextseek-graph-schema op"
+        }
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
       "date": "2026-09-11",
       "path": "build_context/plugins/nextseek/context/",
-      "change": "Removed the six plugin context files that had a canonical twin in NessieAI/chat_nextseek/src/chat_nextseek/context/, and their context_file_inventory entries. The generated capabilities-copy block of the Dockerfile now COPYs each canonical file from the Compose named context chat_nextseek, after the plugin COPY, to the same /app/plugins/nextseek/context/ path, so the image holds the same eleven context files. Five of the six were byte-identical to their canonical twin, so the image bytes are unchanged. capabilities.md had drifted (the ported copy lacks a Publication entry), but the image already took the canonical file through the named-context COPY, so its image bytes are unchanged too. The plugin tree keeps MANIFEST.md, ops.json, read_safe_endpoints.json and the two graph snapshots min_graph_schema.json and neo4j_schema.json, which differ from their canonical twins and stay in context_file_inventory.",
+      "change": "Removed the six plugin context files that had a canonical twin in NessieAI/chat_nextseek/src/chat_nextseek/context/, and their context_file_inventory entries. The generated capabilities-copy block of the Dockerfile now COPYs each canonical file from the Compose named context chat_nextseek, after the plugin COPY, to the same /app/plugins/nextseek/context/ path, so the image holds the same eleven context files. Five of the six were byte-identical to their canonical twin, so the image bytes are unchanged. capabilities.md had drifted (the ported copy lacks a Publication entry), but the image already took the canonical file through the named-context COPY, so its image bytes are unchanged too. The plugin tree keeps MANIFEST.md, ops.json, read_safe_endpoints.json and the two graph snapshots min_graph_schema.json and neo4j_schema.json, which differ from their canonical twins and stay in context_file_inventory. (neo4j_schema.json was removed on 2026-09-17; see the entry above.)",
       "why": "NessieAI consolidation Phase C: one copy of each plugin context file, so nobody keeps two copies identical by hand.",
       "removed_inventory_entries": [
         {"path": "build_context/plugins/nextseek/context/capabilities.md", "size_bytes": 11747, "sha256": "fae548efa7c0ac8b768e8f6361728b2249c73d84842aaae3c12bdd7098b970ef", "now_from": "NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md"},
@@ -81,6 +100,53 @@
         "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_cc_runtime_named_context_catalog_copies_exist_in_chat_nextseek",
         "NessieAI/tests/build_tools/unit/test_gen_op_surfaces.py::test_capabilities_copy_matches_canonical_bytes",
         "NessieAI/tests/build_tools/unit/test_gen_op_surfaces_dockerfile.py"
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-18",
+      "path": "build_context/plugins/nextseek/context/read_safe_endpoints.json",
+      "change": "Four endpoints left the read-safe list, byte-identical in both copies (NessieAI/ns/read_safe_endpoints.json, which the write gate enforces, and this baked copy): POST /nextseek_api/samples/advanced_search/, POST /nextseek_api/sample_types/get_parents/parents_by_child_types/, POST /nextseek_api/entity_tree/lineage/ and GET /nextseek_api/samples/. The CC agent's api-read op now refuses them. In the same change the canonical min_api_endpoints.json swapped advanced_search for graph_search and dropped parents_by_child_types and sampletypes/{uid}/child_types. The endpoints themselves stay, since pages and smoke tests call them.",
+      "why": "Operator ruling of 2026-09-18 for both engines: every sample question (find, filter, count, break down, lineage, attribute values) goes to the graph, through the nextseek-graph op or graph_search, which apply the caller's project scope. parents_by_child_types and child_types were also shown to cross the project edge on lineage (the 7.1 red team's finding N3).",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_advertised_mutating_endpoints_are_pinned",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_post_as_read_endpoints_are_attested_in_the_read_safety_audit",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-18",
+      "path": "build_context/plugins/nextseek/context/min_graph_schema.json",
+      "change": "Removed from this build context, with its context_file_inventory entry. The image no longer bakes any min_graph_schema.json: its chat_nextseek twin stays the NS parser's routing prose and is not baked. The CC agent's op choice now lives in the plugin skill (skills/nextseek/SKILL.md, 'Choosing the op for a task') and the manifest's decision shortcuts: every sample question goes to the nextseek-graph op, whose server-side graph agent writes the Cypher from the live catalog, so the agent never needed graph-routing prose of its own.",
+      "why": "The plugin copy was hand-kept and stale. It still sent metadata filters to advanced_search, named /samples/tree/, /samples/associated/ and parents_by_child_types endpoints, and listed investigation titles from an old instance. After the 2026-09-18 ruling, which sends every sample question to the graph and takes the sample-search endpoints off the CC read-safe list, it contradicted the skill outright. Its drift from the chat_nextseek twin had kept test_shared_context_file_is_identical_to_source[min_graph_schema.json] red.",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_baked_file_set_is_pinned",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_source_only_files_are_the_expected_ones",
+        "NessieAI/tests/cc/test_plugin_hooks_and_manifest.py::test_manifest_lists_context_files_and_when_to_consult",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
+      ],
+      "removed_inventory_entries": [
+        {
+          "path": "build_context/plugins/nextseek/context/min_graph_schema.json",
+          "size_bytes": 4165,
+          "sha256": "8884fe59a0edfb46acc0374fbd99b881639a67c3c2e611aaa67af9b3affc40c7",
+          "now_from": "nothing: the plugin skill carries the CC routing rule"
+        }
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-18",
+      "path": "build_context/plugins/nextseek/context/read_safe_endpoints.json",
+      "change": "Three POSTs left the read-safe list, byte-identical in both copies (NessieAI/ns/read_safe_endpoints.json, which the write gate enforces, and this baked copy): /nextseek_api/batch-upload/validate/, /nextseek_api/data_files/download/ and /nextseek_api/sops/download/. The write gate let api-read ask for them, but the REST tool every api-read ends in (tool_nextseek_api_request in chat_nextseek's helpers/tools/nextseek_api.py) allows only the POSTs in its own _READ_POST_PATHS, so each answered 200 with a nested ok:false 'Write operations are not permitted'. The skill (skills/nextseek/SKILL.md) and the manifest (context/MANIFEST.md) no longer promise downloads or workbook checks through api-read. The endpoints themselves stay: the pages and the nextseek-validate-upload op call them directly.",
+      "why": "Advertising a read the tool behind the gate refuses costs the agent one of its two attempts on every file download or workbook check (2026-09-18 review, M5).",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_every_endpoint_the_cc_guidance_names_is_read_safe",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
       ],
       "context_file_inventory_affected": true
     }

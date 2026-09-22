@@ -205,9 +205,46 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "Run a Neo4j lineage/graph query from NL.",
+            "Find and read samples from the graph (filter, lineage, attribute values), held to the user's "
+            "projects; a query refused for its scope is answered through graph_search under fallback. "
+            "Counts and breakdowns: nextseek-aggregate.",
             '--query "<text>"',
-            "{cypher, result}",
+            "{plan, result, fallback?}",
+        ),
+    ),
+    _dispatch(
+        op_id="aggregate",
+        bin_name="nextseek-aggregate",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/aggregate/",
+        gate_class=GateClass.read,
+        argv=[ArgSpec(flag="--query", required=True), ArgSpec(flag="--parts")],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "Count samples or break them down (by type, attribute value, project, person), held to the user's "
+            "projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small "
+            "table with the sum of its group counts (not a sample total when groups may overlap) and its "
+            "missing-value bucket, never sample records.",
+            "--query \"<whole question>\" [--parts '[\"<part>\", ...]']",
+            "{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, "
+            "null_group, truncated}], notes}",
+        ),
+    ),
+    _dispatch(
+        op_id="graph-schema",
+        bin_name="nextseek-graph-schema",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/graph-schema/",
+        gate_class=GateClass.read,
+        argv=[ArgSpec(flag="--types"), ArgSpec(flag="--query")],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "Read the deployed graph's schema live: structure, sample types, vocabulary. "
+            "Never read a baked schema file instead.",
+            '[--types "TIS,D.SEQ"] [--query "<text>"]',
+            "{source, schema_version, catalog_hash, sample_types, schema, vocabulary}",
         ),
     ),
     _dispatch(

@@ -13,7 +13,7 @@ from ..helpers import (
     build_recent_results_summary,
 )
 from ..llm_clients import LLMTimeoutError
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     ContextEngineerOutput,
     EntityAgentOutput,
@@ -336,6 +336,28 @@ def _fallback_multi_parser_plan(
     )
 
 
+def _empty_multi_plan_problem(plan: MultiParserPlan) -> str | None:
+    """Why ``plan`` is not a routing decision, or None when it is one.
+
+    The multi-parser's counterpart of ``_empty_plan_problem``. Every MultiParserPlan
+    field has a default, so ``{}`` and a plan nested under an unknown key validate to a
+    plan with no candidates; so does an output that names every key and fills none. A
+    plan with neither a candidate, nor the user's intent, nor a note carries no
+    decision, and goes back through the repair turn. When no attempt carries one, the
+    caller's existing fallback plan runs.
+    """
+    problem = empty_output_problem(plan)
+    if problem:
+        return problem
+    if plan.candidates or (plan.intent_summary or "").strip() or (plan.notes or "").strip():
+        return None
+    return (
+        "The output carried no plan: no candidates, an empty intent_summary and empty "
+        "notes. Return the complete MultiParserPlan with every key filled, including at "
+        "least one candidate and the intent_summary."
+    )
+
+
 def _canonical_multi_parse(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -385,6 +407,7 @@ def _canonical_multi_parse(
             client=mp_client,
             timeout_seconds=35,
             timeout_retry_seconds=60,
+            result_check=_empty_multi_plan_problem,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})
@@ -579,16 +602,93 @@ def _note_refine_without_bundle(
     })
 
 
+# The evaluation switch (graph_search Nessie POC, spec 4.6 and E2). The harness pins
+# the same marker phrase to prove a forced turn really was forced.
+FORCE_NOTE_MARKER = "by the evaluation switch"
+FORCE_MODES = ("graph", "api")
+ADVANCED_SEARCH_PATH = "/nextseek_api/samples/advanced_search/"
+_REST_ENDPOINT_PREFIX = "/nextseek_api/"
+_FORCEABLE_MODES = ("new_search", "graph_query")
+
+
+def _first_rest_candidate(plan: ParserPlan) -> str | None:
+    """The first of the parser's endpoint candidates that is a NExtSEEK REST path."""
+    for candidate in plan.endpoint_candidates or []:
+        endpoint = candidate if isinstance(candidate, str) else getattr(candidate, "endpoint", None)
+        if isinstance(endpoint, str) and endpoint.startswith(_REST_ENDPOINT_PREFIX):
+            return endpoint
+    return None
+
+
+def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
+    """Evaluation only: force a single-turn retrieval question to the graph or the API path, deterministically.
+
+    Runs LAST in _apply_parser_guardrails, after the LLM call, so the parser's own choice is kept in the note.
+    graph: new_search -> graph_query.
+    api:   graph_query -> new_search on the first REST endpoint candidate, else advanced_search.
+    Every other mode, and force_mode None, returns the plan unchanged (the same object).
+
+    "The parser's choice" is the mode as it reaches this function, after the product's
+    own guardrails: what the unforced product would have run. A retrieval plan whose
+    mode already matches the arm keeps its mode and still gets the note, so every
+    forced retrieval turn shows that the switch landed. Filters are kept either way.
+    The switch is set only on a per-request config copy (``FORCE_PARSER_MODE``, see
+    ``NessieAI/cc/turn.py::_with_parser_force``); the planner's multi-parser path
+    ignores it.
+    """
+    if force_mode not in FORCE_MODES or plan.mode not in _FORCEABLE_MODES:
+        return plan
+    chosen = plan.mode
+    updates: dict[str, Any] = {}
+    if force_mode == "graph" and chosen == "new_search":
+        updates = {"mode": "graph_query", "target_endpoint": None}
+    elif force_mode == "api" and chosen == "graph_query":
+        updates = {
+            "mode": "new_search",
+            "target_endpoint": _first_rest_candidate(plan) or ADVANCED_SEARCH_PATH,
+        }
+    note = f"forced to {force_mode} {FORCE_NOTE_MARKER} (parser chose {chosen})"
+    updates["notes"] = ((plan.notes + " | ") if plan.notes else "") + note
+    print(f"[DEBUG][PARSER] {note}")
+    return plan.model_copy(update=updates)
+
+
+#: Modes the parser may emit that the orchestrator dispatches under another name.
+#: ``schemas/router.py`` has documented ``memory_lookup`` as an alias of
+#: ``ask_about_last_results`` since it was added, and nothing ever performed the
+#: normalisation, so a parser that took the schema at its word produced a mode with no
+#: branch: "The parser returned an unexpected mode='memory_lookup'. I don't yet know how
+#: to handle this case." The planner's own step mapping is separate and already correct.
+_MODE_ALIASES: dict[str, str] = {"memory_lookup": "ask_about_last_results"}
+
+
+def _normalise_mode_aliases(plan: ParserPlan) -> ParserPlan:
+    """Rewrite an aliased mode to the one the orchestrator dispatches on."""
+    target = _MODE_ALIASES.get(plan.mode)
+    if target is None:
+        return plan
+    return plan.model_copy(update={
+        "mode": target,
+        "notes": ((plan.notes + " | ") if plan.notes else "") + f"mode {plan.mode} normalised to {target}",
+    })
+
+
 def _apply_parser_guardrails(
     user_query: str,
     plan: ParserPlan,
     session: "SessionState | SessionStateProxy | None" = None,
+    force_mode: str | None = None,
 ) -> ParserPlan:
-    """Apply narrow deterministic safety checks after LLM routing."""
+    """Apply narrow deterministic safety checks after LLM routing.
+
+    ``force_mode`` is the evaluation switch (``_force_parser_mode``); it runs last,
+    after every product guardrail, and is None outside an evaluation run.
+    """
+    plan = _normalise_mode_aliases(plan)
     plan = _note_refine_without_bundle(session, plan)
     plan = _force_graph_for_uid_lineage(user_query, plan)
     if _is_unscoped_bulk_export_request(user_query, plan.mode, plan.filters):
-        return ParserPlan(
+        plan = ParserPlan(
             mode="unsupported",
             target_endpoint=None,
             intent_summary=plan.intent_summary or user_query,
@@ -605,7 +705,7 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
-    return plan
+    return _force_parser_mode(plan, force_mode)
 
 
 def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> MultiParserPlan:
@@ -622,6 +722,27 @@ def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> Mu
             (plan.notes + " | ") if plan.notes else ""
         ) + "Guardrail: unscoped bulk export/download routed to unsupported.",
     })
+
+
+def _empty_plan_problem(plan: ParserPlan) -> str | None:
+    """Why ``plan`` is not a routing decision, or None when it is one.
+
+    Every ParserPlan field has a default and the default mode is "unsupported", so
+    ``{}``, a plan wrapped under an unknown key and a bare ``{"mode": "unsupported"}``
+    all validate to an unsupported plan with nothing in it. The prompt asks for every
+    key; an unsupported plan that states neither the user's intent nor a reason is
+    what an output without a plan looks like, and it must not reach the user as
+    "your request is not supported" (CI 2026-09-18, task ed4b2e3b).
+    """
+    if plan.mode != "unsupported":
+        return None
+    if (plan.intent_summary or "").strip() or (plan.notes or "").strip():
+        return None
+    return (
+        "The output carried no plan: mode is 'unsupported' with an empty intent_summary "
+        "and empty notes. Return the complete ParserPlan object with every key filled, "
+        "including intent_summary; if the request really cannot be served, say why in notes."
+    )
 
 
 def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, user_query: str, entity_result: EntityAgentOutput | dict) -> ParserPlan:
@@ -698,6 +819,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             client=parser_client,
             timeout_seconds=35,
             timeout_retry_seconds=60,
+            result_check=_empty_plan_problem,
         )
     except LLMTimeoutError as e:
         # Never reached the model at all. Keep this distinct from a parse failure:
@@ -721,7 +843,10 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
         )
 
     print("[DEBUG][PARSER] Parsed plan:", json.dumps(plan_model.model_dump(), indent=2))
-    plan_model = _apply_parser_guardrails(user_query, plan_model, session=session)
+    plan_model = _apply_parser_guardrails(
+        user_query, plan_model, session=session,
+        force_mode=getattr(config, "FORCE_PARSER_MODE", None),
+    )
     if plan_model.mode == "unsupported":
         print("[DEBUG][PARSER] Guardrailed plan:", json.dumps(plan_model.model_dump(), indent=2))
     return plan_model

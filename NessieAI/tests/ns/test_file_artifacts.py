@@ -47,7 +47,7 @@ class SearchFilesAreOfferedTests(SimpleTestCase):
         )
 
     def test_graph_query_bundle_offers_nothing_but_does_not_error(self):
-        """graph_debug is an internal trace, not a user output."""
+        """graph_debug is an internal trace, not a user output. Still true."""
         bundle = {
             "mode": "graph_query",
             "files": [_entry("graph_debug", "Graph query debug JSON",
@@ -55,6 +55,26 @@ class SearchFilesAreOfferedTests(SimpleTestCase):
         }
 
         self.assertEqual(build_artifacts(bundle), [])
+
+    def test_a_graph_turn_offers_its_rows_file(self):
+        """F7: a query returned hundreds of rows and the researcher got none of them.
+
+        The debug trace stays internal; the rows are a separate file with a kind the
+        export layer does not exclude.
+        """
+        bundle = {
+            "mode": "graph_query",
+            "files": [
+                _entry("graph_debug", "Graph query debug JSON", "graph_20260904.json", "graph"),
+                _entry("graph_result", "Graph query result rows",
+                       "graph_result_bundle_3.json", "graph_result"),
+            ],
+        }
+
+        self.assertEqual(
+            [(a["artifact_type"], a["key"], a["label"]) for a in build_artifacts(bundle)],
+            [("file", "graph_result", "Graph query result rows")],
+        )
 
 
 class InternalTraceKindsTests(SimpleTestCase):
@@ -159,3 +179,41 @@ class LegacyBundleTests(SimpleTestCase):
         }
 
         self.assertEqual(len(build_file_artifacts(bundle)), 1)
+
+
+class GraphTableArtifactTests(SimpleTestCase):
+    """F7: the rows reach the reply as a table, not only as a file."""
+
+    def _bundle(self, rows, total=None):
+        return {"mode": "graph_query",
+                "graph_result": {"ok": True, "data": rows, "total": total if total is not None else len(rows)}}
+
+    def test_a_graph_turn_emits_one_table_of_its_rows(self):
+        from nextseek_api.assistant.excel_export import extract_table_artifacts
+
+        rows = [{"uuid": f"TIS-{i}", "type": "TIS", "Organ": "lung"} for i in range(3)]
+        [table] = extract_table_artifacts(self._bundle(rows))
+
+        self.assertEqual(table["type"], "table")
+        self.assertEqual(table["columns"], ["uuid", "type", "Organ"])
+        self.assertEqual(table["rows"][0], ["TIS-0", "TIS", "lung"])
+        self.assertEqual(table["total_rows"], 3)
+
+    def test_a_capped_result_says_how_many_it_is_showing(self):
+        from nextseek_api.assistant.excel_export import MAX_INLINE_ROWS, extract_table_artifacts
+
+        rows = [{"uuid": f"TIS-{i}"} for i in range(MAX_INLINE_ROWS + 41)]
+        [table] = extract_table_artifacts(self._bundle(rows, total=241))
+
+        self.assertEqual(len(table["rows"]), MAX_INLINE_ROWS)
+        self.assertIn(f"Showing first {MAX_INLINE_ROWS} of 241 rows", table["footer"])
+
+    def test_a_count_only_result_has_no_table(self):
+        from nextseek_api.assistant.excel_export import extract_table_artifacts
+
+        self.assertEqual(extract_table_artifacts(self._bundle([])), [])
+
+    def test_a_reporter_bundle_is_untouched_by_the_graph_branch(self):
+        from nextseek_api.assistant.excel_export import extract_table_artifacts
+
+        self.assertEqual(extract_table_artifacts({"mode": "new_search"}), [])

@@ -1,7 +1,7 @@
 """T0: every route the active profile permits is reachable and honest.
 
     PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pytest --with requests \
-      --with playwright pytest ci/smoke/test_reachability.py \
+      --with playwright==1.60.0 pytest ci/smoke/test_reachability.py \
       --base-url http://127.0.0.1:8000 -q -p no:cacheprovider
 
 One test per registry route, parametrised at collection, so the tier grows by

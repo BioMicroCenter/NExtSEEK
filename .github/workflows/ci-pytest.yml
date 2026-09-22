@@ -1,8 +1,10 @@
 name: pytest (informational)
 
 # Informational by decision: this job surfaces NEW failures against a committed
-# baseline and never blocks. The suite is not green and will not be; a
-# "must be green" gate fails on run one and is ignored by run five.
+# baseline, and a failing test in the lanes never blocks. The suite is not green
+# and will not be; a "must be green" gate fails on run one and is ignored by run
+# five. Only the two blocking steps at the end, which run checks that are green
+# today, can fail the job on a test result.
 #
 # Measured 2026-09-01 on ghcr.io/astral-sh/uv:debian, cold cache, with the lane
 # list from before the NessieAI move:
@@ -94,13 +96,16 @@ jobs:
             --baseline ci/pytest-baseline.txt \
             --summary "$GITHUB_STEP_SUMMARY"
 
-      # The one blocking step in this otherwise informational job. ci/gate holds
-      # two deterministic checks: the route registry completeness gate and the
-      # docs map (ci/docs_map.py). Neither carries the "red on run one" risk that
-      # made the rest of the job informational. It runs last so that a failing
-      # gate never suppresses the informational summary above it. Once the setup
-      # steps are through, only two results can fail the job: this step, and the
-      # lanes step when pytest did not run at all. Failing tests never fail it.
+      # The first of three blocking steps in this otherwise informational job.
+      # ci/gate holds the deterministic checks: the route registry completeness
+      # gate, the docs map (ci/docs_map.py), the writer registry and the route
+      # effects. `pytest ci/gate -q` is the count, not this comment. None of them
+      # carries the "red on run one" risk that made the rest of the job
+      # informational. The blocking steps run last so that a failing one never
+      # suppresses the informational summary above them. Once the setup steps are
+      # through, only four results can fail the job: this step, the migration
+      # check and the blocking unit tests below, and the lanes step when pytest
+      # did not run at all. Failing tests in the lanes never fail it.
       # The if: keeps this step running after a lanes-step failure, and skips it
       # only when setup failed before the lanes step was reached.
       - name: Blocking gates (route registry, docs map)
@@ -111,6 +116,49 @@ jobs:
           # dmac.settings creates LOG_DIR at import; /app does not exist on a runner.
           LOG_DIR: ${{ runner.temp }}/logs
         run: uv run pytest ci/gate -q
+
+      # The second blocking step: the unit tests ci/blocking_lanes.py names by
+      # glob (the graph_sync and graph_search tests, and the Sample Search page's
+      # view and JavaScript tests). They also run in the lanes above, where a
+      # failure is only a report; here any failure fails the job. A new module
+      # joins by its name. The page's JavaScript module skips wherever node is
+      # missing, and a skip is green, so a runner without node fails here
+      # instead. The paths go through a variable because a failing command
+      # substitution inside pytest's argument list would not stop the step, and
+      # pytest given no path walks the whole tree.
+      # The third blocking step. It is scoped to nextseek_api by name, and the
+      # scope is evidence-based rather than timid: Mezzanine's four apps propose
+      # migrations that would be written into site-packages, so they can never
+      # be clean from this repository, and seek is excluded pending a ruling on
+      # two models whose DDL is applied out of band but which are declared
+      # managed. Both are recorded in "Landmines" in ci/CLAUDE.md and measured in
+      # docs/superpowers/plans/2026-09-16-ci-coverage-gaps-findings.md.
+      # --skip-checks is required: without it Django stops on system check
+      # 4_0.E001 for an empty CSRF_TRUSTED_ORIGINS before reaching migration
+      # state. Widening the scope is a change to make deliberately, after the
+      # named app is green, never by dropping the app argument.
+      - name: Blocking migration check (nextseek_api)
+        if: ${{ !cancelled() && steps.lanes.outcome != 'skipped' }}
+        env:
+          DJANGO_SETTINGS_MODULE: dmac.test_settings
+          PYTHONDONTWRITEBYTECODE: "1"
+          LOG_DIR: ${{ runner.temp }}/logs
+        run: uv run python manage.py makemigrations --check --dry-run --skip-checks nextseek_api
+
+      - name: Blocking unit tests (ci/blocking_lanes.py)
+        if: ${{ !cancelled() && steps.lanes.outcome != 'skipped' }}
+        env:
+          DJANGO_SETTINGS_MODULE: dmac.test_settings
+          PYTHONDONTWRITEBYTECODE: "1"
+          # dmac.settings creates LOG_DIR at import; /app does not exist on a runner.
+          LOG_DIR: ${{ runner.temp }}/logs
+        run: |
+          if ! command -v node >/dev/null; then
+            echo "::error::node is not on this runner, so seek/tests/test_sample_search_js.py would skip every test instead of running them"
+            exit 1
+          fi
+          paths=$(python ci/blocking_lanes.py)
+          uv run pytest $paths -q
 
       - uses: actions/upload-artifact@v4
         if: always()

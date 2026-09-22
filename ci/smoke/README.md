@@ -7,12 +7,12 @@ user does. Same command locally, on fairdata-dev, and in CI.
 
 ```bash
 # one time, per host
-uv run --no-project --with playwright playwright install chromium
+uv run --no-project --with playwright==1.60.0 playwright install chromium
 
 # everything except the write lane. That includes the Nessie lane, which sends
 # four real chat turns (about $0.30); add --no-nessie to skip it.
 CI_BOX_PROFILE=local \
-uv run --no-project --with pytest --with requests --with playwright \
+uv run --no-project --with pytest --with requests --with playwright==1.60.0 \
   pytest ci/smoke/ --base-url http://127.0.0.1:8000
 ```
 
@@ -59,7 +59,9 @@ silent bounce to the login page, and it grows by itself as the registry does.
 Everything else is hand-written because it is what a table row cannot express --
 the API root's exact viewset list, the OpenAPI document generating at all, an
 enrichment step that fails silently behind a 200, the five `/seek/` pages that
-must bounce a visitor with no credentials, and the six browser flows. Per-route
+must bounce a visitor with no credentials, the seven browser flows, a
+`samples/graph_search/` POST with its envelope checked (`test_graph_search.py`), and the
+state of the graph sync itself (`test_graph_sync_status.py`, below). Per-route
 body assertions are T1's job and are not in this increment.
 
 ## Nessie lane
@@ -94,10 +96,19 @@ It works in three stages, all in that one file:
    ledger the page showed. After a reload the chat reopens with every turn. The
    reported spend stayed under the ceiling.
 
-On a pass the chat is deleted. On a failure it is kept, so that it can be read:
-any failed test in the module counts, stage 1 included, because the failure count
-is taken before the lane's first test. A passing lane whose DELETE does not answer
-204 names the leftover chat as "Cleanup failed" in the CI record's Nessie section,
+The chat is kept whether the lane passed or failed, and the CI record names it as
+the kept session. On a failure it is kept as it is, so that it can be read: any
+failed test in the module counts, stage 1 included, because the failure count is
+taken before the lane's first test. On a pass it is kept so that a later
+intermittent failure has a passing chat to be diffed against: the lane titles it
+`CI Nessie lane passed <UTC time>` (`PASSING_CHAT_TITLE`), then deletes the write
+account's older chats with that title beyond `KEEP_PASSING_CHATS` (3), the one it
+just kept included. So the write account's saved-chats sidebar holds the three
+newest passing chats, plus every failing chat until someone deletes it by hand.
+The lane finds the old ones in `assistant/sessions/`, which lists an account's
+newest 50 chats. A passing chat the lane cannot title is deleted instead, because
+no later run could find it to prune it. Anything that did not work (the title, a
+DELETE, the list) is named as "Cleanup failed" in the CI record's Nessie section,
 and in pytest's warnings summary on a direct run.
 
 ### When it runs
@@ -166,7 +177,7 @@ When Nessie changes, `test_nessie.py` changes, and nothing else should need to.
   spent, and the rest of the suite is unaffected. Iterate with the command below.
 
 ```bash
-CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with playwright \
+CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with playwright==1.60.0 \
   pytest ci/smoke/test_nessie.py --base-url http://127.0.0.1:8000 --nessie-no-turns -q
 ```
 
@@ -182,19 +193,145 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
 - **The kept chat.** Open its `/debug/` URL
   (`/nextseek_api/nessie/sessions/<id>/debug/`) as a superuser: it lists every
   turn, the route ledger, the CC transcript, the files and any warnings. The chat
-  also stays in the write account's saved-chats sidebar. Delete it when you are
-  done.
+  also stays in the write account's saved-chats sidebar. To tell an intermittent
+  failure from a steady one, open the newest `CI Nessie lane passed` chat beside
+  it and compare the same turn in both. Delete a failing chat when you are done;
+  the passing ones are pruned by the lane.
 - **The evidence folder**, `startup/ci-reports/<label>-nessie/`, written only on
   a failure: `trace.zip` (a Playwright trace of the whole browser session),
   `page.png` (the page as the lane left it) and `debug.json` (the `/debug/`
   answer with `?include=all`). Open the trace with
   `npx playwright show-trace <trace.zip>`, or, with no Node on the host,
-  `uv run --no-project --with playwright playwright show-trace <trace.zip>`.
+  `uv run --no-project --with playwright==1.60.0 playwright show-trace <trace.zip>`.
 
 A direct `pytest` run, the GitHub workflow included, writes no record. Its
 evidence goes to a `nessie-evidence` folder under pytest's base temporary
 directory, or wherever `CI_NESSIE_EVIDENCE_DIR` points, and the kept chat's id is
 inside that folder's `debug.json`.
+
+## Graph sync status
+
+`test_graph_sync_status.py` reads `GET /nextseek_api/admin/graph-sync/status/` and asserts
+two things. The endpoint reports the latest run of each kind, freshness per job, the outbox
+and the last drift result; and **none of those jobs is stale**. A box whose sync loop has
+stopped, or whose drain has left an outbox row waiting for more than an hour, must not
+report a green smoke run. A box that has never run a sync answers `never`, which stays
+green, so the tests assert the vocabulary rather than a particular value.
+
+It also carries the parity-lite check: when the status reports a successful full sync at the
+writer's schema version, the same small body sent to `samples/advanced_search/` and to
+`samples/graph_search/` must report the same `total`. Before the first full sync the graph
+is at an earlier schema version and the two are expected to disagree, so that check skips
+rather than failing a box that is simply not synced yet.
+
+**It needs the superuser account, and it runs in the default lane.** The endpoint is
+superuser-only, so this module authenticates with `CI_WRITE_USER` and `CI_WRITE_PASS` and
+**fails rather than skips** when they are missing: it is the first test outside the opt-in
+write lane to need them, and a skip would let a box with no superuser credentials report
+green having proved nothing about the one endpoint no other account can reach. It sends a
+GET and two searches, writes nothing, and carries no `write` marker.
+
+`local` and `dev` only, like the route: production runs a v1.0 graph without migration
+0021, so the two tables the endpoint reads are not there at all.
+
+## The behavioural lane
+
+`test_graph_behaviour.py` is the only module that asserts **the graph changed** after a write.
+Everything else about graph sync proves wiring: `ci/writers.py` declares all 30 writer sites and
+`ci/gate/test_writer_registry.py` fails when one appears without a hook, which proves a writer calls
+something and nothing about Neo4j.
+
+**Opt in twice**, like the write lane: `-m graphwrite`, plus `CI_WRITE_DESTRUCTIVE=1` for the cases
+that mutate rows. From a worktree, add `--force-profile local CI_FORCE_PROFILE_CONFIRM=yes`, because
+`startup/.instance.json` lives in the checkout the stack runs from and the guard fails closed to
+`prod` without it.
+
+```bash
+CI_FORCE_PROFILE_CONFIRM=yes CI_WRITE_DESTRUCTIVE=1 uv run --no-project --with pytest \
+  --with requests --with playwright pytest ci/smoke/test_graph_behaviour.py -m graphwrite \
+  --base-url http://127.0.0.1:8000 --force-profile local
+```
+
+### Two gates, then the cases
+
+The module refuses to mean anything until both gates pass: the graph is at the writer's schema
+version (below it the writer refuses every write, so each case would fail for the wrong reason), and
+the sync loop drains the outbox **without help** — no case here issues a sync command. The gates also
+assert the outbox holds no dead rows, because `wait_for_drain` reports a drain with dead rows present.
+
+| Case | Writer | What the graph must do |
+|---|---|---|
+| batch upload | WR-01, WR-02 | the job's `totals.graph` says `synced`, and the graph matches both rows: the one path that syncs inline |
+| attribute create and delete | WR-05 | the graph's **catalog** declares the attribute, then stops declaring it |
+| sample update | WR-07 PATCH | the node matches the new value and stops matching the old one |
+| delete | WR-13 | the node comes down by the retire rule |
+| delete, through the API | WR-07 destroy | the node comes down even when SEEK outruns the proxy: see below |
+| sample joins a project | WR-01, WR-02 | a scoped account that could not see the sample now can |
+| person change | WR-10 | the `membership` row drains rather than dead-lettering |
+
+### Three things that will mislead you
+
+Each one reads as a product defect until you know about it.
+
+- **`total` and `rows` can disagree, and only `total` is the graph's answer.** `total` is counted in
+  Cypher; `rows` are that page hydrated from MySQL. A node the graph still holds whose MySQL row is
+  gone answers `total: 1, rows: []`, and the response's `rows_missing` counts such matches on the
+  page. So `graph_holds` is for **presence** only, and every absence assertion reads
+  `graph_total`/`wait_for_total`. An absence assertion built on the rows passes on exactly the
+  failure it exists to catch.
+- **`graph_meta` is as fresh as the last drift run, and no fresher.** The status endpoint does not
+  query Neo4j. Asserting that `catalog_hash` moved after a write compares a cached value with itself.
+- **`graph_search` caches the catalog** for `RECHECK_SECONDS` (60) and re-reads it only when
+  `GraphMeta.catalog_hash` moves, so a change that has genuinely landed can take a minute to show.
+  The attribute case polls past that window.
+
+### What it cannot assert, and where that is covered
+
+`graph_search` answers about samples, so **`MEMBER_OF` is invisible to this lane**. The person case
+proves the hook fires and the loop drains the kind; whether the graph's memberships match SEEK is
+gate G's `people.*` check (`graph_sync/verify.py::_check_people`), which runs inside every drift run.
+Asserting it here would need a Neo4j connection this lane may not open.
+
+### Identity, and why not `people/current/`
+
+The cases resolve accounts through `/nextseek_api/users/` (the admin list, read from SEEK's tables
+through the ORM) and memberships through `/nextseek_api/people/<id>/` (the full `projects` set).
+**Not `/nextseek_api/people/current/`**: that path resolves the caller through the SEEK proxy's
+shared session, and six calls alternating the two smoke accounts answered with one identity for
+both. A lookup that names its subject in the path is unaffected.
+
+### The API-proxy delete is slow on purpose
+
+SEEK's own delete can outrun `SeekAPIClient.timeout_s`, and Rails then completes it after the proxy
+has given up. The proxy used to answer 500 and enqueue nothing, leaving a node `graph_search` counts
+and cannot show. When SEEK does not answer in time the proxy now answers 202 with
+`status: unconfirmed` and enqueues the retire held back by `UNCONFIRMED_RETIRE_DELAY_S`
+(`nextseek_api/services/samples.py`), so the retire reads MySQL after Rails has finished. The case
+therefore waits out that delay in its drain. The product's own UI does not use this path; the Sample
+Deletion tab posts `alluids` to `/seek/samples/delete/` (WR-13).
+
+### `/seek/samples/delete/` is enabled for `local` only
+
+That route was `EXCLUDE_UNSAFE_METHOD` with no profile. The lane needs it, so it is now declared
+`profiles="local", auth="write"`, and **never dev or prod**: the write it makes is irreversible data
+loss rather than one of the safe previews. `auth="write"` keeps it out of the T0 sweep, which never
+holds that account.
+
+### What it leaves behind
+
+Each case deletes its own samples through WR-13, in a `finally`. **The xfailed case leaves exactly
+one orphan node per run**, unavoidably: the proxy removes the MySQL row after its timeout, so by the
+time the cleanup runs there is no row for `getSampleID` to resolve the UID against, and the delete
+that would enqueue the retire cannot find it. Measured 2026-09-17 over four runs: four orphans, one
+each. Retire them with
+
+```bash
+manage.py graph_sync --samples <ids> --i-mean-the-live-graph
+```
+
+and find their ids by asking the graph rather than the endpoint, since `graph_search` counts them and
+cannot show them. Nothing else accumulates: a case that borrows `a_throwaway_sample` and forgets its
+`finally` leaves one row per run, which is how five of them appeared before the update case had one.
 
 ## Profiles
 
@@ -217,35 +354,41 @@ Passing both exits 2 rather than deciding which one wins.
 
 The profile gates whole tests as well as routes. A test marked
 `@pytest.mark.profiles("local", "dev")` is **skipped** under any other profile.
-Two places carry it today. One is the browser flow that submits an upload for
-validation, the only flow in `test_flows.py` that makes the page issue a POST. Under `prod`
-the browser guard aborts that POST at the network layer, correctly, and the page
-would then wait out its own response timeout — five red minutes for a rule the
-suite had just enforced. Skipping says the same thing in a line.
+Six places carry it today. Three are browser flows, each because the page issues a
+POST. The first submits an upload for validation. Under `prod` the browser guard
+aborts that POST at the network layer, correctly, and the page would then wait out
+its own response timeout — five red minutes for a rule the suite had just enforced.
+Skipping says the same thing in a line.
 
-The other is the whole of `test_nessie.py`, which writes a chat and pays for
-model turns, so it runs on `local` and `dev` only.
+The other two flows drive the Sample Search page's Advanced and Simple boxes, which
+search by POSTing to graph_search, an endpoint itself declared `local,dev`. The other
+three places are whole modules: `test_nessie.py`, which
+writes a chat and pays for model turns; `test_graph_search.py`; and
+`test_graph_sync_status.py`, whose endpoint exists only where migration 0021 has been
+applied.
 
 ## Credentials
 
 Two accounts, and the split is a safety rule rather than hygiene. The sweep is,
 by construction, a program that issues GETs at every URL it knows about, so it
-never holds rights it does not need: the health sweep and the four flows
+never holds rights it does not need: the health sweep and the browser flows
 authenticate as the non-superuser, and the sweep never requests any path under
 `/seek/admin/`, at any privilege level. Which routes make that rule necessary,
 and why, is recorded in the private findings note, which this public repository
-does not carry. The Nessie lane is the one exception: it drives the chat page,
-the admin checks and the superuser-only `/debug/` route as the write account,
-because those need a superuser, and it requests nothing under `/seek/admin/`
-either.
+does not carry. Two places are the exception, and both request nothing under
+`/seek/admin/` either. The Nessie lane drives the chat page, the admin checks and the
+superuser-only `/debug/` route as the write account, because those need a superuser. The
+graph sync status check does the same for its one superuser-only endpoint, and unlike the
+Nessie lane and the write lane it runs by default, so the superuser credentials are now a
+prerequisite of an ordinary smoke run.
 
 ```
 ~/.config/nextseek/ci.env      mode 600, never committed, never in GitHub
 
-CI_SMOKE_USER=...     NOT a superuser. Health sweep + the four flows.
+CI_SMOKE_USER=...     NOT a superuser. Health sweep + the browser flows.
 CI_SMOKE_PASS=...
-CI_WRITE_USER=...     Superuser. The write lane and the Nessie lane.
-CI_WRITE_PASS=...
+CI_WRITE_USER=...     Superuser. The write lane, the Nessie lane, and the graph
+CI_WRITE_PASS=...     sync status check, which runs in the default lane.
 ```
 
 Environment variables override the file. `NEXTSEEK_CI_ENV` points at a different

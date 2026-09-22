@@ -147,8 +147,9 @@
 				msg: 'Deleting samples ...'
 			});
 
-			$.get(url_delete, {
-				'allids': allids
+			$.post(url_delete, {
+				'allids': allids,
+				'csrfmiddlewaretoken': '{{ csrf_token }}'
 			}, function (data) {
 				$.messager.progress('close');
 				var obj = jQuery.parseJSON(data);
@@ -309,6 +310,16 @@
 			</tr>
 		</thead>
 	</table>
+	{% comment %}
+	One page of graph_search results at a time: this pager asks for the next one
+	(nsSearchPage in searchAdvanced.html). The grid keeps pagination off, because
+	datagrid-filter.js pages by slicing the rows the grid holds.
+
+	The page sizes are one page of graph_search's maximum, or ALL. 1000000 is the value of
+	the ALL option (NS_ALL_PAGE_SIZE in searchAdvanced.html, which labels the option "ALL"
+	and reads every page of the result into the grid); it is never sent as a page_size.
+	{% endcomment %}
+	<div id="simple_pager" class="easyui-pagination" style="border:1px solid #ddd;" data-options="total: 0, pageSize: 1000, pageList: [1000, 1000000], showRefresh: false, onSelectPage: function (pageNumber, pageSize) { nsSearchPage('simple', pageNumber, pageSize); }"></div>
 
 	<div id="simple_tb_toolbar" style="height: auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls: 'icon-save', plain: true"

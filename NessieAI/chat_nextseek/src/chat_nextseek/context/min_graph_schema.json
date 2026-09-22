@@ -3,7 +3,11 @@
   "node_types": [
     {
       "label": "Sample",
-      "description": "A biological sample. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS); 'UID' and 'uuid' hold the sample identifier. Samples link to each other via DERIVED_FROM and to studies via IN_STUDY. The node carries ONLY identity, protocol and lineage properties: id, uuid, UID, type, Protocol, parent_titles, parent_title_hashes, and the lineage family Parent, AntibodyParent, BacteriaParent, CompensationFCSParent, ParentF, ParentM and Treatment1Parent..Treatment5Parent. Every key containing 'Parent' names an ancestor. Descriptive sample metadata (Scientist, Notes, storage, treatment, concentration, shipping, imaging, etc.) is NOT on the graph node; it lives in the REST API / json_metadata and must be fetched there."
+      "description": "A biological sample, schema 1.2. Property 'type' holds the sample type code (e.g. TIS, CEL, DNA, D.SEQ, NHP, MUS) and the node also carries a type label, T_ plus its code (T_TIS, T_D_SEQ). 'uuid' holds the sample identifier (the UID), whose grammar is <TYPE>-<YYMMDD><LAB>-<n>: the three letters after the date are the lab's code, so a lab or PI scope is a match on the UID. Every non-empty metadata attribute of a sample is a property on its node, named exactly as the attribute title: descriptive fields (Scientist, Notes, Name, Organ, Sex, storage, treatment, concentration, shipping, imaging, etc.), Protocol, and the lineage family Parent, AntibodyParent, BacteriaParent, CompensationFCSParent, ParentF, ParentM and Treatment1Parent..Treatment5Parent. Numeric and date attributes are stored typed, so they compare with < and >. 'search_text' holds every value of the sample, UID included, for text found anywhere in the record, and 'project_ids' its projects. Every key containing 'Parent' names an ancestor. Samples link to each other via DERIVED_FROM, to studies via IN_STUDY and to projects via IN_PROJECT."
+    },
+    {
+      "label": "SampleType / Attribute",
+      "description": "The catalog: one SampleType per sample type code and, through HAS_ATTRIBUTE, one Attribute per attribute title that type carries, with how many samples fill it and its value type. It answers which types carry a field, which fields a type has, and how a key is spelled across types."
     },
     {
       "label": "Study",
@@ -11,7 +15,11 @@
     },
     {
       "label": "Investigation",
-      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet."
+      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only)."
+    },
+    {
+      "label": "Project",
+      "description": "A SEEK project. Property 'title'. Samples link to it via IN_PROJECT, investigations via IN_PROJECT."
     }
   ],
   "relationships": [
@@ -29,6 +37,11 @@
       "type": "IN_INVESTIGATION",
       "direction": "(study)-[:IN_INVESTIGATION]->(investigation)",
       "note": "Links a study to its parent investigation/project."
+    },
+    {
+      "type": "IN_PROJECT",
+      "direction": "(sample)-[:IN_PROJECT]->(project)",
+      "note": "Links a sample (and an investigation) to its SEEK project."
     }
   ],
   "graph_query_triggers": [
@@ -41,26 +54,33 @@
     "Query asks about ancestry, parentage or derivation by a lineage property rather than a UID ('samples whose AntibodyParent is set', 'what is the parent of X', 'trace the lineage of', 'samples with a Treatment1Parent') \u2014 the Parent-family properties live on the Sample node and only the graph can filter or traverse them",
     "Query asks which samples have any parent of a given kind, or counts samples by lineage property ('how many samples have a BacteriaParent', 'which CEL samples have ParentF set')",
     "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') \u2014 traverse (s:Sample)-[:IN_STUDY]->(st:Study) and read st.DOI / st.PMID",
-    "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')"
+    "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')",
+    "Query finds, lists or counts samples by sample type, keyword or attribute value, with or without a study scope ('find tissue samples mentioning X', 'how many slides are stained with H&E', 'samples whose Vendor is X') \u2014 every metadata attribute is a property on the Sample node and 'search_text' holds every value",
+    "Query compares a number or a date ('greater than', 'at least', 'between', 'before 2021') \u2014 numeric and date attributes are stored typed on the graph",
+    "Query combines conditions that must all hold (two keywords, a keyword and a field, several fields) \u2014 Cypher ANDs them",
+    "Query asks for a count, a breakdown by type or by field, the distinct values of an attribute, or how a value or a key is spelled across records (spelling variants, duplicates, which records use a key)",
+    "Query scopes samples to a lab or PI ('the X lab') \u2014 the lab code sits inside the UID (ENTITY_RESULT.lab_codes); or names any other person as who made or handled samples \u2014 the Scientist attribute",
+    "Query asks for all samples in the database, or a count across every type"
   ],
   "api_preferred_triggers": [
-    "Filter-based sample search with resolved sampletype code and/or assay code only, no study/investigation scope \u2192 advanced_search endpoint",
-    "Samples derived from or associated with a specific UID \u2192 /samples/tree/ or /samples/associated/ endpoint",
-    "Parent samples that have children of multiple specified types \u2192 /samples/parents_by_child_types/ endpoint",
+    "Catalog records themselves (assays, sample types, SOPs, projects, investigations as records) \u2192 the matching catalog endpoint",
+    "The full metadata record, an export or a download of samples named by UID \u2192 admin/samples/retrieve; an explicit request to see or visualise the lineage tree of one UID \u2192 sample-tree",
     "PATCH/update on a specific sample UID",
-    "Any intent that maps cleanly to a known API endpoint in the catalog"
+    "Any non-metadata intent that maps cleanly to a known API endpoint in the catalog"
   ],
   "disambiguation_rules": [
     "If the query mentions a study or investigation by name \u2192 graph_query, even if a sampletype is also present",
     "If the query says 'how many X in study Y' or 'across all studies' \u2192 graph_query",
-    "If the query says 'how many X' with no study/investigation scope and no time span \u2192 API advanced_search (not reporter)",
-    "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) \u2192 prefer API",
+    "If the query says 'how many X' with no study/investigation scope and no time span \u2192 graph_query, a count of samples (not reporter)",
+    "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) \u2192 graph_query, matching the term as text on the samples of that type",
     "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol \u2192 graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
-    "If the query asks for parent samples that have children of multiple types \u2192 check API catalog for parents_by_child_types endpoint first; if it exists, prefer API",
+    "If the query asks for parent samples that have children of multiple types \u2192 graph_query (lineage: the graph checks a descendant of every required type)",
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
-    "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 API. Those properties do not exist on graph nodes; Cypher referencing them can only match nothing.",
+    "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 graph_query. The attribute is a property of the Sample node; advanced_search matches text anywhere in a record and cannot restrict it to one attribute, compare numbers, AND two terms or aggregate.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
-    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet",
-    "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)"
+    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, TCGA (TCGA is not on every instance)",
+    "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)",
+    "If the query is a plain keyword or attribute search with no scope at all ('find X samples', 'samples mentioning Y') \u2192 graph_query; REST sample searches serve only refinements of a result that came from REST",
+    "If the query names a person: a lab or PI (ENTITY_RESULT.labs / lab_codes) \u2192 graph_query on the lab code inside UIDs; anyone else \u2192 graph_query on the Scientist attribute. Never /people/, which lists registered user accounts"
   ]
 }

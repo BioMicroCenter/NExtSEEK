@@ -45,7 +45,8 @@ SAMPLE_UID_PATH = f"/nextseek_api/samples/{REAL_UID}/"
 ADMIN_RETRIEVE = "/nextseek_api/admin/samples/retrieve/"
 PARENTS_BY_CHILD = "/nextseek_api/sample_types/get_parents/parents_by_child_types/"
 ADVANCED_SEARCH = "/nextseek_api/samples/advanced_search/"
-READ_POSTS = [ADMIN_RETRIEVE, PARENTS_BY_CHILD, ADVANCED_SEARCH]
+GRAPH_SEARCH_POST = "/nextseek_api/samples/graph_search/"
+READ_POSTS = [ADMIN_RETRIEVE, PARENTS_BY_CHILD, ADVANCED_SEARCH, GRAPH_SEARCH_POST]
 
 
 class _Resp:
@@ -312,3 +313,20 @@ def test_no_mutating_catalog_endpoint_is_allowed_through_the_guard():
             assert allowed is True, f"read endpoint {method} {path} was blocked"
         else:
             assert allowed is False, f"mutating endpoint {method} {path} was allowed"
+
+
+# --- 7.2: graph_search is a read, and both engines must be permitted to call it ---------------------
+# It POSTs, so the default deny applies until it is named. The endpoint injects the caller's project
+# clause server-side (graph_search/query.py:59, superusers skip), so permitting it does not widen
+# what a caller can see. This permits; it does not advertise. Whether the parser CHOOSES it is
+# routing, which phase 12 owns.
+
+GRAPH_SEARCH = "/nextseek_api/samples/graph_search/"
+
+
+def test_graph_search_is_a_permitted_read_post():
+    assert _is_read_only_request(GRAPH_SEARCH, "POST") is True
+
+
+def test_graph_search_is_in_the_shared_read_post_set():
+    assert GRAPH_SEARCH in _READ_POST_PATHS

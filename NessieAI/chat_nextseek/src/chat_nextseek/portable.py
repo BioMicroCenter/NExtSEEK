@@ -16,7 +16,7 @@ coordinated.
 from .agents.entity import entity_agent
 from .agents.parser import parser_agent
 from .agents.planner.agent import multi_parser_agent, planner_agent
-from .agents.graph import graph_agent
+from .agents.graph import graph_agent, graph_schema_snapshot
 from .agents.reporter import reporter_agent, report_writer_agent
 from .agents.api import api_agent_build_request
 from .reports.runners import run_reporter_summary
@@ -37,6 +37,8 @@ __all__ = [
     # Helper orchestrators (one call wraps a deterministic chain -> tuple)
     "run_reporter_summary",
     "generate_report_outputs",
+    # Read-only projection (a dict, no model call)
+    "graph_schema_snapshot",
     # Side-effect tools (REST + graph)
     "tool_nextseek_api_request",
     "tool_neo4j_query",

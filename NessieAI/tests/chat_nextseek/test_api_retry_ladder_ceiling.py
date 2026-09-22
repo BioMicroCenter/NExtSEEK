@@ -125,19 +125,93 @@ def test_a_single_attempt_under_the_ceiling_is_still_accepted(monkeypatch):
     assert result["data"]["total"] == 12
 
 
-def test_an_or_attempt_is_not_subject_to_the_ceiling(monkeypatch):
-    """The ceiling guards degradation to one token, not a legitimate broad OR."""
+def test_an_or_rung_is_subject_to_the_ceiling_too(monkeypatch):
+    """Changed knowingly by F4. The rule here used to read "the ceiling guards
+    degradation to one token, not a legitimate broad OR", and that left the rung that
+    actually substituted a different question unguarded: every rung of this ladder is
+    already a substitution of the user's terms, and one matching this much of the
+    database is not an answer to a filtered question.
+
+    Two keywords of the same kind, so a mixed-kind set is not what withholds the rung
+    here -- the ceiling is.
+    """
     def fake_request(config, *, endpoint, method, requestBody, queryParameters):
         text = requestBody.get("filter_searchText")
         return _hit(900) if " OR " in (text or "") else _empty()
 
     monkeypatch.setattr(api, "tool_nextseek_api_request", fake_request)
 
-    plan, _result = _retry_advanced_search_if_empty(
+    plan, result = _retry_advanced_search_if_empty(
+        None, _plan(keywords=["fibrin", "collagen"]), _api_plan("fibrin collagen"), _empty()
+    )
+
+    assert " OR " not in (plan["requestBody"]["filter_searchText"] or "")
+    assert (result["data"] or {}).get("total") in (None, 0), "no rung survived, so nothing is reported"
+
+
+def test_a_lab_code_is_never_ored_with_a_term_of_another_kind(monkeypatch):
+    """A lab code is a conjunctive constraint: ORing it can only add other labs' samples.
+
+    The production case asked how many RNA samples one lab has. The entity step made the
+    lab a project as well, the api agent fused both into one phrase, that matched nothing,
+    and the OR rung answered from a search the user never asked for. It was right only by
+    luck: the other term matched no sample of the requested type.
+    """
+    seen: list[str] = []
+
+    def fake_request(config, *, endpoint, method, requestBody, queryParameters):
+        text = requestBody.get("filter_searchText") or ""
+        seen.append(text)
+        return _hit(12) if text == "KAM" else _empty()
+
+    monkeypatch.setattr(api, "tool_nextseek_api_request", fake_request)
+
+    plan, result = _retry_advanced_search_if_empty(
         None, _plan(lab_codes=["KAM"]), _api_plan("KAM MetNet"), _empty()
     )
 
-    assert " OR " in plan["requestBody"]["filter_searchText"]
+    assert not any(" OR " in text for text in seen), seen
+    assert seen[0] == "KAM", "the lab code is the most specific term, so it goes first"
+    assert plan["requestBody"]["filter_searchText"] == "KAM"
+    assert result["data"]["total"] == 12
+
+
+def test_a_labelled_identifier_is_searched_by_its_value_alone(monkeypatch):
+    """The production PMID case, and the largest single family in the review.
+
+    The question was sent as the label and the number together; the stored value is the
+    number alone, so it matched nothing. The ladder then dropped the number as UID
+    structure and kept the word "PMID", which matched unrelated rows and served them as
+    the answer. Measured: a search for the bare value returns the study's samples.
+    """
+    seen: list[str] = []
+
+    def fake_request(config, *, endpoint, method, requestBody, queryParameters):
+        text = requestBody.get("filter_searchText") or ""
+        seen.append(text)
+        return _hit(9) if text == "40449485" else _empty()
+
+    monkeypatch.setattr(api, "tool_nextseek_api_request", fake_request)
+
+    plan, result = _retry_advanced_search_if_empty(
+        None, _plan(keywords=["PMID 40449485"]), _api_plan("PMID 40449485"), _empty()
+    )
+
+    assert seen[0] == "40449485", seen
+    assert not any(" OR " in text for text in seen), seen
+    assert all(text.lower() != "pmid" for text in seen), "the label is not a search term"
+    assert plan["requestBody"]["filter_searchText"] == "40449485"
+    assert result["data"]["total"] == 9
+
+
+def test_a_doi_is_extracted_from_its_label_too():
+    from chat_nextseek.helpers.tools.nextseek_api import _identifier_terms
+
+    assert _identifier_terms("DOI: 10.1016/j.immuni.2025.05.004") == ["10.1016/j.immuni.2025.05.004"]
+    assert _identifier_terms("PMID 40449485") == ["40449485"]
+    assert _identifier_terms("pmid: 40449485,") == ["40449485"]
+    assert _identifier_terms("find tissue samples") == []
+    assert _identifier_terms("") == []
 
 
 def test_the_ceiling_does_not_apply_when_the_original_search_was_unfiltered(monkeypatch):

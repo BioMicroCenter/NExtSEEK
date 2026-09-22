@@ -69,8 +69,8 @@ def read_nessie_summary(repo_root: Path) -> dict | None:
 
 def render_nessie_section(summary: dict) -> list[str]:
     """The CI record's Nessie section: one row per question (route, source, the
-    path it took, seconds, cost, status, task id), then the spend, and on a
-    failure the kept chat and the evidence folder."""
+    path it took, seconds, cost, status, task id), then the spend, the kept chat
+    (kept on a pass too), and on a failure the evidence folder."""
     lines = ["## Nessie", "",
              "| question | route | source | path | seconds | cost | status | task |",
              "|---|---|---|---|---|---|---|---|"]
@@ -93,7 +93,9 @@ def render_nessie_section(summary: dict) -> list[str]:
     if summary.get("evidence_dir"):
         lines.append(f"- **Evidence:** `{summary['evidence_dir']}`")
     if summary.get("cleanup_error"):
-        # A passing lane deletes its chat; this is the DELETE that did not work.
+        # What the lane's cleanup could not do: title a passing chat, delete one
+        # (an untitled passing chat, or an older one past the kept number), or
+        # read the sessions list (finish_chat in ci/smoke/test_nessie.py).
         lines.append(f"- **Cleanup failed:** {summary['cleanup_error']}; delete it by hand.")
     return lines + [""]
 
@@ -248,6 +250,7 @@ def write_report(repo_root: Path, *, label: str | None = None,
                  image_ref: str | None = None, image_id: str | None = None,
                  profile: str | None = None, command: list[str] | None = None,
                  health: list[tuple[str, bool, str]] | None = None,
+                 graph_drift: tuple[str, bool, str] | None = None,
                  now: datetime.datetime | None = None,
                  nessie_summary: dict | None = None,
                  nessie_ran: bool = False) -> Path | None:
@@ -259,6 +262,8 @@ def write_report(repo_root: Path, *, label: str | None = None,
 
     `health` is the stack-health step that ran before the suite, as plain
     (name, ok, detail) tuples so this module stays free of startup.steps.
+    `graph_drift` is the post-rebuild drift check in the same shape, or None on a
+    run that did not ask (a prod box, a component rebuild, a stack that was down).
 
     `nessie_ran` says the Nessie lane was on for this run, and `nessie_summary` is
     what read_nessie_summary returned (a summary implies the lane ran). Whenever
@@ -328,6 +333,13 @@ def write_report(repo_root: Path, *, label: str | None = None,
         lines += ["## Stack health", ""]
         lines += [f"- {'✓' if ok else '✗'} **{name}:** {detail}" for name, ok, detail in health]
         lines.append("")
+
+    if graph_drift:
+        # Next to stack health because it is the same kind of statement: what was
+        # true of this box before the suite was asked anything.
+        drift_name, drift_ok, drift_detail = graph_drift
+        lines += ["## Graph drift", "",
+                  f"- {'✓' if drift_ok else '✗'} **{drift_name}:** {drift_detail}", ""]
 
     if nessie_summary:
         lines += render_nessie_section(nessie_summary)

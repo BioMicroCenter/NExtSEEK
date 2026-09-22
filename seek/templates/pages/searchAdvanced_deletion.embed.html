@@ -30,8 +30,9 @@
                 msg: 'Deleting samples ...'
             });
 
-            $.get(url_delete, {
-                'alluids': alluids
+            $.post(url_delete, {
+                'alluids': alluids,
+                'csrfmiddlewaretoken': '{{ csrf_token }}'
             }, function(data) {
                 $.messager.progress('close');
                 var obj = jQuery.parseJSON(data);

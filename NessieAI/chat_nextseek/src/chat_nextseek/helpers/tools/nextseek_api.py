@@ -8,7 +8,9 @@ from typing import Any
 
 import requests
 
+from ...chat_memory import MEMORY_WINDOW
 from ...config import ChatConfig
+from ...cypher_text import mask_cypher
 from ...session import SessionState
 from ..results import DEFAULT_API_PAGE_SIZE
 
@@ -39,6 +41,7 @@ _READ_POST_PATHS = frozenset({
     "/nextseek_api/admin/samples/retrieve/",
     "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
     "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/samples/graph_search/",
 })
 
 
@@ -267,14 +270,168 @@ def fix_sample_endpoint(plan: dict) -> dict:
     return plan
 
 
-def build_recent_results_summary(session: SessionState, max_results: int = 8) -> str:
+#: Request fields that page or format a result rather than constrain it.
+_NON_PREDICATE_KEYS = frozenset({"page", "page_size", "limit", "offset", "format", "ordering"})
+
+#: The longest predicate one summary line carries; a longer one is cut and ends in "…".
+PREDICATE_MAX_CHARS = 240
+
+#: A list-valued filter shows this many values, then how many more there were.
+PREDICATE_MAX_LIST = 5
+
+_RETURN_RE = re.compile(r"\bRETURN\b", re.IGNORECASE)
+
+
+def _is_empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _compact_value(value: Any) -> Any:
+    if isinstance(value, list) and len(value) > PREDICATE_MAX_LIST:
+        return value[:PREDICATE_MAX_LIST] + [f"+{len(value) - PREDICATE_MAX_LIST} more"]
+    return value
+
+
+def _cut(text: str) -> str:
+    return text if len(text) <= PREDICATE_MAX_CHARS else text[: PREDICATE_MAX_CHARS - 1] + "…"
+
+
+def _rest_predicate(bundle: dict) -> dict[str, Any]:
+    """The filter fields a REST search sent: query parameters and request body, paging and empties dropped.
+
+    The bundle's top-level ``request_body``/``query_params`` are what ran (after the
+    retry ladder, whose substituted search is the body it keeps); an older bundle
+    without them still has the api_plan's copy.
+    """
+    api_plan = bundle.get("api_plan") if isinstance(bundle.get("api_plan"), dict) else {}
+    params = bundle.get("query_params") or api_plan.get("queryParameters") or {}
+    body = bundle.get("request_body") or api_plan.get("requestBody") or {}
+    predicate: dict[str, Any] = {}
+    for source in (params, body):
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            if key in _NON_PREDICATE_KEYS or _is_empty(value):
+                continue
+            predicate[key] = _compact_value(value)
+    return predicate
+
+
+def _graph_predicate(graph_plan: Any) -> tuple[str | None, dict[str, Any]]:
+    """A graph query's Cypher up to its final RETURN, and its parameters.
+
+    This is the query as the graph agent wrote it, before the tool inserted the
+    caller's project scope: the scope is who asked, not what was asked. What comes
+    after RETURN (the projection, ORDER BY, LIMIT) shapes the rows but constrains
+    nothing. The cut is found on the masked text, so a RETURN inside a string literal
+    or a backticked name is not mistaken for the clause.
+    """
+    if not isinstance(graph_plan, dict):
+        return None, {}
+    cypher = graph_plan.get("cypher")
+    if not isinstance(cypher, str) or not cypher.strip():
+        return None, {}
+    returns = list(_RETURN_RE.finditer(mask_cypher(cypher)))
+    head = cypher[: returns[-1].start()] if returns else cypher
+    head = " ".join(head.split())
+    params = graph_plan.get("parameters") if isinstance(graph_plan.get("parameters"), dict) else {}
+    params = {k: _compact_value(v) for k, v in params.items() if not _is_empty(v)}
+    return (head or None), params
+
+
+def _bundle_predicate(bundle: dict) -> str | None:
+    """``predicate=...`` for one summary line, or None when the bundle ran no search.
+
+    A graph query's predicate is its Cypher; a REST search's is the filters it sent.
+    A planner bundle can hold both and shows the REST one, as its ``endpoint`` does.
+    """
+    rest = _rest_predicate(bundle)
+    cypher, params = _graph_predicate(bundle.get("graph_plan"))
+    if cypher and (bundle.get("mode") == "graph_query" or not rest):
+        text = "predicate=" + json.dumps(_cut(cypher), ensure_ascii=False)
+        if params:
+            text += " params=" + json.dumps(params, ensure_ascii=False, default=str)
+        return text
+    if rest:
+        return "predicate=" + _cut(json.dumps(rest, ensure_ascii=False, default=str))
+    return None
+
+
+#: A one-row result with at most this many columns, every one a number, is an aggregate
+#: (``RETURN count(s) AS n``): its total is one row, and the number asked for is in it.
+_AGGREGATE_MAX_COLUMNS = 6
+
+
+def _first_not_none(data: dict, keys: tuple[str, ...]) -> Any:
+    """The first of ``keys`` that is present and not None: a total of 0 is an answer."""
+    for key in keys:
+        if data.get(key) is not None:
+            return data[key]
+    return None
+
+
+def _graph_total(graph_result: dict) -> Any:
+    """The real total of a graph result, never a capped row count passed off as one.
+
+    ``total`` is the row total the tool probes past a LIMIT; ``count`` is the rows
+    returned, and all a planner graph step records. When the result hit its LIMIT and
+    the probe failed, the count is only a floor.
+    """
+    total = graph_result.get("total")
+    if total is not None:
+        return total
+    count = graph_result.get("count")
+    if count is not None and graph_result.get("truncated"):
+        return f"at least {count} (capped)"
+    return count
+
+
+def _aggregate_values(graph_result: dict) -> dict | None:
+    rows = graph_result.get("data")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    row = rows[0]
+    if not row or len(row) > _AGGREGATE_MAX_COLUMNS:
+        return None
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in row.values()):
+        return row
+    return None
+
+
+def _bundle_total(bundle: dict) -> tuple[Any, dict | None]:
+    """``(total, aggregate row or None)`` for one summary line.
+
+    A graph turn keeps its result in ``graph_result``; only a REST turn writes
+    ``api_result_slim``, so reading the slim copy alone gave every graph bundle
+    total=None.
+    """
+    graph_result = bundle.get("graph_result")
+    if isinstance(graph_result, dict) and graph_result:
+        return _graph_total(graph_result), _aggregate_values(graph_result)
+    slim = bundle.get("api_result_slim")
+    if not isinstance(slim, dict):
+        return None, None
+    total = slim.get("total")
+    if total is None and isinstance(slim.get("data"), dict):
+        total = _first_not_none(slim["data"], ("total", "total_samples", "total_nodes"))
+    return total, None
+
+
+def build_recent_results_summary(session: SessionState, max_results: int = MEMORY_WINDOW) -> str:
     """
     Build a short summary of recent result bundles for prompt conditioning.
-    Includes bundle IDs, user queries, endpoints, and totals to guide refinement or follow-up questions.
+    Includes bundle IDs, user queries, endpoints, totals and the predicate each search
+    ran, to guide refinement or follow-up questions.
 
-    Now defaults to 8 bundles (up from 3) — long sessions hit a recall cliff if older
-    bundles fall out of view. Parser can then pick `target_result_id` for any bundle
-    in the visible window when the user uses "first", "originally", "earlier", etc.
+    Defaults to `chat_memory.MEMORY_WINDOW` bundles (8, up from 3) — long sessions hit
+    a recall cliff if older bundles fall out of view — the same window the parser's
+    chat log shows. Parser can then pick `target_result_id` for any bundle in the
+    visible window when the user uses "first", "originally", "earlier", etc.
+
+    The predicate is what lets a follow-up know what the previous search constrained
+    (and tell two searches of the same endpoint apart): the filters a REST search sent,
+    the Cypher up to RETURN plus its parameters for a graph query. It is the last
+    field on the line and is capped (``PREDICATE_MAX_CHARS``, ``PREDICATE_MAX_LIST``).
     """
     history = session.get("results_history", [])
     if not history:
@@ -285,23 +442,20 @@ def build_recent_results_summary(session: SessionState, max_results: int = 8) ->
         f"Recent results (most recent first; {len(visible)} of {len(history)} bundles shown):"
     ]
     for bundle in reversed(visible):
-        total = None
-        data = bundle.get("api_result_slim", {})
-        if isinstance(data, dict):
-            total = data.get("total")
-            if total is None and isinstance(data.get("data"), dict):
-                total = (
-                    data["data"].get("total")
-                    or data["data"].get("total_samples")
-                    or data["data"].get("total_nodes")
-                )
-        lines.append(
+        total, values = _bundle_total(bundle)
+        line = (
             f"- id={bundle.get('id')}, "
             f"mode={bundle.get('mode')}, "
             f"query={bundle.get('user_query')!r}, "
             f"endpoint={bundle.get('endpoint')}, "
             f"total={total}"
         )
+        if values:
+            line += ", values=" + json.dumps(values, ensure_ascii=False, default=str)
+        predicate = _bundle_predicate(bundle)
+        if predicate:
+            line += f", {predicate}"
+        lines.append(line)
     if len(history) > max_results:
         lines.append(
             f"(NOTE: {len(history) - max_results} older bundle(s) exist but are not shown. "
@@ -364,16 +518,40 @@ def _retry_terms(plan: dict, api_plan: dict) -> list[str]:
     deduped in order. Sourcing from the sent filter_searchText (and lab_codes) — not
     filters.keywords alone — lets a lab-scoped search whose 3-letter code the api_agent
     fused with other terms (e.g. "KAM MetNet") fall back to the code alone ("KAM")."""
+    return [term for term, _kind in _retry_terms_with_kind(plan, api_plan)]
+
+
+def _retry_terms_with_kind(plan: dict, api_plan: dict) -> list[tuple[str, str]]:
+    """``_retry_terms`` with each term's kind: ``identifier``, ``lab_code`` or ``keyword``.
+
+    The kind decides what the ladder may do with a term. A lab code is a conjunctive
+    constraint, so ORing it with anything can only add other labs' samples; an
+    identifier names one study, so a rung that drops it answers a different question.
+    """
     filters = plan.get("filters") or {}
     sent = ((api_plan.get("requestBody") or {}).get("filter_searchText") or "")
-    candidates = list(_split_retry_keyword(sent)) if sent else []
-    candidates += [k for k in (filters.get("keywords") or []) if isinstance(k, str)]
-    candidates += [c for c in (filters.get("lab_codes") or []) if isinstance(c, str)]
-    out: list[str] = []
-    for term in candidates:
-        term = term.strip()
-        if term and term not in out:
-            out.append(term)
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    def _add(term: str, kind: str) -> None:
+        term = (term or "").strip()
+        if term and term not in seen:
+            seen.add(term)
+            out.append((term, kind))
+
+    # Identifiers first: they are the most specific thing the question carried.
+    for source in (sent, *(k for k in (filters.get("keywords") or []) if isinstance(k, str))):
+        for value in _identifier_terms(source):
+            _add(value, "identifier")
+    for code in (filters.get("lab_codes") or []):
+        if isinstance(code, str):
+            _add(code, "lab_code")
+    if sent:
+        for term in _split_retry_keyword(sent):
+            _add(term, "keyword")
+    for keyword in (filters.get("keywords") or []):
+        if isinstance(keyword, str):
+            _add(keyword, "keyword")
     return out
 
 
@@ -411,6 +589,30 @@ RETRY_SINGLE_TOTAL_CEILING = 200
 _USELESS_RETRY_TOKEN_RE = re.compile(r"^(?:\d+|PUB\d*)$", re.IGNORECASE)
 
 
+#: A publication identifier written with its label. The value is what is stored on the
+#: samples; the label is not stored anywhere.
+_IDENTIFIER_LABEL_RE = re.compile(r"\b(?:pmid|pubmed(?:\s*id)?|doi|pmcid)\b[\s:#=]*([^\s,;]+)", re.IGNORECASE)
+
+
+def _identifier_terms(text: str) -> list[str]:
+    """The values of any labelled publication identifiers in a search string.
+
+    A question naming a PMID is sent as the label and the number together, and the
+    stored value is the number alone, so the search matches nothing. The ladder then
+    drops the number -- a purely numeric token is UID structure, not a search term --
+    and keeps the word "PMID", which matched unrelated rows and served them as the
+    answer. Measured on the production case: the identifier is on every sample row of
+    the study, and a search for the bare value returns exactly the set the graph's
+    study lookup does.
+    """
+    out: list[str] = []
+    for match in _IDENTIFIER_LABEL_RE.finditer(text or ""):
+        value = match.group(1).strip(".,;:")
+        if value and value.lower() not in ("pmid", "doi", "pmcid") and value not in out:
+            out.append(value)
+    return out
+
+
 def _is_useful_retry_token(term: str) -> bool:
     """A retry term must be at least 3 characters and not a bare increment or PUB suffix."""
     return len(term) >= 3 and not _USELESS_RETRY_TOKEN_RE.match(term)
@@ -444,18 +646,42 @@ def _has_expandable_keyword(keywords: list[str]) -> bool:
     return any(len(_split_retry_keyword(k)) > 1 for k in keywords if isinstance(k, str))
 
 
-def _advanced_search_retry_attempts(keywords: list[str]) -> list[tuple[str, str]]:
+def _advanced_search_retry_attempts(
+    keywords: list[str], kinds: dict[str, str] | None = None,
+) -> list[tuple[str, str]]:
     """
     Generate labeled keyword variants for retrying advanced_search.
     Produces OR-joined and single-keyword attempts so the API gets multiple matching chances.
     Also handles single-keyword retries (e.g. after a timeout on the first attempt).
+
+    ``kinds`` maps a term to ``identifier``, ``lab_code`` or ``keyword``. Two rungs are
+    withheld when it is supplied:
+
+    * an identifier is tried alone and never ORed. A question naming a PMID was
+      answered from a search for the word "PMID" after the number was dropped;
+    * an OR rung is not built for a set spanning more than one kind. A lab code is a
+      conjunctive constraint, and ORing it with a project name returned rows from the
+      project rather than the lab -- right only by luck, because the other term
+      happened to match nothing of the requested type.
+
+    With no ``kinds`` every term is a keyword and the ladder is what it was.
     """
     kws = [k.strip() for k in keywords if isinstance(k, str) and k.strip()]
     if not kws:
         return []
+    kinds = kinds or {}
+    identifiers = [k for k in kws if kinds.get(k) == "identifier"]
+    lab_codes = [k for k in kws if kinds.get(k) == "lab_code"]
+    mixed = len({kinds.get(k, "keyword") for k in kws}) > 1
 
     attempts: list[tuple[str, str]] = []
-    if len(kws) >= 2:
+    # Most specific first: the identifier that names one study, then the lab code.
+    attempts.extend(("SINGLE", term) for term in identifiers)
+    attempts.extend(("SINGLE", term) for term in lab_codes)
+
+    if identifiers or mixed:
+        pass  # no OR rung: it would drop or dilute the constraint that carries the question
+    elif len(kws) >= 2:
         attempts.append(("OR", " OR ".join(kws)))
     elif len(kws) == 1:
         split_terms = _split_retry_keyword(kws[0])
@@ -483,12 +709,14 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
     if not _should_retry_advanced_search(plan, api_plan, api_result_full):
         return api_plan, api_result_full
 
-    terms = _retry_terms(plan, api_plan)
+    terms_with_kind = _retry_terms_with_kind(plan, api_plan)
+    terms = [t for t, _ in terms_with_kind]
+    kinds = dict(terms_with_kind)
     base_body = dict(api_plan.get("requestBody") or {})
     original_search = (base_body.get("filter_searchText") or "").strip()
     unfiltered = _original_search_was_unfiltered(api_plan)
 
-    for label, search_text in _advanced_search_retry_attempts(terms):
+    for label, search_text in _advanced_search_retry_attempts(terms, kinds):
         retry_body = dict(base_body)
         retry_body["filter_searchText"] = search_text
 
@@ -509,11 +737,16 @@ def _retry_advanced_search_if_empty(config: ChatConfig, plan: dict, api_plan: di
             # A single leftover token that matches a large slice of the database is
             # the ladder falling off the bottom, not an answer. Task 797 "succeeded"
             # on the term "1" with 2,057 rows for a two-UID question.
-            if label == "SINGLE" and not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
+            # F4: every rung, not only SINGLE. The previous rule read "the ceiling guards
+            # degradation to one token, not a legitimate broad OR", which left the rung
+            # that actually substituted a different question unguarded. Any rung here is
+            # already a substitution of the user's terms, and a substitution matching
+            # this much of the database is not an answer to a filtered question.
+            if not unfiltered and (total or 0) > RETRY_SINGLE_TOTAL_CEILING:
                 print(
                     f"[DEBUG][API][RETRY] Rejecting {label}: filter_searchText={search_text!r} "
                     f"total={total} exceeds ceiling {RETRY_SINGLE_TOTAL_CEILING}; "
-                    "a single leftover term is not an answer to a filtered question"
+                    "a substituted search is not an answer to a filtered question"
                 )
                 continue
 

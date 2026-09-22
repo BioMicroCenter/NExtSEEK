@@ -23,7 +23,15 @@ EXIT_CODES = """exit codes
   7  --bayesian: could not talk to --base-url. Any completed arms are on disk.
   8  --bayesian: refused, --resume was given but --out holds no paired run to
      continue. Nothing was billed.
+  9  --tier full: refused, the bundle reader cannot read here (on the host,
+     Django is not installed), or it reads a different instance's database from
+     the one --base-url names. Nothing was billed. Run it in the app container of
+     the instance --base-url names.
 """
+
+# Its own code, not 1: 1 means "the product failed a case", and this run never
+# asked the product anything.
+EXIT_BUNDLE_READER_UNAVAILABLE = 9
 
 # The default per-turn deadline. It is a named constant so the parser's help and
 # this module agree on one value; it is NOT how the mutual-exclusion checks tell a
@@ -53,6 +61,12 @@ _SELECTION_FLAGS = (
 _PAIRED_ONLY_FLAGS = (
     ("--max-usd", "max_usd"), ("--resume", "resume"), ("--full-timeout", "full_timeout"),
 )
+# The route and parser forces of a normal run. `--bayesian` forces both routes
+# itself, so it refuses these as it refuses a second selection source.
+_FORCE_FLAGS = (
+    ("--force-route", "force_route"), ("--force-parser-mode", "force_parser_mode"),
+    ("--prompt-variant", "prompt_variant"),
+)
 
 
 def _supplied_flags(argv) -> set[str]:
@@ -73,7 +87,7 @@ def _supplied_flags(argv) -> set[str]:
     it. The first parse in `main` has already accepted this argv, so this parse
     cannot be the one that errors.
     """
-    watched = {dest for _name, dest in _SELECTION_FLAGS + _PAIRED_ONLY_FLAGS}
+    watched = {dest for _name, dest in _SELECTION_FLAGS + _PAIRED_ONLY_FLAGS + _FORCE_FLAGS}
     p = build_parser()
     p.set_defaults(**{d: _NOT_SUPPLIED for d in watched})
     seen = p.parse_args(argv)
@@ -120,6 +134,20 @@ def build_parser() -> argparse.ArgumentParser:
                         "already recorded there is skipped rather than repaid.")
     p.add_argument("--full-timeout", type=float, default=FULL_TIMEOUT_DEFAULT_S,
                    help="--bayesian only. Per-turn deadline in seconds for full-depth turns.")
+    p.add_argument("--force-route", choices=["ns", "cc"], default=None,
+                   help="Normal run only. Force every turn to one engine instead of the "
+                        "router. Admin-only server side: a non-superuser's value is dropped "
+                        "silently. The route criteria are stripped, as on any forced arm.")
+    p.add_argument("--force-parser-mode", choices=["graph", "api"], default=None,
+                   help="Normal run only, with --force-route ns. Evaluation only: force the "
+                        "NS parser to the graph or the API path. Honoured only for a "
+                        "superuser on a server that sets NEXTSEEK_EVAL_PARSER_FORCE=1, and "
+                        "ignored without a word otherwise.")
+    p.add_argument("--prompt-variant", choices=list(runner.PROMPT_VARIANTS), default=None,
+                   help="Normal run only, with --force-route ns. Evaluation only: run every turn "
+                        "on that alternative prompt set (chat_nextseek/prompts/variants/<name>/), "
+                        "with or without --force-parser-mode. Same gate as --force-parser-mode; "
+                        "the turn's debug.prompt_variant says whether it landed.")
     return p
 
 
@@ -145,6 +173,11 @@ def _run_bayesian(a, auth, supplied) -> int:
         build_parser().error(
             f"--bayesian selects on the corpus's is_bayesian flag and cannot be "
             f"combined with {', '.join(conflicting)}.")
+    forced = [name for name, dest in _FORCE_FLAGS if dest in supplied]
+    if forced:
+        build_parser().error(
+            f"--bayesian forces both routes itself and cannot be combined with "
+            f"{', '.join(forced)}.")
 
     from NessieAI.tests.nessie_tests import bayes_manifest, bayesian, preflight
     try:
@@ -244,17 +277,38 @@ def main(argv=None) -> int:
         build_parser().error(
             f"{', '.join(paired_only)} only applies to --bayesian; a normal run has "
             f"no budget ceiling, no resume and no per-turn deadline.")
+    if a.force_parser_mode and a.force_route != "ns":
+        build_parser().error(
+            "--force-parser-mode needs --force-route ns: the switch lives in the NS "
+            "parser, and an unforced turn may be routed to Container-CC, where the field "
+            "is ignored without a word.")
+    if a.prompt_variant and a.force_route != "ns":
+        build_parser().error(
+            "--prompt-variant needs --force-route ns: the variant changes the NS agents' "
+            "prompts, and an unforced turn may be routed to Container-CC, where the field is "
+            "ignored without a word.")
 
     bundle_reader = None
     if a.tier == "full":
+        # Configures Django itself when nothing has (bundle.ensure_django), and the
+        # runner proves it can read before the first turn (runner.check_bundle_reader).
         from NessieAI.tests.nessie_tests.bundle import summary_for_session
         bundle_reader = summary_for_session
     run_consistency = a.consistency or (a.tier == "full")
-    manifest = runner.run_suite(
-        base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
-        family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
-        out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
-        run_consistency=run_consistency, sample=a.sample, seed=a.seed)
+    try:
+        manifest = runner.run_suite(
+            base_url=a.base_url, auth_header=auth, tier=a.tier, scope=a.scope,
+            family=a.family, variant_id=a.variant, corpus_path=_CORPUS,
+            out_dir=a.out, bundle_reader=bundle_reader, pace_s=a.pace,
+            run_consistency=run_consistency, sample=a.sample, seed=a.seed,
+            force_route=a.force_route, force_parser_mode=a.force_parser_mode,
+            prompt_variant=a.prompt_variant)
+    except runner.BundleReaderUnavailable as e:
+        print(f"nessie: {e}")
+        print(f"nessie: exit {EXIT_BUNDLE_READER_UNAVAILABLE}. The full tier works inside the "
+              f"app container of the instance --base-url names: "
+              f"`docker exec nextseek uv run manage.py nessie --tier full ...`.")
+        return EXIT_BUNDLE_READER_UNAVAILABLE
     summary = runner.classify_entries(manifest)
     fails = runner.gate_failed(manifest)
     # Outages get their own clause rather than vanishing: they are excluded from

@@ -4,6 +4,7 @@
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-filter.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/easyui/datagrid-export.js"></script>
 <script type="text/javascript" src="{{STATIC_URL}}js/custom/datagrid-custom.js"></script>
+{% include "pages/sampleSearch_core.embed.html" %}
 
 <style type="text/css">
   .datagrid-row-alt{
@@ -52,6 +53,188 @@ $(document).ready(function () {
 		}
 	});
 });
+
+/* Both search boxes are answered by POST /nextseek_api/samples/graph_search/, a page at a
+   time: SampleSearchCore (pages/sampleSearch_core.embed.html) builds each box's request and
+   the rows the grid shows. nsSearchState[key] keeps the last search of a box ('simple' or
+   'advanced'), so its pager (#<key>_pager) can ask for another page of it. The grids hold
+   one page with their own pagination off: datagrid-filter.js pages a grid by slicing the
+   rows it already holds, which would empty every page after the first. */
+var nsSearchState = {};
+
+function nsCsrfToken() {
+	var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+	return m ? decodeURIComponent(m[1]) : '';
+}
+
+/* The page sizes both pagers offer: one page of graph_search's maximum, or ALL.
+   graph_search caps page_size at 1,000 (nextseek_api/graph_search/query.py, MAX_PAGE_SIZE),
+   so ALL cannot be one request: nsSearchAllRest reads page after page of NS_MAX_PAGE_SIZE
+   and loads them into the grid together. NS_ALL_PAGE_SIZE is only the value of the pager's
+   ALL option and is never sent as a page_size; it is large enough that the pager reads a
+   loaded result as one page ("Page 1 of 1", "Displaying 1 to <total> of <total> items").
+   Past NS_ALL_CONFIRM_AT rows that is many requests and a DOM of that many rows, so ALL
+   asks first. */
+var NS_MAX_PAGE_SIZE = 1000;
+var NS_ALL_PAGE_SIZE = 1000000;
+var NS_ALL_CONFIRM_AT = 10000;
+
+function nsSearchPageSize(key) {
+	return $('#' + key + '_pager').pagination('options').pageSize || NS_MAX_PAGE_SIZE;
+}
+
+function nsIsAllPageSize(size) {
+	return Number(size) >= NS_ALL_PAGE_SIZE;
+}
+
+/* easyui builds the page-size options from pageList, each labelled by its own number, and
+   rebuilds them on every pagination(...) call. This relabels the NS_ALL_PAGE_SIZE option
+   "ALL": the value attribute keeps the number the pager reads back out of the select
+   (jquery.easyui.min.js, select.pagination-page-list), the text is what the person sees. */
+function nsLabelAllOption(key) {
+	$('#' + key + '_pager').find('select.pagination-page-list > option').each(function () {
+		var option = $(this);
+		if (option.val() === String(NS_ALL_PAGE_SIZE)) {
+			option.attr('value', NS_ALL_PAGE_SIZE).text('ALL');
+		}
+	});
+}
+
+$(document).ready(function () {
+	nsLabelAllOption('simple');
+	nsLabelAllOption('advanced');
+});
+
+function nsSearchFetch(body, page, size) {
+	return fetch(SampleSearchCore.searchUrl(page, size), {
+		method: 'POST',
+		credentials: 'same-origin',
+		headers: { 'Content-Type': 'application/json', 'X-CSRFToken': nsCsrfToken() },
+		body: JSON.stringify(body)
+	}).then(function (resp) {
+		return resp.json().catch(function () { return null; }).then(function (payload) {
+			return { resp: resp, payload: payload };
+		});
+	});
+}
+
+/* The text of the open progress dialog, so the ALL loop can say how far it has read. */
+function nsProgressMsg(text) {
+	$('body > div.messager-window').find('div.messager-p-msg').text(text);
+}
+
+/* A box's grid and pager after a search: the rows it now holds, and the size the pager
+   reads as the page size -- NS_ALL_PAGE_SIZE once ALL has loaded everything, so the pager
+   reads those rows as the whole result. */
+function nsSearchShow(key, rows, data, page, size) {
+	$('#' + key + '_dgtable').datagrid('loadData', rows);
+	$('#' + key + '_pager').pagination({ total: data.total, pageNumber: page, pageSize: size });
+	nsLabelAllOption(key);
+	if (key === 'advanced') {
+		document.getElementById('numberSamplesFound').innerHTML = data.total;
+		document.getElementById('numberSampleTypesFound').innerHTML = data.noSampleTypes;
+	}
+}
+
+function nsSearchRun(key, built, page, size) {
+	if (built.error) {
+		alert(built.error);
+		return;
+	}
+	var state = nsSearchState[key] = nsSearchState[key] || { seq: 0 };
+	state.body = built.body;
+	state.highlight = built.highlight;
+	var seq = ++state.seq;
+	// ALL starts at the first page of graph_search's maximum: that page carries the total
+	// this needs to know how many more pages to read.
+	var all = nsIsAllPageSize(size);
+	var askPage = all ? 1 : page;
+	var askSize = all ? NS_MAX_PAGE_SIZE : size;
+	$.messager.progress({
+		title: 'Please waiting',
+		msg: 'Searching for samples...'
+	});
+	nsSearchFetch(state.body, askPage, askSize).then(function (r) {
+		if (seq !== state.seq) { return; }  // a newer search of this box has been sent
+		if (!r.resp.ok || !r.payload) {
+			$.messager.progress('close');
+			alert(SampleSearchCore.errorText(r.resp.status, r.payload));
+			return;
+		}
+		var data = r.payload;
+		var rows = SampleSearchCore.prepareRows(data.rows, state.highlight);
+		if (all && data.total > rows.length) {
+			nsSearchAllRest(key, seq, rows, data);
+			return;
+		}
+		$.messager.progress('close');
+		nsSearchShow(key, rows, data, askPage, all ? NS_ALL_PAGE_SIZE : size);
+	}).catch(function (err) {
+		$.messager.progress('close');
+		alert('The search failed: ' + err);
+	});
+}
+
+/* ALL, for a result larger than one graph_search page: the pages after the first, read one
+   after another into the rows the first page gave. A request that fails, and a No to the
+   confirmation, leave the grid on what has been read so far at the 1,000 page size. */
+function nsSearchAllRest(key, seq, rows, first) {
+	var state = nsSearchState[key];
+	var total = first.total;
+	var pages = Math.ceil(total / NS_MAX_PAGE_SIZE);
+
+	function stop(size) {
+		$.messager.progress('close');
+		nsSearchShow(key, rows, first, 1, size);
+	}
+
+	function step(page) {
+		if (seq !== state.seq) { return; }
+		if (page > pages) {
+			stop(NS_ALL_PAGE_SIZE);
+			return;
+		}
+		nsProgressMsg('Loading ' + rows.length + ' of ' + total + ' samples...');
+		nsSearchFetch(state.body, page, NS_MAX_PAGE_SIZE).then(function (r) {
+			if (seq !== state.seq) { return; }
+			if (!r.resp.ok || !r.payload) {
+				stop(NS_MAX_PAGE_SIZE);
+				alert(SampleSearchCore.errorText(r.resp.status, r.payload));
+				return;
+			}
+			rows = rows.concat(SampleSearchCore.prepareRows(r.payload.rows, state.highlight));
+			step(page + 1);
+		}).catch(function (err) {
+			stop(NS_MAX_PAGE_SIZE);
+			alert('The search failed: ' + err);
+		});
+	}
+
+	if (total > NS_ALL_CONFIRM_AT) {
+		$.messager.progress('close');
+		$.messager.confirm('Load ALL results',
+			'This search matches ' + total + ' samples. Loading all of them takes ' + pages
+			+ ' requests and leaves the page slow to scroll and filter. Load them all?',
+			function (yes) {
+				if (seq !== state.seq) { return; }
+				if (!yes) {
+					nsSearchShow(key, rows, first, 1, NS_MAX_PAGE_SIZE);
+					return;
+				}
+				$.messager.progress({ title: 'Please waiting', msg: 'Loading 0 of ' + total + ' samples...' });
+				step(2);
+			});
+		return;
+	}
+	step(2);
+}
+
+/* A pager's onSelectPage: another page, or another page size, of the box's last search. */
+function nsSearchPage(key, page, size) {
+	var state = nsSearchState[key];
+	if (!state || !state.body) { return; }
+	nsSearchRun(key, { body: state.body, highlight: state.highlight }, page, size);
+}
 
 $(document).ready(function(){
     $('#advanced_dgtable').datagrid({
@@ -218,49 +401,63 @@ $(function(){
 </div>
 
 <script>
-// Mobile Sample Search bridge — hits the same GET /seek/searchAdvanced/ that
-// the desktop EasyUI grid uses (see seek/templates/pages/searchAdvanced_search.embed.html).
-// Renders the JSON rows into a tappable card list.
+// Mobile Sample Search bridge. Sends its keyword, read like the Advanced box's query
+// text, and its sample type to POST /nextseek_api/samples/graph_search/ (see
+// nsSearchRun above), and renders the first page of rows into a tappable card list.
 function runMobileSearch() {
     var kw = document.getElementById('m_keyword').value.trim();
     var st = document.getElementById('m_sampletype').value || '0';
     var match = document.getElementById('m_match').value || 'PARTIAL';
     if (!kw) { return; }
-    var params = new URLSearchParams({
-        sampletype_id: st,
-        attribute: 'none',
-        filter_logic: 'AND',
-        filter_searchValue: kw,
-        filter_searchText: kw,
-        filter_matchType: match
-    });
     var list = document.getElementById('m_results');
     var count = document.getElementById('m_result_count');
+    // Cap rendered rows on mobile — DOM with thousands of nodes is unusable on phone.
+    // One page of this size is all that is asked for.
+    var MOBILE_RENDER_CAP = 100;
+    var built = SampleSearchCore.queryBody({
+        text: kw,
+        matchType: match,
+        sampletype: SampleSearchCore.typeTitle(type_options, st)
+    });
+    if (built.error) {
+        count.textContent = 'Sample Search';
+        list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>' + escapeMobileHtml(built.error) + '</em></li>';
+        return;
+    }
     list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>Searching…</em></li>';
 
-    fetch('/seek/searchAdvanced/?' + params.toString(), { credentials: 'same-origin' })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (data.status !== 1) {
+    fetch(SampleSearchCore.searchUrl(1, MOBILE_RENDER_CAP), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': nsCsrfToken() },
+        body: JSON.stringify(built.body)
+    })
+        .then(function (r) {
+            return r.json().catch(function () { return null; }).then(function (payload) {
+                return { resp: r, data: payload };
+            });
+        })
+        .then(function (res) {
+            var data = res.data;
+            if (!res.resp.ok || !data) {
                 count.textContent = 'Sample Search';
-                list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>' + escapeMobileHtml(data.msg || 'Search failed') + '</em></li>';
+                list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>' + escapeMobileHtml(SampleSearchCore.errorText(res.resp.status, data)) + '</em></li>';
                 return;
             }
-            var rows = data.rows || [];
+            var rows = (data.rows || []).map(function (row) {
+                row.attributeValue = SampleSearchCore.attributeValueHtml(row.json_metadata, built.highlight);
+                return row;
+            });
             var total = data.total != null ? data.total : rows.length;
-            // Cap rendered rows on mobile — DOM with thousands of nodes is unusable on phone.
-            // Desktop EasyUI grid handles pagination natively; here we keep it simple.
-            var MOBILE_RENDER_CAP = 100;
-            var truncated = rows.length > MOBILE_RENDER_CAP;
-            var renderRows = truncated ? rows.slice(0, MOBILE_RENDER_CAP) : rows;
+            var truncated = total > rows.length;
             count.textContent = truncated
-                ? 'Showing ' + MOBILE_RENDER_CAP + ' of ' + total + ' — refine search to narrow'
+                ? 'Showing ' + rows.length + ' of ' + total + ' — refine search to narrow'
                 : total + ' result' + (total === 1 ? '' : 's');
             if (rows.length === 0) {
                 list.innerHTML = '<li class="m-result-row" style="color:var(--ns-muted); border:none;"><em>No matches.</em></li>';
                 return;
             }
-            list.innerHTML = renderRows.map(renderMobileRow).join('');
+            list.innerHTML = rows.map(renderMobileRow).join('');
         })
         .catch(function (err) {
             console.error('mobile search failed', err);

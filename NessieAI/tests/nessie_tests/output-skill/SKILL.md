@@ -26,6 +26,26 @@ Container names (`nextseek`, `seek-mysql`) and the schema (`dmac`) are the same 
 all three. Needs the MIT VPN for dev and prod. Never RUN anything on production (no
 harness, no writes, no re-asked questions): testing goes local, then dev.
 
+## Scoring the replies themselves, offline
+
+A pass rate says nothing about how the answers read. `scripts/reply_style.py` counts
+the machinery in a run's replies -- naming the search that ran, reciting what it was
+constrained by, writing a type both ways, hedging, offering work instead of doing it --
+from a `turns.json` a pull already wrote. It is free and asks no model anything, so a
+prompt change gets a before number from the stored run and an after number from the
+next one.
+
+```bash
+python scripts/reply_style.py <run-dir-or-turns.json> --worst 5
+```
+
+Baseline, the 2026-09-21 40-question re-run (43 NExtSEEK-routed replies): names the
+search 34, recites its constraints 16, writes a type both ways 26, opens with machinery
+17, and 27% of every word is machinery against a median reply of 54 words.
+
+The markers are literal phrasings, not judgement: a marker that never fires is not
+evidence a reply was good. Read the worst offenders by hand.
+
 ## The core insight
 
 **The manifest is not enough to triage.** It records criterion *names*

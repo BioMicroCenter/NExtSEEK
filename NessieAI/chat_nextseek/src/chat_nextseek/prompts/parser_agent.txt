@@ -24,15 +24,19 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
     "sampletypes": [{"code": "string", "name": "string"}],
     "assays": [{"code": "string", "name": "string"}],
     "keywords": ["string"],
-    "projects": ["string"]
+    "projects": ["string"],
+    "labs": ["string"],
+    "lab_codes": ["string"]
   },
   "filters": {
     "sampletype_code": string or null,
     "assay_codes": [string],
     "keywords": [string],
-    "uids": [string]
+    "uids": [string],
+    "lab_codes": [string]
   },
   "target_result_id": int or null,
+  "refine_engine": "graph" | null,
   "endpoint_candidates": [string],
   "notes": string
 }

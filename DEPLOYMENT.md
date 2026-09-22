@@ -71,6 +71,40 @@ Key facts every operator must internalize:
   inside the container instead of exhausting the host. At rest the container
   holds about 6 GiB, so set `NEXTSEEK_MEMORY` in the project-root `.env` well
   above that. A changed cap takes effect when `nextseek` is recreated.
+- The `seek` container is capped the same way at `${SEEK_MEMORY:-4G}`. SEEK's
+  puma workers grow with the requests they serve and never hand the memory
+  back: one reached 10 GiB on a workstation on 2026-09-16 and left the host
+  with nothing free. The kernel kills a runaway worker inside the container
+  instead, and puma respawns it. Raise `SEEK_MEMORY` in the project-root
+  `.env` on a box serving real SEEK traffic; the cap takes effect when `seek`
+  is recreated. The users admin API writes through a fresh `bin/rails runner`
+  in this container, so near the cap that is killed too: the write answers 502
+  and its detail says the runner exited 137.
+- The `neo4j` container is capped at `${NEO4J_MEMORY:-6G}`, its heap and page
+  cache are sized explicitly (`NEO4J_HEAP`, `NEO4J_PAGECACHE`, 2G each), and a
+  single transaction may allocate at most `${NEO4J_TRANSACTION_MAX:-1g}`. Before
+  2026-09-16 none of these were set: the JVM sized its heap from host RAM, and
+  one graph sync transaction at schema 1.2 needed over 512 MiB, which on this
+  service would have grown unchecked. A transaction that asks for more is now
+  killed and reported to its caller instead. Raise the bounds together on a box
+  with a larger graph; the caps take effect when `neo4j` is recreated.
+- Every other long-lived service carries a cap too: `seek_workers`
+  (`${SEEK_WORKERS_MEMORY:-3G}`), `solr` (`${SOLR_MEMORY:-2G}`), `db`
+  (`${SEEK_DB_MEMORY:-2G}`) and `nextseek-sidecar` (`${SIDECAR_MEMORY:-1G}`).
+  Capping only some services moves the kill rather than preventing it: on
+  2026-09-16 `seek` was capped and `seek_workers`, which is the same Rails
+  process with the same leak, was not. The two together held 11.2 GiB across 24
+  `bundle` processes, the host ran out at 29.5 GiB resident, and the kernel
+  killed the operator's desktop instead of a worker.
+- **The defaults are sized for the smallest box we run, and they do not add up
+  to any host.** They bound a single runaway; they do not bound the sum. Every
+  box sets its own values in the project-root `.env`, and a box whose total must
+  fit lowers `NEXTSEEK_MEMORY` first, since 16G is headroom for the search path
+  rather than steady-state need (about 6 GiB at rest). Worked example, a 30 GiB
+  workstation: `NEXTSEEK_MEMORY=10G` with the rest at their defaults totals
+  28G. A 46 GiB box such as fairdata-dev can leave `NEXTSEEK_MEMORY` at 16G and
+  raise `SEEK_WORKERS_MEMORY` instead. Each cap takes effect when its own
+  service is recreated.
 - Asynchronous attribute mutations use Celery's SQLAlchemy transport over
   SQLite at `/var/lib/attribute-broker/broker.sqlite3`. The worker and outbox
   dispatcher share the named `attribute_mutation_broker` volume. Routine
@@ -318,6 +352,7 @@ exits non-zero rather than blocking on a question nobody can answer.
 | `static/` assets | rebuild + recreate, **then** `docker compose exec nextseek uv run manage.py collectstatic --noinput` |
 | `NessieAI/chat_frontend/` React source | `npm run build:embedded` in `NessieAI/chat_frontend/`, commit the emitted assets, then rebuild + recreate + collectstatic |
 | `NessieAI/docker/cc-runtime/**` (agent plugin/skills/CLAUDE.md/deps) | `./startup.sh rebuild --component cc-agent`: next turn uses it; no service restart. Also the recovery command when `dmac-assistant:poc` has been pruned: a first build with no rollback source is announced and allowed, not refused |
+| The six canonical context files in `NessieAI/chat_nextseek/src/chat_nextseek/context/` (`capabilities.md`, `projects_db.json`, the four `min_*.json`; list in `startup/lib/layout.py`) | both `./startup.sh rebuild` and `./startup.sh rebuild --component cc-agent`: the agent image bakes its own copy through the compose named context `chat_nextseek`. Skip the second and every rebuild's stack health fails `cc-agent context`, naming the files, until it is run |
 | `NessieAI/dmac_assistant/baml_src/**` (BAML prompts and schemas) | both `./startup.sh rebuild` (the router client in the app image) and `./startup.sh rebuild --component cc-agent` (the judge client; the agent image reads this tree through the compose named context `dmac_assistant_baml`) |
 | `docker/nextseek.env` / `dmac/local_settings.py` (config only) | no build: `docker compose up -d --no-deps --force-recreate nextseek` |
 | `NessieAI/docker/bedrock-proxy/**` or its secret env | `./startup.sh rebuild --component bedrock-proxy` |
@@ -591,7 +626,8 @@ definition:
 
 1. **Zero shared credentials in the agent env.** The agent gets only:
    Bedrock-via-proxy pointers, per-request SEEK user credentials, sidecar
-   host/port, non-secret path mappings. The 16 forbidden shared-cred keys
+   host/port, non-secret path mappings, and the turn's stop time
+   (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number). The 16 forbidden shared-cred keys
    (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) are enumerated in
    `NessieAI/tests/cc/validate_cc_acceptance.py`; the env
    builder is `NessieAI/cc/cc_engine.py` (`build_agent_environment`), the single source

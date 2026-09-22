@@ -173,7 +173,7 @@ Note that a cross-project export path already exists and is correctly gated:
 
 ## Register
 
-55 routed read endpoints. `permission_classes` values are the declared class list; several
+57 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
@@ -183,16 +183,17 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/redoc/` | `SpectacularRedocView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:63`, #77) | n/a, no data | public-to-authenticated |
 | `GET /nextseek_api/sample-tree/{uid}/tree/` | `SampleTreeViewSet.get_tree` | `IsAuthenticated` (`views.py:109`) | **Yes, added in this branch** (`665a103`): root gate + lineage pruning against `projects_samples`, admin bypass on `is_superuser` alone. Pre-fix: none | project-scoped (done) |
 | `POST /nextseek_api/samples/advanced_search/` | `SampleAdvancedSearchViewSet.create` | `IsAuthenticated` (`services/samples.py:357`) | **None. Deliberately NOT changed** in this branch, see note A | project-scoped (open, blocked) |
+| `POST /nextseek_api/samples/graph_search/` | `GraphSearchViewSet.create` | `IsAuthenticated` (`services/graph_search.py:140`) | **Yes, since it was added (2026-09-14)**: project-scoped through `group_memberships` x `work_groups` over `projects_samples` (`graph_search/scope.py:22-26`, resolved at `services/graph_search.py:270`); superuser unscoped on `is_superuser` alone (`graph_search/scope.py:53-54`) | project-scoped (done) |
 | `POST /nextseek_api/admin/samples/retrieve/` | `AdminSampleViewSet.admin_retrieve_samples` | `IsAuthenticated` (`views.py:537`) | Yes but bypassed for staff: `views.py:686` -> `getChildrenUIDs` in `seek/sample/trees.py`; bypass at `views.py:642`. See note B | project-scoped |
 | `GET /nextseek_api/samples/{uid}/` | `SampleProxyViewSet.retrieve` | `IsAuthenticated` (`services/samples.py:74`) | Delegated to SEEK under the caller's creds (`services/samples.py:129` -> `helpers.py:135-148`) | project-scoped (already, upstream) |
 | `GET /nextseek_api/sample_types/` | `SampleTypeProxyViewSet.list` | `IsAuthenticated` (`services/sample_types.py:58`) | Delegated to SEEK (`services/sample_types.py:89`) | public-to-authenticated |
 | `GET /nextseek_api/sample_types/{uid}/` | `SampleTypeProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sample_types.py:120`) | public-to-authenticated |
-| `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py:216`) | **None.** Raw Neo4j at `services/sample_types.py:265-277`. See note C | project-scoped |
-| `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py:328`) | **None.** Raw Neo4j at `services/sample_types.py:400-434`. See note C | project-scoped |
+| `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): the sample and every sample on the lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers 404; superuser unscoped. See note C | project-scoped (done) |
+| `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): parent, child and every sample on the path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; superuser unscoped. See note C | project-scoped (done) |
 | `GET /nextseek_api/entity_tree/nodes/` | `EntityTreeViewSet.list_nodes` | `IsAuthenticated` (`services/entity_tree.py:85`) | **None.** `SELECT ... FROM dmac.sample_types_context` at `services/entity_tree.py:138-148`. See note D | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:303-311` | public-to-authenticated |
 | `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:388-397` | public-to-authenticated |
-| `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **None.** Auth-only gate at `services/entity_tree.py:846-850`; walks Neo4j from caller-supplied ids. See note D | project-scoped |
+| `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **Yes** (2026-09-18): the sample and every sample on each lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers as one that does not exist; superuser unscoped. See note D | project-scoped (done) |
 | `GET /nextseek_api/sops/` | `SopProxyViewSet.list` | `IsAuthenticated` (`services/sops.py:48`) | Delegated to SEEK (`services/sops.py:84` -> `helpers.py:135-148`) | public-to-authenticated |
 | `GET /nextseek_api/sops/{uid}/` | `SopProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sops.py:140`) | public-to-authenticated |
 | `POST /nextseek_api/sops/download/` | `SopProxyViewSet.download` | `IsAuthenticated` (same) | Delegated to SEEK, blob streamed under caller creds (`services/content_blobs.py:220-221` -> `helpers.py:334-342`). See note E | public-to-authenticated |
@@ -233,15 +234,16 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/batch-upload/status/{job_id}/` | `BatchUploadViewSet.job_status` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:538` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
+| `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:85`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:54`), and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
 
 ### Bucket totals
 
 | Bucket | Count |
 |---|---|
-| public-to-authenticated | 42 (of which 14 are owner-scoped) |
-| project-scoped | 7 |
-| admin-only | 6 |
-| **Total** | **55** |
+| public-to-authenticated | 42 (of which 13 are owner-scoped) |
+| project-scoped | 8 |
+| admin-only | 7 |
+| **Total** | **57** |
 
 ### NOT ROUTED
 
@@ -362,6 +364,12 @@ scoping in NExtSEEK's own query layer (`getChildrenUIDs` in `seek/sample/trees.p
 
 ### Note C: two unscoped Neo4j traversals in `sample_types.py`
 
+**Resolved 2026-09-18.** Both actions now resolve the caller with `graph_search/scope.py::resolve_scope` and,
+for anyone but a superuser, require graph_search's scope clause on the named sample (`child_types`) and on
+every sample of the `DERIVED_FROM` path (both), so lineage stops at the edge of the caller's projects. A caller
+whose scope cannot be resolved, or who has no projects, reads nothing. `parents_by_child_types` no longer
+post-filters through SEEK. The text below describes the code before that change.
+
 `grep -in project nextseek_api/services/sample_types.py` returns **zero** hits (verified,
 exit 1). Both actions call `resolve_seek_auth(request, ["BASIC", "SESSION"])` at
 `services/sample_types.py:252` and `:355`, but the returned credentials are then discarded.
@@ -385,6 +393,12 @@ exit 1). This confirms the claim in the task brief, and is in fact stronger than
 case-insensitive grep also finds nothing. All four actions gate on authentication only
 (`services/entity_tree.py:132-134, :296-298, :380-382, :846-850`) and then query without any
 membership filter.
+
+**`lineage` resolved 2026-09-18.** It now resolves the caller with `graph_search/scope.py::resolve_scope` and, for
+anyone but a superuser, requires graph_search's scope clause on the named sample and on every sample of each
+`DERIVED_FROM` path, so lineage stops at the edge of the caller's projects. A sample outside them answers exactly as
+one that does not exist, and a caller whose scope cannot be resolved, or who has no projects, reads no graph. The
+paragraph below describes the code before that change; `nodes`, `edges` and `edge_attributes` are unchanged.
 
 `lineage` (`services/entity_tree.py:844`) is the one that returns per-sample data: it resolves
 each caller-supplied identifier via `_resolve_uid_to_seek_id` and walks Neo4j from there, so an
@@ -414,7 +428,7 @@ all of them the mechanism is the same and it is sound:
 **There is no shared or service SEEK account on any read path.** Verified by grep for
 `SEEK_USERNAME`/`SEEK_PASSWORD`-style settings (none exist) and by the hard 401s at
 `helpers.py:136-138` and `helpers.py:334-336`. The one full-privilege escape hatch,
-`run_seek_rails_runner` (`nextseek_api/services/seek_rails_runner.py:60`), is reachable only
+`run_seek_rails_runner` (`nextseek_api/services/seek_rails_runner.py:85`), is reachable only
 from `users.py` write actions behind `IsDjangoSuperuser`.
 
 The `sops/download/` and `data_files/download/` actions genuinely stream file blobs

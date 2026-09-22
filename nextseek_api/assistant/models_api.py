@@ -11,14 +11,27 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class QueryRequest(BaseModel):
     """POST /assistant/query/ request body."""
-    session_id: Optional[UUID] = Field(None, description="Chat session UUID. If omitted (and force_new is False), reuses the most recently updated session or auto-creates one.")
+    session_id: Optional[UUID] = Field(None, description=(
+        "Chat session UUID; it must belong to the caller. If omitted, the routed Nessie endpoints (cc-assistant/query/async/, "
+        "cc-assistant/cc/query/async/, nessie/query/, nessie/query/cc/) always open a new chat, while the legacy assistant/query/ "
+        "and assistant/query/async/ reuse the most recently updated session (unless force_new) or auto-create one."))
     query: str = Field(..., min_length=1, max_length=32000, description="Natural language query")
     mode: str = Field(..., description="What mode to execute the query as. E.g. standard, plan, etc.")
-    force_new: bool = Field(False, description="If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one.")
+    force_new: bool = Field(False, description=(
+        "If true and session_id is omitted, always create a new ChatSession instead of reusing the most recent one. Only the "
+        "legacy assistant/query/ routes reuse; on the routed Nessie endpoints an omitted session_id is already a new chat."))
     use_prod: bool = Field(False, description="If true and a NEXTSEEK_CHAT_CONFIG_PROD is configured, route this query through the prod ChatConfig (real production tables) instead of the default dev/docker one. Admin-only on the UI; ignored if a prod config wasn't built.")
     fresh_session: bool = Field(False, description="If true, run this turn as a clean room: skip the Step-1c cross-session memory layer (no rendered ~/.claude/CLAUDE.md, no raw-transcript mount). 1b resume within this chat still applies.")
     force_route: Optional[Literal["auto", "ns", "cc"]] = Field(None, description="Admin-only: supersede the BAML router for this query. 'ns' forces the core chat_nextseek path, 'cc' forces Container-Claude-Code, 'auto'/None uses the router. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
     max_turn_length_s: Optional[int] = Field(None, ge=1, description="Admin-only: per-turn wall-clock cap (seconds) for a Container-CC turn. Clamped server-side to [30, NEXTSEEK_CC_TIMEOUT_HARD_MAX]; None uses the configured default. Ignored for non-admins (the server re-checks is_staff/is_superuser).")
+    force_parser_mode: Optional[Literal["graph", "api"]] = Field(None, description=(
+        "Admin-only and evaluation-only: force the NExtSEEK parser to the graph or the API path for a retrieval question. "
+        "Ignored unless the caller is a superuser and the server process sets NEXTSEEK_EVAL_PARSER_FORCE=1."))
+    prompt_variant: Optional[Literal["v2_apoc"]] = Field(None, description=(
+        "Admin-only and evaluation-only: run this NExtSEEK turn on an alternative prompt set "
+        "(chat_nextseek/prompts/variants/<name>/), with or without force_parser_mode. The turn's debug payload "
+        "records it as prompt_variant. Ignored unless the caller is a superuser and the server process sets "
+        "NEXTSEEK_EVAL_PARSER_FORCE=1."))
 
     model_config = ConfigDict(extra="forbid")
 
@@ -266,6 +279,37 @@ class GraphOpRequest(EntityOpRequest):
     """POST /assistant/graph/ body."""
 
 
+class AggregateOpRequest(BaseModel):
+    """POST /assistant/aggregate/ body.
+
+    ``parts`` is a JSON array of 1 to 4 plain-language sub-questions, sent as text (one shim flag); empty means
+    the question itself is the one part. The body carries no Cypher and no project scope: the scope comes from
+    the caller's account on the server, and any extra field is refused.
+    """
+    query: str = Field(..., min_length=1, max_length=32000)
+    parts: str = Field("", max_length=16000,
+                       description="JSON array of 1 to 4 sub-questions, as text; empty means the question alone.")
+    use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
+    session_id: Optional[UUID] = Field(None, description="Optional session for parser continuity.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphSchemaOpRequest(BaseModel):
+    """POST /assistant/graph-schema/ body.
+
+    Both fields are optional: with neither, the answer is the structure, the sample type
+    index and the always-on vocabulary. ``types`` is a comma-separated list of sample type
+    codes to render in full; ``query`` only gates the keyword-driven vocabulary blocks and
+    is never sent to a model.
+    """
+    types: str = Field("", max_length=2000,
+                       description="Comma-separated sample type codes to render in full.")
+    query: str = Field("", max_length=32000,
+                       description="Gates the vocabulary blocks; no model call is made.")
+    use_prod: bool = Field(False, description="Admin-only: route through the prod ChatConfig.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class ApiReadRequest(BaseModel):
     """POST /assistant/api-read/ body."""
     parser_plan: str = Field(..., description="A parser plan as a JSON string.")
@@ -401,6 +445,78 @@ class GraphResult(BaseModel):
 class GraphOpResponse(BaseModel):
     op: Literal["graph"] = "graph"
     result: GraphResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class AggregatePart(BaseModel):
+    """One part's answer: a small table (``groups``) with the sum of its group counts and its missing-value bucket
+    (``null_group``).
+
+    ``status`` is ok, empty, fallback (graph_search's scoped total only, no breakdown), refused, error or
+    timed_out; ``kind`` is count, breakdown (group columns then a trailing count) or rows (returned as is).
+    ``sum_of_group_counts`` adds the groups' counts, so a sample in several groups counts once in each; it is not a
+    number of samples when ``groups_may_overlap`` is true (every breakdown of two groups or more).
+    """
+    part: int
+    question: str
+    status: Literal["ok", "empty", "fallback", "refused", "error", "timed_out"]
+    kind: Optional[Literal["count", "breakdown", "rows"]] = None
+    columns: List[str] = Field(default_factory=list)
+    groups: List[Dict[str, Any]] = Field(default_factory=list)
+    group_count: Optional[int] = None
+    sum_of_group_counts: Optional[float] = None
+    groups_may_overlap: Optional[bool] = None
+    null_group: Optional[int] = None
+    truncated: bool = False
+    cypher: Optional[str] = None
+    scope: Optional[Dict[str, Any]] = None
+    attempts: List[Dict[str, Any]] = Field(default_factory=list)
+    fallback: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    model_config = ConfigDict(extra="allow")
+
+
+class AggregateResult(BaseModel):
+    """Every part, in order, with the notes the agent must relay; ``complete`` is false when a part timed out."""
+    question: str
+    complete: bool
+    elapsed_s: float
+    deadline_s: float
+    parts: List[AggregatePart]
+    notes: List[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="allow")
+
+
+class AggregateOpResponse(BaseModel):
+    op: Literal["aggregate"] = "aggregate"
+    result: AggregateResult
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphSchemaResult(BaseModel):
+    """The live graph schema as text, or the committed fallback, saying which it is.
+
+    ``source`` is the load-bearing field: ``catalog`` means the deployed graph answered,
+    ``fallback`` means the committed ``context/neo4j_schema.json`` did, and then
+    ``unavailable_reason`` says why and ``fallback_fetched_at`` how stale it is.
+    """
+    source: Literal["catalog", "fallback"]
+    schema_version: Optional[str] = None
+    catalog_hash: Optional[str] = None
+    synced_at: Optional[str] = None
+    sample_types: int = 0
+    resolved_types: List[str] = Field(default_factory=list)
+    unknown_types: List[str] = Field(default_factory=list)
+    graph_schema: str = Field("", alias="schema")
+    vocabulary: str = ""
+    unavailable_reason: Optional[str] = None
+    fallback_fetched_at: Optional[str] = None
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+
+class GraphSchemaOpResponse(BaseModel):
+    op: Literal["graph-schema"] = "graph-schema"
+    result: GraphSchemaResult
     model_config = ConfigDict(extra="forbid")
 
 

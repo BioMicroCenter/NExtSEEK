@@ -1,4 +1,7 @@
 from pathlib import Path
+
+import pytest
+
 from NessieAI.tests.nessie_tests import runner
 
 CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
@@ -1072,3 +1075,311 @@ def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch)
     s = runner.classify_entries(m)
     assert s["cost_unmeasured"] == 1, "an `unrelated` turn still paid for the router call"
     assert s["total_cost"] is None
+
+
+# ── forcing a normal run (graph_search Nessie POC) ──────────────────────────
+
+_FORCED_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None,
+                                        "source": "forced", "reasoning": ""}},
+    {"event": "query_complete", "data": {"reply": "ok",
+                                         "debug": {"parser_plan": {"mode": "graph_query"}}}}]}
+
+
+def _routed_variant(vid):
+    from NessieAI.tests.e2e.catalog import Variant, Turn
+    return Variant(family="f", id=vid, name="n", tags=["nessie", "full"], turns=[
+        Turn(label="m", query="q", pass_criteria=[
+            {"field": "route", "op": "eq", "value": "container_cc"},
+            {"field": "engine", "op": "eq", "value": "container_cc"},
+            {"field": "route_source", "op": "eq", "value": "baml"},
+            {"field": "last_reply", "op": "nonempty"}])])
+
+
+def _recording_post():
+    def post_query(body):
+        post_query.bodies.append(body)
+        return {"task_id": "t", "session_id": "s"}
+    post_query.bodies = []
+    return post_query
+
+
+def test_run_suite_forces_every_case_and_strips_the_route_criteria(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select",
+                        lambda *a, **k: [_routed_variant("f.one"), _routed_variant("f.two")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: _FORCED_DONE, force_route="ns", force_parser_mode="graph",
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert len(post_query.bodies) == 2
+    assert all(b["force_route"] == "ns" and b["force_parser_mode"] == "graph"
+               for b in post_query.bodies)
+    for e in m.entries:
+        assert not ({o.field for o in e.observations} & {"route", "engine", "route_source"})
+        assert "stripped 3 route criteria (forced route)" in e.reason
+        assert e.status == "passed"
+
+
+def test_run_suite_forces_nothing_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_routed_variant("f.one")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: NS_DONE, sleep=lambda s: None, clock=lambda: 0.0)
+    assert all("force_route" not in b and "force_parser_mode" not in b
+               for b in post_query.bodies)
+    assert "route" in {o.field for o in m.entries[0].observations}
+
+
+@pytest.mark.parametrize("route", [None, "cc"])
+def test_run_suite_refuses_a_parser_force_off_the_ns_route(route, tmp_path):
+    post_query = _recording_post()
+    with pytest.raises(ValueError, match="force_route"):
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+            get_progress=lambda tid: NS_DONE, force_route=route, force_parser_mode="api",
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert post_query.bodies == []
+
+
+def test_arm_presets_force_ns_and_name_their_parser_mode():
+    assert runner.ARM_PRESETS == {
+        "graph": {"force_route": "ns", "force_parser_mode": "graph"},
+        "api": {"force_route": "ns", "force_parser_mode": "api"},
+        "auto": {"force_route": "ns", "force_parser_mode": None},  # the parser unforced
+    }
+
+
+# ── git_sha: the venue's snapshot has no .git ──────────────────────────────
+
+_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_git_sha_prefers_git_when_it_answers(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 0, stdout="abc1234\n", stderr=""))
+    assert runner.git_sha() == "abc1234"
+
+
+def test_git_sha_reads_the_snapshot_file_when_git_is_unavailable(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_reads_the_snapshot_file_outside_a_checkout(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 128, stdout="", stderr="fatal: not a git repository"))
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_is_none_with_neither(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", tmp_path / "SNAPSHOT")
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() is None
+
+
+def test_the_snapshot_file_is_at_the_repository_root():
+    assert runner.SNAPSHOT_FILE.name == "SNAPSHOT"
+    assert (runner.SNAPSHOT_FILE.parent / "manage.py").exists()
+    assert (runner.SNAPSHOT_FILE.parent / "NessieAI").is_dir()
+
+
+# ── 8.4: a full-tier run must prove its bundle reader before the first turn ──
+
+
+class _Reader:
+    """A bundle reader carrying the preflight hook the runner calls, recording order."""
+
+    def __init__(self, log, *, fail=None):
+        self.log, self.fail = log, fail
+
+    def __call__(self, session_id):
+        self.log.append("read")
+        return None
+
+    def preflight(self):
+        self.log.append("preflight")
+        if self.fail:
+            raise self.fail
+
+
+def _logging_post(log):
+    def post_query(body):
+        log.append("post")
+        return {"task_id": "t", "session_id": "s"}
+    return post_query
+
+
+def test_a_full_tier_run_whose_bundle_reader_cannot_read_is_refused_before_any_turn(tmp_path):
+    log = []
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+            post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+            bundle_reader=_Reader(log, fail=RuntimeError("no database here")),
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert log == ["preflight"], "a turn was posted before the reader was proven"
+    assert "no database here" in str(e.value) and "nothing was billed" in str(e.value)
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_the_bundle_preflight_runs_once_and_before_the_first_turn(tmp_path):
+    log = []
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+        bundle_reader=_Reader(log), sleep=lambda s: None, clock=lambda: 0.0)
+    assert log[0] == "preflight" and log.count("preflight") == 1
+    assert "post" in log and "read" in log
+    assert m.entries[0].status != "error", m.entries[0].reason
+
+
+def test_the_route_tier_never_calls_the_bundle_preflight(tmp_path):
+    log = []
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: CC_ROUTED,
+        bundle_reader=_Reader(log, fail=RuntimeError("never asked")),
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert "preflight" not in log
+
+
+def test_the_real_bundle_reader_carries_its_preflight():
+    from NessieAI.tests.nessie_tests import bundle
+    assert bundle.summary_for_session.preflight is bundle.preflight
+
+
+def test_the_real_bundle_preflight_names_the_entry_point_that_works(monkeypatch):
+    import sys
+    from NessieAI.tests.nessie_tests import bundle
+    monkeypatch.setitem(sys.modules, "django", None)
+    with pytest.raises(bundle.BundleReaderUnavailable) as e:
+        bundle.preflight()
+    assert "manage.py nessie" in str(e.value)
+
+
+# ── a bundle reader must read the instance the paid turns run on ──────────────
+
+
+class _PairedReader(_Reader):
+    """A reader that can say whether its database holds a chat, as the real one does
+    (`bundle.summary_for_session.holds_session`)."""
+
+    def __init__(self, log, *, holds, fail=None):
+        super().__init__(log, fail=fail)
+        self.holds = holds
+        self.asked = []
+
+    def holds_session(self, session_id):
+        self.log.append("holds")
+        self.asked.append(session_id)
+        return self.holds
+
+
+def _sessions(log, *, open_raises=None, close_raises=None):
+    """The free chat open/close pair on the turns' instance (`http_driver.make_session_clients`)."""
+    def open_session():
+        log.append("open")
+        if open_raises:
+            raise open_raises
+        return "0000000000000000000000000000beef"
+
+    def close_session(session_id):
+        log.append("close")
+        assert session_id == "0000000000000000000000000000beef"
+        if close_raises:
+            raise close_raises
+    return open_session, close_session
+
+
+def _full_run(tmp_path, log, reader, sessions, **kw):
+    return runner.run_suite(
+        base_url="http://other-instance:8000", auth_header="Basic x", tier="full",
+        scope="all", corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+        bundle_reader=reader, session_clients=sessions,
+        sleep=lambda s: None, clock=lambda: 0.0, **kw)
+
+
+def test_a_reader_on_a_different_instance_is_refused_before_any_turn(tmp_path):
+    """The reader passes its own preflight (it can read ITS database), but that is
+    not the database behind --base-url: an empty chat opened there is not in it. A
+    run like that billed every turn and then read nothing, so it is refused here,
+    with nothing sent."""
+    log = []
+    reader = _PairedReader(log, holds=False)
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        _full_run(tmp_path, log, reader, _sessions(log))
+    assert isinstance(e.value, runner.BundleReaderOtherInstance)
+    assert log == ["preflight", "open", "holds", "close"], log
+    assert reader.asked == ["0000000000000000000000000000beef"]
+    message = str(e.value)
+    assert "nothing was billed" in message and "http://other-instance:8000" in message
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_a_reader_on_the_same_instance_passes_and_the_probe_chat_is_closed(tmp_path):
+    log = []
+    m = _full_run(tmp_path, log, _PairedReader(log, holds=True), _sessions(log))
+    assert log[:4] == ["preflight", "open", "holds", "close"], log
+    assert log.count("open") == 1 and "post" in log
+    assert m.entries[0].status != "error", m.entries[0].reason
+
+
+def test_a_probe_chat_that_cannot_be_opened_refuses_the_run(tmp_path):
+    """Without the probe chat the pairing is unproven, and an unproven pairing is the
+    one that bills for nothing, so it refuses rather than runs on."""
+    log = []
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        _full_run(tmp_path, log, _PairedReader(log, holds=True),
+                  _sessions(log, open_raises=OSError("connection refused")))
+    assert "post" not in log and "holds" not in log
+    assert "connection refused" in str(e.value) and "nothing was billed" in str(e.value)
+
+
+def test_a_probe_chat_that_cannot_be_closed_does_not_stop_a_proven_run(tmp_path):
+    log = []
+    with pytest.warns(UserWarning, match="0000000000000000000000000000beef"):
+        _full_run(tmp_path, log, _PairedReader(log, holds=True),
+                  _sessions(log, close_raises=OSError("timed out")))
+    assert "post" in log
+
+
+def test_the_route_tier_never_opens_a_probe_chat(tmp_path):
+    log = []
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: CC_ROUTED,
+        bundle_reader=_PairedReader(log, holds=False), session_clients=_sessions(log),
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert "open" not in log and "holds" not in log
+
+
+def test_the_real_bundle_reader_says_whether_its_database_holds_a_chat():
+    from NessieAI.tests.nessie_tests import bundle
+    assert bundle.summary_for_session.holds_session is bundle.session_exists

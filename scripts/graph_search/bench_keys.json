@@ -1,0 +1,9 @@
+[
+  ["A.ALN", "MSIStatus"],
+  ["MUS", "Genotype"],
+  ["PAT", "Race"],
+  ["PAT", "Sex"],
+  ["RNA", "RIN"],
+  ["TIS", "Organ"],
+  ["TIS", "SiteOfResection"]
+]

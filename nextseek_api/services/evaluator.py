@@ -40,6 +40,7 @@ from nextseek_api.assistant.models_evaluator import (
     RetryResponse,
 )
 from nextseek_api.helpers import resolve_seek_auth, StandardResultsSetPagination
+from nextseek_api.graph_search.scope import plain_scope
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
@@ -355,6 +356,8 @@ class EvaluatorViewSet(viewsets.ViewSet):
                 adapter=adapter, req=req, send_event=send_event,
                 api_user=api_user, api_pass=api_pass,
                 session_id_str=session_id_str,
+                # The caller's project scope for graph queries, as plain data.
+                graph_scope=plain_scope(request.user),
             ),
             daemon=True,
         )

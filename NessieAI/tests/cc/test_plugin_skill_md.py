@@ -152,3 +152,54 @@ def test_errors_section_lists_the_runner_codes():
     assert "## Errors" in text
     for code in RUNNER_EXIT_CODES:
         assert code in text, f"Errors section must document exit code {code}"
+
+
+# --------------------------------------------------------------------------
+# 2026-09-22: the mapping was right and the instruction asked for a key that does not
+# exist. A Container-CC reply said, verbatim: "Host path: I couldn't translate it,
+# DMAC_PATH_MAPPINGS was present but I couldn't parse a mapping from it, so I'm giving
+# the container path." The value was well-formed and non-empty; G7-10 had deliberately
+# replaced `host_root` with `logical_root` (cc_engine.py's own comment says so), while
+# this document still asked for the "host-side path" and documented no schema at all --
+# no key names, no prefix rule. Two archived plan reviews predicted exactly this
+# ("post-cutover DMAC_PATH_MAPPINGS schema undefined"), the code locked the schema, and
+# the agent-facing document was never updated. Nothing compared the two, so these tests
+# read the key names out of the engine and require the document to name them.
+# --------------------------------------------------------------------------
+
+def test_the_skill_documents_the_path_mapping_schema_the_engine_writes():
+    from NessieAI.cc.cc_engine import path_mappings_for
+
+    text = _read_skill()
+    mapping = path_mappings_for(output_mnt="/dmac/users/p/u/output",
+                                run_scratch_mnt="/dmac/users/p/u/scratch/run-1")
+
+    for name, entry in mapping.items():
+        assert name in text, f"SKILL.md never names the {name!r} mapping"
+        for key in entry:
+            assert key in text, f"SKILL.md never names the {key!r} key the engine writes"
+
+
+def test_the_skill_states_the_substitution_rather_than_a_host_path():
+    text = _read_skill()
+    lowered = text.lower()
+
+    assert "prefix" in lowered, "the operation is a prefix replacement; say so"
+    assert "host-side path" not in lowered, "there is no host path in the mapping any more"
+
+
+def test_the_engine_maps_both_roots_and_survives_a_run_with_no_scratch():
+    from NessieAI.cc.cc_engine import path_mappings_for
+
+    full = path_mappings_for(output_mnt="/dmac/users/p/u/output",
+                            run_scratch_mnt="/dmac/users/p/u/scratch/run-1")
+    assert full == {
+        "output": {"container_root": "/data/output", "logical_root": "/dmac/users/p/u/output"},
+        "scratch": {"container_root": "/data/scratch", "logical_root": "/dmac/users/p/u/scratch/run-1"},
+    }
+
+    # A turn with no run id has no per-run scratch root, and an entry whose logical_root
+    # is None is worse than no entry: it is exactly what the agent cannot translate.
+    assert path_mappings_for(output_mnt="/dmac/users/p/u/output", run_scratch_mnt=None) == {
+        "output": {"container_root": "/data/output", "logical_root": "/dmac/users/p/u/output"},
+    }

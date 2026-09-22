@@ -3,13 +3,21 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .. import graph_catalog
 from ..config import ChatConfig
+from ..context_rows import is_investigation_row, is_project_row
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
     EntityAgentOutput,
     ParserPlan,
     SystemAgentOutput,
 )
+from .graph import live_catalog_context
+
+
+def _as_map(value) -> dict:
+    """`value` when it is a dict, else an empty one."""
+    return value if isinstance(value, dict) else {}
 
 
 def system_agent(
@@ -39,9 +47,23 @@ def system_agent(
         code = assay.get("code")
         if code and code in config.FULL_ASSAYS_MAP:
             entity_details[code] = config.FULL_ASSAYS_MAP[code]
+    # A project and an investigation may share a name (the real CSBC and MetNet do), so
+    # they live in two maps and both are sent, the investigation under its own label.
+    # Each row is sent as what chat_nextseek.context_rows says it is, whichever map it is in:
+    # production's legacy project rows are typed 'investigation' with no parent_project and
+    # are projects, never "<name> (investigation)"; a 'study' row is neither and is not sent.
+    # A map that is not a dict (a MagicMock config in tests) reads as empty.
+    projects_map = _as_map(getattr(config, "FULL_PROJECTS_MAP", None))
+    investigations_map = _as_map(getattr(config, "FULL_INVESTIGATIONS_MAP", None))
     for project_name in entity_dict.get("projects", []):
-        if project_name and project_name in config.FULL_PROJECTS_MAP:
-            entity_details[project_name] = config.FULL_PROJECTS_MAP[project_name]
+        if not project_name:
+            continue
+        project = projects_map.get(project_name)
+        if is_project_row(project):
+            entity_details[project_name] = project
+        investigation = investigations_map.get(project_name)
+        if is_investigation_row(investigation):
+            entity_details[f"{project_name} (investigation)"] = investigation
 
     # The full catalogs, not just the codes the entity agent happened to resolve.
     # Without these the only enumerable list in context is the representative
@@ -54,7 +76,15 @@ def system_agent(
 
     caps_doc = config.CAPABILITIES_DOC or "(No capabilities document loaded — describe general NExtSEEK capabilities.)"
     endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
-    schema_json = json.dumps(config.NEO4J_SCHEMA, indent=2) if config.NEO4J_SCHEMA else "{}"
+    # The graph agent's own rendering when the v1.1 catalog is live (structure, type index, the resolved types and
+    # the question's vocabulary blocks); the committed JSON schema otherwise.
+    catalog = live_catalog_context(config, user_query, entity_dict, plan_dict, reader="system agent")
+    if catalog is not None:
+        schema_json = catalog.schema + (f"\n{catalog.vocabulary}\n" if catalog.vocabulary else "")
+    else:
+        # The committed schema, without its vocabulary for a caller who is not an admin (graph_catalog).
+        committed = graph_catalog.committed_schema(config)
+        schema_json = json.dumps(committed, indent=2) if committed else "{}"
     entity_details_json = json.dumps(entity_details, indent=2) if entity_details else "{}"
 
     messages = [

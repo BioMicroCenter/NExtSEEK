@@ -22,17 +22,17 @@ under "Depends on / depended on by" below.
 
 **What a run observes is narrower than what a run causes.** At `--tier route`
 the client stops polling the moment it sees the routing event
-(`NessieAI/tests/nessie_tests/http_driver.py:130-132`), and stopping the poll is all it does:
+(`NessieAI/tests/nessie_tests/http_driver.py:137-139`), and stopping the poll is all it does:
 searching every non-test module of this package for a DELETE method, a cancel or
 abort call, or a revoke returns nothing, so the server is never told to stop. It
 has already returned 202 and is running the turn on its own thread, and its
 single early return is the `unrelated` route
-(`NessieAI/cc/turn.py:321-334`), so every gate routed anywhere
+(`NessieAI/cc/turn.py:350-363`), so every gate routed anywhere
 else runs to completion and bills for it after the harness has walked away. That
 is why a route-tier run reports its spend as unmeasured instead of zero
 (`NessieAI/tests/nessie_tests/manifest.py:153-158`). No route is free: the router's own model
 call happens on every turn and the routing event is emitted before the
-`unrelated` check, not after (`NessieAI/cc/turn.py:315-321`).
+`unrelated` check, not after (`NessieAI/cc/turn.py:344-350`).
 
 It reuses the `PassCriterion` DSL of the catalog-driven E2E runner in
 `NessieAI/tests/e2e/` with **zero edits** to it, and imports it by package
@@ -54,14 +54,14 @@ deliberate edit.
   see "Cadence".
 - **full** (paid, nightly): runs the turn to completion; asserts counts + bundle
   richness. Requires an instance **seeded with the dataset the corpus's ground
-  truth was verified against**, and it only works through `manage.py nessie`;
-  see "Two entry points" below, **before** spending money.
+  truth was verified against**, and it runs only inside the application
+  container; see "Two entry points" below, **before** spending money.
 
 ### What the route tier can and cannot observe
 
 `RouteObservation` (`route_observer.py:10-17`) carries `route`, `model_class`,
 `source`, `reasoning`, `parser_mode`, `engine`. At route tier the poll loop
-breaks the first time `route_decided` appears (`http_driver.py:130-131`), and
+breaks the first time `route_decided` appears (`http_driver.py:137-138`), and
 everything the observation needs beyond that one event arrives LATER:
 `parser_mode` comes from the parser's `agent_complete` event or from
 `query_complete.debug`, and the NS branch of `route_observer._engine`
@@ -92,22 +92,22 @@ The surface has three different shapes, so it is described three ways.
 
 | Module | What it is for |
 |---|---|
-| `NessieAI/tests/nessie_tests/cli.py:83-123` | flag parsing; `NessieAI/tests/nessie_tests/cli.py:10-26` documents nine exit codes |
-| `NessieAI/tests/nessie_tests/runner.py:361-364` | `run_suite`, one whole run; `NessieAI/tests/nessie_tests/runner.py:119-120` is one case |
+| `NessieAI/tests/nessie_tests/cli.py:88-137` | flag parsing; `NessieAI/tests/nessie_tests/cli.py:10-26` documents nine exit codes |
+| `NessieAI/tests/nessie_tests/runner.py:409-413` | `run_suite`, one whole run; `NessieAI/tests/nessie_tests/runner.py:142-146` is one case |
 | `NessieAI/tests/nessie_tests/corpus.py:415` | `merged`, the resolved active corpus |
 | `NessieAI/tests/nessie_tests/evaluate.py:662` | `evaluate_turn`, criterion scoring for one turn |
 | `NessieAI/tests/nessie_tests/manifest.py:153` | `cost_summary`, what a run may claim about money |
 | `NessieAI/tests/nessie_tests/bayesian.py:76` | `run_paired`, the paid dual-route run |
-| `NessieAI/tests/nessie_tests/preflight.py:66-70` | refuses a paid run whose force did not land |
+| `NessieAI/tests/nessie_tests/preflight.py:94-98` | refuses a paid run whose force did not land |
 | `NessieAI/tests/nessie_tests/export.py:961` | paired manifest to the locked HiBayes CSVs |
 | `NessieAI/tests/nessie_tests/collect.py:377` | post-hoc artifact collection for a paired run |
 | `NessieAI/tests/nessie_tests/sources.py:407` | the container-backed reads `collect` needs |
 | `NessieAI/tests/nessie_tests/v4_2_verifier.py:330` | replay verifier over a delivered result set |
-| `NessieAI/tests/nessie_tests/bundle.py:30-36` | full-tier bundle richness; its Django import is lazy |
+| `NessieAI/tests/nessie_tests/bundle.py:46-107` | full-tier bundle richness; its Django import is lazy, and its `preflight` runs before the first full-tier turn |
 
 Invoked as `python -m NessieAI.tests.nessie_tests` through `NessieAI/tests/nessie_tests/__main__.py:2`, or
 in-container as a Django management command
-(`nextseek_api/management/commands/nessie.py:27-28`).
+(`nextseek_api/management/commands/nessie.py:42-43`).
 
 **As committed data.** `NessieAI/tests/nessie_tests/corpus.json` is the only corpus source
 there is, and `NessieAI/tests/nessie_tests/corpus.py:415-425` records that the superseded
@@ -140,40 +140,57 @@ They read and write `NessieAI/tests/nessie_tests/corpus.json` in place, so a nar
 run-time state to be reverted, never committed. `NessieAI/tests/nessie_tests/scripts/nessie`
 is a thin shell entry point and names no path.
 
-## Two entry points, and the paid tier only works from one
+## Two entry points, and the full tier needs the app's Django
 
 `python -m NessieAI.tests.nessie_tests` (the module CLI, `cli.py`) and `manage.py nessie`
 (`nextseek_api/management/commands/nessie.py`, run inside the application
-container) drive the same runner. They are NOT interchangeable:
+container) drive the same runner. At `--tier full` both wire the same
+bundle-richness reader, `bundle.summary_for_session`, which reads `ChatSession`
+rows through Django. So **the full tier runs only where the app's Django and
+database are: inside the application container**, from either entry point.
 
-**The full tier cannot be run via `python -m NessieAI.tests.nessie_tests`, and it fails only
-after spending the money.** At `--tier full` the CLI wires the bundle-richness
-reader (`cli.py:248-251` → `bundle.summary_for_session`), which lazily imports
-Django models (`bundle.py:30`), and nothing on that path ever calls
-`django.setup()`. The only `django.setup()` in the whole package sits inside
-`sources.py`'s `_CONTAINER_PY` string (`sources.py:250-251`), which the
-collector docker-execs into a separate process; it never runs here. So:
+**It used to fail only after spending the money (plan task 8.4, fixed
+2026-09-17).** Nothing on the module CLI's path configured Django, and the
+runner drives each paid turn (`runner.py:267`) BEFORE it reads the bundle
+(`runner.py:309`), inside a catch that records any exception as infrastructure
+(`runner.py:363`). So every full-depth case billed its turn, evaluated zero
+criteria and recorded `status="error"`: `No module named 'django'` on the host,
+`AppRegistryNotReady` inside the container. Both shapes were hit in the week of
+2026-08-17, and both runs billed in full. The tell was every full-depth case
+carrying the same one-line reason naming django, while the `route_gate` cases
+and the consistency groups looked normal.
 
-- on the host, every case dies `ModuleNotFoundError: No module named 'django'`;
-- inside the app container, even with `DJANGO_SETTINGS_MODULE` set, every case
-  dies `AppRegistryNotReady: Apps aren't loaded yet`.
+Two changes close it, and a third closes a related shape found after it:
 
-Both shapes were hit in the week of 2026-08-17, and both runs billed in full.
-The order of operations is the expensive part: the runner drives the paid turn
-to completion (`runner.py:226`) BEFORE it reads the bundle (`runner.py:259`),
-the raise lands in the infrastructure catch (`runner.py:313`), and
-`evaluate_turn` (`runner.py:267`) is never reached, so every full-depth case
-bills its first turn, evaluates ZERO criteria, and records `status="error"`.
-The run reads as a catastrophic product failure and is actually a harness
-bootstrap failure. **The tell:** every full-depth case carries the same
-one-line reason naming django, while the `route_gate` cases and the consistency
-groups, the only entries that never touch the bundle reader, look normal.
+- **The reader configures Django itself when nothing has.** `bundle.ensure_django`
+  (`bundle.py:46-72`) sets `DJANGO_SETTINGS_MODULE` to `dmac.settings` if it is
+  unset and calls `django.setup()`; inside `manage.py nessie` it does nothing.
+  So the module CLI's full tier now works inside the container too.
+- **A full-depth run proves its reader before the first turn.** The reader
+  carries a `preflight()` (`bundle.py:86-107`) that configures Django and reads
+  the real table for a session that cannot exist. `runner.check_bundle_reader`
+  (`runner.py:728`) calls it at the top of `run_suite` at `--tier full`
+  (`runner.py:430`) and in `run_arms` before the arms preflight, which bills its
+  probe turns (`runner.py:914`). A reader that cannot read raises
+  `BundleReaderUnavailable` with nothing sent: the module CLI exits 9
+  (`cli.py:32`), `manage.py nessie` raises a `CommandError`, and both say
+  nothing was billed. On the host that is the expected outcome of `--tier full`.
+- **A full-depth run proves its reader reads the instance the turns run on.**
+  `preflight()` proves only that SOME database is readable: a reader configured
+  for instance B passes it while the turns run on instance A, and then every
+  turn bills on A and every bundle read on B finds nothing. So
+  `runner.check_bundle_reader` next opens an empty chat on `--base-url`
+  (`http_driver.make_session_clients`: a plain session create, no turn and no
+  model, so free), asks the reader whether its database holds it (the reader's
+  `holds_session` hook, `bundle.session_exists`), and deletes it. A reader that
+  does not hold it raises `BundleReaderOtherInstance`, a `BundleReaderUnavailable`,
+  so the same exit 9 or `CommandError` follows with nothing sent; so does a probe
+  chat that cannot be opened. A probe chat that cannot be deleted only warns.
 
-`manage.py nessie` runs inside the already-configured Django process, so the
-bundle reader needs no separate bootstrap: its module docstring says exactly
-this, and it is the entry point verified to produce real per-criterion
-expected/observed grading. It also exposes `--cases` (run an explicit
-hand-authored case list), which the module CLI deliberately does not.
+`manage.py nessie` is still the entry point to use for paid runs. It is the one
+verified to produce real per-criterion expected/observed grading, and it also
+exposes `--cases` (run an explicit hand-authored case list), which the module CLI
+deliberately does not.
 
 **The route tier is fine from either entry point.** Below `--tier full` the
 CLI leaves `bundle_reader` as `None`, and nothing else on the route path
@@ -184,19 +201,20 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 - **Full tier: inside (or with the environment of) the application container**,
   via `manage.py nessie`. It needs Django, the app settings and the database
-  all reachable, which is why it cannot run from a developer laptop: "Two
-  entry points" above is what happens when that is tried anyway.
+  all reachable, which is why it cannot run from a developer laptop: tried
+  there, it refuses before the first turn (see "Two entry points" above).
 - **Route tier: anywhere that can reach the base URL**, via the module CLI.
 - `--base-url` names the instance under test. From inside the application
   container that is the app's own bind address (the management command defaults
   to `http://localhost:8000` for exactly this case); from outside, it is
   whatever URL fronts the instance.
 - **The bundle reader reads `ChatSession` rows from the database its own
-  environment is configured for** (`bundle.py:30-31`), not from anything behind
+  environment is configured for** (`bundle.py:75-83`), not from anything behind
   `--base-url`. So driving instance A's endpoint from instance B's environment
   cannot work: the session ids A's turns create exist only in A's database, and
   every bundle read misses. Environment and endpoint must belong to the SAME
-  instance.
+  instance, and a full-depth run checks that before its first turn (the probe
+  chat in "Two entry points" above): a mismatched pair is refused, nothing billed.
 - `--out` should be a path that survives the container (a mounted or
   bind-mounted directory), or the run directory must be copied out afterwards
   (`docker cp <app-container>:<out-dir> .`). A path on the container's own
@@ -264,7 +282,7 @@ with `status` still `active` (the doc's own disposition table says so): **it
 protects `--bayesian` runs ONLY.** `--scope all` at `--tier full` selects from
 the whole active corpus, hazards included, subject to `--sample`/`--seed`.
 (`--scope specific` never draws them: none carries `route_gate`. A route-tier
-run skips every non-gate case (`runner.py:158`), so it does not run them
+run skips every non-gate case (`runner.py:192`), so it does not run them
 either.)
 
 In the active corpus as of 2026-08-24, outside the `--bayesian` selection but
@@ -369,7 +387,7 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   `No module named 'orjson'`.
 - **Dropping `--with beautifulsoup4` does not present as a missing dependency.**
   `NessieAI/tests/e2e/playwright/trio.py:11` imports `bs4`, and `run_case` catches
-  every `Exception` as infrastructure (`runner.py:313`), so a case that hit the
+  every `Exception` as infrastructure (`runner.py:361`), so a case that hit the
   import is recorded `status="error"`. Most of the failures that follow do name
   `ModuleNotFoundError: No module named 'bs4'`, but a large minority surface as
   `AssertionError: assert 'error' == 'passed'` (or `'failed'`, `'xpass'`,
@@ -408,8 +426,8 @@ harness at `/app/NessieAI/tests/nessie_tests/`.
 
 ### Live runs
 
-**Read "Two entry points" above first: the full tier does not work from
-`python -m NessieAI.tests.nessie_tests`, and finds out only after billing every case.**
+**Read "Two entry points" above first: the full tier needs the app container's
+Django. Anywhere else it now refuses before the first turn instead of billing every case.**
 
 The route gate runs from either entry point. The full pass is paid and runs ONLY via
 the management command, inside the application container. Both commands are in
@@ -425,17 +443,17 @@ Before any full pass over `--scope all`, print the draw: see "What
 Route gate = pre-merge. Full pass = nightly / pre-release on a seeded instance.
 
 **The route gate is cheaper, not free.** `--tier route` stops the *client*
-polling once it sees `route_decided` (`http_driver.py:130-131`); it does not
+polling once it sees `route_decided` (`http_driver.py:137-138`); it does not
 cancel anything. The server started the turn on a daemon thread and returned
 202, and its only early return is the `unrelated` route
-(`NessieAI/cc/turn.py:321-334`), so every gate that routes
+(`NessieAI/cc/turn.py:350-363`), so every gate that routes
 anywhere else runs to completion and bills for it after the harness has walked
 away, on a CC gate a full Opus turn.
 
 **No route is free, `unrelated` included**: it is only the cheapest. The BAML
 router call (`_decide_route` → `cc_router.decide` → `_baml_decision`) is made on
-every turn, and `route_decided` is emitted at `NessieAI/cc/turn.py:315` *before*
-the `ROUTE_UNRELATED` check at `NessieAI/cc/turn.py:321`. `unrelated` skips the answering turn, not
+every turn, and `route_decided` is emitted at `NessieAI/cc/turn.py:344` *before*
+the `ROUTE_UNRELATED` check at `NessieAI/cc/turn.py:350`. `unrelated` skips the answering turn, not
 the router that decided to skip it.
 
 Cost is read off `query_complete`, which route-tier polling never reaches, so a
@@ -468,7 +486,7 @@ variants only**: groups are loaded separately by `load_consistency_groups()`,
 which reads the `consistency_groups` block of `corpus.json` and never looks at
 any variant's `status`.
 
-`_is_real_failure` excludes an expected failure (`runner.py:488`), so
+`_is_real_failure` excludes an expected failure (`runner.py:549`), so
 `gate_failed()` does not count it and the group does not break the gate. Two
 things the tag does NOT excuse, both deliberate: a `known_fail` that PASSES is
 recorded `xpass`, and one that evaluated zero criteria is recorded
@@ -493,8 +511,8 @@ curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
 and **362 of 365 are still red**, with all six floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **129**
-and `api_plan.endpoint` on **105**. Those cases stay red until the corpus
+fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
+and `api_plan.endpoint` on **104**. Those cases stay red until the corpus
 itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC
@@ -577,11 +595,117 @@ outage; nine were visible in the manifest and the tenth was hidden inside the
 `#33` consistency group, which reports its own summary instead of its members'
 replies. `run_group` checks for an outage before composing that summary.
 
+## Comparing the graph and API agents
+
+The graph_search follow-up (`docs/superpowers/plans/2026-09-15-graph-search-nessie.md`,
+spec `docs/superpowers/specs/2026-09-15-graph-search-nessie-design.md`) runs the same
+single-turn questions through the NS engine twice, once forced to the graph agent (the
+model writes Cypher) and once forced to the API agent (the model writes an
+`advanced_search` body), and scores both against ground truth from read-only oracles.
+**Every turn is PAID and only the operator launches one**: the plan's stage P is the
+runbook, with each step's turn count, cap and stop rules. No agent and no CI job starts
+a turn; the tests of everything below drive fakes.
+
+**The two forces.** Both ride on the chat request and both are admin-only server side.
+
+- `force_route` (`ns` or `cc`) sends the turn to one engine instead of the router.
+  A non-superuser's value is dropped without a word.
+- `force_parser_mode` (`graph` or `api`) forces the NS parser. `_force_parser_mode` in
+  `NessieAI/chat_nextseek/src/chat_nextseek/agents/parser.py` runs last among the
+  parser's guardrails: `graph` turns `new_search` into `graph_query`, and `api` turns
+  `graph_query` into `new_search` on the parser's first REST candidate, else
+  `advanced_search`. Every other parser mode is left as the parser chose. It is
+  honoured only for a superuser on a process that sets `NEXTSEEK_EVAL_PARSER_FORCE=1`
+  (only the venue sets it), and dropped without a word otherwise. A landed force
+  appends a note containing `by the evaluation switch`, and the parser's own choice,
+  to `parser_plan.notes`.
+- `prompt_variant` (`v2`, `v2_apoc` or `v3`) runs the NS agents on an alternative prompt set,
+  `NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/<name>/`, with or without
+  `force_parser_mode`. Same gate and same silent drop. A turn that ran it records
+  `debug.prompt_variant` and `debug.prompt_variant_files`.
+
+**The flags.**
+
+| Flag | Entry point | What it does |
+|---|---|---|
+| `--force-route {ns,cc}` | both | forces every turn of a normal run; the `route`, `engine` and `route_source` criteria are stripped (`runner.STRIPPED_UNDER_FORCING`) |
+| `--force-parser-mode {graph,api}` | both | needs `--force-route ns`; the module CLI refuses both force flags with `--bayesian` |
+| `--prompt-variant {v2,v2_apoc,v3}` | both | needs `--force-route ns`; with `--arms` it rides on every arm and the preflight's parser probes, is recorded in `arms.json` `run_meta.prompt_variant` and every payload, and a `--resume` with another variant is refused |
+| `--arms graph,api`, `--arms graph` or `--arms auto` | `manage.py nessie` | calls `runner.run_arms`; needs `--cases`, `--force-route ns` and `--tier full`, and excludes `--force-parser-mode`. `auto` forces the route only: the parser picks graph or API per question, and `debug.parser_plan.mode` in each payload says which |
+| `--resume` | `manage.py nessie`, with `--arms` | continues the run in `--out`, skipping every (question, arm) it holds except a provider outage; refuses a changed cases file or arm list |
+| `--max-turns N` | `manage.py nessie`, with `--arms` | the turns this invocation may drive; it stops before a question that would exceed it, and 0 runs only the preflight |
+| `--password-env NAME` | `manage.py nessie` | reads the password from that environment variable and never prints it |
+
+**The arms.** `runner.ARM_PRESETS` defines `graph` (`force_route` `ns`,
+`force_parser_mode` `graph`) and `api` (`ns`, `api`). Per question, every arm runs back
+to back, each turn in a fresh session through the same `run_case` every run uses, and
+the first arm rotates with the question's index in the cases file. Before any
+question, the preflight spends one forced-route probe
+(`preflight.assert_force_route_works`) and one full turn per arm
+(`preflight.assert_parser_force_works`). The second checks the route force, the note,
+the plan's mode and, on the graph arm, that `debug.graph_context` is `catalog`: a
+`fallback` turn read the committed schema file instead of the live catalog, which
+voids the graph arm. A refusal stops the run before any question and names its
+remedy. A wrong answer is the measurement, so an arms run never exits non-zero for one.
+
+**What an arms run writes** under `--out`, rewritten after every (question, arm), files
+mode 600 in mode 700 directories:
+
+- `arms.json`: `run_meta` (git sha, corpus fingerprint, the cases file's sha256, the
+  arms, the base URL, the preflight's pass), `progress`, and one row per question with
+  each arm's status, task ids and elapsed seconds;
+- `<arm>/manifest.json` and `<arm>/report.html`, the shapes every run writes;
+- `<arm>/payloads/<id>/<turn>.json`: each turn's final payload (the query, the task and
+  session ids, the route observation, `query_complete` and the elapsed time), which is
+  what the scorer reads.
+
+The venue runs a `git archive` snapshot with no `.git`, so `runner.git_sha` falls back
+to a `SNAPSHOT` file at the repository root.
+
+**Ground truth and the scorer.** All free, on the host, except the oracles.
+
+- `engine_truth.py`: the truth-file models (`TruthFile`, `TruthQuestion`, `Expected`
+  with its alternate readings) and `reply_satisfies`, which checks a reply for the
+  expected numbers or items.
+- `scripts/build_engine_cases.py`: truth skeletons from the question selection
+  (`--skeleton`, `--questions`), and, from the filled truth, the cases files the arms
+  run (`--cases` writes `group-<g>.json`, `pilot-<g>.json` and `rest-<g>.json`, with
+  engine-neutral criteria only).
+- `scripts/derive_truth.py`: fills a truth file by running its oracles inside the
+  venue (a graph_search request, Cypher in a READ transaction, SQL inside a read-only
+  transaction, or a measured number); `--summary` totals the files, and
+  `--fingerprint-only` exits non-zero when the graph changed since the truth was
+  derived.
+- `engine_compare.py`: `uv run --no-project --with pydantic python -m
+  NessieAI.tests.nessie_tests.engine_compare --group a|b --run DIR [--run DIR ...]
+  --truth DIR --outputs DIR --prices FILE --out DIR` judges every stage of every turn
+  (route, switch, context, entities, parser, request, engine value, reply) and writes
+  `compare.json`, `compare.md` (the verdict first) and `questions.csv`. `--cost-only`
+  and `--checks` print and write nothing.
+
+A manifest carries no cost for an NS turn ("Cadence" above), so the scorer is the only
+place these runs are priced. chat_nextseek appends one line per model call to a single
+`llm_calls.jsonl` under the process's `LOG_DIR`, not one per run, so the scorer gives a
+turn the ledger lines from its run-root timestamp to that plus its elapsed time and
+`engine_compare.LEDGER_SLACK_S`, priced with the operator's price table. The arms run
+back to back, so a quick first call of the next turn can land in that slack and count
+on both turns.
+
+**Where it lives.** Everything these runs read or write is under the operator's
+`$GS_WORK/nessie/`, outside the repository, and is never tracked: some questions name
+real people. That is the question selection, `truth/`, `cases/`, one directory per
+run under `runs/`, the price table, and the venue's snapshot, outputs and logs under
+`venue/`. The venue, `scripts/graph_search/nessie_venue.sh` (its row is in
+`scripts/graph_search/README.md`), is a throwaway app container that runs a snapshot
+of HEAD against the live databases with the flag set; its `run` and `bg` wrap
+`manage.py nessie --tier full --user demo --password-env GS_DEMO_PASSWORD`. Only the
+operator starts it. The lane row is in `NessieAI/tests/README.md`.
+
 ## Depends on / depended on by
 
 **Depended on by: application code, which makes this directory load-bearing.**
 - The Container-CC paired-evidence ingester imports four modules of it (`NessieAI/cc/op_registry/paired_evidence.py:37-40`), so removing one breaks the op registry. A frozen engine-to-harness edge.
-- `manage.py nessie` imports the driver and runner at call time (`nextseek_api/management/commands/nessie.py:55`), which is how a run happens inside the trusted Django process.
+- `manage.py nessie` imports the driver and runner at call time (`nextseek_api/management/commands/nessie.py:96`), which is how a run happens inside the trusted Django process.
 - Task-family labels are read straight out of the corpus file, resolved through `NessieAI/paths.py` (`NessieAI/router/family_labels.py:29`), so moving `corpus.json` without `paths.py` empties that catalog, and the router logs the missing file rather than failing.
 - The `route_capabilities` generator imports three modules and resolves the corpus through `NessieAI/paths.py` (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:29-31`, `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:39`). A frozen edge.
 - Human-grade fitting imports the paired manifest model, lazily (`NessieAI/hibayes/human_grade_fit.py:704`). A frozen edge.
@@ -594,7 +718,7 @@ longer govern it.
 - The E2E criterion DSL in `NessieAI/tests/e2e/`, imported by package (`NessieAI/tests/nessie_tests/corpus.py:7-8`, `NessieAI/tests/nessie_tests/evaluate.py:7`).
 - `pydantic`, at module scope in the two manifest models and the verifier (`NessieAI/tests/nessie_tests/manifest.py:4`, `NessieAI/tests/nessie_tests/bayes_manifest.py:13`, `NessieAI/tests/nessie_tests/v4_2_verifier.py:15`).
 - `orjson`, at module scope in the verifier only (`NessieAI/tests/nessie_tests/v4_2_verifier.py:14`).
-- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:30`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/tests/nessie_tests/collect.py:177`).
+- Three heavy dependencies are deliberately lazy, imported inside the function that needs them: Django models (`NessieAI/tests/nessie_tests/bundle.py:56`, `NessieAI/tests/nessie_tests/bundle.py:77`), `openpyxl` (`NessieAI/tests/nessie_tests/evaluate.py:148`) and `zstandard` (`NessieAI/tests/nessie_tests/collect.py:177`).
 - The live HTTP endpoint and its progress route, by string rather than by import (`NessieAI/tests/nessie_tests/http_driver.py:7`, `NessieAI/tests/nessie_tests/http_driver.py:41`, `NessieAI/tests/nessie_tests/http_driver.py:49`).
 - The `nextseek` container and the `docker` binary, for the paired run's post-hoc reads only (`NessieAI/tests/nessie_tests/sources.py:104-105`).
 

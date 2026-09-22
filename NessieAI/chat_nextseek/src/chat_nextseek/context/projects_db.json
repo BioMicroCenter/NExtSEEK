@@ -1,20 +1,425 @@
 [
   {
-    "name": "Published Data",
+    "name": "BioMicroCenter",
     "alternative_names": [
-      "PUBLISHED",
+      "BioMicro Center"
+    ],
+    "entity_type": "investigation",
+    "project_id": 5,
+    "parent_project": "MIT-Koch",
+    "pi": null,
+    "research_focus": "Sequencing and analysis data generated at the MIT BioMicro Center genomics core, such as alignments, variant calls and mutational spectra",
+    "key_data_types": [],
+    "description": "The investigation that holds the MIT-Koch project's samples: sequencing and analysis data generated at the MIT BioMicro Center, MIT's genomics and bioinformatics core.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "BioMicroCenter, BioMicro Center, BMC, genomics core, sequencing, alignment, variant calling"
+  },
+  {
+    "name": "BPRC",
+    "alternative_names": [
+      "Biomedical Primate Research Centre",
+      "Biomedical Primate Research Center"
+    ],
+    "entity_type": "project",
+    "project_id": 15,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": "Non-human primate models of tuberculosis; testing of BCG and new tuberculosis vaccine and therapy candidates in macaques",
+    "key_data_types": [],
+    "description": "The Biomedical Primate Research Centre (BPRC) in Rijswijk, the Netherlands, is a not-for-profit research institute that works with non-human primate models. Its tuberculosis research uses macaques to test new tuberculosis vaccines and treatments against the current BCG vaccine, measuring safety, immune responses and protection. Its macaque tuberculosis work is related to the IMPAcTb program.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "BPRC, Biomedical Primate Research Centre, Rijswijk, macaque, rhesus macaque, non-human primate, NHP, tuberculosis, TB, BCG, vaccine"
+  },
+  {
+    "name": "Break Through Cancer",
+    "alternative_names": [
+      "BTC",
+      "Breakthrough Cancer",
+      "Breakthrough_Cancer",
+      "BTC-GBM",
+      "Serial Biopsies TeamLab"
+    ],
+    "entity_type": "project",
+    "project_id": 9,
+    "parent_project": null,
+    "pi": null,
+    "research_focus": "Recurrent glioblastoma; serial brain biopsies to test whether a therapy reaches the tumor and acts on target; single-cell, proteomic, immunopeptidomic and spatial profiling; cerebrospinal fluid and blood as surrogate markers of drug activity",
+    "key_data_types": [
+      "Spatial transcriptomics, proteomics and metabolomics",
+      "Short- and long-read DNA sequencing with copy number analysis",
+      "Mass spectrometry proteomics, phosphoproteomics and immunopeptidomics",
+      "MRI, histopathology and slide imaging",
+      "Glioblastoma patient tumor tissue",
+      "Clinical oncopanel and proximity extension assays",
+      "Cyclic immunofluorescence (CyCIF)"
+    ],
+    "description": "Break Through Cancer's glioblastoma TeamLab, 'Accelerating GBM Therapies Through Serial Biopsies', is a foundation-funded collaboration of Dana-Farber, Brigham and Women's, Johns Hopkins, Memorial Sloan Kettering, MD Anderson and MIT's Koch Institute. The team takes repeated (serial) biopsies from the same glioblastoma patients to learn whether a therapy reaches the tumor and has its intended effect, and tests whether cerebrospinal fluid and blood can serve as surrogate markers. Tumor samples are profiled with sequencing, proteomics, imaging and spatial methods. It is separate from CSBC, the NCI-funded glioblastoma center at MIT and Dana-Farber.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Break Through Cancer, BTC, GBM, glioblastoma, recurrent glioblastoma, serial biopsy, TeamLab, Dana-Farber, DFCI, Koch Institute, CAN-3110, oncolytic virus, spatial transcriptomics"
+  },
+  {
+    "name": "Collagen Study",
+    "alternative_names": [
+      "Shoulders"
+    ],
+    "entity_type": "investigation",
+    "project_id": 11,
+    "parent_project": "Shoulders",
+    "pi": null,
+    "research_focus": "Collagen folding and proteostasis in iPSC-derived cartilage models of collagen disease variants",
+    "key_data_types": [],
+    "description": "The investigation that holds the Shoulders project's samples: collagen and cartilage studies in iPSC-derived chondronoid models.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Collagen Study, collagen, cartilage, chondronoid, iPSC, proteostasis"
+  },
+  {
+    "name": "CSBC",
+    "alternative_names": [
+      "Cancer Systems Biology Consortium",
+      "Center for Systems Biology of Glioblastoma",
+      "MIT/DFCI CSBC"
+    ],
+    "entity_type": "project",
+    "project_id": 10,
+    "parent_project": null,
+    "pi": "White, Forest M. (MIT, contact PI); Michor, Franziska (Dana-Farber, co-PI)",
+    "research_focus": "Quantitative systems biology of glioblastoma; tumor-neural-immune interactions in the GBM microenvironment; integrated computational and multi-scale modeling to identify therapeutic strategies",
+    "key_data_types": [
+      "Mass spectrometry proteomics and phosphoproteomics",
+      "Mass spectrometry imaging (MALDI-MSI)",
+      "Patient tumor tissue and biopsies",
+      "Mouse and patient-derived xenograft (PDX) models",
+      "Tissue sections with cyclic immunofluorescence (CyCIF) imaging",
+      "Bulk and single-nucleus RNA sequencing",
+      "In vitro tumor cell models"
+    ],
+    "description": "The MIT/Dana-Farber Center for Systems Biology of Glioblastoma is an NCI U54 center in the Cancer Systems Biology Consortium, led by Forest White (MIT) and Franziska Michor (Dana-Farber). It studies how neurons, immune cells and tumor cells interact in glioblastoma, and why the tumor microenvironment suppresses immune responses. The team combines patient tumor samples, mouse and patient-derived xenograft models and mass spectrometry proteomics with computational and multi-scale models to find therapeutic targets. It is separate from the Break Through Cancer glioblastoma TeamLab.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11420536",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/441",
+    "tags": "CSBC, Cancer Systems Biology Consortium, glioblastoma, brain tumor, Forest White, White, Forest, Michor, Dana-Farber, DFCI, NCI, U54, U54CA283114, proteomics, phosphoproteomics, MALDI-MSI, systems biology"
+  },
+  {
+    "name": "CSBC",
+    "alternative_names": [],
+    "entity_type": "investigation",
+    "project_id": 10,
+    "parent_project": "CSBC",
+    "pi": null,
+    "research_focus": "Systems biology of glioblastoma, the tumor, neural and immune interactions in its microenvironment, profiled by proteomics, imaging and sequencing",
+    "key_data_types": [],
+    "description": "The investigation that holds the CSBC project's samples. It shares its title with the project row; a question scoped to the CSBC investigation means these samples.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "CSBC, glioblastoma, GBM, proteomics, systems biology"
+  },
+  {
+    "name": "Endometriosis",
+    "alternative_names": [
+      "Griffith",
+      "CGR-Endo"
+    ],
+    "entity_type": "investigation",
+    "project_id": 7,
+    "parent_project": "Griffith",
+    "pi": null,
+    "research_focus": "Endometriosis and the human endometrium, studied in patient-derived endometrial organoids and co-cultures and by single-cell and proteomic profiling",
+    "key_data_types": [],
+    "description": "The investigation that holds the Griffith project's samples: endometriosis and endometrium studies from the Center for Gynepathology Research.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Endometriosis, endometrium, adenomyosis, organoid, CGR"
+  },
+  {
+    "name": "GBM_BTC",
+    "alternative_names": [
+      "BTC-GBM"
+    ],
+    "entity_type": "investigation",
+    "project_id": 9,
+    "parent_project": "Break Through Cancer",
+    "pi": null,
+    "research_focus": "Recurrent glioblastoma studied through serial brain biopsies, with cerebrospinal fluid and blood as surrogate markers of drug activity",
+    "key_data_types": [],
+    "description": "The investigation that holds the Break Through Cancer project's samples: the glioblastoma serial biopsy TeamLab. GBM is one of its studies.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "GBM_BTC, GBM, glioblastoma, serial biopsy, Break Through Cancer"
+  },
+  {
+    "name": "Griffith",
+    "alternative_names": [
+      "CGR-Endo",
+      "CGR",
+      "Center for Gynepathology Research"
+    ],
+    "entity_type": "project",
+    "project_id": 7,
+    "parent_project": null,
+    "pi": "Griffith, Linda G. (MIT, PI; Scientific Director, Center for Gynepathology Research); Goods, Brittany A. (University of Melbourne, partner lab)",
+    "research_focus": "Endometriosis and adenomyosis; the human endometrium across the menstrual cycle; patient-derived endometrial organoid and stromal co-cultures in synthetic hydrogels; single-cell RNA-seq and proteomic profiles of endometriosis",
+    "key_data_types": [
+      "Endometrial organoids and cell co-cultures",
+      "Organoid and cell imaging",
+      "Single-cell and bulk sequencing",
+      "Mass spectrometry proteomics",
+      "Secreted protein assays (ELISA, Luminex)",
+      "Patient endometrial tissue"
+    ],
+    "description": "Endometriosis and uterine biology research from Linda Griffith's lab at MIT, working with Brittany Goods' lab, and from the multi-lab Center for Gynepathology Research that Griffith directs. The work grows patient-derived endometrial organoids and stromal co-cultures in synthetic hydrogels to model the endometrium across the menstrual cycle, and profiles patient tissue with single-cell RNA sequencing and proteomics to find the molecular features of endometriosis and adenomyosis. It is funded by NIH (NICHD, and earlier NIBIB).",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11115568",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/343",
+    "tags": "Griffith, CGR, CGR-Endo, Center for Gynepathology Research, endometriosis, adenomyosis, endometrium, menstrual cycle, organoid, synthetic hydrogel, Goods, single-cell RNA-seq, proteomics, R01HD110335, U01EB029132"
+  },
+  {
+    "name": "Impact",
+    "alternative_names": [
+      "IMPACT",
+      "IMPAcTb",
+      "Hi-IMPAcTB",
+      "IMPAc-TB",
+      "Fortune"
+    ],
+    "entity_type": "project",
+    "project_id": 2,
+    "parent_project": null,
+    "pi": "Fortune, Sarah M. (Harvard T.H. Chan School of Public Health, contact PI); Flynn, JoAnne L. (U Pittsburgh, co-lead); Boom, W. Henry (Case Western Reserve, co-lead); Bryson, Bryan (MIT, member lab); Lauffenburger, Douglas A. (MIT, member lab); Shalek, Alex K. (MIT, member lab)",
+    "research_focus": "Host-pathogen interactions in tuberculosis; characterizing protective vs. non-protective immunological responses to Mycobacterium tuberculosis to inform vaccine design",
+    "key_data_types": [
+      "Flow cytometry and CyTOF",
+      "Systems serology (antibody titers, Fc receptor binding, antibody-dependent functional assays, Luminex)",
+      "Bulk and single-cell RNA sequencing",
+      "NHP, mouse and human tissue and granuloma samples",
+      "Human cohort patient visits",
+      "PET/CT imaging and tissue imaging",
+      "Bacterial samples and digitally barcoded Mtb"
+    ],
+    "description": "Hi-IMPAcTB is a multi-center tuberculosis consortium funded by NIAID as one of its Immune Mechanisms of Protection Against Mycobacterium tuberculosis (IMPAc-TB) centers, led by Sarah Fortune (Harvard T.H. Chan School of Public Health) with co-leads JoAnne Flynn (University of Pittsburgh) and W. Henry Boom (Case Western Reserve). It studies which immune responses to Mycobacterium tuberculosis protect against infection and disease, to guide vaccine and diagnostic design. The consortium collects multi-modal data from lungs and blood in mice, non-human primates and humans, including flow and mass cytometry, single-cell sequencing, systems serology, PET/CT imaging and barcoded Mtb strains.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11625980",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/222",
+    "tags": "Impact, IMPACT, IMPAcTb, Hi-IMPAcTB, tuberculosis, TB, Mycobacterium tuberculosis, Mtb, granuloma, non-human primate, immunology, Fortune, Flynn, Boom, Lauffenburger, Shalek, Bryson, NIAID, 75N93019C00071"
+  },
+  {
+    "name": "Impactb Investigation",
+    "alternative_names": [
+      "Impact",
+      "IMPACT",
+      "IMPAcTb"
+    ],
+    "entity_type": "investigation",
+    "project_id": 2,
+    "parent_project": "Impact",
+    "pi": null,
+    "research_focus": "Protective and non-protective immune responses to Mycobacterium tuberculosis in mice, non-human primates and humans",
+    "key_data_types": [],
+    "description": "The investigation that holds the Impact project's samples: the IMPAcTb tuberculosis consortium's lung, blood and granuloma studies.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "Impactb Investigation, IMPAcTb, tuberculosis, TB, granuloma, non-human primate"
+  },
+  {
+    "name": "MetNet",
+    "alternative_names": [
+      "Kamm",
+      "MIT MetNet",
+      "MetNet Center",
+      "Metastasis Research Network"
+    ],
+    "entity_type": "project",
+    "project_id": 4,
+    "parent_project": null,
+    "pi": "Kamm, Roger D. (MIT, contact PI); Shenoy, Vivek B. (UPenn, co-PI)",
+    "research_focus": "Mechanical determinants of metastatic cancer colonization, dormancy, and outgrowth; mechano-adaptation of circulating tumor cells during extravasation and organ-selective colonization",
+    "key_data_types": [
+      "Microvascular network and organ-on-chip models",
+      "Cell and device imaging with image analysis",
+      "Extravasation, migration, permeability and clot assays",
+      "RNA sequencing and chromatin sequencing analysis",
+      "Computational and machine learning models",
+      "Flow cytometry"
+    ],
+    "description": "The MIT MetNet Center is an NCI U54 center in the Metastasis Research Network, led by Roger Kamm (MIT) and Vivek Shenoy (University of Pennsylvania). It studies how mechanical and molecular stresses drive metastatic colonization, dormancy and outgrowth in different organs, including how circulating tumor cells adapt as they leave the blood vessels. The team combines engineered microvascular and organ-on-chip models, in vivo models and computational modeling to identify anti-metastatic therapeutic strategies.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11182474",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/340",
+    "tags": "MetNet, metastasis, microvascular network, organ-on-chip, extravasation, tumor microenvironment, Kamm, Shenoy, Friedl, NCI, U54, U54CA261694"
+  },
+  {
+    "name": "MetNet",
+    "alternative_names": [],
+    "entity_type": "investigation",
+    "project_id": 4,
+    "parent_project": "MetNet",
+    "pi": null,
+    "research_focus": "Mechanical determinants of metastatic colonization, dormancy and outgrowth in engineered microvascular and organ-on-chip models",
+    "key_data_types": [],
+    "description": "The investigation that holds the MetNet project's samples. It shares its title with the project row; a question scoped to the MetNet investigation means these samples.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "MetNet, metastasis, organ-on-chip, microvascular network, extravasation"
+  },
+  {
+    "name": "MIT-Koch",
+    "alternative_names": [
+      "Integrated Genome Technologies"
+    ],
+    "entity_type": "project",
+    "project_id": 5,
+    "parent_project": null,
+    "pi": "Levine, Stuart S. (MIT, Director, BioMicro Center)",
+    "research_focus": "Genomics core facility; sequencing library preparation and high-throughput sequencing; bioinformatics, including alignment, variant calling and mutational spectra",
+    "key_data_types": [
+      "DNA sequencing",
+      "Sequence alignment and variant calling",
+      "Mutational spectra analysis"
+    ],
+    "description": "The MIT BioMicro Center, directed by Stuart Levine, is MIT's genomics and bioinformatics core facility, run jointly by MIT's Departments of Biology and Biological Engineering, the Koch Institute and the Center for Environmental Health Sciences. It provides sequencing library preparation, high-throughput sequencing, single-cell and spatial genomics, bioinformatics analysis and data management to labs across MIT. This project holds sequencing and analysis data generated at the center, such as alignments, variant calls and mutational spectra.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": "https://fairdomhub.org/investigations/779",
+    "tags": "MIT-Koch, BioMicro Center, BMC, genomics core, sequencing core, Koch Institute, Integrated Genome Technologies, Levine, MIT BioMicro Center, BioMicroCenter"
+  },
+  {
+    "name": "MIT_SRP",
+    "alternative_names": [
+      "SRP",
+      "MIT SRP",
+      "Superfund"
+    ],
+    "entity_type": "investigation",
+    "project_id": 3,
+    "parent_project": "SRP",
+    "pi": null,
+    "research_focus": "Health effects of N-nitrosamines and other hazardous chemicals in drinking water, including DNA damage, mutation and cancer risk",
+    "key_data_types": [],
+    "description": "The investigation that holds the SRP project's samples: the MIT Superfund Research Program's exposure, DNA damage and water studies.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "MIT_SRP, Superfund, N-nitrosamines, DNA damage, mutagenesis, drinking water"
+  },
+  {
+    "name": "NAMs",
+    "alternative_names": [
+      "NAMs Technology Development Center for Women's Health",
+      "MIT NAMs Center",
+      "NAMs Center"
+    ],
+    "entity_type": "project",
+    "project_id": 14,
+    "parent_project": null,
+    "pi": "Griffith, Linda G. (MIT, contact PI)",
+    "research_focus": "New approach methodologies; microphysiological systems and organ-on-chip models of gynecologic disease (endometriosis, adenomyosis, heavy menstrual bleeding, PCOS); computational systems biology; drug metabolism and safety models",
+    "key_data_types": [],
+    "description": "The MIT NAMs Technology Development Center for Women's Health, directed by Linda Griffith within the Center for Gynepathology Research, develops new approach methodologies (NAMs) to make drug development for gynecologic diseases easier. It builds human microphysiological systems of reproductive tissues and the liver, guided by computational systems biology and clinical data, and benchmarks them against patient data for endometriosis, adenomyosis, heavy menstrual bleeding and polycystic ovary syndrome. It is funded by NCATS through the NIH Common Fund's Complement-ARIE program and works with industry partners on preclinical use cases.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11305605",
+    "fairdomhub_published_link": null,
+    "tags": "NAMs, new approach methodologies, microphysiological systems, MPS, organ-on-chip, women's health, gynecology, endometriosis, adenomyosis, Complement-ARIE, NCATS, Griffith, UM1TR006029"
+  },
+  {
+    "name": "PUBLISHED",
+    "alternative_names": [
+      "Published Data",
       "Published",
       "PUB"
     ],
     "entity_type": "project",
-    "project_id": 1,
+    "project_id": 6,
     "parent_project": null,
     "pi": null,
     "research_focus": null,
-    "key_data_types": [],
-    "description": "MIT BioMicro Center published sample data; sole project on this instance (seek_production.projects id 1).",
+    "key_data_types": [
+      "Tissue and cell samples from mouse, non-human primate and patient studies",
+      "Imaging data and image analysis",
+      "Flow cytometry data",
+      "Sequencing data and single-cell expression analysis",
+      "Patient visit, bacterial and antibody samples"
+    ],
+    "description": "Published data: samples and data from NExtSEEK's research programs that already appear in published papers, gathered in one shared project so any registered member can explore them. Most of these samples also belong to their program's own project (Impact, SRP, MetNet, Griffith, Shoulders and CSBC).",
     "nih_reporter_link": null,
     "fairdomhub_published_link": null,
-    "tags": null
+    "tags": "PUBLISHED, published, published data, published samples, publications, papers"
+  },
+  {
+    "name": "RMS-NGC",
+    "alternative_names": [
+      "Koehler",
+      "Next Generation Chemistry Center"
+    ],
+    "entity_type": "project",
+    "project_id": 12,
+    "parent_project": null,
+    "pi": "Koehler, Angela N. (MIT Koch Institute and Broad Institute, contact PI); Burgin, Alex B.; Gould, Alexandra E.; Linardic, Corinne M.; Nomura, Daniel (multi-PIs)",
+    "research_focus": "Fusion-positive alveolar rhabdomyosarcoma; PAX3-FOXO1 fusion oncoprotein; small-molecule discovery, targeted degraders (PROTACs, molecular glues) and chemoproteomics",
+    "key_data_types": [],
+    "description": "An NCI Next Generation Chemistry Center at MIT, led by Angela Koehler with Alex Burgin, Alexandra Gould, Corinne Linardic and Daniel Nomura, that looks for drugs against fusion-positive alveolar rhabdomyosarcoma, a childhood cancer driven by the PAX3-FOXO1 fusion protein. Its projects look for small molecules that bind PAX3-FOXO1, degraders that remove it, and ways to target the transcriptional complex it works with, using medicinal chemistry, chemical biology and chemoproteomics. It is part of NCI's Targeting Fusion Oncoproteins in Childhood Cancers (TFCC) network.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11401672",
+    "fairdomhub_published_link": null,
+    "tags": "RMS-NGC, rhabdomyosarcoma, RMS, alveolar rhabdomyosarcoma, fusion-positive, PAX3-FOXO1, fusion oncoprotein, Next Generation Chemistry Center, NGC, TFCC, Koehler, Angela, Koch Institute, Broad Institute, Broad, small molecule, PROTAC, molecular glue, degrader, chemoproteomics, UM1CA294108"
+  },
+  {
+    "name": "Shoulders",
+    "alternative_names": [
+      "Shoulders Independent Projects",
+      "Shoulders Lab"
+    ],
+    "entity_type": "project",
+    "project_id": 11,
+    "parent_project": null,
+    "pi": "Shoulders, Matthew D. (MIT Chemistry, PI)",
+    "research_focus": "Protein folding and proteostasis; collagen folding and ER quality control of procollagen; collagen disease variants (such as COL2A1 in osteoarthritis) in iPSC-derived cartilage models; chaperones and protein evolution",
+    "key_data_types": [
+      "iPSC-derived cartilage (chondronoid) models",
+      "Cell and tissue imaging",
+      "RNA sequencing",
+      "Mass spectrometry proteomics"
+    ],
+    "description": "Research from Matthew Shoulders' lab in MIT Chemistry, which studies how cells fold proteins and how proteostasis networks, such as chaperones and endoplasmic reticulum quality control, shape protein function and evolution. A main direction is collagen proteostasis in health and disease: how procollagen is folded and checked, and how disease variants disrupt it, studied in human cartilage (chondronoids) grown from iPSCs and profiled by imaging, RNA sequencing and mass spectrometry proteomics. It is funded by NIAMS.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11400444",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/485",
+    "tags": "Shoulders, Shoulders Lab, collagen, Collagen Study, COL2A1, procollagen, proteostasis, protein folding, ER quality control, osteoarthritis, cartilage, chondronoid, iPSC, R01AR082995"
+  },
+  {
+    "name": "SRP",
+    "alternative_names": [
+      "Engelward",
+      "MIT SRP",
+      "Superfund",
+      "Superfund Research Program"
+    ],
+    "entity_type": "project",
+    "project_id": 3,
+    "parent_project": null,
+    "pi": "Engelward, Bevin P. (MIT)",
+    "research_focus": "Environmental health impacts of N-nitrosamines; hazardous chemical sensing, mutagenicity, cancer risk, and remediation of contaminated drinking water in affected communities (Wilmington, MA and Passamaquoddy Tribe)",
+    "key_data_types": [
+      "Mouse nitrosamine exposure studies (tissues, histopathology, GPT assays)",
+      "DNA damage and mutation assays (CometChip, RaDR imaging, mutational spectra sequencing)",
+      "Community and field water sampling",
+      "Chemical sensors and electrochemical detection",
+      "Chemical synthesis and characterization (NMR, spectroscopy, crystallography)",
+      "Water treatment (electrochemical filtration, ion chromatography)",
+      "Sequencing and mass spectrometry"
+    ],
+    "description": "The MIT Superfund Research Program, an NIEHS-funded P42 center led by Bevin Engelward, studies the health risks of N-nitrosamines and other hazardous chemicals in drinking water, at the Olin Chemical Superfund Site in Wilmington, Massachusetts, and beyond. It combines engineering, biology and community engagement: sensors that detect contaminants, mouse and cell studies of DNA damage, mutation and cancer risk, and technologies that clean contaminated water. It works with affected communities, including Wilmington and the Passamaquoddy Tribe.",
+    "nih_reporter_link": "https://reporter.nih.gov/project-details/11398586",
+    "fairdomhub_published_link": "https://fairdomhub.org/projects/221",
+    "tags": "SRP, MIT SRP, Superfund, Superfund Research Program, NIEHS, P42, P42ES027707, Engelward, N-nitrosamines, nitrosamine, drinking water, water quality, DNA damage, mutagenesis, CometChip"
+  },
+  {
+    "name": "TCGA",
+    "alternative_names": [
+      "The Cancer Genome Atlas"
+    ],
+    "entity_type": "investigation",
+    "project_id": null,
+    "parent_project": "TCGA",
+    "pi": null,
+    "research_focus": "Public pan-cancer reference data from The Cancer Genome Atlas, with patients, tumor and normal tissue samples and their sequencing data",
+    "key_data_types": [],
+    "description": "Public reference data from The Cancer Genome Atlas, loaded into the local and dev graphs under a TCGA project whose id differs by instance. Production does not hold it.",
+    "nih_reporter_link": null,
+    "fairdomhub_published_link": null,
+    "tags": "TCGA, The Cancer Genome Atlas, pan-cancer, tumor, public data"
   }
 ]

@@ -18,7 +18,9 @@ from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
 
-from .shared import DOWNLOAD_DIRECTORY, DOWNLOAD_DIRECTORY_LINK, SEEK_DATABASE, UPLOAD_DIRECTORY, report
+from .exports import newExport
+from .samples import LOGIN_REQUIRED
+from .shared import SEEK_DATABASE, UPLOAD_DIRECTORY, report
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +54,14 @@ def batchUpload(request):
     return render(request,"batchUpload.html", {'report': report})
 
 def sampleUploadAjax(request):
+    """Upload a sample sheet; the view requires a login."""
     logger.debug('sampleUploadAjax')
     username = str(request.user)  # noqa: F841 (kept: resolves the lazy request.user)
+    if not request.user.is_authenticated:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
     seekdb = SeekDB(None, None, None)
-    seekdb.getSeekLogin(request)
+    if not seekdb.getSeekLogin(request)['status']:
+        return json_response(LOGIN_REQUIRED, 0, message=LOGIN_REQUIRED)
     msg = "Error: File not valid"
     message = ''
     status = 0
@@ -94,9 +100,8 @@ def sampleUploadAjax(request):
                 n = len(names)
                 
                 datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-                filename = '.'.join(names[:(n-1)]) + '_feedback-' + datenow + '.xls'
-                feedbackfile = DOWNLOAD_DIRECTORY + filename
-                link = DOWNLOAD_DIRECTORY_LINK + filename
+                feedbackfile, link = newExport(request, '.'.join(names[:(n-1)]) + '_feedback-' + datenow + '.xls')
+                filename = link.rsplit('/', 1)[-1]  # private to the uploader (and a superuser), never under /media/
                 logger.debug(feedbackfile)
                 
                 backupfile = '.'.join(names[:(n-1)]) + '_v' + datenow + '.' + names[-1]

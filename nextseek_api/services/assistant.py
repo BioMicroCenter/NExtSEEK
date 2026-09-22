@@ -1,7 +1,7 @@
 """
 DRF ViewSet for the NExtSEEK Assistant (chat) endpoints.
 
-Provides 8 actions:
+Provides 9 actions:
   GET  /assistant/me/
   POST /assistant/sessions/
   GET  /assistant/sessions/{session_id}/
@@ -9,6 +9,7 @@ Provides 8 actions:
   POST /assistant/query/async/                   (async, returns task_id)
   GET  /assistant/tasks/{task_id}/progress/      (polling for progress)
   GET  /assistant/sessions/{sid}/bundles/{bid}/
+  GET  /assistant/sessions/{sid}/download/       (the whole chat as one zip)
   GET  /assistant/test-cases/
 """
 
@@ -33,6 +34,8 @@ from pydantic import ValidationError
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.handlers.asgi import ASGIRequest
 
 ASSISTANT_PARTICIPATING_PROJECTS = settings.ASSISTANT_PARTICIPATING_PROJECTS
 TEST_CASES = settings.TEST_CASES
@@ -45,6 +48,7 @@ from nextseek_api.assistant.descriptions import (
     ASSISTANT_SESSION_CREATE_DESC,
     ASSISTANT_SESSION_DELETE_DESC,
     ASSISTANT_SESSION_DETAIL_DESC,
+    ASSISTANT_SESSION_DOWNLOAD_DESC,
     ASSISTANT_SESSION_PATCH_DESC,
     ASSISTANT_SESSIONS_LIST_DESC,
     ASSISTANT_TASK_PROGRESS_DESC,
@@ -63,16 +67,19 @@ from nextseek_api.assistant.models_api import (
     TaskProgressResponse,
     TestCaseItem,
     TestCaseListResponse,
-    Turn,
 )
 from nextseek_api.assistant.models_api import (
     ApiReadRequest,
     ApiReadResponse,
     ApiWriteRequest,
     ApiWriteResponse,
+    AggregateOpRequest,
+    AggregateOpResponse,
     EntityOpRequest,
     EntityOpResponse,
     GraphOpRequest,
+    GraphSchemaOpRequest,
+    GraphSchemaOpResponse,
     GraphOpResponse,
     OpErrorResponse,
     ParseOpRequest,
@@ -88,7 +95,6 @@ from NessieAI.ns.granular import OpValidationError, run_op
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.permissions import may_read_any_users_data
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
-from NessieAI.ns.debug_projection import bundle_debug_entries
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
 # artifact helpers in artifacts.py. The endpoints below call them; the pipeline
@@ -105,7 +111,7 @@ from NessieAI.ns.artifacts import (
     _resolve_saved_path,
     _safe_artifact_path,
 )
-from nextseek_api.assistant.excel_export import build_artifacts
+from nextseek_api.assistant import session_export
 from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
@@ -119,6 +125,7 @@ from nextseek_api.authentication import (  # noqa: F401
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
+from nextseek_api.graph_search.scope import plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
 # NessieAI/ns/turn.py, so patch them there. Importing them here again would let a
@@ -203,9 +210,11 @@ def _most_recent_session(user) -> "ChatSession | None":
 # ----------------------------------------------------------------------
 
 _GRANULAR_REQUEST_MODELS = {
+    "aggregate": AggregateOpRequest,
     "entity": EntityOpRequest,
     "parse": ParseOpRequest,
     "graph": GraphOpRequest,
+    "graph-schema": GraphSchemaOpRequest,
     "api-read": ApiReadRequest,
     "api-write": ApiWriteRequest,
     "report": ReportOpRequest,
@@ -225,11 +234,14 @@ def _op_error_response(code: str, detail: str, http_status: int) -> Response:
 
 
 def _granular_chat_config(request, req) -> ChatConfig:
-    """Per-request ChatConfig copy carrying the caller's resolved credentials.
+    """Per-request ChatConfig copy carrying the caller's resolved credentials and graph scope.
 
     Mirrors the credential handling in ``query``/``query_async`` and
     ``run_query``'s ``copy.copy(config)`` so outbound NExtSEEK calls run as the
-    requesting user and the shared singleton is never mutated.
+    requesting user and the shared singleton is never mutated. The copy also
+    carries the caller's project scope (``plain_scope``), which the Neo4j tool and
+    the graph catalog read; an unresolved or malformed scope is stored as ``None``,
+    which refuses every graph query.
     """
     chat_config = _select_chat_config(request, req)
     basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
@@ -248,7 +260,15 @@ def _granular_chat_config(request, req) -> ChatConfig:
         cfg.API_USER = api_user
     if api_pass:
         cfg.API_PASS = api_pass
-    return cfg
+    from chat_nextseek.graph_scope import GraphScope, with_scope
+
+    plain = plain_scope(request.user)
+    try:
+        scope = GraphScope.from_plain(plain) if plain else None
+    except ValueError as exc:
+        logger.warning("granular op: malformed graph scope, graph queries are refused: %s", exc)
+        scope = None
+    return with_scope(cfg, scope)
 
 
 # Content-type by file extension for report artifacts served from disk.
@@ -434,60 +454,8 @@ class AssistantViewSet(viewsets.ViewSet):
         include_set = {p.strip() for p in include.split(",") if p.strip()}
         if "turns" in include_set:
             payload["title"] = session.title or "New chat"
-            chat_log = (session.extra_state or {}).get("chat_log") or []
-            bundles_by_id = {b.get("id"): b for b in history if isinstance(b, dict)}
-            turns: list[dict[str, Any]] = []
-            if chat_log:
-                for entry in chat_log:
-                    if not (entry or {}).get("user_query"):
-                        continue
-                    bid = entry.get("bundle_id")
-                    bundle = bundles_by_id.get(bid) if bid is not None else None
-                    if not (entry.get("assistant_reply")
-                            or entry.get("assistant_reply_preview")
-                            or bundle):
-                        # PD-6: hide ONLY true non-answer entries (unrelated/error,
-                        # F §12.3). Legacy preview-only turns keep rendering.
-                        continue
-                    # Prefer the full reply stored directly on the chat_log entry
-                    # (wizard turns don't produce bundles, so this is the only
-                    # full-text source for them). Fall back to the bundle's
-                    # terminal_reply for legacy entries written before
-                    # assistant_reply existed, then to the 280-char preview.
-                    reply = (
-                        entry.get("assistant_reply")
-                        or (bundle.get("terminal_reply") or bundle.get("reply") if bundle else None)
-                        or entry.get("assistant_reply_preview", "")
-                    ) or ""
-                    artifacts = entry.get("artifacts") or (build_artifacts(bundle) if bundle else None)
-                    turns.append(
-                        Turn(
-                            bundle_id=bid if bid is not None else 0,
-                            turn_id=entry.get("turn_id") if isinstance(entry.get("turn_id"), int) else None,
-                            user_query=entry.get("user_query", ""),
-                            reply=reply,
-                            mode=entry.get("mode", ""),
-                            ts=entry.get("ts"),
-                            artifacts=artifacts or None,
-                            cc_traces=entry.get("cc_traces"),
-                            debug_entries=bundle_debug_entries(bundle) or None,
-                        ).model_dump(mode="json")
-                    )
-            else:
-                turns = [
-                    Turn(
-                        bundle_id=b.get("id", 0),
-                        user_query=b.get("user_query", ""),
-                        reply=b.get("terminal_reply") or b.get("reply") or "",
-                        mode=b.get("mode", ""),
-                        ts=b.get("ts"),
-                        artifacts=(build_artifacts(b) or None),
-                        debug_entries=bundle_debug_entries(b) or None,
-                    ).model_dump(mode="json")
-                    for b in history
-                    if (b or {}).get("user_query")
-                ]
-            payload["turns"] = turns
+            # One turn walk, shared with anything that exports a session.
+            payload["turns"] = [row.payload for row in session_export.turn_rows(session)]
 
         return Response(payload, status=status.HTTP_200_OK)
 
@@ -642,6 +610,10 @@ class AssistantViewSet(viewsets.ViewSet):
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
 
+        # The caller's project scope for graph queries, resolved here in the request
+        # thread and handed down as plain data (None refuses every graph query).
+        graph_scope = plain_scope(request.user)
+
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
         thread = threading.Thread(
@@ -652,6 +624,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 chat_session=chat_session,
                 resolved_session_id=resolved_session_id,
                 event_queue=event_queue,
+                graph_scope=graph_scope,
             ),
             daemon=True,
         )
@@ -761,6 +734,10 @@ class AssistantViewSet(viewsets.ViewSet):
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
 
+        # The caller's project scope for graph queries, resolved here in the request
+        # thread and handed down as plain data (None refuses every graph query).
+        graph_scope = plain_scope(request.user)
+
         # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
         # the thread start stays here.
         thread = threading.Thread(
@@ -770,6 +747,7 @@ class AssistantViewSet(viewsets.ViewSet):
                 send_event=send_event, api_user=api_user, api_pass=api_pass,
                 chat_session=chat_session,
                 resolved_session_id=resolved_session_id,
+                graph_scope=graph_scope,
             ),
             daemon=True,
         )
@@ -1093,6 +1071,50 @@ class AssistantViewSet(viewsets.ViewSet):
         return _error_response("Not found", f"Artifact '{artifact_key}' not found.", status.HTTP_404_NOT_FOUND)
 
     # ------------------------------------------------------------------
+    # 9. GET /assistant/sessions/{sid}/download/
+    # ------------------------------------------------------------------
+    @extend_schema(
+        operation_id="Assistant: Download Session",
+        description=ASSISTANT_SESSION_DOWNLOAD_DESC,
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r"sessions/(?P<session_id>[0-9a-f-]+)/download",
+    )
+    def download_session(self, request, session_id=None):
+        """The whole chat as one zip, streamed (``session_export``)."""
+        authed, err = self._check_auth(request)
+        if not authed:
+            return err
+
+        try:
+            chat_session = ChatSession.objects.get(session_id=session_id)
+        except (ChatSession.DoesNotExist, DjangoValidationError):
+            return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
+
+        is_owner = chat_session.user_id == request.user.pk
+        if not is_owner and not may_read_any_users_data(request.user):
+            return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
+
+        # The CC tree comes from the session itself (the project folder its CC turns
+        # ran in, and the owner's username), never from the login that asks, so a
+        # superuser reading someone else's chat gets the owner's files too.
+        plan = session_export.plan_export(chat_session)
+        # Match the iterator to the server: handed a synchronous iterator, Django's
+        # ASGI response (daphne is this app's default server) reads all of it into a
+        # list before sending a byte, and a WSGI response does the same to an
+        # asynchronous one.
+        if isinstance(getattr(request, "_request", request), ASGIRequest):
+            content = session_export.astream_export(plan)
+        else:
+            content = session_export.stream_export(plan)
+        response = StreamingHttpResponse(content, content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="{plan.filename}"'
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    # ------------------------------------------------------------------
     # 6. GET /assistant/test-cases/
     # ------------------------------------------------------------------
     @extend_schema(
@@ -1154,10 +1176,10 @@ class AssistantViewSet(viewsets.ViewSet):
             return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         chat_config = _granular_chat_config(request, req)
-        # parse and graph both run parser_agent, which reads results_history off
-        # the session — build a (transient) session for both, else parser_agent
+        # parse, graph and aggregate all run parser_agent, which reads results_history
+        # off the session — build a (transient) session for them, else parser_agent
         # crashes on None. Other ops don't touch the session.
-        session = self._granular_session(request, req) if op in ("parse", "graph") else None
+        session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
         # report + generate-submission both persist real artifacts to disk (the
@@ -1253,6 +1275,41 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="graph")
     def graph(self, request):
         return self._run_granular_op(request, "graph")
+
+    @extend_schema(
+        operation_id="Assistant: Aggregate",
+        description=(
+            "Counts and breakdowns inside the caller's projects, in one call: the question, or 1 to 4 "
+            "plain-language parts, each answered by the graph op's own chain in parallel, as a small table "
+            "per part (`groups`, `sum_of_group_counts`, `groups_may_overlap`, `null_group`), never sample "
+            "records; a breakdown's `sum_of_group_counts` counts a sample once per group it falls in, so it is "
+            "not a number of samples when `groups_may_overlap` is true. Answers what finished within "
+            "50 s and marks the rest `timed_out`. A part refused for its project scope carries the "
+            "project-scoped sample search's total only (`status` fallback). The body takes no Cypher and "
+            "no scope."
+        ),
+        request=AggregateOpRequest,
+        responses={200: AggregateOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="aggregate")
+    def aggregate(self, request):
+        return self._run_granular_op(request, "aggregate")
+
+    @extend_schema(
+        operation_id="Assistant: Graph Schema",
+        description=(
+            "Return the deployed graph's schema, read live from the Neo4j catalog: the "
+            "structure, the sample type index, any requested types in full, and the "
+            "keyword-gated vocabulary. No model call. `result.source` is `catalog` when "
+            "the live graph answered and `fallback` when the committed neo4j_schema.json "
+            "did, in which case `unavailable_reason` says why."
+        ),
+        request=GraphSchemaOpRequest,
+        responses={200: GraphSchemaOpResponse, 401: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="graph-schema")
+    def graph_schema(self, request):
+        return self._run_granular_op(request, "graph-schema")
 
     @extend_schema(
         operation_id="Assistant: API Read",

@@ -7,6 +7,8 @@ import re
 import shutil
 import sys
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -22,6 +24,7 @@ from .artifacts import (
 )
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from .pipeline import agent as pipeline_agent
+from .agents.followup import resolve_followup_outcome, run_followup
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -41,6 +44,8 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
+from .graph_scope import SCOPE_ATTR, GraphScope
+from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
 from .helpers import (
     _extract_required_paths,
@@ -55,8 +60,13 @@ from .helpers import (
     shortlist_catalog,
     slim_api_result_for_llm,
     tool_nextseek_api_request,
+    matched_nothing,
     tool_neo4j_query,
 )
+from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
+from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.tools.neo4j import is_scope_refusal
+from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
@@ -127,6 +137,69 @@ _IDENTITY_REFUSAL_REPLY = (
 )
 
 
+# --------------------------------------------------------------------------
+# Turn graph scope
+# --------------------------------------------------------------------------
+#
+# Every graph statement is held to the caller's project scope by the Neo4j tool, which
+# reads a GraphScope off the config (graph_scope.py; spec
+# docs/superpowers/specs/2026-09-18-graph-cypher-scope.md). The request-scoped callers
+# resolve it on the server and hand it to the entry points below as `graph_scope`
+# (plain data, {"is_admin", "project_ids"}); the gate puts it on the per-request copy.
+# A caller that leaves the keyword out keeps whatever its own config carries: that is
+# how the single-operator surfaces (CLI, MCP, evaluator) set theirs.
+
+
+class _Unset:
+    def __repr__(self) -> str:
+        return "_UNSET"
+
+
+_UNSET: Any = _Unset()
+
+#: The project-scoped sample search a refused graph question falls back to.
+GRAPH_SEARCH_ENDPOINT = "/nextseek_api/samples/graph_search/"
+
+#: Told to the chatter when a graph question was answered by the fallback.
+SCOPE_FALLBACK_NOTE = (
+    "The graph query written for this question could not be confirmed to stay within the user's projects, so it "
+    "was not run. This answer comes from the project-scoped sample search instead. Say so, and say which "
+    "conditions of the question that search could not apply."
+)
+
+#: Appended to the reply of a fallback turn, so the disclosure never depends on the model.
+SCOPE_FALLBACK_FOOTER = (
+    "Note: this answer comes from the project-scoped sample search, because the graph query for it could not be "
+    "confirmed to stay within your projects. That search cannot express every condition a graph query can."
+)
+
+
+@dataclass(frozen=True)
+class GraphScopeFallback:
+    """A graph turn whose final query was refused for its scope: answer it through graph_search instead."""
+
+    codes: tuple[str, ...]
+    reasons: tuple[str, ...]
+    submitted_cypher: str | None
+    attempts: tuple[dict[str, Any], ...]
+
+
+def _coerce_graph_scope(graph_scope: Any, *, entry_point: str) -> GraphScope | None:
+    """A GraphScope as it is, a mapping through GraphScope.from_plain, anything else None (which refuses)."""
+    if isinstance(graph_scope, GraphScope):
+        return graph_scope
+    if isinstance(graph_scope, Mapping):
+        try:
+            return GraphScope.from_plain(graph_scope)
+        except ValueError as exc:
+            _LOG.warning("%s: malformed graph scope, no graph query will run: %s", entry_point, exc)
+            return None
+    if graph_scope is not None:
+        _LOG.warning("%s: graph scope of type %s ignored, no graph query will run", entry_point,
+                     type(graph_scope).__name__)
+    return None
+
+
 def _coerce_setting_bool(value: Any, *, default: bool) -> bool:
     """Mirror ChatConfig._coerce_bool so a string 'false' from a config_map stays false."""
     if value is None:
@@ -178,6 +251,32 @@ def _service_account_fallback_allowed(config: ChatConfig) -> bool:
 
 
 def _identity_gate(
+    session: SessionState | SessionStateProxy,
+    config: ChatConfig,
+    credentials: dict[str, str] | None,
+    send_event: SendEvent | None,
+    *,
+    entry_point: str,
+    graph_scope: Any = _UNSET,
+) -> tuple[ChatConfig, dict[str, Any] | None]:
+    """Bind the turn to the caller's identity and graph scope, or refuse to impersonate.
+
+    The identity half is ``_bind_identity``. When ``graph_scope`` is given (anything but
+    ``_UNSET``), the turn runs on a per-request copy whose ``GRAPH_SCOPE`` is that scope:
+    a ``GraphScope`` as it is, a mapping through ``GraphScope.from_plain``, anything else
+    (``None``, a malformed mapping) as ``None``, which refuses every graph query. The shared
+    config is never mutated. ``_UNSET`` leaves the config's own scope in place.
+    """
+    bound, refusal = _bind_identity(session, config, credentials, send_event, entry_point=entry_point)
+    if refusal is not None or graph_scope is _UNSET:
+        return bound, refusal
+    if bound is config:
+        bound = copy.copy(config)
+    setattr(bound, SCOPE_ATTR, _coerce_graph_scope(graph_scope, entry_point=entry_point))
+    return bound, None
+
+
+def _bind_identity(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
     credentials: dict[str, str] | None,
@@ -297,6 +396,7 @@ def run_pipeline_launch(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -309,7 +409,7 @@ def run_pipeline_launch(
     the turn rather than launching a pipeline as the service account.
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_pipeline_launch",
+        session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
@@ -403,16 +503,219 @@ def _write_graph_debug(log_dir: str, ts: str, payload: dict) -> str | None:
 
 
 def _build_graph_refine_context(last_bundle: dict) -> str:
-    """Prior graph-query context for a refine, mirroring the REST refine block
-    in api_agent_build_request (prior user query + prior plan)."""
+    """Prior context for a refine the graph will run.
+
+    Mirrors the REST refine block in api_agent_build_request (prior user query + prior plan).
+    When the previous turn was REST there is no Cypher to carry, so the filters it actually
+    sent are carried instead: without them a re-routed refine loses the scope the user set in
+    the turn before and silently widens the question (F13).
+    """
+    prior_query = last_bundle.get("user_query") or ""
     graph_plan = last_bundle.get("graph_plan") or {}
     prior_cypher = graph_plan.get("cypher") or ""
-    prior_query = last_bundle.get("user_query") or ""
+    if prior_cypher:
+        return (
+            "Previous graph query context (you are refining it):\n"
+            f"Prior user query: {prior_query or '[none]'}\n"
+            f"Prior Cypher:\n{prior_cypher}"
+        )
+
+    parser_plan = last_bundle.get("parser_plan") or {}
+    filters = {k: v for k, v in (parser_plan.get("filters") or {}).items() if v}
+    api_plan = last_bundle.get("api_plan") or {}
+    body = {k: v for k, v in (api_plan.get("requestBody") or {}).items() if v}
     return (
-        "Previous graph query context (you are refining it):\n"
+        "Previous REST search context (you are refining it, and it is moving to the graph):\n"
         f"Prior user query: {prior_query or '[none]'}\n"
-        f"Prior Cypher:\n{prior_cypher or '[none]'}"
+        f"Filters it resolved: {json.dumps(filters, default=str) if filters else '[none]'}\n"
+        f"What it sent: {json.dumps(body, default=str) if body else '[none]'}\n"
+        "Keep every constraint above that the user has not changed in this turn."
     )
+
+
+def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir) -> dict | None:
+    """Run the follow-up tool loop, and never let it be the reason a turn fails.
+
+    Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
+    a follow-up runs the same engine as a fresh question; the difference is only that
+    the previous result's UIDs are handed to it. Returns None on any failure, which
+    sends the caller to the pre-existing stored-result path.
+    """
+    def _run_query(*, question: str, seed_uids: list[str]) -> dict:
+        refine = None
+        if seed_uids:
+            # The UIDs used to be pasted into the prompt, capped at 200, and the graph
+            # agent copied that truncated list into `$uids` verbatim: on 2026-09-22 turn
+            # 1147 three queries bound 28, 200 and 200 of 1,549 while the payload below
+            # reported `seeded_uid_count` 1,549, so a 200-mouse answer would have been
+            # reported as the whole set. Bind them as a parameter instead and show only a
+            # handful for orientation.
+            shown = ", ".join(seed_uids[:10])
+            refine = (
+                "Scope this query to the sample UIDs of the result the user is asking a "
+                "follow-up about. They are ALREADY BOUND as the query parameter $uids: "
+                "filter with `WHERE s.uuid IN $uids` and never paste UIDs into the query "
+                "text. Do not widen to every sample of the same type.\n"
+                f"$uids holds {len(seed_uids)} UIDs. A few of them, so you can see their "
+                f"shape: {shown}"
+            )
+        graph_plan = graph_agent(
+            config, question, EntityAgentOutput(),
+            ParserPlan(mode="graph_query", intent_summary=question),
+            refine_context=refine,
+        )
+        if not graph_plan.cypher:
+            return {"ok": False, "error": "no query could be generated for that question"}
+        parameters = dict(graph_plan.parameters or {})
+        applied = None
+        if seed_uids and "$uids" in graph_plan.cypher:
+            parameters["uids"] = list(seed_uids)  # every one of them, not the ten shown
+            applied = len(seed_uids)
+        result = tool_neo4j_query(config, graph_plan.cypher, parameters)
+        rows = result.get("data") or []
+        # Counts and a few examples. Never rows: this goes back into a conversation
+        # that is re-sent in full on every later iteration of the loop.
+        return {
+            "ok": bool(result.get("ok")),
+            "count": result.get("total") if result.get("total") is not None else result.get("count"),
+            "rows_returned": len(rows),
+            "truncated": bool(result.get("truncated")),
+            "examples": _followup_examples(rows),
+            "error": result.get("error"),
+            "uids_available": len(seed_uids),
+            # None when the query did not filter on $uids: it then covers whatever it
+            # matched, which is not the same set, and the answer has to say so.
+            "uids_applied": applied,
+            "scope_note": (None if applied or not seed_uids else
+                           "This query did not filter on $uids, so it is not scoped to "
+                           "the previous result. Say so, or run it again scoped."),
+        }
+
+    try:
+        return run_followup(
+            config, user_text=user_text, bundle=bundle, run_query=_run_query, log_dir=log_dir,
+        )
+    except Exception as exc:
+        print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
+        return None
+
+
+def _followup_examples(rows: list, limit: int = 3) -> list[str]:
+    out: list[str] = []
+    for row in rows[: limit * 3]:
+        if not isinstance(row, dict):
+            continue
+        for key in ("uid", "UID", "uuid", "UUID", "id", "name"):
+            value = row.get(key)
+            if isinstance(value, str) and value:
+                out.append(value)
+                break
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _clamp_lab_codes_to_entity(plan, entity_result):
+    """``plan`` with every lab code the entity agent did not match removed (OD4).
+
+    The entity agent emits ``lab_codes`` only from SEEK lab records it matched, so its list
+    is empty exactly when nothing matched. The parser LLM writes its own ``filters.lab_codes``
+    (per candidate in plan mode) and echoes the entity result into ``resolved``, and its
+    prompt still teaches a surname-to-code rule: a scientist, or a lab whose SEEK title did
+    not parse, could come back as a guessed code. Everything downstream (the API and graph
+    agents, the empty-result retry ladder, the reply's scope note) reads the plan, so the
+    clamp runs once, straight after the parser. Nothing but the codes changes.
+    """
+    if isinstance(entity_result, dict):
+        matched = entity_result.get("lab_codes")
+    else:
+        matched = getattr(entity_result, "lab_codes", None)
+    dropped: list[str] = []
+
+    def _clamp(codes):
+        kept = clamp_lab_codes(codes, matched)
+        dropped.extend(c for c in (codes or []) if isinstance(c, str)
+                       and c.strip().upper() not in kept and c not in dropped)
+        return kept
+
+    def _clamp_filters(filters):
+        return filters.model_copy(update={"lab_codes": _clamp(filters.lab_codes)})
+
+    updates: dict[str, Any] = {
+        "resolved": plan.resolved.model_copy(update={"lab_codes": _clamp(plan.resolved.lab_codes)}),
+    }
+    if hasattr(plan, "candidates"):
+        updates["candidates"] = [
+            c.model_copy(update={"filters": _clamp_filters(c.filters)}) for c in plan.candidates
+        ]
+    else:
+        updates["filters"] = _clamp_filters(plan.filters)
+    if dropped:
+        print(f"[DEBUG][PARSER] dropped lab codes no matched lab record gave: {dropped} "
+              f"(entity lab_codes={list(matched or [])})")
+    return plan.model_copy(update=updates)
+
+
+#: How many times the graph turn may generate-execute-read before it settles.
+#: Bounded on purpose: each try is a model call plus a Neo4j round trip on the user's
+#: latency budget, and the measured graph stage already runs at a p90 of 18.9 s.
+GRAPH_MAX_TRIES = 3
+
+
+def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, Any]:
+    """One generate-execute round for debug.graph_attempts: what was written, what ran, and the decision."""
+    scope = result.get("scope")
+    return {
+        "cypher": cypher, "ok": result.get("ok"),
+        "count": result.get("count"), "error": result.get("error"),
+        "reason": reason,
+        "executed_cypher": result.get("cypher"),
+        "scope_decision": scope.get("decision") if isinstance(scope, dict) else None,
+    }
+
+
+def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
+                          send_event) -> GraphScopeFallback:
+    """Record a refused graph turn and hand it back to run_query, which answers through graph_search.
+
+    No bundle is stored and the chatter is not called: the refused query produced nothing to
+    remember or narrate, and a graph bundle would make the next refine re-run the graph path.
+    """
+    scope = graph_result.get("scope") if isinstance(graph_result.get("scope"), dict) else {}
+    submitted = graph_result.get("submitted_cypher", graph_plan.cypher)
+    fallback = GraphScopeFallback(
+        codes=tuple(scope.get("codes") or ()),
+        reasons=tuple(scope.get("reasons") or ()),
+        submitted_cypher=submitted,
+        attempts=tuple(attempts),
+    )
+    debug_payload["graph_plan"] = graph_plan.model_dump()
+    debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+    debug_payload["graph_scope_fallback"] = {
+        "endpoint": GRAPH_SEARCH_ENDPOINT,
+        "codes": list(fallback.codes),
+        "reasons": list(fallback.reasons),
+        "submitted_cypher": submitted,
+    }
+    print(f"[GRAPH] Query refused for its project scope {list(fallback.codes)}; falling back to "
+          f"{GRAPH_SEARCH_ENDPOINT}")
+    send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
+    return fallback
+
+
+def _schema_fallback_line(fallback) -> str | None:
+    """The debug panel's line for a graph turn whose schema was the committed file (``GraphAgentPlan.context_fallback``),
+    or None on a turn that read the live catalog."""
+    if not isinstance(fallback, dict):
+        return None
+    return (f"committed graph schema (captured {fallback.get('fallback_fetched_at') or 'on an unknown date'}), "
+            f"not the live catalog: {fallback.get('unavailable_reason')}")
+
+
+def _fall_back_to_graph_search(plan: ParserPlan) -> tuple[ParserPlan, str, list[str]]:
+    """The plan, mode and chatter notes that send a refused graph question through the REST branch."""
+    plan = plan.model_copy(update={"mode": "new_search", "target_endpoint": GRAPH_SEARCH_ENDPOINT})
+    return plan, "new_search", [SCOPE_FALLBACK_NOTE]
 
 
 def _execute_graph_turn(
@@ -428,44 +731,135 @@ def _execute_graph_turn(
     debug_payload: dict,
     t_total_start: float,
     refine_context: str | None = None,
+    note_agent: Callable[[str], None] | None = None,
 ):
+    """``note_agent`` lets the caller follow which agent this turn is on.
+
+    run_query's error handlers report ``current_agent``, a local of the caller. The
+    graph turn runs in this function, so that local stayed "graph" for the whole turn:
+    production turns 463 and 464 emitted a provider failure labelled as the graph
+    agent when the graph query had already succeeded and the chatter was what failed.
+    The REST path updates its own local in place and never had the problem.
+    """
+    def _on(agent: str) -> None:
+        if note_agent is not None:
+            note_agent(agent)
+
+    _on("graph")
     send_event("agent_started", {"agent": "graph", "mode": "graph_query"})
     _t0 = time.perf_counter()
+
+    # B2 (Pilot A v2, 2026-09-18): a UID the user names is looked up before the agent
+    # writes a query, with and without a -PUB suffix. Two turns asked about -PUB UIDs the
+    # graph stores without the suffix, matched nothing, and one reply said "0 samples are
+    # directly derived" about a sample the query never found.
+    turn_uids = uids_in(user_text, getattr(getattr(plan, "filters", None), "uids", None))
+    uid_checks = check_uids(config, turn_uids, run=tool_neo4j_query) if turn_uids else []
+    uid_agent_note, uid_reply_notes = uid_notes(uid_checks)
+    if uid_agent_note:
+        debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
+    agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
+
     print("\n[GRAPH] Running graph agent...")
-    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=refine_context)
+    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
+    debug_payload["graph_context"] = graph_plan.context_mode
+    # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
+    schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
+    if schema_fallback:
+        debug_payload["graph_context_fallback"] = graph_plan.context_fallback
     print(f"[DEBUG][GRAPH] Explanation: {graph_plan.explanation}")
     print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
 
     if not graph_plan.cypher:
         reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
         session["last_debug"] = debug_payload
-        send_event("agent_complete", {"agent": "graph", "summary": None})
+        send_event("agent_complete", {"agent": "graph",
+                                      "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
         print(f"[TIMING][GRAPH] {time.perf_counter() - _t0:.2f}s")
         print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
         return _emit_query_complete(send_event, reply, debug_payload, None)
 
-    send_event(
-        "agent_complete",
-        {"agent": "graph", "summary": {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}},
-    )
+    summary = {"cypher": graph_plan.cypher, "explanation": graph_plan.explanation}
+    if schema_fallback:
+        summary["schema_fallback"] = schema_fallback
+    send_event("agent_complete", {"agent": "graph", "summary": summary})
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    if not graph_result.get("ok"):
-        neo4j_error = graph_result.get("error", "Unknown error")
-        print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-        retry_ctx = (
-            f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-            "Revisit the schema carefully - check property types, relationship directions, "
-            "and graph_topology - then generate a corrected query."
-        )
+
+    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
+    # This was one retry and only on a Cypher error, so a query that ran perfectly well
+    # and matched nothing was final. That is B11 (juanita, a guessed assay name returned
+    # zero and the zero was reported as the answer). A zero-row result now gets exactly
+    # one more go, and if the second query also finds nothing the FIRST result stands:
+    # reporting a different query's number would be worse than reporting zero.
+    attempts: list[dict[str, Any]] = [_graph_attempt(graph_plan.cypher, graph_result, "initial")]
+    first_ok_empty = matched_nothing(graph_result)
+    zero_row_retry_used = False
+
+    for _ in range(GRAPH_MAX_TRIES - 1):
+        if is_scope_refusal(graph_result):
+            # Final for the turn: another model call can only write another query the
+            # prover cannot prove. The turn falls back to graph_search below.
+            break
+        if not graph_result.get("ok"):
+            neo4j_error = graph_result.get("error", "Unknown error")
+            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+            retry_ctx = (
+                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                "Revisit the schema carefully - check property types, relationship directions, "
+                "and graph_topology - then generate a corrected query."
+            )
+            reason = "cypher_error"
+        elif matched_nothing(graph_result) and not zero_row_retry_used:
+            zero_row_retry_used = True
+            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
+            # The wording, and why it no longer says "use the closest value", is in
+            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
+            retry_ctx = zero_row_retry_context(graph_plan.cypher)
+            reason = "zero_rows"
+        else:
+            break
+
         graph_plan_retry = graph_agent(
             config, user_text, entity_result, plan,
-            retry_context=retry_ctx, refine_context=refine_context,
+            retry_context=retry_ctx, refine_context=agent_context,
         )
-        if graph_plan_retry.cypher:
-            graph_plan = graph_plan_retry
-            graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+        if not graph_plan_retry.cypher:
+            break
+        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason))
+        # Keep the retry only when it is an improvement. A retry that errors, or that
+        # also finds nothing after a zero-row first attempt, leaves the original alone.
+        if not retry_result.get("ok"):
+            if graph_result.get("ok"):
+                break
+        elif reason == "zero_rows" and matched_nothing(retry_result):
+            break
+        graph_plan = graph_plan_retry
+        graph_result = retry_result
+
+    debug_payload["graph_attempts"] = attempts
+    debug_payload["graph_scope"] = graph_result.get("scope")
+    if is_scope_refusal(graph_result):
+        return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
+    # The user must not be told a number without being told the first query found
+    # nothing and the filter was changed to get it. Recording it in debug_payload was
+    # not enough: nothing read the flag, so the reply never carried the caveat. It now
+    # goes to the chatter as a query note as well.
+    query_notes: list[str] = list(uid_reply_notes)
+    if first_ok_empty and not matched_nothing(graph_result):
+        debug_payload["graph_retry_changed_answer"] = True
+        query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
+    # A lab the question misspells resolves to no code, by design, and used to leave the
+    # turn with a keyword and a confident zero ("There are no samples associated with the
+    # Engleward lab", 2026-09-22). The near record is a note, so the reply can ask.
+    near_miss_notes = lab_near_miss_notes(getattr(entity_result, "lab_near_misses", None))
+    if near_miss_notes:
+        debug_payload["lab_near_misses"] = [m.model_dump() if hasattr(m, "model_dump") else m
+                                            for m in entity_result.lab_near_misses]
+        query_notes.extend(near_miss_notes)
+
     send_event(
         "search_complete",
         {"source": "neo4j", "ok": graph_result.get("ok"), "count": graph_result.get("count")},
@@ -488,6 +882,8 @@ def _execute_graph_turn(
                 "count": graph_result.get("count"),
                 "error": graph_result.get("error"),
                 "counters": graph_result.get("counters"),
+                "cypher": graph_result.get("cypher"),
+                "scope": graph_result.get("scope"),
                 "data_preview": (graph_result.get("data") or [])[:20],
             },
         },
@@ -501,6 +897,36 @@ def _execute_graph_turn(
     )
     if entry:
         result_files.append(entry)
+
+    # F7: the rows themselves, as a file the user can have. The debug JSON above holds a
+    # 20-row slice and is kind="graph", which the export layer treats as internal, so a
+    # graph turn's payload carried no artifacts at all: a query returned hundreds of rows
+    # across six columns and the researcher got none of them, reachable only by accident
+    # through the debug panel's JSON button on the newest turn. The REST path has written
+    # its rows whole since it was built; this is the graph counterpart, with a kind the
+    # export layer does not exclude.
+    graph_rows = (graph_result or {}).get("data") or []
+    if graph_rows:
+        try:
+            rows_entry = artifact_store.write_json(
+                key="graph_result",
+                label="Graph query result rows",
+                filename=f"graph_result_bundle_{bundle_id}.json",
+                payload={
+                    "cypher": graph_plan.cypher,
+                    "parameters": graph_plan.parameters,
+                    "count": graph_result.get("count"),
+                    "total": graph_result.get("total"),
+                    "truncated": bool(graph_result.get("truncated")),
+                    "rows": graph_rows,
+                },
+                kind="graph_result",
+                bundle_id=bundle_id,
+            )
+            if rows_entry:
+                result_files.append(rows_entry)
+        except Exception as e:  # never lose a finished answer to the file that describes it
+            print("[DEBUG][GRAPH] Failed to write the graph result rows file:", repr(e))
     bundle = build_metadata_bundle(
         bundle_id=bundle_id, mode="graph_query", user_query=user_text,
         parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
@@ -514,12 +940,13 @@ def _execute_graph_turn(
     debug_payload["graph_plan"] = graph_plan.model_dump()
     debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
 
+    _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
     _t1 = time.perf_counter()
     reply = chatter_agent_answer(
         config, user_text, entity_result.model_dump(), plan.model_dump(),
         graph_plan=graph_plan.model_dump(), graph_result=graph_result,
-        log_dir=log_dir, session=session,
+        log_dir=log_dir, session=session, query_notes=query_notes,
     )
     print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
     send_event("agent_complete", {"agent": "chatter", "summary": None})
@@ -628,6 +1055,7 @@ def run_query(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -638,9 +1066,13 @@ def run_query(
     all LLM clients, catalogs, and prompts remain shared by reference.  Anything less
     than a complete pair is an unresolved identity: see _identity_gate, which warns and
     (by default) refuses the turn rather than running it as the service account.
+
+    graph_scope — the caller's project scope for graph queries, as plain data
+    ({"is_admin", "project_ids"}) or a GraphScope; see _identity_gate. Left out, the
+    config's own scope stands (single-operator surfaces).
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_query",
+        session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
@@ -648,6 +1080,17 @@ def run_query(
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
     current_agent = "catalog"
+
+    def _note_agent(agent: str) -> None:
+        """Follow the agent through a turn that runs in another function.
+
+        The error handlers at the bottom report current_agent; _execute_graph_turn is a
+        separate function, so without this the whole graph turn -- the chatter included
+        -- is reported as the graph agent.
+        """
+        nonlocal current_agent
+        current_agent = agent
+
     _t_total_start = time.perf_counter()
     session["last_files"] = []
 
@@ -699,6 +1142,7 @@ def run_query(
         plan = parser_agent(session, config, user_text, entity_result)
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
+        plan = _clamp_lab_codes_to_entity(plan, entity_result)
         mode = plan.mode
         send_event(
             "agent_complete",
@@ -721,6 +1165,7 @@ def run_query(
             "api_result_full": None,
             "raw_json_path": None,
             "error_context": None,
+            **variant_record(config),  # prompt_variant + prompt_variant_files; parser_plan.mode is the route
         }
 
         if mode == "unsupported":
@@ -801,7 +1246,43 @@ def run_query(
                     return _emit_query_complete(send_event, reply, debug_payload, None)
 
             _t0 = time.perf_counter()
-            answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
+            # The follow-up agent first. This branch used to end here: it read one
+            # stored bundle and answered from it, with no path back to the graph, so a
+            # question the stored result could not answer was answered from it anyway
+            # (wesselr 440 was told "No other data types are available" about a result
+            # that could not have held them). The agent can look at what the bundle
+            # holds and run a new query seeded with its UIDs. When the profile has no
+            # tool-capable model, or the agent produces nothing, the old path still
+            # runs: worse, but never worse than before.
+            followup_outcome = _run_followup_agent(
+                config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
+            )
+            # Written whatever happened: on turn 1147 the loop ran six times, queried the
+            # graph three times and produced no reply, and because this block sat inside
+            # `if answer:` the turn's debug carried no `followup` key at all, which is why
+            # the failure read as "the memory agent is wrong" for a day.
+            if followup_outcome is not None:
+                debug_payload["followup"] = {
+                    "tool_calls": followup_outcome.get("tool_calls"),
+                    "queries": [
+                        {"question": q.get("question"), "seeded": q.get("seeded"),
+                         "count": (q.get("result") or {}).get("count"),
+                         "uids_applied": (q.get("result") or {}).get("uids_applied")}
+                        for q in followup_outcome.get("queries") or []
+                    ],
+                    "caveats": followup_outcome.get("caveats"),
+                    "exhausted": bool(followup_outcome.get("exhausted")),
+                    "unsupported": bool(followup_outcome.get("unsupported")),
+                }
+            # `if reply:` could not tell an exhausted loop from a profile with no tool
+            # surface, so a lineage question was answered from a five-column bundle which
+            # then reported the absence of what the loop had already found.
+            answer, may_use_stored = resolve_followup_outcome(followup_outcome)
+            if may_use_stored:
+                answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
+            elif not answer:
+                answer = ("I could not finish this follow-up. Ask it as a fresh question and "
+                          "I will run it properly.")
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             append_turn(
                 session,
@@ -922,7 +1403,9 @@ def run_query(
                 # "an annual progress report for the Kamm project" resolves Kamm as a
                 # LAB, so reporter_plan.project stays null and the report would run
                 # across every project while describing itself as Kamm's. Hand the
-                # resolved lab codes down so the summary can scope itself instead.
+                # resolved lab codes down so the summary can scope itself instead. An
+                # empty list is the entity agent's answer (no lab record matched), and
+                # run_reporter_summary does not replace it with the plan's codes.
                 _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
                     config, reporter_plan, log_dir, lab_codes=_lab_codes)
@@ -1108,34 +1591,57 @@ def run_query(
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return _emit_query_complete(send_event, reply, debug_payload, None)
 
+        # A graph query refused for its project scope is answered by graph_search through
+        # the REST branch below; these notes go to its chatter and set the reply's footer.
+        scope_notes: list[str] = []
         if mode == "graph_query":
             current_agent = "graph"
-            return _execute_graph_turn(
+            outcome = _execute_graph_turn(
                 config=config, session=session, user_text=user_text,
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
+                note_agent=_note_agent,
             )
+            if not isinstance(outcome, GraphScopeFallback):
+                return outcome
+            plan, mode, scope_notes = _fall_back_to_graph_search(plan)
 
         if mode in ("new_search", "refine_last_search"):
             # Graph-origin refines re-run the graph path (with prior Cypher as context);
             # everything below this is REST refine prep.
             if mode == "refine_last_search":
+                # The stored result the parser named in target_result_id, else the newest.
+                from .chat_memory import select_refine_bundle
+
                 _history = session.get("results_history", []) or []
-                if _history and (_history[-1] or {}).get("mode") == "graph_query":
+                _prior, debug_payload["refine_target"] = select_refine_bundle(_history, plan.target_result_id)
+                # F13: the engine used to come from the PREVIOUS bundle's mode alone, so a
+                # REST search could never be refined into the graph however clearly the new
+                # turn needed it. The parser now marks a refine it would have routed to the
+                # graph as a fresh question, and that mark counts as well as the prior mode.
+                _graph_refine = bool(_prior) and (
+                    _prior.get("mode") == "graph_query"
+                    or getattr(plan, "refine_engine", None) == "graph"
+                )
+                if _graph_refine:
                     current_agent = "graph"
-                    return _execute_graph_turn(
+                    outcome = _execute_graph_turn(
                         config=config, session=session, user_text=user_text,
                         entity_result=entity_result, plan=plan,
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
-                        refine_context=_build_graph_refine_context(_history[-1]),
+                        refine_context=_build_graph_refine_context(_prior),
+                        note_agent=_note_agent,
                     )
+                    if not isinstance(outcome, GraphScopeFallback):
+                        return outcome
+                    plan, mode, scope_notes = _fall_back_to_graph_search(plan)
             if mode == "refine_last_search":
                 plan_data = plan.model_dump()
                 history = session.get("results_history", [])
                 if history:
-                    last_bundle = history[-1]
+                    last_bundle = _prior  # chosen above: mode is still a refine only if that block ran
                     prev_plan = last_bundle.get("parser_plan", {}) or {}
                     previous_api_plan = last_bundle.get("api_plan")
                     previous_user_query = last_bundle.get("user_query")
@@ -1343,7 +1849,10 @@ def run_query(
                 debug_payload["error_context"],
                 log_dir=log_dir,
                 session=session,
+                query_notes=scope_notes or None,
             )
+            if scope_notes:
+                answer = f"{answer}\n\n{SCOPE_FALLBACK_FOOTER}"
             print(f"[TIMING][CHATTER] {time.perf_counter() - _t0:.2f}s")
             send_event("agent_complete", {"agent": "chatter", "summary": None})
             bundle["terminal_reply"] = answer
@@ -1424,15 +1933,16 @@ def run_query_plan(
     send_event: SendEvent | None = None,
     *,
     credentials: dict[str, str] | None = None,
+    graph_scope: Any = _UNSET,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
     Parallel structure to `run_query`, using the same result contract.
 
-    credentials — same shallow-copy and identity-gate semantics as run_query.
+    credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
     """
     config, identity_refusal = _identity_gate(
-        session, config, credentials, send_event, entry_point="run_query_plan",
+        session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
@@ -1476,6 +1986,7 @@ def run_query_plan(
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()
         multi_parser_plan = multi_parser_agent(session, config, user_text, entity_result)
+        multi_parser_plan = _clamp_lab_codes_to_entity(multi_parser_plan, entity_result)
         print(f"[TIMING][MULTI_PARSER] {time.perf_counter() - _t0:.2f}s")
         send_event(
             "agent_complete",
@@ -1498,6 +2009,7 @@ def run_query_plan(
             "replan_reason": None,
             "termination_reason": None,
             "step_budget": {"max_steps": 5, "used_steps": 0},
+            **variant_record(config),  # prompt_variant + prompt_variant_files
         }
 
         def _step_summary(sr: dict) -> dict:

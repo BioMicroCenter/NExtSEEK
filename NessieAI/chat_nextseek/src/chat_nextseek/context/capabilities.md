@@ -2,7 +2,32 @@
 
 ## Overview
 
-The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English. Under the hood it translates your questions into NExtSEEK REST API calls and Neo4j graph database queries, then summarizes the results for you. The repository holds biological samples, experimental data files, metadata records, and organizational structures (projects, investigations, studies) from across multiple research programs. You do not need to know any API syntax, Cypher, or SQL — just describe what you want.
+The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English. Under the hood it translates your questions into NExtSEEK REST API calls and Neo4j graph database queries, then summarizes the results for you. The repository holds the metadata of biological samples and of the data made from them, the links between them, and organizational structures (projects, investigations, studies) from across multiple research programs. You do not need to know any API syntax, Cypher, or SQL — just describe what you want.
+
+---
+
+## What NExtSEEK Is
+
+NExtSEEK is a metadata catalog, built on SEEK, for the samples a research program collects and everything made from them. It records each sample (an animal, a tissue, an extract, and also each data file and analysis result), its sample type and that type's attributes, the assays and protocols that link a sample to the samples derived from it, and the projects, investigations and studies it belongs to. Together these form a lineage graph from the source organism to the final analysis.
+
+### How samples connect
+
+Every sample type belongs to one of four clades:
+
+- **Source**: an organism or starting material that enters the lab, such as a mouse (MUS), a non-human primate (NHP), a patient (PAT), bacteria (BAC), a virus (VIR), a cell line (CEL), an antibody (AB), a chemical (CHM) or a water sample (WTR).
+- **Processed**: material prepared from a source, such as a tissue (TIS), extracted RNA or DNA, a lysate (LYS), a slide (SLD) or an organ-on-chip (OOC).
+- **Raw**: a data file an instrument produced from a sample, with a `D.` type code, such as sequencing reads (D.SEQ) or a flow cytometry file (D.FCS).
+- **Analyzed**: a result computed from raw data, with an `A.` type code (and `M.` for a model).
+
+An **assay** is the experiment that turns one sample into another. Each assay names the parent sample types it takes (required and optional), the child sample types it produces, and the clades on each side. So a sample's history reads sample, then the assay run on it, then the new sample type that assay produced: a mouse (Source) goes through Tissue Collection to become a tissue (Processed), RNA Extraction turns the tissue into RNA (Processed), a sequencing assay turns the RNA into sequencing reads (Raw, D.SEQ), and an analysis turns the reads into a result (Analyzed, A.). The usual order is Source, then Processed, then Raw, then Analyzed, although an assay can also go straight from a Source to Raw data (Intravital Microscopy images a live mouse, MUS to D.IMG) or from one Source to another. In the graph each step is a `DERIVED_FROM` relationship from the child sample to its parent, carrying the assay and the protocol used.
+
+### Where the data files are
+
+**NExtSEEK does not host the data files.** Raw and processed data (FASTQ, BAM, FCS, images, spreadsheets of results) live on the storage of the lab or the core facility that produced them, or in a public repository. NExtSEEK holds the metadata that points to them. Every data and analysis record names its file in `File_PrimaryData`, says where that file is stored in `Link_PrimaryData`, and usually carries its checksum in `Checksum_PrimaryData`; some also have `File_SecondaryData` and `Link_SecondaryData`, or a `Path_PrimaryData`. A record deposited publicly names the repository in `Repository` and its accession in `RepositoryID`.
+
+What can be downloaded from here is metadata: search results as spreadsheets, the reports and submission workbooks the assistant builds, and a whole chat's files. To get the data files themselves, find their locations first, then fetch them from there and check each one against its checksum.
+
+When someone asks to download a data file, or asks where the raw data is, say that NExtSEEK does not host files: it holds the metadata that points to where each file lives. Then offer to look up the file names and locations (`File_PrimaryData`, `Link_PrimaryData`, `Checksum_PrimaryData`) for the samples they care about. If the question already names samples, those locations are the answer.
 
 ---
 
@@ -16,7 +41,7 @@ Search for samples by type, assay, treatment, keyword, or any combination. The s
 - "Find me mice treated with NDMA."
 - "Show me all non-human primate samples with flow cytometry data."
 - "Find tissue samples associated with CD8 depletion."
-- "List all sequencing data files uploaded in the last six months."
+- "List the sequencing data records uploaded in the last six months, with where their files are stored."
 - "Find all CD8 antibodies in the database."
 - "Show me DNA samples from the fibrin study."
 - "Find all organ-on-chip samples with cell viability assay data."
@@ -37,7 +62,7 @@ The knowledge graph captures organizational structure and biological relationshi
   sample inherits the paper of every study it belongs to. You can ask which paper
   a sample appears in, or which samples a paper used, by title, DOI or PMID. Most
   studies are unpublished; that is expected, not a gap.
-- **Investigation** — a project-level grouping of studies (e.g., "Griffith", "Impact", "GBM"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Investigation** — a project-level grouping of studies (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 
 Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries assay and protocol metadata.
 
@@ -47,7 +72,7 @@ Use graph queries when your question involves named studies or investigations, c
 - "What samples are in the GBM study?"
 - "What studies exist in the Griffith project?"
 - "How many TIS samples are across all studies?"
-- "Show me all NHP samples in the SRP investigation."
+- "Show me all NHP samples in the MIT_SRP investigation."
 - "What projects have mouse samples?"
 - "Find all samples that underwent single cell sequencing."
 - "How many studies are in the CSBC project?"
@@ -70,7 +95,7 @@ A SQL-backed reporting system answers questions about sample upload history and 
 **Upload statistics examples:**
 - "How many samples were uploaded for Impact from 2023 to 2025?"
 - "How many samples did the Griffith lab upload last year?"
-- "Show me upload counts by sample type for the GBM project in Q1 2024."
+- "Show me upload counts by sample type for the Break Through Cancer project in Q1 2024."
 
 **Repository submission generation:**
 - "Build me a GEO submission for D.SEQ-221031SHA-67-PUB and D.SEQ-221031SHA-65-PUB."
@@ -103,7 +128,7 @@ You can ask for detailed information about specific catalog items — what a sam
 **Example queries:**
 - "What is a TIS sample type?"
 - "Tell me about the SRS assay."
-- "Explain the GBM investigation."
+- "Explain the GBM_BTC investigation."
 - "What does the D.FLOW sample type contain?"
 - "What assays are available in the system?"
 - "What sample types can I search for?"
@@ -183,18 +208,23 @@ You can ask **"What assays are available?"** to retrieve the full assay catalog 
 
 ## Known Projects and Investigations
 
-The graph database organizes samples into studies grouped under named investigations. The currently known investigations are:
+<!-- BEGIN CONTEXT-GEN:investigations -->
 
-- **CSBC** — Cancer Systems Biology Consortium
-- **GBM_BTC** — Glioblastoma / Brain Tumor Center combined program
-- **GBM** — Glioblastoma program
-- **Griffith** — Griffith lab investigation
-- **Impact** — Impact project
-- **MetNet** — Metabolic Network investigation
-- **SRP** — SRP investigation
-- **Shoulders** — Shoulders lab investigation
+The graph database organizes samples into studies grouped under named investigations. The investigations that hold samples are:
 
-Use these names exactly when asking graph questions scoped to a specific project. For example: "What TIS samples are in the Impact investigation?" or "How many studies are in the CSBC project?"
+- **BioMicroCenter**: Sequencing and analysis data generated at the MIT BioMicro Center genomics core, such as alignments, variant calls and mutational spectra [also: BioMicro Center]
+- **CSBC**: Systems biology of glioblastoma, the tumor, neural and immune interactions in its microenvironment, profiled by proteomics, imaging and sequencing
+- **Collagen Study**: Collagen folding and proteostasis in iPSC-derived cartilage models of collagen disease variants [also: Shoulders]
+- **Endometriosis**: Endometriosis and the human endometrium, studied in patient-derived endometrial organoids and co-cultures and by single-cell and proteomic profiling [also: Griffith, CGR-Endo]
+- **GBM_BTC**: Recurrent glioblastoma studied through serial brain biopsies, with cerebrospinal fluid and blood as surrogate markers of drug activity [also: BTC-GBM]
+- **Impactb Investigation**: Protective and non-protective immune responses to Mycobacterium tuberculosis in mice, non-human primates and humans [also: Impact, IMPACT, IMPAcTb]
+- **MIT_SRP**: Health effects of N-nitrosamines and other hazardous chemicals in drinking water, including DNA damage, mutation and cancer risk [also: SRP, MIT SRP, Superfund]
+- **MetNet**: Mechanical determinants of metastatic colonization, dormancy and outgrowth in engineered microvascular and organ-on-chip models
+- **TCGA**: Public pan-cancer reference data from The Cancer Genome Atlas, with patients, tumor and normal tissue samples and their sequencing data [also: The Cancer Genome Atlas] (not on every instance: loaded on local and dev only)
+
+Use these names exactly when asking graph questions scoped to one investigation. The names in brackets are what people call them; the bold name is what the graph answers to. A name marked "not on every instance" is loaded only on the instances it lists. Where a query scoped to it finds no samples, it is not loaded on this instance: say so rather than reporting zero.
+
+<!-- END CONTEXT-GEN:investigations -->
 
 ---
 
@@ -203,7 +233,7 @@ Use these names exactly when asking graph questions scoped to a specific project
 The system retrieves, filters, and summarizes data from NExtSEEK. It does not perform analysis or answer general science questions. Specifically, it cannot:
 
 - **Generate visualizations or charts.** It has no plotting or rendering capability. Even if the underlying data exists, asking for a heatmap, scatter plot, or bar chart is not supported.
-- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are outside scope. The system can retrieve the data files; it cannot run pipelines on them.
+- **Perform statistical analysis.** Differential expression, clustering, fold-change calculations, dimensionality reduction, survival analysis, and other computational methods are outside scope. The system can tell you where the data files are stored; it does not host them and cannot run pipelines on them.
 - **Explain external scientific concepts.** It cannot explain what a gene encodes, why a molecule is carcinogenic, how a signaling pathway works, or what a disease mechanism is. These are knowledge questions unrelated to the repository.
 - **Answer questions about data outside NExtSEEK.** It only knows what is registered in the NExtSEEK repository. It cannot query external databases (GEO, SRA, UniProt, etc.) except to generate a submission package from NExtSEEK records.
 - **Compare groups analytically.** Asking "which group had higher expression levels" or "is there a significant difference between condition A and B" requires computation the system cannot do.
@@ -214,7 +244,7 @@ The system retrieves, filters, and summarizes data from NExtSEEK. It does not pe
 
 **Be specific about sample type.** The clearest queries name the kind of thing you want: "Find NHP samples with sequencing data" is more precise than "Find samples with sequencing data." If you are unsure of the sample type name, ask "What sample types are available?"
 
-**Use investigation names for project-scoped questions.** When you want results scoped to a particular project or study, use the known investigation names (CSBC, GBM, Griffith, Impact, MetNet, SRP, Shoulders) and phrase the query explicitly: "What samples are in the GBM investigation?"
+**Use investigation names for project-scoped questions.** When you want results scoped to a particular project or study, use an exact name from the list under Known Projects and Investigations and phrase the query explicitly: "What samples are in the GBM_BTC investigation?"
 
 **Use "refine" or "try that again" to adjust your last search.** If you want to change a filter on an existing query, say so explicitly: "Try that again but only for 2024" or "Same search but add a flow cytometry filter." This preserves your prior context and avoids starting from scratch.
 

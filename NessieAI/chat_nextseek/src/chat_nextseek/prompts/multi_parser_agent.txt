@@ -97,7 +97,13 @@ Parent/child direction:
 - Do not add a weaker keyword-search fallback that treats the parent sample type as free text.
 
 Comparison post-filters:
-- If candidate 0 is new_search and the user includes a numeric/date comparison that REST cannot natively enforce, use a field anchor in filters.keywords rather than the full comparison phrase.
+- A numeric or date comparison belongs in graph_query: those attributes are stored typed on
+  the graph, so the comparison runs inside the query. Candidate 0 for such a question is
+  graph_query, and the routing core's step 8 says the same. Never reduce a comparison to a
+  keyword search on the field name.
+- Only when candidate 0 is new_search for some OTHER reason and a comparison rides along that
+  REST cannot enforce: use a field anchor in filters.keywords rather than the full comparison
+  phrase, and keep the comparison in metadata.post_filter.
 - Preserve the comparison in metadata.post_filter when possible.
 - metadata.post_filter should use this shape:
   {
@@ -146,18 +152,22 @@ Output valid JSON only. Do not include backticks or prose outside the JSON. Incl
     "sampletypes": [{"code": "string", "name": "string"}],
     "assays": [{"code": "string", "name": "string"}],
     "keywords": ["string"],
-    "projects": ["string"]
+    "projects": ["string"],
+    "labs": ["string"],
+    "lab_codes": ["string"]
   },
   "candidates": [
     {
       "candidate_id": string,
       "mode": "new_search" | "refine_last_search" | "ask_about_last_results" | "graph_query" | "reporter" | "system_question" | "unsupported",
       "target_endpoint": string or null,
+      "refine_engine": "graph" | null,
       "filters": {
         "sampletype_code": string or null,
         "assay_codes": [string],
         "keywords": [string],
-        "uids": [string]
+        "uids": [string],
+        "lab_codes": [string]
       },
       "report_mode": "summary" | "report_generation" | null,
       "report_type": "GEO" | "PRIDE" | "SRA" | "NFCORE" | string | null,

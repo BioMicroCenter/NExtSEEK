@@ -11,13 +11,15 @@ Return exactly:
   "assays": [{"code": "Short Read Sequencing", "name": "Short Read Sequencing"}],
   "keywords": ["PBMC", "CD8"],
   "projects": ["GBM", "Griffith"],
-  "labs": ["Kamm"]
+  "labs": ["Ashgrove"],
+  "scientists": ["Dana Example"]
 }
 For sampletypes: code is the catalog SampleType code (e.g. "TIS", "D.SEQ", "MUS").
 For assays: there is no separate code — use the assay Name for both code and name fields.
 For projects: canonical names of studies, investigations, or projects mentioned in the query, using the provided PROJECTS CATALOG (see PROJECT/STUDY RULES below).
-For labs: surname(s) of any research lab or PI used as a sample scope (see LABS / PIs below).
-Do NOT emit `lab_codes` — it is filled in deterministically downstream.
+For labs: any research lab or PI used as a sample scope, written as the user wrote it (see LABS / PIs below).
+For scientists: any other person the query names, such as who made, collected or handled the samples (see LABS / PIs below).
+Do NOT emit `lab_codes` or `lab_matches`: code fills them from SEEK's lab records.
 All fields must be present; empty arrays are allowed. No prose, no backticks.
 
 --------------------------------------------------
@@ -71,7 +73,12 @@ CATALOG-ONLY (HARD RULE)
 PRIMARY OBJECT SELECTION (HARD RULE)
 --------------------------------------------------
 - If the user is asking to find/show/list/get "what exists," search the Sample Types catalog
-  (Name + Description) for the closest match and emit at least one Sample Type when reasonable.
+  (Name, Description AND `Tags`) for the closest match and emit at least one Sample Type when
+  reasonable. **`Tags` is the alias list**: the common names, plurals, abbreviations, strain
+  families and colloquialisms researchers actually use for that type, hand-curated per row. A
+  word that appears in a row's `Tags` resolves to that row's code, and this is usually the only
+  place a common name is written down -- "mice" and "collaborative cross" are in the Mouse row's
+  Tags and nowhere in its Name. Read Tags before deciding a word is a keyword rather than a type.
 - Only leave sampletypes empty if: (a) no reasonable catalog match exists, OR (b) the user
   is ONLY asking about a process/assay/relationship (not retrieving objects).
 
@@ -95,7 +102,9 @@ Rules:
   just because a catalog description mentions "experimental animal" or similar text.
   Resolve a specific sampletype only when the user names a specific catalog concept
   (for example mouse/mice/murine → MUS, NHP/non-human primate/macaque/monkey → NHP,
-  tissue → TIS, cell/cell population → CEL).
+  tissue → TIS, cell/cell population → CEL). These examples are not the list: the catalog's
+  `Tags` are, and they carry many terms no example here names. A term found in Tags is a
+  specific catalog concept, not a generic word.
 
 --------------------------------------------------
 DATA OBJECT RULE
@@ -149,6 +158,12 @@ For unknown names not in the PROJECTS CATALOG: extract verbatim only when the us
 frames it as a project/study ("the <Name> study", "the <Name> project",
 "<Name> cohort", etc.).
 
+What a PROJECTS CATALOG row is: a row is an investigation only when its `entity_type` is
+"investigation" AND it names a `parent_project`. A row typed "investigation" with no
+`parent_project` is a PROJECT (older rows are typed that way), so never read `entity_type`
+alone. A "study" row is a study inside a project. A project and an investigation may share a
+name; emit the exact catalog `name` when the user names it or one of its aliases.
+
 Study/project names are NOT sample types or assays — never emit them in those fields.
 Always emit them in BOTH `projects` AND `keywords`.
 
@@ -156,11 +171,22 @@ Always emit them in BOTH `projects` AND `keywords`.
 LABS / PIs
 --------------------------------------------------
 LABS / PIs: If the query references a research lab or principal investigator used as a
-sample scope (e.g. "the Kamm lab", "Shalek lab", or a PI surname used to group samples),
-record the lab/PI SURNAME(S) in `labs`. This applies to ANY lab mentioned, whether or not
-it is a known project. Do NOT also place the lab/PI name in `keywords` — a lab is matched
-by a short UID code derived from the name, not by free-text search of the full name.
-Leave `lab_codes` empty; it is filled in deterministically downstream.
+sample scope (e.g. "the Ashgrove lab", "Ashgrove's group", or a PI named to group samples),
+record the name in `labs` as the user wrote it: a surname, a full name, "<Name> lab", or a
+three-letter lab code. Code resolves it against SEEK's lab records. This applies to ANY lab
+mentioned, whether or not it is a known project. Do NOT also place the lab/PI name in
+`keywords`: a lab is matched by its lab code inside sample UIDs, not by free-text search.
+Leave `lab_codes` and `lab_matches` empty; code fills them from SEEK's lab records.
+Do NOT emit a `project` for a lab or PI either, even when the catalog shows that lab
+working on one. A lab is not a project: "how many RNA samples does the X lab have" asks
+about the lab, and resolving it to a project the lab happens to belong to widens the
+question to every other lab in that project. The catalog row that names a lab beside a
+project is there to help you recognise the lab, not to answer with the project.
+
+SCIENTISTS: A person the query names as who made, collected, handled or is the scientist
+for the samples, or any person the query does not frame as a lab or PI, goes in
+`scientists`, as the user wrote the name (a full name when given). Not in `labs`, and
+you need not add it to `keywords`: code does that.
 
 
 --------------------------------------------------
@@ -223,4 +249,5 @@ Before returning, verify each of the following:
 6. Are there any terms I dropped that should be keywords?
 7. Did I extract all study/project/investigation/cohort names into `projects` AND `keywords`?
 8. Did I leave `projects` empty if no project/study reference appears in the query?
+9. Did every person go in exactly one of `labs` (a lab or PI used as a scope) or `scientists` (anyone else)?
 If any check fails, revise before returning.

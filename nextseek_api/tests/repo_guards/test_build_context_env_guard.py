@@ -109,10 +109,28 @@ MUST_BE_INCLUDED = [
     # the live router reads the harness corpus at runtime, so NessieAI/tests/
     # must ship in the image: a future rule excluding it has to fail loudly
     "NessieAI/tests/nessie_tests/corpus.json",
+    # evaluation prompt variants (chat_nextseek/prompt_variants.py) are read at runtime
+    # from the source tree the image copies; a rule excluding them would silently run
+    # the default prompts under a variant's name
+    "NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/v2/graph_agent.txt",
+    "NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/v2/variant.json",
+    "NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/v2/min_graph_schema.json",
+    "NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/v2/min_api_endpoints_enriched.json",
+    "NessieAI/chat_nextseek/src/chat_nextseek/prompts/variants/v2_apoc/apoc_addendum.txt",
     # sanity: ordinary source stays included
     "README.md",
     "dmac/settings.py",
 ]
+
+
+def test_no_exception_makes_the_build_walk_excluded_directories():
+    """A "!**/..." or "!*/..." exception can match below any excluded directory, so BuildKit walks into every
+    one of them to look (outputs/ included). The harness writes root-only run folders there, and the app build
+    then fails with "open outputs/...: permission denied" (2026-09-18). Re-include files by exact path."""
+    exceptions = [line.strip() for line in DOCKERIGNORE.read_text().splitlines() if line.strip().startswith("!")]
+    assert exceptions, "the committed templates are re-included by exception rules"
+    for rule in exceptions:
+        assert not rule.startswith(("!**", "!*/")), rule
 
 
 @pytest.mark.parametrize("path", MUST_BE_EXCLUDED)

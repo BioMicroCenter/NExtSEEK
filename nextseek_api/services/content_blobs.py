@@ -12,6 +12,7 @@ from django.conf import settings
 from django.http import HttpResponse, StreamingHttpResponse
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.services.uid_suffix import resolve_uid_with_suffix
 from nextseek_api.models import (
     SopDownloadRequest,
     DataFileDownloadRequest,
@@ -39,7 +40,15 @@ _ASSET_CONFIG = {
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str, asset_type: str) -> Optional[str]:
-    """Resolve UID/title to SEEK numeric ID for the given asset type."""
+    """Resolve UID/title to SEEK numeric ID, trying each spelling of the UID (F14/D2)."""
+    text = str(uid_or_id)
+    if text.isdigit():
+        return text
+    return resolve_uid_with_suffix(text, lambda one: _lookup_one_spelling(one, asset_type))[0]
+
+
+def _lookup_one_spelling(uid_or_id: str, asset_type: str) -> Optional[str]:
+    """One spelling, against SEEK. Returns None rather than raising."""
     s = str(uid_or_id)
     if s.isdigit():
         return s

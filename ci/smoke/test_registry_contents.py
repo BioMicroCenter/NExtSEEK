@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.gate.live_routes import suggest_path
-from ci.routes import PLACEHOLDERS, PROFILES, REGISTRY, _check_unique_patterns, match
+from ci.routes import EFFECTS, PLACEHOLDERS, PROFILES, REGISTRY, _check_unique_patterns, match
 from ci.smoke.conftest import DISCOVERED_KEYS, _guard_context
 from ci.smoke.test_reachability import _callable_routes
 
@@ -32,14 +32,24 @@ from ci.smoke.test_reachability import _callable_routes
 # 2026-09-02 for the five catalog and project-connections routes, 157 -> 158 for
 # the project samples full view, and 158 -> 160 on 2026-09-03 for the two
 # /nextseek_api/templates/ actions (catalog and generate; TemplatesViewSet
-# defines no list method, so the router emits no bare list route). Each step was
+# defines no list method, so the router emits no bare list route), then 168 -> 169
+# on 2026-09-14 for /nextseek_api/samples/graph_search/, then 169 -> 170 on
+# 2026-09-15 for the /seek/graph/search/ page, then 170 -> 171 the same day for
+# /nextseek_api/admin/graph-sync/status/ (GraphSyncStatusViewSet likewise defines
+# no list method, so that registration adds one route, not two), then 172 -> 173
+# for /nextseek_api/assistant/sessions/{sid}/download/, an action on the existing
+# AssistantViewSet, then 173 -> 172 on 2026-09-18 when the /seek/graph/search/ page
+# was retired (Sample Search's own boxes now call graph_search), then 172 -> 173
+# the same day for /nextseek_api/assistant/aggregate/, then 173 -> 174 for
+# /seek/exports/{token}/{filename}, the private store the legacy sample exports
+# now link to instead of /media/download/. Each step was
 # confirmed by the completeness gate passing against the live resolver on the
 # branch that added them. When the application gains or loses a route this number
 # moves, and the COMPLETENESS GATE (ci/gate/test_route_registry.py) is the
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 168
+OWNED_ROUTE_COUNT = 174
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.
@@ -124,6 +134,48 @@ def test_every_route_declares_an_auth_the_suite_can_supply():
         f"routes declare auth value(s) no client implements: {offenders}. "
         f"Allowed: {sorted(AUTH_VOCABULARY)}."
     )
+
+
+def test_every_entry_says_what_it_writes():
+    """`effect` is the registry's answer to the question the graph sync asks of
+    every route: does a request here leave the graph behind?"""
+    offenders = sorted({r.effect for r in REGISTRY} - EFFECTS)
+    assert not offenders, (
+        f"routes declare effect value(s) outside the vocabulary: {offenders}. "
+        f"Allowed: {sorted(EFFECTS)}."
+    )
+
+
+def test_only_a_writes_route_names_writers_and_it_names_at_least_one():
+    """A `writes` route with no writer says a table moves and nobody owns it; a
+    `reads` route with one says the opposite of what its effect says."""
+    for route in REGISTRY:
+        if route.effect == "writes":
+            assert route.writers, f"{route.pattern} writes a graph source but names no writer"
+        else:
+            assert not route.writers, (
+                f"{route.pattern} is {route.effect!r} but names writers {list(route.writers)}"
+            )
+
+
+def test_every_writer_id_has_the_inventory_form():
+    """The gate checks these against ci/writers.py, where Django is importable;
+    here, without it, the shape is what can be checked."""
+    for route in REGISTRY:
+        for writer_id in route.writers:
+            assert len(writer_id) == 5 and writer_id.startswith("WR-") and writer_id[3:].isdigit(), (
+                f"{route.pattern}: {writer_id!r} is not an inventory writer id"
+            )
+
+
+def test_only_a_route_this_application_does_not_serve_is_classified_n_a():
+    """'n/a' says the question belongs to somebody else's code -- the nginx-served
+    asset and the Django admin's own login -- and those are exactly the entries
+    Django's resolver does not report for us."""
+    for route in REGISTRY:
+        assert (route.effect == "n/a") == (not route.resolver), (
+            f"{route.pattern}: effect={route.effect!r} with resolver={route.resolver}"
+        )
 
 
 BROKEN_STATUSES = (500, 502)
@@ -423,3 +475,34 @@ def test_an_unknown_lane_is_refused():
     with pytest.raises(ValueError, match="lane"):
         Route(pattern=r"^x/$", path=None, methods=(), profiles="",
               exclude="EXCLUDE_COST", lane="nightly")
+
+
+def test_project_discovery_does_not_read_the_unscoped_project_list():
+    """The project routes are membership-gated, so the discovered project must be one the smoke
+    account belongs to.
+
+    /nextseek_api/projects/ returns every project ordered by updated_at, so its first row is
+    whichever project was touched last. On 2026-09-16 that was a project the smoke account is not
+    a member of, and /seek/projects/{id}/connections/ and .../samples/ both reported 403 against
+    correct product behaviour. The caller's own memberships come from
+    /nextseek_api/people/current/, which answers with exactly them.
+    """
+    from ci.smoke import conftest
+    assert "seek_project_id" not in conftest._JSONAPI_LIST_SOURCE, (
+        "seek_project_id must resolve from the caller's own memberships, not from the first row "
+        "of the unscoped project list"
+    )
+    assert "seek_project_id" in DISCOVERED_KEYS
+
+
+def test_sample_type_discovery_does_not_read_the_unscoped_type_list():
+    """The type detail pages render that type's samples, so a large type times out.
+
+    On 2026-09-16 discovery picked a type with 283,311 samples and both
+    /seek/sample_types/id={id}/ and /nextseek_api/sample_types/{id}/ returned 500, one on a proxy
+    TimeoutError and one on a SEEK page that never carried its content div. Taking the type of a
+    sample the account can already see keeps it both visible and of workable size.
+    """
+    from ci.smoke import conftest
+    assert "sample_type_id" not in conftest._JSONAPI_LIST_SOURCE
+    assert "sample_type_id" in DISCOVERED_KEYS

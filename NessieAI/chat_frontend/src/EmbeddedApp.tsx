@@ -5,7 +5,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { NextseekApiService } from "@/lib/services/chatApi";
 import { SessionAuthService } from "@/lib/services/sessionAuth";
 import { ChatPanel } from "@/components/ChatPanel";
-import { CompactToolbar, RightSidebar } from "@/components/Layout";
+import { AboutDialog, CompactToolbar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
@@ -29,6 +29,7 @@ import { debugForTurns } from "@/lib/debugForTurns";
 
 export function EmbeddedApp() {
   const [rightOpen, setRightOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
@@ -165,7 +166,13 @@ export function EmbeddedApp() {
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
-          addSystemMessage(`Error: ${d.error}`);
+          // A Container-CC turn stopped at its time limit still publishes what it
+          // wrote, and only CC files ride on an error: show them under the error,
+          // downloaded by the CC route as a completed CC turn's are. Kept in step with AppLayout.
+          addSystemMessage(
+            `Error: ${d.error}`,
+            d.artifacts?.length ? { artifacts: d.artifacts, mode: "cc" } : undefined,
+          );
           const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
           pendingDebugRef.current.push(errEntry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
@@ -203,13 +210,15 @@ export function EmbeddedApp() {
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
+      // The notice (a dropped progress socket, the answer still on its way) is
+      // shown as a system line and leaves the turn in flight. Kept in step with AppLayout.
       serviceRef.current
-        .submitQuery(text, mode, opts, handleProgress, handleQueryError)
+        .submitQuery(text, mode, opts, handleProgress, handleQueryError, addSystemMessage)
         .finally(() => {
           setIsQuerying(false);
         });
     },
-    [addUserMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+    [addUserMessage, addSystemMessage, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -245,6 +254,16 @@ export function EmbeddedApp() {
     [sessions.activeSessionId, debugData.bundleId],
   );
 
+  const handleDownloadAll = useCallback(() => {
+    // The chat on screen, whatever its newest turn wrote. Kept in step with AppLayout.
+    // Returned so the button stays pending until the download is handed over.
+    const sid = sessions.activeSessionId;
+    if (!sid) return;
+    return serviceRef.current
+      .downloadSession(sid)
+      .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
+  }, [sessions.activeSessionId, addSystemMessage]);
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -258,6 +277,7 @@ export function EmbeddedApp() {
       <CompactToolbar
         onRightToggle={() => setRightOpen(!rightOpen)}
         onLeftToggle={toggleSidebar}
+        onAboutOpen={() => setAboutOpen(true)}
       />
       <div className="flex flex-1 overflow-hidden">
         <SessionSidebar
@@ -285,8 +305,11 @@ export function EmbeddedApp() {
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        activeSessionId={sessions.activeSessionId}
+        onDownloadAll={handleDownloadAll}
         isAdmin={isAdmin}
       />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );
 }

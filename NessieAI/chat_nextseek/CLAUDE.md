@@ -22,6 +22,19 @@ without an error at the point of the change.
   and the agents shim at `NessieAI/chat_nextseek/src/chat_nextseek/agents/__init__.py:3-6`; dropping a
   re-export breaks importers that go through the package rather than the module,
   such as `NessieAI/ns/granular.py:88`.
+- **Every Cypher reaches Neo4j through `tool_neo4j_query`, which refuses a config without a
+  `GraphScope`.** The scope rides on the per-request config (`graph_scope.py`): the ViewSets
+  resolve it (`plain_scope` in `nextseek_api/graph_search/scope.py`) and hand it to the
+  orchestrator as `graph_scope`, and the single-operator surfaces (CLI, MCP server, app,
+  evaluator) are admin only with `CHAT_NEXTSEEK_GRAPH_ADMIN=1` or `--graph-admin`. A caller who
+  is not an admin runs only what `cypher_scope.scope_cypher` proves, with the scope inserted;
+  a refused graph question falls back to graph_search. A new path that runs Cypher any other
+  way, or builds its own config, bypasses the scope or refuses every graph query
+  (spec `docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`). The same scope decides
+  what the catalog's vocabulary reads (`graph_catalog.get_vocabulary`, and the committed
+  fallback files through `committed_schema`) and what the report runners' SQL reads
+  (`reports/runners.py::_report_projects`); a new catalog read or relational report that
+  skips it shows a caller other projects' records.
 - **Half an identity is treated as none.** `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py:155-164`
   refuses a credential pair with one side missing, because applying only the
   supplied half leaves the other on the service account and issues the request
@@ -29,12 +42,12 @@ without an error at the point of the change.
 - **A construction-time raise inside the config object stops Django booting.**
   The settings overlay builds one at module scope
   (`startup/dev/lane_local_settings.py:19`), so the missing-provider-key raise at
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:490-493` takes the whole site down,
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:497-500` takes the whole site down,
   not just the chat panel.
 - **The chat-log cap is duplicated across the boundary and must stay in step.**
   `NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py:25` sets the FIFO limit applied
   at `NessieAI/chat_nextseek/src/chat_nextseek/chat_memory.py:246-247`, and
-  `NessieAI/cc/turn.py:54` hardcodes the same number with a
+  `NessieAI/cc/turn.py:57` hardcodes the same number with a
   comment naming this module; changing one truncates the two writers differently.
 - **Seqera Tower is retired, not deleted.** The schema builder never offers it
   (`NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:218-221`) and a test
@@ -48,7 +61,7 @@ without an error at the point of the change.
   an open pipeline build traps the conversation, because it is the only way out
   that discards build state.
 - **The Luria submit tool is offered only when all three env vars are set.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:57-59` requires user, key and
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:58-60` requires user, key and
   working path together, and `NessieAI/chat_nextseek/src/chat_nextseek/pipeline/agent_tools.py:220-221`
   keys tool exposure off that; a partially configured box silently hands the
   model a build it cannot submit.
@@ -61,6 +74,25 @@ without an error at the point of the change.
   cc-agent rebuild, and a new file here reaches it only once it is added to that list;
   `NessieAI/tests/cc/test_cc_context_drift_guard.py` fails until the file is baked or
   declared source-only.
+- **Another unit's test parses `map_project`.** `_reader_columns` in
+  `NessieAI/tests/api/test_context_gen.py` reads the column list out of
+  `config.py`'s source: from `def map_project(row: dict) -> dict:` to the next
+  12-space `def`, every `lower.get("<column>")`. Keep `map_project` nested in
+  `_fetch_context_files_from_db`, read each curated column through `lower.get`, and add
+  anything else (such as `labs`) from the enclosing scope. No nested `def` follows it
+  today, so a `lower.get("...")` added anywhere later in `config.py` also counts as a
+  column read.
+- **projects_db.json holds project and investigation rows, in two shapes.** Which a row is
+  comes only from `chat_nextseek.context_rows`: an investigation is typed `investigation`
+  AND names its `parent_project`; a project is typed `project`, untyped, or a legacy
+  `investigation` row with no `parent_project`, which is how production's table types most
+  of its projects until the gated 6.16 write; anything else (`study`) is neither.
+  `FULL_PROJECTS_MAP`, the `PROJECT_NAME_TO_ID` merge and the `labs` injection read project
+  rows only, and `FULL_INVESTIGATIONS_MAP` the investigation rows, because an investigation
+  carries its owner's `project_id` and may share a project's exact name. `MIN_PROJECTS`,
+  which the entity agent reads, keeps every row. Never test `entity_type` alone: the SEEK
+  project page (`nextseek_api/services/context_catalog.py`) filters with the same module's
+  `PROJECT_ROW_SQL`.
 
 ## Landmines
 
@@ -71,13 +103,61 @@ without an error at the point of the change.
   Run it against a checkout and those files change in place; the next cc-agent build then
   ships the refreshed bytes, exactly as the app image build does. Check `git status` on
   this directory before a cc-agent rebuild. A **test** run no longer does this:
-  `_db_context_refresh_enabled` suppresses the refresh whenever
-  `DJANGO_SETTINGS_MODULE` names a test settings module, so no lane can rewrite tracked
-  source by merely building the config. Any other entry point against a checkout still
-  refreshes, which is the wanted behavior on a real instance.
-- **Two graph snapshots are not baked from here.** The plugin tree keeps its own
-  `min_graph_schema.json` and `neo4j_schema.json`, which differ from the ones here and do
-  reach the agent (`NessieAI/docker/CLAUDE.md`).
+  `_db_context_refresh_enabled` suppresses the refresh whenever `DJANGO_SETTINGS_MODULE`
+  names a test settings module, so no lane can rewrite tracked source by merely building
+  the config. Any other entry point against a checkout still refreshes, which is the
+  wanted behavior on a real instance.
+- **That refresh also reads SEEK, and writes real lab data into the checkout.** Its first
+  statement is the read-only SELECT over SEEK's institutions in `chat_nextseek.labs`, which
+  writes `labs_db.json` into the context directory and adds `labs` to every project row
+  of `projects_db.json`. `labs_db.json` is gitignored, dockerignored and never baked;
+  `projects_db.json` is tracked and baked, so after a run against a checkout it carries
+  real lab codes and surnames until you restore it. A failed read keeps the previous
+  `labs_db.json`; with none, `ChatConfig.LABS` is `None` (unavailable). An answer with no
+  institution, or with none whose title parses, counts as a failed read and is logged as
+  `REFUSED`: it never replaces the file, so a box whose SEEK holds no lab-shaped title (the
+  committed seed's) has `LABS` `None`, not `[]`. A title that breaks the grammar is
+  reported, never guessed: see every title's fate, read only, with
+  `python -m chat_nextseek.labs --report` inside the app container. The first live read is
+  the operator's.
+- **The graph files here are not baked.** `min_graph_schema.json` is the NS parser's
+  routing prose only: the cc-agent image carries no copy, and the CC agent's routing rule
+  lives in the plugin skill (`NessieAI/docker/CLAUDE.md`). `neo4j_schema.json` is not baked
+  either: that agent calls the `nextseek-graph-schema` op, which serves
+  `graph_schema_snapshot` from this package. The copy here stays as the NS engine's
+  fallback.
+- **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
+  `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` are committed files the
+  config only reads (`ChatConfig.NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and
+  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j any more, so a hand edit
+  is the only way they change. The graph agent reads the live v1.1 catalog through
+  `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
+  back to those committed files on any catalog failure (`resolve_catalog_context` in
+  `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). `graph_schema_snapshot`, beside
+  it, is the same read as a plain dict for the `graph-schema` op, and names which of the two it
+  answered from. A graph turn records which
+  one it read in `debug.graph_context` (`catalog` or `fallback`). Every fallback, the graph
+  agent's, the system agent's and the op's, logs a WARNING naming the reason and the committed
+  file's `fetched_at`, and a graph turn that fell back also carries both in
+  `debug.graph_context_fallback` and in the graph agent's debug-panel summary
+  (`schema_fallback`). Nothing else may fall back silently. The parser and the older
+  property guard read the committed files either way. `_ensure_context_files` still
+  rewrites the database exports of the bullet above once a day: only the Neo4j-derived
+  files stopped changing.
+- **The evaluation switch is off unless the process sets `NEXTSEEK_EVAL_PARSER_FORCE=1`.**
+  The chat request's `force_parser_mode` (`graph` or `api`) is honoured only for a
+  superuser on a process with that flag (`_with_parser_force` in `NessieAI/cc/turn.py`)
+  and dropped without a word otherwise. No compose file or env template sets it; only
+  the evaluation venue does (`scripts/graph_search/nessie_venue.sh`). When it lands,
+  `_force_parser_mode` in `agents/parser.py` overrides the parser's choice last and says
+  so in `parser_plan.notes`. Set the flag on a served instance and any superuser's
+  request can overrule the parser. The same flag and gate govern `prompt_variant`
+  (`v2`, `v2_apoc` or `v3`, `_with_prompt_variant`): the turn runs on the prompt and context
+  files in `prompts/variants/<name>/`, looked up there, then in the variant it
+  `inherits`, then in the defaults (`prompt_variants.py` names every file and the
+  `variant.json` keys). It needs no parser force, and the turn's debug payload records
+  `prompt_variant` and `prompt_variant_files` beside `parser_plan.mode`. A variant
+  directory with an unexpected file fails `test_prompt_variants.py`.
 - **This directory's own `.gitignore` still governs it inside the monorepo.**
   `NessieAI/chat_nextseek/.gitignore:25` ignores any `docs/` directory and
   `NessieAI/chat_nextseek/.gitignore:33` ignores `.claude`, so a design note or a skill
@@ -104,20 +184,20 @@ without an error at the point of the change.
   Dockerfile) targets only `NessieAI/dmac_assistant/baml_src`, so every module importing
   it fails on `ModuleNotFoundError`. Do not read that as a move regression.
 - **An unregistered agent key degrades silently rather than raising.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1331-1334` falls back through the
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1338-1341` falls back through the
   `default` profile and then to the globally configured model at
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1340`, so a new agent left out of a
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:1347`, so a new agent left out of a
   profile quietly runs on the wrong model. Only a duplicate assignment raises
-  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1317`).
+  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1324`).
 - **A missing capabilities document also degrades silently.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:435-441` prints a note and returns an
-  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:55`
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:442-448` prints a note and returns an
+  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:56`
   substitutes placeholder prose, so the system agent answers catalog questions
   from nothing instead of failing loudly.
 - **An in-source comment contradicts the code about the launch default.**
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:329-332` claims the mode defaults to
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py:330-333` claims the mode defaults to
   Tower; the function it describes defaults to Luria
-  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:36-43`). Believing the comment
+  (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:37-44`). Believing the comment
   mispredicts which submit tool the model is handed.
 - **Two tests read a source file by path and both are stale against it.** One
   reaches out of the boundary:

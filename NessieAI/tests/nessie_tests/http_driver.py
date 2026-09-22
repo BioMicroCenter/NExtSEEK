@@ -54,11 +54,42 @@ def make_default_clients(base_url: str, auth_header: str, timeout_s: float = SOC
     return post_query, get_progress
 
 
+# A plain chat create and delete: no turn, no router, no model, so no spend.
+SESSIONS_PATH = "/nextseek_api/assistant/sessions/"
+
+
+def make_session_clients(base_url: str, auth_header: str, timeout_s: float = SOCKET_TIMEOUT_S):
+    """Open and close an empty chat on the instance at `base_url`, as the harness user.
+
+    `runner.check_bundle_reader` opens one before a full-tier run's first turn and asks
+    the bundle reader whether its database holds it: the proof that the reader reads
+    the instance the paid turns run on. Both calls are free.
+    """
+    def open_session() -> str:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}", data=b"{}",
+            headers={"Authorization": auth_header, "Content-Type": "application/json"},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            return str(json.loads(r.read().decode())["session_id"])
+
+    def close_session(session_id: str) -> None:
+        req = urllib.request.Request(
+            f"{base_url}{SESSIONS_PATH}{session_id}/",
+            headers={"Authorization": auth_header}, method="DELETE")
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            r.read()
+
+    return open_session, close_session
+
+
 def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           get_progress: Callable[[str], dict], session_id: str | None = None,
           force_new: bool = False,
           fresh_session: bool = True,
           force_route: str | None = None,
+          force_parser_mode: str | None = None,
+          prompt_variant: str | None = None,
           mode: str = "standard", poll_interval_s: float = 2.0,
           route_timeout_s: float = 60.0, full_timeout_s: float = 600.0,
           max_consecutive_poll_errors: int = MAX_CONSECUTIVE_POLL_ERRORS,
@@ -66,11 +97,11 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
           clock: Callable[[], float] = time.monotonic) -> DriveResult:
     """Drive one turn to completion (full tier) or to route_decided (route tier).
 
-    ``force_new`` asks the server for a fresh ChatSession. Without it the API
-    falls back to the caller's most recently updated session, which silently
-    joins every case into one conversation and leaks results_history, pinned
-    bundles and pipeline state across cases. It is ignored once ``session_id``
-    is known, so a case's later turns stay in the session its seed opened.
+    ``force_new`` asks the server for a fresh ChatSession. The routed endpoint
+    now opens one for every session-less body anyway; an older server instead
+    falls back to the caller's most recently updated session, joining every case
+    into one conversation and leaking results_history, bundles and pipeline state.
+    It is ignored once ``session_id`` is known, so later turns keep the seed's chat.
 
     ``fresh_session`` closes the OTHER half of that isolation, and defaults to
     True because per-case isolation is this harness's whole premise.
@@ -105,6 +136,18 @@ def drive(query: str, *, tier: str, post_query: Callable[[dict], dict],
         # the router (cc_assistant.py:245-251). `preflight.assert_force_route_works`
         # is what stops that turning into a whole run of meaningless data.
         body["force_route"] = force_route
+    if force_parser_mode:
+        # The evaluation switch (graph_search Nessie POC, spec E2). Honoured only for
+        # a superuser on a server process with NEXTSEEK_EVAL_PARSER_FORCE=1, and
+        # dropped silently otherwise; `preflight.assert_parser_force_works` proves it
+        # landed before a paid run. Omitted when unset, like force_route.
+        body["force_parser_mode"] = force_parser_mode
+    if prompt_variant:
+        # The prompt-variant switch: an alternative Nessie prompt set for this turn,
+        # with or without a parser force. Same gate and the same silent drop as
+        # force_parser_mode; `preflight.assert_parser_force_works` reads
+        # `debug.prompt_variant` back to prove it landed. Omitted when unset.
+        body["prompt_variant"] = prompt_variant
     if session_id:
         body["session_id"] = session_id
     elif force_new:

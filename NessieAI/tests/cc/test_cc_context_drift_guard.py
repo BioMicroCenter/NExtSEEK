@@ -17,8 +17,7 @@ live privilege regression (#65a).
 
 Since NessieAI Phase C there is one copy of each shared file: the Dockerfile COPYs
 it from the Compose named context ``chat_nextseek`` to its in-image path, and the
-plugin tree keeps only the files without a source twin plus two graph snapshots
-that have drifted (below). ``image_context.py`` beside this module replays the
+plugin tree keeps only the files without a source twin. ``image_context.py`` beside this module replays the
 Dockerfile's COPY lines, so every check here reads the file the image really
 bakes, whichever directory that is.
 
@@ -29,6 +28,13 @@ gate actually loads to permit or block an ``api-read`` op (#83).
 
 These tests are the missing sync check. Hermetic: stdlib only, no docker, no
 network, no DB.
+
+What they cannot see is the built image itself. They read the files a build
+WOULD bake, so an edit to a canonical file followed by an app rebuild alone
+(no ``./startup.sh rebuild --component cc-agent``) passes here while the agent
+keeps its old copy. The bytes actually baked into the image are compared with
+the checkout by the ``cc-agent context`` stack-health check
+(``check_cc_agent_context`` in ``startup/steps/validate.py``), after every rebuild.
 """
 
 import ast
@@ -82,9 +88,7 @@ EXPECTED_BAKED_FILES = frozenset({
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
     "min_assays_db.json",
-    "min_graph_schema.json",
     "min_sampletypes_db.json",
-    "neo4j_schema.json",
     "ops.json",
     "projects_db.json",
     "read_safe_endpoints.json",
@@ -101,9 +105,7 @@ EXPECTED_FROM_SOURCE = frozenset({
     "projects_db.json",
 })
 
-# What the plugin tree's context directory itself holds: the baked-only files
-# and the two graph snapshots whose source twins have drifted (see
-# KNOWN_DIVERGENCES and test_shared_context_file_is_identical_to_source).
+# What the plugin tree's context directory itself holds: the baked-only files.
 EXPECTED_PLUGIN_TREE_FILES = EXPECTED_BAKED_FILES - EXPECTED_FROM_SOURCE
 
 # Baked-only by design — these have no counterpart in the source pack because
@@ -130,14 +132,12 @@ EXPECTED_BAKED_ONLY = frozenset({
 # this"; the alternative is to bake it. All 16 files in the source pack are
 # git-tracked, so this set is stable rather than dependent on build artefacts.
 #
-# Caveat for anyone testing this guard by deleting a file: three of the source
-# pack's files are re-fetched from a live Neo4j and rewritten into this directory
-# whenever chat_nextseek's config is loaded and the on-disk copy is not from
-# today (chat_nextseek/src/chat_nextseek/config.py:1732 _ensure_schema_file, via
-# :1747, :1796, :1841) — neo4j_schema.json (shared, not listed here) plus the
-# two listed below, neo4j_assay-sample-conn.json and neo4j_protocol_schema.json.
-# Deleting one of those and re-running the suite silently recreates it, so use
-# one of the other six entries here to prove this pin bites.
+# The Neo4j-derived files here are no longer refreshed from a live graph: the graph-search
+# work removed _fetch_neo4j_schema / _ensure_neo4j_schema / _ensure_schema_file from
+# ChatConfig (pinned by NessieAI/tests/chat_nextseek/test_graph_catalog.py), so every name
+# below is a committed file that only a hand edit changes. Three database exports in this
+# directory ARE still rewritten daily (min_sampletypes_db.json, min_assays_db.json,
+# projects_db.json, by _ensure_context_files) — those are baked, so they are not listed here.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
     "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
@@ -145,33 +145,37 @@ EXPECTED_SOURCE_ONLY = frozenset({
     "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
-    "neo4j_schema_dev.json",          # per-environment snapshots; the agent gets neo4j_schema.json
+    # The NS-side fallback the graph agent uses when the live catalog cannot be read
+    # (CONTEXT_FALLBACK in agents/graph.py). The CC agent no longer gets a copy: it reads
+    # the deployed graph through the nextseek-graph-schema op, which is what
+    # test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked below pins.
+    "neo4j_schema.json",
+    "neo4j_schema_dev.json",          # per-environment snapshots, read by nothing on a turn
     "neo4j_schema_prod.json",
+    # The NS parser's graph-routing prose. The CC agent does not write Cypher (the
+    # nextseek-graph op's server-side graph agent does, from the live catalog), and its
+    # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
+    # that skill was removed on 2026-09-18.
+    "min_graph_schema.json",
 })
 
 # ---------------------------------------------------------------------------
-# Known, deliberately-unresolved divergence
+# The graph schema is read live, not baked (Nessie master plan 7.3)
 # ---------------------------------------------------------------------------
-# neo4j_schema.json is a point-in-time SNAPSHOT fetched from a live Neo4j, not
-# a hand-authored policy file, and the two copies were fetched from what look
-# like DIFFERENT graph databases:
+# neo4j_schema.json used to be baked here as well, and it was exempted from the
+# equality check because the two copies were captures of different graphs at
+# different times. Measured on 2026-09-17: the baked copy's own fetched_at read
+# 2026-04-23 and the source copy's 2026-08-21, while the deployed graph was at
+# schema 1.2 — so neither described it, and the baked one described a graph that
+# stopped existing at the 2026-08-28 property cleanup. Syncing them would only
+# have made them agree on something false.
 #
-#   source  fetched_at 2026-05-11, 85 Sample properties
-#   baked   fetched_at 2026-04-23, 23 Sample properties
+# The file is therefore no longer baked. The agent calls nextseek-graph-schema,
+# which reads the live catalog server-side, so a catalog change no longer needs a
+# cc-agent rebuild and this class of drift cannot recur. The source copy stays as
+# the NS engine's in-process fallback.
 #
-# Neither is a superset of the other. The baked copy's 23 Sample properties are
-# a strict subset of source's 85, but its *vocabulary* holds entries source
-# lacks entirely: investigation "BreakThroughCancer", study "GBM", and 5 assay
-# titles (Spatial Transcriptomics Analysis, Long Read Sequencing, ...).
-#
-# So syncing is not a mechanical copy — it would both add 62 Sample properties
-# and DELETE vocabulary the agent currently resolves against. Picking a winner
-# requires re-fetching from whichever Neo4j the deployed agent actually queries,
-# which cannot be decided from the source tree. Left as-is deliberately; see
-# issue #65. This exemption is NOT a licence for the file to drift further —
-# see test_known_divergences_still_actually_diverge, which forces the exemption
-# to be deleted the moment someone does sync the file.
-KNOWN_DIVERGENCES = frozenset({"neo4j_schema.json"})
+# Nothing is exempt from the equality check any more: every shared file is compared.
 
 
 # Suffixes of files that are GENERATED into the context directory at runtime
@@ -194,21 +198,27 @@ KNOWN_DIVERGENCES = frozenset({"neo4j_schema.json"})
 # in issue #102.
 _DERIVED_SUFFIXES = frozenset({".npz"})
 
+# Files the config WRITES into the context directory at runtime, excused by exact name.
+#
+# `labs_db.json` is the labs the daily context export mines from SEEK institution titles
+# (chat_nextseek.labs, spec 2026-09-18 section 6.1). It holds real lab titles, so it is
+# gitignored (context/.gitignore), excluded from the app build context (.dockerignore) and
+# deliberately NOT in CANONICAL_CONTEXT_FILES: the CC route gets lab resolution through the
+# entity op, which runs in the app. A checkout that has run the config holds the file, and
+# without this exclusion the source-only pin would fail there and pass on a fresh checkout.
+_RUNTIME_ONLY_NAMES = frozenset({"labs_db.json"})
+
 
 def _files(directory: Path) -> set[str]:
     return {
         p.name
         for p in directory.iterdir()
-        if p.is_file() and p.suffix not in _DERIVED_SUFFIXES
+        if p.is_file() and p.suffix not in _DERIVED_SUFFIXES and p.name not in _RUNTIME_ONLY_NAMES
     }
 
 
 def _shared_names() -> list[str]:
     return sorted(_files(SOURCE_DIR) & image_context_files())
-
-
-def _guarded_names() -> list[str]:
-    return [n for n in _shared_names() if n not in KNOWN_DIVERGENCES]
 
 
 def test_context_dirs_exist():
@@ -269,7 +279,7 @@ def test_source_only_files_are_the_expected_ones():
     )
 
 
-@pytest.mark.parametrize("name", _guarded_names())
+@pytest.mark.parametrize("name", _shared_names())
 def test_shared_context_file_is_identical_to_source(name):
     """Direction 1: every baked file with a source counterpart matches it byte
     for byte. This is the check that would have caught #65a.
@@ -292,21 +302,33 @@ def test_shared_context_file_is_identical_to_source(name):
     )
 
 
-@pytest.mark.parametrize("name", sorted(KNOWN_DIVERGENCES))
-def test_known_divergences_still_actually_diverge(name):
-    """Self-cleaning exemption.
+def test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked():
+    """The graph schema reaches the agent as an op, not as a file in its image.
 
-    If someone resolves the neo4j_schema.json snapshot question and syncs the
-    file, this fails and forces the stale exemption out of KNOWN_DIVERGENCES,
-    so the file rejoins the real guard instead of staying permanently exempt.
+    Three things have to hold together, and any one of them alone is a trap:
+
+    * the image bakes no neo4j_schema.json — a baked copy is a schema capture that
+      goes stale the moment the graph is synced, and nothing tells the agent when;
+    * the source copy is still there — it is the NS engine's fallback, not dead
+      weight, and deleting it would take that fallback with it;
+    * nextseek-graph-schema is registered and points at the assistant endpoint that
+      reads the live catalog — without it, removing the baked file would leave the
+      agent with no schema at all.
     """
-    assert name in _shared_names(), f"{name} is exempted but no longer shared"
-    source = (SOURCE_DIR / name).read_bytes()
-    baked = image_context_source(name).read_bytes()
-    assert baked != source, (
-        f"{name} is now in sync — delete it from KNOWN_DIVERGENCES (and this "
-        "docstring's rationale) so the drift guard covers it again."
+    from NessieAI.cc.op_registry.ops import OPS
+
+    assert "neo4j_schema.json" not in image_context_files(), (
+        "the graph schema is baked into the cc-agent image again. It cannot be kept "
+        "fresh there: use the nextseek-graph-schema op, which reads the live catalog."
     )
+    assert (SOURCE_DIR / "neo4j_schema.json").is_file(), (
+        "the NS engine's committed fallback is gone; agents/graph.py falls back to it "
+        "whenever the live catalog cannot be read (CONTEXT_FALLBACK)"
+    )
+    op = next((o for o in OPS if o.op_id == "graph-schema"), None)
+    assert op is not None, "no graph-schema op: the agent has no way to read the schema"
+    assert op.bin_name == "nextseek-graph-schema"
+    assert op.assistant_endpoint == "/nextseek_api/assistant/graph-schema/"
 
 
 # ---------------------------------------------------------------------------
@@ -386,12 +408,98 @@ def test_enforced_and_baked_allowlists_agree_on_endpoint_methods():
     )
 
 
+def test_every_endpoint_the_cc_guidance_names_is_read_safe():
+    """The skill, the manifest and the command text may name only endpoints api-read runs.
+
+    NessieAI/docker/CLAUDE.md: an endpoint the skill sends the agent to must be read-safe. A named
+    endpoint the gate refuses costs the agent a WRITE_BLOCKED and one of its two attempts, as the
+    single-record and tree-view endpoints did when the skill first promised them (2026-09-18
+    review). "Runs" means both checks pass: the write gate's list, and the REST tool's own policy
+    behind it (``test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check``). Writes are
+    named without the /nextseek_api/ prefix, so they are not caught here.
+    """
+    import re
+
+    guidance = [*paths.CC_PLUGIN_DIR.glob("skills/*/SKILL.md"), BAKED_DIR / "MANIFEST.md",
+                *paths.CC_PLUGIN_DIR.glob("commands/*.md")]
+    named = {m for f in guidance for m in re.findall(r"/nextseek_api/[A-Za-z0-9_./{}-]+/",
+                                                   f.read_text(encoding="utf-8"))}
+    allowed = _rest_tool_read_only_check()
+    runs = {e["endpoint"] for e in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))
+            if all(allowed(e["endpoint"], method) for method in e.get("methods", []))}
+    assert named, "the guidance names no endpoint at all; the pattern above has gone stale"
+    assert not named - runs, (
+        f"the CC guidance names endpoints api-read refuses: {sorted(named - runs)}"
+    )
+
+
+# The REST tool every api-read ends in. After the write gate passes a (method, path) from
+# read_safe_endpoints.json, NessieAI/ns/granular.py hands it to tool_nextseek_api_request, which
+# applies its own read-only policy and refuses the rest with a nested ok:false that the op still
+# returns as a 200. The two lists are kept by hand in two places, so a read-safe POST the tool
+# does not know is advertised to the agent and never runs (2026-09-18 review, M5).
+REST_TOOL = (paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "helpers" / "tools"
+             / "nextseek_api.py")
+_REST_TOOL_POLICY = frozenset({"_READ_METHODS", "_READ_POST_PATHS", "_normalize_endpoint_path",
+                               "_canonical_method", "_is_read_only_pair", "_is_read_only_request"})
+
+
+def _rest_tool_read_only_check():
+    """The REST tool's own ``_is_read_only_request(endpoint, method)``, executed from its source.
+
+    Parsed and executed rather than imported, so this module stays stdlib-only: importing the tool
+    pulls in chat_nextseek's config and requests. Only the policy's own definitions are taken, and
+    the check fails if any of them has moved, so it cannot quietly test a stale copy.
+    """
+    tree = ast.parse(REST_TOOL.read_text(encoding="utf-8"))
+    kept = [node for node in tree.body
+            if (isinstance(node, ast.FunctionDef) and node.name in _REST_TOOL_POLICY)
+            or (isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id in _REST_TOOL_POLICY for t in node.targets))]
+    found = {node.name if isinstance(node, ast.FunctionDef) else node.targets[0].id for node in kept}
+    assert found == _REST_TOOL_POLICY, (
+        f"{REST_TOOL} no longer defines {sorted(_REST_TOOL_POLICY - found)} at module level; "
+        "point this guard at wherever the REST tool's read-only policy went"
+    )
+    namespace: dict = {}
+    exec(compile(ast.Module(body=kept, type_ignores=[]), str(REST_TOOL), "exec"), namespace)  # noqa: S102
+    return namespace["_is_read_only_request"]
+
+
+def test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check():
+    """A read-safe entry api-read cannot run is worse than none: the agent is told it may call it,
+    the gate lets it through, and the answer is 200 with ok:false "Write operations are not
+    permitted". Every (method, endpoint) the gate allows must pass the tool's policy as well."""
+    allowed = _rest_tool_read_only_check()
+    refused = sorted(
+        (method.upper(), entry["endpoint"])
+        for entry in json.loads(ENFORCED_ALLOWLIST.read_text(encoding="utf-8"))
+        for method in entry.get("methods", [])
+        if not allowed(entry["endpoint"], method)
+    )
+    assert not refused, (
+        "read_safe_endpoints.json lets api-read ask for pairs the REST tool behind it refuses: "
+        f"{refused}. Take them off the read-safe list (both copies), or give them a real read path "
+        f"in {REST_TOOL.name} (_READ_POST_PATHS) after auditing them."
+    )
+
+
+def test_the_rest_tool_check_this_guard_runs_is_the_real_policy():
+    """The executed copy must answer as the tool does: GET passes anywhere, graph_search's POST
+    passes, a POST that creates a sample and any other verb are refused."""
+    allowed = _rest_tool_read_only_check()
+    assert allowed("/nextseek_api/projects/", "GET")
+    assert allowed("nextseek_api/samples/graph_search", " post ")
+    assert not allowed("/nextseek_api/samples/", "POST")
+    assert not allowed("/nextseek_api/samples/{uid}/", "DELETE")
+
+
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
-# POST-as-read query endpoints (advanced_search, parents_by_child_types,
-# admin/samples/retrieve) are legitimately advertised and deliberately absent
-# from this list — see read_safe_endpoints.json for their audited rationale.
+# POST-as-read query endpoints (graph_search, admin/samples/retrieve) are
+# legitimately advertised and deliberately absent from this list — see
+# read_safe_endpoints.json for their audited rationale.
 FORBIDDEN_SAMPLE_MUTATIONS = (
     ("POST", "/nextseek_api/samples/"),
     ("PATCH", "/nextseek_api/samples/{uid}/"),
@@ -467,9 +575,12 @@ ADVERTISED_MUTATIONS = {
     ("POST", "/nextseek_api/people/"): WRITE,
     ("POST", "/nextseek_api/projects/"): WRITE,
     ("POST", "/nextseek_api/sample_types/"): WRITE,
-    ("POST", "/nextseek_api/sample_types/get_parents/parents_by_child_types/"): POST_AS_READ,
     ("POST", "/nextseek_api/samples/"): WRITE,
-    ("POST", "/nextseek_api/samples/advanced_search/"): POST_AS_READ,
+    # Sample search answered from the graph, the caller's project scope added on
+    # the server. It replaced advanced_search and parents_by_child_types in the
+    # agent's catalog on 2026-09-18 (sample questions go to the graph; the second
+    # also crossed the project edge on lineage).
+    ("POST", "/nextseek_api/samples/graph_search/"): POST_AS_READ,
     ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
     # #86, audited 2026-08-13: WRITE, not post-as-read. See
     # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.
@@ -664,3 +775,26 @@ def test_the_real_context_dir_has_no_undeclared_generated_files(tmp_path):
         "Decide whether it belongs in the pack (bake it) or is derived "
         "(add it to _DERIVED_SUFFIXES with the reason)."
     )
+
+
+def test_the_runtime_labs_file_does_not_count_as_a_context_file(tmp_path):
+    """labs_db.json is written into CONTEXT_DIR by the daily export and never baked.
+
+    It carries real lab titles mined from SEEK, so it is gitignored and excluded from
+    the build context (spec 2026-09-18, section 6.1). A checkout that has run the config
+    holds it, and without the name exclusion in `_files` the source-only pin fails there
+    and passes on a fresh checkout, exactly as the `.npz` caches once did.
+    """
+    (tmp_path / "capabilities.md").write_text("authored")
+    (tmp_path / "labs_db.json").write_text('{"version": 1, "labs": []}')
+
+    assert _files(tmp_path) == {"capabilities.md"}
+
+
+def test_the_labs_file_is_excused_by_name_only(tmp_path):
+    """The exclusion is one runtime-only name, not every `*_db.json`."""
+    (tmp_path / "labs_db.json").write_text("{}")
+    (tmp_path / "projects_db.json").write_text("[]")
+    (tmp_path / "other_labs_db.json").write_text("{}")
+
+    assert _files(tmp_path) == {"projects_db.json", "other_labs_db.json"}

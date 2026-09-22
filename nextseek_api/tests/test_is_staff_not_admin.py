@@ -132,8 +132,8 @@ class StaffAdminWideningIsConfinedToCapabilities(SimpleTestCase):
     """
 
     ALLOWED = {
-        ("nextseek_api/batch_upload/views.py", "lababbv override"),
-        ("nextseek_api/batch_upload/views.py", "person_id override"),
+        # The batch-upload lababbv and person_id overrides read is_superuser alone
+        # since 2026-09-15 (IsSuperUser), so they are no longer in this inventory.
         # "is_admin reported to the UI" was removed 2026-08-20: that flag drives the
         # Admin badge AND the Debug panel (PROD toggle, force_route, max-turn-length),
         # and the PROD toggle selects a ChatConfig that authenticates as a superuser

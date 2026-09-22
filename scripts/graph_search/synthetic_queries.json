@@ -1,0 +1,544 @@
+[
+  {
+    "name": "q_one",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung"
+      }
+    },
+    "note": "One term: a case-insensitive substring of a value."
+  },
+  {
+    "name": "q_and",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung AND granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung AND granuloma"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung OR liver",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung OR liver"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT granuloma"
+      }
+    },
+    "note": "NOT: the JSON text must not hold the term."
+  },
+  {
+    "name": "q_grouped",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "(lung AND granuloma) OR liver",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "(lung AND granuloma) OR liver"
+      }
+    },
+    "note": "The Add button's grouping: one operator per level."
+  },
+  {
+    "name": "q_add_button",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "((lung AND granuloma) OR liver) NOT kidney",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "((lung AND granuloma) OR liver) NOT kidney"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_tag",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[TIS]",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[TIS]"
+      }
+    },
+    "note": "A tag is the term's sample type."
+  },
+  {
+    "name": "q_tags_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[TIS] OR liver[RNA]",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[TIS] OR liver[RNA]"
+      }
+    },
+    "note": "Tags that name different types under OR."
+  },
+  {
+    "name": "q_not_tagged",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT granuloma[TIS]",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT granuloma[TIS]"
+      }
+    },
+    "note": "The tag stays outside the negation: lung AND (NOT granuloma AND TIS)."
+  },
+  {
+    "name": "q_tag_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[TIS] NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[TIS] NOT granuloma"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_tag_only",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "[TIS]",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "[TIS]"
+      }
+    },
+    "note": "A tag alone: every TIS sample."
+  },
+  {
+    "name": "q_not_key",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT age",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT age"
+      }
+    },
+    "note": "NOT on a term held by key names: TIS has Age and MUS has Stage, so every TIS and MUS sample is dropped."
+  },
+  {
+    "name": "q_and_key",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung AND organ",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung AND organ"
+      }
+    },
+    "note": "AND with a term held only by a key name (Organ)."
+  },
+  {
+    "name": "q_not_key_tumor",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT tumor",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT tumor"
+      }
+    },
+    "note": "TumorGrade is a TIS key, so every TIS sample is dropped."
+  },
+  {
+    "name": "q_unknown_tag",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[XYZ] OR liver",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[XYZ] OR liver"
+      }
+    },
+    "note": "A tag naming no sample type matches nothing."
+  },
+  {
+    "name": "q_phrase",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "left lobe",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "left lobe"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_lower_and",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "salt and pepper",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "salt and pepper"
+      }
+    },
+    "note": "A lower-case and is part of the term."
+  },
+  {
+    "name": "q_exact_one",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "lung"
+      }
+    },
+    "note": "EXACT: a positive term equal to a value, case-insensitive."
+  },
+  {
+    "name": "q_exact_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "Lung OR Liver",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "Lung OR Liver"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_exact_and",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung AND granuloma",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "lung AND granuloma"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "q_exact_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT granuloma",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "lung NOT granuloma"
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "f_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "Case-sensitive substring of str(value)."
+  },
+  {
+    "name": "f_contain_empty",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Contain",
+      "filter_valueFrom": "",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "CONTAINS",
+            "value": ""
+          }
+        ]
+      }
+    },
+    "note": "Empty From: every sample holding the attribute."
+  },
+  {
+    "name": "f_not_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Not Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "NOT CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "Only samples that hold Organ."
+  },
+  {
+    "name": "f_not_contain_empty",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Not Contain",
+      "filter_valueFrom": "",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "NOT CONTAINS",
+            "value": ""
+          }
+        ]
+      }
+    },
+    "note": "Empty From: nothing."
+  },
+  {
+    "name": "f_contain_number",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "D.SEQ",
+      "attribute": "Reads",
+      "filter_rule": "Contain",
+      "filter_valueFrom": "12",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "D.SEQ",
+            "attribute": "Reads",
+            "op": "CONTAINS",
+            "value": "12"
+          }
+        ]
+      }
+    },
+    "note": "Reads holds JSON numbers in a Text attribute."
+  },
+  {
+    "name": "f_not_contain_number",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "D.SEQ",
+      "attribute": "Reads",
+      "filter_rule": "Not Contain",
+      "filter_valueFrom": "12",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "D.SEQ",
+            "attribute": "Reads",
+            "op": "NOT CONTAINS",
+            "value": "12"
+          }
+        ]
+      }
+    },
+    "note": ""
+  },
+  {
+    "name": "f_true",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Viable",
+      "filter_rule": "True",
+      "filter_valueFrom": "",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Viable",
+            "op": "IS TRUE"
+          }
+        ]
+      }
+    },
+    "note": "Attribute type 15: toBinaryTinyInt(value) == 1."
+  },
+  {
+    "name": "f_false",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Viable",
+      "filter_rule": "False",
+      "filter_valueFrom": "",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Viable",
+            "op": "IS FALSE"
+          }
+        ]
+      }
+    },
+    "note": "Every other value the sample holds."
+  }
+]

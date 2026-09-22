@@ -1,4 +1,10 @@
-"""Supervisor-only pages: retrieval, clades and internal assays."""
+"""Supervisor-only pages: retrieval, clades and internal assays.
+
+The clade views change what a SampleType node carries and the internal-assay views change the map that labels
+DERIVED_FROM edges, so each one enqueues an outbox row after its write and the graph sync loop applies it later
+(``nextseek_api/graph_sync/hooks.py``). ``hooks.enqueue`` never raises: a lost row costs a graph refresh that the
+nightly targeted sync then makes, never the administrator's edit.
+"""
 
 import logging
 
@@ -12,6 +18,7 @@ from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.http import require_POST
 import MySQLdb
+from ..dbtable_sample import DBtable_sample
 from ..seekdb import SeekDB
 import datetime
 import json
@@ -19,6 +26,7 @@ from ..models import Assays_internal_assays, Clades, Internal_assays, Sample_typ
 from ..responses import json_response
 import os
 import pandas as pd
+import tempfile
 from django.shortcuts import render
 from ..decorators import requires_seek_login
 from ..decorators import requires_seek_login_redirect
@@ -26,9 +34,10 @@ from ..decorators import requires_supervisor
 from django.conf import settings
 import simplejson
 from ..decorators import verifySuperUser
+from nextseek_api.graph_sync import hooks
 from nextseek_api.services.sample_workbook import write_samples_workbook
 
-from .shared import DOWNLOAD_DIRECTORY, SEEK_DATABASE
+from .shared import SEEK_DATABASE
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +66,32 @@ def adminRetrieveSamples(request):
 
             datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
             filename = 'download-samples-' + datenow + '.xlsx'
-            downloadfile = DOWNLOAD_DIRECTORY + filename
+            # A private temporary file with a random name, removed once read: never MEDIA_ROOT/download, which /media/
+            # serves to anyone and where two exports in the same minute shared one name.
+            fd, downloadfile = tempfile.mkstemp(prefix='download-samples-', suffix='.xlsx')
+            os.close(fd)
+            try:
+                sample_retrieval_data(children_uids, downloadfile)
 
-            sample_retrieval_data(children_uids, downloadfile)
-
-            with open(downloadfile, 'rb') as fh:
-                response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
-                response['Content-Disposition'] = 'inline; filename=' + os.path.basename(downloadfile)
-                return response
+                with open(downloadfile, 'rb') as fh:
+                    response = HttpResponse(fh.read(), content_type="application/vnd.ms-excel")
+            finally:
+                os.unlink(downloadfile)
+            response['Content-Disposition'] = 'inline; filename=' + filename
+            return response
         else:
             return render(request, "admin_retrieval.html")
 
 def get_children_uids(sample_uids, user_project_ids, admin):
     db = settings.DATABASES[SEEK_DATABASE]
+    if not admin:
+        # The walk starts only from requested samples in the caller's projects, as getChildrenUIDs does for
+        # /nextseek_api/admin/samples/retrieve/: a UID outside them reads as an unknown one instead of listing the
+        # caller's own samples related to it. user_project_ids is a single-pass map() (the caller), read once here.
+        user_project_ids = [str(pid) for pid in user_project_ids]
+        sample_uids = DBtable_sample().getVisibleUIDs(sample_uids, user_project_ids)
+        if not sample_uids:
+            return pd.DataFrame(columns=["id", "sample_type_id", "uuid", "json_metadata"])
     NEO4J_DATABASE = settings.NEO4J_DATABASE
     with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
         r,s,k = driver.execute_query("""
@@ -104,9 +126,8 @@ def get_children_uids(sample_uids, user_project_ids, admin):
         """
         params = list(uids)
     else:
-        # user_project_ids is a single-pass map() (admin.py's caller), so it is
-        # consumed here and only on the branch that needs it. The sentinel keeps
-        # the statement valid, and matching nothing, when the caller has no
+        # user_project_ids is already a list here (read once above). The sentinel
+        # keeps the statement valid, and matching nothing, when the caller has no
         # mapped projects; it used to emit `IN ()`, a MySQL syntax error.
         scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
         project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
@@ -162,7 +183,9 @@ def adminClades(request):
 def cladesSyncSampleTypes(request):
     stcdb = DBtable_stc()
     stcdb.syncSampleTypes()
-    
+
+    hooks.enqueue('catalog', '*')
+
     return HttpResponse({})
 
 # ---------------------------------------------------------------------------
@@ -219,7 +242,7 @@ class _WbRowError(Exception):
     """One record is unusable. Its siblings are unaffected."""
 
 
-def _wb_batch(records, apply_row, noun, verb='Saved'):
+def _wb_batch(records, apply_row, noun, verb='Saved', on_change=None):
     """Apply apply_row to each record; commit what works, report what does not.
 
     ``verb`` is the past participle the messages are built from ('Saved',
@@ -234,6 +257,14 @@ def _wb_batch(records, apply_row, noun, verb='Saved'):
     Note there is no sentinel exception used as control flow: a genuine
     ValueError raised inside apply_row is reported against its own record with
     its type, never mistaken for a rollback signal.
+
+    ``on_change`` runs once after the loop, and only when at least one record
+    committed: it is the graph-sync hook the clade and internal-assay views owe
+    (spec 5, E8 and E10). It is handed in rather than called here so each view
+    still names its own kind, and it is conditional because an outbox row saying
+    the catalog moved when nothing did costs a reconcile for nothing. Partial
+    success still enqueues, which is the safe direction: the reconcile is
+    idempotent, and a missed sync is not.
     """
     if not records:
         return _wb_envelope(0, 'No records supplied.', 0, [])
@@ -251,6 +282,9 @@ def _wb_batch(records, apply_row, noun, verb='Saved'):
                            'error': f'{type(exc).__name__}: {exc}'})
         else:
             updated += 1
+
+    if updated and on_change is not None:
+        on_change()
 
     if errors and not updated:
         return _wb_envelope(0, f'{verb} nothing; {len(errors)} record(s) failed.',
@@ -289,7 +323,8 @@ def cladeSave(request):
             clades.update(clade_id=record['id'], title=title,
                           color=color, order=order)
 
-    return _wb_batch(records, apply_row, 'clade(s)')
+    return _wb_batch(records, apply_row, 'clade(s)',
+                     on_change=lambda: hooks.enqueue('catalog', '*'))
 
 @require_POST
 def cladeDelete(request):
@@ -312,7 +347,8 @@ def cladeDelete(request):
         except Clades.DoesNotExist:
             raise _WbRowError('clade no longer exists')
 
-    return _wb_batch(records, apply_row, 'clade(s)', verb='Deleted')
+    return _wb_batch(records, apply_row, 'clade(s)', verb='Deleted',
+                     on_change=lambda: hooks.enqueue('catalog', '*'))
 
 @require_POST
 def cladeSampleTypesSave(request):
@@ -333,7 +369,8 @@ def cladeSampleTypesSave(request):
         except Sample_types_clades.DoesNotExist:
             raise _WbRowError('association row no longer exists; re-sync and retry')
 
-    return _wb_batch(records, apply_row, 'association(s)')
+    return _wb_batch(records, apply_row, 'association(s)',
+                     on_change=lambda: hooks.enqueue('catalog', '*'))
 
 @requires_seek_login_redirect('/seek/samples/attributes/')
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
@@ -417,7 +454,8 @@ def internalAssaySave(request):
         else:
             ia.update(internal_assay_id=record['id'], internal_assay_title=title)
 
-    return _wb_batch(records, apply_row, 'internal assay(s)')
+    return _wb_batch(records, apply_row, 'internal assay(s)',
+                     on_change=lambda: hooks.enqueue('assay_map', '*'))
 
 @require_POST
 def internalAssayDelete(request):
@@ -440,7 +478,8 @@ def internalAssayDelete(request):
         except Internal_assays.DoesNotExist:
             raise _WbRowError('internal assay no longer exists')
 
-    return _wb_batch(records, apply_row, 'internal assay(s)', verb='Deleted')
+    return _wb_batch(records, apply_row, 'internal assay(s)', verb='Deleted',
+                     on_change=lambda: hooks.enqueue('assay_map', '*'))
 
 @require_POST
 def assayAssociationSave(request):
@@ -463,12 +502,15 @@ def assayAssociationSave(request):
             # intervening Sync. Reported per row; siblings still commit.
             raise _WbRowError('association row no longer exists; re-sync and retry')
 
-    return _wb_batch(records, apply_row, 'association(s)')
+    return _wb_batch(records, apply_row, 'association(s)',
+                     on_change=lambda: hooks.enqueue('assay_map', '*'))
 
 @requires_seek_login
 @requires_supervisor('The login user does not have the permission to perform this action.')
 def syncInternalAssays(request):
     aia = DBtable_assaysinternalassays()
     aia.syncAssays()
-    
+
+    hooks.enqueue('assay_map', '*')
+
     return HttpResponse({})

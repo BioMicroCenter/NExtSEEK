@@ -68,6 +68,7 @@ Personal and external tools (session handoff, the parallel fix lane, the dmac-cu
 | `NessieAI/` | all AI code: router, NS and CC engines, HiBayes, AI images, AI tests, AI docs and history | `NessieAI/README.md`, `NessieAI/CLAUDE.md` | `router`, `cc_assistant`, `chat_nextseek`, `schema-rag` |
 | `api_app/` | the original REST app: installed, imported, never mounted | `api_app/README.md` | `nextseek_api` |
 | `ci/` | route registry, blocking gates, baseline differ, post-deploy smoke suite, docs checker | `ci/README.md` | `deployment` |
+| `context/` | hand-owned source of truth for the catalog context Nessie reads: sample types, assays, assay mappings and projects. Feeds the `dmac.*_context` tables, which the JSON exports are generated FROM | `context/README.md` | `chat_nextseek` |
 | `dmac/` | Django project package: settings modules, root URLconf, ASGI/WSGI, SEEK login views | `dmac/README.md` | `nextseek_api` |
 | `docker/` | nginx config, app-container scripts, env docs; AI images are in `NessieAI/docker/` | `docker/README.md` | `deployment` |
 | `docs/` | cross-cutting docs only; folder docs live beside their code | `docs/INDEX.md` | by subject |

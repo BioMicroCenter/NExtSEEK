@@ -339,37 +339,145 @@ def test_no_nessie_fixture_or_test_takes_a_skipping_credentials_fixture():
 
 
 # --------------------------------------------------------------------------- #
-# cleanup (spec 3.1, decision 8): delete the chat on a pass, keep it otherwise
+# cleanup (spec 3.1, decision 8, amended): keep the chat on a failure AND on a
+# pass, so an intermittent failure has a passing chat to be diffed against; keep
+# only the newest KEEP_PASSING_CHATS passing chats
 # --------------------------------------------------------------------------- #
+
+S1 = "00000000-0000-0000-0000-0000000000a1"          # the chat the lane just ran
+SESSIONS = f"{BASE}/nextseek_api/assistant/sessions/"
+
 
 class _Answer:
     def __init__(self, status_code: int, text: str = ""):
         self.status_code, self.text = status_code, text
 
+    def json(self):
+        return json.loads(self.text)
+
+
+def _row(sid: str, title: str, created_at: str) -> dict:
+    """One row of GET assistant/sessions/ (SessionListItem)."""
+    return {"session_id": sid, "title": title, "created_at": created_at,
+            "updated_at": created_at, "query_count": 4, "preview": "What can you do?"}
+
 
 class _Api:
+    """The write account's client. `listed` is what GET assistant/sessions/ returns;
+    every DELETE answers `delete_answer` (or raises), except the ones `delete_fails`
+    maps to their own answer."""
+
     def __init__(self, delete_answer: _Answer | None = None,
-                 delete_raises: Exception | None = None):
+                 delete_raises: Exception | None = None, *,
+                 patch_answer: _Answer | None = None, patch_raises: Exception | None = None,
+                 listed: list | None = None, list_answer: _Answer | None = None,
+                 delete_fails: dict | None = None):
         self.calls: list[tuple[str, str]] = []
+        self.patched: list[dict] = []
         self._delete_answer = delete_answer or _Answer(204)
         self._delete_raises = delete_raises
+        self._patch_answer = patch_answer
+        self._patch_raises = patch_raises
+        self._listed = listed or []
+        self._list_answer = list_answer
+        self._delete_fails = delete_fails or {}
 
     def get(self, url, **kw):
         self.calls.append(("GET", url))
+        if url == SESSIONS:
+            if self._list_answer is not None:
+                return self._list_answer
+            return _Answer(200, json.dumps({"total": len(self._listed),
+                                            "sessions": self._listed}))
         return _Answer(200, '{"resolved_as": "session"}')
+
+    def patch(self, url, json=None, **kw):
+        self.calls.append(("PATCH", url))
+        self.patched.append(json)
+        if self._patch_raises is not None:
+            raise self._patch_raises
+        return self._patch_answer or _Answer(200, "{}")
 
     def delete(self, url, **kw):
         self.calls.append(("DELETE", url))
         if self._delete_raises is not None:
             raise self._delete_raises
+        for sid, answer in self._delete_fails.items():
+            if sid in url:
+                return answer
         return self._delete_answer
 
+    def deleted(self) -> list[str]:
+        return [url.rstrip("/").rsplit("/", 1)[-1] for m, url in self.calls if m == "DELETE"]
 
-def test_finish_chat_deletes_a_passing_lane_s_chat(tmp_path):
+
+def test_finish_chat_keeps_a_passing_lane_s_chat_titled_so_the_next_pass_finds_it(tmp_path):
+    """Decision 8 amended: a passing chat is the one an intermittent failure is diffed
+    against, so it is kept, named in the CI record, and titled with the marker the
+    next passing lane prunes by."""
+    from ci.smoke.test_nessie import PASSING_CHAT_TITLE
     api = _Api()
-    assert finish_chat(api, BASE, "s1", failed=False, evidence_dir=tmp_path) == (None, None)
-    assert api.calls == [("DELETE", f"{BASE}/nextseek_api/assistant/sessions/s1/")]
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert error is None
+    assert kept == {"session_id": S1,
+                    "debug_url": f"{BASE}/nextseek_api/nessie/sessions/{S1}/debug/"}
+    assert api.calls[0] == ("PATCH", f"{SESSIONS}{S1}/")
+    assert api.patched[0]["title"].startswith(PASSING_CHAT_TITLE)
+    assert S1 not in api.deleted(), f"a passing lane deleted its own chat: {api.calls}"
     assert not (tmp_path / "debug.json").exists()
+
+
+def test_the_lane_keeps_three_passing_chats():
+    from ci.smoke.test_nessie import KEEP_PASSING_CHATS
+    assert KEEP_PASSING_CHATS == 3
+
+
+def test_a_passing_lane_deletes_every_passing_chat_but_the_newest(tmp_path):
+    """The kept set is bounded: after this pass the write account holds the chat just
+    kept and the next-newest KEEP_PASSING_CHATS - 1 passing chats, nothing older.
+    Chats without the marker (a failing lane's, anything else) are never touched."""
+    from ci.smoke.test_nessie import PASSING_CHAT_TITLE
+    marked = f"{PASSING_CHAT_TITLE} 2026-09-1"
+    listed = [
+        _row(S1, f"{PASSING_CHAT_TITLE} 2026-09-18 12:00 UTC", "2026-09-18T11:55:00Z"),
+        _row("p-17", marked + "7", "2026-09-17T10:00:00Z"),
+        _row("p-15", marked + "5", "2026-09-15T10:00:00Z"),
+        _row("p-16", marked + "6", "2026-09-16T10:00:00Z"),   # the list is by update time
+        _row("p-14", marked + "4", "2026-09-14T10:00:00Z"),
+        _row("fail", "What can you do?", "2026-09-10T10:00:00Z"),  # a failing lane's
+        _row("mine", "My own analysis", "2026-09-01T10:00:00Z"),
+    ]
+    api = _Api(listed=listed)
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert error is None and kept["session_id"] == S1
+    assert sorted(api.deleted()) == ["p-14", "p-15"], api.calls
+
+
+def test_the_prune_never_deletes_the_chat_it_just_kept(tmp_path):
+    """Even when the list spells its id differently and dates it oldest."""
+    from ci.smoke.test_nessie import PASSING_CHAT_TITLE
+    listed = [_row(S1.replace("-", ""), f"{PASSING_CHAT_TITLE} x", "2020-01-01T00:00:00Z")]
+    listed += [_row(f"p-{n}", f"{PASSING_CHAT_TITLE} {n}", f"2026-09-1{n}T00:00:00Z")
+               for n in range(5)]
+    api = _Api(listed=listed)
+    finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert S1.replace("-", "") not in api.deleted() and S1 not in api.deleted()
+    assert sorted(api.deleted()) == ["p-0", "p-1", "p-2"], api.calls
+
+
+@pytest.mark.parametrize("patch_answer, patch_raises, expected", [
+    (_Answer(500, "server   error"), None, "answered 500: server error"),
+    (None, ConnectionError("refused"), "ConnectionError: refused"),
+])
+def test_a_passing_chat_that_cannot_be_titled_is_deleted_so_the_kept_set_stays_bounded(
+        patch_answer, patch_raises, expected, tmp_path):
+    """An unmarked chat is one no later run can find to prune, so it is deleted as
+    before, and the report says why it was not kept."""
+    api = _Api(patch_answer=patch_answer, patch_raises=patch_raises)
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert kept is None
+    assert api.deleted() == [S1], api.calls
+    assert error is not None and S1 in error and expected in error, error
 
 
 @pytest.mark.parametrize("delete_answer, delete_raises, expected", [
@@ -379,13 +487,39 @@ def test_finish_chat_deletes_a_passing_lane_s_chat(tmp_path):
 ])
 def test_finish_chat_reports_a_chat_it_could_not_delete(delete_answer, delete_raises,
                                                         expected, tmp_path):
-    """A failed DELETE leaves the chat behind. It must say so, not pass in silence."""
-    api = _Api(delete_answer=delete_answer, delete_raises=delete_raises)
-    kept, error = finish_chat(api, BASE, "s1", failed=False, evidence_dir=tmp_path)
+    """A failed DELETE leaves a chat behind. It must say so, not pass in silence:
+    here the untitled passing chat's own DELETE."""
+    api = _Api(delete_answer=delete_answer, delete_raises=delete_raises,
+               patch_answer=_Answer(500))
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
     assert kept is None
     assert error is not None, "a chat that was not deleted must be reported"
-    assert "s1" in error, f"the report does not name the chat: {error}"
+    assert S1 in error, f"the report does not name the chat: {error}"
     assert expected in error, f"the report does not say why: {error}"
+
+
+def test_a_prune_that_could_not_delete_is_reported_and_the_chat_still_kept(tmp_path):
+    from ci.smoke.test_nessie import PASSING_CHAT_TITLE
+    listed = [_row(f"p-{n}", f"{PASSING_CHAT_TITLE} {n}", f"2026-09-1{n}T00:00:00Z")
+              for n in range(4)]
+    api = _Api(listed=listed, delete_fails={"p-0": _Answer(500, "boom")})
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert kept["session_id"] == S1
+    assert sorted(api.deleted()) == ["p-0", "p-1"], api.calls
+    assert error is not None and "p-0" in error and "DELETE answered 500: boom" in error, error
+    assert "p-1" not in error
+
+
+@pytest.mark.parametrize("list_answer, expected", [
+    (_Answer(500, "down"), "answered 500"),
+    (_Answer(200, '{"total": 0}'), "no sessions list"),
+])
+def test_a_sessions_list_the_prune_cannot_read_is_reported(list_answer, expected, tmp_path):
+    api = _Api(list_answer=list_answer)
+    kept, error = finish_chat(api, BASE, S1, failed=False, evidence_dir=tmp_path)
+    assert kept["session_id"] == S1
+    assert api.deleted() == []
+    assert error is not None and expected in error, error
 
 
 def test_finish_chat_keeps_a_failing_lane_s_chat_and_its_debug_answer(tmp_path):
@@ -395,7 +529,7 @@ def test_finish_chat_keeps_a_failing_lane_s_chat_and_its_debug_answer(tmp_path):
     assert kept == {"session_id": "s1",
                     "debug_url": f"{BASE}/nextseek_api/nessie/sessions/s1/debug/"}
     assert [method for method, _ in api.calls] == ["GET"], (
-        f"a failing lane must keep its chat: {api.calls}")
+        f"a failing lane must keep its chat, untitled and unpruned: {api.calls}")
     assert (tmp_path / "debug.json").read_text() == '{"resolved_as": "session"}'
 
 
@@ -433,10 +567,17 @@ class Answer:
     def __init__(self, status_code, text=""):
         self.status_code, self.text = status_code, text
 
+    def json(self):
+        return json.loads(self.text)
+
 
 class Api:
     def get(self, url, **kw):
         self._log("GET", url)
+        return Answer(200, '{{"total": 0, "sessions": []}}')
+
+    def patch(self, url, **kw):
+        self._log("PATCH", url)
         return Answer(200, "{{}}")
 
     def delete(self, url, **kw):
@@ -500,9 +641,10 @@ def _run_lane(pytester, monkeypatch, tmp_path, *, stage_1_passes: bool):
 
 def test_a_stage_1_failure_keeps_the_chat_even_when_every_turn_test_passes(
         pytester, monkeypatch, tmp_path):
-    """Spec 3.1 and decision 8: the chat is deleted only when every test passed.
-    A stage 1 failure runs before chat_run is first requested, so a failure
-    count taken in chat_run's own setup would miss it and delete the chat."""
+    """Spec 3.1 and decision 8: a red lane keeps its chat as it is, with its
+    evidence, and never titles or prunes it as a passing chat. A stage 1 failure
+    runs before chat_run is first requested, so a failure count taken in
+    chat_run's own setup would miss it and treat the chat as a passing one."""
     result, summary, methods = _run_lane(pytester, monkeypatch, tmp_path,
                                          stage_1_passes=False)
     result.assert_outcomes(passed=1, failed=1)
@@ -510,17 +652,21 @@ def test_a_stage_1_failure_keeps_the_chat_even_when_every_turn_test_passes(
     assert summary["kept_session"]["session_id"] == "s1"
     assert summary["evidence_dir"], f"a red lane names no evidence folder: {summary}"
     assert "DELETE" not in methods, f"a red lane deleted its chat: {methods}"
+    assert "PATCH" not in methods, f"a red lane titled its chat as a passing one: {methods}"
 
 
-def test_a_green_lane_deletes_its_chat_and_reports_no_cleanup_error(
+def test_a_green_lane_keeps_its_chat_names_it_and_reports_no_cleanup_error(
         pytester, monkeypatch, tmp_path):
+    """Decision 8 amended: the green lane's chat is the passing one a later
+    intermittent failure is diffed against, so it is kept and the record names it."""
     result, summary, methods = _run_lane(pytester, monkeypatch, tmp_path,
                                          stage_1_passes=True)
     result.assert_outcomes(passed=2)
-    assert summary["kept_session"] is None, f"a green lane kept its chat: {summary}"
+    assert summary["kept_session"] is not None, f"a green lane dropped its chat: {summary}"
+    assert summary["kept_session"]["session_id"] == "s1"
     assert summary["evidence_dir"] is None
     assert summary["cleanup_error"] is None
-    assert methods == ["DELETE"], f"expected one DELETE, got {methods}"
+    assert methods == ["PATCH", "GET"], f"expected the title, then the list: {methods}"
 
 
 def test_offered_spreadsheets_are_the_tables_and_xlsx_files_a_turn_offered():

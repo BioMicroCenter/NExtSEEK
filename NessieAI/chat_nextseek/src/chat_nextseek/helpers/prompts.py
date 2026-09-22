@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -59,19 +60,44 @@ def log_usage(resp, label: str):
     )
 
 
-def log_prompt(log_path: str, stage: str, payload: dict):
+_logger = logging.getLogger(__name__)
+
+# One WARNING per stage per process for a prompt-log write that failed. Every failure
+# used to be swallowed without a word, which is how a directory passed as the file path
+# went unnoticed for as long as this function has existed. Keyed by stage, not global, so
+# one caller that is known to fail cannot use up the warning another caller needs.
+_failure_reported_stages: set[str] = set()
+
+
+def log_prompt(log_path: str, stage: str, payload: dict, *, max_bytes: int | None = None):
     """
-    Append a JSON line for the given stage to the prompts log if a path is configured in session state.
-    Adds a timestamp automatically and swallows IO errors to avoid interrupting the main flow.
+    Append a JSON line for the given stage to the FILE ``log_path``.
+    Adds a timestamp automatically and never raises into the main flow. A write that
+    fails is logged at WARNING the first time for its stage, with the path, so it cannot
+    vanish. ``max_bytes`` rolls the file over to ``<log_path>.1`` (one generation kept)
+    before an append that would find it at or past that size.
     """
-    entry = {"stage": stage, **payload, "timestamp": datetime.now().isoformat()}
     if not log_path:
         return
     try:
+        entry = {"stage": stage, **payload, "timestamp": datetime.now().isoformat()}
+        line = json.dumps(entry, default=str) + "\n"
+        if max_bytes:
+            try:
+                if os.path.getsize(log_path) >= max_bytes:
+                    os.replace(log_path, f"{log_path}.1")
+            except FileNotFoundError:
+                pass
         with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception:
-        pass
+            f.write(line)
+    except Exception as exc:
+        if stage not in _failure_reported_stages:
+            _failure_reported_stages.add(stage)
+            _logger.warning(
+                "log_prompt could not write stage %r to %s (%s: %s); further failures "
+                "for this stage are not reported",
+                stage, log_path, type(exc).__name__, exc,
+            )
 
 
 def log_llm_call(log_dir: str | None, entry: dict):

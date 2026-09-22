@@ -30,11 +30,13 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Django AI suites | app image | "Django lane" block below, with one or more `NessieAI/tests/<area>` paths | host, throwaway container | free |
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |
+| Graph scope lane | app image beside a throwaway Neo4j | "Graph scope lane" block below | host, over an exported tree | free |
 | Harness unit tests | host uv | `uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 --with orjson python -m pytest NessieAI/tests/nessie_tests/tests -q -p no:cacheprovider` | repo root | free |
 | Harness DB/contract tests | live app container | "Harness container lane" block below | inside `nextseek` | free |
 | Harness route tier | host uv, or the app container | host: `uv run --no-project --with pydantic --with requests --with beautifulsoup4 --with orjson python -m NessieAI.tests.nessie_tests --base-url http://localhost:8000 --tier route --scope specific`; container: `docker exec nextseek uv run manage.py nessie --tier route` | repo root, or inside `nextseek` | cheap, not free: the router runs on every turn |
 | Harness full tier | app container only | `docker exec nextseek uv run manage.py nessie --base-url http://localhost:8000 --tier full --scope all` | inside `nextseek` | PAID, approval per run |
 | Paired `--bayesian` run | host | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | repo root | PAID, approval per run |
+| Forced NS arms (graph agent against API agent) | app image, in the evaluation venue | `scripts/graph_search/nessie_venue.sh run <name> --cases /venue/cases/<file>.json --force-route ns --arms graph,api`, then the scorer; the runbook, with turn counts, caps and stop rules, is stage P of `docs/superpowers/plans/2026-09-15-graph-search-nessie.md`, and the flags are in `NessieAI/tests/nessie_tests/README.md` "Comparing the graph and API agents" | the venue `gs-nessie-venue`, which only the operator starts | PAID, launched by the operator only |
 | Catalog E2E | host | `python -m NessieAI.tests.e2e` (needs a seeded instance and live LLM credentials) | repo root | PAID |
 | Real-stack acceptance | live app container | "Paid acceptance" block below | inside `nextseek` | PAID, approval per run |
 | Acceptance bundle re-check | host or container | "Bundle re-check" block below | repo root | free |
@@ -142,6 +144,34 @@ Zero spend. Re-verifies a recorded acceptance run and trusts no artifact's own P
 docker exec nextseek uv run --no-sync python -m NessieAI.tests.cc.validate_cc_acceptance outputs/cc_acceptance/<run_id>
 python3 -m NessieAI.tests.cc.validate_step7_compose_deploy <run_dir> [repo_root]
 ```
+
+### Graph scope lane
+
+Proves the project scope on the graph agent's Cypher (`NessieAI/chat_nextseek/src/chat_nextseek/cypher_scope.py`)
+against a real Neo4j: a private, throwaway database on its own network, loaded with a synthetic three-project graph
+(`NessieAI/tests/chat_nextseek/graph_scope/fixture_graph.py`), and pytest over
+`NessieAI/tests/chat_nextseek/graph_scope/` in the app image. Nothing else is touched; the script removes its
+database and network on every exit, and exits 0 with `SKIP` when docker is not available. Run it on an exported tree
+(a worktree mount's `.git` pointer file breaks unrelated tests), through the host's one-heavy-step wrapper when there
+is one:
+
+```bash
+git archive HEAD | tar -x -C <dir>
+NessieAI/tests/chat_nextseek/graph_scope/lane.sh <dir> <outdir>            # both arms
+NessieAI/tests/chat_nextseek/graph_scope/lane.sh <dir> <outdir> -k prover  # the prover arm only
+```
+
+- Output: `<outdir>/pytest-graph-scope.txt`, one summary line in `<outdir>/exit-graph-scope.txt`.
+- Callers: projects {1, 3}, project {2}, no projects, admin. Statements: the taught corpus and refusal table
+  (`graph_scope/battery.py`, shared with the unit tests), the report runners' statements, and a seeded generator
+  (`graph_scope/generator.py`).
+- Assertions: every accepted statement's rows equal what the original returns on the graph with everything the
+  caller cannot see deleted; no row carries a marker the caller may not read; refusals carry their expected codes;
+  admin runs the submitted text; every write is refused and the graph is unchanged; the prover never reads as a
+  comment what the server runs as code.
+- The tool arm (`test_tool_*`) goes through `tool_neo4j_query` and reads its result's `scope` field.
+- Without `GRAPH_SCOPE_NEO4J_URI` and `GRAPH_SCOPE_NEO4J_PASSWORD` every test in the folder skips, so the Django lane
+  reports them skipped.
 
 ## Tests that stay in their package
 

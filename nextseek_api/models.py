@@ -1901,6 +1901,114 @@ class SampleAdvancedSearchResult(BaseModel):
 
 
 # -----------------------------
+# Samples: graph_search models
+# -----------------------------
+# graph_search takes advanced_search's body unchanged plus one optional `extensions` block.
+# These models check shape only; whether an attribute exists on a sample type is checked
+# against the graph catalog by the query builder (nextseek_api/graph_search/query.py).
+
+
+GRAPH_SEARCH_TRUTH_OPS = ("IS TRUE", "IS FALSE")
+
+
+class GraphSearchWhere(BaseModel):
+    sample_type: str = Field(..., description='Sample type title the attribute belongs to, for example "TIS"')
+    attribute: str = Field(..., description='Attribute title on that sample type, exact and case-sensitive')
+    op: Literal["=", "<>", "<", "<=", ">", ">=", "IN", "CONTAINS", "NOT CONTAINS", "STARTS WITH",
+                "IS TRUE", "IS FALSE"] = Field(
+        ...,
+        description=(
+            'Comparison operator. IN takes a list; IS TRUE and IS FALSE take no value (the Sample Search page\'s '
+            'True and False rules); every other operator a single value. CONTAINS, NOT CONTAINS and STARTS WITH '
+            'compare the stored value\'s text; NOT CONTAINS keeps only samples that hold the attribute'
+        ),
+    )
+    value: Optional[Union[str, int, float, List[Union[str, int, float]]]] = Field(
+        default=None,
+        description="Value to compare with, cast by the attribute's value_type; omitted for IS TRUE and IS FALSE",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _value_shape_matches_op(self) -> "GraphSearchWhere":
+        if self.op in GRAPH_SEARCH_TRUTH_OPS:
+            if self.value is not None:
+                raise ValueError(f"op '{self.op}' takes no value")
+            return self
+        if self.value is None:
+            raise ValueError(f"op '{self.op}' requires a value")
+        is_list = isinstance(self.value, list)
+        if self.op == "IN" and not is_list:
+            raise ValueError("op 'IN' requires a list value")
+        if self.op != "IN" and is_list:
+            raise ValueError(f"op '{self.op}' requires a scalar value, not a list")
+        return self
+
+
+class GraphSearchLineage(BaseModel):
+    direction: Literal["ancestor", "descendant", "either"] = Field(
+        ...,
+        description=(
+            'Keep a sample when a sample of sample_type is its ancestor, its descendant, or either. For a '
+            'non-superuser that sample, and every sample on the way to it, must be in one of their projects'
+        ),
+    )
+    sample_type: str = Field(..., description='Sample type title of the related sample')
+    max_hops: int = Field(
+        default=4, ge=1, le=12,
+        description='Most DERIVED_FROM hops to follow, 1 to 12; 12 reaches the whole tree (the longest chain is 11)',
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class GraphSearchExtensions(BaseModel):
+    where: List[GraphSearchWhere] = Field(
+        default_factory=list, description='Attribute conditions, ANDed, all on one sample type'
+    )
+    lineage: Optional[GraphSearchLineage] = Field(default=None, description='One lineage condition')
+    query: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "The Sample Search page's query text, matched as advanced_search matched it: terms joined by the "
+            "upper-case words AND, OR and NOT (a NOT b is a AND NOT b; a leading NOT negates what follows), grouped "
+            "by parentheses, OR never on one level with AND or NOT; term[TYPE] limits a term to a sample type. "
+            "ANDed with everything else in the body"
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _where_on_one_sample_type(self) -> "GraphSearchExtensions":
+        if len({item.sample_type for item in self.where}) > 1:
+            raise ValueError("every where item must name the same sample_type")
+        return self
+
+
+class GraphSearchRequest(SampleAdvancedSearchRequest):
+    extensions: Optional[GraphSearchExtensions] = Field(
+        default=None, description='graph_search only: exact attribute conditions and a lineage condition'
+    )
+
+
+class GraphSearchResult(SampleAdvancedSearchResult):
+    """advanced_search's envelope plus what graph_search alone can get wrong: ``total`` is counted in the graph and
+    ``rows`` are read from MySQL, so a sample the graph still holds after its row left MySQL is counted and not shown."""
+
+    rows_missing: int = Field(
+        default=0, ge=0,
+        description=(
+            "How many of this page's matches have no row to show: the graph still holds them, so total counts them, "
+            "but their row has left the database (a delete the graph has not caught up with yet). 0 when every "
+            "match on the page is in rows"
+        ),
+    )
+
+
+# -----------------------------
 # Additional request/response models
 # -----------------------------
 
@@ -2858,6 +2966,110 @@ class SampleTypeConnectionsResponse(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+# -----------------------------
+# Graph sync: the status endpoint (nextseek_api/services/graph_sync_status.py)
+# -----------------------------
+#
+# These mirror what nextseek_api/graph_sync/state.py returns, key for key, and forbid extra keys: a shape change on
+# either side is then a failing test rather than a field that silently stops being published.
+
+class GraphSyncRunRecord(BaseModel):
+    """One `graph_sync_run` row, as `graph_sync.state.last_runs` reports it."""
+
+    id: int = Field(..., description="graph_sync_run row id")
+    kind: str = Field(..., description="full, catalog, reconcile, drift or samples")
+    status: str = Field(..., description="running while the run is going, then ok, failed, refused, abandoned or drift")
+    started_at: Optional[str] = Field(None, description="ISO 8601; when the run began reading MySQL")
+    finished_at: Optional[str] = Field(None, description="ISO 8601; null while the run is still going")
+    watermark_from: Optional[str] = Field(None, description="Lowest source position the run covered")
+    watermark_to: Optional[str] = Field(None, description="Highest source position the run covered")
+    counts: Optional[Dict[str, Any]] = Field(None, description="What the run did, and the trigger that started it")
+    drift: Optional[Dict[str, Any]] = Field(None, description="The drift result, on a drift run")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncJobFreshness(BaseModel):
+    """Whether one scheduled job has run recently enough."""
+
+    status: str = Field(..., description="ok, stale, or never before the first successful run")
+    satisfied_by: Optional[str] = Field(
+        None, description="Which kind of run satisfied it; a full sync also counts for the reconcile"
+    )
+    last_ok_started_at: Optional[str] = Field(None, description="ISO 8601 start of the newest successful run")
+    last_ok_finished_at: Optional[str] = Field(None, description="ISO 8601 end of that run")
+    age_s: Optional[float] = Field(None, description="Seconds since that run started")
+    threshold_s: int = Field(..., description="How old that run may be before the job counts as stale")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxFreshness(BaseModel):
+    """Whether the oldest waiting outbox row has been waiting too long."""
+
+    status: str = Field(..., description="ok, or stale when the oldest waiting row is over the threshold")
+    oldest_enqueued_at: Optional[str] = Field(None, description="ISO 8601; null when nothing is waiting")
+    age_s: Optional[float] = Field(None, description="Seconds that row has been waiting")
+    threshold_s: int = Field(..., description="How long a row may wait before the outbox counts as stale")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFreshness(BaseModel):
+    """Freshness per job: the weekly full sync, the nightly reconcile and the outbox."""
+
+    full: GraphSyncJobFreshness
+    reconcile: GraphSyncJobFreshness
+    outbox: GraphSyncOutboxFreshness
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxRow(BaseModel):
+    """The oldest open outbox row no worker is holding."""
+
+    kind: str = Field(..., description="The outbox kind, which says what to do")
+    key: str = Field(..., description="What to do it to")
+    enqueued_at: Optional[str] = Field(None, description="ISO 8601")
+    age_s: float = Field(..., description="Seconds the row has been waiting")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncOutboxSummary(BaseModel):
+    """The open outbox rows, counted by kind."""
+
+    pending: Dict[str, int] = Field(
+        ..., description="Claimable now or later, rows in a worker's hands included"
+    )
+    dead: Dict[str, int] = Field(..., description="At the attempt limit and in no worker's hands")
+    claimed: Dict[str, int] = Field(..., description="Under a live lease")
+    oldest_pending: Optional[GraphSyncOutboxRow] = Field(
+        None, description="The oldest open row no worker holds, dead rows included; null when none is waiting"
+    )
+    max_attempts: int = Field(..., description="Claims a row gets before it counts as dead")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncStatusResponse(BaseModel):
+    """Response model for `GET /nextseek_api/admin/graph-sync/status/`."""
+
+    generated_at: str = Field(..., description="ISO 8601; the one clock every age below is measured from")
+    schema_version: str = Field(..., description="The graph schema version this instance's writer produces")
+    runs: Dict[str, GraphSyncRunRecord] = Field(
+        ..., description="The latest run of each kind, whatever its status, keyed by kind"
+    )
+    freshness: GraphSyncFreshness
+    outbox: GraphSyncOutboxSummary
+    drift: Optional[Dict[str, Any]] = Field(None, description="What the latest drift run recorded, if any")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 # Durable job record for batch assay registration. Defined in its own module to
 # keep this file from growing further; imported here so Django discovers it.
 from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # noqa: E402,F401
+
+# The graph_sync outbox and run record (nextseek_api/graph_sync/models_db.py); imported here so Django discovers them.
+from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun  # noqa: E402,F401

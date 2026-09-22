@@ -748,7 +748,7 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # The honest scale: if every case in the resolved corpus routed container_cc,
 # 270 of 283 would still be red and all six floored families would be 100% red,
 # because `route` (failing on 226 variants), `parser_plan.mode` (216), `api_ok`
-# (130) and `api_plan.endpoint` (105) are deliberately NOT skipped.
+# (128) and `api_plan.endpoint` (104) are deliberately NOT skipped.
 #
 # NAME THE FRAME. In that all-CC simulation this change turns NOTHING green: the
 # green set is the same 13 variants with the CC skip and with it monkeypatched

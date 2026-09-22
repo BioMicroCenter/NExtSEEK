@@ -200,6 +200,43 @@ def tz_offset_minutes(text: str) -> int | None:
     return sign * (int(m.group(2)) * 60 + int(m.group(3)))
 
 
+#: The per-call ledger and the response log. They record what a provider incident needs --
+#: stop_reason, request_id, retry_attempts, which structured path ran -- and they are written
+#: to LOG_DIR, a SIBLING of the outputs directory. Every pull before this took outputs only,
+#: so when a turn failed on an empty completion the one file that would have explained it was
+#: the one file the evidence could not reach.
+LEDGER_FILES = ("llm_calls.jsonl", "llm_responses.jsonl")
+
+
+def pull_logs(host: str, user: str, app: str, logs_dir: str, dest: pathlib.Path) -> list[str]:
+    """Copy the LLM ledger out of the app container. Best effort: a box may have neither file.
+
+    Returns the names actually copied. Never exits: the ledger is evidence, and a pull that
+    got the turns and the outputs is still worth having without it.
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    listing = subprocess.run(
+        remote_cmd(host, user, f"docker exec {app} sh -c 'ls -1 {logs_dir} 2>/dev/null'"),
+        stdin=subprocess.DEVNULL, capture_output=True,
+    )
+    present = [n for n in LEDGER_FILES if n in listing.stdout.decode(errors="replace").split()]
+    if not present:
+        print(f"logs/          no ledger in {logs_dir} (looked for {', '.join(LEDGER_FILES)})")
+        return []
+    script = f"docker exec {app} tar -C {logs_dir} -cf - {' '.join(present)}"
+    src = subprocess.Popen(remote_cmd(host, user, script), stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    sink = subprocess.run(["tar", "-xf", "-", "-C", str(dest)], stdin=src.stdout,
+                          stderr=subprocess.PIPE)
+    src.stdout.close()
+    err = src.stderr.read().decode(errors="replace")
+    if src.wait() != 0 or sink.returncode != 0:
+        print(f"logs/          copy failed, continuing without it: {err[:200]}")
+        return []
+    print(f"logs/          {', '.join(present)}")
+    return present
+
+
 def pull_outputs(host: str, user: str, app: str, outputs_dir: str, names: list[str],
                  dest: pathlib.Path) -> None:
     """Stream the named run roots out of the app container with tar, mtimes intact."""
@@ -274,6 +311,10 @@ def main() -> None:
     ap.add_argument("--outputs", action="store_true",
                     help="also copy every run root a turn wrote to, and index files per turn")
     ap.add_argument("--outputs-dir", default="/app/outputs")
+    ap.add_argument("--logs-dir", default="/app/logs",
+                    help="where the LLM ledger lives; pulled with --outputs")
+    ap.add_argument("--no-ledger", action="store_true",
+                    help="skip the LLM ledger (llm_calls.jsonl, llm_responses.jsonl)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -357,6 +398,8 @@ def main() -> None:
         else:
             print("outputs/       no turn recorded a run root (container_cc turns write elsewhere)")
         pull["run_roots"] = names
+        if not args.no_ledger:
+            pull["ledger"] = pull_logs(host, user, args.app_container, args.logs_dir, out / "logs")
 
     (out / "pull.json").write_text(json.dumps(pull, indent=1), encoding="utf-8")
 
