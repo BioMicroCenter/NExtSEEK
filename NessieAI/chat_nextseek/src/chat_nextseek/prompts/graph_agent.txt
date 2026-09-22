@@ -175,6 +175,7 @@ WHERE toLower(st.title) CONTAINS toLower($project)
                WHERE toLower(inv.title) CONTAINS toLower($project) }
 ```
   A `WHERE` directly after an `OPTIONAL MATCH` becomes part of the optional pattern instead of filtering rows, so every row survives and the filter is silently lost. If you must use `OPTIONAL MATCH`, put a `WITH <all bound variables>` between it and any filter on earlier variables. When the name is one of the PROJECT TITLES and none of the INVESTIGATION TITLES, use `(s:Sample)-[:IN_PROJECT]->(p:Project)` matched on `p.title`.
+- **A NAME YOU WERE GIVEN in PROJECT TITLES, INVESTIGATION TITLES or STUDY TITLES is a scope, and the relationship is the whole of how you match it.** Do not put a `search_text` predicate beside it and never OR the two: the text arm takes every sample that merely mentions the word, so the number that comes back is not the scope's and neither you nor the reply can account for it. When a scoped query on a name from those lists finds nothing you matched the wrong node, not the wrong kind of predicate: try the other two of Project title, Investigation title and Study title before you leave the relationship. "Shoulders" is in the vocabulary, and a query against Investigation alone found nothing while its project held 568 samples.
 - An investigation marked not on every instance (TCGA) that a scoped query finds nothing in is not loaded on this instance: say so rather than reporting zero.
 - If the scope matches nothing, the name may be recorded only as a sample value (a Study or Cohort attribute): say so in the explanation, and match it in `search_text` on the retry rather than reporting zero as settled.
 - **Papers**: DOI and PMID are properties of Study, UPPERCASE, and the unset value is an empty string, not null. `WHERE st.DOI IS NOT NULL` is true for every study; test `coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''`. Match a DOI with `toLower(st.DOI) = toLower($doi)` (DOIs are stored lowercased) and a PMID as a string. Most studies are unpublished; "not published" is a correct answer, not a failed lookup.
@@ -184,6 +185,7 @@ WHERE toLower(st.title) CONTAINS toLower($project)
 ## STEP 6: Return the answer, not rows to count
 
 - **How many**: return the number, `RETURN count(*) AS n` (or `count(DISTINCT s)` after a pattern that can repeat a sample). No LIMIT on a count, and no rows beside it.
+- **A COUNT OF A NAME THAT HAS VARIANTS** (a cell line, a strain, a treatment, an antibody clone) matched with a folded `CONTAINS` rather than a whole value: return the distinct values beside the count, `RETURN s.CellLine AS value, count(*) AS n ORDER BY n DESC`, and the reply gives their sum as the total. A `CONTAINS` match takes everything that extends the name, so the total on its own cannot be described in the user's words: "4 HeLa samples" was four samples spelled HeLa, HeLa-ActD, HeLa-GSK and HeLa-TSA, and those names never reached the reply because the query projected `count(s)` and nothing else.
 - **A breakdown** ("by type", "per organ", "which types"): one row per group with its count, `RETURN s.type AS type, count(*) AS n ORDER BY n DESC`. A total across groups, when asked, is the sum of the rows, or a separate `count(*)`.
 - **Group a free-text attribute on its folded value, not its raw spelling.** `RETURN toLower(trim(toString(s.Organ))) AS organ, count(*) AS n ORDER BY n DESC`. Grouping on the raw value returns `Lung` and `lung` as two rows for one organ, and the reply then reports a split that is not in the data. A node label or a type code is already canonical, so group those as they are. Name the raw spellings only if the question asks which spellings exist.
 - **Which values exist, spelling variants, duplicates, which records use a key**: return each distinct value with its count, `MATCH (s:T_SLD) WHERE s.Stain IS NOT NULL RETURN s.Stain AS value, count(*) AS n ORDER BY n DESC`, and let the reply reason over the list. For attribute keys, read the catalog: `MATCH (a:Attribute) WHERE a.sample_type = $type RETURN a.title, a.sample_count, a.declared ORDER BY a.title`, or `keys(s)` on the samples.
@@ -201,13 +203,16 @@ A zero is a finding only when every filter was certain. If you are told your pre
 - a whole-value equality: use folded `CONTAINS`, and add the codes and full names from STEP 2;
 - the fulltext index: use `search_text` CONTAINS;
 - a lab code that matched nothing: the person is probably not a lab head, so match the name in `Scientist`;
-- a Study or Investigation scope: match the name in `search_text`.
+- a keyword that named a **family, series or panel** whose members are individually coded (a mouse strain family, a cell-line series, a chip or plate series): the family's own name is often absent from the records while its members are there as codes, so a text search for it finds nothing and that nothing means nothing. Read the type's fields from the catalog, `MATCH (a:Attribute) WHERE a.sample_type = $type RETURN a.title, a.sample_count ORDER BY a.sample_count DESC`, then match the members' pattern on the field that holds them: Collaborative Cross mice carry `CC042`, `CC024J` and the like in `Genotype`, so `s.Genotype =~ '(?i)^CC[0-9].*'` finds the 737 that `search_text CONTAINS 'collaborative cross'` cannot;
+- a Study or Investigation scope whose name is NOT in the vocabulary you were given: match the name in `search_text`. When the name IS in that vocabulary the scope exists, so a text match is the wrong retry: match one of the other nodes instead (STEP 5).
 
 Two zeros are findings, not guesses:
 - **A named technique, product or dataset type** ("ChIP-seq", "CometChip", "western blot") searched under its own spellings in `search_text`: nothing is the answer. Never replace it with a related technique, assay or sample type, even one the entity step resolved.
 - **A UID**: if the UID CHECK block says it was not found, nothing is the answer, and it means the UID is absent, not that it has no parents or children.
 
 If every filter was certain, return the same query unchanged: zero is then the answer. Say in the explanation what the retry changed, so the reply can tell the user the first filter found nothing.
+
+**A ZERO FROM A TEXT MATCH IS NOT A SETTLED ZERO.** When the only thing you ever matched was `search_text` or the fulltext index, say that in the `explanation` and name the structured field you would try next, so the reply cannot present free text that found nothing as a count of what exists. A retry that stays in free text is the same failure as a first query that never left it: "collaborative cross" was searched as text twice, in one type and then in every type, and the reply reported 0 against a real 737.
 
 ---
 
