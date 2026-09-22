@@ -59,6 +59,19 @@ def _is_sample_key(key: Any) -> bool:
     return k in {"id", "uuid", "uid"} or k.endswith(("_id", "_uuid", "_uid"))
 
 
+def _is_count_only(rows: Any) -> bool:
+    """One row whose every value is a number: an aggregate with no evidence beside it.
+
+    The same single-row shape as ``matched_nothing`` (``helpers/tools/neo4j.py``) without
+    requiring the numbers to be zero. A row of real data that happens to hold a count keeps
+    its non-numeric values, and several rows are a breakdown the writer can reason over; a
+    lone ``RETURN count(s) AS n`` leaves it holding nothing it can name.
+    """
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict) or not rows[0]:
+        return False
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in rows[0].values())
+
+
 def _graph_rows_for_writer(rows: list) -> list:
     """The graph rows the writer is shown: an aggregate whole, up to a size cap; a list of
     sample records as its first 20."""
@@ -404,6 +417,24 @@ def chatter_agent_answer(
         mode_label = "search"
         log_label = "chatter"
 
+    # The 2026-09-21 re-run: 34 of the 43 replies recited the shape of the search,
+    # because the permission to state it was unconditional while every disclosure that
+    # behaves (NOT APPLIED, TRUNCATED, substitution) fires only when it changes the
+    # reading. Grant it on the same footing.
+    slim_flags = api_result_slim if isinstance(api_result_slim, dict) else {}
+    disclosure_qualifies = bool(
+        scope.not_applied
+        or scope.notes
+        or graph_truncated
+        or slim_flags.get("search_text_substituted")
+        or slim_flags.get("result_capped")
+        or (isinstance(total_matches, int) and total_matches == 0)
+    )
+    # 13 of that run's 34 graph turns answered from one count row and named no identifier
+    # at all (12 of the 13 named nothing), because every rule about naming them is written
+    # for rows ("from the preview", "when you were given all the rows") and none can fire.
+    count_only = is_graph and _is_count_only((graph_result or {}).get("data") or [])
+
     examples_block = ""
     if example_ids:
         examples_block = (
@@ -434,11 +465,17 @@ def chatter_agent_answer(
         f"{examples_block}"
         f"MODE: {mode_label}\n\n"
         "Instructions for this turn:\n"
-        "- Lead with the count or key finding.\n"
-        "- Use resolved entity NAMES (e.g. 'Non-Human Primate'), not codes alone, when introducing the result.\n"
+        "- Lead with the count or key finding: the first sentence is the answer, not an account of how it "
+        "was found.\n"
+        "- Name a sample type, assay or project ONCE, by its name or its code, not both: '140 RNA samples', "
+        "never '140 RNA samples (RNA Sample)'. Use the form the user used.\n"
         + (
             "- MUST mention all example identifiers listed above verbatim — they are pre-extracted for you.\n"
             if example_ids else
+            "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
+            "the number and what it counts, never write as though you had seen the records, and when naming "
+            "them would answer the question better than the number does, offer that as the one next step.\n"
+            if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
         + (
@@ -447,12 +484,20 @@ def chatter_agent_answer(
             "as though it were restricted to it.\n"
             if scope.not_applied else ""
         )
-        + "- Name sample types, assay codes and keywords from 'Constrained by', never from "
+        + "- If you name a sample type, assay code or keyword, take it from 'Constrained by', never from "
         "'What the user asked for' — those are what was requested, not what was searched.\n"
-        "- You may state WHAT was searched using the 'Searched' phrase above, once. Never "
-        "name an endpoint, a URL, an HTTP method, Cypher, a query operator (AND/OR) or a "
-        "request field: the user cannot act on any of it.\n"
-        "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
+        + (
+            "- You may name WHAT was searched using the 'Searched' phrase above, once and after the answer, "
+            "because something about this result needs qualifying (a dropped constraint, a substituted or "
+            "capped search, a zero, or a note from whoever built the query). Never name an endpoint, a URL, "
+            "an HTTP method, Cypher, a query operator (AND/OR) or a request field: the user cannot act on "
+            "any of it.\n"
+            if disclosure_qualifies else
+            "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
+            "search is not part of the reply: no mention of a query, of what it was constrained by, or of "
+            "how the number was determined.\n"
+        )
+        + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
     )
 

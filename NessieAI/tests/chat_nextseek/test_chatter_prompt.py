@@ -484,3 +484,158 @@ def test_the_histogram_ranks_by_count_and_caps_the_list():
 def test_rows_without_a_type_are_ignored_rather_than_counted():
     rows = [{"uuid": "x", "n": 5}, {"uuid": "y", "n": 6}]
     assert _hist(rows, shown=1) == ""
+
+
+# --------------------------------------------------------------------------
+# The 2026-09-21 re-run: the replies were padded with machinery, including the
+# ones the harness scored green. Measured over the 43 NExtSEEK-routed replies of
+# that run (.claude/work/2026-09-21-step3-tickets/run-review/turns.json):
+#
+#   34 of 43 carried the phrase "graph query over the sample network"
+#   16 carried "constrained by ..." query-shape prose
+#   12 opened with the machinery instead of the answer
+#
+# The clearest one, verbatim: "There are 2,640 human Patient (PAT) samples in the
+# Impact project. / This count was determined by a graph query over the sample
+# network, constrained by the sample type PAT (Patient), the project Impact, and
+# the keywords 'Impact' and 'human'." Eight words of answer, 33 of machinery.
+#
+# The prompt caused it: the `Searched` disclosure was granted unconditionally
+# ("You may state what was searched, once"), so the model garnished every answer,
+# while every disclosure rule that DOES behave (NOT APPLIED, TRUNCATED,
+# substitution) is conditional and fires only when it changes the reading.
+#
+# Second, narrower gap: 13 of the 34 graph turns projected a bare count, and on
+# those the reply named ZERO identifiers (12 of 13 named nothing at all) against
+# 3 where rows came back. The rules for naming identifiers are row-conditioned --
+# "When you were given all the rows" -- so on a scalar turn none of them can fire
+# and the prompt says nothing at all about what such a reply should contain.
+# --------------------------------------------------------------------------
+
+
+def _window(text, needle, before=0, after=1200):
+    at = text.find(needle)
+    assert at != -1, f"the prompt no longer contains {needle!r}"
+    return text[max(0, at - before):at + after]
+
+
+def test_the_prompt_no_longer_permits_the_search_phrase_unconditionally():
+    assert "You may state what was searched, once" not in _prompt_text()
+
+
+def test_the_answer_comes_before_any_account_of_the_search():
+    """The first sentence is the answer, and the rule says so in those terms."""
+    rule = _window(_prompt_text(), "ANSWER THE QUESTION FIRST")
+
+    assert "first sentence" in rule.lower()
+
+
+def test_the_search_shape_disclosure_is_conditional_like_the_others():
+    """It may be stated only when it changes how the answer should be read."""
+    rule = _window(_prompt_text(), "ANSWER THE QUESTION FIRST")
+    lowered = rule.lower()
+
+    assert "only when" in lowered
+    for condition in ("not applied", "substitut", "truncated"):
+        assert condition in lowered, condition
+
+
+def test_the_prompt_names_the_boilerplate_it_is_correcting():
+    """Naming the observed phrase is the cheapest way to stop it recurring."""
+    assert "graph query over the sample network" in _prompt_text()
+
+
+def test_the_prompt_says_what_a_count_only_reply_may_contain():
+    """13 of 34 graph turns were a bare count and named nothing at all."""
+    rule = _window(_prompt_text(), "WHEN THE RESULT IS ONLY A NUMBER")
+    lowered = rule.lower()
+
+    assert "no identifier" in lowered or "no rows" in lowered
+    assert "offer" in lowered, "the reply should offer the step that would name them"
+
+
+def test_a_code_and_its_expansion_are_not_both_written():
+    """"140 RNA samples (RNA Sample)", "human Patient (PAT) samples" -- every reply."""
+    rule = _window(_prompt_text(), "NAME A TYPE ONCE")
+    lowered = rule.lower()
+
+    assert "code" in lowered and "name" in lowered
+    assert "not both" in lowered
+
+
+# The same permission lived a second time in the per-turn instruction block
+# (`chatter.py`), which is the one the model reads last. Three of its lines drove the
+# machinery between them: "You may state WHAT was searched ... once", "Use resolved
+# entity NAMES ..., not codes alone" (which is where "human Patient (PAT) samples"
+# comes from) and "Name sample types, assay codes and keywords from 'Constrained by'",
+# which reads as an instruction to recite them. Fixing the prompt alone would have
+# left the instruction block contradicting it.
+
+_PERMISSION = "You may name WHAT was searched"
+_PROHIBITION = "Do not say how the answer was found"
+
+
+def _count_turn(captured, *, total, rows=None, notes=None, not_applied_keywords=None):
+    """A graph turn whose result is a single count row, as 13 of 34 were."""
+    return _graph_turn(
+        captured,
+        question="how many patient samples are in the Impact project",
+        rows=rows if rows is not None else [{"n": total}],
+        total=total,
+        entity=_entity(keywords=not_applied_keywords or [],
+                       sampletypes=[{"code": "PAT", "name": "Patient"}]),
+        cypher="MATCH (s:T_PAT) RETURN count(s) AS n",
+    )
+
+
+def test_a_clean_turn_is_told_not_to_mention_the_search(captured):
+    text = _count_turn(captured, total=2640)
+
+    assert _PROHIBITION in text
+    assert _PERMISSION not in text
+
+
+def test_a_dropped_filter_turn_may_still_name_the_search(captured):
+    """NOT APPLIED is exactly the case where the shape of the search is the answer."""
+    text = _graph_turn(
+        captured,
+        question="how many of these CC mouse records have transcriptomic data",
+        rows=[{"n": 731}], total=731,
+        entity=_entity(sampletypes=[{"code": "MUS", "name": "Mouse"}], keywords=["CC"]),
+        cypher="MATCH (s:T_MUS) RETURN count(s) AS n",
+    )
+
+    assert "NOT APPLIED" in text
+    assert _PERMISSION in text
+    assert _PROHIBITION not in text
+
+
+def test_a_zero_may_name_the_search(captured):
+    """A confident zero has to say what it looked for; that is the CC failure."""
+    text = _count_turn(captured, total=0)
+
+    assert _PERMISSION in text
+    assert _PROHIBITION not in text
+
+
+def test_a_count_only_turn_is_told_it_holds_no_identifiers(captured):
+    text = _count_turn(captured, total=2640)
+
+    assert "This result is a single number" in text
+    assert "Mention 2-3 example identifiers" not in text
+
+
+def test_a_turn_with_rows_is_still_asked_for_example_identifiers(captured):
+    rows = [{"uuid": f"TIS-200901ENG-{i}", "type": "TIS"} for i in range(5)]
+    text = _graph_turn(captured, question="find tissue samples", rows=rows,
+                       cypher="MATCH (s:T_TIS) RETURN s.uuid AS uuid, s.type AS type")
+
+    assert "This result is a single number" not in text
+    assert "MUST mention all example identifiers" in text
+
+
+def test_the_turn_instructions_no_longer_ask_for_a_code_and_a_name(captured):
+    text = _count_turn(captured, total=2640)
+
+    assert "not codes alone" not in text
+    assert "Name a sample type, assay or project ONCE" in text
