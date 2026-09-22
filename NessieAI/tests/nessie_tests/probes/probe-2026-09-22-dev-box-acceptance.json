@@ -995,8 +995,7 @@
           "tags": [
             "nessie",
             "probe",
-            "full",
-            "known_fail"
+            "full"
           ],
           "requires_env": [],
           "turns": [
@@ -1018,6 +1017,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*I do not have access)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\bENG\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b(professor|director of|department of)\\b)"
                 }
               ]
             }
@@ -1031,8 +1040,7 @@
           "tags": [
             "nessie",
             "probe",
-            "full",
-            "known_fail"
+            "full"
           ],
           "requires_env": [],
           "turns": [
@@ -1054,6 +1062,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*I have attached)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)(Link_PrimaryData|File_PrimaryData|link)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(has not been registered|no D\\.FILE))"
                 }
               ]
             }
@@ -1088,11 +1106,32 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])(3,?589|1,?183|848)(?![\\w]|[.,]\\d|[-/]\\d)"
+                  "value": "(?<![\\w.,/-])1,?111(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])626(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])508(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])218(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])211(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
-          ]
+          ],
+          "_criteria_note_2026_09_22": "Re-pinned from the totals (3,589 / 1,183 / 848) to the five group counts the question asks for: the local run answered 1,111 / 626 / 508 / 218 / 211, exactly the graph's top five, and failed on totals it was never asked. 355 mice with no Genotype are excluded (a group of missing values is not a genotype). Either engine may answer; this case does not by itself prove the CC aggregate op."
         },
         {
           "family": "buckets",
@@ -1147,8 +1186,7 @@
           "tags": [
             "nessie",
             "probe",
-            "full",
-            "known_fail"
+            "full"
           ],
           "requires_env": [],
           "turns": [
@@ -1170,6 +1208,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*https?://)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*/nextseek_api/)"
                 }
               ]
             }
@@ -1183,8 +1226,7 @@
           "tags": [
             "nessie",
             "probe",
-            "full",
-            "known_fail"
+            "full"
           ],
           "requires_env": [],
           "turns": [
@@ -1206,6 +1248,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?s)\\A(?!.*not possible)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)all files"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*(can't turn that request|No downstream path|Reason from parser|can't do that one))"
                 }
               ]
             }
@@ -1334,14 +1386,14 @@
     },
     "bucket7.cc_aggregates_metadata": {
       "locals": [
-        3589,
-        1183,
-        848
+        1111,
+        626,
+        508,
+        218,
+        211
       ],
-      "cypher": [
-        "MATCH (s:T_MUS)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' RETURN count(s) AS srp_mice",
-        "MATCH (s:T_MUS) WHERE toLower(toString(s.Genotype)) CONTAINS 'aag' RETURN count(s) AS mentions_aag, count(DISTINCT s.Genotype) AS spellings"
-      ]
+      "mode": "each",
+      "cypher": "MATCH (s:T_MUS)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' AND s.Genotype IS NOT NULL RETURN s.Genotype AS genotype, count(s) AS n ORDER BY n DESC LIMIT 5"
     }
   },
   "_gaps_no_case_can_honestly_cover": "Two OPEN items from the seven-bucket review that this file deliberately does not test. BUCKET 4, the provider-failure path: no provider failed in 46 turns and one cannot be provoked on demand, so both fixes there stay code-checked only. BUCKET 4's other half, a turn stopped at the 180 s limit handing back what it had: the case built for it on 2026-09-21 was refused by the model rather than answered ('contains 568 samples, not 731. I won't fabricate 163 rows to hit it'), which was the right answer to the wrong test, and no honest question that cannot finish in 180 s has been found yet. Inventing one that only works by being absurd would test the harness, not the product."
