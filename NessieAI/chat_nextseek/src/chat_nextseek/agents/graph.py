@@ -455,6 +455,32 @@ def _items(masked: str, start: int, end: int) -> list[tuple[int, int]]:
     return spans
 
 
+#: Words that may directly precede a node pattern's `(`; any other name there is a function being called.
+_WORDS_BEFORE_A_PATTERN = frozenset({
+    "match", "optional", "merge", "create", "where", "and", "or", "xor", "not", "return", "with", "unwind",
+    "in", "delete", "detach", "set", "remove", "exists", "case", "when", "then", "else", "as", "distinct",
+    "union", "all", "call", "yield", "on", "foreach", "by", "is", "null", "true", "false",
+})
+
+
+def _follows_a_function_name(masked: str, paren: int) -> bool:
+    """Whether the `(` at ``paren`` opens a function call's arguments: a name that is not a clause word precedes it.
+
+    Prod retest 2026-09-23: `date({year: ..., month: ..., day: ...})`, the shape the graph prompt teaches for a
+    UID date, matched the node-pattern regex as the anonymous `({year: ...})`, and its keys were refused as the
+    properties of an unlabelled node. Only a pattern with neither a variable nor a label reaches this test, so a
+    real anonymous pattern (`MATCH ({year: 1})`, after the clause word) is still checked.
+    """
+    k = paren - 1
+    while k >= 0 and masked[k].isspace():
+        k -= 1
+    end = k + 1
+    while k >= 0 and (masked[k].isalnum() or masked[k] == "_"):
+        k -= 1
+    word = masked[k + 1:end]
+    return bool(word) and not word[0].isdigit() and word.lower() not in _WORDS_BEFORE_A_PATTERN
+
+
 def _map_keys(masked: str, original: str, start: int, end: int) -> list[tuple[int, str]]:
     """The keys of a `{key: value, ...}` map whose braces enclose ``start:end``."""
     keys = []
@@ -551,6 +577,8 @@ def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
         props = m.group("props")
         if props and _projection_items(masked, cypher, m.start("props") + 1, m.end("props") - 1):
             continue  # `(s {.Organ})` is a map projection inside a call, not a node pattern
+        if props and not m.group("var") and not m.group("labels") and _follows_a_function_name(masked, m.start()):
+            continue  # `date({year: 2020, ...})` passes a map literal to a function, not a node pattern
         var, labels = m.group("var"), _label_names(m.group("labels"))
         scan.label_uses += [(m.start(), label) for label in labels]
         if var:

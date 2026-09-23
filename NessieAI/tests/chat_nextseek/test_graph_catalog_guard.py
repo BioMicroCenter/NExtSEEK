@@ -256,3 +256,34 @@ def test_a_sample_may_read_the_projection_owned_parent_titles():
 
 def test_graphmeta_may_read_label_maps_hash():
     assert unknown("MATCH (m:GraphMeta) RETURN m.schema_version, m.label_maps_hash") == []
+
+
+# --- a map literal passed to a function is not a node pattern --------------------------------------------------------
+#
+# Prod retest 2026-09-23, Q3/Q4: the graph prompt (661b7426) builds a UID date with
+# `date({year: ..., month: ..., day: ...})`, and the guard read the `({year: ...})` inside `date(` as an anonymous
+# node pattern's property map, so every UID-date question was refused with
+# "properties ['node.year', 'node.month', 'node.day'] are not in the catalog".
+
+UID_DATE_CYPHER = (
+    "MATCH (s:T_TIS) WHERE s.uuid =~ '^[^-]+-[0-9]{6}[A-Za-z]{3}-.*' "
+    "WITH s, substring(split(s.uuid, '-')[1], 0, 6) AS d "
+    "WITH s, date({year: 2000 + toInteger(substring(d, 0, 2)), month: toInteger(substring(d, 2, 2)), "
+    "day: toInteger(substring(d, 4, 2))}) AS dt "
+    "RETURN toString(min(dt)) AS earliest, toString(max(dt)) AS latest"
+)
+
+
+def test_the_prompts_uid_date_shape_passes():
+    assert unknown(UID_DATE_CYPHER) == []
+
+
+@pytest.mark.parametrize("call", ["date ({year: 2020, month: 1, day: 2})", "duration({days: 3})",
+                                  "point({x: 1, y: 2})", "datetime({epochMillis: 0})"])
+def test_a_map_literal_argument_is_not_read_as_node_properties(call):
+    assert unknown(f"MATCH (s:T_TIS) RETURN {call} AS v, s.Organ AS o") == []
+
+
+def test_an_anonymous_node_pattern_is_still_checked():
+    assert unknown("MATCH ({year: 1}) RETURN 1")
+    assert unknown("MATCH (:T_TIS {Nope: 1}) RETURN 1")
