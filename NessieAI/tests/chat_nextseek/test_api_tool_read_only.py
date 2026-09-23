@@ -42,11 +42,13 @@ from chat_nextseek.helpers.tools.nextseek_api import (
 REAL_UID = "NHP-220524FLY-1-PUB"
 SAMPLE_UID_PATH = f"/nextseek_api/samples/{REAL_UID}/"
 
+SAMPLES_RETRIEVE = "/nextseek_api/samples/retrieve/"
+# The deprecated alias stays readable: saved chats replay the endpoint they stored.
 ADMIN_RETRIEVE = "/nextseek_api/admin/samples/retrieve/"
 PARENTS_BY_CHILD = "/nextseek_api/sample_types/get_parents/parents_by_child_types/"
 ADVANCED_SEARCH = "/nextseek_api/samples/advanced_search/"
 GRAPH_SEARCH_POST = "/nextseek_api/samples/graph_search/"
-READ_POSTS = [ADMIN_RETRIEVE, PARENTS_BY_CHILD, ADVANCED_SEARCH, GRAPH_SEARCH_POST]
+READ_POSTS = [SAMPLES_RETRIEVE, ADMIN_RETRIEVE, PARENTS_BY_CHILD, ADVANCED_SEARCH, GRAPH_SEARCH_POST]
 
 
 class _Resp:

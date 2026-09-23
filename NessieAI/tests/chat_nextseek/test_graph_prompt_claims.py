@@ -35,7 +35,11 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 #     and a count across every type.
 #   api_preferred triggers 5 -> 4: the three sample-search ones go, replaced by catalog records, the full record or
 #     an export by UID, and "any NON-METADATA intent that maps cleanly to a known endpoint".
-FROZEN_ROUTING_SHA256 = "c7d01c88e6d5423790af2562358cac2f5186acfa8ac11d28768cc48f1f908c47"
+#
+# Re-pinned a third time, reviewed: the export rule names the download API by its new path, samples/retrieve
+# (admin/samples/retrieve is its deprecated alias). Checked by replacing that one string in the old frozen JSON,
+# which then equals the new one exactly; no rule or trigger changed (was c7d01c88e6d5...f908c47).
+FROZEN_ROUTING_SHA256 = "7273608d61fa36647eece09140690b0f630261fd6659da8bedaf6cccebb3673a"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

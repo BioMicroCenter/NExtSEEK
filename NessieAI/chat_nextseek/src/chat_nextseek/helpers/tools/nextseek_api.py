@@ -37,12 +37,19 @@ _READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # The only POSTs that are reads. Everything else that POSTs — notably
 # `/nextseek_api/samples/`, which CREATES a sample and is one path segment away from
 # `/nextseek_api/samples/advanced_search/` — is denied.
+# admin/samples/retrieve/ is the download API's deprecated alias: a stored chat replays the endpoint it saved, so
+# the old path stays readable while such chats exist.
 _READ_POST_PATHS = frozenset({
+    "/nextseek_api/samples/retrieve/",
     "/nextseek_api/admin/samples/retrieve/",
     "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
     "/nextseek_api/samples/advanced_search/",
     "/nextseek_api/samples/graph_search/",
 })
+
+
+# The sample download API, by its name and by its deprecated alias.
+_RETRIEVE_PATHS = frozenset({"/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/"})
 
 
 def _normalize_endpoint_path(endpoint: str) -> str:
@@ -249,8 +256,8 @@ def log_api_call(
 
 def fix_sample_endpoint(plan: dict) -> dict:
     """
-    Auto-correct admin retrieve endpoint selections when no UIDs are provided.
-    Rewrites to advanced_search and annotates notes to avoid invalid admin calls while keeping other fields intact.
+    Auto-correct sample-retrieve endpoint selections when no UIDs are provided.
+    Rewrites to advanced_search and annotates notes to avoid invalid retrieve calls while keeping other fields intact.
     """
     endpoint = plan.get("target_endpoint")
     mode = plan.get("mode")
@@ -259,10 +266,10 @@ def fix_sample_endpoint(plan: dict) -> dict:
 
     if (
         mode in ("new_search", "refine_last_search")
-        and endpoint == "/nextseek_api/admin/samples/retrieve/"
+        and endpoint in _RETRIEVE_PATHS
         and not uids
     ):
-        print("[DEBUG][PARSER_FIX] Rewriting endpoint from admin retrieve to samples/advanced_search")
+        print("[DEBUG][PARSER_FIX] Rewriting endpoint from samples/retrieve to samples/advanced_search")
         plan["target_endpoint"] = "/nextseek_api/samples/advanced_search/"
         notes = plan.get("notes", "")
         plan["notes"] = (notes + " | endpoint auto-corrected to /samples/advanced_search/").strip(" |")

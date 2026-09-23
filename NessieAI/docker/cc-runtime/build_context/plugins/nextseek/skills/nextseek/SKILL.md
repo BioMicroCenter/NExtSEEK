@@ -138,8 +138,8 @@ nextseek-aggregate --query "How many samples have no parent at all, and how many
 is two stages: parse the question into a plan, then execute the plan. `nextseek-api-read` runs
 only the read-safe endpoints (`context/read_safe_endpoints.json`), which are: the lists of
 projects, investigations, sample types, assays, protocols (`/nextseek_api/sops/`) and registered
-SEEK users (`/nextseek_api/people/`); one sample's full record export by UID
-(`/nextseek_api/admin/samples/retrieve/`, superusers only); and graph_search. Read the baked
+SEEK users (`/nextseek_api/people/`); the full record export of samples named by UID, with their
+lineage (`/nextseek_api/samples/retrieve/`, limited to the user's projects); and graph_search. Read the baked
 catalogs below before any of the lists. Single-record endpoints (`.../{uid}/`) and the sample
 tree view are not read-safe, and `api-read` refuses them: find the record in its list instead,
 and ask `nextseek-graph` for a sample's lineage or the files a sample points to (its

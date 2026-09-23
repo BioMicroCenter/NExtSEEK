@@ -434,7 +434,7 @@ def get_endpoint_schema(endpoint: str) -> str:
 
     endpoint should be the path as listed in the endpoints resource, e.g.:
       /nextseek_api/samples/advanced_search/
-      /nextseek_api/admin/samples/retrieve/
+      /nextseek_api/samples/retrieve/
 
     Returns the schema dict, or a not-found message if the endpoint is unknown.
     """

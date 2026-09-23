@@ -64,7 +64,7 @@
   ],
   "api_preferred_triggers": [
     "Catalog records themselves (assays, sample types, SOPs, projects, investigations as records) \u2192 the matching catalog endpoint",
-    "The full metadata record, an export or a download of samples named by UID \u2192 admin/samples/retrieve; an explicit request to see or visualise the lineage tree of one UID \u2192 sample-tree",
+    "The full metadata record, an export or a download of samples named by UID \u2192 samples/retrieve; an explicit request to see or visualise the lineage tree of one UID \u2192 sample-tree",
     "PATCH/update on a specific sample UID",
     "Any non-metadata intent that maps cleanly to a known API endpoint in the catalog"
   ],

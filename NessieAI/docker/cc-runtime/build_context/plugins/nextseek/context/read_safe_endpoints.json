@@ -30,10 +30,16 @@
     "rationale": "List assays; read-only GET."
   },
   {
+    "endpoint": "/nextseek_api/samples/retrieve/",
+    "methods": ["POST"],
+    "source": "read_safety_audit_2026-07-06",
+    "rationale": "Retrieve/export sample metadata by UID or SEEK ID (incl. parent/child lineage); read-only. POST carries the identifier list, not a mutation. Verified non-mutating in nextseek_api/services/sample_retrieve.py (SELECTs and a read transaction only)."
+  },
+  {
     "endpoint": "/nextseek_api/admin/samples/retrieve/",
     "methods": ["POST"],
     "source": "read_safety_audit_2026-07-06",
-    "rationale": "Retrieve/export sample metadata by UID or SEEK ID (incl. parent/child lineage) via dbsample.searchAdvanced; read-only. POST carries the identifier list, not a mutation. Verified non-mutating in AdminSampleViewSet.admin_retrieve_samples."
+    "rationale": "Deprecated alias of /nextseek_api/samples/retrieve/ (same handler); kept readable for saved chats that replay it."
   },
   {
     "endpoint": "/nextseek_api/investigations/",

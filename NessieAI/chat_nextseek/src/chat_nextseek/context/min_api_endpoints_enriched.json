@@ -1,6 +1,6 @@
 [
   {
-    "path": "/nextseek_api/admin/samples/retrieve/",
+    "path": "/nextseek_api/samples/retrieve/",
     "method": "POST",
     "description": "Retrieve full scientific metadata for one or more samples by UID or SEEK ID. Returns metadata for the requested samples plus all parent and child (associated) samples in their full lineage. Output is JSON grouped by sample type; set output_format='excel' for an Excel workbook. Use this when the user provides explicit UIDs and wants comprehensive metadata including all associated samples.",
     "category": "sample_export",
@@ -68,7 +68,7 @@
       "descendants",
       "ancestors"
     ],
-    "llm_hint": "Use when the user explicitly asks to see or visualise the lineage TREE around one known UID. Requires a UID. A question about that lineage (what a sample was derived from, what came from it, how many of a type descend from it) is graph_query. For full metadata export of associated samples, use admin/samples/retrieve/ instead.",
+    "llm_hint": "Use when the user explicitly asks to see or visualise the lineage TREE around one known UID. Requires a UID. A question about that lineage (what a sample was derived from, what came from it, how many of a type descend from it) is graph_query. For full metadata export of associated samples, use samples/retrieve/ instead.",
     "example_intents": [
       "Show me the lineage tree around SLD-230105ABC-12-PUB",
       "Visualise the derivation tree of SLD-230105ABC-12-PUB"

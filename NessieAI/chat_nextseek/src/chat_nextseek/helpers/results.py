@@ -13,9 +13,9 @@ from ..artifacts import load_api_result_full
 DEFAULT_API_PAGE_SIZE = 1000
 
 
-#: `POST admin/samples/retrieve/` answers `{total_samples, total_sample_types,
-#: total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}]}`
-#: (`AdminSampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
+#: `POST samples/retrieve/` (and its alias `admin/samples/retrieve/`) answers `{total_samples,
+#: total_sample_types, total_children, failed_uids, data: [{sample_type, n_samples, samples: [...]}],
+#: lineage_complete}` (`SampleRetrieveResponse`, `nextseek_api/models.py`). `data["data"]` is a list,
 #: so every row-counting and row-previewing helper below "recognised" it and then
 #: counted and previewed the sample TYPES rather than the samples.
 _GROUP_LABEL_KEY = "sample_type"

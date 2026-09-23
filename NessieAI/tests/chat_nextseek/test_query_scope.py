@@ -84,11 +84,11 @@ def test_a_lineage_request_that_dropped_the_requested_type_says_so():
         entity_result=_entity(sampletypes=[EntityItem(code="PAT", name="Human Patient")]),
         parser_plan=_plan(
             mode="new_search",
-            target_endpoint="/nextseek_api/admin/samples/retrieve/",
+            target_endpoint="/nextseek_api/samples/retrieve/",
             filters={"sampletype_code": "PAT", "uids": ["MDL-250912LAU-1"]},
         ),
         api_plan={
-            "endpoint": "/nextseek_api/admin/samples/retrieve/",
+            "endpoint": "/nextseek_api/samples/retrieve/",
             "method": "POST",
             "requestBody": {"identifiers": ["MDL-250912LAU-1"], "include_tree": True},
             "queryParameters": {},
@@ -175,8 +175,8 @@ def test_the_search_kind_is_named_in_user_facing_words():
     )
     lineage = describe_query_scope(
         entity_result=_entity(),
-        parser_plan=_plan(mode="new_search", target_endpoint="/nextseek_api/admin/samples/retrieve/"),
-        api_plan={"endpoint": "/nextseek_api/admin/samples/retrieve/", "method": "POST", "requestBody": {}},
+        parser_plan=_plan(mode="new_search", target_endpoint="/nextseek_api/samples/retrieve/"),
+        api_plan={"endpoint": "/nextseek_api/samples/retrieve/", "method": "POST", "requestBody": {}},
     )
 
     assert "graph" in graph.searched.lower()
@@ -619,3 +619,11 @@ def test_a_dropped_project_is_still_reported():
     )
 
     assert any("SRP" in item for item in scope.not_applied)
+
+
+def test_the_deprecated_retrieve_alias_keeps_its_phrase():
+    """A chat saved before the rename replays admin/samples/retrieve/; its reply wording must not fall back."""
+    from chat_nextseek.helpers.query_scope import _SEARCH_KIND_BY_ENDPOINT
+
+    new = _SEARCH_KIND_BY_ENDPOINT["/nextseek_api/samples/retrieve/"]
+    assert _SEARCH_KIND_BY_ENDPOINT["/nextseek_api/admin/samples/retrieve/"] == new
