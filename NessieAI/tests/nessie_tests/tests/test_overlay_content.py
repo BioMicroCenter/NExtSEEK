@@ -122,7 +122,7 @@ def test_the_pbmc_gbm_case_asserts_the_query_not_a_nonzero_count():
 def test_the_assay_case_asserts_the_real_total():
     v = _merged()["sys.show_me_all_assays_i_have_acce"]
     assert _value(v, "api_result_meta.row_count", "gte") >= 300
-    assert _value(v, "last_reply", "mentions") == "324"
+    assert _value(v, "last_reply", "mentions") == "473"  # production, re-keyed 2026-09-23
 
 
 def test_the_uid_lineage_repro_is_engine_agnostic_and_not_known_fail():
@@ -189,11 +189,12 @@ def test_every_negative_guard_is_dotall():
 
 
 def test_the_global_count_matches_the_seeded_database():
-    """The corpus asserted 50,889; the DB reports 50,886."""
+    """The corpus asserted 50,889 when the DB reported 50,886; re-keyed 2026-09-23 to
+    production, where both stores hold 168,482."""
     v = _merged()["green.global_count"]
     guard = _value(v, "last_reply", "matches_re")
-    assert re.search(guard, "There are 50,886 samples in the database.")
-    assert not re.search(guard, "There are 50,161 samples in the database.")
+    assert re.search(guard, "There are 168,482 samples in the database.")
+    assert not re.search(guard, "There are 50,886 samples in the database.")
 
 
 # --------------------------------------------------------------------------- #

@@ -1021,7 +1021,7 @@ GOOD_REPLY = {
         "A total of 1,765 Sequencing Data (D.SEQ) files are associated with Short "
         "Read Sequencing.\n\n- D.SEQ-230512FOR-287-PUB",
     "advanced.find_me_d_seq_samples_in_proje":
-        "A total of 1,858 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
+        "A total of 4,658 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
         "* `D.SEQ-220823SHA-9-PUB`",
 }
 

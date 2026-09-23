@@ -134,7 +134,9 @@ def test_the_hand_written_annotations_survived_adoption():
     # `_deselected_2026_08_06_qset` 76 and `_promoted_2026_08_06_qset` 4. Every
     # deselection and every retirement records a written reason; that is what makes
     # the selection reviewable without a diff.
-    assert counts == {"_why": 101, "_why_superseded_2026_08_03": 1,
+    # 2026-09-23 production re-key: `_why` 101 -> 135. Every re-keyed variant got a
+    # dated line appended to its `_why`, and the 34 that had none got one.
+    assert counts == {"_why": 135, "_why_superseded_2026_08_03": 1,
                       "_2026_07_28": 1, "_atlas": 80,
                       "_promoted_2026_08_06": 17, "_added_2026_08_06": 8,
                       "_added_2026_08_06_qset": 58, "_edited_2026_08_06_qset": 86,

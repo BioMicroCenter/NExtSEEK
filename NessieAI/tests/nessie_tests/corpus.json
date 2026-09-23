@@ -225,7 +225,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b195\\b"
+                  "value": "\\b1,?551\\b"
                 }
               ]
             }
@@ -238,7 +238,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 195 MUS samples have Treatment1='NDMA'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS + JSON $.Treatment1='NDMA' = 195; a whole-blob LIKE '%NDMA%' over MUS also gives 195."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 195 MUS samples have Treatment1='NDMA'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS + JSON $.Treatment1='NDMA' = 195; a whole-blob LIKE '%NDMA%' over MUS also gives 195.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195."
         },
         {
           "id": "advanced.cd8_antibodies",
@@ -375,7 +376,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b26\\b"
+                  "value": "\\b815\\b"
                 }
               ]
             }
@@ -388,7 +389,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 26 RNA samples have a numeric RIN above 7. || VERIFIED: seek_production MySQL, verified 2026-08-06: RNA + CAST($.RIN AS DECIMAL) > 7 = 26. 263 of 289 RNA rows have no RIN at all."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 26 RNA samples have a numeric RIN above 7. || VERIFIED: seek_production MySQL, verified 2026-08-06: RNA + CAST($.RIN AS DECIMAL) > 7 = 26. 263 of 289 RNA rows have no RIN at all.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 815 T_RNA with toFloat(RIN) > 7, of 864 that carry a RIN and 1,549 RNA in all (Neo4j cypher-shell, read-only); was 26."
         },
         {
           "id": "advanced.female_mice",
@@ -426,7 +428,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b52[59]\\b"
+                  "value": "\\b(2,?993|3,?153)\\b"
                 }
               ]
             }
@@ -439,7 +441,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 525 MUS have Sex='F'; 4 more have Sex='Female'; 529 is the honest total. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Sex grouped -> M 575, F 525, Female 4, null 75."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 525 MUS have Sex='F'; 4 more have Sex='Female'; 529 is the honest total. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Sex grouped -> M 575, F 525, Female 4, null 75.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_MUS Sex grouped (Neo4j cypher-shell, read-only): F 2,993, Female 160, M 2,438, Male 179, null 701; 2,993 exact 'F' or 3,153 with 'Female', the same two readings the old key accepted; was 525/529."
         },
         {
           "id": "advanced.zero_result_zebrafish",
@@ -562,7 +565,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(\\b0\\b|\\bno\\b|\\bnone\\b|zero|D\\.WBLT)"
+                  "value": "(?is)(\\b48\\b|D\\.WBLT)"
                 }
               ]
             }
@@ -575,7 +578,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero samples. The D.WBLT sample type IS defined but holds 0 rows. || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%western blot%' = 0; sample_type D.WBLT exists with COUNT(*)=0."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero samples. The D.WBLT sample type IS defined but holds 0 rows. || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%western blot%' = 0; sample_type D.WBLT exists with COUNT(*)=0.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): the zero is no longer true: D.WBLT now holds 48 samples (and A.WBLT 24) (Neo4j cypher-shell, read-only: count by type), so the 'none' branches are removed and the reply must give the 48 or name D.WBLT; was zero."
         },
         {
           "id": "advanced.find_me_scrna_seq_clustering_r",
@@ -650,7 +654,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "3,?061"
+                  "value": "\\b3,?728\\b"
                 }
               ]
             }
@@ -663,7 +667,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 3,061 D.FLOW samples descend from an NHP. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.FLOW'})-[:DERIVED_FROM*1..8]->(:Sample{type:'NHP'}) = 3061."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 3,061 D.FLOW samples descend from an NHP. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.FLOW'})-[:DERIVED_FROM*1..8]->(:Sample{type:'NHP'}) = 3061.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 3,728 T_D_FLOW with an NHP ancestor (Neo4j cypher-shell, read-only: EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_NHP)}; *1..12 gives the same); was 3,061."
         },
         {
           "id": "advanced.find_mice_treated_with_ndma",
@@ -872,7 +877,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(420|610)\\b"
+                  "value": "\\b(7,?443|14,?163)\\b"
                 }
               ]
             }
@@ -885,7 +890,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 420 with Organ='Liver' exactly; 610 counting 'liver' (189) and ' liver' (1). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ = 'Liver' 420, 'liver' 189, ' liver' 1; TRIM+LOWER = 610."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 420 with Organ='Liver' exactly; 610 counting 'liver' (189) and ' liver' (1). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ = 'Liver' 420, 'liver' 189, ' liver' 1; TRIM+LOWER = 610.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ folded to 'liver' (Neo4j cypher-shell, read-only): 'Liver' 7,443, 'LIVER' 4,154, 'liver' 2,566; 7,443 exact or 14,163 case-folded, the same two readings as before; was 420/610."
         },
         {
           "id": "advanced.what_gpt_data_exists_in_the_da",
@@ -1104,7 +1110,7 @@
           "retirement": null
         },
         {
-          "_why": "Same inline-REST-mandate shape as its sibling above, and the same evidence: seed-6 routed nextseek_query, the graph answered 1,858 D.SEQ samples, and the operator's review said 'also correct'. entity_sampletype_codes contains D.SEQ is KEPT \u2014 it observed ['D.SEQ'] and PASSED on the graph turn, so it is engine-agnostic already and is the one criterion here that pins what was actually asked for. Everything else follows the sibling: route inline (visible at the case rather than left to route_policy, as advanced.find_me_nhp_samples_from_study_2 also does), graph_not_truncated as an inert-on-REST cap guard, a reply regex demanding a real UID or an honest negative, and deliberately no count. The regex's `could not` branch was deleted on 2026-08-03, same reason as its sibling: an outage never reaches the guard, so the branch only let a non-answer through.",
+          "_why": "Same inline-REST-mandate shape as its sibling above, and the same evidence: seed-6 routed nextseek_query, the graph answered 1,858 D.SEQ samples, and the operator's review said 'also correct'. entity_sampletype_codes contains D.SEQ is KEPT \u2014 it observed ['D.SEQ'] and PASSED on the graph turn, so it is engine-agnostic already and is the one criterion here that pins what was actually asked for. Everything else follows the sibling: route inline (visible at the case rather than left to route_policy, as advanced.find_me_nhp_samples_from_study_2 also does), graph_not_truncated as an inert-on-REST cap guard, a reply regex demanding a real UID or an honest negative, and deliberately no count. The regex's `could not` branch was deleted on 2026-08-03, same reason as its sibling: an outage never reaches the guard, so the branch only let a non-answer through. || Re-keyed 2026-09-23 against production (fairdata): prod has no project titled IMPACT; T_D_SEQ in project IMPAcTb 4,658, in investigation 'Impactb Investigation' 4,659 (Neo4j cypher-shell, read-only); both scopes accepted; was 1,858.",
           "id": "advanced.find_me_d_seq_samples_in_proje",
           "family": "sample_search",
           "name": "D.SEQ samples in project IMPACT must return real rows",
@@ -1136,7 +1142,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?858"
+                  "value": "\\b(4,?658|4,?659)\\b"
                 }
               ]
             }
@@ -2556,7 +2562,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b530\\b"
+                  "value": "\\b683\\b"
                 }
               ]
             }
@@ -2569,7 +2575,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 530 \u2014 every OOC sample carries the KAM lab code. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC grouped by UID lab code -> KAM 530 and nothing else."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 530 \u2014 every OOC sample carries the KAM lab code. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC grouped by UID lab code -> KAM 530 and nothing else.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 683 T_OOC, every one with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'; OOC grouped by UID lab code gives KAM 683 and nothing else); was 530."
         },
         {
           "id": "routing.lab_ooc_kamm_casual",
@@ -2708,7 +2715,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "50,?88[0-9]"
+                  "value": "\\b168,?482\\b"
                 }
               ]
             }
@@ -2721,7 +2728,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 50,887 in MySQL, 50,889 in Neo4j. Keyed on the numeric sample id the difference is exactly 4 rows: Neo4j carries 3 test fixtures (ids 100/101/102, types Type1/Type2) that MySQL does not, and MySQL carries CEL-TEST, which the graph does not. || VERIFIED: seek_production MySQL, verified 2026-08-06 COUNT(*)=50887; Neo4j cypher-shell, verified 2026-08-06 count(:Sample)=50889. Diff: 98 MySQL-only (97 CEL-260305GRI-*, CEL-TEST) vs 100 graph-only (97 CEL-260317BMC-*, U1/U2/U3)."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 50,887 in MySQL, 50,889 in Neo4j. Keyed on the numeric sample id the difference is exactly 4 rows: Neo4j carries 3 test fixtures (ids 100/101/102, types Type1/Type2) that MySQL does not, and MySQL carries CEL-TEST, which the graph does not. || VERIFIED: seek_production MySQL, verified 2026-08-06 COUNT(*)=50887; Neo4j cypher-shell, verified 2026-08-06 count(:Sample)=50889. Diff: 98 MySQL-only (97 CEL-260305GRI-*, CEL-TEST) vs 100 graph-only (97 CEL-260317BMC-*, U1/U2/U3).",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 168,482 in both stores (Neo4j cypher-shell, read-only: count(:Sample); seek_production MySQL, read-only: COUNT(samples)); the old 50,887/50,889 store split is gone; was 50,88x."
         },
         {
           "id": "green.mus_ndma",
@@ -2866,7 +2874,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b195\\b"
+                  "value": "\\b1,?551\\b"
                 }
               ]
             }
@@ -2882,7 +2890,8 @@
           "_atlas": {
             "capability": "CC ops: nextseek-parse then nextseek-api-read",
             "assertion": "last_reply matches_re \\b195\\b"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only: T_MUS, any Treatment1..4 CONTAINS 'ndma'); was 195."
         },
         {
           "id": "advanced.list_the_tissue_and_cell_samples",
@@ -2937,7 +2946,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b38\\b"
+                  "value": "\\b140\\b"
                 }
               ]
             }
@@ -2950,7 +2959,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Ground truth verified 2026-08-06: 38 of the 289 RNA samples carry lab code KAM. Paired deliberately with refrec.refine_to_female, where the same lab has ZERO mouse samples: one lab, one attribute-scoped question with a real answer and one with an honest zero, so an engine that fabricates a plausible number is caught by the second.",
+          "_why": "Ground truth verified 2026-08-06: 38 of the 289 RNA samples carry lab code KAM. Paired deliberately with refrec.refine_to_female, where the same lab has ZERO mouse samples: one lab, one attribute-scoped question with a real answer and one with an honest zero, so an engine that fabricates a plausible number is caught by the second. || Re-keyed 2026-09-23 against production (fairdata): 140 T_RNA with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'); the replies seen on prod 2026-09-22/23 already said 140; was 38.",
           "_added_2026_08_06": "Written fresh for the additive pass that extended the already-graded 127-variant set. Ground truth verified against the live local stack.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 38 RNA samples carry the KAM lab code. || VERIFIED: seek_production MySQL, verified 2026-08-06: RNA by UID lab code -> LAU 177, KAM 38, ESS 36, SAS 20, SHO 18."
         },
@@ -2979,17 +2988,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b83\\b"
+                  "value": "\\b218\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b34\\b"
+                  "value": "\\b67\\b"
                 }
               ]
             }
           ],
-          "_why": "144 samples total: D.MSP 83, A.MSP 34, CEL 14, TIS 7, CHM 5, BAC 1. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Scientist LIKE '%Leddy%' grouped by sample type. || TESTS: the single most-repeated real user query shape (asked 9x in the ad-hoc log) \u2014 attribute search on a person, with a breakdown.",
+          "_why": "144 samples total: D.MSP 83, A.MSP 34, CEL 14, TIS 7, CHM 5, BAC 1. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Scientist LIKE '%Leddy%' grouped by sample type. || TESTS: the single most-repeated real user query shape (asked 9x in the ad-hoc log) \u2014 attribute search on a person, with a breakdown. || Re-keyed 2026-09-23 against production (fairdata): Scientist CONTAINS 'leddy' grouped by type (Neo4j cypher-shell, read-only): D.MSP 218, A.MSP 67, CEL 42, TIS 18, CHM 5, BAC 3 (353 in all); was D.MSP 83 / A.MSP 34.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -3017,12 +3026,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "4,?264\\b"
+                  "value": "\\b7,?300\\b"
                 }
               ]
             }
           ],
-          "_why": "4,264 D.FLOW samples have Instrument='Cytek Aurora Spectral Cytometer'. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.FLOW $.Instrument grouped; note a separate 'Cytek Aurora' spelling holds 233 more. || TESTS: instrument vocabulary. The near-miss spelling makes over-counting visible.",
+          "_why": "4,264 D.FLOW samples have Instrument='Cytek Aurora Spectral Cytometer'. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.FLOW $.Instrument grouped; note a separate 'Cytek Aurora' spelling holds 233 more. || TESTS: instrument vocabulary. The near-miss spelling makes over-counting visible. || Re-keyed 2026-09-23 against production (fairdata): 7,300 T_D_FLOW with Instrument = 'Cytek Aurora Spectral Cytometer' exactly (Neo4j cypher-shell, read-only); the near-miss 'Cytek Aurora' holds 2,298 more; was 4,264.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -3116,12 +3125,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(\\b0\\b|\\bno\\b|\\bnone\\b|zero|de-?identif|redact|placeholder)"
+                  "value": "\\b(79|89)\\b"
                 }
               ]
             }
           ],
-          "_why": "Zero. PAT.Sex only ever holds '1' (469 rows, a de-identification placeholder), 'F' (38), 'NA' (1); 92 rows have no Sex. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAT $.Sex grouped -> 1:469, NULL:92, F:38, NA:1. No 'M' or 'Male' value exists. || TESTS: whether the engine reports the de-identification placeholder or silently treats '1' as data.",
+          "_why": "Zero. PAT.Sex only ever holds '1' (469 rows, a de-identification placeholder), 'F' (38), 'NA' (1); 92 rows have no Sex. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAT $.Sex grouped -> 1:469, NULL:92, F:38, NA:1. No 'M' or 'Male' value exists. || TESTS: whether the engine reports the de-identification placeholder or silently treats '1' as data. || Re-keyed 2026-09-23 against production (fairdata): the zero is no longer true: T_PAT Sex grouped (Neo4j cypher-shell, read-only) is '1' 1,114, null 214, 'F' 86, 'M' 79, '0' 29, 'Female' 25, 'Male' 10, 'NA' 3, 'N/A' 1, 'ND' 1; 79 exact 'M' or 89 with 'Male'. The '1'/'0' pair may now be a binary sex code rather than the de-identification placeholder the old note describes, so that reading is an operator call; was zero.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -3149,12 +3158,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "2,?271\\b"
+                  "value": "\\b3,?636\\b"
                 }
               ]
             }
           ],
-          "_why": "2,271 D.IMG samples have Type='CometChip'. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.Type grouped -> CometChip 2271, Brightfield 545, CT 169, PET 167. || TESTS: the positive half of the ChIP-seq trap, on a different axis.",
+          "_why": "2,271 D.IMG samples have Type='CometChip'. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.Type grouped -> CometChip 2271, Brightfield 545, CT 169, PET 167. || TESTS: the positive half of the ChIP-seq trap, on a different axis. || Re-keyed 2026-09-23 against production (fairdata): 3,636 T_D_IMG with Type = 'CometChip' (Neo4j cypher-shell, read-only: D.IMG Type grouped -> null 10,088, CometChip 3,636, CLSM 1,328, CyCIF 1,263, ...); was 2,271.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -3193,7 +3202,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b22[12]\\b"
+                  "value": "\\b(242|243)\\b"
                 }
               ]
             }
@@ -3206,7 +3215,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 221 transitive descendants (222 including the animal itself): TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 221 transitive descendants (222 including the animal itself): TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP-220630FLY-5 (no -PUB on prod) has 242 distinct transitive descendants, 243 with itself (Neo4j cypher-shell, read-only: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5'})): TIS 72, DNA 38, D.SEQ 38, D.FLOW 34, BAC 33, PAV 15, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1; was 221/222."
         },
         {
           "id": "retrieve.batch_two_dseq",
@@ -4024,7 +4034,7 @@
       "description": "List the platform's own objects: assays, projects, people, protocols, investigations.",
       "variants": [
         {
-          "_why": "Classified new_search where its sibling classified system_question. Either is acceptable; the OUTCOME is not. Task 833 hit /nextseek_api/assays/, got row_count 324, and replied 'You have access to 5 assays' \u2014 5 being exactly the slim preview length. The old criteria (mode matches either, reply mentions 'assay') passed that happily, which is what made this a masked pass.",
+          "_why": "Classified new_search where its sibling classified system_question. Either is acceptable; the OUTCOME is not. Task 833 hit /nextseek_api/assays/, got row_count 324, and replied 'You have access to 5 assays' \u2014 5 being exactly the slim preview length. The old criteria (mode matches either, reply mentions 'assay') passed that happily, which is what made this a masked pass. || Re-keyed 2026-09-23 against production (fairdata): 473 assays (seek_production MySQL, read-only: COUNT(assays)); the CI user is a superuser and sees every one; the row_count gte 300 floor still holds; was 324.",
           "id": "sys.show_me_all_assays_i_have_acce",
           "family": "catalog_browse",
           "name": "Assay listing (either classification is acceptable)",
@@ -4056,7 +4066,7 @@
                 {
                   "field": "last_reply",
                   "op": "mentions",
-                  "value": "324"
+                  "value": "473"
                 }
               ]
             }
@@ -4189,12 +4199,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b104\\b"
+                  "value": "\\b115\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b78\\b"
+                  "value": "\\b104\\b"
                 }
               ]
             }
@@ -4207,7 +4217,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Ground truth verified 2026-08-06: sample_types holds 104 rows, 78 of which have at least one sample and 26 of which have none (A.CNV, D.WBLT, VIR, ...). Chosen because the catalog_browse family had exactly ONE selected variant in the 2026-08-06 run and because the declared-versus-populated distinction is the kind of thing an engine answers confidently and wrongly.",
+          "_why": "Ground truth verified 2026-08-06: sample_types holds 104 rows, 78 of which have at least one sample and 26 of which have none (A.CNV, D.WBLT, VIR, ...). Chosen because the catalog_browse family had exactly ONE selected variant in the 2026-08-06 run and because the declared-versus-populated distinction is the kind of thing an engine answers confidently and wrongly. || Re-keyed 2026-09-23 against production (fairdata): 115 sample_types defined, 104 with at least one sample, 11 empty (seek_production MySQL, read-only: COUNT(sample_types); JOIN samples GROUP BY; graph SampleType nodes agree 115/104); was 104 / 78.",
           "_added_2026_08_06": "Written fresh for the additive pass that extended the already-graded 127-variant set. Ground truth verified against the live local stack.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 104 defined, 78 with at least one sample, 26 empty. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sample_types)=104; HAVING COUNT(samples)>0 = 78."
         },
@@ -4270,17 +4280,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b42\\b"
+                  "value": "\\b47\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b40\\b"
+                  "value": "\\b44\\b"
                 }
               ]
             }
           ],
-          "_why": "Four clades: Analyzed 42 types / 766 samples, Raw 40 / 22,638, Source 12 / 12,469, Processed 10 / 15,014. The 4 partition all 104 types and all 50,887 samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: dmac.clades joined to dmac.sample_types_clades, counts summed per clade. || TESTS: a NExtSEEK-native taxonomy in the `dmac` schema, invisible to anyone who only reads SEEK tables.",
+          "_why": "Four clades: Analyzed 42 types / 766 samples, Raw 40 / 22,638, Source 12 / 12,469, Processed 10 / 15,014. The 4 partition all 104 types and all 50,887 samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: dmac.clades joined to dmac.sample_types_clades, counts summed per clade. || TESTS: a NExtSEEK-native taxonomy in the `dmac` schema, invisible to anyone who only reads SEEK tables. || Re-keyed 2026-09-23 against production (fairdata): dmac.clades joined to dmac.sample_types_clades, distinct types per clade (seek_production MySQL, read-only dmac schema): Analyzed 47, Raw 44, Source 14, Processed 10 (115); was Analyzed 42 / Raw 40.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -4308,17 +4318,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b2\\b"
+                  "value": "\\b(122|123)\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b11[34]\\b"
+                  "value": "\\b(215|216)\\b"
                 }
               ]
             }
           ],
-          "_why": "2 registered people (Demo Demo, User User) but 113 distinct non-empty Scientist values across 50,117 samples (114 if the 182 JSON-null rows are counted as a value). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(people)=2; COUNT(DISTINCT $.Scientist) real strings = 113. || TESTS: the platform's user table and its data are two different populations. An engine that answers 'who works here' from `people` is wrong by two orders of magnitude.",
+          "_why": "2 registered people (Demo Demo, User User) but 113 distinct non-empty Scientist values across 50,117 samples (114 if the 182 JSON-null rows are counted as a value). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(people)=2; COUNT(DISTINCT $.Scientist) real strings = 113. || TESTS: the platform's user table and its data are two different populations. An engine that answers 'who works here' from `people` is wrong by two orders of magnitude. || Re-keyed 2026-09-23 against production (fairdata): people 123 and users 123 (seek_production MySQL, read-only); the /people/ API the reply read on prod lists 122, so both are accepted. Distinct non-empty Scientist strings 215 (seek_production MySQL, read-only: JSON $.Scientist, also 215 compared as BINARY; Neo4j cypher-shell, read-only: count(DISTINCT s.Scientist) 215), 216 counting the 1,368 JSON-null rows as a value, the same two readings as before; was 2 / 113-114.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -4346,7 +4356,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b141\\b"
+                  "value": "\\b593\\b"
                 },
                 {
                   "field": "last_reply",
@@ -4356,7 +4366,7 @@
               ]
             }
           ],
-          "_why": "175 SOP rows, of which 34 are TEST_SOP.docx (22) and TEST_SOP_2.docx (12); 141 are real protocols. Only 137 are attached to any assay. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175; title LIKE 'TEST_SOP%' = 34. || TESTS: whether the engine reports the raw row count or notices the junk in it.",
+          "_why": "175 SOP rows, of which 34 are TEST_SOP.docx (22) and TEST_SOP_2.docx (12); 141 are real protocols. Only 137 are attached to any assay. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175; title LIKE 'TEST_SOP%' = 34. || TESTS: whether the engine reports the raw row count or notices the junk in it. || Re-keyed 2026-09-23 against production (fairdata): 593 SOP rows, 593 distinct titles, none titled TEST_SOP% or containing 'test' (seek_production MySQL, read-only: COUNT(sops); title LIKE 'TEST_SOP%' = 0), so the honest answer is 593 with no test artifacts; was 141 real of 175.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -4400,7 +4410,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b214\\b"
+                  "value": "\\b(1,?389|1,?391)\\b"
                 }
               ]
             }
@@ -4413,7 +4423,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 214 D.SEQ samples: NextSeq 550 92, 'NextSeq 500' 77, 'Illumina NextSeq 500' 27, 'Illumina NextSeq500' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer LIKE '%NextSeq%' grouped -> 92+77+27+18 = 214."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 214 D.SEQ samples: NextSeq 550 92, 'NextSeq 500' 77, 'Illumina NextSeq 500' 27, 'Illumina NextSeq500' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer LIKE '%NextSeq%' grouped -> 92+77+27+18 = 214.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ Sequencer CONTAINS 'nextseq' (Neo4j cypher-shell, read-only): 'Illumina NextSeq 500' 526, 'NextSeq 500' 390, 'Illumina NextSeq500' 232, 'NextSeq 2000' 110, 'Illumina NextSeq 550' 92, 'Illumina NextSeq 2000' 32, 'NextSeq500:George' 7 = 1,389, plus 2 rows whose Sequencer is a protocol filename mentioning NextSeq = 1,391; was 214."
         },
         {
           "id": "advanced.find_samples_of_pbmc_type_from",
@@ -5102,7 +5113,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b185\\b"
+                  "value": "\\b1,?442\\b"
                 }
               ]
             }
@@ -5115,7 +5126,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 185 MUS samples have at least one D.SEQ descendant (219 D.SEQ samples in total). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'})-[:DERIVED_FROM*1..8]->(m:Sample{type:'MUS'}) -> 185 distinct mice, 219 distinct D.SEQ."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 185 MUS samples have at least one D.SEQ descendant (219 D.SEQ samples in total). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'})-[:DERIVED_FROM*1..8]->(m:Sample{type:'MUS'}) -> 185 distinct mice, 219 distinct D.SEQ.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,442 T_MUS with at least one D.SEQ descendant (Neo4j cypher-shell, read-only: EXISTS {(:T_D_SEQ)-[:DERIVED_FROM*1..8]->(m)}; *1..12 the same); was 185."
         },
         {
           "id": "graph.investigations_nhp_seq",
@@ -5402,7 +5414,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b7\\b"
+                  "value": "\\b949\\b"
                 }
               ]
             }
@@ -5415,7 +5427,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 7. CSBC holds 144 samples across 6 sample types; TIS is 7 of them. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: TIS + IN_STUDY -> Study -> Investigation{title:'CSBC'} = 7."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 7. CSBC holds 144 samples across 6 sample types; TIS is 7 of them. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: TIS + IN_STUDY -> Study -> Investigation{title:'CSBC'} = 7.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 949 T_TIS in the CSBC investigation, and 949 in the CSBC project (Neo4j cypher-shell, read-only: IN_STUDY -> Study -> Investigation{title:'CSBC'}); was 7."
         },
         {
           "id": "graph.which_tissue_samples_underwent",
@@ -6928,7 +6941,7 @@
           "retirement": null
         },
         {
-          "_why": "Passed every assertion in the 2026-07-24 run while returning exactly 250 rows \u2014 the old LIMIT \u2014 because no criterion looked at result counts.",
+          "_why": "Passed every assertion in the 2026-07-24 run while returning exactly 250 rows \u2014 the old LIMIT \u2014 because no criterion looked at result counts. || Re-keyed 2026-09-23 against production (fairdata): 2,294 T_MUS in 'Impactb Investigation' and 2,294 in project IMPAcTb (Neo4j cypher-shell, read-only); no Impact node on prod holds samples; was 705.",
           "id": "graph.what_mice_are_in_the_impact_st",
           "family": "graph_traversal",
           "name": "Mice in the Impact study (must not stop at the old 250 cap)",
@@ -6965,7 +6978,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b705\\b"
+                  "value": "\\b2,?294\\b"
                 }
               ]
             }
@@ -7646,7 +7659,7 @@
                 {
                   "field": "graph_result.count",
                   "op": "eq",
-                  "value": 705
+                  "value": 2294
                 }
               ]
             }
@@ -7662,7 +7675,8 @@
           "_atlas": {
             "capability": "Guard: insert the missing WITH before a leaked OPTIONAL MATCH filter",
             "assertion": "graph_result.count eq 705"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 2,294 T_MUS in 'Impactb Investigation' and in project IMPAcTb (Neo4j cypher-shell, read-only); was 705."
         },
         {
           "id": "graph.which_samples_were_collected_usi",
@@ -7718,7 +7732,7 @@
                 {
                   "field": "graph_result.count",
                   "op": "eq",
-                  "value": 139
+                  "value": 351
                 }
               ]
             }
@@ -7734,7 +7748,8 @@
           "_atlas": {
             "capability": "Assay to parent_type/child_type connection map",
             "assertion": "graph_result.count eq 139"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 351 T_NHP with a D.SEQ descendant (Neo4j cypher-shell, read-only: EXISTS {(:T_D_SEQ)-[:DERIVED_FROM*1..8]->(n)}; the prod probe pin fu.rerun_modified_cypher measured the same 351); was 139."
         },
         {
           "id": "graph.imaging_from_organ_on_chips",
@@ -7753,7 +7768,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "5,?859\\b"
+                  "value": "\\b7,?166\\b"
                 }
               ]
             }
@@ -7766,7 +7781,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Ground truth verified 2026-08-06 in Neo4j: 5,859 D.IMG samples descend transitively from an OOC sample (and 495 of the 530 OOC samples have at least one D.IMG descendant). Chosen to move graph_traversal off the NHP/MUS/Impact axis that every other selected variant in the family sits on, and onto the MetNet/Kamm half of the database, which no selected graph variant touched.",
+          "_why": "Ground truth verified 2026-08-06 in Neo4j: 5,859 D.IMG samples descend transitively from an OOC sample (and 495 of the 530 OOC samples have at least one D.IMG descendant). Chosen to move graph_traversal off the NHP/MUS/Impact axis that every other selected variant in the family sits on, and onto the MetNet/Kamm half of the database, which no selected graph variant touched. || Re-keyed 2026-09-23 against production (fairdata): 7,166 T_D_IMG with an OOC ancestor (Neo4j cypher-shell, read-only: EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_OOC)}; *1..12 the same); was 5,859.",
           "_added_2026_08_06": "Written fresh for the additive pass that extended the already-graded 127-variant set. Ground truth verified against the live local stack.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 5,859 D.IMG samples have an OOC ancestor. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.IMG'})-[:DERIVED_FROM*1..8]->(:Sample{type:'OOC'}) = 5859."
         },
@@ -7795,12 +7810,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b139\\b"
+                  "value": "\\b351\\b"
                 }
               ]
             }
           ],
-          "_why": "139 of the 408 NHP samples have at least one D.SEQ descendant. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'})-[:DERIVED_FROM*1..8]->(n:Sample{type:'NHP'}) -> count(DISTINCT n) = 139. || TESTS: settles the 139-vs-408 disagreement recorded in the 2026-07-28 report. 408 is the answer to a different question.",
+          "_why": "139 of the 408 NHP samples have at least one D.SEQ descendant. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'})-[:DERIVED_FROM*1..8]->(n:Sample{type:'NHP'}) -> count(DISTINCT n) = 139. || TESTS: settles the 139-vs-408 disagreement recorded in the 2026-07-28 report. 408 is the answer to a different question. || Re-keyed 2026-09-23 against production (fairdata): 351 of the 725 T_NHP have at least one D.SEQ descendant (Neo4j cypher-shell, read-only, counted on the NHP side); was 139 of 408.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -7828,12 +7843,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?608\\b"
+                  "value": "\\b3,?861\\b"
                 }
               ]
             }
           ],
-          "_why": "1,608 D.SEQ samples have an NHP ancestor. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: same traversal as above, counted on the CHILD side -> 1608 distinct D.SEQ. || TESTS: the deliberate mirror of the previous question. Two counts, one traversal \u2014 an engine that conflates them gets exactly one of them wrong.",
+          "_why": "1,608 D.SEQ samples have an NHP ancestor. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: same traversal as above, counted on the CHILD side -> 1608 distinct D.SEQ. || TESTS: the deliberate mirror of the previous question. Two counts, one traversal \u2014 an engine that conflates them gets exactly one of them wrong. || Re-keyed 2026-09-23 against production (fairdata): 3,861 T_D_SEQ with an NHP ancestor (Neo4j cypher-shell, read-only: EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_NHP)}; *1..12 the same), which is also the count both phrasings of cons.nhp_sequencing_engine returned on prod; was 1,608.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -7861,12 +7876,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "6,?441\\b"
+                  "value": "\\b7,?854\\b"
                 }
               ]
             }
           ],
-          "_why": "6,441 D.IMG samples in MetNet (of MetNet's 7,365 total). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: D.IMG + IN_STUDY -> Study -> Investigation{title:'MetNet'} = 6441; MySQL join agrees. || TESTS: type x investigation, in the second-largest investigation.",
+          "_why": "6,441 D.IMG samples in MetNet (of MetNet's 7,365 total). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: D.IMG + IN_STUDY -> Study -> Investigation{title:'MetNet'} = 6441; MySQL join agrees. || TESTS: type x investigation, in the second-largest investigation. || Re-keyed 2026-09-23 against production (fairdata): 7,854 T_D_IMG in the MetNet investigation (Neo4j cypher-shell, read-only: IN_STUDY -> Study -> Investigation{title:'MetNet'}); the MetNet PROJECT holds 8,767, but the question names the investigation and one exists; was 6,441.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -7894,12 +7909,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(318|79)\\b"
+                  "value": "\\b(1,?227|1,?236)\\b"
                 }
               ]
             }
           ],
-          "_why": "MySQL says 318, Neo4j says 79. CEL is the ONLY type where the two stores disagree about Impact; every other type matches exactly. Root cause: 97 CEL-260305GRI-* exist only in MySQL and 97 CEL-260317BMC-* only in the graph. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join = 318; Neo4j cypher-shell, verified 2026-08-06 2-hop = 79; per-type diff of Impact isolates CEL. || TESTS: either number is accepted \u2014 the finding is whether the engine NOTICES that its two backends disagree. Recorded here so the grader knows both are defensible.",
+          "_why": "MySQL says 318, Neo4j says 79. CEL is the ONLY type where the two stores disagree about Impact; every other type matches exactly. Root cause: 97 CEL-260305GRI-* exist only in MySQL and 97 CEL-260317BMC-* only in the graph. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join = 318; Neo4j cypher-shell, verified 2026-08-06 2-hop = 79; per-type diff of Impact isolates CEL. || TESTS: either number is accepted \u2014 the finding is whether the engine NOTICES that its two backends disagree. Recorded here so the grader knows both are defensible. || Re-keyed 2026-09-23 against production (fairdata): T_CEL in 'Impactb Investigation' 1,227, in project IMPAcTb 1,236 (Neo4j cypher-shell, read-only); prod has no node titled Impact that holds samples, so both scopes are accepted. The two stores now agree on sample totals (168,482 each), so the store split this case was written for no longer shows here; was 318/79.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -8628,7 +8643,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b56\\b"
+                  "value": "\\b73\\b"
                 }
               ]
             }
@@ -8641,7 +8656,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 56 NHP samples have at least one D.FLOW descendant AND at least one D.SEQ descendant. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: NHP with EXISTS{D.FLOW ->*} AND EXISTS{D.SEQ ->*} = 56. (139 have sequencing; the intersection is 56.)"
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 56 NHP samples have at least one D.FLOW descendant AND at least one D.SEQ descendant. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: NHP with EXISTS{D.FLOW ->*} AND EXISTS{D.SEQ ->*} = 56. (139 have sequencing; the intersection is 56.)",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 73 T_NHP with both a D.FLOW and a D.SEQ descendant (Neo4j cypher-shell, read-only: two EXISTS {*1..8}; *1..12 the same, and the prod probe pin fu.what_query_did_you_run is 73); was 56."
         },
         {
           "id": "pbct.flow_and_msp",
@@ -9575,12 +9591,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "4,?061\\b"
+                  "value": "\\b22,?287\\b"
                 }
               ]
             }
           ],
-          "_why": "4,061 samples have 2 or more DISTINCT parents; the maximum is 1,218 (A.CCE-240715KAM-1-PUB, genuinely 1,218 different parents, not duplicates). \u26a0 Counting EDGES instead of distinct parents gives 4,841, because 1,920 parent-child pairs carry 2-6 byte-identical parallel DERIVED_FROM edges. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: children grouped by count(DISTINCT parent) HAVING > 1 -> 4,061; the same query without DISTINCT -> 4,841. Both readings measured and reproduced. || TESTS: a whole-graph structural aggregate, not a walk from a named UID.",
+          "_why": "4,061 samples have 2 or more DISTINCT parents; the maximum is 1,218 (A.CCE-240715KAM-1-PUB, genuinely 1,218 different parents, not duplicates). \u26a0 Counting EDGES instead of distinct parents gives 4,841, because 1,920 parent-child pairs carry 2-6 byte-identical parallel DERIVED_FROM edges. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: children grouped by count(DISTINCT parent) HAVING > 1 -> 4,061; the same query without DISTINCT -> 4,841. Both readings measured and reproduced. || TESTS: a whole-graph structural aggregate, not a walk from a named UID. || Re-keyed 2026-09-23 against production (fairdata): 22,287 Sample nodes with 2 or more DISTINCT Sample parents, maximum 1,218 (Neo4j cypher-shell, read-only: (c:Sample)-[:DERIVED_FROM]->(p:Sample) WITH c, count(DISTINCT p) > 1); was 4,061.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -9608,17 +9624,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "5,?616\\b"
+                  "value": "\\b8,?936\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "21,?501\\b"
+                  "value": "\\b89,?803\\b"
                 }
               ]
             }
           ],
-          "_why": "5,616 roots (no outgoing DERIVED_FROM) and 21,501 leaves (no incoming DERIVED_FROM). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: NOT (s)-[:DERIVED_FROM]->() = 5616; NOT ()-[:DERIVED_FROM]->(s) = 21501. || TESTS: two structural counts in one turn, so a half-answer is visible.",
+          "_why": "5,616 roots (no outgoing DERIVED_FROM) and 21,501 leaves (no incoming DERIVED_FROM). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: NOT (s)-[:DERIVED_FROM]->() = 5616; NOT ()-[:DERIVED_FROM]->(s) = 21501. || TESTS: two structural counts in one turn, so a half-answer is visible. || Re-keyed 2026-09-23 against production (fairdata): 8,936 Sample nodes with no outgoing DERIVED_FROM and 89,803 with no incoming one (Neo4j cypher-shell, read-only: NOT (s)-[:DERIVED_FROM]->(), NOT ()-[:DERIVED_FROM]->(s)); 11 more samples whose only parent is an OrphanSample node would make 8,947 roots if a parent had to be a Sample; was 5,616 / 21,501.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -9714,7 +9730,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(457|653)\\b"
+                  "value": "\\b(390|2,?711)\\b"
                 }
               ]
             }
@@ -9732,7 +9748,8 @@
             "assertion": "entity_sampletype_codes contains TIS"
           },
           "_promoted_2026_08_06": "Reviewed and grounded. PBMC is a site-specific vocabulary term that maps to the TIS sample type: 653 TIS samples mention PBMC (and 511 D.FLOW, 1,172 in all). The existing entity_sampletype_codes criterion is correct but is stripped on a forced CC arm, so a reply-level criterion is added to make the case measurable on both engines.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 457 TIS rows have Type exactly 'PBMC'; 653 TIS rows mention PBMC anywhere (301 more say 'Peripheral Blood Mononuclear Cells', 6 lowercase). There is no PBMC sample TYPE \u2014 PBMC is a tissue. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Type='PBMC' = 457; TIS blob LIKE '%PBMC%' = 653; also D.FLOW 511, ABP 4, A.FLOW 3, A.COMC 1."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 457 TIS rows have Type exactly 'PBMC'; 653 TIS rows mention PBMC anywhere (301 more say 'Peripheral Blood Mononuclear Cells', 6 lowercase). There is no PBMC sample TYPE \u2014 PBMC is a tissue. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Type='PBMC' = 457; TIS blob LIKE '%PBMC%' = 653; also D.FLOW 511, ABP 4, A.FLOW 3, A.COMC 1.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Type = 'PBMC' exactly 390; T_TIS search_text CONTAINS 'pbmc' 2,711 (Neo4j cypher-shell, read-only); same two predicates as before. Other TIS Type values: 'Peripheral Blood Mononuclear Cells' 1,430, 'PBMC Plasma' 889, 'Peripheral blood mononuclear cells' 6; was 457/653."
         },
         {
           "id": "entity.find_pbmcs_that_were_sequenced_u",
@@ -9830,7 +9847,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(75|41)\\b"
+                  "value": "\\b78\\b"
                 },
                 {
                   "field": "last_reply",
@@ -9853,7 +9870,8 @@
             "assertion": "last_reply mentions Genotype"
           },
           "_promoted_2026_08_06": "Reviewed as written. The MUS sample type declares 75 attributes including Genotype, Sex, Strain, Cohort and four Treatment arms (verified against sample_attributes), so 'mentions Genotype' is a real, checkable answer and it is already a reply-level criterion that survives forcing.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. MUS declares 75 attributes, of which exactly 3 are required: Name, UID, Scientist. Only 41 keys ever actually appear in MUS json_metadata. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for MUS = 75 rows, SUM(required)=3 (Name, UID, Scientist); observed JSON keys = 41."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. MUS declares 75 attributes, of which exactly 3 are required: Name, UID, Scientist. Only 41 keys ever actually appear in MUS json_metadata. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for MUS = 75 rows, SUM(required)=3 (Name, UID, Scientist); observed JSON keys = 41.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): MUS declares 78 sample_attributes, 3 required (UID, Name, Scientist), and all 78 keys now appear in MUS json_metadata (seek_production MySQL, read-only: sample_attributes for MUS; JSON_KEYS over MUS rows), so both old readings are 78; was 75/41."
         },
         {
           "id": "entity.which_project_should_i_upload_th",
@@ -9951,7 +9969,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b237\\b"
+                  "value": "\\b373\\b"
                 },
                 {
                   "field": "last_reply",
@@ -9974,7 +9992,8 @@
             "assertion": "last_reply matches_re \\b(237|239)\\b"
           },
           "_promoted_2026_08_06": "REVIEWED AND CORRECTED \u2014 the generated ground truth was FALSE. The assertion demanded 237 or 239 NHP samples in the '4 week study'. 237 is the count of MOUSE samples with Cohort='4wk'; NHP samples with Cohort='4 week' number exactly 2 (NHP-220524FLY-1-PUB and -2-PUB). Asking about NHP and asserting the MUS number could only ever be graded wrong. Rewritten onto the cohort the number actually belongs to, and it keeps the spelling trap ('4 week' vs '4wk') that made the question interesting.",
-          "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 237 have Cohort='4wk' exactly. 4wk_Day1 has 8 and 4wk_Day2 has 8, so a prefix match returns 253. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Cohort grouped -> 4wk 237, 2wk 104, 'NO 24h' 90, 5wk 79, 3wk 33, ..., 4wk_Day1 8, 4wk_Day2 8. || TESTS: REWORDED because the old text ('How many mouse samples are in the 4wk cohort?') is genuinely two-valued: NS answered 253 (prefix) and CC 237 (exact) and both were defensible. The new text pins the scope and makes the sub-cohorts the point."
+          "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 237 have Cohort='4wk' exactly. 4wk_Day1 has 8 and 4wk_Day2 has 8, so a prefix match returns 253. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Cohort grouped -> 4wk 237, 2wk 104, 'NO 24h' 90, 5wk 79, 3wk 33, ..., 4wk_Day1 8, 4wk_Day2 8. || TESTS: REWORDED because the old text ('How many mouse samples are in the 4wk cohort?') is genuinely two-valued: NS answered 253 (prefix) and CC 237 (exact) and both were defensible. The new text pins the scope and makes the sub-cohorts the point.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_MUS Cohort = '4wk' exactly 373, '4wk_Day1' 8, '4wk_Day2' 8 (Neo4j cypher-shell, read-only); the sub-cohort criterion (16|8) still holds; was 237."
         },
         {
           "artifact_expected": null,
@@ -10347,7 +10366,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b76\\b"
+                  "value": "\\b137\\b"
                 }
               ]
             }
@@ -10360,7 +10379,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 76 internal assay types in `dmac.internal_assays`, all of them used at least once. SEEK's own assay_type_uri is the generic JERM root on all 324 assays and discriminates nothing. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(dmac.internal_assays)=76; assays.assay_type_uri has exactly one distinct value."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 76 internal assay types in `dmac.internal_assays`, all of them used at least once. SEEK's own assay_type_uri is the generic JERM root on all 324 assays and discriminates nothing. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(dmac.internal_assays)=76; assays.assay_type_uri has exactly one distinct value.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 137 rows in dmac.internal_assays, every one mapped by dmac.assays_internal_assays (seek_production MySQL, read-only dmac schema); was 76."
         },
         {
           "id": "sys.what_attributes_can_i_filter_o",
@@ -10381,7 +10401,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(47|44)\\b"
+                  "value": "\\b49\\b"
                 },
                 {
                   "field": "last_reply",
@@ -10399,7 +10419,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. NHP declares 47 attributes; 44 distinct keys are observed in the data. Species, Sex, Origin, Facility, Supplier, Study and Cohort are the populated discriminators. Note `Cohort` (355 rows) is NOT declared on NHP at all. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for NHP = 47; JSON_KEYS distinct = 44; per-key fill counts."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. NHP declares 47 attributes; 44 distinct keys are observed in the data. Species, Sex, Origin, Facility, Supplier, Study and Cohort are the populated discriminators. Note `Cohort` (355 rows) is NOT declared on NHP at all. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for NHP = 47; JSON_KEYS distinct = 44; per-key fill counts.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): NHP declares 49 sample_attributes and 49 distinct keys appear in NHP json_metadata (seek_production MySQL, read-only); NHP no longer carries a Cohort key (the CD8 and 4-week groupings live in Study and Arm); was 47/44."
         },
         {
           "id": "sys.what_sample_types_are_most_com",
@@ -10918,7 +10939,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b101\\b"
+                  "value": "\\b(109|115)\\b"
                 }
               ]
             }
@@ -10935,7 +10956,8 @@
             "capability": "Sample type catalog (101 codes)",
             "assertion": "last_reply matches_re \\b101\\b"
           },
-          "_deselected_2026_08_06_qset": "asserts 101 sample types. The verified figure is 104. Left active for the free tiers but out of the paid selection until its assertion is corrected."
+          "_deselected_2026_08_06_qset": "asserts 101 sample types. The verified figure is 104. Left active for the free tiers but out of the paid selection until its assertion is corrected.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): the catalog Nessie reads (dmac.sample_types_context) has 109 rows and seek_production.sample_types has 115 (seek_production MySQL, read-only); both readings accepted; was 101."
         },
         {
           "id": "sys.how_many_different_assay_types_d",
@@ -10955,7 +10977,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b217\\b"
+                  "value": "\\b138\\b"
                 }
               ]
             }
@@ -10971,7 +10993,8 @@
           "_atlas": {
             "capability": "Assay catalog (217 entries)",
             "assertion": "last_reply matches_re \\b217\\b"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): dmac.assay_context, the assay catalog, has 138 rows on prod after the curated context write (seek_production MySQL, read-only: COUNT(assay_context)); dmac.internal_assays is 137; was 217."
         }
       ]
     },
@@ -12808,7 +12831,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b195\\b"
+                  "value": "\\b1,?551\\b"
                 }
               ]
             }
@@ -12824,7 +12847,8 @@
           "_atlas": {
             "capability": "CHAT_HISTORY prompt block for follow-ups and pronouns",
             "assertion": "last_reply matches_re \\b195\\b"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); the turn has no antecedent of its own, so it inherits the NDMA-mouse reading the old key encoded; was 195."
         },
         {
           "id": "refrec.how_many_of_the_ndma_ones_were_r",
@@ -12880,7 +12904,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b195\\b"
+                  "value": "\\b1,?551\\b"
                 }
               ]
             }
@@ -12896,7 +12920,8 @@
           "_atlas": {
             "capability": "Within-chat cross-engine digest",
             "assertion": "last_reply matches_re \\b195\\b"
-          }
+          },
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); was 195."
         },
         {
           "id": "refrec.now_narrow_that_down_to_just_the",
@@ -12959,7 +12984,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?378\\b"
+                  "value": "\\b4,?629\\b"
                 }
               ]
             },
@@ -12970,12 +12995,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?290\\b"
+                  "value": "\\b4,?121\\b"
                 }
               ]
             }
           ],
-          "_why": "1,378 TIS have Type='Granuloma'; 1,290 of those have Organ in {Lung, lung}. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS Type='Granuloma' = 1378; + LOWER(Organ)='lung' = 1290. || TESTS: a follow-up that must reuse the previous result set rather than re-searching from scratch.",
+          "_why": "1,378 TIS have Type='Granuloma'; 1,290 of those have Organ in {Lung, lung}. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS Type='Granuloma' = 1378; + LOWER(Organ)='lung' = 1290. || TESTS: a follow-up that must reuse the previous result set rather than re-searching from scratch. || Re-keyed 2026-09-23 against production (fairdata): 4,629 T_TIS with Type = 'Granuloma' (no other spelling), 4,121 of them with toLower(trim(Organ)) = 'lung' (Neo4j cypher-shell, read-only); was 1,378 / 1,290.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -13003,7 +13028,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b577\\b"
+                  "value": "\\b581\\b"
                 }
               ]
             },
@@ -13014,12 +13039,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b577\\b"
+                  "value": "\\b581\\b"
                 }
               ]
             }
           ],
-          "_why": "577 PAV samples have Treatment1='Acetaminophen'. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAV $.Treatment1 grouped -> Acetaminophen 577, 'M. tuberculosis' 254, Banamine 189. || TESTS: the simplest possible memory probe: repeat the number you just gave. Any other number is a re-search.",
+          "_why": "577 PAV samples have Treatment1='Acetaminophen'. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAV $.Treatment1 grouped -> Acetaminophen 577, 'M. tuberculosis' 254, Banamine 189. || TESTS: the simplest possible memory probe: repeat the number you just gave. Any other number is a re-search. || Re-keyed 2026-09-23 against production (fairdata): 581 T_PAV with Treatment1 = 'Acetaminophen', the only spelling (Neo4j cypher-shell, read-only); was 577.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -13047,7 +13072,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b96\\b"
+                  "value": "\\b244\\b"
                 }
               ]
             },
@@ -13058,12 +13083,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b24\\b"
+                  "value": "\\b103\\b"
                 }
               ]
             }
           ],
-          "_why": "96 MUS have Genotype='PWK'; 24 of those have Sex='F'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS Genotype='PWK' = 96; + Sex='F' = 24. || TESTS: an intersection follow-up with a small answer, where re-searching the whole database gives 525 instead.",
+          "_why": "96 MUS have Genotype='PWK'; 24 of those have Sex='F'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS Genotype='PWK' = 96; + Sex='F' = 24. || TESTS: an intersection follow-up with a small answer, where re-searching the whole database gives 525 instead. || Re-keyed 2026-09-23 against production (fairdata): 244 T_MUS with Genotype = 'PWK' (M 141, F 103) (Neo4j cypher-shell, read-only); was 96 / 24.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -13135,7 +13160,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b800\\b"
+                  "value": "\\b2,?690\\b"
                 }
               ]
             },
@@ -13151,7 +13176,7 @@
               ]
             }
           ],
-          "_why": "800 samples have Type='Illumina Library' and all of them are DNA samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Type='Illumina Library' = 800, all sample_type DNA. || TESTS: type recall over a result set defined without naming a type.",
+          "_why": "800 samples have Type='Illumina Library' and all of them are DNA samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Type='Illumina Library' = 800, all sample_type DNA. || TESTS: type recall over a result set defined without naming a type. || Re-keyed 2026-09-23 against production (fairdata): 2,690 samples with Type = 'Illumina Library': DNA 2,686 and TIS 4, so 'all DNA' is no longer quite true (Neo4j cypher-shell, read-only); was 800.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -13223,7 +13248,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b136\\b"
+                  "value": "\\b286\\b"
                 }
               ]
             },
@@ -13239,7 +13264,7 @@
               ]
             }
           ],
-          "_why": "136 OOC have Vascularization='Vasculogenesis' (Angiogenesis is 54). OOC.Material is PDMS under four spellings: 'Polydimethylsiloxane (PDMS)' 457, 'Polydimethylsiloxane' 29, 'polydimethylsiloxane' 26, 'PDMS' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC $.Vascularization and $.Material distributions. || TESTS: a follow-up onto a second attribute of the same set, on the least-tested sample type in the corpus.",
+          "_why": "136 OOC have Vascularization='Vasculogenesis' (Angiogenesis is 54). OOC.Material is PDMS under four spellings: 'Polydimethylsiloxane (PDMS)' 457, 'Polydimethylsiloxane' 29, 'polydimethylsiloxane' 26, 'PDMS' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC $.Vascularization and $.Material distributions. || TESTS: a follow-up onto a second attribute of the same set, on the least-tested sample type in the corpus. || Re-keyed 2026-09-23 against production (fairdata): 286 T_OOC with Vascularization = 'Vasculogenesis' (Angiogenesis 54, null 343), every one Material 'Polydimethylsiloxane (PDMS)' (Neo4j cypher-shell, read-only); was 136.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -14141,7 +14166,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b701\\b"
+                  "value": "\\b4,?719\\b"
                 }
               ]
             },
@@ -14152,12 +14177,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b142\\b"
+                  "value": "\\b4,?946\\b"
                 }
               ]
             }
           ],
-          "_why": "Spleen 395 + spleen 306 = 701. Kidney 105 + kidney 37 = 142. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped, case-folded. || TESTS: a substitution refinement (change one filter, re-run) where BOTH values are case-split, so the same defect has to be handled twice.",
+          "_why": "Spleen 395 + spleen 306 = 701. Kidney 105 + kidney 37 = 142. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped, case-folded. || TESTS: a substitution refinement (change one filter, re-run) where BOTH values are case-split, so the same defect has to be handled twice. || Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ case-folded (Neo4j cypher-shell, read-only): Spleen 2,533 + SPLEEN 1,644 + spleen 542 = 4,719; Kidney 2,896 + kidney 1,748 + KIDNEY 302 = 4,946; was 701 / 142.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -14185,7 +14210,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b188\\b"
+                  "value": "\\b1,?065\\b"
                 }
               ]
             },
@@ -14201,7 +14226,7 @@
               ]
             }
           ],
-          "_why": "WGS 188, Hi-C 12. Neither value is case-split, so this is the clean control for the previous case. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.LibraryStrategy grouped -> Amplicon 620, AMPLICON 559, RNA-Seq 258, RNA-seq 200, WGS 188, scRNA-Seq 102, Targeted Capture 69, RNAseq 49, Hi-C 12. || TESTS: substitution with an unambiguous answer, isolating 'did the refinement work' from 'did the case split bite'.",
+          "_why": "WGS 188, Hi-C 12. Neither value is case-split, so this is the clean control for the previous case. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.LibraryStrategy grouped -> Amplicon 620, AMPLICON 559, RNA-Seq 258, RNA-seq 200, WGS 188, scRNA-Seq 102, Targeted Capture 69, RNAseq 49, Hi-C 12. || TESTS: substitution with an unambiguous answer, isolating 'did the refinement work' from 'did the case split bite'. || Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ LibraryStrategy (Neo4j cypher-shell, read-only): WGS 1,065, Hi-C 12 (unchanged), neither case-split; was 188.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -14229,7 +14254,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b194\\b"
+                  "value": "\\b263\\b"
                 }
               ]
             },
@@ -14240,12 +14265,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b82\\b"
+                  "value": "\\b142\\b"
                 }
               ]
             }
           ],
-          "_why": "Origin='India' 194 (a separate 'Indian' spelling adds 45, for 239); 'China' 82. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Origin grouped -> India 194, China 82, null 73, Indian 45, Indonesia 14. || TESTS: substitution where the FIRST value has a synonym and the second does not.",
+          "_why": "Origin='India' 194 (a separate 'Indian' spelling adds 45, for 239); 'China' 82. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Origin grouped -> India 194, China 82, null 73, Indian 45, Indonesia 14. || TESTS: substitution where the FIRST value has a synonym and the second does not. || Re-keyed 2026-09-23 against production (fairdata): T_NHP Origin grouped (Neo4j cypher-shell, read-only): India 263, null 201, China 142, Mauritius 105, Indonesia 14; no 'Indian' spelling remains; was 194 / 82.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -14273,7 +14298,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b90\\b"
+                  "value": "\\b7,?936\\b"
                 }
               ]
             },
@@ -14284,12 +14309,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b541\\b"
+                  "value": "\\b6,?633\\b"
                 }
               ]
             }
           ],
-          "_why": "RNALater 90; 'Snap Frozen' 541 (a 'Snap-frozen' spelling adds 18, and 'snap freeze' 138 is arguably the same thing). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.StorageType grouped -> Snap Frozen 541, snap freeze 138, paraffin 92, RNALater 90. || TESTS: a refinement that jumps from a rare value to a common one \u2014 the direction that hides a silently-ignored filter.",
+          "_why": "RNALater 90; 'Snap Frozen' 541 (a 'Snap-frozen' spelling adds 18, and 'snap freeze' 138 is arguably the same thing). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.StorageType grouped -> Snap Frozen 541, snap freeze 138, paraffin 92, RNALater 90. || TESTS: a refinement that jumps from a rare value to a common one \u2014 the direction that hides a silently-ignored filter. || Re-keyed 2026-09-23 against production (fairdata): T_TIS StorageType (Neo4j cypher-shell, read-only): no row says 'RNALater' exactly; 'RNA Later' 4,855 + 'RNAlater' 3,081 = 7,936 is the RNALater answer. 'Snap Frozen' exactly 6,633, the old key's predicate ('Snap Frozen GPT' 2,796 is a separate value); was 90 / 541.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -14317,7 +14342,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b248\\b"
+                  "value": "\\b(528|659)\\b"
                 }
               ]
             },
@@ -14328,12 +14353,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b30\\b"
+                  "value": "\\b(35|40)\\b"
                 }
               ]
             }
           ],
-          "_why": "Treatment1Route='Intramuscularly' 248 (lowercase 'intramuscularly' adds 5); 'Intradermally' 30. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAV $.Treatment1Route grouped, 15 distinct values. || TESTS: the same substitution shape on the sample type with the messiest route vocabulary.",
+          "_why": "Treatment1Route='Intramuscularly' 248 (lowercase 'intramuscularly' adds 5); 'Intradermally' 30. || VERIFIED: seek_production MySQL, verified 2026-08-06: PAV $.Treatment1Route grouped, 15 distinct values. || TESTS: the same substitution shape on the sample type with the messiest route vocabulary. || Re-keyed 2026-09-23 against production (fairdata): T_PAV Treatment1Route (Neo4j cypher-shell, read-only): 'Intramuscularly' 528 + 'intramuscularly' 131 = 659; 'Intradermally' 35 + 'intradermally' 5 = 40 (compounds 'Intradermally; Aerosol' 5 and 'Aerosol; Intradermally' 5 excluded). The case split is no longer negligible, so exact and case-folded are both accepted; was 248 / 30.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -14361,7 +14386,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?178\\b"
+                  "value": "\\b1,?317\\b"
                 }
               ]
             },
@@ -14372,12 +14397,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b427\\b"
+                  "value": "\\b1,?864\\b"
                 }
               ]
             }
           ],
-          "_why": "'Illumina MiSeq' 1,178; 'Illumina NovaSeq 6000' 427 (plus 'NovaSeq 6000, Illumina' 24, 'NovaSeq 6000' 1, and eleven junk singletons NovaSeq 6001-6011). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer grouped, 21 distinct values. || TESTS: substitution onto a value with a documented data-entry mess behind it (NovaSeq 6001..6011 are typos of the same instrument).",
+          "_why": "'Illumina MiSeq' 1,178; 'Illumina NovaSeq 6000' 427 (plus 'NovaSeq 6000, Illumina' 24, 'NovaSeq 6000' 1, and eleven junk singletons NovaSeq 6001-6011). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer grouped, 21 distinct values. || TESTS: substitution onto a value with a documented data-entry mess behind it (NovaSeq 6001..6011 are typos of the same instrument). || Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ Sequencer (Neo4j cypher-shell, read-only): 'Illumina MiSeq' 1,317 (the only MiSeq spelling); 'Illumina NovaSeq 6000' 1,864, the old key's exact-value predicate (other spellings: 'NovaSeq 6000' 397, 'Illumina NovaSeq6000' 99, 'NovaSeq 6000, Illumina' 24, 'NovaSeq6000' 21, plus ~70 NovaSeq 60xx typo singletons); was 1,178 / 427.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -14449,7 +14474,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b175\\b"
+                  "value": "\\b593\\b"
                 }
               ]
             }
@@ -14467,7 +14492,8 @@
             "assertion": "api_plan.endpoint eq /nextseek_api/sops/"
           },
           "_promoted_2026_08_06": "Reviewed and grounded. 175 SOPs exist (143 distinct titles). The generated criterion pinned the endpoint /nextseek_api/sops/, which is the right NS path but invisible on a forced CC arm; the count is added so both engines are measured on the answer.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 175 SOP rows (34 of them TEST_SOP artifacts). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 175 SOP rows (34 of them TEST_SOP artifacts). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 593 SOP rows (seek_production MySQL, read-only: COUNT(sops)); was 175."
         },
         {
           "id": "path.i_don_t_trust_that_impact_number",
@@ -14486,7 +14512,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b705\\b"
+                  "value": "\\b2,?294\\b"
                 }
               ]
             }
@@ -14504,7 +14530,8 @@
             "assertion": "last_reply matches_re \\b705\\b"
           },
           "_promoted_2026_08_06": "Reviewed as written; its criterion is already reply-level and the number is verified (705 MUS in Impact). This is the corpus's only 'recompute it from scratch and tell me if you still get the same number' case, which is exactly the shape that catches an engine echoing a cached answer.",
-          "_deselected_2026_08_06_qset": "asserts 705, which graph.what_mice_are_in_the_impact_st already owns. Replaced by path.recount_dseq_from_scratch on 2,057."
+          "_deselected_2026_08_06_qset": "asserts 705, which graph.what_mice_are_in_the_impact_st already owns. Replaced by path.recount_dseq_from_scratch on 2,057.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 2,294 T_MUS in 'Impactb Investigation' and in project IMPAcTb (Neo4j cypher-shell, read-only); was 705."
         },
         {
           "id": "path.what_sample_types_were_represent",
@@ -14571,7 +14598,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b195\\b"
+                  "value": "\\b1,?551\\b"
                 }
               ]
             }
@@ -14589,7 +14616,8 @@
             "assertion": "parser_plan.mode eq new_search"
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. As generated this was a single turn reading 'Actually, hang on \u2014 find me the mice treated with NDMA first', which has no antecedent to interrupt and so tests nothing; the capability it names is the in-progress pipeline-wizard gate. Given a real first turn that opens a pipeline build, the second turn now tests whether an explicit mid-wizard redirect is honoured.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. D.SEQ-230512FOR-288-PUB exists (SRR24445250). The interrupt must be ANSWERED (195 NDMA mice), not swallowed by the open wizard. || VERIFIED: seek_production MySQL, verified 2026-08-06: UID present; MUS Treatment1='NDMA' = 195."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. D.SEQ-230512FOR-288-PUB exists (SRR24445250). The interrupt must be ANSWERED (195 NDMA mice), not swallowed by the open wizard. || VERIFIED: seek_production MySQL, verified 2026-08-06: UID present; MUS Treatment1='NDMA' = 195.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): turn 2 is 1,551 NDMA mice, same predicate as advanced.basic_ndma (Neo4j cypher-shell, read-only); D.SEQ-230512FOR-288 exists (without the -PUB suffix, which no prod UID carries); was 195."
         },
         {
           "artifact_expected": null,
@@ -14616,7 +14644,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "2,?057\\b"
+                  "value": "\\b6,?705\\b"
                 },
                 {
                   "field": "last_reply",
@@ -14626,7 +14654,7 @@
               ]
             }
           ],
-          "_why": "2,057 D.SEQ samples. Both stores agree. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample_type D.SEQ = 2057; Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'}) = 2057. || TESTS: an adversarial re-derivation. Replaces `path.i_don_t_trust_that_impact_number`, which asserted 705 and collided with the graph_traversal case.",
+          "_why": "2,057 D.SEQ samples. Both stores agree. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample_type D.SEQ = 2057; Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.SEQ'}) = 2057. || TESTS: an adversarial re-derivation. Replaces `path.i_don_t_trust_that_impact_number`, which asserted 705 and collided with the graph_traversal case. || Re-keyed 2026-09-23 against production (fairdata): 6,705 D.SEQ in both stores (Neo4j cypher-shell, read-only: count(:T_D_SEQ); seek_production MySQL, read-only: samples of sample type D.SEQ); was 2,057.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -14835,7 +14863,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "6,?708\\b"
+                  "value": "\\b(58,?142|58,?157)\\b"
                 }
               ]
             }
@@ -14848,10 +14876,11 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 6,708 samples in SRP across 32 sample types, 12 studies, 61 assays, 22 SOPs. Every sample in this deployment is in the single 'Published Data' project, so 'published' adds no filter. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 6,708."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 6,708 samples in SRP across 32 sample types, 12 studies, 61 assays, 22 SOPs. Every sample in this deployment is in the single 'Published Data' project, so 'published' adds no filter. || VERIFIED: seek_production MySQL, verified 2026-08-06 and Neo4j cypher-shell, verified 2026-08-06 agree on 6,708.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): prod has no project titled SRP; project MIT_SRP holds 58,142, and 58,157 with the MIT_SRP study and investigation scopes added (Neo4j cypher-shell, read-only; the same two readings as the prod probe pin srp2.project_scope); was 6,708."
         },
         {
-          "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows \u2014 the entire database \u2014 for a Kamm-scoped RPPR.",
+          "_why": "The base asserted reporter_plan.project == 'Kamm', but Kamm is modelled as a LAB. The real defect: reporter_result came back project_id null with 50,886 rows \u2014 the entire database \u2014 for a Kamm-scoped RPPR. || Re-keyed 2026-09-23 against production (fairdata): 9,821 samples with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'); the uuids_saved lte 20000 bound still holds; was 7,269.",
           "id": "report.put_together_an_annual_progres",
           "family": "project_summary_report",
           "name": "RPPR for Kamm must be SCOPED",
@@ -14898,7 +14927,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "7,?269\\b"
+                  "value": "\\b9,?821\\b"
                 },
                 {
                   "field": "last_reply",
@@ -15157,12 +15186,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "7,?365\\b"
+                  "value": "\\b10,?604\\b"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b32\\b"
+                  "value": "\\b97\\b"
                 }
               ]
             }
@@ -15175,7 +15204,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. MetNet: 7,365 samples, 25 sample types, 10 studies, 65 assays, 32 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join and Neo4j cypher-shell, verified 2026-08-06 2-hop both give 7,365; SOPs via sops_studies -> studies -> investigations = 32."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. MetNet: 7,365 samples, 25 sample types, 10 studies, 65 assays, 32 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join and Neo4j cypher-shell, verified 2026-08-06 2-hop both give 7,365; SOPs via sops_studies -> studies -> investigations = 32.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): project MetNet holds 10,604 samples across 30 types (Neo4j cypher-shell, read-only; the MetNet investigation holds 9,534) and 97 SOPs (seek_production MySQL, read-only: projects_sops for project MetNet). sops_studies is empty on prod, so the old sops_studies join cannot be repeated; only 6 SOPs reach the MetNet investigation through assay_assets; was 7,365 / 32."
         },
         {
           "id": "report.i_need_the_nih_progress_report",
@@ -16374,7 +16404,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b144\\b"
+                  "value": "\\b4,?272\\b"
                 },
                 {
                   "field": "last_reply",
@@ -16384,7 +16414,7 @@
               ]
             }
           ],
-          "_why": "CSBC: 144 samples, 6 sample types, 2 studies, 3 assays, 2 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join = 144, Neo4j cypher-shell, verified 2026-08-06 = 144; studies/assays/sops counted through the same join. || TESTS: the smallest investigation, where every figure is small enough to check by eye.",
+          "_why": "CSBC: 144 samples, 6 sample types, 2 studies, 3 assays, 2 SOPs. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join = 144, Neo4j cypher-shell, verified 2026-08-06 = 144; studies/assays/sops counted through the same join. || TESTS: the smallest investigation, where every figure is small enough to check by eye. || Re-keyed 2026-09-23 against production (fairdata): 4,272 samples in the CSBC investigation across 19 types (Neo4j cypher-shell, read-only; the CSBC project holds 4,274). The second criterion (2|3), old studies/assays, is left alone: the graph puts 8 studies under CSBC while MySQL has 1 study under each of two investigations titled CSBC, so no single study count is right; was 144.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -17503,7 +17533,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b103\\b"
+                  "value": "\\b(2,?666|3,?321)\\b"
                 }
               ]
             },
@@ -17532,7 +17562,8 @@
             "assertion": "last_reply matches_re \"/dmac/users/[^\\s`]+/(output|scratch)/\" \u2014 the reply quotes the host-side logical path, proving DMAC_PATH_MAPPINGS was read and applied rather than the container path /data/output being leaked"
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED. 'Those samples' had no antecedent as a single turn. A seed turn now supplies one, and the delivery criterion (the reply must quote the HOST-side path under /dmac/users/... rather than leak the container path /data/output) is kept as generated \u2014 it is the only place the corpus tests DMAC_PATH_MAPPINGS. The seed is the Kamm organ-on-chip cohort (530, verified) rather than the NDMA mice, deliberately: 'Find me mice treated with NDMA' is already the seed of five other selected variants, and a sixth would buy nothing but another copy of the same first turn.",
-          "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The delivered path must be the HOST path under /dmac/users/..., not the container path /data/output. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped -> Pancreas 103. Path contract from DMAC_PATH_MAPPINGS. || TESTS: REWORDED seed only. It previously opened with 'Find me all organ on chip samples in the Kamm lab' \u2014 the same question as routing.lab_ooc_kamm_count, which is kept, so the two would have shared a seed and a number. The delivery turn, which is the point of the case, is unchanged."
+          "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 103 TIS samples have Organ='Pancreas' (a value with no casing variant, so the seed is unambiguous). The delivered path must be the HOST path under /dmac/users/..., not the container path /data/output. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ grouped -> Pancreas 103. Path contract from DMAC_PATH_MAPPINGS. || TESTS: REWORDED seed only. It previously opened with 'Find me all organ on chip samples in the Kamm lab' \u2014 the same question as routing.lab_ooc_kamm_count, which is kept, so the two would have shared a seed and a number. The delivery turn, which is the point of the case, is unchanged.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ = 'Pancreas' 2,666, and 3,321 with 'pancreas' 384 and 'PANCREAS' 271 (Neo4j cypher-shell, read-only); the seed is no longer free of case variants, so both readings are accepted; was 103."
         },
         {
           "artifact_expected": null,
@@ -17559,7 +17590,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b163\\b"
+                  "value": "\\b239\\b"
                 },
                 {
                   "field": "last_reply",
@@ -17569,7 +17600,7 @@
               ]
             }
           ],
-          "_why": "Macaca mulatta (Rhesus) 163, Macaca mulatta 106, Rhesus macaque 73, Macaca fascicularis 66 \u2014 408 in total. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Species grouped. || TESTS: delivery of a COMPUTED table rather than a row dump, with both the number and the host path asserted.",
+          "_why": "Macaca mulatta (Rhesus) 163, Macaca mulatta 106, Rhesus macaque 73, Macaca fascicularis 66 \u2014 408 in total. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Species grouped. || TESTS: delivery of a COMPUTED table rather than a row dump, with both the number and the host path asserted. || Re-keyed 2026-09-23 against production (fairdata): T_NHP Species grouped (Neo4j cypher-shell, read-only): Macaca fascicularis 327, 'Macaca mulatta (Rhesus)' 239, 'Rhesus macaque' 109, 'Macaca mulatta' 37, null 13 (725 in all); the asserted row is still 'Macaca mulatta (Rhesus)'; was 163.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -19098,7 +19129,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b176\\b"
+                  "value": "\\b590\\b"
                 },
                 {
                   "field": "last_reply",
@@ -19108,7 +19139,7 @@
               ]
             }
           ],
-          "_why": "176 D.SEQ samples carry the LAU lab code (DNA x LAU is 177). No submission may occur. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ by UID lab code -> LAU 176. || TESTS: \u26a0 SAFETY: the deployed stack has a live LURIAKEY and `submit_to_luria` really does sbatch on MIT Luria. Every launch question in this set stops BEFORE submit, and this one asserts a negative guard that fails if the reply claims a job was queued.",
+          "_why": "176 D.SEQ samples carry the LAU lab code (DNA x LAU is 177). No submission may occur. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ by UID lab code -> LAU 176. || TESTS: \u26a0 SAFETY: the deployed stack has a live LURIAKEY and `submit_to_luria` really does sbatch on MIT Luria. Every launch question in this set stops BEFORE submit, and this one asserts a negative guard that fails if the reply claims a job was queued. || Re-keyed 2026-09-23 against production (fairdata): 590 T_D_SEQ with lab code LAU in the UID (Neo4j cypher-shell, read-only); was 176.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -19429,7 +19460,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(?=.*Aag)(?=.*(91|78))"
+                  "value": "(?is)(?=.*Aag)(?=.*\\b54\\b)"
                 },
                 {
                   "field": "last_reply",
@@ -19439,7 +19470,7 @@
               ]
             }
           ],
-          "_why": "RGA 91 rows, RGATG 78 rows. The long forms already exist in the data with 23 and 32 rows respectively, which is what makes the mapping checkable. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Genotype -> RGA 91, RGATG 78, 'RaDR+/+; GPT+/+; Aag -/-' 23, 'RaDR+/+; GPT+/+; AagTg -/+' 32. || TESTS: the curator hands over the vocabulary rather than asking the system to guess it \u2014 the pattern the ad-hoc log shows repeatedly. The no-upload half is asserted separately.",
+          "_why": "RGA 91 rows, RGATG 78 rows. The long forms already exist in the data with 23 and 32 rows respectively, which is what makes the mapping checkable. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Genotype -> RGA 91, RGATG 78, 'RaDR+/+; GPT+/+; Aag -/-' 23, 'RaDR+/+; GPT+/+; AagTg -/+' 32. || TESTS: the curator hands over the vocabulary rather than asking the system to guess it \u2014 the pattern the ad-hoc log shows repeatedly. The no-upload half is asserted separately. || Re-keyed 2026-09-23 against production (fairdata): T_MUS Genotype (Neo4j cypher-shell, read-only): 'RGA' 54 rows and no 'RGATG' row at all (other short codes: RGAM 141, RG 95, RGM 46); the long forms hold 219 and 212. So the RGA mapping changes 54 rows and the RGATG mapping none; was RGA 91 / RGATG 78.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -19501,7 +19532,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "1,?179\\b"
+                  "value": "\\b1,?318\\b"
                 }
               ]
             }
@@ -19514,7 +19545,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Ground truth verified 2026-08-06: D.SEQ.LibraryStrategy holds 'Amplicon' 620 times and 'AMPLICON' 559 times, so the answer is 1,179 and a case-sensitive query returns 620. All 2,057 D.SEQ samples carry a value, so there is no null-handling ambiguity. This is the cleanest harmonization trap in the database and the corpus had no variant on it.",
+          "_why": "Ground truth verified 2026-08-06: D.SEQ.LibraryStrategy holds 'Amplicon' 620 times and 'AMPLICON' 559 times, so the answer is 1,179 and a case-sensitive query returns 620. All 2,057 D.SEQ samples carry a value, so there is no null-handling ambiguity. This is the cleanest harmonization trap in the database and the corpus had no variant on it. || Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ LibraryStrategy (Neo4j cypher-shell, read-only): 'Amplicon' 755 + 'AMPLICON' 563 = 1,318; 1,580 D.SEQ now carry no LibraryStrategy, so the no-null note above no longer holds; was 1,179.",
           "_added_2026_08_06": "Written fresh for the additive pass that extended the already-graded 127-variant set. Ground truth verified against the live local stack.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 'Amplicon' 620 + 'AMPLICON' 559 = 1,179. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.LibraryStrategy grouped."
         },
@@ -19535,7 +19566,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "4,?449\\b"
+                  "value": "\\b23,?218\\b"
                 },
                 {
                   "field": "last_reply",
@@ -19553,7 +19584,7 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_why": "Ground truth verified 2026-08-06: TIS.Organ holds 'Lung' 3,795 times and 'lung' 654 times, for 4,449. Deliberately paired with harmon.library_strategy_case_split on a DIFFERENT sample type and attribute so a single lucky normalisation does not carry both. 'Lung; Lymph Node' compounds exist (36) and are correctly excluded.",
+          "_why": "Ground truth verified 2026-08-06: TIS.Organ holds 'Lung' 3,795 times and 'lung' 654 times, for 4,449. Deliberately paired with harmon.library_strategy_case_split on a DIFFERENT sample type and attribute so a single lucky normalisation does not carry both. 'Lung; Lymph Node' compounds exist (36) and are correctly excluded. || Re-keyed 2026-09-23 against production (fairdata): T_TIS toLower(trim(Organ)) = 'lung' (Neo4j cypher-shell, read-only): 'Lung' 17,325 + 'lung' 3,361 + 'LUNG' 2,532 = 23,218, three capitalisations now; 'caudal lung lobe' 64 and 'Whole Lung' 28 are excluded and the 'Lung; Lymph Node' compounds are gone. The reply seen on prod 2026-09-22 said exactly 23,218 with this split; was 4,449.",
           "_added_2026_08_06": "Written fresh for the additive pass that extended the already-graded 127-variant set. Ground truth verified against the live local stack.",
           "_edited_2026_08_06_qset": "TEXT CHANGED -- the prior human grade for this id is a comparison baseline, not a valid pre-fill. 'Lung' 3,795 + 'lung' 654 = 4,449. Compounds 'Lung; Lymph Node' 29 and 'Lung; Lymph node' 7 are excluded (4,485 if included). A whole-blob keyword search over TIS returns 4,786. || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ LIKE '%lung%' grouped, all four values reproduced above. || TESTS: REWORDED. The old text 'How many tissue samples came from the lung?' is three-valued (4,449 / 4,485 / 4,786) and NS answered 4,786 by keyword search \u2014 correctly, for a different question. The new text pins the attribute and the scope."
         },
@@ -19620,12 +19651,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b342\\b"
+                  "value": "\\b385\\b"
                 }
               ]
             }
           ],
-          "_why": "'Macaca mulatta (Rhesus)' 163 + 'Macaca mulatta' 106 + 'Rhesus macaque' 73 = 342. The remaining 66 NHP are Macaca fascicularis; 342 + 66 = 408, which is the known NHP total, so the arithmetic is self-checking. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Species grouped -> exactly four values. || TESTS: a semantic (not casing) cluster, with an internal consistency check a grader can verify without a database.",
+          "_why": "'Macaca mulatta (Rhesus)' 163 + 'Macaca mulatta' 106 + 'Rhesus macaque' 73 = 342. The remaining 66 NHP are Macaca fascicularis; 342 + 66 = 408, which is the known NHP total, so the arithmetic is self-checking. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Species grouped -> exactly four values. || TESTS: a semantic (not casing) cluster, with an internal consistency check a grader can verify without a database. || Re-keyed 2026-09-23 against production (fairdata): 'Macaca mulatta (Rhesus)' 239 + 'Rhesus macaque' 109 + 'Macaca mulatta' 37 = 385 (Neo4j cypher-shell, read-only: T_NHP Species grouped); with fascicularis 327 and 13 null that is the 725 NHP total; was 342.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -19653,12 +19684,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "4,?080\\b"
+                  "value": "\\b4,?081\\b"
                 }
               ]
             }
           ],
-          "_why": "'Immport' 3,226 + 'ImmPort' 854 = 4,080 across D.FLOW and D.FCS. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Repository LIKE '%mmport%' grouped by value and sample type. || TESTS: an internal-capital split, the variant a naive lowercase-compare fixes and an exact-compare does not.",
+          "_why": "'Immport' 3,226 + 'ImmPort' 854 = 4,080 across D.FLOW and D.FCS. || VERIFIED: seek_production MySQL, verified 2026-08-06: $.Repository LIKE '%mmport%' grouped by value and sample type. || TESTS: an internal-capital split, the variant a naive lowercase-compare fixes and an exact-compare does not. || Re-keyed 2026-09-23 against production (fairdata): Repository CONTAINS 'mmport' (Neo4j cypher-shell, read-only): 'Immport' 3,227 (D.FLOW 2,861, D.FCS 366) + 'ImmPort' 854 (D.FLOW) = 4,081; the reply seen on prod 2026-09-22 said exactly this; was 4,080.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -19686,12 +19717,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "5,?649\\b"
+                  "value": "\\b9,?021\\b"
                 }
               ]
             }
           ],
-          "_why": "'tif' 3,969 + 'TIF' 1,656 + '.tif' 24 = 5,649. The same file type also appears with a leading dot only in the czi family ('czi' 417 + '.czi' 348 + 'CZI' 217 = 982). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.DataType grouped, 19 distinct values. || TESTS: a three-way split combining case AND a leading-dot punctuation variant.",
+          "_why": "'tif' 3,969 + 'TIF' 1,656 + '.tif' 24 = 5,649. The same file type also appears with a leading dot only in the czi family ('czi' 417 + '.czi' 348 + 'CZI' 217 = 982). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.DataType grouped, 19 distinct values. || TESTS: a three-way split combining case AND a leading-dot punctuation variant. || Re-keyed 2026-09-23 against production (fairdata): T_D_IMG DataType CONTAINS 'tif' (Neo4j cypher-shell, read-only): 'tif' 5,877 + 'TIF' 2,447 + 'tiff' 666 + '.tif' 24 + 'TIFF' 4 + 'ome.tif' 3 = 9,021 TIFF files; 'tiff_metadata.xml' 636 is not a TIFF and is excluded; was 5,649.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -19910,7 +19941,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b(75|41)\\b"
+                  "value": "\\b78\\b"
                 },
                 {
                   "field": "last_reply",
@@ -19933,7 +19964,8 @@
             "assertion": "last_reply mentions \"Strain\""
           },
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. MUS declares 75 attributes (3 required: Name, UID, Scientist) and 41 keys are observed in the data. Genotype is declared at position 9, Text, not required, populated on 1,087 of 1,179. || VERIFIED: seek_production MySQL, verified 2026-08-06: sample_attributes for MUS; JSON_KEYS over MUS rows.",
-          "_promoted_2026_08_06_qset": "read, ground-truthed and selected for the 2026-08-06 paired study; origin flipped atlas -> overlay, which is what promotion IS"
+          "_promoted_2026_08_06_qset": "read, ground-truthed and selected for the 2026-08-06 paired study; origin flipped atlas -> overlay, which is what promotion IS",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): MUS declares 78 sample_attributes and all 78 keys appear in MUS json_metadata (seek_production MySQL, read-only); was 75/41."
         },
         {
           "artifact_expected": null,
@@ -21019,7 +21051,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b118\\b"
+                  "value": "\\b890\\b"
                 }
               ]
             },
@@ -21030,12 +21062,12 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b118\\b"
+                  "value": "\\b890\\b"
                 }
               ]
             }
           ],
-          "_why": "118 D.MSP samples \u2014 the entire mass-spec footprint of the deployment. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample type D.MSP = 118. || TESTS: within-chat turn context, the half of the memory system a forced run CAN reach.",
+          "_why": "118 D.MSP samples \u2014 the entire mass-spec footprint of the deployment. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT by sample type D.MSP = 118. || TESTS: within-chat turn context, the half of the memory system a forced run CAN reach. || Re-keyed 2026-09-23 against production (fairdata): 890 D.MSP (Neo4j cypher-shell, read-only: count(:T_D_MSP)); both turns of the reply seen on prod 2026-09-22 said 890; was 118.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         },
         {
@@ -21234,17 +21266,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(50,?88[0-9]|too many|not practical|instead|aggregat|summar|group|narrow|scope)"
+                  "value": "(?is)(168,?482|too many|not practical|instead|aggregat|summar|group|narrow|scope)"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)^(?!.*(?:here are all 50,?88|listing all 50,?88)).*$"
+                  "value": "(?is)^(?!.*(?:here are all 168,?482|listing all 168,?482)).*$"
                 }
               ]
             }
           ],
-          "_why": "50,887 rows and 113 distinct Scientist values. The correct answer proposes the aggregate (or a scope) rather than attempting 50,887 lines. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(*)=50,887; COUNT(DISTINCT $.Scientist)=113. || TESTS: the request most likely to blow the per-turn caps. Passing means the engine bounded ITSELF, not that a watchdog killed it.",
+          "_why": "50,887 rows and 113 distinct Scientist values. The correct answer proposes the aggregate (or a scope) rather than attempting 50,887 lines. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(*)=50,887; COUNT(DISTINCT $.Scientist)=113. || TESTS: the request most likely to blow the per-turn caps. Passing means the engine bounded ITSELF, not that a watchdog killed it. || Re-keyed 2026-09-23 against production (fairdata): 168,482 rows in both stores and 215 distinct Scientist values (Neo4j cypher-shell, read-only; seek_production MySQL, read-only); was 50,887 / 113.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -21291,7 +21323,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b408\\b"
+                  "value": "\\b725\\b"
                 }
               ]
             }
@@ -21309,7 +21341,8 @@
             "assertion": "a deterministic cancel word abandons the build, so the next turn is no longer routed by the pipeline gate"
           },
           "_promoted_2026_08_06": "REVIEWED AND REPAIRED, twice over. It was a single turn holding a flattened THREE-turn script, and its criterion asserts route_source == 'baml' \u2014 which the paired runner FALSIFIES by construction, because forcing sets route_source to 'forced' on every arm. Split into three real turns and re-asserted on the behaviour instead: after the cancel word, the next turn must be answered as a fresh question rather than swallowed by the wizard. 408 NHP is verified.",
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The D.SEQ-240910LAU batch is real \u2014 4 of its members ran on Luria as job nfcore_rnaseq_260723_205359_0. After the cancel word the next turn must be answered fresh: 408 NHP samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP total 408; the Luria run directory listing confirms the LAU cohort."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The D.SEQ-240910LAU batch is real \u2014 4 of its members ran on Luria as job nfcore_rnaseq_260723_205359_0. After the cancel word the next turn must be answered fresh: 408 NHP samples. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP total 408; the Luria run directory listing confirms the LAU cohort.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 725 NHP (Neo4j cypher-shell, read-only: count(:T_NHP)); the D.SEQ-240910LAU batch still exists (590 LAU D.SEQ in all); was 408."
         },
         {
           "artifact_expected": null,
@@ -21336,7 +21369,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b26\\b"
+                  "value": "\\b11\\b"
                 },
                 {
                   "field": "last_reply",
@@ -21346,7 +21379,7 @@
               ]
             }
           ],
-          "_why": "324 assays in seek_production.assays. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(assays)=324. || TESTS: legibility of the turn: the reply must expose its own method AND land the answer. A trace that never reaches an answer, or an answer with no method, each fail one half.",
+          "_why": "324 assays in seek_production.assays. || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(assays)=324. || TESTS: legibility of the turn: the reply must expose its own method AND land the answer. A trace that never reaches an answer, or an answer with no method, each fail one half. || Re-keyed 2026-09-23 against production (fairdata): 11 sample types have no samples: IMG, D.NCT, A.MDL, A.LUM, D.LUM, D.MBL, A.SEQ, A.EXPR, BLD, A.FPCL, SUB (seek_production MySQL, read-only: sample_types with NOT EXISTS samples); the 324-assays line above is a stale note from another case; was 26.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -21665,7 +21698,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "13,?351\\b"
+                  "value": "\\b21,?589\\b"
                 }
               ]
             }
@@ -21678,7 +21711,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The chart itself cannot be rendered in chat, but the underlying table can: D.IMG 13,351, TIS 11,712, PAV 6,027, D.FLOW 5,210, DNA 2,109, D.SEQ 2,057, ... || VERIFIED: seek_production MySQL, verified 2026-08-06: samples grouped by sample type."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The chart itself cannot be rendered in chat, but the underlying table can: D.IMG 13,351, TIS 11,712, PAV 6,027, D.FLOW 5,210, DNA 2,109, D.SEQ 2,057, ... || VERIFIED: seek_production MySQL, verified 2026-08-06: samples grouped by sample type.",
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): samples by type (Neo4j cypher-shell, read-only): TIS 74,107, D.IMG 21,589, PAV 13,380, D.FLOW 11,303, DNA 7,021, D.SEQ 6,705, ...; the asserted row stays D.IMG; was 13,351."
         },
         {
           "id": "unsup.compare_gene_expression_betwee",
@@ -22099,7 +22133,6 @@
       "name": "#33 NHP sequencing routes+counts must agree",
       "tags": [
         "nessie",
-        "known_fail",
         "full"
       ],
       "queries": [
@@ -22110,7 +22143,8 @@
         "same_route": true,
         "same_count": true,
         "count_not_limit": true
-      }
+      },
+      "_why": "known_fail removed 2026-09-23: on production (fairdata) both phrasings routed nextseek_query and returned count 3,861 in three separate runs (the 2026-09-22 acceptance probe and both 2026-09-23 retests), each reported xpass; 3,861 is the measured number of T_D_SEQ with an NHP ancestor (Neo4j cypher-shell, read-only, EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_NHP)}), so the count is right and not a limit. The #33 disagreement this group was tagged for is gone."
     }
   ]
 }
