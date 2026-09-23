@@ -497,7 +497,8 @@ def chatter_agent_answer(
             "because something about this result needs qualifying (a dropped constraint, a substituted or "
             "capped search, a zero, or a note from whoever built the query). Never name an endpoint, a URL, "
             "an HTTP method, Cypher, a query operator (AND/OR) or a request field: the user cannot act on "
-            "any of it.\n"
+            "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
+            "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
             if disclosure_qualifies else
             "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
             "search is not part of the reply: no mention of a query, of what it was constrained by, or of "

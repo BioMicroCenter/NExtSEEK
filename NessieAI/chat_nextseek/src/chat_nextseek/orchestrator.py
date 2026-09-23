@@ -867,10 +867,10 @@ def _execute_graph_turn(
     debug_payload["graph_scope"] = graph_result.get("scope")
     if is_scope_refusal(graph_result):
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
-    # The user must not be told a number without being told the first query found
-    # nothing and the filter was changed to get it. Recording it in debug_payload was
-    # not enough: nothing read the flag, so the reply never carried the caveat. It now
-    # goes to the chatter as a query note as well.
+    # A number found by a changed filter may not mean what the question asked, so the
+    # chatter is told the filter changed (a query note; the debug flag alone reached no
+    # one). The note asks it to qualify what the result covers when that differs from the
+    # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
     query_notes: list[str] = list(uid_reply_notes)
     if first_ok_empty and not matched_nothing(graph_result):
         debug_payload["graph_retry_changed_answer"] = True

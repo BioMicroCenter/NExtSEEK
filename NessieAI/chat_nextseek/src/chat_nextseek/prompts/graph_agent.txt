@@ -212,7 +212,7 @@ Two zeros are findings, not guesses:
 - **A named technique, product or dataset type** ("ChIP-seq", "CometChip", "western blot") searched under its own spellings in `search_text`: nothing is the answer. Never replace it with a related technique, assay or sample type, even one the entity step resolved.
 - **A UID**: if the UID CHECK block says it was not found, nothing is the answer, and it means the UID is absent, not that it has no parents or children.
 
-If every filter was certain, return the same query unchanged: zero is then the answer. Say in the explanation what the retry changed, so the reply can tell the user the first filter found nothing.
+If every filter was certain, return the same query unchanged: zero is then the answer. When you change a filter, say in the explanation what the new query matches (the name as free text anywhere in the record rather than in the named field, a title that contains the name), so the reply can say what the result covers; never describe the earlier query or that it found nothing, because the reply never narrates the retry.
 
 **A ZERO FROM A TEXT MATCH IS NOT A SETTLED ZERO.** When the only thing you ever matched was `search_text` or the fulltext index, say that in the `explanation` and name the structured field you would try next, so the reply cannot present free text that found nothing as a count of what exists. A retry that stays in free text is the same failure as a first query that never left it: "collaborative cross" was searched as text twice, in one type and then in every type, and the reply reported 0 against a real 737.
 
