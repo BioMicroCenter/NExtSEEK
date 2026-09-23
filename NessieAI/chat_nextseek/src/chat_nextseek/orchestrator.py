@@ -540,7 +540,13 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     a follow-up runs the same engine as a fresh question; the difference is only that
     the previous result's UIDs are handed to it. Returns None on any failure, which
     sends the caller to the pre-existing stored-result path.
+
+    Every query that ran and returned rows is also kept, in full, on the outcome as
+    ``graph_runs`` (plan, result): the turn attaches the last one's rows as a file the way
+    a graph turn does. They stay out of the conversation, which sees ``preview_rows``.
     """
+    graph_runs: list[dict] = []
+
     def _run_query(*, question: str, seed_uids: list[str]) -> dict:
         refine = None
         if seed_uids:
@@ -573,6 +579,9 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             applied = len(seed_uids)
         result = tool_neo4j_query(config, graph_plan.cypher, parameters)
         rows = result.get("data") or []
+        if result.get("ok") and rows:
+            graph_runs.append({"graph_plan": graph_plan, "parameters": parameters,
+                               "result": result, "uids_applied": applied})
         # The head of the rows, bounded: this goes back into a conversation that is
         # re-sent in full on every later iteration of the loop. It used to be counts and
         # three examples harvested from uid/id/name columns only, so a breakdown row such
@@ -598,9 +607,12 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         }
 
     try:
-        return run_followup(
+        outcome = run_followup(
             config, user_text=user_text, bundle=bundle, run_query=_run_query, log_dir=log_dir,
         )
+        if isinstance(outcome, dict):
+            outcome["graph_runs"] = graph_runs
+        return outcome
     except Exception as exc:
         print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
         return None
@@ -911,28 +923,12 @@ def _execute_graph_turn(
     # through the debug panel's JSON button on the newest turn. The REST path has written
     # its rows whole since it was built; this is the graph counterpart, with a kind the
     # export layer does not exclude.
-    graph_rows = (graph_result or {}).get("data") or []
-    if graph_rows:
-        try:
-            rows_entry = artifact_store.write_json(
-                key="graph_result",
-                label="Graph query result rows",
-                filename=f"graph_result_bundle_{bundle_id}.json",
-                payload={
-                    "cypher": graph_plan.cypher,
-                    "parameters": graph_plan.parameters,
-                    "count": graph_result.get("count"),
-                    "total": graph_result.get("total"),
-                    "truncated": bool(graph_result.get("truncated")),
-                    "rows": graph_rows,
-                },
-                kind="graph_result",
-                bundle_id=bundle_id,
-            )
-            if rows_entry:
-                result_files.append(rows_entry)
-        except Exception as e:  # never lose a finished answer to the file that describes it
-            print("[DEBUG][GRAPH] Failed to write the graph result rows file:", repr(e))
+    rows_entry = _write_graph_rows_file(
+        artifact_store, bundle_id=bundle_id, cypher=graph_plan.cypher,
+        parameters=graph_plan.parameters, graph_result=graph_result,
+    )
+    if rows_entry:
+        result_files.append(rows_entry)
     bundle = build_metadata_bundle(
         bundle_id=bundle_id, mode="graph_query", user_query=user_text,
         parser_plan=plan.model_dump(), graph_plan=graph_plan.model_dump(),
@@ -973,6 +969,84 @@ def _execute_graph_turn(
         send_event, reply, debug_payload, bundle_id,
         artifacts=_artifacts_for(bundle), files=result_files or None,
     )
+
+
+def _write_graph_rows_file(artifact_store, *, bundle_id: int, cypher, parameters,
+                           graph_result: dict | None) -> dict[str, Any] | None:
+    """The "Graph query result rows" file for a bundle, or None when there are no rows.
+
+    One writer for the graph turn and the follow-up turn that ran graph queries, so the
+    two attach the same file under the same key and kind.
+    """
+    graph_rows = (graph_result or {}).get("data") or []
+    if not graph_rows:
+        return None
+    try:
+        return artifact_store.write_json(
+            key="graph_result",
+            label="Graph query result rows",
+            filename=f"graph_result_bundle_{bundle_id}.json",
+            payload={
+                "cypher": cypher,
+                "parameters": parameters,
+                "count": graph_result.get("count"),
+                "total": graph_result.get("total"),
+                "truncated": bool(graph_result.get("truncated")),
+                "rows": graph_rows,
+            },
+            kind="graph_result",
+            bundle_id=bundle_id,
+        )
+    except Exception as e:  # never lose a finished answer to the file that describes it
+        print("[DEBUG][GRAPH] Failed to write the graph result rows file:", repr(e))
+        return None
+
+
+def _followup_result_bundle(session, artifact_store, *, outcome: dict | None, user_text: str,
+                            parser_plan: dict, stored_bundle: dict, reply: str) -> dict | None:
+    """A graph bundle for the rows a follow-up's own queries found, or None.
+
+    A follow-up turn used to re-emit the STORED bundle's files: on the production
+    acceptance run of 2026-09-22 (task 0006a373) the downstream-types follow-up attached
+    turn 1's mouse list and none of the 23 type rows its answer was about. When the loop
+    ran at least one query that returned rows, the LAST such query becomes a bundle of its
+    own with the same rows file a graph turn writes. Last, not largest: the loop's final
+    query is the one its answer rests on, and the largest is usually the broad UID dump a
+    model runs for examples, not the breakdown the question asked for. A follow-up that
+    only read the stored result makes nothing, and keeps the stored bundle's files.
+    """
+    runs = (outcome or {}).get("graph_runs") or []
+    if not runs:
+        return None
+    run = runs[-1]
+    graph_plan, graph_result = run["graph_plan"], run["result"]
+    bundle_id = _next_bundle_id(session)
+    parameters = dict(run.get("parameters") or {})
+    files: list[dict[str, Any]] = []
+    entry = _write_graph_rows_file(
+        artifact_store, bundle_id=bundle_id, cypher=graph_plan.cypher,
+        parameters=parameters, graph_result=graph_result,
+    )
+    if entry:
+        files.append(entry)
+    # The bound UIDs are on disk in the file above; the session row keeps only how many,
+    # because results_history is a JSON column re-written on every save.
+    if isinstance(parameters.get("uids"), list):
+        parameters["uids"] = f"<{len(parameters['uids'])} UIDs of bundle {stored_bundle.get('id')}>"
+    plan_dump = graph_plan.model_dump() if hasattr(graph_plan, "model_dump") else dict(graph_plan)
+    plan_dump["parameters"] = parameters
+    bundle = build_metadata_bundle(
+        bundle_id=bundle_id, mode="graph_query", user_query=user_text,
+        parser_plan=parser_plan, graph_plan=plan_dump, graph_result=graph_result,
+        terminal_reply=reply,
+        search_context={"endpoint": "neo4j", "followup_of_bundle": stored_bundle.get("id")},
+        files=files,
+    )
+    bundle["reply"] = reply
+    history = session.get("results_history", [])
+    history.append(bundle)
+    session["results_history"] = history
+    return bundle
 
 
 BUNDLE_SEQ_KEY = "bundle_seq"
@@ -1301,6 +1375,17 @@ def run_query(
                 answer = ("I could not finish this follow-up. Ask it as a fresh question and "
                           "I will run it properly.")
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
+            own_bundle = None
+            if not may_use_stored:
+                try:
+                    own_bundle = _followup_result_bundle(
+                        session, artifact_store, outcome=followup_outcome, user_text=user_text,
+                        parser_plan=plan.model_dump(), stored_bundle=bundle, reply=answer,
+                    )
+                except Exception as exc:  # never lose a finished answer to its attachment
+                    print(f"[DEBUG][FOLLOWUP] could not attach the follow-up's rows: {exc!r}")
+                if own_bundle is not None:
+                    debug_payload.setdefault("followup", {})["attached_bundle"] = own_bundle["id"]
             append_turn(
                 session,
                 user_query=user_text,
@@ -1309,7 +1394,7 @@ def run_query(
                 entity_result=entity_result,
                 tool_summary={"target_bundle": bundle.get("id")},
                 assistant_reply=answer,
-                bundle_id=bundle.get("id"),
+                bundle_id=(own_bundle or bundle).get("id"),
             )
             debug_payload["api_plan"] = bundle.get("api_plan")
             api_full = load_api_result_full(bundle)
@@ -1329,8 +1414,14 @@ def run_query(
             debug_payload["memory_coder_artifact"] = bundle.get("memory_coder_artifact")
             session["last_debug"] = debug_payload
             send_event("agent_complete", {"agent": "memory", "summary": None})
-            session["last_files"] = bundle.get("files") or []
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
+            if own_bundle is not None:
+                session["last_files"] = own_bundle.get("files") or []
+                return _emit_query_complete(
+                    send_event, answer, debug_payload, own_bundle["id"],
+                    artifacts=_artifacts_for(own_bundle), files=(own_bundle.get("files") or None),
+                )
+            session["last_files"] = bundle.get("files") or []
             return _emit_query_complete(
                 send_event,
                 answer,

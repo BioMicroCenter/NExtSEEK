@@ -190,3 +190,112 @@ def test_the_seam_reports_the_total_beside_a_capped_preview(monkeypatch, tmp_pat
     assert payload["count"] == 24421
     assert payload["rows_returned"] == 500
     assert payload["rows_shown"] == len(payload["rows"]) <= followup_mod.FOLLOWUP_ROWS_MAX
+
+
+# --------------------------------------------------------------------------- #
+# Defect B: a follow-up that queried attaches its own rows, as a graph turn does
+# --------------------------------------------------------------------------- #
+
+def _run_followup_turn(tmp_path, fake_followup, rows=TYPE_ROWS, results=None):
+    """The whole NS turn through run_query, parser -> ask_about_last_results."""
+    session = {"results_history": [_prior_bundle()], "bundle_seq": 1}
+    artifacts_for = MagicMock(side_effect=lambda bundle: [{"from_bundle": bundle.get("id")}] if bundle else None)
+    results = iter(results) if results is not None else None
+
+    def neo4j(config, cypher, params=None):
+        return next(results) if results is not None else _neo4j_result(rows)
+
+    plan = ParserPlan(mode="ask_about_last_results", intent_summary="downstream types", target_result_id=1)
+    with patch.object(orch.pipeline_agent, "is_active", return_value=False), \
+            patch.object(orch, "_ensure_query_log_dir", return_value=str(tmp_path)), \
+            patch.object(orch, "shortlist_catalog", return_value=([], [], {})), \
+            patch.object(orch, "entity_agent", return_value=EntityAgentOutput()), \
+            patch.object(orch, "parser_agent", return_value=plan), \
+            patch.object(orch, "graph_agent",
+                         lambda *a, **k: GraphAgentPlan(cypher=SEEDED_CYPHER, context_mode="catalog")), \
+            patch.object(orch, "tool_neo4j_query", neo4j), \
+            patch.object(orch, "run_followup", fake_followup), \
+            patch.object(orch, "memory_agent_answer", return_value="from the stored result"), \
+            patch.object(orch, "append_turn"), \
+            patch.object(orch, "_artifacts_for", artifacts_for):
+        payload = orch.run_query(session, SimpleNamespace(MODEL_MODE="test", MIN_SAMPLETYPES=[], MIN_ASSAYS=[]),
+                                 "Of those mice, what downstream data types are associated with them?", None)
+    return payload, session, artifacts_for
+
+
+def test_a_follow_up_that_queried_attaches_the_rows_of_its_last_successful_query(tmp_path):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+        first = run_query(question="how many downstream samples", seed_uids=PRIOR_UIDS)
+        second = run_query(question="downstream types with counts", seed_uids=PRIOR_UIDS)
+        return {"reply": "23 downstream types, led by TIS (25,936).", "caveats": [],
+                "queries": [{"question": "a", "seeded": True, "result": first},
+                            {"question": "b", "seeded": True, "result": second}],
+                "tool_calls": ["run_new_query", "run_new_query", "answer"]}
+
+    payload, session, artifacts_for = _run_followup_turn(tmp_path, fake_followup)
+
+    history = session["results_history"]
+    assert [b["id"] for b in history] == [1, 2], "the follow-up's own result is a bundle of its own"
+    new = history[-1]
+    assert new["mode"] == "graph_query"
+    assert new["graph_result"]["data"] == TYPE_ROWS
+    assert new["terminal_reply"].startswith("23 downstream types")
+
+    assert payload["bundle_id"] == 2
+    files = payload["files"]
+    assert [(f["key"], f["label"], f["bundle_id"]) for f in files] == [
+        ("graph_result", "Graph query result rows", 2)]
+    written = json.loads(Path(files[0]["path"]).read_text())
+    assert written["rows"] == TYPE_ROWS
+    assert written["count"] == 23
+    assert session["last_files"] == files
+    assert payload["artifacts"] == [{"from_bundle": 2}], "the table artifact comes from the new bundle"
+    assert "graph_result_bundle_1.json" not in json.dumps(files), "not the turn-1 mouse list"
+    assert payload["debug"]["followup"]["attached_bundle"] == 2
+
+
+def test_the_attached_file_is_the_last_successful_query_not_a_failed_one_after_it(tmp_path):
+    """Last, not largest: the loop's final query is the one its answer rests on. Here the
+    broad 500-row dump comes first and the 23-row breakdown the answer names comes last."""
+    broad = [{"uuid": f"TIS-{i}"} for i in range(500)]
+    failed = {"ok": False, "error": "Variable `x` not defined", "data": None, "cypher": "BAD",
+              "submitted_cypher": "BAD", "parameters": {}, "scope": {"decision": "proven"}}
+
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+        results = [run_query(question=q, seed_uids=PRIOR_UIDS) for q in ("dump", "types", "broken")]
+        return {"reply": "23 types.", "caveats": [],
+                "queries": [{"question": "q", "seeded": True, "result": r} for r in results],
+                "tool_calls": ["run_new_query"] * 3 + ["answer"]}
+
+    payload, session, _ = _run_followup_turn(
+        tmp_path, fake_followup, results=[_neo4j_result(broad), _neo4j_result(TYPE_ROWS), failed])
+    written = json.loads(Path(payload["files"][0]["path"]).read_text())
+    assert written["rows"] == TYPE_ROWS
+    assert session["results_history"][-1]["graph_result"]["data"] == TYPE_ROWS
+
+
+def test_a_follow_up_answered_from_the_stored_result_attaches_nothing_new(tmp_path):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+        return {"reply": "There were 40 mice.", "caveats": [], "queries": [],
+                "tool_calls": ["read_stored_result", "answer"]}
+
+    payload, session, artifacts_for = _run_followup_turn(tmp_path, fake_followup)
+
+    assert [b["id"] for b in session["results_history"]] == [1], "no new bundle"
+    assert payload["bundle_id"] == 1
+    assert payload["files"] == _prior_bundle()["files"], "unchanged: the stored bundle's own files"
+    assert not list(Path(tmp_path).rglob("graph_result_bundle_*.json")), "no rows file written"
+    assert "attached_bundle" not in payload["debug"]["followup"]
+
+
+def test_a_follow_up_whose_queries_all_returned_nothing_attaches_nothing_new(tmp_path):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+        empty = run_query(question="types", seed_uids=PRIOR_UIDS)
+        return {"reply": "None found.", "caveats": [],
+                "queries": [{"question": "types", "seeded": True, "result": empty}],
+                "tool_calls": ["run_new_query", "answer"]}
+
+    payload, session, _ = _run_followup_turn(tmp_path, fake_followup, rows=[])
+
+    assert [b["id"] for b in session["results_history"]] == [1]
+    assert not list(Path(tmp_path).rglob("graph_result_bundle_*.json"))
