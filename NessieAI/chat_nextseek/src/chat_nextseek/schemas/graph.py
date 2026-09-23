@@ -29,3 +29,12 @@ class GraphAgentPlan(BaseModel):
             "schema was captured (fallback_fetched_at, None when the file does not say); None on a 'catalog' plan."
         ),
     )
+    # Code-set like context_fallback, and out of the model's schema for the same reason.
+    project_titles: SkipJsonSchema[dict] = Field(
+        default_factory=dict,
+        description=(
+            "Set by the graph agent's code: each project name the entity step resolved, mapped to the Project.title "
+            "it is stored under (\"Impact\" -> \"IMPAcTb\"), so the reply's scope check can see a project the query "
+            "matched by its stored title."
+        ),
+    )

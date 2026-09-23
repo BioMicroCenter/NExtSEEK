@@ -353,6 +353,26 @@ def _keyword_realised_as_field(keyword: str, graph_plan: dict | None) -> bool:
     return bool(cypher) and any(_field_is_filtered(f, cypher) for f in _declared_fields(keyword, graph_plan))
 
 
+def _project_title_is_applied(name: str, graph_plan: dict | None, haystack: str) -> bool:
+    """Whether the query carries the ``Project.title`` the resolved project ``name`` is stored under.
+
+    "Impact" is the catalog's name for the project whose title is "IMPAcTb", and a query scoped on
+    that exact title never contains the word "Impact" as a word. The graph agent's code records the
+    title it was given for each resolved project (``GraphAgentPlan.project_titles``, from the
+    projects catalog's alternative names); the project counts as applied only when that title is
+    itself in the executed query.
+    """
+    titles = (graph_plan or {}).get("project_titles")
+    if not isinstance(titles, dict):
+        return False
+    key = _folded(name).strip()
+    for resolved, title in titles.items():
+        if _folded(resolved).strip() == key and isinstance(title, str) and title.strip():
+            if _is_applied(title, haystack):
+                return True
+    return False
+
+
 def _fragment_is_applied(value: str, haystack: str) -> bool:
     """Whether any word of ``value`` of three or more characters is in the query.
 
@@ -528,8 +548,13 @@ def describe_query_scope(
                 applied = bool(code) and _type_is_applied(code, haystack)
             if not applied:
                 applied = _keyword_realised_as_field(value, graph_plan)
+            if not applied:
+                # The entity step also copies a project's name into the keywords ("Impact").
+                applied = _project_title_is_applied(value, graph_plan, haystack)
         elif kind == "project":
             applied = _name_is_applied(value, haystack)
+            if not applied:
+                applied = _project_title_is_applied(value, graph_plan, haystack)
         else:
             applied = _is_applied(value, haystack)
         (scope.applied if applied else scope.not_applied).append(label)

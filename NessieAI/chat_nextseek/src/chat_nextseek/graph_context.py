@@ -699,3 +699,53 @@ def render_vocabulary(vocab, question: str, *, budget: int = VOCAB_BUDGET_BYTES)
         blocks.append(_title_block("PROTOCOL TITLES (DERIVED_FROM.protocol_title values)",
                                    _get(vocab, "protocol_titles")))
     return _BLOCK_JOIN.join(fit_vocabulary(blocks, q, budget=budget))
+
+
+def _fold_title(text: Any) -> str:
+    """Case and every character outside [a-z0-9] dropped: "MIT SRP", "MIT_SRP" and "mit-srp" are one name."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def project_titles_for(names, project_rows, titles) -> dict[str, str]:
+    """Each project name the entity step resolved, mapped to the ``Project.title`` it is stored under.
+
+    The entity step resolves a project to the projects catalog's name ("Impact"), and the graph stores the SEEK
+    title ("IMPAcTb"). A name is mapped when it folds to one of ``titles`` itself, or when it is the name or an
+    alternative name of exactly one catalog PROJECT row (``project_rows``, which the caller has already cut to
+    project rows) whose own names fold to exactly one of ``titles``. Anything ambiguous, and any name that reaches
+    no title in ``titles``, is left out: this only ever names a title the graph has and the caller can see.
+    """
+    by_fold: dict[str, set[str]] = {}
+    for title in titles or ():
+        if isinstance(title, str) and title.strip():
+            by_fold.setdefault(_fold_title(title), set()).add(title)
+    out: dict[str, str] = {}
+    for name in names or ():
+        if not isinstance(name, str) or not name.strip() or name in out:
+            continue
+        key = _fold_title(name)
+        direct = by_fold.get(key, set())
+        if len(direct) == 1:
+            out[name] = next(iter(direct))
+            continue
+        found: set[str] = set()
+        for row in project_rows or ():
+            if not isinstance(row, dict):
+                continue
+            row_names = {_fold_title(n) for n in [row.get("name"), *(row.get("alternative_names") or [])]
+                         if isinstance(n, str) and n.strip()}
+            if key in row_names:
+                for folded in row_names:
+                    found |= by_fold.get(folded, set())
+        if len(found) == 1:
+            out[name] = next(iter(found))
+    return out
+
+
+def render_project_titles(mapping: dict[str, str]) -> str:
+    """The block telling the graph agent which ``Project.title`` each resolved project is ("" for none)."""
+    if not mapping:
+        return ""
+    lines = [f"- {_quote(name)} is the project titled {_quote(title)}" for name, title in mapping.items()]
+    return ("PROJECTS NAMED IN THIS QUESTION (the exact Project.title each is stored under, found through the "
+            "project catalog's names and alternative names; scope on this title, STEP 5):\n" + "\n".join(lines))

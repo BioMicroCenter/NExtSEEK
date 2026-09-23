@@ -1928,6 +1928,8 @@ class CatalogContext(NamedTuple):
     snapshot: Any
     schema: str  # structure, type index and the resolved types (graph_context.render_graph_context)
     vocabulary: str  # the question's vocabulary blocks, "" when none applies
+    #: Each resolved project name mapped to the Project.title it is stored under (``_resolved_project_titles``).
+    project_titles: dict = {}
 
 
 def _plain(value) -> dict:
@@ -1969,6 +1971,27 @@ def _catalog_fallback(config, reason: str, reader: str) -> CatalogFallback:
     return CatalogFallback(reason, fetched_at)
 
 
+def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) -> dict[str, str]:
+    """The resolved projects' ``Project.title``s, through the projects catalog (``graph_context.project_titles_for``).
+
+    "What species are the samples in the IMPACT project?" answered 897 against a true 892 (P1, 2026-09-22): the
+    entity step resolved the catalog name "Impact", the graph agent matched 'impact' by CONTAINS across Study and
+    Investigation titles as well as the Project, and a paper titled "Impact of fibrinogen, ..." added 5 Homo sapiens
+    samples from another project. The project's title is "IMPAcTb", one of the catalog row's alternative names,
+    which the graph agent is never shown; this hands it the title. Only project rows are read (an investigation row
+    carries its owner's names too), and only titles in the caller's vocabulary can be named.
+    """
+    names: list[str] = []
+    for source in ((plan_dict.get("resolved") or {}).get("projects"), entity_dict.get("projects")):
+        for name in source or ():
+            if isinstance(name, str) and name.strip() and name not in names:
+                names.append(name)
+    rows = getattr(config, "FULL_PROJECTS_MAP", None)
+    if not names or not isinstance(rows, dict):
+        return {}
+    return graph_context.project_titles_for(names, list(rows.values()), getattr(vocab, "project_titles", ()))
+
+
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
                             reader: str = "graph agent") -> CatalogContext | CatalogFallback:
     """The rendered v1.1 catalog for this question, or the ``CatalogFallback`` saying why the committed JSON must be
@@ -1983,14 +2006,19 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
         codes = graph_context.resolved_type_codes(plan_dict, entity_dict, {row.title for row in snapshot.index})
         details = graph_catalog.get_type_details(config, codes) if codes else []
         schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
-        vocabulary = graph_context.render_vocabulary(graph_catalog.get_vocabulary(config), user_query or "")
+        vocab = graph_catalog.get_vocabulary(config)
+        vocabulary = graph_context.render_vocabulary(vocab, user_query or "")
+        project_titles = _resolved_project_titles(config, entity_dict, plan_dict, vocab)
+        block = graph_context.render_project_titles(project_titles)
+        if block:
+            vocabulary = f"{vocabulary}\n\n{block}" if vocabulary else block
     except graph_catalog.CatalogUnavailable as exc:
         return _catalog_fallback(config, str(exc), reader)
     except Exception as exc:  # noqa: BLE001 (a catalog defect must cost the context, not the turn)
         return _catalog_fallback(config, f"graph catalog context failed: {type(exc).__name__}: {exc}", reader)
     print(f"[DEBUG][GRAPH] Catalog context: {len(schema.encode('utf-8'))} bytes, types {codes}, "
           f"catalog_hash {str(snapshot.catalog_hash)[:12]}")
-    return CatalogContext(snapshot, schema, vocabulary)
+    return CatalogContext(snapshot, schema, vocabulary, project_titles)
 
 
 def live_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
@@ -2330,6 +2358,7 @@ def graph_agent(
             print(f"[DEBUG][GRAPH] Guarded cypher: {result.cypher!r}")
         result.context_mode = context_mode
         result.context_fallback = context_fallback
+        result.project_titles = dict(catalog.project_titles) if catalog is not None else {}
         return result
     except Exception as e:
         print(f"[DEBUG][GRAPH] graph_agent failed: {e!r}")
