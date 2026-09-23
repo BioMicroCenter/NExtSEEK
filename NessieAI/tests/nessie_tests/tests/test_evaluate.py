@@ -753,7 +753,10 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # NAME THE FRAME. In that all-CC simulation this change turns NOTHING green: the
 # green set is the same 13 variants with the CC skip and with it monkeypatched
 # off, and `tree.then_ask_about` is red there too, because its SEED turn asserts
-# `api_ok` and `api_plan.endpoint` inline and an all-CC run fails both.
+# `route` nextseek_query and `parser_plan.mode` inline and an all-CC run fails both
+# (it asserted `api_ok` and `api_plan.endpoint` until the 2026-09-23 REST-plumbing
+# retirement; the current figures are in README.md and are recomputed by
+# tests/test_write_refusal_coverage.py).
 #
 # The payoff is in the MIXED-route frame, which is what a real run produces: an
 # NS seed followed by a CC follow-up. `tree.then_ask_about` is the ONLY
@@ -768,14 +771,18 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # on 2026-08-03; the 13-variant green set did not move.
 # --------------------------------------------------------------------------- #
 
+# 2026-09-23: the seed is graph-answered, as on production (seed 17), since the
+# corpus retired its REST-path plumbing criteria (sample-tree endpoint, api_ok).
+_TREE_NS_SEED_REPLY = "There are 242 samples that descend from NHP-220630FLY-5."
 _TREE_NS_SEED = {"status": "completed", "progress": [
     {"event": "route_decided",
      "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
               "reasoning": ""}},
     {"event": "query_complete",
-     "data": {"reply": "Here is the tree.",
-              "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
-                        "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+     "data": {"reply": _TREE_NS_SEED_REPLY,
+              "debug": {"parser_plan": {"mode": "graph_query"},
+                        "graph_result": {"ok": True, "count": 242, "total": 242,
+                                         "truncated": False}}}}]}
 
 _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
     {"event": "route_decided",
@@ -784,7 +791,7 @@ _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
     {"event": "query_complete",
      "data": {"reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
-_OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "sample-tree")
+_OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "graph_query", "graph_query")
 
 
 def _merged_variant(vid):
@@ -813,7 +820,7 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
 
     seed_passed, seed_results, _ = evaluate.evaluate_turn(
         _TREE_NS_SEED, list(seed.pass_criteria), _OBS_TREE_NS,
-        last_reply="Here is the tree.")
+        last_reply=_TREE_NS_SEED_REPLY)
     assert seed_passed, [r for r in seed_results if not r["passed"]]
     assert evaluate.any_criterion_evaluated(seed_results), (
         "the seed must really assert something, or the case would be no_assertions")

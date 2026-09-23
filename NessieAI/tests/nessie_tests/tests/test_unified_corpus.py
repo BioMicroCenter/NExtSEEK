@@ -140,7 +140,10 @@ def test_the_hand_written_annotations_survived_adoption():
     # `_added_2026_09_23_prod_researchers` 50 (the review turn ids each case covers) and
     # `_deselected_2026_09_23_prod_researchers` 7 (the follow-up and refinement cases left
     # out of the paid selection, each with its reason).
-    assert counts == {"_why": 185, "_why_superseded_2026_08_03": 1,
+    # 2026-09-23 REST-path plumbing retirement: `_why` 185 -> 292. Every variant whose
+    # engine plumbing criteria were retired got one dated line, and the 107 that had
+    # no `_why` got one.
+    assert counts == {"_why": 292, "_why_superseded_2026_08_03": 1,
                       "_added_2026_09_23_prod_researchers": 50,
                       "_deselected_2026_09_23_prod_researchers": 7,
                       "_2026_07_28": 1, "_atlas": 80,

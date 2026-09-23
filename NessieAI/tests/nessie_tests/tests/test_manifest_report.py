@@ -202,9 +202,12 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
     ns_seed = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
         {"event": "query_complete", "data": {
-            "reply": "Here is the tree.",
-            "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
-                      "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+            # 2026-09-23: graph-answered, as on production, since the corpus retired
+            # the seed's REST-path plumbing criteria.
+            "reply": "There are 242 samples that descend from NHP-220630FLY-5.",
+            "debug": {"parser_plan": {"mode": "graph_query"},
+                      "graph_result": {"ok": True, "count": 242, "total": 242,
+                                       "truncated": False}}}}]}
     cc_follow = {"status": "completed", "progress": [
         {"event": "route_decided", "data": {"route": "container_cc", "source": "baml"}},
         {"event": "query_complete", "data": {

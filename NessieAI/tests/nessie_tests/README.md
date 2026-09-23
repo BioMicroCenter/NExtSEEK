@@ -512,17 +512,18 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **412 of 415 are still red**, with all seven floored families at 100%. Four
+and **413 of 415 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **300** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
-and `api_plan.endpoint` on **104**. Those cases stay red until the corpus
+fails on **325** variants, `parser_plan.mode` on **213**, `api_ok` on **20**
+and `api_plan.endpoint` on **19** (the last two fell from 128 and 104 on
+2026-09-23, when the graph-answerable families stopped requiring the REST path). Those cases stay red until the corpus
 itself is settled.
 
 **Name the frame, because the two frames disagree.** Under that all-CC
-simulation the skip turns *nothing* green: the green set is 3 variants with the
-skip and the *same* 3 with it monkeypatched off. `tree.then_ask_about` is red
-there too: its SEED turn asserts `api_ok` and `api_plan.endpoint` inline, and an
-all-CC run fails both before the follow-up is ever reached.
+simulation the skip turns *nothing* green: the green set is 2 variants with the
+skip and the *same* 2 with it monkeypatched off. `tree.then_ask_about` is red
+there too: its SEED turn asserts `route` nextseek_query and `parser_plan.mode`
+inline, and an all-CC run fails both before the follow-up is ever reached.
 
 The measurable payoff is the **mixed-route** case, which is what a real run
 actually produces: an NS seed followed by a CC follow-up. `tree.then_ask_about`
@@ -537,7 +538,7 @@ scored, not because it started holding.
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
 `test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (415 total /
-3 green / 412 red), the four per-criterion counts by
+2 green / 413 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

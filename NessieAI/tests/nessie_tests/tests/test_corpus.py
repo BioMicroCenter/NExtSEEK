@@ -323,8 +323,8 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
 
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
-    assert len(injected) == 305, f"{len(injected)} injected — update {_DOCS}"  # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len(inline) == 65, f"{len(inline)} inline — update {_DOCS}"  # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
+    assert len(injected) == 280, f"{len(injected)} injected — update {_DOCS}"  # 305 -> 280: 2026-09-23: the REST-plumbing retirement wrote route nextseek_query inline on the seed of 25 multi-turn variants (follow-ups route container_cc per the operator ruling). # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(inline) == 90, f"{len(inline)} inline — update {_DOCS}"  # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
 
 
 def test_the_family_floor_injects_the_numbers_the_docs_quote():

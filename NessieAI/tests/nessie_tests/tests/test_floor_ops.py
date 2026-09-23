@@ -475,6 +475,20 @@ _ADDED_2026_08_06 = {
                          "_added_2026_09_23_prod_researchers")) for k in v)
 }
 
+# The variants whose inline REST-path plumbing (api_ok, api_plan.endpoint,
+# api_result_meta.*, parser mode new_search) was retired on 2026-09-23 because the
+# graph answers them (prod suite, seed 17). The measurements below are evidence
+# about the floor as it met cases that asserted `api_ok` in their own text, so they
+# are excluded for the same reason as the later additions above: folded in, the
+# retired floor would "reach" them only because their inline assertion was
+# deliberately removed, not because the floor change took anything away.
+_RETIRED_PLUMBING_2026_09_23 = {
+    v["id"]
+    for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
+    for v in fam["variants"]
+    if "2026-09-23: REST-path plumbing criteria retired" in (v.get("_why") or "")
+}
+
 RETIRED_FLOOR = {
     "sample_search": ["api_ok", "api_outcome_observed"],
     "sample_retrieve": ["api_ok", "api_outcome_observed"],
@@ -575,9 +589,11 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
     added = {vid: f for vid, f in added.items()
-             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06}
-    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
-    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
+             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06
+             and vid not in _RETIRED_PLUMBING_2026_09_23}
+    retired = _RETIRED_PLUMBING_2026_09_23
+    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK - retired
+    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK - retired
 
     # The mirror above must reproduce the real corpus, or none of this is measuring
     # the corpus the harness actually runs.
@@ -610,13 +626,20 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
                and v.id not in _ADDED_2026_08_06]
     assert len(floored) == 13, [v.id for v in floored]
 
-    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
-    assert traded == {"tree.then_ask_about"}
+    # 2026-09-23: every one of the 13 had its inline api_ok retired (the graph
+    # answers lineage; prod suite, seed 17), so the "kept its inline api_ok" half of
+    # this measurement has no members left. The half that guards the floor still
+    # holds on all 13: each gains `outcome_observed`, so a turn with no outcome fails.
+    retired = {v.id for v in floored if v.id in _RETIRED_PLUMBING_2026_09_23}
+    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)} - retired
+    assert traded <= {"tree.then_ask_about"}
 
     for v in floored:
         fields = {c.field for c in v.turns[-1].pass_criteria}
         assert "outcome_observed" in fields, v.id
-        if v.id not in traded:
+        if v.id in retired:
+            assert "api_ok" not in fields, f"{v.id} still asserts the retired api_ok"
+        elif v.id not in traded:
             assert "api_ok" in fields, f"{v.id} lost its inline api_ok"
 
 

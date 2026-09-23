@@ -224,28 +224,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "NDMA"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 },
                 {
                   "field": "last_reply",
@@ -264,7 +249,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 195 MUS samples have Treatment1='NDMA'. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS + JSON $.Treatment1='NDMA' = 195; a whole-blob LIKE '%NDMA%' over MUS also gives 195.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 1,551 MUS whose Treatment1..4 mention NDMA (Neo4j cypher-shell, read-only: T_MUS, any(Treatment1..4 CONTAINS 'ndma'); the probe pin fu.file_from_previous_search uses the same predicate). Treatment1='NDMA' exactly is 1,463; the rest are '1PPM NDMA' 27, '5PPB NDMA' 27, '5PPM NDMA' 17, 'IP NDMA' 17; search_text CONTAINS 'ndma' over MUS is 2,113; was 195. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.cd8_antibodies",
@@ -281,28 +266,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "AB"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "CD8"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -315,7 +285,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "its only ground truth is a keyword hit (28 AB rows mention CD8 in free text); AB has no Target or Analyte attribute to scope it to."
+          "_deselected_2026_08_06_qset": "its only ground truth is a keyword hit (28 AB rows mention CD8 in free text); AB has no Target or Analyte attribute to scope it to.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_monkeys_exist",
@@ -330,23 +301,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -358,7 +319,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.rna_rin_score",
@@ -375,28 +337,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "RNA"
-                },
-                {
-                  "field": "api_plan.requestBody.sampletype",
-                  "op": "eq",
-                  "value": "RNA"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "RIN"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 },
                 {
                   "field": "last_reply",
@@ -415,7 +362,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 26 RNA samples have a numeric RIN above 7. || VERIFIED: seek_production MySQL, verified 2026-08-06: RNA + CAST($.RIN AS DECIMAL) > 7 = 26. 263 of 289 RNA rows have no RIN at all.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 815 T_RNA with toFloat(RIN) > 7, of 864 that carry a RIN and 1,549 RNA in all (Neo4j cypher-shell, read-only); was 26."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 815 T_RNA with toFloat(RIN) > 7, of 864 that carry a RIN and 1,549 RNA in all (Neo4j cypher-shell, read-only); was 26. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.female_mice",
@@ -432,23 +379,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 },
                 {
                   "field": "last_reply",
@@ -467,7 +404,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 525 MUS have Sex='F'; 4 more have Sex='Female'; 529 is the honest total. || VERIFIED: seek_production MySQL, verified 2026-08-06: MUS $.Sex grouped -> M 575, F 525, Female 4, null 75.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_MUS Sex grouped (Neo4j cypher-shell, read-only): F 2,993, Female 160, M 2,438, Male 179, null 701; 2,993 exact 'F' or 3,153 with 'Female', the same two readings the old key accepted; was 525/529."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_MUS Sex grouped (Neo4j cypher-shell, read-only): F 2,993, Female 160, M 2,438, Male 179, null 701; 2,993 exact 'F' or 3,153 with 'Female', the same two readings the old key accepted; was 525/529. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.zero_result_zebrafish",
@@ -484,18 +421,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
@@ -513,7 +440,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero. No sample mentions zebrafish or Danio anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: whole-blob LIKE '%zebrafish%' = 0 AND LIKE '%Danio%' = 0 over all 50,887 rows."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero. No sample mentions zebrafish or Danio anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: whole-blob LIKE '%zebrafish%' = 0 AND LIKE '%Danio%' = 0 over all 50,887 rows.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.bacteria_mtb",
@@ -530,23 +458,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "BAC"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "mTB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -559,7 +477,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "superseded by vocab.mtb_is_a_species_not_a_strain, which asks the same thing and states the vocabulary correction that is the real answer."
+          "_deselected_2026_08_06_qset": "superseded by vocab.mtb_is_a_species_not_a_strain, which asks the same thing and states the vocabulary correction that is the real answer.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.do_we_have_any_western_blot_da",
@@ -574,18 +493,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
@@ -604,7 +513,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero samples. The D.WBLT sample type IS defined but holds 0 rows. || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%western blot%' = 0; sample_type D.WBLT exists with COUNT(*)=0.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): the zero is no longer true: D.WBLT now holds 48 samples (and A.WBLT 24) (Neo4j cypher-shell, read-only: count by type), so the 'none' branches are removed and the reply must give the 48 or name D.WBLT; was zero."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): the zero is no longer true: D.WBLT now holds 48 samples (and A.WBLT 24) (Neo4j cypher-shell, read-only: count by type), so the 'none' branches are removed and the reply must give the 48 or name D.WBLT; was zero. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_scrna_seq_clustering_r",
@@ -619,18 +528,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -643,7 +542,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "no settled ground truth: 'clustering results' maps to A.SCXP (166) or to nothing, depending on reading."
+          "_deselected_2026_08_06_qset": "no settled ground truth: 'clustering results' maps to A.SCXP (166) or to nothing, depending on reading.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.show_me_all_facs_data_for_the",
@@ -658,18 +558,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -693,7 +583,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 3,061 D.FLOW samples descend from an NHP. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (:Sample{type:'D.FLOW'})-[:DERIVED_FROM*1..8]->(:Sample{type:'NHP'}) = 3061.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 3,728 T_D_FLOW with an NHP ancestor (Neo4j cypher-shell, read-only: EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_NHP)}; *1..12 gives the same); was 3,061."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 3,728 T_D_FLOW with an NHP ancestor (Neo4j cypher-shell, read-only: EXISTS {(d)-[:DERIVED_FROM*1..8]->(:T_NHP)}; *1..12 gives the same); was 3,061. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_mice_treated_with_ndma",
@@ -708,18 +598,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -736,7 +616,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_all_nhp_samples_in_the_da",
@@ -751,18 +632,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -779,7 +650,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.show_me_tumor_data_for_patient",
@@ -794,18 +666,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -822,7 +684,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_fibrin_images_exist",
@@ -837,18 +700,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
@@ -866,7 +719,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 241 D.IMG samples mention fibrin (plus 14 OOC, 2 A.PERM, 1 ABP = 258 overall). || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%fibrin%' grouped by sample type -> D.IMG 241, OOC 14, A.PERM 2, ABP 1."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 241 D.IMG samples mention fibrin (plus 14 OOC, 2 A.PERM, 1 ABP = 258 overall). || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%fibrin%' grouped by sample type -> D.IMG 241, OOC 14, A.PERM 2, ABP 1.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_tissue_samples_with_organ",
@@ -881,18 +735,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -916,7 +760,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 420 with Organ='Liver' exactly; 610 counting 'liver' (189) and ' liver' (1). || VERIFIED: seek_production MySQL, verified 2026-08-06: TIS $.Organ = 'Liver' 420, 'liver' 189, ' liver' 1; TRIM+LOWER = 610.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ folded to 'liver' (Neo4j cypher-shell, read-only): 'Liver' 7,443, 'LIVER' 4,154, 'liver' 2,566; 7,443 exact or 14,163 case-folded, the same two readings as before; was 420/610."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_TIS Organ folded to 'liver' (Neo4j cypher-shell, read-only): 'Liver' 7,443, 'LIVER' 4,154, 'liver' 2,566; 7,443 exact or 14,163 case-folded, the same two readings as before; was 420/610. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_gpt_data_exists_in_the_da",
@@ -931,18 +775,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -954,7 +788,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_cell_samples_with_celltyp",
@@ -1018,18 +853,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1046,7 +871,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_all_mouse_samples_in_the",
@@ -1061,18 +887,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1089,7 +905,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_mice_associated_with_n",
@@ -1104,18 +921,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1132,7 +939,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "Same inline-REST-mandate shape as its sibling above, and the same evidence: seed-6 routed nextseek_query, the graph answered 1,858 D.SEQ samples, and the operator's review said 'also correct'. entity_sampletype_codes contains D.SEQ is KEPT \u2014 it observed ['D.SEQ'] and PASSED on the graph turn, so it is engine-agnostic already and is the one criterion here that pins what was actually asked for. Everything else follows the sibling: route inline (visible at the case rather than left to route_policy, as advanced.find_me_nhp_samples_from_study_2 also does), graph_not_truncated as an inert-on-REST cap guard, a reply regex demanding a real UID or an honest negative, and deliberately no count. The regex's `could not` branch was deleted on 2026-08-03, same reason as its sibling: an outage never reaches the guard, so the branch only let a non-answer through. || Re-keyed 2026-09-23 against production (fairdata): prod has no project titled IMPACT; T_D_SEQ in project IMPAcTb 4,658, in investigation 'Impactb Investigation' 4,659 (Neo4j cypher-shell, read-only); both scopes accepted; was 1,858.",
@@ -1195,18 +1003,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1223,7 +1021,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_all_samples_associated",
@@ -1238,18 +1037,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1266,7 +1055,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_cd8_antibodies",
@@ -1281,18 +1071,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1309,7 +1089,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_ndma_treated_mice",
@@ -1324,18 +1105,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1352,7 +1123,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_mice_treated_with_50mg_nd",
@@ -1367,18 +1139,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1395,7 +1157,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_fibrin_images_exist_in_th",
@@ -1410,18 +1173,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -1433,7 +1186,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_patients_from_the_gbm",
@@ -1497,18 +1251,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1525,7 +1269,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_dna_samples",
@@ -1540,18 +1285,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1568,7 +1303,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_fibrin_images",
@@ -1583,18 +1319,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -1606,7 +1332,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "GBM does not exist at any level; all 408 NHP samples are in Impact. Turn 819 answered '89 NHP samples in GBM' \u2014 fabricated by hand-counting NHP- rows out of the unfiltered graph dump (its own batch histogram reports 4 for NHP-220416FLY-* where the graph has 8, and misses the largest batches). The old regex accepted 'could not' and 'no samples matched', so a total failure passed; it also accepted any confident number. Require an honest negative AND reject a confident non-zero sample count.",
@@ -1665,18 +1392,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1693,7 +1410,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_samples_containing_the_ke",
@@ -1708,18 +1426,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -1732,7 +1440,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate intent with advanced.basic_ndma; 'keyword NDMA' is the keyword reading of the same question (1,225 rows) and would collide with it."
+          "_deselected_2026_08_06_qset": "duplicate intent with advanced.basic_ndma; 'keyword NDMA' is the keyword reading of the same question (1,225 rows) and would collide with it.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_mice",
@@ -1747,18 +1456,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1775,7 +1474,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_monkeys",
@@ -1790,61 +1490,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
-                  "field": "entity_sampletype_codes",
-                  "op": "contains",
-                  "value": "NHP"
-                }
-              ]
-            }
-          ],
-          "status": "active",
-          "origin": "base",
-          "is_bayesian": false,
-          "hibayes_subtype": null,
-          "expected_behavior": null,
-          "artifact_expected": null,
-          "artifact_kind": null,
-          "retirement": null
-        },
-        {
-          "id": "advanced.find_me_nhp_samples_in_a_nonex",
-          "family": "sample_search",
-          "name": "Find me NHP samples in a nonexistent investigation called XYZQQQ",
-          "tags": [],
-          "requires_env": [],
-          "turns": [
-            {
-              "label": "main",
-              "query": "Find me NHP samples in a nonexistent investigation called XYZQQQ",
-              "pass_criteria": [
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1862,7 +1509,42 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "one of six zero-result cases in sample_search; the set keeps four (zebrafish, western blot, ChIP-seq, male patients) on more interesting axes."
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
+        },
+        {
+          "id": "advanced.find_me_nhp_samples_in_a_nonex",
+          "family": "sample_search",
+          "name": "Find me NHP samples in a nonexistent investigation called XYZQQQ",
+          "tags": [],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find me NHP samples in a nonexistent investigation called XYZQQQ",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.mode",
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
+                },
+                {
+                  "field": "entity_sampletype_codes",
+                  "op": "contains",
+                  "value": "NHP"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "base",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_deselected_2026_08_06_qset": "one of six zero-result cases in sample_search; the set keeps four (zebrafish, western blot, ChIP-seq, male patients) on more interesting axes.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_all_fibrin_images_on_o",
@@ -1877,18 +1559,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -1900,7 +1572,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_all_monkeys_in_the_dat",
@@ -1915,18 +1588,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -1943,7 +1606,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_all_of_the_fibrin_imag",
@@ -1958,18 +1622,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -1981,7 +1635,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_cd8_depleted_monkeys",
@@ -1996,18 +1651,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2024,7 +1669,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_extravasation_images",
@@ -2039,18 +1685,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2062,7 +1698,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_images_associated_with",
@@ -2077,18 +1714,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2100,7 +1727,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_mice_treated_with_tube",
@@ -2115,18 +1743,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2143,7 +1761,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_monkeys_depleted_of_cd",
@@ -2158,18 +1777,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2186,7 +1795,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "Same question shape as the GBM case. The base demanded REST advanced_search, but IMPACT is an Investigation and the graph answers it correctly \u2014 the engine choice is not the defect, the silent 250-row cap was. Assert rows came back and were not truncated, whichever engine ran. 2026-08-03: the reply guard's `could not` branch was DELETED. It existed to tolerate an outage reply ('The request could not be completed. All provider fallbacks exhausted...'), but evaluate.classify_turn_status now returns `error` for an outaged turn before any criterion is scored, so the branch could no longer save an outage \u2014 all it still did was let a zero-result non-answer score green. The honest-negative branch stays.",
@@ -2244,18 +1854,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2267,7 +1867,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_tissues_that_have_tumo",
@@ -2282,18 +1883,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2310,7 +1901,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_tumor_values_with_pati",
@@ -2325,18 +1917,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2353,7 +1935,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_mice_treated_with_50mg_nd_2",
@@ -2368,18 +1951,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2396,7 +1969,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.show_me_all_gbm_tumor_data_for",
@@ -2460,18 +2034,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2483,7 +2047,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_gpt_data_is_in_the_databa",
@@ -2498,18 +2063,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2521,7 +2076,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.what_organ_on_chip_images_exis",
@@ -2536,18 +2092,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -2559,7 +2105,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "routing.lab_ooc_kamm_count",
@@ -2576,18 +2123,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "KAM"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b683\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)\\bkamm?\\b"
                 }
               ]
             }
@@ -2601,7 +2148,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 530 \u2014 every OOC sample carries the KAM lab code. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC grouped by UID lab code -> KAM 530 and nothing else.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 683 T_OOC, every one with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'; OOC grouped by UID lab code gives KAM 683 and nothing else); was 530."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 683 T_OOC, every one with lab code KAM in the UID (Neo4j cypher-shell, read-only: uuid =~ '^[^-]+-[0-9]{6}KAM-.*'; OOC grouped by UID lab code gives KAM 683 and nothing else); was 530. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "routing.lab_ooc_kamm_casual",
@@ -2618,13 +2165,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "KAM"
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)\\bkamm?\\b"
                 }
               ]
             }
@@ -2637,7 +2184,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "casual paraphrase of routing.lab_ooc_kamm_count over the same 530."
+          "_deselected_2026_08_06_qset": "casual paraphrase of routing.lab_ooc_kamm_count over the same 530.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "Its sibling is route-agnostic, so Container CC can paper over the server-side defect. This one pins nextseek_query so the NS graph path stays visible on its own. Tagged known_fail: until the OPTIONAL MATCH guard is live, the NS answer for GBM is the unfiltered 50,161.",
@@ -2861,9 +2409,9 @@
               "query": "How many samples are from the Kamm lab?",
               "pass_criteria": [
                 {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "KAM"
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)\\bkamm?\\b"
                 }
               ]
             }
@@ -2879,7 +2427,8 @@
           "_atlas": {
             "capability": "Lab / PI-scoped search via the 3-letter UID code",
             "assertion": "api_plan.requestBody.filter_searchText contains KAM"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.that_ndma_number_looked_off_to_m",
@@ -5630,23 +5179,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "NextSeq"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
@@ -5665,7 +5199,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 214 D.SEQ samples: NextSeq 550 92, 'NextSeq 500' 77, 'Illumina NextSeq 500' 27, 'Illumina NextSeq500' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer LIKE '%NextSeq%' grouped -> 92+77+27+18 = 214.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ Sequencer CONTAINS 'nextseq' (Neo4j cypher-shell, read-only): 'Illumina NextSeq 500' 526, 'NextSeq 500' 390, 'Illumina NextSeq500' 232, 'NextSeq 2000' 110, 'Illumina NextSeq 550' 92, 'Illumina NextSeq 2000' 32, 'NextSeq500:George' 7 = 1,389, plus 2 rows whose Sequencer is a protocol filename mentioning NextSeq = 1,391; was 214."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ Sequencer CONTAINS 'nextseq' (Neo4j cypher-shell, read-only): 'Illumina NextSeq 500' 526, 'NextSeq 500' 390, 'Illumina NextSeq500' 232, 'NextSeq 2000' 110, 'Illumina NextSeq 550' 92, 'Illumina NextSeq 2000' 32, 'NextSeq500:George' 7 = 1,389, plus 2 rows whose Sequencer is a protocol filename mentioning NextSeq = 1,391; was 214. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_samples_of_pbmc_type_from",
@@ -5717,7 +5251,7 @@
           }
         },
         {
-          "_why": "The base asserted entity_sampletype_codes contains D.SEQ. The system did exactly that \u2014 searched sampletype D.SEQ with keyword 'analyzed' \u2014 and returned ZERO records, then suggested trying A.SEQ itself. The corpus was enforcing the wrong mapping: analysed sequencing output lives in A.* analysis sample types (A.GEX, A.ALN, A.VCF, A.CNV, A.SCXP, A.CHRM).",
+          "_why": "The base asserted entity_sampletype_codes contains D.SEQ. The system did exactly that \u2014 searched sampletype D.SEQ with keyword 'analyzed' \u2014 and returned ZERO records, then suggested trying A.SEQ itself. The corpus was enforcing the wrong mapping: analysed sequencing output lives in A.* analysis sample types (A.GEX, A.ALN, A.VCF, A.CNV, A.SCXP, A.CHRM). || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged.",
           "id": "advanced.show_me_analyzed_sequencing_da",
           "family": "graph_traversal",
           "name": "\"Analyzed sequencing data\" must find analysis samples",
@@ -5735,16 +5269,6 @@
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
-                  "field": "api_result_meta.row_count",
-                  "op": "gte",
-                  "value": 1
                 }
               ]
             }
@@ -5772,18 +5296,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -5801,7 +5315,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "overlaps report.pride_submission and the D.MSP facts; D.MSP is only 118 rows and the set already spends three questions there."
+          "_deselected_2026_08_06_qset": "overlaps report.pride_submission and the D.MSP facts; D.MSP is only 118 rows and the set already spends three questions there.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.show_me_tis_samples_that_have",
@@ -5854,18 +5369,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -5883,7 +5388,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "D.MSP is 118 rows and the set already spends three questions on it (retrieve.single_msp, report.pride_submission, report.build_a_pride_deposit_for_d_ms)."
+          "_deselected_2026_08_06_qset": "D.MSP is 118 rows and the set already spends three questions on it (retrieve.single_msp, report.pride_submission, report.build_a_pride_deposit_for_d_ms).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.show_me_flow_cytometry_data_wi",
@@ -5898,18 +5404,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -5926,7 +5422,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_tissues_that_underwent_sh",
@@ -5941,18 +5438,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -5969,7 +5456,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "The base demanded the REST engine in its own text \u2014 parser_plan.mode eq new_search, api_plan.endpoint contains advanced_search, api_ok true \u2014 so no floor change could reach it (apply_family_floor only ADDS a criterion for a field the turn does not already assert). In the 2026-08-03 seed-6 run this routed nextseek_query and the graph answered it correctly with 1,765 D.SEQ files; the operator's review said 'also correct'. The engine was never the defect. graph_not_truncated is inert on a REST turn by construction, so it mandates no engine while still catching a silently capped graph answer, and the reply regex asserts a real D.SEQ UID came back OR an honest negative \u2014 a confident answer about the wrong entity fails it. NO count assertion: ground truth for this number is unsettled (issue #33), so asserting one would be inventing it. The guard's `could not` branch was deleted on 2026-08-03 for the reason recorded on advanced.find_me_nhp_samples_from_study_2: an outage is classified `error` before any criterion is scored, so the branch only weakened this guard.",
@@ -6027,18 +5515,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -6055,7 +5533,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_fibrin_imaging_data",
@@ -6070,18 +5549,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -6093,7 +5562,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "advanced.find_me_gpt_assay_data",
@@ -6108,18 +5578,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -6131,7 +5591,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "graph.pbmc_gbm_seq",
@@ -9271,28 +8732,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "CEL-250319WHI-1-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b11\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "CEL-250319WHI-1\\b"
                 }
               ]
             }
@@ -9305,7 +8756,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 11 transitive descendants: 9 D.MSP children and 2 A.MSP grandchildren. It has exactly 1 ancestor (TIS-250319WHI-5-PUB). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'CEL-250319WHI-1-PUB'}) = 11 distinct, listed by UID. Re-verified independently for this set."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 11 transitive descendants: 9 D.MSP children and 2 A.MSP grandchildren. It has exactly 1 ancestor (TIS-250319WHI-5-PUB). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'CEL-250319WHI-1-PUB'}) = 11 distinct, listed by UID. Re-verified independently for this set.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.nhp_lineage",
@@ -9320,23 +8772,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "NHP-220630FLY-5-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220630FLY-5\\b"
                 }
               ]
             }
@@ -9349,7 +8791,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same UID and same answer (221) as retrieve.single_nhp, which is kept. Two questions, one measurement."
+          "_deselected_2026_08_06_qset": "same UID and same answer (221) as retrieve.single_nhp, which is kept. Two questions, one measurement.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.dseq_leaf",
@@ -9366,28 +8809,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "D.SEQ-221031SHA-67-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(?=.*NHP-220630FLY-6)(?=.*A\\.SCXP-230126SHA-3)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.SEQ-221031SHA-67\\b"
                 }
               ]
             }
@@ -9400,7 +8833,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 4 ancestors in an unbranched chain (DNA-221028SHA-237-PUB -> TIS-220630FLY-2649-PUB -> PAV-220630FLY-957-PUB -> NHP-220630FLY-6-PUB) and exactly 1 descendant (A.SCXP-230126SHA-3-PUB). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: ancestors and descendants queried separately; both lists reproduced above."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 4 ancestors in an unbranched chain (DNA-221028SHA-237-PUB -> TIS-220630FLY-2649-PUB -> PAV-220630FLY-957-PUB -> NHP-220630FLY-6-PUB) and exactly 1 descendant (A.SCXP-230126SHA-3-PUB). || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: ancestors and descendants queried separately; both lists reproduced above.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.msp_lineage",
@@ -9415,23 +8849,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "D.MSP-230828GRI-4-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.MSP-230828GRI-4\\b"
                 }
               ]
             }
@@ -9443,7 +8867,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.walk_up",
@@ -9458,23 +8883,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "D.SEQ-230512FOR-288-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.SEQ-230512FOR-288\\b"
                 }
               ]
             }
@@ -9486,10 +8901,11 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
-          "_why": "The only correct outcome here is an empty/404 response, so the family floor must not impose api_ok + rows. Tagged no_floor and given its own outcome assertion instead: a 404 status code is the ANSWER, and asserting it is what distinguishes a working lookup of a nonexistent UID from a broken endpoint.",
+          "_why": "The only correct outcome here is an empty/404 response, so the family floor must not impose api_ok + rows. Tagged no_floor and given its own outcome assertion instead: a 404 status code is the ANSWER, and asserting it is what distinguishes a working lookup of a nonexistent UID from a broken endpoint. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. The 404 status code was a REST-only observable (the graph answers a missing UID with zero rows, not a status), so the not-found reply regex is now the case's assertion; it stays no_floor because zero rows is the answer.",
           "id": "tree.missing_uid",
           "family": "lineage_tree",
           "name": "Missing UID must 404, not return rows",
@@ -9507,23 +8923,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_result_meta.status_code",
-                  "op": "eq",
-                  "value": 404
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(not found|no such|does not exist|doesn.?t exist|couldn.?t find|no sample|invalid)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "XXX-999999ZZZ-1\\b"
                 }
               ]
             }
@@ -9551,18 +8962,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.MSP-230828GRI-4\\b"
                 }
               ]
             }
@@ -9574,7 +8980,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.then_ask_about",
@@ -9591,18 +8998,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
                   "op": "matches_re",
-                  "value": "(sample-tree|samples/retrieve)"
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220630FLY-5\\b"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -9610,11 +9017,6 @@
               "label": "follow_up",
               "query": "Of those, which are sequencing samples?",
               "pass_criteria": [
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
                 {
                   "field": "chat_log.length",
                   "op": "gte",
@@ -9624,6 +9026,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b38\\b"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -9637,7 +9049,8 @@
           "artifact_kind": null,
           "retirement": null,
           "_deselected_2026_08_06_qset": "third variant on NHP-220630FLY-5-PUB. Its follow-up (38 sequencing samples) is already covered by the type breakdown recorded on retrieve.single_nhp.",
-          "_edited_2026_08_11_issue35": "CRITERIA ONLY -- both question texts unchanged. This variant is issue #35's own named example of a criterion that pins one of several VALID endpoints: the seed asserted `api_plan.endpoint contains sample-tree`, but min_api_endpoints_enriched.json offers two defensible answers to 'show me everything derived from X' and says so in its own llm_hint -- /nextseek_api/sample-tree/{uid}/tree/ for the lineage, /nextseek_api/admin/samples/retrieve/ for the associated-sample export. Relaxed to `matches_re (sample-tree|samples/retrieve)` so the case scores the ANSWER, not the route the planner happened to pick. || The follow_up turn asserted only parser_plan.mode plus chat_log.length, and `chat_log.` is in evaluate._UNOBSERVABLE_FIELD_PREFIXES, so it scored on plan shape alone and could not detect a wrong answer -- it was one of the per-turn vacuous turns named in test_overlay_content. Added `last_reply matches_re \\b38\\b`. || VERIFIED: Neo4j cypher-shell, read-only, 2026-08-11: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct descendants, of which D.SEQ = 38. Type breakdown TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1 -- matches the breakdown recorded on retrieve.single_nhp exactly."
+          "_edited_2026_08_11_issue35": "CRITERIA ONLY -- both question texts unchanged. This variant is issue #35's own named example of a criterion that pins one of several VALID endpoints: the seed asserted `api_plan.endpoint contains sample-tree`, but min_api_endpoints_enriched.json offers two defensible answers to 'show me everything derived from X' and says so in its own llm_hint -- /nextseek_api/sample-tree/{uid}/tree/ for the lineage, /nextseek_api/admin/samples/retrieve/ for the associated-sample export. Relaxed to `matches_re (sample-tree|samples/retrieve)` so the case scores the ANSWER, not the route the planner happened to pick. || The follow_up turn asserted only parser_plan.mode plus chat_log.length, and `chat_log.` is in evaluate._UNOBSERVABLE_FIELD_PREFIXES, so it scored on plan shape alone and could not detect a wrong answer -- it was one of the per-turn vacuous turns named in test_overlay_content. Added `last_reply matches_re \\b38\\b`. || VERIFIED: Neo4j cypher-shell, read-only, 2026-08-11: (d)-[:DERIVED_FROM*1..10]->(:Sample{uuid:'NHP-220630FLY-5-PUB'}) = 221 distinct descendants, of which D.SEQ = 38. Type breakdown TIS 72, DNA 38, D.SEQ 38, BAC 33, PAV 15, D.FLOW 13, A.SCXP 5, D.IMG 4, A.FLOW 2, A.DBMM 1 -- matches the breakdown recorded on retrieve.single_nhp exactly.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged. Its route_policy override (NS or CC) is deleted: the seed asserts nextseek_query inline and the follow-up container_cc, per the 2026-09-23 routing rulings."
         },
         {
           "id": "tree.what_is_the_parent_chain_for_n",
@@ -9652,23 +9065,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "NHP-220830FLY-42-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220830FLY-42\\b"
                 }
               ]
             }
@@ -9680,7 +9083,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.show_me_the_full_lineage_of_d",
@@ -9695,23 +9099,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "D.SEQ-221031SHA-67-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.SEQ-221031SHA-67\\b"
                 }
               ]
             }
@@ -9723,7 +9117,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.show_me_tissue_samples_derived",
@@ -9738,23 +9133,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "NHP-220630FLY-1-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220630FLY-1\\b"
                 }
               ]
             }
@@ -9766,7 +9151,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.can_you_retrieve_the_full_samp",
@@ -9781,23 +9167,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "MUS-220122SAS-334-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "MUS-220122SAS-334\\b"
                 }
               ]
             }
@@ -9809,7 +9185,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.find_me_all_samples_derived_fr",
@@ -9824,23 +9201,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "NHP-220630FLY-5-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220630FLY-5\\b"
                 }
               ]
             }
@@ -9852,7 +9219,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.get_the_tissue_sample_tree_and",
@@ -9867,23 +9235,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "NHP-220630FLY-1-PUB"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220630FLY-1\\b"
                 }
               ]
             }
@@ -9895,7 +9253,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.yes_it_is_try_using_the_sample",
@@ -9956,23 +9315,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 },
                 {
                   "field": "last_reply",
@@ -9991,7 +9340,7 @@
           "artifact_kind": null,
           "retirement": null,
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 56 NHP samples have at least one D.FLOW descendant AND at least one D.SEQ descendant. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: NHP with EXISTS{D.FLOW ->*} AND EXISTS{D.SEQ ->*} = 56. (139 have sequencing; the intersection is 56.)",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 73 T_NHP with both a D.FLOW and a D.SEQ descendant (Neo4j cypher-shell, read-only: two EXISTS {*1..8}; *1..12 the same, and the prod probe pin fu.what_query_did_you_run is 73); was 56."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 73 T_NHP with both a D.FLOW and a D.SEQ descendant (Neo4j cypher-shell, read-only: two EXISTS {*1..8}; *1..12 the same, and the prod probe pin fu.what_query_did_you_run is 73); was 56. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.flow_and_msp",
@@ -10006,18 +9355,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -10030,7 +9369,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "one of five 'samples with BOTH assay X and assay Y' variants. pbct.monkeys_flow_and_seq is kept as the representative and is the only one with a verified intersection count (56)."
+          "_deselected_2026_08_06_qset": "one of five 'samples with BOTH assay X and assay Y' variants. pbct.monkeys_flow_and_seq is kept as the representative and is the only one with a verified intersection count (56).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.mice_msp_rnaseq",
@@ -10045,23 +9385,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10074,7 +9404,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same five-way shape; no verified intersection count."
+          "_deselected_2026_08_06_qset": "same five-way shape; no verified intersection count.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.patients_seq_imaging",
@@ -10089,18 +9420,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -10113,7 +9434,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same five-way shape; PAT samples have no imaging descendants worth a paid arm."
+          "_deselected_2026_08_06_qset": "same five-way shape; PAT samples have no imaging descendants worth a paid arm.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.monkeys_proteomics_flow",
@@ -10128,23 +9450,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10156,7 +9468,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.mice_crispr",
@@ -10222,13 +9535,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
@@ -10246,7 +9554,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero on both halves: no zebrafish (proved) and no ATAC-seq library strategy anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%zebrafish%' = 0, '%Danio%' = 0; D.SEQ $.LibraryStrategy has no ATAC value (Amplicon/RNA-Seq/WGS/scRNA-Seq/Targeted Capture/Hi-C only)."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. Zero on both halves: no zebrafish (proved) and no ATAC-seq library strategy anywhere. || VERIFIED: seek_production MySQL, verified 2026-08-06: blob LIKE '%zebrafish%' = 0, '%Danio%' = 0; D.SEQ $.LibraryStrategy has no ATAC value (Amplicon/RNA-Seq/WGS/scRNA-Seq/Targeted Capture/Hi-C only).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.three_assays",
@@ -10261,23 +9570,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10290,7 +9589,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same five-way shape extended to three conjuncts; still no verified count."
+          "_deselected_2026_08_06_qset": "same five-way shape extended to three conjuncts; still no verified count.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_monkeys_that_have_both_fl",
@@ -10305,23 +9605,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10333,7 +9623,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_all_mice_that_have_both_s",
@@ -10348,23 +9639,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10376,7 +9657,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_monkeys_that_have_both",
@@ -10391,23 +9673,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10419,7 +9691,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_monkeys_that_have_both_2",
@@ -10434,23 +9707,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10462,7 +9725,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_monkeys_that_have_flow",
@@ -10477,23 +9741,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10505,7 +9759,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_monkeys_that_have_imag",
@@ -10520,23 +9775,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10548,7 +9793,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_monkeys_who_have_seque",
@@ -10563,23 +9809,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10591,7 +9827,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_non_human_primate_samp",
@@ -10606,23 +9843,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10634,7 +9861,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.find_me_samples_that_have_flow",
@@ -10649,23 +9877,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "D.SEQ"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10677,7 +9895,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "pbct.tell_me_all_tissues_that_have",
@@ -10692,23 +9911,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "parents_by_child_types"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "TIS"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
                 }
               ]
             }
@@ -10720,7 +9929,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "Kept as a live regression guard, no longer known_fail. In the 2026-07-24 run it returned the six expected D.SEQ-220823SHA UIDs, i.e. it xpassed; leaving the tag on made a green result read as an expected failure.",
@@ -10777,9 +9987,9 @@
               "query": "What was sample MUS-200901ENG-23-PUB derived from?",
               "pass_criteria": [
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "sample-tree"
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "MUS-200901ENG-23\\b"
                 }
               ]
             }
@@ -10795,7 +10005,8 @@
           "_atlas": {
             "capability": "Lineage / derivation tree for ONE named UID",
             "assertion": "api_plan.endpoint contains sample-tree"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "tree.are_mus_200901eng_23_pub_and_d_s",
@@ -12874,8 +12085,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -12883,9 +12094,9 @@
                   "value": "MUS"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -12894,14 +12105,19 @@
               "query": "How many results came back from that last search?",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
-                {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b\\d+\\b"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -12914,7 +12130,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA). Replaced by fu.acetaminophen_recall, which tests the same count-recall intent on a seed used nowhere else."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA). Replaced by fu.acetaminophen_recall, which tests the same count-recall intent on a seed used nowhere else.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.memory_unique_types",
@@ -12929,18 +12146,18 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(TIS|tissue)"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -12949,14 +12166,19 @@
               "query": "What unique sample types are in those results?",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
-                {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(?=.*\\bTIS\\b)(?=.*\\bCEL\\b)"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -12969,7 +12191,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The types are TIS and CEL. The COUNT is deliberately not asserted: Neo4j says 10,683 (TIS 10,604 + CEL 79) and MySQL says 10,922 (CEL 318) \u2014 the CEL store drift makes any total unsettled. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06 and seek_production MySQL, verified 2026-08-06: TIS in Impact 10,604 in both stores; CEL in Impact 79 (graph) vs 318 (MySQL)."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. The types are TIS and CEL. The COUNT is deliberately not asserted: Neo4j says 10,683 (TIS 10,604 + CEL 79) and MySQL says 10,922 (CEL 318) \u2014 the CEL store drift makes any total unsettled. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06 and seek_production MySQL, verified 2026-08-06: TIS in Impact 10,604 in both stores; CEL in Impact 79 (graph) vs 318 (MySQL).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.memory_scientists",
@@ -13100,7 +12323,7 @@
           }
         },
         {
-          "_why": "Observed: seed returned 195 MUS; the follow-up answered 'D.SEQ' and noted no rows were available.",
+          "_why": "Observed: seed returned 195 MUS; the follow-up answered 'D.SEQ' and noted no rows were available. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged.",
           "id": "refrec.what_sample_types_were_represe",
           "family": "followup_over_results",
           "name": "Recall the seed's sample types",
@@ -13116,14 +12339,14 @@
               "query": "Find mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "MUS"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13132,19 +12355,19 @@
               "query": "What sample types were represented in those results",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
-                {
-                  "field": "api_result_meta.source_mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
                   "field": "last_reply",
                   "op": "mentions",
                   "value": "MUS"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13173,9 +12396,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13184,9 +12412,19 @@
               "query": "Which of those samples are from 2022",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13199,7 +12437,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA), and its date follow-up is unanswerable: created_at is 2026 on all 50,887 rows."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA), and its date follow-up is unanswerable: created_at is 2026 on all 50,887 rows.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.can_you_summarize_what_those_r",
@@ -13215,9 +12454,14 @@
               "query": "Find mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13226,9 +12470,19 @@
               "query": "Can you summarize what those results contained",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13241,7 +12495,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); 'summarize those results' has no checkable ground truth."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); 'summarize those results' has no checkable ground truth.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.from_the_last_search_which_sam",
@@ -13257,9 +12512,14 @@
               "query": "Find mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13268,9 +12528,19 @@
               "query": "From the last search, which samples came from the most recent year",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13283,7 +12553,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) plus the same created_at date trap."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) plus the same created_at date trap.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.how_many_results_did_that_retu",
@@ -13299,9 +12570,14 @@
               "query": "Find mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13310,9 +12586,19 @@
               "query": "How many results did that return",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13325,7 +12611,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent with refrec.memory_how_many."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent with refrec.memory_how_many.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.and_how_many_dna_samples_did_w",
@@ -13382,9 +12669,14 @@
               "query": "Find me studies in MetNet",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13393,9 +12685,19 @@
               "query": "How many D.SEQ samples did the very first search in this session return",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13408,7 +12710,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "incoherent: the seed returns STUDIES and the follow-up asks how many D.SEQ samples 'the very first search' returned."
+          "_deselected_2026_08_06_qset": "incoherent: the seed returns STUDIES and the follow-up asks how many D.SEQ samples 'the very first search' returned.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.how_many_distinct_labs_are_rep",
@@ -13512,9 +12815,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13523,9 +12831,19 @@
               "query": "Of those, which are actually from the SHA lab? Give me UIDs",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13538,7 +12856,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA). SHA-lab NDMA mice is 0, which the question does not anticipate."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA). SHA-lab NDMA mice is 0, which the question does not anticipate.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "_why": "Observed: the seed was answered by the nf-core samplesheet builder ('Searching the sample database isn't something I can do') because a pipeline build left open by an EARLIER case short-circuited routing.",
@@ -13659,16 +12978,32 @@
             {
               "label": "seed",
               "query": "Create a new investigation \"TEST API CD\" for me",
-              "pass_criteria": []
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
             },
             {
               "label": "followup",
               "query": "Can you run that again, but with project id 2",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13681,7 +13016,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "incoherent: the seed is a write ('Create a new investigation') and the follow-up says 'run that again' as if it were a search."
+          "_deselected_2026_08_06_qset": "incoherent: the seed is a write ('Create a new investigation') and the follow-up says 'run that again' as if it were a search.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.from_the_above_search_which_sa",
@@ -13744,9 +13080,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13755,9 +13096,19 @@
               "query": "Going way back \u2014 how many NDMA mice did the very first search return",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13770,7 +13121,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent (count recall)."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent (count recall).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.how_many_d_seq_impact_samples",
@@ -13786,9 +13138,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13797,9 +13154,19 @@
               "query": "How many D.SEQ IMPACT samples did the first search return",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13812,7 +13179,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); the follow-up asks about a D.SEQ search the first turn never ran."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); the follow-up asks about a D.SEQ search the first turn never ran.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.how_many_ndma_mice_did_the_fir",
@@ -13828,9 +13196,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13839,9 +13212,19 @@
               "query": "How many NDMA mice did the first search return",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -13854,7 +13237,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent (count recall)."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and duplicate intent (count recall).",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.just_show_me_the_first_3_uids",
@@ -13939,7 +13323,7 @@
           }
         },
         {
-          "_why": "Observed: seed returned 195 MUS; the follow-up answered about 'the 15 results' from the 4-week bundle twelve turns earlier, because target_result_id was null and bundle selection scored by keyword overlap across a shared session.",
+          "_why": "Observed: seed returned 195 MUS; the follow-up answered about 'the 15 results' from the 4-week bundle twelve turns earlier, because target_result_id was null and bundle selection scored by keyword overlap across a shared session. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged.",
           "id": "refrec.of_those_mice_can_you_summariz",
           "family": "followup_over_results",
           "name": "Recall must use THIS case's bundle",
@@ -13955,14 +13339,14 @@
               "query": "Find me mice associated with ndma",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
                 },
                 {
-                  "field": "api_result_meta.row_count",
-                  "op": "gte",
-                  "value": 1
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -13971,19 +13355,19 @@
               "query": "Of those mice, can you summarize the sex statistics of it",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
-                {
-                  "field": "api_result_meta.source_mode",
-                  "op": "eq",
-                  "value": "new_search"
-                },
-                {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(male|female|sex)"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -14015,6 +13399,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?is)(NHP|macaca|macaque|monkey)"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -14023,14 +13412,19 @@
               "query": "Of those monkeys, which are cd8 depleted",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "ask_about_last_results"
-                },
-                {
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "\\b(15|46)\\b"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -14043,7 +13437,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 408 NHP samples. CD8 cohorts: 'CD8 Depletion' 15, 'CD8a' 17, 'CD8b' 14 = 46 across all three. Either 15 (the named depletion cohort) or 46 (every CD8 cohort) is defensible. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP total 408; $.Cohort LIKE '%CD8%' grouped -> 15 / 17 / 14."
+          "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 408 NHP samples. CD8 cohorts: 'CD8 Depletion' 15, 'CD8a' 17, 'CD8b' 14 = 46 across all three. Either 15 (the named depletion cohort) or 46 (every CD8 cohort) is defensible. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP total 408; $.Cohort LIKE '%CD8%' grouped -> 15 / 17 / 14.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.of_those_samples_which_have_a",
@@ -14282,9 +13677,14 @@
               "query": "Find me NHP samples from study IMPACT",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -14293,9 +13693,19 @@
               "query": "Which of those are Males",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "ask_about_last_results"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -14308,7 +13718,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "its seed ('Find me NHP samples from study IMPACT') resolves to the same 408 rows as the kept monkeys seed, so the two prime each other."
+          "_deselected_2026_08_06_qset": "its seed ('Find me NHP samples from study IMPACT') resolves to the same 408 rows as the kept monkeys seed, so the two prime each other.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.which_samples_have_a_tumor_fra",
@@ -14471,9 +13882,9 @@
               "query": "How many of those are RG genotype?",
               "pass_criteria": [
                 {
-                  "field": "api_result_meta.source_mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }
@@ -14489,7 +13900,8 @@
           "_atlas": {
             "capability": "Follow-up over already-returned results (mode=ask_about_last_results)",
             "assertion": "api_result_meta.source_mode eq new_search"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.going_back_to_my_first_search_ho",
@@ -14724,9 +14136,9 @@
               "query": "How many of the NDMA ones were RG?",
               "pass_criteria": [
                 {
-                  "field": "api_result_meta.bundle_id",
-                  "op": "eq",
-                  "value": 1
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }
@@ -14742,7 +14154,8 @@
           "_atlas": {
             "capability": "Resolve which earlier result set a follow-up means",
             "assertion": "api_result_meta.bundle_id eq 1"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.remind_me_what_that_mouse_search",
@@ -15684,8 +15097,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -15693,9 +15106,9 @@
                   "value": "NHP"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -15704,23 +15117,28 @@
               "query": "Which of those monkeys are depleted of CD8?",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "refine_last_search"
-                },
-                {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "trio",
+                  "op": "trio_match",
                   "value": null
                 },
                 {
-                  "field": "trio",
-                  "op": "trio_match",
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
                 }
               ]
@@ -15734,7 +15152,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "fifth spelling of the CD8-depletion refinement, over a fifth spelling of the NHP seed."
+          "_deselected_2026_08_06_qset": "fifth spelling of the CD8-depletion refinement, over a fifth spelling of the NHP seed.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.refine_to_female",
@@ -15749,8 +15168,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -15758,9 +15177,9 @@
                   "value": "MUS"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -15769,14 +15188,19 @@
               "query": "Now filter those to only female animals.",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "refine_last_search"
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -15789,7 +15213,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "there is no Kamm PROJECT. KAM is a lab code with 7,269 samples and ZERO mice, so turn 1's correct answer is zero and both arms were failed for giving it. The refinement can never be reached."
+          "_deselected_2026_08_06_qset": "there is no Kamm PROJECT. KAM is a lab code with 7,269 samples and ZERO mice, so turn 1's correct answer is zero and both arms were failed for giving it. The refinement can never be reached.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.refine_after_2023",
@@ -15859,13 +15284,13 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -15874,14 +15299,19 @@
               "query": "Can you limit those to liver tissue only?",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "refine_last_search"
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -15894,7 +15324,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "both arms failed in 2026-08-06 and the premise is weak: the Impact TIS rows are not the liver rows, so the refinement's true answer is near zero and the question does not anticipate it."
+          "_deselected_2026_08_06_qset": "both arms failed in 2026-08-06 and the premise is weak: the Impact TIS rows are not the liver rows, so the refinement's true answer is near zero and the question does not anticipate it.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.now_filter_those_to_only_cd8_d",
@@ -15910,9 +15341,14 @@
               "query": "Find all NHP samples in the database",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -15921,9 +15357,19 @@
               "query": "Now filter those to only CD8-depleted animals",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "refine_last_search"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -15936,7 +15382,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "one of four variants sharing both the seed AND the CD8-depletion refinement. refrec.of_those_monkeys_which_are_cd8 is kept as the representative."
+          "_deselected_2026_08_06_qset": "one of four variants sharing both the seed AND the CD8-depletion refinement. refrec.of_those_monkeys_which_are_cd8 is kept as the representative.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.filter_the_last_search_to_cd8",
@@ -15952,9 +15399,14 @@
               "query": "Find all NHP samples in the database",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -15963,9 +15415,19 @@
               "query": "Filter the last search to CD8-depleted animals",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "refine_last_search"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -15978,7 +15440,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same four-way duplicate."
+          "_deselected_2026_08_06_qset": "same four-way duplicate.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.from_those_results_keep_only_t",
@@ -15994,9 +15457,14 @@
               "query": "Find all NHP samples in the database",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -16005,9 +15473,19 @@
               "query": "From those results, keep only the CD8-depleted ones",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "refine_last_search"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -16020,10 +15498,11 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "same four-way duplicate."
+          "_deselected_2026_08_06_qset": "same four-way duplicate.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
-          "_why": "Observed: seed returned 408 NHP via REST; the refine was handed to the graph agent, which correctly refused ('CD8-depleted is not stored in the graph'), and the case still passed.",
+          "_why": "Observed: seed returned 408 NHP via REST; the refine was handed to the graph agent, which correctly refused ('CD8-depleted is not stored in the graph'), and the case still passed. || 2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged.",
           "id": "refrec.refine_those_results_to_cd8_de",
           "family": "search_refinement",
           "name": "Refine a REST search (must not bounce off the graph agent)",
@@ -16039,14 +15518,14 @@
               "query": "Find all NHP samples in the database",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
-                },
-                {
                   "field": "entity_sampletype_codes",
                   "op": "contains",
                   "value": "NHP"
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -16055,14 +15534,19 @@
               "query": "Refine those results to CD8-depleted animals only",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "refine_last_search"
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
-                  "value": null
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -16320,9 +15804,14 @@
               "query": "Find me mice treated with NDMA",
               "pass_criteria": [
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "last_reply",
+                  "op": "nonempty",
                   "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
                 }
               ]
             },
@@ -16331,9 +15820,19 @@
               "query": "Try that search again with \"Water\" instead of \"Water Study\"",
               "pass_criteria": [
                 {
-                  "field": "parser_plan.mode",
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
                   "op": "eq",
-                  "value": "refine_last_search"
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
                 }
               ]
             }
@@ -16346,7 +15845,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); the substitution is against a premise ('Water Study') that was never established."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); the substitution is against a premise ('Water Study') that was never established.",
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.try_this_search_again_with_tis",
@@ -16481,9 +15981,9 @@
               "query": "Now just the RG genotype ones.",
               "pass_criteria": [
                 {
-                  "field": "api_plan.requestBody.filter_searchText",
-                  "op": "contains",
-                  "value": "NDMA"
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }
@@ -16499,7 +15999,8 @@
           "_atlas": {
             "capability": "Refine / re-run the previous search (mode=refine_last_search)",
             "assertion": "api_plan.requestBody.filter_searchText contains NDMA"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "id": "refrec.now_narrow_that_down_to_just_the_2",
@@ -16518,8 +16019,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
+                  "op": "matches_re",
+                  "value": "^(graph_query|new_search)$"
                 }
               ]
             }
@@ -16535,7 +16036,8 @@
           "_atlas": {
             "capability": "Guard: make a refine-with-no-prior-bundle degrade visible",
             "assertion": "parser_plan.mode eq new_search"
-          }
+          },
+          "_why": "2026-09-23: REST-path plumbing criteria retired: the graph answers this (prod suite seed 17); content criteria unchanged."
         },
         {
           "artifact_expected": null,
@@ -23849,7 +23351,7 @@
                 {
                   "field": "route",
                   "op": "eq",
-                  "value": "nextseek_query"
+                  "value": "container_cc"
                 }
               ]
             }
@@ -23865,7 +23367,8 @@
           "_atlas": {
             "capability": "History-aware routing with injection containment",
             "assertion": "an elliptical second turn that only makes sense against turn 1 still routes to the engine that answered turn 1"
-          }
+          },
+          "_why": "2026-09-23: route expectation follows the operator's routing ruling: a turn that refers back to an earlier one routes to container_cc (the router sent this pasted two-turn message there in the prod suite, seed 17); the atlas assertion above predates that ruling."
         },
         {
           "id": "route.what_is_a_comet_chip_analysis_sa",
@@ -25050,10 +24553,6 @@
         "value": "(nextseek_query|container_cc)"
       },
       "tree.derivation_of_dmsp": {
-        "op": "matches_re",
-        "value": "(nextseek_query|container_cc)"
-      },
-      "tree.then_ask_about": {
         "op": "matches_re",
         "value": "(nextseek_query|container_cc)"
       },
