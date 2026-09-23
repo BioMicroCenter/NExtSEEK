@@ -366,12 +366,15 @@ def _write_cell(ws, row: int, column: int, value: str, bold: bool = False):
     return cell
 
 
-def _write_readme(book, blocks: list[dict], *, flow_lines: list[str]) -> None:
+def _write_readme(book, blocks: list[dict], *, flow_lines: list[str], notice: str | None = None) -> None:
     ws = book.create_sheet(README_SHEET, 0)
     _write_cell(ws, 1, 1, README_LINK_TEXT)
     ws["A1"].hyperlink = CONTEXTDB_URL
     ws["A1"].style = "Hyperlink"
-    # Row 2 is left blank to separate the link from the summary table.
+    # Row 2 separates the link from the summary table. It is blank unless the download carries a
+    # warning (an incomplete lineage), which belongs where a reader looks first.
+    if notice:
+        _write_cell(ws, 2, 1, notice, bold=True)
     #
     # Sheet order: every sample type is summarised first, so a reader sees what
     # the workbook contains before meeting any column detail. The per-tab
@@ -498,8 +501,9 @@ def _apply_dropdowns(ws, columns: list[str], field_map, ranges, row_count: int) 
         rule.add(f"{letter}2:{letter}{max(row_count + 1, 2) + DROPDOWN_SPARE_ROWS}")
 
 
-def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None:
-    """Write README as sheet 1, then one sheet per sample type.
+def write_samples_workbook(parsed_df, output_path, context_by_code=None, notice=None) -> None:
+    """Write README as sheet 1, then one sheet per sample type. ``notice``, when given, is a warning
+    written at the top of the README.
 
     `parsed_df` must carry a `uuid` column; `sample_type` is derived here so the
     extraction regex lives in exactly one place. Sheets are prepared before the
@@ -545,7 +549,7 @@ def write_samples_workbook(parsed_df, output_path, context_by_code=None) -> None
         # pandas removes openpyxl's default sheet, but guard in case that changes.
         if "Sheet" in book.sheetnames:
             del book["Sheet"]
-        _write_readme(book, blocks, flow_lines=flow_lines)
+        _write_readme(book, blocks, flow_lines=flow_lines, notice=notice)
 
         field_map, vocabularies = _load_vocabularies()
         needed = sorted({

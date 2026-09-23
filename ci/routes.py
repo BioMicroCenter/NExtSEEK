@@ -1018,7 +1018,14 @@ REGISTRY: list[Route] = [
           path="/nextseek_api/admin/samples/retrieve/",
           effect="external",
           methods=("POST",), profiles="local,dev", auth="write", expect=200,
-          note="builds a sample workbook, so it stays off prod"),
+          note="deprecated alias of /nextseek_api/samples/retrieve/ (one handler); "
+               "builds a sample workbook, so it stays off prod"),
+    Route(pattern=r"^nextseek_api/^^samples/retrieve/$",
+          path="/nextseek_api/samples/retrieve/",
+          effect="external",
+          methods=("POST",), profiles="local,dev", auth="write", expect=200,
+          note="the sample download API behind every download button; builds a "
+               "sample workbook, so it stays off prod"),
     Route(pattern=r"^nextseek_api/^^assay-registrations/$",
           path="/nextseek_api/assay-registrations/",
           effect="writes", writers=("WR-11",),
@@ -1147,7 +1154,7 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("POST",), profiles="local,dev", auth="write", expect=200,
           note="superuser only, and it builds a workbook, so it stays off prod -- "
-               "the same rule /nextseek_api/admin/samples/retrieve/ follows. "
+               "the same rule /nextseek_api/samples/retrieve/ follows. "
                "Writes nothing: ci/smoke/test_write_lane.py drives it"),
 
     # ----------------------------------------------------------------- #

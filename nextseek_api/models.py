@@ -2083,7 +2083,7 @@ class SampleTreeResponse(BaseModel):
 # Admin samples: request/response models
 # -----------------------------
 
-class AdminSampleRetrieveRequest(BaseModel):
+class SampleRetrieveRequest(BaseModel):
     identifiers: List[str] = Field(
         ...,
         description="List of Sample UIDs (e.g., 'NHP-220630FLY-1-PUB') and/or SEEK IDs (numeric strings). "
@@ -2099,7 +2099,7 @@ class AdminSampleRetrieveRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
-class AdminSampleGroup(BaseModel):
+class SampleGroup(BaseModel):
     sample_type: str = Field(..., description="Sample type identifier (e.g., 'NHP', 'TIS')")
     n_samples: int = Field(..., description="Number of samples returned for this sample type")
     samples: List[Dict[str, Any]] = Field(..., description="List of sample metadata dicts")
@@ -2107,17 +2107,30 @@ class AdminSampleGroup(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
-class AdminSampleRetrieveResponse(BaseModel):
+class SampleRetrieveResponse(BaseModel):
     total_samples: int = Field(
         ...,
         description="Total samples returned across all sample types; includes results for both parents and child (derived) samples."
     )
     total_sample_types: int = Field(..., description="Number of distinct sample types")
-    total_children: int = Field(..., description="Total child samples (derived) included")
+    total_children: int = Field(
+        ..., description="Samples returned beyond the requested ones: every relative, ancestors included"
+    )
     failed_uids: int = Field(0, description="Count of identifiers not found")
-    data: List[AdminSampleGroup] = Field(..., description="Samples grouped by type")
+    data: List[SampleGroup] = Field(..., description="Samples grouped by type")
+    lineage_complete: bool = Field(
+        True,
+        description="False when the sample graph could not supply the whole lineage; the requested samples are "
+                    "still returned. Always true when include_tree is false.",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+# The names from when the route was admin/samples/retrieve/.
+AdminSampleRetrieveRequest = SampleRetrieveRequest
+AdminSampleGroup = SampleGroup
+AdminSampleRetrieveResponse = SampleRetrieveResponse
 
 
 # -----------------------------
