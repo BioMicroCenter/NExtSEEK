@@ -201,6 +201,9 @@ _CONTAINER_MEMORY_CLAUDE_MD = "CLAUDE.md"  # basename copied into the cc-state s
 # Step 1c: the 10 most-recent OTHER sessions' raw transcripts, RO, for on-demand
 # depth. Outside .claude so it never collides with the session store / resume.
 _CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
+# 2026-09-23: this chat's previous turns (Search details, rows, downloads), staged by
+# ``NessieAI/cc/prior_turns.py`` into the session's ``_memory`` subtree, RO.
+_CONTAINER_PREVIOUS_TURNS = "/data/previous_turns"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -970,6 +973,7 @@ def _build_volumes(
     cc_state_key: str | None,
     run_id: str,
     transcripts_subpath: str | None = None,
+    previous_turns: bool = False,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
     the CC sibling container.
@@ -1015,6 +1019,14 @@ def _build_volumes(
                 vol, _CONTAINER_MEMORY_TRANSCRIPTS, transcripts_subpath, read_only=True
             )
         )
+    # The previous turns of THIS chat: a boolean, not a path, so the subpath comes
+    # from the provisioner like every other one, and it exists only for a session.
+    if previous_turns and dirs.previous_turns_subpath:
+        mounts.append(
+            _mount_volume_subpath(
+                vol, _CONTAINER_PREVIOUS_TURNS, dirs.previous_turns_subpath, read_only=True
+            )
+        )
     return mounts
 
 
@@ -1048,6 +1060,7 @@ def run_cc_turn(
     cc_state_key: str | None = None,
     memory_claude_md: str | None = None,
     transcripts_subpath: str | None = None,
+    previous_turns: bool = False,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -1098,6 +1111,7 @@ def run_cc_turn(
         paths=paths, project_dirname=project_dirname, user_id=user_id,
         cc_state_key=cc_state_key, run_id=run_id,
         transcripts_subpath=transcripts_subpath,
+        previous_turns=previous_turns,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]

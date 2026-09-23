@@ -36,7 +36,11 @@ from chat_nextseek.orchestrator import run_query, run_query_plan
 
 from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
-from NessieAI.router.policy import _decide_route, _record_ledger_row
+from NessieAI.router.policy import (
+    _decide_route,
+    _fallback_when_cc_unavailable,
+    _record_ledger_row,
+)
 from NessieAI.ns.turn import _auto_title_if_unset, _select_chat_config
 from NessieAI.cc import cc_engine
 from NessieAI.cc import cc_config
@@ -47,6 +51,7 @@ from NessieAI.cc import cc_memory_io
 from NessieAI.cc import ns_digest
 from NessieAI.cc import ns_turn_context
 from NessieAI.cc import cc_turn_context
+from NessieAI.cc import prior_turns
 from NessieAI.cc.cc_turn_complete import (
     TurnCompletePayload,
     apply_turn_to_extra_state,
@@ -372,10 +377,15 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
         ran_ns = False
         decision = None
         try:
-            history = router_context.build_history(
-                (chat_session.extra_state or {}).get("chat_log") or []
-            )
-            decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter, history=history)
+            chat_log = (chat_session.extra_state or {}).get("chat_log") or []
+            history = router_context.build_history(chat_log)
+            # The whole chat_log too: stickiness holds for the rest of the chat, not
+            # only while a CC turn is inside the router's 5-turn window.
+            decision = _decide_route(request.user, req, force_cc=force_cc, session=adapter,
+                                     history=history, chat_log=chat_log)
+            # A turn the policy moved to CC (sticky, follow-up) goes back to NExtSEEK
+            # for this one turn when the CC runner is down, rather than erroring.
+            decision = _fallback_when_cc_unavailable(decision, cc_engine.cc_runner_available)
 
             send_event("route_decided", {
                 "route": decision.route, "model_class": decision.model_class,
@@ -544,6 +554,18 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                         session_id=str(chat_session.session_id)),
                     cc_turn_context.build_cc_contexts(
                         (chat_session.extra_state or {}).get("chat_log") or []))
+                # 2026-09-23: every follow-up comes here, so the previous turns' Search
+                # details, rows and downloads are staged for this turn to read, from this
+                # chat only and through the download endpoint's own guard (prior_turns).
+                # Within-chat, so a fresh_session turn gets them too, like the digest.
+                staged_prior = prior_turns.stage_prior_turns(
+                    chat_log=(chat_session.extra_state or {}).get("chat_log") or [],
+                    results_history=chat_session.results_history or [],
+                    dest_dir=Path(dirs.previous_turns_mnt),
+                    cc_artifacts_root=Path(dirs.output_mnt) / "artifacts",
+                )
+                within_chat_md = "\n\n".join(
+                    p for p in (prior_turns.memory_pointer(staged_prior), within_chat_md) if p)
                 combined = ns_digest.compose_turn_claude_md(within_chat_md, memory_md)
                 written = cc_memory_io.write_memory_file(mem_root / "CLAUDE.md", combined)
                 if written:
@@ -570,6 +592,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     cc_state_key=cc_state_key,
                     memory_claude_md=memory_claude_md,
                     transcripts_subpath=transcripts_subpath,
+                    previous_turns=staged_prior is not None,
                     api_user=user_api_user, api_pass=user_api_pass,
                     chat_session=chat_session,
                     user_query=req.query or "",

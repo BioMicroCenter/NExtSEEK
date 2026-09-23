@@ -38,6 +38,7 @@ largest module here and holds several concerns; read the part you need.
 | `cc_session.py`, `cc_turn_complete.py` | multi-turn resume and turn-completion persistence (Django-free) |
 | `cc_memory.py`, `cc_memory_io.py`, `cc_summary.py` | cross-session memory: which sessions to recall, the mounted files, transcript distillation |
 | `cc_turn_context.py`, `ns_turn_context.py`, `ns_digest.py` | the deterministic CC and NS turn-context projections, and the NS digest renderer |
+| `prior_turns.py` | stages the chat's previous turns (Search details, rows, downloads, CC answers and files) into the session's `_memory` tree, mounted read-only at `/data/previous_turns`; copies only through the download endpoint's own guard |
 | `cc_upload_list.py`, `cc_upload_validate.py` | the upload list and filename validation for agent file uploads |
 | `cc_config.py` | `CCPaths` (the external volume and its mount point, read from env) and `CCMemoryConfig` |
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |

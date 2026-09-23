@@ -94,6 +94,11 @@ class UserDirs:
     # #70/#36: per-turn scratch, the agent's actual /data/scratch.
     run_scratch_subpath: str | None = None
     run_scratch_mnt: str | None = None
+    # 2026-09-23: this chat's previous turns (``NessieAI/cc/prior_turns.py``), staged
+    # host-side and mounted read-only at /data/previous_turns. Session-scoped like
+    # ``memory_*``, so one chat never sees another's.
+    previous_turns_subpath: str | None = None
+    previous_turns_mnt: str | None = None
 
 
 def build_user_dirs(
@@ -140,6 +145,10 @@ def build_user_dirs(
         memory_mnt=f"{user_mount}/_memory/{session_id}" if session_id else None,
         run_scratch_subpath=f"{user_rel}/scratch/{run_id}" if run_id else None,
         run_scratch_mnt=f"{user_mount}/scratch/{run_id}" if run_id else None,
+        previous_turns_subpath=(f"{user_rel}/_memory/{session_id}/previous_turns"
+                                if session_id else None),
+        previous_turns_mnt=(f"{user_mount}/_memory/{session_id}/previous_turns"
+                            if session_id else None),
     )
 
 

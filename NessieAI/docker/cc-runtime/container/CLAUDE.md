@@ -110,7 +110,7 @@ To check whether a specific variable is set without revealing its value, use `[ 
 
 ## How your turn runs
 
-NExtSEEK's router sent this turn to you on the `container_cc` route. Either it judged the turn to need general agent work, or the chat's previous turn completed here (which keeps a chat on this route), or an admin forced the route, so a plain data question can reach you too. The other routes never reach this container: `nextseek_query` runs the `chat_nextseek` pipeline inside the NExtSEEK app, and an out-of-scope turn gets a fixed reply. You do not run those turns; a summary of earlier turns in this chat can appear in your memory file.
+NExtSEEK's router sent this turn to you on the `container_cc` route. Either it judged the turn to need general agent work, or the turn refers back to an earlier turn of this chat (every follow-up comes here, whichever route answered the earlier turn, and so does anything about your own earlier results once the chat has been here), or an admin forced the route, so a plain data question can reach you too. A self-contained question later in the same chat is routed on its own and may go to `nextseek_query`; its results then appear among the previous turns below. The other routes never reach this container: `nextseek_query` runs the `chat_nextseek` pipeline inside the NExtSEEK app, and an out-of-scope turn gets a fixed reply. You do not run those turns; a summary of earlier turns in this chat can appear in your memory file.
 
 - **Each turn is a new container.** NExtSEEK starts a fresh container from this image for every turn, sends it the user's message once on stdin, and removes it when the turn ends. Nothing outside the mounts below carries over: no process, no shell state, no file you wrote anywhere else. Your turn ends when you reply. The user's answer to a question you ask arrives as the next turn, in a new container that resumes this conversation.
 - **Your environment is built fresh for each turn.** Environment variables and credentials are injected when the container starts. Read what you need in the turn that needs it.
@@ -120,9 +120,35 @@ NExtSEEK's router sent this turn to you on the `container_cc` route. Either it j
   - `/data/scratch` (read-write): this turn's own directory, empty when the turn starts. Write every output file here; new files are published to the user after the turn. A later turn does not see it.
   - `/home/user/.claude` (read-write): this chat's Claude Code state, kept across its turns: the conversation you resume, and your memory file.
   - `/home/user/.cc-memory/transcripts` (read-only): transcripts of the user's recent other chat sessions, mounted only when there are any.
+  - `/data/previous_turns` (read-only): this chat's earlier answered turns, staged before your turn and mounted only when there are any. See "Follow-ups: start from the previous turn" below.
 - **A turn has a time limit.** By default a turn is stopped after 180 seconds (three minutes) of wall-clock time; the deployment or an admin can set a different limit. A turn that runs past it is stopped, and the user gets a timeout error instead of your reply.
 - **The model is fixed.** Every turn runs the same Opus model through the Bedrock proxy; the router does not choose it. Nothing for you to do.
 - **`NEXTSEEK_MODE` is inert.** The container entrypoint sets it to `gcp` when it is unset, and nothing in this image reads it. Ignore it.
+
+## Follow-ups: start from the previous turn
+
+When `/data/previous_turns/` exists, read `/data/previous_turns/MANIFEST.md` first. It lists this chat's answered turns, newest first: the question each asked, the route that answered it, and what each file in its `turn-NN/` folder holds. For an NExtSEEK turn that is:
+
+- `search_details.json`: what the user saw under Search details. The entity resolution, the parser's mode and intent, the graph Cypher with its explanation and parameters, and the Neo4j count (or, for a REST turn, the endpoint and request).
+- `rows.json` and `rows.csv`: every row the turn returned, and the Cypher that produced them.
+- Any download the turn offered, such as a report workbook or the full API result.
+
+A Container-CC turn's folder holds its `answer.md` and the files it published.
+
+A follow-up ("of those", "which species among them", "plot that", "same search but only D.SEQ", "what query did you run?") is about the newest turn unless the user names another. Start from that turn's files, not from scratch:
+
+- **To analyse what was returned**, read `rows.json` or `rows.csv` directly (polars is installed). Do not run a new search for rows you already have, and do not call `nextseek-query`, `nextseek-parse` or `nextseek-entity-extract` to rebuild a result that is already on disk.
+- **To change the search**, take the Cypher from `search_details.json` and hand it to `nextseek-graph` with the one change the user asked for, in the question itself: `nextseek-graph --query "Re-run this Cypher, changing only <the change>: <the Cypher>"`. The op takes a question, never a bare statement; its graph agent writes the new statement from yours, and the op scopes it to the user's projects, as it did the first time. Compare the Cypher it returns with the stored one, and say what changed.
+- **To say what was run**, quote `search_details.json`: the Cypher, its parameters and its count.
+- **To hand over a file**, write it to `/data/scratch/`. `/data/previous_turns/` is read-only and is not published.
+
+The numbers in these files are the ones the user was shown. When your answer reuses one, it must match.
+
+## Counts and breakdowns
+
+- **Over the graph**, use `nextseek-aggregate`: "how many", "how many of each", "break down by", "group by", "the largest groups". One call answers the question, or 1 to 4 parts run in parallel, each as a small table held to the user's projects, with its missing-value bucket. Do not page sample records through `nextseek-graph` and count them yourself.
+- **Over "those"** (a previous turn's result), aggregate that turn's `rows.json` or `rows.csv` directly: group, count and sort the rows on disk. Use `nextseek-aggregate` instead only when the rows do not hold the field the question groups by, or when the stored result was capped (`truncated` true in `search_details.json`), and then say so.
+- Report the group counts as the table gives them, and state the total the groups were taken from.
 
 ## Stop-after-2 rule (load-bearing)
 
