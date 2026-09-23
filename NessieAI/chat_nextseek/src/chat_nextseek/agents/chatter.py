@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
-from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError
+from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
     log_prompt,
@@ -585,8 +585,10 @@ def chatter_agent_answer(
             f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}"
         )
-    except LLMFatalError as e:
-        # Every provider in the chain refused. The query itself already succeeded, so
+    except (LLMFatalError, LLMTimeoutError) as e:
+        # Every provider in the chain refused, or the provider the call moved to after
+        # a timeout timed out too (that surfaces as LLMTimeoutError, which the parser
+        # needs to see as such). The query itself already succeeded, so
         # report what it found and name the real cause. Previously this exception left
         # the chatter uncaught, escaped run_query's bare `except Exception` and was
         # rewritten by ns/turn.py into "Internal pipeline error" — production turns

@@ -8,9 +8,10 @@ One 503 anywhere in a build ended it, and the tokens the loop spent were invisib
 This module is that call done once, properly, so a second tool loop (the follow-up
 agent) does not repeat the mistakes:
 
-* **Recovery.** 503 walks the same ``_FALLBACK_CHAINS`` the structured path uses,
-  skipping any fallback client that cannot take tools; a transport timeout recycles
-  the socket pool; a 429 backs off.
+* **Recovery.** A 503 or a transport timeout moves once to the next provider in the
+  same ``_FALLBACK_CHAINS`` the structured path uses, skipping any fallback client that
+  cannot take tools (a timeout with nowhere to move recycles the socket pool and
+  retries); a 429 backs off.
 * **Caching on by default.** A tool loop re-sends its whole head on every iteration,
   so the tools plus the system prompt are the clearest possible case for a cache
   point. This is the opposite of a one-shot call, where the win depends on whether
@@ -31,6 +32,7 @@ from .llm_clients import (
     LLMTimeoutError,
 )
 from .schemas.schema_helper import (
+    MAX_PROVIDER_SWITCHES,
     _catalog_provider,
     _get_fallback_agent_configs,
     _ledger_entry,
@@ -83,9 +85,37 @@ def call_tools(
     target_client = client
     target_model = model_name
     target_budget = thinking_budget
-    fallbacks: list[tuple] = []
+    fallbacks: list[tuple] | None = None
+    switches = 0
 
-    for attempt in range(retries + 1):
+    def _switch(reason: str) -> bool:
+        """The one provider move a call gets (``MAX_PROVIDER_SWITCHES``). Never raises."""
+        nonlocal fallbacks, switches, target_client, target_model, target_budget
+        if switches >= MAX_PROVIDER_SWITCHES:
+            return False
+        if fallbacks is None:
+            fallbacks = [
+                fb for fb in _get_fallback_agent_configs(
+                    config, agent_label, _catalog_provider(target_client)
+                )
+                # A tool loop cannot fail over to a client with no tool surface:
+                # the conversation so far is tool_use and tool_result blocks.
+                if _tool_capable(fb[0])
+            ]
+        if not fallbacks:
+            return False
+        target_client, target_model, target_budget = fallbacks.pop(0)
+        switches += 1
+        print(
+            f"[TOOL_LOOP][{agent_label}] {reason}: switching to fallback "
+            f"provider='{getattr(target_client, 'provider', '?')}' model='{target_model}'"
+        )
+        return True
+
+    max_attempts = retries + 1
+    attempt = -1
+    while attempt + 1 < max_attempts:
+        attempt += 1
         t0 = time.perf_counter()
         try:
             result = target_client.chat_with_tools(
@@ -103,27 +133,14 @@ def call_tools(
             print(
                 f"[TOOL_LOOP][{agent_label}] 503 from "
                 f"provider='{getattr(target_client, 'provider', None)}' model='{target_model}' "
-                f"attempt {attempt + 1}/{retries + 1}: {sue}"
+                f"attempt {attempt + 1}/{max_attempts}: {sue}"
             )
             _ledger(config, _ledger_entry(
                 agent_label, target_model, target_client, attempt,
                 "service_unavailable", t0, thinking_budget=target_budget, err=sue,
             ))
-            if not fallbacks:
-                fallbacks = [
-                    fb for fb in _get_fallback_agent_configs(
-                        config, agent_label, _catalog_provider(target_client)
-                    )
-                    # A tool loop cannot fail over to a client with no tool surface:
-                    # the conversation so far is tool_use and tool_result blocks.
-                    if _tool_capable(fb[0])
-                ]
-            if fallbacks:
-                target_client, target_model, target_budget = fallbacks.pop(0)
-                print(
-                    f"[TOOL_LOOP][{agent_label}] switching to fallback "
-                    f"provider='{getattr(target_client, 'provider', '?')}' model='{target_model}'"
-                )
+            if _switch("provider unavailable"):
+                max_attempts += 1
                 continue
             raise LLMFatalError(
                 f"All tool-capable providers exhausted — agent '{agent_label}': {sue}",
@@ -134,16 +151,22 @@ def call_tools(
                 agent_label, target_model, target_client, attempt,
                 "timeout", t0, thinking_budget=target_budget, err=te,
             ))
-            if attempt >= retries:
-                raise
             _recycle_client_connections(target_client, agent_label)
+            # Same trigger as the structured path: a timeout moves to the next
+            # tool-capable provider, once. With nowhere to move, the old
+            # same-provider retry on a fresh socket stands.
+            if _switch("transport timeout"):
+                max_attempts += 1
+                continue
+            if switches or attempt + 1 >= max_attempts:
+                raise
             continue
         except LLMRateLimitError as rle:
             _ledger(config, _ledger_entry(
                 agent_label, target_model, target_client, attempt,
                 "throttle", t0, thinking_budget=target_budget, err=rle,
             ))
-            if attempt >= retries:
+            if attempt + 1 >= max_attempts:
                 raise LLMFatalError(
                     f"Rate limited (429) — agent '{agent_label}', model '{target_model}': {rle}",
                     agent=agent_label,

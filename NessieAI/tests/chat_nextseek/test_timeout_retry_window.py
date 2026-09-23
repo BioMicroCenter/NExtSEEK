@@ -1,10 +1,11 @@
 """The retry after a timeout gets a shorter window than the first attempt.
 
-A timeout and a 503 take different paths in `_call_with_recovery`. A 503 builds the
-provider fallback chain and switches provider; a timeout does NOT -- it recycles the
-client's connections and retries the SAME provider and model, because the diagnosis
-recorded there is that a timeout is usually a dead pooled socket rather than a slow
-model: the request is never acknowledged at all.
+A timeout recycles the client's connections before its retry, because the diagnosis
+recorded in `_call_with_recovery` is that a timeout is usually a dead pooled socket
+rather than a slow model: the request is never acknowledged at all. Since 2026-09-23 the
+retry goes to the next provider in the chain when there is one (the one fallback
+trigger, `test_provider_fallback_trigger.py`), and to the same provider on a fresh
+socket when there is not; either way it runs on the window pinned here.
 
 That diagnosis is right, and 2026-09-21 gave a clean instance of it: memory_coder
 waited the full 300 s with no response, then the retry answered in 9.2 s on a fresh
@@ -59,13 +60,9 @@ def test_the_parser_still_chooses_its_own_window():
     assert "timeout_seconds=35" in text
 
 
-def test_a_timeout_retries_on_the_shorter_window_and_does_not_change_provider():
-    """The behaviour itself, driven through the real retry loop.
-
-    The first attempt raises LLMTimeoutError; the second records the window it was given
-    and returns. Asserting the provider is unchanged pins the other half of the contract:
-    a timeout is not a 503 and must not consume the fallback chain.
-    """
+def test_a_timeout_retries_on_the_shorter_window():
+    """The window arithmetic. Which provider the retry asks is pinned in
+    test_provider_fallback_trigger.py, which drives the real loop."""
     seen: list[float] = []
     providers: list[str] = []
 

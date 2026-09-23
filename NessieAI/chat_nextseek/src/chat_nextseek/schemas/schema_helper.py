@@ -442,6 +442,18 @@ def _schema_tool_name(model: Type[BaseModel]) -> str:
     return f"emit_{snake}"[:64]
 
 
+# How many times one call may move to another provider. Operator rule (2026-09-23): a
+# provider failure gets ONE move to the next provider in the chain, and when that also
+# fails the caller gives the user the honest message. Before, a 503 walked the chain for
+# as long as attempts remained, and a timeout never moved at all.
+MAX_PROVIDER_SWITCHES = 1
+
+
+def _text_is_empty(resp) -> bool:
+    """The free-text empty-body test: nothing but whitespace came back."""
+    return not (getattr(resp, "content", None) or "").strip()
+
+
 def _call_with_recovery(
     config: ChatConfig,
     *,
@@ -462,39 +474,79 @@ def _call_with_recovery(
     on_response,
     response_schema: dict | None = None,
     schema_name: str = "emit_result",
+    is_empty: Callable[[Any], bool] | None = None,
 ) -> tuple[bool, Any]:
     """The provider-recovery ladder shared by every LLM call in the deterministic path.
 
-    Runs up to ``retries + 1`` attempts and hands each successful response to
+    Runs the attempts and hands each successful response to
     ``on_response(resp, attempt, base_messages)``, which returns
     ``(done, value, next_messages)``. ``done=True`` returns ``(True, value)`` to the
     caller; ``done=False`` retries with ``next_messages`` (this is how the structured
     repair loop works). Returns ``(False, last_value)`` when the attempts run out, so
     the caller decides which error to raise.
 
-    The ladder itself handles four provider conditions, and the reason it is factored
-    out is that until now only ``call_llm_structured`` had it: the chatter called
-    ``client.chat`` bare and one 503 ended the turn with "Internal pipeline error"
-    (production turns 463/464).
+    One trigger decides when a call moves to another provider. Three failures are
+    fallback-eligible, and they are the same failure to the user: the provider gave no
+    answer.
 
-      * 5xx/overloaded  -> walk ``_FALLBACK_CHAINS`` to another provider, then fatal
-      * empty completion -> re-raised as 5xx, see the comment at the raise site
-      * transport timeout -> recycle the socket pool, retry once on a longer budget
-      * 429              -> short backoff, retry, then fatal
+      * 5xx/overloaded (``LLMServiceUnavailableError``)
+      * an empty body: ``is_empty(resp)`` is true (default: whitespace-only text)
+      * a transport timeout (``LLMTimeoutError``)
+
+    On the first of them the call moves to the next provider in ``_FALLBACK_CHAINS``,
+    once (``MAX_PROVIDER_SWITCHES``). When that provider fails too, or no chain exists,
+    the failure is final: ``LLMFatalError`` for a 5xx or an empty body, and the
+    ``LLMTimeoutError`` itself for a timeout, which is what the parser maps to
+    ``failure = transport_timeout``. The one exception is a timeout with no chain to
+    move to: it keeps the old same-provider retry on a recycled socket.
+
+    Budget: a provider move does not add a wait. A timeout's retry, same provider or
+    next, runs on ``timeout_retry_seconds``, and there are still at most
+    ``timeout_retries`` of them, so the parser's worst case stays 35 s + 60 s and the
+    default stays 300 s + 180 s. The move only changes WHO the retry asks.
+
+    Everything else is not eligible: a 429 backs off and retries the same provider, a
+    bare ``LLMError`` (a 400 validation error, say) is fatal at once, and any other
+    ``LLMError`` subclass propagates unchanged.
     """
     target_client = client
     target_model_name = model_name
     target_thinking_budget = thinking_budget
+    empty = is_empty or _text_is_empty
 
-    _fallback_iter: list[tuple] = []  # populated on first 503
+    chain: list[tuple] | None = None  # resolved on the first eligible failure
+    switches = 0
     attempt_messages = base_messages
     timeout_attempts = 0
     last_value: Any = None
     # The first attempt runs on the tight budget. Once a timeout has told us the
     # connection was bad, the retry goes out on a fresh socket and gets more room.
     _timeout = timeout_seconds
+    max_attempts = retries + 1
+    attempt = -1
 
-    for attempt in range(retries + 1):
+    def _switch_provider(reason: str) -> bool:
+        """Move to the next provider in the chain, if this call still may. Never raises."""
+        nonlocal chain, switches, target_client, target_model_name, target_thinking_budget
+        if switches >= MAX_PROVIDER_SWITCHES or not agent_label:
+            return False
+        if chain is None:
+            chain = list(_get_fallback_agent_configs(config, agent_label, _catalog_provider(target_client)))
+        if not chain:
+            return False
+        fb_client, fb_model, fb_budget = chain.pop(0)
+        print(
+            f"[STRUCTURED_PARSE][{label}] {reason}: switching to fallback "
+            f"provider='{getattr(fb_client, 'provider', '?')}' model='{fb_model}'"
+        )
+        target_client = fb_client
+        target_model_name = fb_model
+        target_thinking_budget = fb_budget
+        switches += 1
+        return True
+
+    while attempt + 1 < max_attempts:
+        attempt += 1
         _t0 = time.perf_counter()
         try:
             resp = _call_llm_with_timeout(
@@ -516,7 +568,7 @@ def _call_with_recovery(
             # completion=1 token on all three attempts and the user was told their
             # question could not be planned. Re-raising as 503 hands it to the provider
             # chain below, which is what the run needed: a different model.
-            if not (resp.content or "").strip():
+            if empty(resp):
                 _stop = (getattr(resp, "metadata", None) or {}).get("stop_reason")
                 log_llm_call(config.LOG_DIR, _ledger_entry(
                     agent_label, target_model_name, target_client, attempt,
@@ -533,32 +585,23 @@ def _call_with_recovery(
         except LLMServiceUnavailableError as sue:
             # Raw client vocabulary ("bedrock", "anthropic", "gcp", "openai") — this is
             # what an operator needs to see in the log during an outage. The chain
-            # lookup below needs the catalog vocabulary, so keep the two separate.
+            # lookup needs the catalog vocabulary, which _switch_provider translates.
             failed_provider = getattr(target_client, "provider", None)
-            failed_catalog_provider = _catalog_provider(target_client)
             print(
                 f"[STRUCTURED_PARSE][{label}] 503 from provider='{failed_provider}' "
-                f"model='{target_model_name}' attempt {attempt+1}/{retries+1}: {sue}"
+                f"model='{target_model_name}' attempt {attempt+1}/{max_attempts}: {sue}"
             )
             log_llm_call(config.LOG_DIR, _ledger_entry(
                 agent_label, target_model_name, target_client, attempt,
                 "service_unavailable", _t0, timeout_seconds=timeout_seconds,
                 thinking_budget=target_thinking_budget, err=sue,
             ))
-            # Build fallback list on first 503
-            if not _fallback_iter and agent_label:
-                _fallback_iter = _get_fallback_agent_configs(config, agent_label, failed_catalog_provider)
-            if _fallback_iter:
-                fb_client, fb_model, fb_budget = _fallback_iter.pop(0)
-                print(
-                    f"[STRUCTURED_PARSE][{label}] switching to fallback "
-                    f"provider='{getattr(fb_client, 'provider', '?')}' model='{fb_model}'"
-                )
-                target_client = fb_client
-                target_model_name = fb_model
-                target_thinking_budget = fb_budget
-                continue  # retry this attempt with new client/model
-            # All fallback providers exhausted — kill the run
+            if _switch_provider("provider unavailable"):
+                # The move gets an attempt of its own: it must never be the attempt
+                # that ran out, which used to end a call as a parse error.
+                max_attempts += 1
+                continue
+            # The one move is spent, or there is no chain — kill the run
             raise LLMFatalError(
                 f"All provider fallbacks exhausted — agent '{agent_label}': {sue}",
                 agent=agent_label,
@@ -566,7 +609,7 @@ def _call_with_recovery(
         except LLMTimeoutError as te:
             timeout_attempts += 1
             print(
-                f"[STRUCTURED_PARSE][{label}] timeout on attempt {attempt+1}/{retries+1} "
+                f"[STRUCTURED_PARSE][{label}] timeout on attempt {attempt+1}/{max_attempts} "
                 f"(timeout retry {timeout_attempts}/{timeout_retries+1}) after {_timeout}s: {te}"
             )
             log_llm_call(config.LOG_DIR, _ledger_entry(
@@ -574,26 +617,35 @@ def _call_with_recovery(
                 "timeout", _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=te,
             ))
+            # A timeout here is usually a dead pooled socket rather than a slow model:
+            # the request is never acknowledged at all. Whatever happens next, drop the
+            # pool, so neither this call's retry nor the next agent on this client
+            # draws the same dead connection (the 120.01s double-failure signature).
+            _recycle_client_connections(target_client, label)
             if timeout_attempts > timeout_retries:
                 raise
-            # A timeout here is usually a dead pooled socket rather than a slow model:
-            # the request is never acknowledged at all. Retrying on the same pool can
-            # draw another dead connection, which is exactly the 120.01s double-failure
-            # signature in the logs, so force a fresh dial-out first.
-            _recycle_client_connections(target_client, label)
             if timeout_retry_seconds:
                 _timeout = timeout_retry_seconds
+            # The retry goes to the next provider when there is one: production task
+            # 621 (2026-09-23) timed out on the parser at 35 s and again at 60 s on
+            # the same provider, and nothing else was ever asked.
+            if _switch_provider("transport timeout"):
+                max_attempts += 1
+                continue
+            if switches:
+                # This call already moved once; the provider it moved to timed out.
+                raise
             continue
         except LLMRateLimitError as rle:
             print(
-                f"[STRUCTURED_PARSE][{label}] rate limit on attempt {attempt+1}/{retries+1}: {rle}"
+                f"[STRUCTURED_PARSE][{label}] rate limit on attempt {attempt+1}/{max_attempts}: {rle}"
             )
             log_llm_call(config.LOG_DIR, _ledger_entry(
                 agent_label, target_model_name, target_client, attempt,
                 "throttle", _t0, timeout_seconds=timeout_seconds,
                 thinking_budget=target_thinking_budget, err=rle,
             ))
-            if attempt >= retries:
+            if attempt + 1 >= max_attempts:
                 raise LLMFatalError(
                     f"Rate limited (429) — agent '{agent_label}', model '{target_model_name}': {rle}",
                     agent=agent_label,
@@ -632,8 +684,6 @@ def _call_with_recovery(
         last_value = value
         if done:
             return True, value
-        if attempt >= retries:
-            break
         attempt_messages = next_messages if next_messages is not None else attempt_messages
 
     return False, last_value
@@ -665,7 +715,8 @@ def call_llm_structured(
 ) -> BaseModel:
     """
     Call the LLM and parse into a structured Pydantic model with a repair loop.
-    Includes timeout handling (default 300s) with automatic retry on timeout.
+    Includes timeout handling (default 300s) with one retry on timeout, and moves to the
+    next provider on a timeout, a 5xx or an empty body (``_call_with_recovery``).
 
     ``structured_via_tools`` sends the schema to providers that can enforce a shape
     (a forced tool call on Bedrock) instead of asking for JSON in the prompt. It
@@ -730,6 +781,14 @@ def call_llm_structured(
         ]
         return False, None, repair
 
+    def _empty_body(resp) -> bool:
+        # A structured call expected content; a body that is nothing once whitespace and
+        # a surrounding code fence are gone has none, so it goes to the next provider.
+        # A body that parses, "{}" included, is NOT empty: an answer that carries nothing
+        # gets the repair turn (result_check) exactly as before, which the empty-plan
+        # guards pin (test_parser_empty_plan.py, test_structured_empty_output_guard.py).
+        return not _strip_code_fences(getattr(resp, "content", None) or "").strip()
+
     schema = None
     if structured_via_tools:
         try:
@@ -756,6 +815,7 @@ def call_llm_structured(
         on_response=_on_response,
         response_schema=schema,
         schema_name=_schema_tool_name(model),
+        is_empty=_empty_body,
     )
     if ok:
         return value
@@ -792,8 +852,9 @@ def call_llm_text(
     ``call_llm_structured``. Before this it called ``client.chat`` directly and had no
     retry, no provider fallback and no ledger entry, so a single 503 on the reply-writing
     step discarded an answer the engine had already computed. Returns the reply text; a
-    provider failure that survives the whole chain raises ``LLMFatalError`` exactly as it
-    does for the structured agents, and the caller decides what the user sees.
+    5xx or an empty reply that survives the one provider move raises ``LLMFatalError``,
+    and a timeout that survives it raises ``LLMTimeoutError``, exactly as for the
+    structured agents; the caller decides what the user sees.
     """
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
