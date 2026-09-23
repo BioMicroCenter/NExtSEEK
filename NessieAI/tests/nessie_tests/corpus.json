@@ -176,7 +176,32 @@
       "expected_behavior": "AnswerDirectly",
       "artifact_expected": false,
       "artifact_kind": "NONE_EXPECTED"
-    }
+    },
+    "publication_lookup": {
+      "hibayes_subtype": "Graph-Study",
+      "expected_behavior": "AnswerDirectly",
+      "artifact_expected": false,
+      "artifact_kind": "NONE_EXPECTED"
+    },
+    "person_lab_resolution": {
+      "hibayes_subtype": null,
+      "expected_behavior": "AnswerDirectly",
+      "artifact_expected": false,
+      "artifact_kind": "NONE_EXPECTED"
+    },
+    "data_file_location": {
+      "hibayes_subtype": null,
+      "expected_behavior": "AnswerDirectly",
+      "artifact_expected": false,
+      "artifact_kind": "NONE_EXPECTED"
+    },
+    "session_export": {
+      "hibayes_subtype": null,
+      "expected_behavior": "AnswerDirectly",
+      "artifact_expected": false,
+      "artifact_kind": "NONE_EXPECTED"
+    },
+    "_2026_09_23_prod_researchers": "Four families added for the 53 production researcher questions: publication_lookup: Five production questions (review turns 401-405) asked for the samples behind a paper by PMID, DOI or title. All five went wrong under sample_search for two months: a free-text search on the identifier stood in for the Study.PMID / Study.DOI lookup on a different engine path, and the family label hid that it was a separate capability. person_lab_resolution: Fourteen production questions (review turns 141-144, 444, 449, 453-461) named a person, a lab or a lab code. Every one failed at the same step, the resolution: an invented code ('BRI'), a keyword match on a file path or a protocol name, or a fixed document that said a real person was not found. Split out of sample_search and catalog_browse so that step is regression-tested on its own. data_file_location: Three production questions (review turns 433, 434, 452) asked to download a stored file, which is a different request from artifact_delivery (a file the assistant builds). The fix is the File_PrimaryData / Link_PrimaryData answer (P6). Either engine may answer, so the route is an alternation. session_export: One production question (review turn 498) asked to send the chat to the developers and was told the feature does not exist. The All files zip (P2) is the answer, carried in the NS system context, so the route is nextseek_query."
   },
   "families": {
     "sample_search": {
@@ -3165,6 +3190,1222 @@
           ],
           "_why": "2,271 D.IMG samples have Type='CometChip'. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.IMG $.Type grouped -> CometChip 2271, Brightfield 545, CT 169, PET 167. || TESTS: the positive half of the ChIP-seq trap, on a different axis. || Re-keyed 2026-09-23 against production (fairdata): 3,636 T_D_IMG with Type = 'CometChip' (Neo4j cypher-shell, read-only: D.IMG Type grouped -> null 10,088, CometChip 3,636, CLSM 1,328, CyCIF 1,263, ...); was 2,271.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.mtb_converters",
+          "family": "sample_search",
+          "name": "Human subjects who converted",
+          "turns": [
+            {
+              "label": "main",
+              "query": "show samples for human subjects who convert to Mtb infection positive",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b32\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "32 patients have Classification 'Converter' (Non-converter 57, Reverter 9, Progressor 75, Non-progressor 273). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (p:T_PAT) WHERE p.Classification = 'Converter' RETURN count(p). No patient goes from Baseline_QFN '0' to FollowUp_QFN '1', so the Classification value is the only reading that finds any. || WAS: the parser returned an empty completion on all three attempts (StructuredOutputError), so nothing ran (A2). || TESTS: an everyday clinical phrase resolves to the attribute that records it.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 406 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.most_recent_nhp_in_project",
+          "family": "sample_search",
+          "name": "Most recent: the UID date, over distinct samples",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What is the most recent NHP sample within IMPAcTB",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-260401FLY-[12]\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b765\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "704 distinct NHP are IN_PROJECT IMPAcTb; the latest UID date among them is 260401 (2026-04-01), carried by NHP-260401FLY-1 and NHP-260401FLY-2. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:T_NHP)-[:IN_PROJECT]->(:Project {title:'IMPAcTb'}) RETURN count(DISTINCT s), max(substring(s.uuid,4,6)). The operator's 2026-09-23 ruling: a sample's date is the YYMMDD of its UID. Re-key when a newer NHP is registered. || WAS: the reply counted 765 (no DISTINCT) and named NHP-250905FLY-50, whose creation date is null, as the most recent (B2, D7). || TESTS: 'most recent' reads the UID date, and counts are distinct.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 137 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.most_recent_dated_sample",
+          "family": "sample_search",
+          "name": "Most recent: never a non-date string",
+          "turns": [
+            {
+              "label": "main",
+              "query": "give me the most recent sample with a creation date",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(2609[0-3]\\d|2026-09-[0-3]\\d|September [0-3]?\\d,? 2026|[0-3]?\\d September 2026)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*Outlier)"
+                }
+              ]
+            }
+          ],
+          "_why": "By the UID date (the operator's ruling, which the graph prompt applies to 'created' too), the latest is 260917: 1,531 samples on 2026-09-17, e.g. AB-260917SAS-1. SampleCreationDate itself (105,896 samples) sorts as text to 'Outlier' and 'Date of library prep (if possible)', and its latest ISO value is 2029-02-13, a data-entry error. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: max(substring(split(s.uuid,'-')[1],0,6)) over well-formed dates; SampleCreationDate ORDER BY DESC. The criterion accepts any September 2026 date so a day of new registrations does not break it; re-key after September. || WAS: the query sorted SampleCreationDate as text and reported D.GPT-251028ESS-10 with the value 'Outlier' as the most recent (D7). || TESTS: a non-date value is never reported as a date.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 138 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.collaborative_cross_mice",
+          "family": "sample_search",
+          "name": "Collaborative Cross mice: Genotype, not text",
+          "turns": [
+            {
+              "label": "main",
+              "query": "do you have any datasets with collaborative cross mice ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b745\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*Crossblocking)"
+                }
+              ]
+            }
+          ],
+          "_why": "745 mice have a Genotype starting CC followed by a digit (BEH 427, SAS 318), all IN_PROJECT IMPAcTb. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:T_MUS) WHERE s.Genotype =~ '(?i)^CC[0-9].*' RETURN count(s). Same key as the probe case post.cc_mice_by_genotype. || WAS: 'collaborative cross' matched nothing and a substituted search for 'cross' returned 4 'Crossblocking' mice (B3). || TESTS: the strain family is matched on Genotype.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 499 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.cc_mice_quoted",
+          "family": "sample_search",
+          "name": "'CC' mice: Genotype, not a substring",
+          "turns": [
+            {
+              "label": "main",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b745\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b1,?(206|289)\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "745, as search.collaborative_cross_mice. The substring 'cc' appears in the text of 1,289 mice, including every 'Vaccination'. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: toLower(s.search_text) CONTAINS 'cc' -> 1,289. || WAS: keyword 'CC' on MUS returned 1,206, of which 188 of the 1,000 stored rows matched only 'Vaccination' (B3). || TESTS: a two-letter strain code is not a keyword.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 500 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "search.cc_mice_of_a_pi_group",
+          "family": "sample_search",
+          "name": "Collaborative Cross mice from one PI's group",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many collaborative cross mice from Chris Sassetti's group are there?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b318\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*Crossblocking)"
+                }
+              ]
+            }
+          ],
+          "_why": "318 of the 745 CC-genotype mice carry SAS at the lab position of their UID (SEEK has an institution record for SAS); the other 427 are BEH. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Genotype =~ '(?i)^CC[0-9].*' AND s.uuid =~ '^[^-]+-[0-9]{6}SAS-.*'. A project reading does not narrow anything here (all 745 are IMPAcTb), so the lab position is the only reading that answers 'group'. || WAS: a substituted search for 'cross' returned 4 BEH-coded 'Crossblocking' mice; the reply did say they were not this group's (B3). || TESTS: a strain filter and a lab filter together.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 426 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        }
+      ]
+    },
+    "publication_lookup": {
+      "description": "Find the samples behind a paper named by PMID, DOI or title: a study-level lookup on Study.PMID, Study.DOI or the study title, never a text search on the identifier.",
+      "variants": [
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "pub.doi_url_form",
+          "family": "publication_lookup",
+          "name": "A paper given as a doi.org URL",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples used in https://doi.org/10.1371/journal.pone.0249477.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b184\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no matches)"
+                }
+              ]
+            }
+          ],
+          "_why": "184 samples sit in the Study whose DOI is 10.1371/journal.pone.0249477 (PMID 33836031): TIS 92, PAV 46, PAT 46. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.DOI = '10.1371/journal.pone.0249477' RETURN count(DISTINCT s); the samples' own DOI attribute gives the same 184. || WAS: the exact URL found nothing and a substituted search for '10.1371' returned 4 records, 3 of them for other papers (B3). || TESTS: the identifier is resolved to its Study even when wrapped in a URL.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 401 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "pub.paper_title_paraphrased",
+          "family": "publication_lookup",
+          "name": "A paper given by a slightly different title",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What are the samples associated with this paper: Noncanonical T cell responses are associated with protection from tuberculosis in mice and humans.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b3,?808\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no matches)"
+                }
+              ]
+            }
+          ],
+          "_why": "3,808 samples sit in the Study titled 'Comparable Non-canonical T cell responses are associated with protection from tuberculosis in mice and humans' (PMID 40192640, DOI 10.1084/jem.20241760): D.FLOW 1,333, TIS 1,296, MUS 473 and others. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: count(DISTINCT s) over IN_STUDY for that Study; the samples' PMID/DOI attributes give the same 3,808. The question writes 'Noncanonical' and drops 'Comparable', so an exact title match finds nothing. || WAS: a substituted search for the word 'protection' returned 68 PAT records presented as the answer (B3). || TESTS: title resolution to a Study, not a keyword search on the words of the title.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 402 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": true,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "pub.pmid_bare",
+          "family": "publication_lookup",
+          "name": "A paper given as a bare PMID",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What samples are associated with the PMID 40449485?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(631|629)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no matches)"
+                }
+              ]
+            }
+          ],
+          "_why": "631 samples sit in the Study with PMID 40449485 (DOI 10.1016/j.immuni.2025.05.004); 629 of them also carry PMID 40449485 as their own attribute, so both readings pass. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.PMID = '40449485' RETURN count(DISTINCT s). || WAS: 'PMID OR PMID 40449485' was substituted and returned 27 DNA records that cite a different PMID (B3). || TESTS: the same rule srp2.pmid_lookup proves on the SRP paper, on a second paper.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 403 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "pub.doi_mixed_types",
+          "family": "publication_lookup",
+          "name": "A paper's samples are not all mice",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples associated with this DOI: 10.1016/j.immuni.2025.05.004",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b631\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(TIS|tissue)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b631\\W+(mouse|mice|MUS)\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "631 samples, the same Study as pub.pmid_bare, and they are mixed: TIS 173, MUS 114, D.FLOW 96, AB 51, D.FCS 50, CEL 49 and 16 smaller types. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: s.type grouped over IN_STUDY for Study.DOI = '10.1016/j.immuni.2025.05.004'. || WAS: the count was right but the reply called all 631 mouse samples (B3; the review's code disagreement notes no substitution happened). || TESTS: the reply describes the result by its distribution, the bucket3 rule, on a publication lookup.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 404 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "pub.pmid_colon_form",
+          "family": "publication_lookup",
+          "name": "A paper given as 'PMID: n'",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples associated with this PMID: 40449485",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(631|629)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no (sample records|matches))"
+                }
+              ]
+            }
+          ],
+          "_why": "Same paper and key as pub.pmid_bare (631 by Study, 629 by the samples' PMID attribute). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: free text 'PMID: 40449485' returned 0 and the reply said none exist, while a graph query on Study.PMID in the same week found 631 (B3). || TESTS: the 'PMID:' spelling reaches the same Study.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 405 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        }
+      ]
+    },
+    "person_lab_resolution": {
+      "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+      "variants": [
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.boo_lab_samples",
+          "family": "person_lab_resolution",
+          "name": "A PI's lab, counted at the UID's lab position",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What are all the samples generated by the Boom lab?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b937\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b2,?161\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "937 samples carry BOO at the lab position of their UID (TIS 430, D.FCS 168, PAV 125, PAT 116, D.FLOW 57, RNA 23). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:Sample) WHERE s.uuid =~ '^[^-]+-[0-9]{6}BOO-.*' RETURN count(s); SEEK has an institution record for the code BOO. || WAS: keyword 'BOO' returned 2,161, of which 309 of the 1,000 stored rows matched 'boo' inside a 'Cookbook' protocol file name. || TESTS: a lab is resolved to its code and read from the UID, the lab-at-the-UID rule the 2026-09-22 acceptance probe proved, never matched as text.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 141 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.scientist_by_first_name",
+          "family": "person_lab_resolution",
+          "name": "A person named by first name is a Scientist, not a lab",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Show me the samples generated by Abiola",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b7,?769\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "7,769 samples carry the named person in their Scientist attribute (one distinct value; TIS 3,012, D.FLOW 2,634, MUS 1,027, CEL 1,000 and four smaller types). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:Sample) WHERE toLower(toString(s.Scientist)) CONTAINS the lower-cased first name RETURN count(s). The person is not a PI, so the phase-13c rule sends the name to the Scientist attribute. || WAS: the parser produced no structured plan and nothing ran (A2). || TESTS: a first name alone resolves to the Scientist attribute.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 142 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.beh_lab_show",
+          "family": "person_lab_resolution",
+          "name": "A PI's lab: 'show me samples from'",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Show me samples from the Behar lab",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b7,?837\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "7,837 samples carry BEH at the lab position of their UID (TIS 3,012, D.FLOW 2,637, MUS 1,027, CEL 1,000, AB 65, D.IMG 44). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: s.uuid =~ '^[^-]+-[0-9]{6}BEH-.*'; SEEK has an institution record for the code BEH. || WAS: the parser produced no structured plan and nothing ran (A2), on this phrasing and on person.beh_lab_all. || TESTS: lab resolution on the imperative phrasing.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 143 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.beh_lab_all",
+          "family": "person_lab_resolution",
+          "name": "A PI's lab: 'all the samples generated by'",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What are all the samples generated by the Behar lab?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b7,?837\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "Same key as person.beh_lab_show: 7,837 BEH-coded samples. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the third try at the same question, again no structured plan (A2). || TESTS: the question form of the same lab lookup; the two must agree.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 144 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.scientist_patients_in_project",
+          "family": "person_lab_resolution",
+          "name": "Patients 'associated with' a non-PI scientist",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many human samples are in the Impact project associated with Kate Bridges?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\b304\\b|A\\.GEX|MDL-250912LAU|gene expression|model)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\bBRI\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "No IMPAcTb patient carries the named person as Scientist (0 of 1,441, and the attribute is filled on all of them, so the scope is real), but the four records she is Scientist on (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2, all in IMPAcTb) derive from 304 of those patients. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WHERE Scientist CONTAINS the surname -> 0; the same PAT with a DERIVED_FROM*1..12 descendant whose Scientist matches -> 304. Either reading passes if the reply says it: 304, or the zero together with the records she is on. The zero alone is not pinned. || WAS: the parser invented lab code 'BRI' for the name and matched it in the UID; 0 returned (B5). || TESTS: a person is never turned into an invented lab code.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 444 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.lab_code_full_name",
+          "family": "person_lab_resolution",
+          "name": "A lab code resolved to its lab record",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What is the full name of the investigator with code BOO?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "Boom"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(not found|could not find|unable to find|no (catalog )?entry))"
+                }
+              ]
+            }
+          ],
+          "_why": "SEEK's institution list carries one record for the code, titled 'BOO-' plus the lab's name and institution. Measured 2026-09-23 on production (fairdata), read-only, seek_production MySQL: SELECT title FROM institutions WHERE title LIKE 'BOO-%'. || WAS: the system agent answered from a fixed document and found no investigator for BOO, while the next turn found the name from sample metadata (B5). || TESTS: a code resolves through the live lab record, the bucket5 fix.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 449 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.scientist_files",
+          "family": "person_lab_resolution",
+          "name": "Files for a non-PI scientist",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What files are associated with investigator Kate Bridges?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.GEX-250821LAU-[12]|MDL-250912LAU-[12])"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\bBRI\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no data files?\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "The named person is Scientist on exactly four records, all carrying File_PrimaryData: A.GEX-250821LAU-1, A.GEX-250821LAU-2, MDL-250912LAU-1, MDL-250912LAU-2. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:Sample) WHERE toLower(toString(s.Scientist)) CONTAINS the surname RETURN s.uuid, s.type, s.File_PrimaryData IS NOT NULL. || WAS: asked twice word for word (turns 453 and 454); both searched type D.FILE with an invented code 'BRI' and returned 0 (B5, B6). || TESTS: 'files' means records carrying a file field, not the D.FILE type, and a person is read from Scientist.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 453, 454 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.who_is_scientist",
+          "family": "person_lab_resolution",
+          "name": "Who is a non-PI scientist",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who is Kate Bridges?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(Scientist|A\\.GEX|MDL-250912LAU|\\bLAU\\b|Lauffenburger)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(not found|could not find|unable to find|no (catalog )?entry))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b(professor|director of|department of)\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "The named person is the Scientist on four IMPAcTb records under the LAU code (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Scientist CONTAINS the surname. || WAS: 'Entity Not Found ... no catalog entry', answered from a fixed document (B5). || TESTS: who-is reads live metadata and never writes a biography, the bucket5.who_is_a_person criteria on a person with no lab record of her own.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 455 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.who_is_pi",
+          "family": "person_lab_resolution",
+          "name": "Who is a PI: the lab record",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who is Doug Lauffenburger?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\bLAU\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(not found|could not find|unable to find|no (catalog )?entry))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b(professor|director of|department of)\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "SEEK has an institution record for the code LAU, and 2,749 samples carry LAU at the lab position of their UID. Measured 2026-09-23 on production (fairdata), read-only, seek_production MySQL (institutions LIKE 'LAU-%'); Neo4j count as in person.lau_lab_samples. || WAS: 'Researcher Profile Not Found' although he is a listed IMPAcTb PI (B5). || TESTS: the bucket5 fix (lab record, code, projects, no biography), proven on production for another PI on 2026-09-23 (retest Q5).",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 456 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.lau_lab_files",
+          "family": "person_lab_resolution",
+          "name": "Files for a PI's lab",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which files are associated with the Lauffenburger Lab?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(596|590)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no data files?\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "596 LAU-coded records carry File_PrimaryData or Link_PrimaryData; 590 of them are data records (all D.SEQ). No LAU record is of type D.FILE. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: s.uuid =~ '^[^-]+-[0-9]{6}LAU-.*' AND (s.File_PrimaryData IS NOT NULL OR s.Link_PrimaryData IS NOT NULL) -> 596; AND s.type STARTS WITH 'D.' -> 590. || WAS: the search was limited to type D.FILE with 'LAU' and returned 0 (B6). || TESTS: 'files' is read as the file fields (the P6 fix), not as the D.FILE type.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 457 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": true,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.lau_lab_samples",
+          "family": "person_lab_resolution",
+          "name": "Samples for a PI's lab, not a path match",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which samples are associated with the Lauffenburger Lab?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b2,?749\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b6,?363\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "2,749 samples carry LAU at the lab position of their UID (DNA 591, D.SEQ 590, TIS 481, PAT 422, PAV 393, RNA 177, MUS 89 and a few analyses). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: s.uuid =~ '^[^-]+-[0-9]{6}LAU-.*'. || WAS: keyword 'LAU' returned 6,363, of which 999 of the 1,000 stored rows were SAS-coded D.FLOW matching 'Lau' in a storage path (review outcome 'unclear'). || TESTS: a lab is its code, never a substring of a file path.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 458 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.scientist_samples",
+          "family": "person_lab_resolution",
+          "name": "Samples for a non-PI scientist",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which samples are associated with Kate Bridges?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.GEX-250821LAU-[12]|MDL-250912LAU-[12])"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\bBRI\\b)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b471\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "Four records (A.GEX-250821LAU-1/-2, MDL-250912LAU-1/-2), the same set as person.scientist_files. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: a substituted search for 'BRI' returned 471 PAT/PAV records matching words like 'British' (B5). The next turn, 'What samples are associated with ...', reached the four through a text match on the first name and was scored answered, so it is not in the 53. || TESTS: the Scientist attribute, not a guessed code or a first-name text match.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 459 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "person.scientist_in_project",
+          "family": "person_lab_resolution",
+          "name": "Is a scientist associated with a project",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Is there a scientist named Kate Bridges associated with the Impact project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\byes\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.GEX-250821LAU-[12]|MDL-250912LAU-[12])"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(not found|could not find|unable to find|no (catalog )?entry))"
+                }
+              ]
+            }
+          ],
+          "_why": "Yes: all four records she is Scientist on are IN_PROJECT IMPAcTb. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Scientist CONTAINS the surname, with exists((s)-[:IN_PROJECT]->(:Project {title:'IMPAcTb'})) true on all four. || WAS: the system agent read the project's fixed description, found no mention and said so (B5). || TESTS: membership is answered from the records, not from a project document.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 461 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
     },
@@ -7916,6 +9157,99 @@
           ],
           "_why": "MySQL says 318, Neo4j says 79. CEL is the ONLY type where the two stores disagree about Impact; every other type matches exactly. Root cause: 97 CEL-260305GRI-* exist only in MySQL and 97 CEL-260317BMC-* only in the graph. || VERIFIED: seek_production MySQL, verified 2026-08-06 assay join = 318; Neo4j cypher-shell, verified 2026-08-06 2-hop = 79; per-type diff of Impact isolates CEL. || TESTS: either number is accepted \u2014 the finding is whether the engine NOTICES that its two backends disagree. Recorded here so the grader knows both are defensible. || Re-keyed 2026-09-23 against production (fairdata): T_CEL in 'Impactb Investigation' 1,227, in project IMPAcTb 1,236 (Neo4j cypher-shell, read-only); prod has no node titled Impact that holds samples, so both scopes are accepted. The two stores now agree on sample totals (168,482 each), so the store split this case was written for no longer shows here; was 318/79.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "graph.single_cell_rnaseq_in_project",
+          "family": "graph_traversal",
+          "name": "Single-cell RNA-seq datasets in a project",
+          "turns": [
+            {
+              "label": "main",
+              "query": "I am looking for single cell RNA sequencing datasets from across the IMPAcTB projects",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(727|729)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*No single[- ]cell)"
+                }
+              ]
+            }
+          ],
+          "_why": "727 D.SEQ in IMPAcTb have SequencingType 'Single Cell RNA Sequencing', and 2 more '10X scRNAseq' (729). LibraryStrategy 'scRNA-Seq' covers only 142 of them, so it is not accepted. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: T_D_SEQ IN_PROJECT IMPAcTb grouped by SequencingType and LibraryStrategy. || WAS: the graph query guessed an assay name, returned 0, and the reply suggested the project might be registered under another name (B11). || TESTS: a data kind is found in the attribute that records it, not in a guessed assay title.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 111 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "graph.project_samples_with_flow_or_cytof",
+          "family": "graph_traversal",
+          "name": "Project samples with flow or CyTOF data downstream",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you provide a list of samples from the Impact project that have flow cytometry / CyTOF data available?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(8,?372|8,?375)\\b"
+                }
+              ]
+            }
+          ],
+          "_why": "8,372 distinct IMPAcTb samples have a D.FLOW or D.CYTOF descendant, 8,375 counting D.FCS too. The data records themselves are D.FLOW 10,838, D.FCS 1,372 and D.CYTOF 34. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Sample IN_PROJECT IMPAcTb WITH DISTINCT s WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(s) WHERE x:T_D_FLOW OR x:T_D_CYTOF }. || WAS: the query searched D.FLOW and D.CYTOF descendants (7,992 then) but the reply called the data D.FCS (B8). || TESTS: the count of samples, not data records, over the whole project.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 437 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
     },
@@ -9702,6 +11036,158 @@
           ],
           "_why": "938 direct children. Several TIS-230830ENG-* rows share this fan-out; it is the widest in the graph. || VERIFIED: Neo4j cypher-shell, verified 2026-08-06: children grouped by parent, ORDER BY count DESC -> 938 for TIS-230830ENG-1-PUB. || TESTS: a fan-out an order of magnitude past the usual 1-15, close enough to a display cap to expose truncation.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "tree.patients_upstream_of_a_model",
+          "family": "lineage_tree",
+          "name": "Patients upstream of a model record",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you list all the human patient samples (PAT) associated with MDL-250912LAU-1?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b304\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "PAT-\\d{6}[A-Z]{3}-\\d+"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*do not explicitly list)"
+                }
+              ]
+            }
+          ],
+          "_why": "MDL-250912LAU-1 has 1,903 ancestors and no descendants: D.SEQ, DNA and TIS 399 each, PAV and PAT 304 each, MUS 95, A.GEX 2, BAC 1. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-1'})-[:DERIVED_FROM*1..15]->(a) RETURN a.type, count(DISTINCT a). || WAS: the tree retrieve returned 1,904 lineage records unfiltered and none of the 9 previewed were PAT (B7). || TESTS: a requested type is kept as a filter on a lineage walk.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 462 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "tree.nhp_of_a_model_with_flow",
+          "family": "lineage_tree",
+          "name": "NHP of a model with flow downstream: the scope is empty",
+          "turns": [
+            {
+              "label": "main",
+              "query": "For all of the NHP samples associated with MDL-250912LAU-1, how many have a D.FLOW sample downstream?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bno\\b|\\bnone\\b|\\bzero\\b|\\b0\\b|not (derived|associated|linked))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bPAT\\b|patient|human|\\bMUS\\b|mouse|mice)"
+                }
+              ]
+            }
+          ],
+          "_why": "MDL-250912LAU-1's lineage holds no NHP at all: its ancestors are 304 patients and 95 mice (see tree.patients_upstream_of_a_model). So the honest answer is that the scope is empty and what the model does derive from, not a count; no zero is pinned. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: (m)-[:DERIVED_FROM*1..15]->(n:T_NHP) returns no rows. || WAS: the graph query ran (total 0) but the reply model returned 503 and the user saw a pipeline error (A1). || TESTS: an empty scope is named as empty.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 463 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "tree.nhp_of_a_model_with_flow_rephrased",
+          "family": "lineage_tree",
+          "name": "Same question, the rephrase the user tried next",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many of the NHP samples associated with MDL-250912LAU-1 have a D.FLOW sample downstream?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bno\\b|\\bnone\\b|\\bzero\\b|\\b0\\b|not (derived|associated|linked))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bPAT\\b|patient|human|\\bMUS\\b|mouse|mice)"
+                }
+              ]
+            }
+          ],
+          "_why": "Same key as tree.nhp_of_a_model_with_flow. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the user's rephrase after the first failure, the same 503 from the reply model (A1). || TESTS: the second phrasing reaches the same honest answer.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 464 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
     },
@@ -10995,6 +12481,378 @@
             "assertion": "last_reply matches_re \\b217\\b"
           },
           "_why": "Re-keyed 2026-09-23 against production (fairdata): dmac.assay_context, the assay catalog, has 138 rows on prod after the curated context write (seek_production MySQL, read-only: COUNT(assay_context)); dmac.internal_assays is 137; was 217."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.elispot_data_type",
+          "family": "system_capability_question",
+          "name": "Does an ELISpot data type exist",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Are there any ELISpot data types?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bno\\b|\\bnot\\b|\\bnone\\b|isn't|aren't)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "No: none of the 115 sample types and no DERIVED_FROM assay title mentions ELISpot. ELISA exists (D.ELSA 76, A.ELSA 1), and 78 patient visits name ELISpot in their Procedure attribute. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: SampleType title/label/seek_description CONTAINS 'elispot' -> none; r.internal_assay_title and internal_assay_titles -> 0; T_PAV search_text -> 78. || WAS: the parser could not produce a structured plan; nothing ran (A2). || TESTS: an honest no, answered at all.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 129 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.count_data_file_types",
+          "family": "system_capability_question",
+          "name": "How many D. types exist: the live catalog",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many different D. file types exist?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(40|42|43)\\b"
+                }
+              ]
+            }
+          ],
+          "_why": "SEEK holds 43 sample types titled D.*, one of them deprecated (D.NCT), and 40 hold samples (D.LUM and D.MBL are empty). Measured 2026-09-23 on production (fairdata), read-only, seek_production MySQL: SELECT sum(title LIKE 'D.%') FROM sample_types -> 43 of 115; the graph's SampleType nodes agree (deprecated, sample_count). || WAS: answered 6 from the fixed document (B4). || TESTS: a catalog count comes from the live catalog.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 409 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.count_d_prefix_types",
+          "family": "system_capability_question",
+          "name": "How many sample types begin with D.",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many sample types begin with a D. prefix?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(40|42|43)\\b"
+                }
+              ]
+            }
+          ],
+          "_why": "Same key as sys.count_data_file_types. Measured 2026-09-23 on production (fairdata), read-only, seek_production MySQL. || WAS: answered 5 from the fixed document, one turn after the same question answered 6 (B4). || TESTS: the second phrasing agrees with the first.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 410 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.why_only_twenty_rows",
+          "family": "system_capability_question",
+          "name": "Is the 20-row limit memory? It must not exist",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many Sequencing Data (D.SEQ) samples in the IMPAcTb project have SHA in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                }
+              ]
+            },
+            {
+              "label": "table",
+              "query": "Can you provide a table of these 807 samples for download/copy into Excel with the metadata info?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Is the limit of 20 due to memory limitations or something else?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\b807\\b|no (such )?limit|not limited|all (of )?(the )?(807|rows|samples))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*paginat)"
+                }
+              ]
+            }
+          ],
+          "_why": "The seed and table turns are artifact.table_of_a_filtered_set (807). The question's premise came from the old 20-row stored-result cap; the follow-up now reads the whole result, so an honest reply says every row was delivered. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the 20 was normal API pagination; it was the stored-result cap (B1). || TESTS: the assistant does not invent a mechanism for a limit that no longer applies.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 118 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.how_do_i_export",
+          "family": "system_capability_question",
+          "name": "How do I export",
+          "turns": [
+            {
+              "label": "main",
+              "query": "How do I export?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(all files|spreadsheet|Excel|CSV)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/nextseek_api/)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*https?://)"
+                }
+              ]
+            }
+          ],
+          "_why": "Content, not a number. The 2026-09-22 fix (P2) teaches the All files button and the in-chat downloads and forbids endpoint paths; production answered retest Q6 that way on 2026-09-23. || WAS: the reply described an export through /nextseek_api/admin/samples/retrieve/, which the chat does not deliver (C1). || TESTS: the user-facing way to export, never an API path.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 120 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sys.how_to_find_those_data_myself",
+          "family": "system_capability_question",
+          "name": "How do I find those data myself",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b745\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "how do i query/find those data in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(search|sample ?tree|UID|All files|ask)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*/nextseek_api/)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*advanced_search)"
+                }
+              ]
+            }
+          ],
+          "_why": "Content, not a number. The seed is 745 CC mice (search.cc_mice_quoted). The question refers back, so container_cc. || WAS: the reply listed REST endpoints and sample type codes instead of a way a researcher can get the data (C1). || TESTS: the bucket6 README rule: a researcher-facing path, never the API.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 503 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
     },
@@ -13266,6 +15124,544 @@
           ],
           "_why": "136 OOC have Vascularization='Vasculogenesis' (Angiogenesis is 54). OOC.Material is PDMS under four spellings: 'Polydimethylsiloxane (PDMS)' 457, 'Polydimethylsiloxane' 29, 'polydimethylsiloxane' 26, 'PDMS' 18. || VERIFIED: seek_production MySQL, verified 2026-08-06: OOC $.Vascularization and $.Material distributions. || TESTS: a follow-up onto a second attribute of the same set, on the least-tested sample type in the corpus. || Re-keyed 2026-09-23 against production (fairdata): 286 T_OOC with Vascularization = 'Vasculogenesis' (Angiogenesis 54, null 343), every one Material 'Polydimethylsiloxane (PDMS)' (Neo4j cypher-shell, read-only); was 136.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.assays_between_two_types_named",
+          "family": "followup_over_results",
+          "name": "Name the assays you just found",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "What assays exist that go from CEL to MUS",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "What are the three assays that you found?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*Cell Line Creation)"
+                }
+              ]
+            }
+          ],
+          "_why": "Between T_CEL and T_MUS there are two titled assays: 'Cell Isolation' on 32 CEL->MUS DERIVED_FROM edges (a cell derived from a mouse) and 'Patient-Derived Xenograft (PDX) Cell Line Generation' on 467 MUS->CEL edges, plus 20 MUS->CEL edges with no title. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (a:T_CEL)-[r:DERIVED_FROM]->(b:T_MUS) RETURN r.internal_assay_title, count(*), and the reverse. 'Cell Line Creation', which the old reply named, is not an assay title anywhere in the graph. The question's 'three' echoes a row count the old seed reported; the follow-up must answer from what was found, not agree with the premise. Follow-ups route to container_cc (operator ruling 2026-09-23). || WAS: the seed said '3 matches' and the follow-up said 'Only two assays were found (not three)', contradicting it (B12). || TESTS: a follow-up names what the previous turn returned.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 131 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.sequencing_samples_sha_in_uid",
+          "family": "followup_over_results",
+          "name": "Of those sequencing samples, which have SHA in the UID",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many Sequencing Data (D.SEQ) samples are in the Impactb Investigation?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(4,?658|4,?659)\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Which of those sequencing samples have 'SHA' in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*only returned aggregated counts)"
+                }
+              ]
+            }
+          ],
+          "_why": "4,658 D.SEQ are IN_PROJECT IMPAcTb (4,659 under the Impactb Investigation); 807 of them carry SHA at the lab position of the UID, and no other position holds SHA. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: T_D_SEQ IN_PROJECT IMPAcTb with s.uuid =~ '^[^-]+-[0-9]{6}SHA-.*' -> 807; s.uuid CONTAINS 'SHA' -> 807. The seed paraphrases the session's earlier turns (a per-project D.SEQ count, then the Impactb Investigation), which quoted 4,095. || WAS: the follow-up read only the stored result, which held aggregate counts, and could not filter (B1). || TESTS: a follow-up re-queries when the stored result cannot answer it.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 115 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.cc_mice_with_transcriptomics",
+          "family": "followup_over_results",
+          "name": "Of those CC mice, which have transcriptomic data, then summarise them",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b745\\b"
+                }
+              ]
+            },
+            {
+              "label": "count",
+              "query": "how many of these 745 mouse sample records have transcriptomic data ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(91|105)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b(731|735|1,?361)\\b)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "i want to look at the CC mouse samples that have transcriptomic data attached. can you summarize those?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(91|105)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*MUS-\\d{6}ENG-)"
+                }
+              ]
+            }
+          ],
+          "_why": "Of the 745 CC-genotype mice, 91 have an A.GEX (83), A.SCXP (8) or A.SPTX descendant, and 105 have an RNA-seq D.SEQ descendant (Bulk RNA-Seq 89, scRNA-Seq 16); both readings of 'transcriptomic' pass. All of them are SAS-coded. Without the CC filter the same predicates give 735 and 1,361 mice. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: Genotype =~ '(?i)^CC[0-9].*' AND EXISTS { (s)<-[:DERIVED_FROM*1..12]-(x) WHERE x:T_A_GEX OR x:T_A_SCXP OR x:T_A_SPTX } -> 91; with T_D_SEQ -> 105. The question quoted the seed's old 1,206; it now quotes what the seed returns (745). || WAS: both follow-ups counted every mouse with transcriptomic data (731) with no CC filter, the plan's own note saying the filter was not applied, and the summary's example UIDs were ENG mice (review: wrong, no operator code). || TESTS: a follow-up keeps the previous turn's filter.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 501, 502 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.which_labs_are_those_mice",
+          "family": "followup_over_results",
+          "name": "Which labs are those mice from",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "how many mice are there?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b6,?479\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "which labs are those mouse samples from?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bENG\\b|Engelward)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b3,?513\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*cannot be determined)"
+                }
+              ]
+            }
+          ],
+          "_why": "6,479 T_MUS; by the lab position of the UID ENG 3,513, SAS 1,036, BEH 1,027, SAR 478, LAU 89, ESS 78, ALT 75, FOR 67. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (s:T_MUS) RETURN substring(s.uuid,10,3), count(*). || WAS: the stored result was a single count, so the follow-up said the labs cannot be determined (B1). || TESTS: a follow-up over a count re-queries for the breakdown.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 428 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.human_flow_patients_other_data",
+          "family": "followup_over_results",
+          "name": "Of those 129 patients: RNA-seq, then every other data type",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Can you provide a list of samples from the Impact project that have flow cytometry / CyTOF data available, and come from a human?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b129\\b"
+                }
+              ]
+            },
+            {
+              "label": "rnaseq",
+              "query": "Do any of those 129 human patient samples also have RNA sequencing data?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b10\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*not possible to determine)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "What other types of data are available for the 129 UIDs you mentioned above?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(D\\.SEQ|Sequencing)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.SCXP|Single Cell)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(A\\.FLOW|Flow Cytometry Analysis)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*No other data types)"
+                }
+              ]
+            }
+          ],
+          "_why": "129 IMPAcTb patients have a D.FLOW or D.CYTOF descendant (adding D.FCS changes nothing). 10 of them also have a D.SEQ descendant, all single-cell RNA-seq (PAT-230323BOO-34/-40/-44/-48/-70/-74 and PAT-260107SES-3 to -6). Their downstream types: PAV, TIS and D.FLOW on all 129, A.FLOW 105, DNA 24, CEL 21, RNA 20, D.SEQ 10, A.SCXP 10. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: PAT IN_PROJECT IMPAcTb WITH DISTINCT p WHERE EXISTS { (x)-[:DERIVED_FROM*1..12]->(p) WHERE x:T_D_FLOW OR x:T_D_CYTOF }, then y.type grouped over (y)-[:DERIVED_FROM*1..12]->(p). || WAS: both follow-ups read only the stored flow result and said it cannot tell (439) or that no other types exist (440); later turns of the same chat found the 10 and the 9 types (B1). || TESTS: follow-ups that must leave the stored rows for the lineage.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 439, 440 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "fu.investigators_of_those_patients",
+          "family": "followup_over_results",
+          "name": "Which investigators are those patients associated with",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many human samples are in Impact?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b1,?441\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Which investigators are the 1,441 human patient samples associated with?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(440|348)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(422|333)\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b1,?419\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "1,441 distinct PAT are IN_PROJECT IMPAcTb. By the lab position of the UID: ALT 440, LAU 422, WAL 218, NEM 117, BOO 116, SES 45, LAL 43, NUH 26, SIL 11, BRY 3. By the Scientist attribute (13 distinct values, on every patient) the two largest are 348 (ALT-coded) and 333 (LAU-coded); either breakdown passes, so no person's name is asserted. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: substring(split(p.uuid,'-')[1],6,3) and p.Scientist grouped over DISTINCT p. The question quoted the old 1,411; it now quotes the seed's 1,441. || WAS: no DISTINCT, 1,419 rows reported as patients, and investigators given only as UID codes from a preview (B2). || TESTS: a follow-up aggregation over the whole set, not its preview.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 445 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
         }
       ]
     },
@@ -14404,6 +16800,82 @@
           ],
           "_why": "'Illumina MiSeq' 1,178; 'Illumina NovaSeq 6000' 427 (plus 'NovaSeq 6000, Illumina' 24, 'NovaSeq 6000' 1, and eleven junk singletons NovaSeq 6001-6011). || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ $.Sequencer grouped, 21 distinct values. || TESTS: substitution onto a value with a documented data-entry mess behind it (NovaSeq 6001..6011 are typos of the same instrument). || Re-keyed 2026-09-23 against production (fairdata): T_D_SEQ Sequencer (Neo4j cypher-shell, read-only): 'Illumina MiSeq' 1,317 (the only MiSeq spelling); 'Illumina NovaSeq 6000' 1,864, the old key's exact-value predicate (other spellings: 'NovaSeq 6000' 397, 'Illumina NovaSeq6000' 99, 'NovaSeq 6000, Illumina' 24, 'NovaSeq6000' 21, plus ~70 NovaSeq 60xx typo singletons); was 1,178 / 427.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "sr.sequencing_filtered_by_uid_code",
+          "family": "search_refinement",
+          "name": "Re-run the D.SEQ search filtered to SHA, uncapped",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many Sequencing Data (D.SEQ) samples are in the Impactb Investigation?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b(4,?658|4,?659)\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Can you individual search all the 4,658 Sequencing Data (D.SEQ) files for if they have 'SHA' in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b250\\b)"
+                }
+              ]
+            }
+          ],
+          "_why": "807, as fu.sequencing_samples_sha_in_uid. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. The question quoted the old 4,095; it now quotes the seed's 4,658. A refinement is a follow-up, so container_cc (operator ruling 2026-09-23). || WAS: the graph query had LIMIT 250, returned 250 rows, and the reply reported 250 as the total (B10). || TESTS: a cap is never reported as a total.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 116 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else.",
+          "_deselected_2026_09_23_prod_researchers": "Not in the paid paired selection: added with the production researcher questions, whose purpose is regression cover in the full tier. The follow-up families are already represented in the selection."
         }
       ]
     },
@@ -16525,6 +18997,66 @@
           ],
           "_why": "RE-KEYED 2026-09-23 on the operator's ruling that a collection date is the UID date (YYMMDD in TYPE-YYMMDDLAB-n), which every sample carries: Impactb Investigation runs 2020-02-26 to 2026-08-06 (2,353 days), MIT_SRP 2020-06-13 to 2026-08-14 (2,253), measured on the workstation snapshot of production. The key below is the SampleCreationDate reading it replaces. || WAS: SRP: SampleCreationDate runs 2002-11-16 to 2025-01-30, 22 years. Impact's raw max is 2029-02-13 but that is a data-entry error, not a date. || VERIFIED: seek_production MySQL, verified 2026-08-06: MIN/MAX of $.SampleCreationDate per investigation over the 29,188 rows that have one. || TESTS: a comparison across investigations that must use SampleCreationDate (not created_at) and must not be fooled by the 2029 outlier.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher",
+            "no_floor"
+          ],
+          "id": "report.species_in_project",
+          "family": "project_summary_report",
+          "name": "Species across a project",
+          "turns": [
+            {
+              "label": "main",
+              "query": "What species are the samples in the IMPACT project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(macaca|macaque)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(mus musculus|mouse|mice)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*does not contain)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no species)"
+                }
+              ]
+            }
+          ],
+          "_why": "IMPAcTb holds 85,997 samples; 892 carry a Species value, in more spellings than species (lower-cased: macaca fascicularis 327, macaca mulatta (rhesus) 239, mus musculus 163, rhesus macaque 88, macaca mulatta 37, homo sapiens 16, mycobacterium tuberculosis 11 plus a misspelt 4). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: toLower(toString(s.Species)) grouped over DISTINCT s IN_PROJECT IMPAcTb. Criteria from bucket7.species_over_a_project, re-measured. Metadata aggregation stays on nextseek_query (operator ruling 2026-09-23), and the answer is not a reporter output, so the family floor (report_produced_output) is opted out with no_floor. || WAS: 5,000 of 84,527 rows with no species field, and the reply said species are not in the data (B9). || TESTS: aggregating an attribute over a whole project.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 429 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
         }
       ]
     },
@@ -17602,6 +20134,413 @@
           ],
           "_why": "Macaca mulatta (Rhesus) 163, Macaca mulatta 106, Rhesus macaque 73, Macaca fascicularis 66 \u2014 408 in total. || VERIFIED: seek_production MySQL, verified 2026-08-06: NHP $.Species grouped. || TESTS: delivery of a COMPUTED table rather than a row dump, with both the number and the host path asserted. || Re-keyed 2026-09-23 against production (fairdata): T_NHP Species grouped (Neo4j cypher-shell, read-only): Macaca fascicularis 327, 'Macaca mulatta (Rhesus)' 239, 'Rhesus macaque' 109, 'Macaca mulatta' 37, null 13 (725 in all); the asserted row is still 'Macaca mulatta (Rhesus)'; was 163.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "artifact.table_of_a_filtered_set",
+          "family": "artifact_delivery",
+          "name": "A table of all 807, not the 20 stored",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many Sequencing Data (D.SEQ) samples in the IMPAcTb project have SHA in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Can you provide a table of these 807 samples for download/copy into Excel with the metadata info?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/dmac/users/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\b20 (matching )?samples)"
+                }
+              ]
+            }
+          ],
+          "_why": "807 D.SEQ in IMPAcTb carry SHA at the lab position of the UID (D.SEQ-201214SHA-1 to D.SEQ-260806SHA-8). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. The seed asks directly what the session reached in three turns. || WAS: the reply built a TSV from '20 matching samples (rather than 250)', the stored-result cap (B1). || TESTS: a produced file holds the whole set and is delivered at the user-facing path.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 117 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "artifact.export_full_list_excel",
+          "family": "artifact_delivery",
+          "name": "Export the full list to Excel",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many Sequencing Data (D.SEQ) samples in the IMPAcTb project have SHA in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Export the full list of these samples to Excel",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b807\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\.xlsx|Excel)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/dmac/users/"
+                }
+              ]
+            }
+          ],
+          "_why": "807, as artifact.table_of_a_filtered_set. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply listed 20 UIDs and said they were ready for Excel export; no file was produced and 787 were missing (B1, C1). || TESTS: 'export' produces a file.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 119 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "artifact.csv_of_cc_mice_with_transcriptomics",
+          "family": "artifact_delivery",
+          "name": "A CSV of the CC mice with transcriptomic data",
+          "turns": [
+            {
+              "label": "seed",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\b745\\b"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "can you write me a csv file that summarizes the 91 mouse sample with \"CC\" in them plus transcriptomic data? I would like the mouse genotype, sample id, experiment id, type of transcriptomic data, and experimental conditions",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\.csv"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/dmac/users/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "CC0\\d"
+                }
+              ]
+            }
+          ],
+          "_why": "91 CC-genotype mice with an A.GEX, A.SCXP or A.SPTX descendant (105 counting RNA-seq D.SEQ), all SAS-coded; genotypes are CC0nn strain codes. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. The question quoted the old, unfiltered 731; it now quotes the measured 91. || WAS: the Container-CC turn hit the 300 s limit and returned nothing (A3). || TESTS: a multi-column CSV of a filtered lineage set, with the genotype column really filled.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 504 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        }
+      ]
+    },
+    "data_file_location": {
+      "description": "Where a stored data file (sequencing, flow, a model) lives and how to get it: its File_PrimaryData and Link_PrimaryData fields. NExtSEEK holds the metadata, not the files.",
+      "variants": [
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "file.download_a_model_file",
+          "family": "data_file_location",
+          "name": "Download a model file",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you help me download model file MDL-250912LAU-2?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\.rds\\b|/net/)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|No available REST endpoint))"
+                }
+              ]
+            }
+          ],
+          "_why": "MDL-250912LAU-2 (a TransCompR model) carries File_PrimaryData and Link_PrimaryData and no Repository. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (m:Sample {uuid:'MDL-250912LAU-2'}) RETURN m.File_PrimaryData IS NOT NULL, m.Link_PrimaryData IS NOT NULL. Its primary file is an .rds file whose Link_PrimaryData is a /net/ storage path, so a reply that looked the record up names one or the other; the file is not in NExtSEEK, its location is. || WAS: the parser returned unsupported, 'No available REST endpoint supports downloading raw file artifacts' (C1). || TESTS: the P6 fix (File_/Link_PrimaryData), which production answered for a project on 2026-09-23 (retest Q7).",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 433 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": false,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "file.download_instructions_for_a_model",
+          "family": "data_file_location",
+          "name": "Instructions to download a model file",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you give me instructions for how to download model file MDL-250912LAU-2?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(File_PrimaryData|Link_PrimaryData|primary (data )?file)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\.rds\\b|/net/)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*I have attached)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|Reason from parser|Parser could not produce|Something went wrong))"
+                }
+              ]
+            }
+          ],
+          "_why": "Same record as file.download_a_model_file. Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell. || WAS: the reply said the chat cannot transfer files and pointed to a repository link and the web UI (C1). An answer that only explains the field names in general, without looking the record up (the old reply told the user to find 'Link_PrimaryData' and download from the NExtSEEK web platform, which does not host the file), fails the record-specific criterion. || TESTS: the instructions name where this file lives, and never claim an attachment.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 434 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian false: the paired selection gains one member per new family and nothing else."
+        },
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": true,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "file.flow_file_for_a_patient",
+          "family": "data_file_location",
+          "name": "The flow file for a named patient",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Can you give me directions how to download the flow cytometry data file for PAT-230323BOO-74?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "D\\.FLOW-230330BOO-5[67]"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(File_PrimaryData|Link_PrimaryData|link|path)"
+                }
+              ]
+            }
+          ],
+          "_why": "PAT-230323BOO-74 has two D.FLOW descendants, D.FLOW-230330BOO-56 and D.FLOW-230330BOO-57, both carrying File_PrimaryData and Link_PrimaryData (no D.FCS). Measured 2026-09-23 on production (fairdata), read-only, Neo4j cypher-shell: MATCH (p:Sample {uuid:'PAT-230323BOO-74'}) MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(p) RETURN f.uuid. || WAS: the reply explained how to look for the D.FLOW child records but named none and gave no download path (C1). || TESTS: the patient is walked to its data records and their file fields.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 452 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
         }
       ]
     },
@@ -21191,6 +24130,75 @@
         }
       ]
     },
+    "session_export": {
+      "description": "Export the chat session itself, for example to send it to the developers: the All files zip of the transcript, its files and a manifest.",
+      "variants": [
+        {
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "expected_behavior": null,
+          "hibayes_subtype": null,
+          "origin": "overlay",
+          "requires_env": [],
+          "retirement": null,
+          "status": "active",
+          "is_bayesian": true,
+          "tags": [
+            "nessie",
+            "full",
+            "prod_researcher"
+          ],
+          "id": "export.session_to_the_developers",
+          "family": "session_export",
+          "name": "Send this chat to the developers",
+          "turns": [
+            {
+              "label": "main",
+              "query": "Is there way to export this session to send to the development team for feedback?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)all files"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no such feature)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*not possible)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(can't turn that request|No downstream path|Reason from parser|can't do that one))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*does not have a built-in)"
+                }
+              ]
+            }
+          ],
+          "_why": "Content, not a number. The All files button downloads the whole chat as one zip (transcript, every file, a manifest); production answered exactly that on 2026-09-23 (retest Q8). Criteria from the probe case bucket6.export_this_session, plus the old reply's denial as a guard. || WAS: 'does not have a built-in command or system feature to ... export your active chat session' (C2). || TESTS: a flat denial of a feature that exists.",
+          "_added_2026_09_23_prod_researchers": "Asked by a researcher on production; review turn(s) 498 of nessie-prod-review-2026-09-10 (classification.json). Not in the corpus before 2026-09-23. is_bayesian true: the one member of this new family in the paired selection, which must represent every measurable family."
+        }
+      ]
+    },
     "turn_limits_and_failure": {
       "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
       "variants": [
@@ -21969,6 +24977,22 @@
       "unsupported": {
         "op": "eq",
         "value": "container_cc"
+      },
+      "publication_lookup": {
+        "op": "eq",
+        "value": "nextseek_query"
+      },
+      "person_lab_resolution": {
+        "op": "eq",
+        "value": "nextseek_query"
+      },
+      "data_file_location": {
+        "op": "matches_re",
+        "value": "(nextseek_query|container_cc)"
+      },
+      "session_export": {
+        "op": "eq",
+        "value": "nextseek_query"
       }
     },
     "_2026_08_03_inert_overrides": "An override is appended only `if \"route\" not in present` (corpus.apply_route_policy), so an entry for a variant that writes its OWN route criterion never fires. green.global_count carried exactly that: this map claimed container_cc while the case asserted nextseek_query inline and backed it with a `50,88[0-9]` reply guard, a number only the NS REST global count produces. The inline criterion was right, so the dead override was DELETED rather than the case changed. green.refine_recall's entry was the same shape and the opposite call: there the router is right, so the case was rewritten to container_cc and the override kept, now agreeing with the inline criterion instead of contradicting it. tests/test_inline_route_assertions.py fails on any future override that contradicts an inline route.",
@@ -22067,7 +25091,8 @@
       }
     },
     "_2026_08_04_remap": "Carried across the 28-family remap by effective rule, not by family name: lineage_tree inherits search_tree's NS|CC alternation and search_parents_by_child's eq nextseek_query, which cannot both be the family default. 15 variant(s) whose rule differs from their new family's modal rule are pinned by id, so every variant keeps the exact assertion it had before.",
-    "_2026_08_04_atlas_cc_search": "advanced.that_ndma_number_looked_off_to_m is a sample_search question deliberately phrased to reach the container ('that number looked off, pull the rows yourself'), because it tests the CC op chain nextseek-parse -> nextseek-api-read rather than the NS pipeline. Its family asserts eq nextseek_query, which would have made it a guaranteed red asserting the opposite of what it measures. Engine is an axis, not a family, so the exception is pinned by id here."
+    "_2026_08_04_atlas_cc_search": "advanced.that_ndma_number_looked_off_to_m is a sample_search question deliberately phrased to reach the container ('that number looked off, pull the rows yourself'), because it tests the CC op chain nextseek-parse -> nextseek-api-read rather than the NS pipeline. Its family asserts eq nextseek_query, which would have made it a guaranteed red asserting the opposite of what it measures. Engine is an axis, not a family, so the exception is pinned by id here.",
+    "_2026_09_23_prod_researchers": "Routes for the four families added 2026-09-23. publication_lookup, person_lab_resolution and session_export pin nextseek_query, where the fixes live. data_file_location is an alternation: either engine can name a file's location. Every 2026-09-23 case also writes its route inline on every turn, follow-ups included: container_cc on every follow-up (operator ruling 2026-09-23), so the older NS|CC alternations on followup_over_results and search_refinement never fire for these cases."
   },
   "family_floor": {
     "_note": "Minimum OUTCOME assertion per family, applied by corpus.merged() to the LAST TURN of every variant in a listed family. Measured over the 381-variant corpus of the 2026-07-30 review, BEFORE the 100 retirements: 108 asserted plan shape only and 194 asserted only plumbing (api_ok / neo4j_ok, which say a request COMPLETED, not that it returned anything) \u2014 79% could not detect a wrong answer. merged() returns 283 today and that split has not been re-measured, but retiring bad questions added no outcome assertion to any survivor, so the reason stands: hand-editing hundreds of variants is not viable, and the floor is applied structurally.",
@@ -22124,8 +25149,16 @@
           "op": "true",
           "value": null
         }
+      ],
+      "publication_lookup": [
+        {
+          "field": "outcome_observed",
+          "op": "true",
+          "value": null
+        }
       ]
-    }
+    },
+    "_2026_09_23_prod_researchers": "publication_lookup floors on outcome_observed: a paper lookup always runs a query, so a turn that observed no outcome is dead. person_lab_resolution, data_file_location and session_export get no floor, because who-is, where-is-the-file and export questions are answered from the lab record or the system context with no query outcome to observe; their cases assert content instead. report.species_in_project is tagged no_floor: project_summary_report floors on report_produced_output, and a species aggregation is a graph answer, not a reporter output."
   },
   "consistency_groups": [
     {

@@ -359,6 +359,8 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
         "lineage_tree": {"outcome_observed"},
         "project_summary_report": {"report_produced_output"},
         "submission_package": {"report_produced_output"},
+        # 2026-09-23: added with the production researcher questions.
+        "publication_lookup": {"outcome_observed"},
     }
     assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
@@ -467,7 +469,10 @@ _ADDED_2026_08_06 = {
     v["id"]
     for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
     for v in fam["variants"]
-    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06")) for k in v)
+    # 2026-09-23: the production researcher questions are later additions too, and are
+    # excluded from the historical measurements below for the same reason.
+    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06",
+                         "_added_2026_09_23_prod_researchers")) for k in v)
 }
 
 RETIRED_FLOOR = {
@@ -916,7 +921,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}

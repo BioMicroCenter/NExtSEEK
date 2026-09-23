@@ -129,7 +129,7 @@ def test_retirement_can_be_reversed_by_flipping_the_status(tmp_path):
     # 284 -> 309 -> 362. 309 was the 2026-08-06 additive pass; 362 is the
     # 2026-08-06 question set (+58 authored, +6 retired, 1 of the 6 already
     # retired-by-another-name), measured over the curated set.
-    assert len(active) == 366  # 309 -> 366: this counts the active set with ONE
+    assert len(active) == 416  # 366 -> 416: 2026-09-23: +50 variants for the 53 production researcher questions. 309 -> 366: this counts the active set with ONE
     # retired variant reinstated, so it is the corpus's 365 plus that one.
 
 

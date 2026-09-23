@@ -112,12 +112,13 @@ in-container as a Django management command
 **As committed data.** `NessieAI/tests/nessie_tests/corpus.json` is the only corpus source
 there is, and `NessieAI/tests/nessie_tests/corpus.py:415-425` records that the superseded
 overlay files and their generator were deleted outright. `FAMILIES.json` declares the
-28 code-derived task families the corpus is mapped onto
+32 task families the corpus is mapped onto (28 code-derived, and 4 added by hand on 2026-09-23
+for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-09-03 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 424
-variants over 472 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 365; `bayesian_ids` selects 149; one
+Measured 2026-09-23 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 474
+variants over 537 turns; `curated`, which drops the unreviewed atlas set
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 415; `bayesian_ids` selects 153; one
 consistency group is defined; and 3 variants carry the `route_gate` tag.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
@@ -224,8 +225,10 @@ manifest, all host-safe under the unit lane's `--with` list.
 
 ## The selection
 
-`--bayesian` drives every variant flagged `is_bayesian` + `active`: **149 today**,
-the 2026-08-06 question set. 25 of the 26 task families, one distinct question per
+`--bayesian` drives every variant flagged `is_bayesian` + `active`: **153 today**,
+the 149 of the 2026-08-06 question set plus one case from each of the four families added
+2026-09-23 (`pub.pmid_bare`, `person.lau_lab_samples`, `file.flow_file_for_a_patient`,
+`export.session_to_the_developers`), which that document does not list. 25 of the 26 task families, one distinct question per
 variant, and every one asserting a verified value on `last_reply` (the only field
 that survives forcing on a `container_cc` arm).
 
@@ -235,7 +238,7 @@ per-family targets and the reasoning behind them, the three write/launch hazards
 and what was done about each, and the cost. It is meant to be reviewed and argued
 with before any paid turn.
 
-Budget: ~**$35.60** of CC arms (149 x $0.2388 observed) plus ~5.3 hours serial.
+Budget: ~**$36.54** of CC arms (153 x $0.2388 observed) plus ~5.3 hours serial.
 NS arms report $0.00. Suggested `--max-usd 45`.
 
 84 of the 149 keep their id AND their exact text from the 2026-08-06 run, 82 of
@@ -366,7 +369,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-08-24: 424 resolved / 365 curated. If that line and the pinned test ever
+(2026-09-23: 474 resolved / 415 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -509,9 +512,9 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **362 of 365 are still red**, with all six floored families at 100%. Four
+and **412 of 415 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **250** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
+fails on **300** variants, `parser_plan.mode` on **212**, `api_ok` on **128**
 and `api_plan.endpoint` on **104**. Those cases stay red until the corpus
 itself is settled.
 
@@ -533,8 +536,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (365 total /
-3 green / 362 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (415 total /
+3 green / 412 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

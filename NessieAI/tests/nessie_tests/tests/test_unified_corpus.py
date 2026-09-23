@@ -54,7 +54,7 @@ def test_unified_holds_every_definition():
     payload = json.loads(UNIFIED.read_text(encoding="utf-8"))
     ids = {v["id"] for fam in payload["families"].values() for v in fam["variants"]
            if v.get("origin") != "atlas"}
-    assert len(ids) == 470  # 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(ids) == 520  # 470 -> 520: 2026-09-23: +50 variants for the 53 production researcher questions. 408 -> 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_every_retired_definition_is_still_loadable():
@@ -94,18 +94,18 @@ def test_load_unified_returns_the_active_variants_only():
     # 283 -> 308: +25 from the 2026-08-06 additive pass (16 promoted out of the
     # atlas set into the curated one, 9 written fresh). Nothing was removed.
     active = corpus.curated(corpus.load_unified(UNIFIED))
-    assert len(active) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(active) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_load_all_definitions_returns_active_plus_retired():
-    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(corpus.curated(corpus.load_all_definitions(UNIFIED))) == 520  # 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
 
 
 def test_unified_resolution_preserves_turn_count():
     # 314 -> 343. The 25 additions carry 29 turns between them: several are
     # genuinely multi-turn, and three atlas variants were REPAIRED on promotion
     # because they had a multi-turn script flattened into one literal query.
-    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 413  # 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
+    assert sum(len(v.turns) for v in corpus.curated(corpus.merged_from_unified(UNIFIED))) == 478  # 413 -> 478: 2026-09-23: +50 variants for the 53 production researcher questions, 12 of them multi-turn (65 turns). 343 -> 413: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. 15 of the 58 additions are multi-turn, and 3 edits split a flattened script into real turns.
 
 
 def test_the_hand_written_annotations_survived_adoption():
@@ -136,7 +136,13 @@ def test_the_hand_written_annotations_survived_adoption():
     # the selection reviewable without a diff.
     # 2026-09-23 production re-key: `_why` 101 -> 135. Every re-keyed variant got a
     # dated line appended to its `_why`, and the 34 that had none got one.
-    assert counts == {"_why": 135, "_why_superseded_2026_08_03": 1,
+    # 2026-09-23 production researcher questions: `_why` 135 -> 185 (one per case), plus
+    # `_added_2026_09_23_prod_researchers` 50 (the review turn ids each case covers) and
+    # `_deselected_2026_09_23_prod_researchers` 7 (the follow-up and refinement cases left
+    # out of the paid selection, each with its reason).
+    assert counts == {"_why": 185, "_why_superseded_2026_08_03": 1,
+                      "_added_2026_09_23_prod_researchers": 50,
+                      "_deselected_2026_09_23_prod_researchers": 7,
                       "_2026_07_28": 1, "_atlas": 80,
                       "_promoted_2026_08_06": 17, "_added_2026_08_06": 8,
                       "_added_2026_08_06_qset": 58, "_edited_2026_08_06_qset": 86,
@@ -162,7 +168,7 @@ def test_fingerprint_is_over_the_unified_corpus_only():
 def test_variant_meta_covers_every_definition():
     meta = corpus.variant_meta(UNIFIED)
     curated_ids = {v.id for v in corpus.curated(corpus.load_all_definitions(UNIFIED))}
-    assert len({k for k in meta if k in curated_ids}) == 470  # 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len({k for k in meta if k in curated_ids}) == 520  # 2026-09-23: +50 variants for the 53 production researcher questions. 470: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert meta["repro.cypher_uid_dot"]["status"] == "retired"
     assert meta["green.mus_ndma"]["status"] == "active"
     # `is_bayesian` used to be pinned False on this variant, which was a pin on
@@ -245,7 +251,7 @@ def test_defaults_cover_the_retired_only_families_too():
     # 13 -> 21. The 2026-08-06 pass promoted atlas variants in 8 previously
     # atlas-only families into the curated set, so those families now hold an
     # active CURATED variant. The gap this test records shrank by exactly 8.
-    assert len(active) == 25, sorted(active)  # 21 -> 25: the question set covers
+    assert len(active) == 29, sorted(active)  # 25 -> 29: 2026-09-23, the four families added for the production researcher questions (publication_lookup, person_lab_resolution, data_file_location, session_export). 21 -> 25: the question set covers
     # pipeline_output_reingest, session_lifecycle, cross_session_memory and
     # entity_write for the first time.
     # pipeline_output_reingest and entity_write hold one RETIRED variant each and
@@ -263,7 +269,7 @@ def test_defaults_cover_the_retired_only_families_too():
     # point of the 2026-08-04 remap -- and a family without defaults would fail
     # the moment its first case is written.
     blocks = set(payload["families"])
-    assert len(blocks) == 28, sorted(blocks)
+    assert len(blocks) == 32, sorted(blocks)  # 28 -> 32: the four families added 2026-09-23
     assert declared <= blocks
     assert {k for k in payload["family_defaults"] if not k.startswith("_")} == blocks
     assert set(corpus.load_family_defaults(UNIFIED)) == blocks
@@ -501,7 +507,8 @@ def test_every_deselected_refine_and_recall_member_records_why():
     for half in halves:
         assert any(v["family"] == half for v in selected), half
     unexplained = [v["id"] for v in members
-                   if v["id"] not in ids and not v.get("_deselected_2026_08_06_qset")]
+                   if v["id"] not in ids
+                   and not any(k.startswith("_deselected_") and v[k] for k in v)]
     assert not unexplained, (
         f"deselected without a written reason: {sorted(unexplained)}")
 

@@ -1,7 +1,7 @@
 {
  "generated": "2026-08-04",
  "branch": "feat/nessie-bayesian",
- "family_count": 28,
+ "family_count": 32,
  "source": "capability atlas, 20 Fable-5 agents over 3 workflow runs",
  "axes_not_families": [
   {
@@ -490,6 +490,30 @@
      ]
     }
    ]
+  },
+  {
+   "family": "publication_lookup",
+   "block": "Retrieval and question shape",
+   "description": "Find the samples behind a paper named by PMID, DOI or title: a study-level lookup on Study.PMID, Study.DOI or the study title, never a text search on the identifier.",
+   "replaces": [],
+   "active_variants": 5,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Five production questions (review turns 401-405) asked for the samples behind a paper by PMID, DOI or title. All five went wrong under sample_search for two months: a free-text search on the identifier stood in for the Study.PMID / Study.DOI lookup on a different engine path, and the family label hid that it was a separate capability."
+  },
+  {
+   "family": "person_lab_resolution",
+   "block": "Retrieval and question shape",
+   "description": "Resolve a person, lab or lab code the user names, then say who they are or what they hold: a PI's lab is the code at the UID's lab position, anyone else is the Scientist attribute, a code resolves to its lab record. Never an invented code or a text match.",
+   "replaces": [],
+   "active_variants": 13,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Fourteen production questions (review turns 141-144, 444, 449, 453-461) named a person, a lab or a lab code. Every one failed at the same step, the resolution: an invented code ('BRI'), a keyword match on a file path or a protocol name, or a fixed document that said a real person was not found. Split out of sample_search and catalog_browse so that step is regression-tested on its own."
   },
   {
    "family": "sample_retrieve",
@@ -4107,6 +4131,18 @@
      ]
     }
    ]
+  },
+  {
+   "family": "data_file_location",
+   "block": "Reporting and delivery",
+   "description": "Where a stored data file (sequencing, flow, a model) lives and how to get it: its File_PrimaryData and Link_PrimaryData fields. NExtSEEK holds the metadata, not the files.",
+   "replaces": [],
+   "active_variants": 3,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "Three production questions (review turns 433, 434, 452) asked to download a stored file, which is a different request from artifact_delivery (a file the assistant builds). The fix is the File_PrimaryData / Link_PrimaryData answer (P6). Either engine may answer, so the route is an alternation."
   },
   {
    "family": "pipeline_launch",
@@ -8366,6 +8402,18 @@
    ]
   },
   {
+   "family": "session_export",
+   "block": "System, session and safety",
+   "description": "Export the chat session itself, for example to send it to the developers: the All files zip of the transcript, its files and a manifest.",
+   "replaces": [],
+   "active_variants": 1,
+   "group_count": 0,
+   "capability_count": 0,
+   "enum_value_count": 0,
+   "groups": [],
+   "_added_2026_09_23": "One production question (review turn 498) asked to send the chat to the developers and was told the feature does not exist. The All files zip (P2) is the answer, carried in the NS system context, so the route is nextseek_query."
+  },
+  {
    "family": "turn_limits_and_failure",
    "block": "System, session and safety",
    "description": "Timeout, budget cap, max turns, the error taxonomy and failover.",
@@ -10440,5 +10488,6 @@
    "partial": 49,
    "no": 84
   }
- }
+ },
+ "_2026_09_23_prod_researchers": "Four families added by hand for the 53 production researcher questions (no atlas capabilities behind them, so groups are empty): publication_lookup, person_lab_resolution, data_file_location, session_export. Other rows' active_variants are the 2026-08-04 snapshot."
 }

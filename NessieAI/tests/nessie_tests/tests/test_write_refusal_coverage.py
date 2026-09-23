@@ -819,7 +819,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
                                       _OBS_CC, last_reply="done")[0] for t in v.turns):
             green.append(v.id)
 
-    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 13 -> 3. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set. The simulation asks how many
     # variants would stay GREEN if every turn ran container_cc, and the answer
     # collapsed because the question set gave 149 variants a substantive
@@ -830,7 +830,7 @@ def test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible():
     # 270 -> 295: all 25 variants added 2026-08-06 are RED under an all-CC
     # simulation replying "done", which is correct — none of them is satisfied
     # by a bare acknowledgement.
-    assert len(merged) - len(green) == 362, (  # 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) - len(green) == 412, (  # 362 -> 412: 2026-09-23: +50 production researcher cases, all 50 red under an all-CC simulation (each asserts nextseek_query on its first turn). 295 -> 362: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(merged) - len(green)} of {len(merged)} red — update the figure in "
         f"NessieAI/tests/nessie_tests/README.md and NessieAI/tests/nessie_tests/tests/test_evaluate.py")
 
@@ -859,6 +859,8 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
             counts[f] = counts.get(f, 0) + 1
 
     # 2026-08-06, [226, 216, 130, 105] -> [231, 217, 130, 106] -> [250, 212, 129, 105]
+    # -> [300, 212, 128, 104] on 2026-09-23: the 50 production researcher cases each assert
+    # route nextseek_query on their first turn, which an all-CC simulation fails.
     # -> [250, 212, 128, 104]: `advanced.show_me_tis_samples_that_have` was re-pinned to
     # the graph path (F1 moved a sampletype-plus-assay-keyword filter from REST to
     # graph_query on purpose), so its `api_ok` and `api_plan.endpoint` criteria are gone
@@ -870,7 +872,7 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # of the 58 additions asserts NS plumbing: they assert ground truth on the
     # reply, which is the only field a forced container_cc arm can produce.
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [250, 212, 128, 104], (
+                                    "api_plan.endpoint")] == [300, 212, 128, 104], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

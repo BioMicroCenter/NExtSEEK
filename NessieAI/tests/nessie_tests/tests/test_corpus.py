@@ -28,7 +28,7 @@ def test_every_definition_carries_its_origin_as_a_tag():
         # "atlas" is the third origin, added 2026-08-04: generated variants, one
         # per expressible capability assertion. See corpus.curated.
         assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
-    assert len([v for v in defs if "overlay" in v.tags]) == 134  # 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len([v for v in defs if "overlay" in v.tags]) == 184  # 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len([v for v in defs if "atlas" in v.tags]) == 59  # 63 -> 59: four atlas
     # variants were read, ground-truthed and put in the paid selection, which
     # is an origin AND tag flip. `_atlas` provenance is kept on all 80.
@@ -43,7 +43,7 @@ def test_merged_is_exactly_the_active_definitions():
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
     merged = corpus.curated(corpus.merged(CORPUS))
     all_defs = corpus.curated(all_defs)
-    assert len(merged) == len(all_defs) - len(retired) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == len(all_defs) - len(retired) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
 
@@ -282,7 +282,7 @@ def test_every_resolved_variant_carries_a_route_criterion():
     with_route = [v for v in expected
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
-    assert len(with_route) == len(expected) == 320, (  # 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(with_route) == len(expected) == 367, (  # 320 -> 367: 2026-09-23: +50 variants for the 53 production researcher questions, 47 of them outside the unsettled artifact_delivery family. Was: 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(with_route)} of {len(expected)} carry a route criterion — update {_DOCS}")
 
     # The exemption is real and bounded: nothing outside those 8 families may skip
@@ -324,7 +324,7 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
     assert len(injected) == 305, f"{len(injected)} injected — update {_DOCS}"  # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len(inline) == 15, f"{len(inline)} inline — update {_DOCS}"
+    assert len(inline) == 65, f"{len(inline)} inline — update {_DOCS}"  # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
 
 
 def test_the_family_floor_injects_the_numbers_the_docs_quote():
@@ -353,12 +353,14 @@ def test_the_family_floor_injects_the_numbers_the_docs_quote():
     # landed in floored families where their old ones had no floor (146 -> 150).
     # 207 -> 210: the family floor reaches 3 of the 25 variants added
     # 2026-08-06; the other 22 are in families the floor does not cover.
-    assert variants == 226, f"{variants} variants floored — update {_DOCS}"  # 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert variants == 242, f"{variants} variants floored — update {_DOCS}"  # 226 -> 242: 2026-09-23: +50 variants for the 53 production researcher questions; the floor reaches the 16 in sample_search, publication_lookup, graph_traversal and lineage_tree (report.species_in_project is no_floor). Was: 210 -> 226: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     # 2026-08-06: +3 outcome_observed and +1 graph_truncation_disclosed, from the
     # 3 added variants the floor reaches.
     # 153/57/48 -> 168/58/52. 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert per_field == {"outcome_observed": 168, "report_produced_output": 58,
-                         "graph_truncation_disclosed": 52}, (
+    # 168/58/52 -> 184/58/54. 2026-09-23: +50 production researcher cases: 16 gain outcome_observed, the 2 graph_traversal
+    # ones graph_truncation_disclosed too.
+    assert per_field == {"outcome_observed": 184, "report_produced_output": 58,
+                         "graph_truncation_disclosed": 54}, (
         f"{per_field} — update {_DOCS}")
 
 
