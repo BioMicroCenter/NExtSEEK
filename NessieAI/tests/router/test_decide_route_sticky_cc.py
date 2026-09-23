@@ -6,9 +6,14 @@ container_cc and gave the best answer in the run; the follow-up "Just the 4 week
 ones." routed nextseek_query and then failed, because no NS bundle existed to
 refine. The conversation broke mid-thread.
 
-The rule is deliberately dumb -- previous turn was container_cc AND completed ->
-stay. A predicate-based variant that let "obvious" catalog lookups break out was
-designed, measured and rejected as over-complex; do not reintroduce it.
+2026-09-23 rulings, which replace the old "previous turn was CC -> stay" rule: in a
+chat that has a completed container_cc turn, an NS-bound turn that REFERS BACK to an
+earlier turn ("those", "that chart", "the file", "what did you find") stays on CC with
+source "sticky"; a SELF-CONTAINED turn (no back-reference, `NessieAI/router/followup.py`)
+is routed normally again. A replay of 90 production turns found whole-chat stickiness
+pulled 20 extra turns onto CC at ~128 s each against ~29 s on NS. The tests below keep
+their original shape with back-referring queries; the self-contained side, and the
+follow-up rule for chats not on CC, are pinned in test_followups_to_cc.py.
 """
 import pytest
 
@@ -89,13 +94,15 @@ def test_prior_ns_turn_leaves_the_router_alone(router_says_ns):
     assert d is router_says_ns
 
 
-def test_only_the_last_turn_matters(router_says_ns):
-    """Pins history[-1], not "any turn in this chat was CC"."""
+def test_a_later_ns_turn_does_not_end_stickiness(router_says_ns):
+    """Was test_only_the_last_turn_matters. A turn that refers back after [CC, NS] is
+    still labelled sticky: the chat has been on CC."""
     d = policy._decide_route(
-        _User(), _Req("how many mice"), force_cc=False,
+        _User(), _Req("how many of those are mice"), force_cc=False,
         history=[_turn(cc_router.ROUTE_CC, position=1),
                  _turn(cc_router.ROUTE_NS, position=2)])
-    assert d is router_says_ns
+    assert d.route == cc_router.ROUTE_CC
+    assert d.source == "sticky"
 
 
 # ------------------------------------------------- what the guard must NOT touch
@@ -183,21 +190,26 @@ def test_an_unrelated_aside_does_not_end_stickiness(router_says_ns):
     assert d.source == "sticky"
 
 
-def test_the_scan_stops_at_a_failed_cc_turn_it_does_not_look_past_it(router_says_ns):
-    """The load-bearing half: transparency must not resurrect a broken route.
+def test_a_failed_cc_turn_after_a_completed_one_keeps_the_chat_on_cc(router_says_ns):
+    """Was test_the_scan_stops_at_a_failed_cc_turn_it_does_not_look_past_it.
 
-    The history is deliberately healthy-CC THEN failed-CC. A guard that keeps
-    scanning for "any completed CC turn" skips the failure, finds the healthy
-    turn behind it, and traps the chat on a route that just broke. Only a guard
-    that stops at the first engine-running turn gets this right.
-
-    An [errored CC, unrelated] history does NOT distinguish the two — both
-    implementations return False — which is why this test does not use it.
+    A CC error (a timeout, a budget stop) no longer drops a back-referring turn back
+    to NS, where none of CC's work is. A CC runner that is DOWN is handled one turn at a time by
+    policy._fallback_when_cc_unavailable instead, so the chat is not trapped on a
+    route that cannot run.
     """
     d = policy._decide_route(
-        _User(), _Req("how many mice"), force_cc=False,
+        _User(), _Req("how many of those are mice"), force_cc=False,
         history=[_turn(cc_router.ROUTE_CC, position=1),
                  _turn(cc_router.ROUTE_CC, status="error", position=2)])
+    assert d.route == cc_router.ROUTE_CC
+    assert d.source == "sticky"
+
+
+def test_a_self_contained_question_after_a_cc_turn_is_left_to_the_router(router_says_ns):
+    """The narrowing (2026-09-23): no back-reference, no conversion."""
+    d = policy._decide_route(_User(), _Req("how many mice"), force_cc=False,
+                             history=[_turn(cc_router.ROUTE_CC)])
     assert d is router_says_ns
 
 

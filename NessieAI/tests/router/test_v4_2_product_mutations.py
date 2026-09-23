@@ -53,7 +53,8 @@ def test_mutation_sticky_must_record_attempted_route():
     with patch.object(cc_router, "decide", return_value=attempted):
         final = policy._decide_route(
             USER,
-            QueryRequest(query="follow", mode="standard"),
+            # A back-reference: since 2026-09-23 only a turn that refers back is kept on CC.
+            QueryRequest(query="follow up on those", mode="standard"),
             force_cc=False,
             history=history,
         )

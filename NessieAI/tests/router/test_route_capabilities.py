@@ -137,6 +137,18 @@ def _independent_top_queries(
     return out
 
 
+# 2026-09-23 ruling: every follow-up routes to container_cc, so the nextseek_query route
+# loses its follow-up families and labels and gains one not_for line. Written out here,
+# not imported from routes.py, so the oracle stays independent of the generator.
+_RULING_NS_FAMILIES = frozenset({"followup_over_results", "search_refinement", "cross_session_memory"})
+_RULING_NS_LABELS = frozenset({"Follow-up Questions", "Search Refinements"})
+_RULING_NS_NOT_FOR = (
+    "A follow-up to an earlier turn of the chat (a question about its results, a "
+    "refinement of its search, or recall of what it found): container_cc answers "
+    "every follow-up"
+)
+
+
 def _independent_family_projection(
     evidence: dict[str, Any], descriptions: dict[str, str], *, route: str
 ) -> list[dict[str, Any]]:
@@ -145,6 +157,8 @@ def _independent_family_projection(
     for record in evidence["records"]:
         name = record["task_family"]
         if name in seen:
+            continue
+        if route == NS_ROUTE and name in _RULING_NS_FAMILIES:
             continue
         examples = _independent_top_queries(
             evidence["records"], route=route, family=name
@@ -329,11 +343,25 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
     payload = json.loads(ROUTE_JSON.read_text(encoding="utf-8"))
     ns = _route_map(payload)[NS_ROUTE]
     assert ns["description"] == expected["description"] == produced.description
-    assert ns["best_for"] == expected["best_for"] == produced.best_for
-    assert ns["not_for"] == expected["not_for"] == produced.not_for
+    # The projection is the capability markdown's; the route carries it with the
+    # 2026-09-23 follow-up ruling applied on top.
+    assert expected["best_for"] == produced.best_for
+    assert expected["not_for"] == produced.not_for
+    assert ns["best_for"] == (
+        "Requests supported by the NS capability authority: "
+        + "; ".join(t for t in expected["tools"] if t not in _RULING_NS_LABELS)
+        + "."
+    )
+    assert ns["not_for"] == (
+        "Not intended for: " + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR]) + "."
+    )
     assert list(produced.tools) == expected["tools"]
+    assert _RULING_NS_LABELS <= set(expected["tools"])
     for label in expected["tools"]:
-        assert label in ns["best_for"]
+        if label in _RULING_NS_LABELS:
+            assert label not in ns["best_for"]
+        else:
+            assert label in ns["best_for"]
         assert label not in ns["tools"]
     assert STALE_PIPELINE_PHRASE not in json.dumps(ns)
 

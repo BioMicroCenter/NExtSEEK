@@ -215,7 +215,8 @@ def test_http_sticky_cc_applies_without_force_route(regular_user, monkeypatch):
         },
     ).session_id
 
-    tid, _ = _post_query(client, "follow up", session_id=sid)
+    # A back-reference: since 2026-09-23 only a turn that refers back is kept on CC.
+    tid, _ = _post_query(client, "follow up on those results", session_id=sid)
     task = _wait_terminal(tid)
     rd = _route_decided(task)
     assert rd["route"] == cc_router.ROUTE_CC

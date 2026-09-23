@@ -26,18 +26,20 @@ stays in `nextseek_api/`.
 
 Routing degrades; it never raises. A missing corpus, a missing build context or a BAML failure
 drops a turn to the heuristic and logs, so a wrong route is the only symptom. The route decision
-in the Debug panel shows `source` (`baml`, `heuristic`, `posterior`, `forced`, `sticky`).
+in the Debug panel shows `source` (`baml`, `heuristic`, `posterior`, `forced`, `pipeline`, `sticky`,
+`followup`, `cc_unavailable`).
 
 ## Overrides
 
 Applied by `_decide_route` in `policy.py`, in this order:
 
-`force_route` > `pipeline_agent` > sticky CC > the router.
+`force_route` > `pipeline_agent` > a turn that refers back goes to CC > the router.
 
 - `force_route` (`ns` or `cc`) and the `cc/query/async/` endpoint beat the router, for admins only. A non-admin `force_route` is ignored.
 - An open `pipeline_agent` wizard only keeps a turn the router already sent to NExtSEEK.
-- **Sticky CC**: when the previous turn in the chat routed `container_cc` and completed, an NS-classified turn becomes `container_cc` (`source: "sticky"`). `unrelated` is never converted, and a CC turn that errored does not make the chat sticky.
-- The chat stays on CC until a new chat, an admin `force_route`, or an intervening `unrelated` turn. That last exit is an accepted consequence of the rule, not a bug.
+- **Follow-ups and sticky CC** (2026-09-23 rulings): an NS-bound turn that refers back to an answered turn of the chat (a back-reference cue in `followup.py`: "of those", "which of them", "that chart", "the file", "remind me", "what query did you run") becomes `container_cc`. It is labelled `sticky` when a turn of the chat has completed on CC, and `followup` otherwise. A self-contained question (no back-reference) is left to the router, even in a chat already on CC. The router prompt states the same rule; this guard is its deterministic backstop. `unrelated` is never converted. The whole `chat_log` is scanned, not the 5-turn window.
+- **CC unavailable**: a turn this policy moved to CC (`sticky`, `followup`) runs on NExtSEEK for that one turn when the CC runner is down (`source: "cc_unavailable"`, `_fallback_when_cc_unavailable`). A turn the router or an admin sent to CC keeps its error.
+- An admin's `force_route` and an open `pipeline_agent` wizard override the rule for one turn.
 
 ## Inputs this package reads
 

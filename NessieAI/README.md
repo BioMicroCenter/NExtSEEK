@@ -24,7 +24,7 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 | Step | Owner |
 |---|---|
 | 1. The chat panel posts the turn; its bundle is served from `static/js/chat_assistant/` | `NessieAI/chat_frontend/` |
-| 2. `CCAssistantViewSet` checks auth, creates the task row and hands the turn to `start_task`, whose thread applies the overrides (`force_route`, `pipeline_agent`, sticky CC) | `nextseek_api/services/cc_assistant.py` (stays), `NessieAI/cc/turn.py`, `NessieAI/router/policy.py` |
+| 2. `CCAssistantViewSet` checks auth, creates the task row and hands the turn to `start_task`, whose thread applies the overrides (`force_route`, `pipeline_agent`, follow-ups and sticky CC) | `nextseek_api/services/cc_assistant.py` (stays), `NessieAI/cc/turn.py`, `NessieAI/router/policy.py` |
 | 3. The router picks the route, using BAML prompts and the model map | `NessieAI/router/`, `NessieAI/dmac_assistant/` |
 | 4a. NS turn: the chat_nextseek agents run in-process inside Django | `NessieAI/chat_nextseek/` |
 | 4b. CC turn: one agent container per turn; the model through the Bedrock proxy; ops through the sidecar, which calls the granular ops and their write gate | `NessieAI/cc/`, `NessieAI/docker/`, `NessieAI/ns/` |
@@ -54,7 +54,7 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 
 | To change | Edit | Tests |
 |---|---|---|
-| Routing precedence (`force_route`, `pipeline_agent`, sticky CC) | `_decide_route` in `NessieAI/router/policy.py` | `NessieAI/tests/router/` |
+| Routing precedence (`force_route`, `pipeline_agent`, follow-ups and sticky CC) | `_decide_route` in `NessieAI/router/policy.py` | `NessieAI/tests/router/` |
 | Router strategies, fallbacks, telemetry | `NessieAI/router/` | `NessieAI/tests/router/` |
 | Classifier labels | `NessieAI/dmac_assistant/baml_src/classifier.baml`; family names come from `NessieAI/tests/nessie_tests/corpus.json` | `NessieAI/tests/router/` |
 | Posterior routing (off by default) | `NessieAI/router/posterior_selector.py`, `NessieAI/hibayes/` | `NessieAI/tests/router/`, `NessieAI/tests/hibayes/` |

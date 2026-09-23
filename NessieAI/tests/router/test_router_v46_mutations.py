@@ -59,7 +59,8 @@ def test_mutation_sticky_without_attempted_fields_is_detectable():
         source="baml",
     )
     user = mock.Mock(is_staff=False, is_superuser=False)
-    req = mock.Mock(query="list samples", force_route=None)
+    # A back-reference: since 2026-09-23 only a turn that refers back is kept on CC.
+    req = mock.Mock(query="list those samples", force_route=None)
     with mock.patch.object(cc_router, "decide", return_value=attempted):
         final = policy._decide_route(user, req, force_cc=False, history=history)
     assert final.attempted_route is not None

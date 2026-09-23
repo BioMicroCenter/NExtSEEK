@@ -75,7 +75,8 @@ def test_sticky_override_persists_attempted_route_and_source():
         family_source="baml",
     )
     user = mock.Mock(is_staff=False, is_superuser=False)
-    req = mock.Mock(query="find mice", force_route=None)
+    # A back-reference: since 2026-09-23 only a turn that refers back is kept on CC.
+    req = mock.Mock(query="find those mice again", force_route=None)
     with mock.patch.object(cc_router, "decide", return_value=attempted):
         final = policy._decide_route(user, req, force_cc=False, history=history)
         policy._record_ledger_row(session, final)
