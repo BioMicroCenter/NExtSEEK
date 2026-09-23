@@ -138,9 +138,13 @@ A Container-CC turn's folder holds its `answer.md` and the files it published.
 A follow-up ("of those", "which species among them", "plot that", "same search but only D.SEQ", "what query did you run?") is about the newest turn unless the user names another. Start from that turn's files, not from scratch:
 
 - **To analyse what was returned**, read `rows.json` or `rows.csv` directly (polars is installed). Do not run a new search for rows you already have, and do not call `nextseek-query`, `nextseek-parse` or `nextseek-entity-extract` to rebuild a result that is already on disk.
+- **Never re-run the previous search as it was.** Its rows are already in `rows.json`/`rows.csv`, with the count the user was shown. A follow-up works on that output: filter, group, join or chart the rows on disk; review their metadata; or change the search. Running the same Cypher again only costs time and can return a different number than the one the user saw.
+- **To get more metadata for those samples** (attributes the rows do not carry, parents or children), call `nextseek-api-read` with the retrieve endpoint `/nextseek_api/admin/samples/retrieve/` and the UIDs from `rows.csv`, in batches, rather than a new graph search. It returns only samples in the user's projects.
 - **To change the search**, take the Cypher from `search_details.json` and hand it to `nextseek-graph` with the one change the user asked for, in the question itself: `nextseek-graph --query "Re-run this Cypher, changing only <the change>: <the Cypher>"`. The op takes a question, never a bare statement; its graph agent writes the new statement from yours, and the op scopes it to the user's projects, as it did the first time. Compare the Cypher it returns with the stored one, and say what changed.
 - **To say what was run**, quote `search_details.json`: the Cypher, its parameters and its count.
 - **To hand over a file**, write it to `/data/scratch/`. `/data/previous_turns/` is read-only and is not published.
+
+Every op runs as the user who asked, with their credentials, and is held to their projects: `nextseek-graph` and `nextseek-aggregate` scope every statement they run, and the retrieve endpoint returns only the user's samples. Never try to widen that, and never quote a number for samples outside it.
 
 The numbers in these files are the ones the user was shown. When your answer reuses one, it must match.
 
