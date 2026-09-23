@@ -30,3 +30,10 @@ def test_a_planning_fault_is_reported_as_ours_without_the_notes():
     reply = unsupported_reply(plan)
     assert "went wrong on our side" in reply
     assert "Parser" not in reply and "structured output" not in reply
+
+
+def test_the_graph_refusal_reply_carries_no_machinery():
+    """Prod retest 2026-09-23 Q3/Q4 printed the guard's reason to the user."""
+    from chat_nextseek.orchestrator import GRAPH_REFUSAL_REPLY
+    for leak in ("Graph agent", "Cypher", "catalog", "Reason", "node.", "guard"):
+        assert leak not in GRAPH_REFUSAL_REPLY

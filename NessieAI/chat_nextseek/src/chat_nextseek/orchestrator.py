@@ -790,7 +790,12 @@ def _execute_graph_turn(
     print(f"[DEBUG][GRAPH] Cypher:\n{graph_plan.cypher}")
 
     if not graph_plan.cypher:
-        reply = f"Graph agent could not generate a query.\n\nReason: {graph_plan.explanation}"
+        # The guard's reason names catalog properties and repair steps: kept for the debug panel
+        # and the harness (`graph_refusal`), never shown (prod retest 2026-09-23, Q3/Q4: "Reason:
+        # Graph agent could not produce valid Cypher; properties ['node.year', ...] are not in the
+        # catalog").
+        debug_payload["graph_refusal"] = graph_plan.explanation or "no query"
+        reply = GRAPH_REFUSAL_REPLY
         session["last_debug"] = debug_payload
         send_event("agent_complete", {"agent": "graph",
                                       "summary": {"schema_fallback": schema_fallback} if schema_fallback else None})
@@ -1129,6 +1134,13 @@ def _handle_pipeline_agent_turn(
     return _emit_query_complete(send_event, reply, debug_payload, None)
 
 
+
+#: What a user is told when the graph agent (or its guard) produced no query. The reason is internal and
+#: goes to the debug payload's `graph_refusal`.
+GRAPH_REFUSAL_REPLY = (
+    "I couldn't build a search for that question. Try naming the sample type, project or attribute "
+    "you mean, or ask it a different way."
+)
 
 #: What a user is told when the parser routes a turn to "unsupported". The parser's own notes
 #: are routing prose ("No downstream path supports ...", "not a data query ... system_question")

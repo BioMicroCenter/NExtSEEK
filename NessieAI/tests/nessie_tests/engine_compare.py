@@ -71,7 +71,8 @@ CONTAINER_OUTPUTS = "/venue/outputs"
 ROUTE_NS = "nextseek_query"
 FORCED_SOURCE = "forced"
 RETRIEVAL_MODES = {"graph": "graph_query", "api": "new_search"}
-# The reply the NS graph turn gives when the graph agent (or its guard) produced no query.
+# How a graph turn whose agent (or its guard) produced no query is recognised: `debug.graph_refusal`
+# since 2026-09-23, when the reply stopped quoting the guard; this sentence for older runs' payloads.
 GRAPH_REFUSAL = "Graph agent could not generate a query"
 LEDGER_SLACK_S = 5.0
 _RUN_ROOT = re.compile(r"^(\d{6}_\d{6})_")
@@ -734,7 +735,7 @@ def _judge(attempt: Attempt, turn: et.TruthTurn, arm: str, outputs_root, prices,
         outcome, failure = "failed", f"the turn ended {payload.get('status')!r}"
     elif not et.reply_text(reply).strip():
         outcome, failure = "failed", "no answer"
-    elif GRAPH_REFUSAL in et.reply_text(reply):
+    elif debug.get("graph_refusal") or GRAPH_REFUSAL in et.reply_text(reply):
         outcome, failure = "failed", "the graph agent or its guard refused"
     else:
         ok, which = et.reply_satisfies(reply, turn.expected)

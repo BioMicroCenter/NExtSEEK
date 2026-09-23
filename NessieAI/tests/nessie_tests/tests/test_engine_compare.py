@@ -496,3 +496,17 @@ def test_the_scorer_pins_the_harness_names():
     for name in ("q.one", "a b/c", "..", "", "x!!y"):
         assert ec.safe_name(name) == runner._safe_name(name)
     assert ec.PAYLOADS_DIR == runner.PAYLOADS_DIR and ec.ARMS_FILE == runner.ARMS_FILE
+
+
+def test_a_graph_refusal_is_recognised_from_the_debug_marker(tmp_path):
+    """Since 2026-09-23 the reply no longer quotes the guard ("Graph agent could not generate a
+    query"); the turn carries `debug.graph_refusal` instead, and the scorer reads it."""
+    outputs = tmp_path / "outputs"
+    truth = _write_truth(tmp_path / "truth", "B", [
+        _truth_q("q1", "graph_traversal", group="B", value=22734)])
+    payload = _payload(outputs, "q1", "graph", preview=(),
+                       reply="I couldn't build a search for that question. Try naming the sample type.")
+    payload["query_complete"]["debug"]["graph_refusal"] = "properties ['node.year'] are not in the catalog"
+    run = _run(tmp_path / "run", ["graph"], {"q1": {"graph": payload}})
+    doc = ec.score(ec.load_runs([run]), ec.load_truth_questions(truth, "B"), "b", outputs, PRICES)
+    assert doc["questions"][0]["outcome"] == "failed"
