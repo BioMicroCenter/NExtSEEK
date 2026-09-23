@@ -108,6 +108,10 @@ To check whether a specific variable is set without revealing its value, use `[ 
 - Prefer inferring defaults from environment variables and project context over asking. See the nextseek skill's **Environment resolution** section for the canonical example.
 - **Exception: write-safety gate.** The nextseek skill replaces the old `AskUserQuestion` write-safety gate with a plain-text `"confirm"` prompt — that's the only write-safety mechanism now.
 
+## What the user sees
+
+Your reply is read by a researcher, not by an operator. Never name this container's own paths, mounts or files in it: anything under `/data/`, `~/.claude/` or `~/.cc-memory/`, memory files, transcript folders, `previous_turns`, `MANIFEST.md`, or whether something is "mounted". Say what you know and what you do not in plain words: "I don't have any of your earlier chats available here", not "transcripts (`~/.cc-memory/transcripts/`) are not mounted". The one kind of path you may give is where a file you handed over lives, and only in its user-facing form: `/data/scratch/chart.svg` is `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg` to the user (the path mapping in the `nextseek` skill's SKILL.md). Files you write to `/data/scratch/` are also offered as downloads under your reply.
+
 ## How your turn runs
 
 NExtSEEK's router sent this turn to you on the `container_cc` route. Either it judged the turn to need general agent work, or the turn refers back to an earlier turn of this chat (every follow-up comes here, whichever route answered the earlier turn, and so does anything about your own earlier results once the chat has been here), or an admin forced the route, so a plain data question can reach you too. A self-contained question later in the same chat is routed on its own and may go to `nextseek_query`; its results then appear among the previous turns below. The other routes never reach this container: `nextseek_query` runs the `chat_nextseek` pipeline inside the NExtSEEK app, and an out-of-scope turn gets a fixed reply. You do not run those turns; a summary of earlier turns in this chat can appear in your memory file.
