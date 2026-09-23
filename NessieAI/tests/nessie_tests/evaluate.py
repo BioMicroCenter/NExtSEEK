@@ -72,7 +72,38 @@ def build_observed_debug(payload: dict) -> dict:
     # that primary path is authoritative. (A former search_complete api_ok/neo4j_ok
     # backfill was dead — the live search_complete event emits {source, ok, count},
     # not api_ok/neo4j_ok — so it is intentionally omitted.)
-    return dict((_last(payload, "query_complete") or {}).get("debug") or {})
+    done = _last(payload, "query_complete") or {}
+    debug = dict(done.get("debug") or {})
+    trace_text = cc_trace_text(done.get("cc_traces"))
+    if trace_text is not None:
+        debug[CC_TRACE_TEXT_FIELD] = trace_text
+    return debug
+
+
+#: What a Container-CC turn did, as one searchable string: one line per tool call of
+#: the turn's trace (``cc_trace.CCTrace.steps``), ``<kind> <tool> <detail>``, so a
+#: criterion can `matches_re` on "read /data/previous_turns/turn-01/rows.csv" or
+#: "bash nextseek-aggregate", or assert with a negative lookahead that no
+#: `nextseek-query` was run. Set only on a CC turn whose `query_complete` carries
+#: `cc_traces`. The trace covers the whole CC conversation, so on the SECOND CC turn of a
+#: chat it also holds the first turn's calls: assert "did not call X" on a chat's first
+#: CC turn only.
+CC_TRACE_TEXT_FIELD = "cc_trace_text"
+
+
+def cc_trace_text(cc_traces: Any) -> str | None:
+    if not isinstance(cc_traces, list) or not cc_traces:
+        return None
+    lines: list[str] = []
+    for trace in cc_traces:
+        steps = trace.get("steps") if isinstance(trace, dict) else None
+        for step in steps if isinstance(steps, list) else []:
+            if not isinstance(step, dict) or step.get("kind") == "text":
+                continue
+            parts = [str(step.get(k)) for k in ("kind", "tool", "detail") if step.get(k)]
+            if parts:
+                lines.append(" ".join(parts))
+    return "\n".join(lines)
 
 
 def _collect_paths(value: Any, out: list[str]) -> None:
@@ -484,7 +515,8 @@ CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 # is called. They are in the set because it is a statement about what a CC ENGINE
 # can produce, and demoting it to a statement about call order would make it wrong
 # the moment the call order changed.
-ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source"})
+ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source",
+                                   "cc_trace_text"})
 ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
 FORCED_CC_SKIP_REASON = (
     f"NS-pipeline-internal field, and the {CC_ROUTE} route was FORCED by the "

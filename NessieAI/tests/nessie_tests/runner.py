@@ -36,7 +36,11 @@ from NessieAI.tests.nessie_tests.manifest import (
 # would silently TRUST any source added later; an allowlist flags it as
 # not-evidence until someone decides it is. That is the fail-safe direction for
 # an instrument whose whole job is telling the truth about the product.
-ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky"})
+#
+# `followup` belongs here for the same reason (2026-09-23): the router said NExtSEEK, the
+# turn refers back to an earlier answered turn, and the product moved it to CC.
+# `cc_unavailable` does NOT: the CC runner was down, so no routing decision was tested.
+ROUTE_DECISION_SOURCES = frozenset({"baml", "sticky", "followup"})
 
 
 def default_route_criterion(variant) -> dict | None:

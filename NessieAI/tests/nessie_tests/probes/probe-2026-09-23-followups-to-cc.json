@@ -1,0 +1,866 @@
+{
+  "_name": "probe-2026-09-23-followups-to-cc - every follow-up on Container-CC, working from the previous turn's artifacts",
+  "_why": "Proves the feat/followups-to-cc branch on a rebuilt box (app AND cc-agent: the router prompt and the agent's CLAUDE.md both changed). Each case opens with an NExtSEEK graph question and follows up so that Container-CC must use what the previous turn left: its rows file, its Search details, its downloads, or its number. Route is asserted on every turn (seeds nextseek_query, follow-ups container_cc with a source of baml, followup or sticky), numbers are pinned by _measure, and reuse is asserted on cc_trace_text, the harness's view of the CC turn's tool calls (Read paths and Bash commands from the query_complete cc_traces).\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-23-followups-to-cc.json --out /app/runs/followups-<date>\nEvery follow-up is a Container-CC turn and so the expensive kind: 10 CC turns and 11 NS turns in 10 cases.",
+  "_instance_warning": "EVERY NUMBER HERE WAS MEASURED ON THE WORKSTATION'S GRAPH ON 2026-09-23. Re-pin before the run:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>\n  python ... pin_probe_truths.py --pin <this file> --from measured.json\nEvery case is mode 'each': list the numbers in the order of its locals.",
+  "_observability": "What the harness sees of a CC turn: route and route_source (route_decided), the reply, the published artifacts and raw files (query_complete), and since this branch cc_trace_text, one line per tool call of the trace. The trace is conversation-scoped, so on a chat's SECOND CC turn it also holds the first CC turn's calls; every negative trace assertion here sits on a chat's first CC turn. The harness cannot see the staged /data/previous_turns tree itself, only the agent reading it.",
+  "families": {
+    "followups_to_cc": {
+      "description": "Multi-turn: an NS graph seed, then follow-ups Container-CC must answer from that turn's artifacts.",
+      "variants": [
+        {
+          "family": "followups_to_cc",
+          "id": "fu.species_of_those",
+          "name": "Analyse the previous rows: the species among those 73",
+          "_why": "The seed's rows file holds every NHP it returned with its Species column (the operator's example turn: 73 NHP with flow AND sequencing data). The follow-up must be answered from that file: read under /data/previous_turns and no nextseek-query/parse/entity call rebuilding the result. Three species spellings, 47 + 22 + 4 = 73, measured 2026-09-23 on the workstation graph.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Which species are among those 73, and how many of each?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])22(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "/data/previous_turns/"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.rerun_modified_cypher",
+          "name": "Re-run the stored cypher with one change",
+          "_why": "'Same search but only D.SEQ': CC must take the Cypher from search_details.json and hand it to nextseek-graph with the flow requirement dropped. 351 NHP have sequencing data derived from them, against 73 with both. A reply of 73 means the change was not applied; any other number means the search was rebuilt rather than modified.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Same search, but drop the flow cytometry requirement: only require sequencing data derived from them.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])351(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "/data/previous_turns/"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "nextseek-graph"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.what_query_did_you_run",
+          "name": "Read the Search details: what query did you run?",
+          "_why": "The within-chat digest never carried the Cypher; only the staged search_details.json does. A reply that quotes the T_NHP / T_D_FLOW / DERIVED_FROM pattern and the count therefore proves CC read the previous turn's Search details.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "What query did you run to get those?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "T_NHP"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "T_D_FLOW"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "DERIVED_FROM"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "/data/previous_turns/"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.plot_species_of_those",
+          "name": "Plot from the previous rows",
+          "_why": "A plot is a produced file, so CC; the data must come from the staged rows, and an image must be written. The trace line of a savefig or a Write carries the image extension.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Plot the species of those as a bar chart.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "/data/previous_turns/"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "\\.(png|svg|pdf)\\b"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.file_from_previous_search",
+          "name": "Work with the downloaded file of the previous search",
+          "_why": "1,549 NDMA-treated mice fit under the 5,000-row cap, so the seed's graph_result_bundle file holds them all. 727 have Sex 'F' (820 'M', one 'F?', one 'DAM'); a reply of 728 counted the 'F?' too and is a judgement call, not a failure of reuse, so only 727 is pinned. If the seed's rows carry no Sex column CC may query the graph, which is allowed; rebuilding the seed with nextseek-query is not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with ndma",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Open the results file from that search and tell me how many of those mice are female.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "/data/previous_turns/"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.break_those_down_by_sex",
+          "name": "Aggregate the previous result: break those down",
+          "_why": "'Break those down by sex' is a follow-up aggregation over the previous result: rows on disk, or nextseek-aggregate, never a rebuilt search. M 820, F 727.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with ndma",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Break those down by sex.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])820(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(/data/previous_turns/|nextseek-aggregate)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.recall_that_number",
+          "name": "Recall: remind me what that number was",
+          "_why": "Recall goes to CC under the ruling (the NS memory agent is retired from routing). The number is in the staged files and the memory digest; no search may be run to get it again.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many RNA samples does the Kamm lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])140(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Remind me what that number was.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])140(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|graph|aggregate|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.aggregate_those_by_genotype",
+          "name": "Operator case a: group the previous result and give the five largest groups",
+          "_why": "3,589 SRP mice (under the row cap). Genotype groups: 1,111, 626, 508, then the missing-value bucket (355), then 218 and 211. Whether the missing bucket counts as a 'group' is a reading of the question, so only the four numbers both readings share are pinned. Either the rows file or nextseek-aggregate is a correct path (the seed may not return Genotype); a rebuilt search is not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the mice in the MIT_SRP project",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?589(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Group those by genotype and give me the five largest groups.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?111(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])626(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])508(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])218(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(/data/previous_turns/|nextseek-aggregate)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*nextseek-(query|parse|entity-extract)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.refers_back_stays_self_contained_leaves",
+          "name": "Stickiness, narrowed: follow-up on CC, fresh question back on NS, 'of those' back on CC",
+          "_why": "The 2026-09-23 ruling. Turn 2 refers back (CC). Turn 3 is self-contained and must route exactly as it would in a new chat (nextseek_query), although the chat has a completed CC turn. Turn 4 refers back to turn 3's result and goes to CC again, where 3 of the 4 HeLa samples (HeLa-ActD, -GSK, -TSA) carry a treatment and plain HeLa does not.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Which species are among those?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "fresh",
+              "query": "How many HeLa samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "back",
+              "query": "Of those, how many have a treatment recorded?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followups_to_cc",
+          "id": "fu.fresh_session_first_question_stays_ns",
+          "name": "Negative: a new chat's first self-contained question stays on nextseek_query",
+          "_why": "Nothing to follow up on, no back-reference: the follow-up rule and stickiness must leave it alone.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the SRP project?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])57,?441(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "_measure": {
+    "fu.species_of_those": {
+      "locals": [
+        73,
+        47,
+        22,
+        4
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "fu.rerun_modified_cypher": {
+      "locals": [
+        73,
+        351
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+      ]
+    },
+    "fu.what_query_did_you_run": {
+      "locals": [
+        73
+      ],
+      "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+    },
+    "fu.plot_species_of_those": {
+      "locals": [
+        73
+      ],
+      "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+    },
+    "fu.file_from_previous_search": {
+      "locals": [
+        1549,
+        727
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') AND m.Sex = 'F' RETURN count(m)"
+      ]
+    },
+    "fu.break_those_down_by_sex": {
+      "locals": [
+        1549,
+        820,
+        727
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN m.Sex AS sex, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "fu.recall_that_number": {
+      "locals": [
+        140
+      ],
+      "cypher": "MATCH (s:T_RNA) WHERE s.uuid =~ '(?i)^[^-]+-[0-9]{6}KAM-.*' RETURN count(s)"
+    },
+    "fu.aggregate_those_by_genotype": {
+      "locals": [
+        3589,
+        1111,
+        626,
+        508,
+        218
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project {title:'MIT_SRP'}) WITH DISTINCT m RETURN count(m)",
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project {title:'MIT_SRP'}) WITH DISTINCT m RETURN m.Genotype AS genotype, count(*) AS n ORDER BY n DESC LIMIT 6"
+      ]
+    },
+    "fu.refers_back_stays_self_contained_leaves": {
+      "locals": [
+        73,
+        47,
+        4,
+        3
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' RETURN count(s)",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' AND s.Treatment1 IS NOT NULL AND trim(toString(s.Treatment1)) <> '' RETURN count(s)"
+      ]
+    },
+    "fu.fresh_session_first_question_stays_ns": {
+      "locals": [
+        57441
+      ],
+      "cypher": "MATCH (s:Sample) WHERE EXISTS { MATCH (s)-[:IN_PROJECT]->(p:Project) WHERE toLower(p.title) CONTAINS 'srp' } OR EXISTS { MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation) WHERE toLower(i.title) CONTAINS 'srp' } RETURN count(DISTINCT s)"
+    }
+  }
+}
