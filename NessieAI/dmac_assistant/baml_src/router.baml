@@ -124,6 +124,16 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     do we have?" — is routed exactly as it would be in a new chat. An out-of-scope
     message is still `unrelated`.
 
+    Open-ended summaries go to `container_cc`. A request to summarise a whole
+    project or investigation — how much data it holds, an inventory of it, an
+    overview or summary of what it contains, the span of its collection dates —
+    is `container_cc`, which writes the summary and hands over a file. These stay
+    `nextseek_query`: a formal NIH, RPPR, annual or progress report (the NS
+    reporter builds it); upload statistics ("how many samples were uploaded in
+    2025"); repository submissions and nf-core samplesheets; "tell me about X"
+    or "what is X", which asks what a project is; and a plain count or breakdown
+    ("how many samples are in SRP", "break SRP down by sample type").
+
     {{ ctx.output_format }}
   "#
 }

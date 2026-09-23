@@ -142,6 +142,12 @@ def _independent_top_queries(
 # not imported from routes.py, so the oracle stays independent of the generator.
 _RULING_NS_FAMILIES = frozenset({"followup_over_results", "search_refinement", "cross_session_memory"})
 _RULING_NS_LABELS = frozenset({"Follow-up Questions", "Search Refinements"})
+# The 2026-09-23 summary ruling's line, appended after the follow-up one (routes.NS_SUMMARY_NOT_FOR).
+_RULING_NS_SUMMARY_NOT_FOR = (
+    "An open-ended summary of a whole project or investigation (how much data it holds, an "
+    "inventory, an overview, the span of its collection dates): container_cc writes it up with "
+    "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
+)
 _RULING_NS_NOT_FOR = (
     "A follow-up to an earlier turn of the chat (a question about its results, a "
     "refinement of its search, or recall of what it found): container_cc answers "
@@ -353,7 +359,8 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
         + "."
     )
     assert ns["not_for"] == (
-        "Not intended for: " + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR]) + "."
+        "Not intended for: "
+        + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR, _RULING_NS_SUMMARY_NOT_FOR]) + "."
     )
     assert list(produced.tools) == expected["tools"]
     assert _RULING_NS_LABELS <= set(expected["tools"])

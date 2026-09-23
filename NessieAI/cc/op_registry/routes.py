@@ -38,7 +38,10 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "found or which query it ran, a plot or a download of it. This route is handed "
         "the earlier turns' queries, their search details and their result files, and "
         "in a chat that reached it, a later message that refers back stays here; a "
-        "self-contained question is routed on its own merits."
+        "self-contained question is routed on its own merits. And an open-ended summary of "
+        "a whole project or investigation -- how much data it holds, an inventory, an overview, "
+        "the span of its collection dates -- written up with a file; formal NIH/RPPR/progress "
+        "reports, upload statistics, submissions and 'what is X' stay on the NS route."
     ),
     not_for=(
         "Pure deterministic NExtSEEK lookups that the NS route handles without "
@@ -50,7 +53,8 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "answerable from sample metadata alone is the NS route, however large or "
         "analytical -- counts, breakdowns and harmonisation over metadata all run "
         "in the graph. It is only a question needing a source the graph does not "
-        "hold, a produced file, or a follow-up to an earlier turn that belongs here."
+        "hold, a produced file, an open-ended project or investigation summary, or a "
+        "follow-up to an earlier turn that belongs here."
     ),
 )
 
@@ -68,6 +72,13 @@ FOLLOWUP_FAMILIES_ON_CC: tuple[str, ...] = (
 NS_CAPABILITY_LABELS_ON_CC: tuple[str, ...] = (
     "Follow-up Questions",
     "Search Refinements",
+)
+# 2026-09-23 ruling: open-ended project and investigation summaries go to container_cc;
+# formal reports, upload statistics, submissions and "what is X" stay on the NS route.
+NS_SUMMARY_NOT_FOR = (
+    "An open-ended summary of a whole project or investigation (how much data it holds, an "
+    "inventory, an overview, the span of its collection dates): container_cc writes it up with "
+    "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
 )
 NS_FOLLOWUP_NOT_FOR = (
     "A follow-up to an earlier turn of the chat (a question about its results, a "

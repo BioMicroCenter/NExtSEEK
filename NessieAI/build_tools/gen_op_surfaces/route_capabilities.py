@@ -29,6 +29,7 @@ from NessieAI.cc.op_registry.routes import (
     NEXTSEEK_QUERY_TOOLS,
     NS_CAPABILITY_LABELS_ON_CC,
     NS_FOLLOWUP_NOT_FOR,
+    NS_SUMMARY_NOT_FOR,
 )
 from NessieAI.tests.nessie_tests import corpus as nessie_corpus
 from NessieAI.tests.nessie_tests import export as nexport
@@ -247,8 +248,9 @@ def apply_followup_ruling(ns_route: dict[str, Any]) -> dict[str, Any]:
             if label not in NS_CAPABILITY_LABELS_ON_CC]
     route["best_for"] = f"{BEST_FOR_PREFIX}{'; '.join(best)}."
     negatives = _split_labels(route["not_for"], NOT_FOR_PREFIX)
-    if NS_FOLLOWUP_NOT_FOR not in negatives:
-        negatives.append(NS_FOLLOWUP_NOT_FOR)
+    for ruling in (NS_FOLLOWUP_NOT_FOR, NS_SUMMARY_NOT_FOR):
+        if ruling not in negatives:
+            negatives.append(ruling)
     route["not_for"] = f"{NOT_FOR_PREFIX}{'; '.join(negatives)}."
     return route
 

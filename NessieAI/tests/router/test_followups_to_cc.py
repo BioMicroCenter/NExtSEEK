@@ -400,7 +400,8 @@ def test_apply_followup_ruling_is_idempotent_and_keeps_the_rest():
                                 "Sample Search; Graph Queries.")
     assert once["not_for"].startswith("Not intended for: Generate visualizations or charts.; "
                                       "Compare groups analytically.; A follow-up to an earlier turn")
-    assert once["not_for"].endswith("every follow-up.")
+    assert "container_cc answers every follow-up; " in once["not_for"]
+    assert once["not_for"].endswith("'what is X' stay here.")
     assert [f["name"] for f in once["task_families"]] == ["sample_search"]
     assert once["description"] == "d" and once["tools"] == ["x"]
 
@@ -416,3 +417,27 @@ def test_router_baml_states_the_followup_and_sticky_rules_after_the_unrelated_gu
     assert re.search(r"self-contained question[\s\S]{0,120}routed\s+on its own merits", src)
     assert "is routed exactly as it would be in a new chat" in src
     assert "message is still `unrelated`." in src
+
+
+def test_open_ended_summaries_are_ruled_to_container_cc_in_every_router_surface():
+    """2026-09-23 ruling: open-ended project/investigation summaries go to container_cc, and formal
+    reports, upload statistics and 'what is X' stay on NS. The router reads route_capabilities.json,
+    which the generator cannot rebuild while its evidence fingerprint is stale, so the committed
+    file must match routes.py and the ruling by hand: pinned here (prod retest ticket 4, "How much
+    data does the Shoulders investigation hold?" stayed on NS)."""
+    import json
+    from pathlib import Path
+
+    from NessieAI.build_tools.gen_op_surfaces.route_capabilities import apply_followup_ruling
+    from NessieAI.cc.op_registry.routes import CONTAINER_CC_ROUTE, NS_SUMMARY_NOT_FOR
+
+    root = Path(__file__).resolve().parents[3]
+    doc = json.loads((root / "NessieAI/dmac_assistant/build_context/route_capabilities.json").read_text())
+    routes = {r["route_name"]: r for r in doc["routes"]}
+    assert routes["container_cc"]["best_for"] == CONTAINER_CC_ROUTE.best_for
+    assert routes["container_cc"]["not_for"] == CONTAINER_CC_ROUTE.not_for
+    assert "open-ended summary" in CONTAINER_CC_ROUTE.best_for
+    assert NS_SUMMARY_NOT_FOR in routes["nextseek_query"]["not_for"]
+    assert apply_followup_ruling(routes["nextseek_query"]) == routes["nextseek_query"]
+    baml = (root / "NessieAI/dmac_assistant/baml_src/router.baml").read_text()
+    assert "Open-ended summaries go to `container_cc`" in baml
