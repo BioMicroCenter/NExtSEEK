@@ -70,6 +70,7 @@ from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
+from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
 
@@ -1374,6 +1375,7 @@ def run_query(
             elif not answer:
                 answer = ("I could not finish this follow-up. Ask it as a fresh question and "
                           "I will run it properly.")
+            answer = link_sample_uids(answer)
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             own_bundle = None
             if not may_use_stored:
@@ -1685,7 +1687,7 @@ def run_query(
                     "notes": sys_output.notes,
                 },
             }
-            reply = sys_output.narrative
+            reply = link_sample_uids(sys_output.narrative)
             session["last_debug"] = debug_payload
             append_turn(
                 session,

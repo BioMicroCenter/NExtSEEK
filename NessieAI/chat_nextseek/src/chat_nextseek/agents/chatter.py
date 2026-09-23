@@ -15,6 +15,7 @@ from ..helpers import (
     log_prompt,
 )
 from ..helpers.query_scope import describe_query_scope, render_query_scope
+from ..uid_links import link_sample_uids
 from ..schemas import (
     PlannerOutput,
 )
@@ -613,6 +614,9 @@ def chatter_agent_answer(
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
+    # Every sample UID the reply names links to its sample page. Before the debug
+    # block is appended, so that block is never a candidate.
+    answer_no_links = link_sample_uids(answer_no_links)
 
     # ---------- Debug block ----------
     debug_block = (
@@ -757,5 +761,5 @@ def chatter_agent_plan(
         "plan_chatter",
         {"messages": messages, "response": narrative},
     )
-    return f"{narrative}\n\n```json\n{debug_json}\n```"
+    return f"{link_sample_uids(narrative)}\n\n```json\n{debug_json}\n```"
 
