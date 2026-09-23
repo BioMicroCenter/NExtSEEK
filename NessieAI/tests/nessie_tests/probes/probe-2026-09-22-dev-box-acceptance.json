@@ -305,7 +305,7 @@
                 {
                   "field": "route",
                   "op": "eq",
-                  "value": "nextseek_query"
+                  "value": "container_cc"
                 },
                 {
                   "field": "last_reply",
@@ -324,7 +324,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "_route_note_2026_09_23": "Follow-up turns route to container_cc (operator ruling 2026-09-23: all follow-ups to CC)."
         },
         {
           "family": "post_rebuild",
@@ -926,7 +927,7 @@
                 {
                   "field": "route",
                   "op": "eq",
-                  "value": "nextseek_query"
+                  "value": "container_cc"
                 },
                 {
                   "field": "last_reply",
@@ -940,7 +941,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "_route_note_2026_09_23": "Follow-up turns route to container_cc (operator ruling 2026-09-23: all follow-ups to CC)."
         },
         {
           "family": "buckets",

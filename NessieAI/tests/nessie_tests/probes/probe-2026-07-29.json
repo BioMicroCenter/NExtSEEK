@@ -117,7 +117,7 @@
               {"field": "last_reply", "op": "nonempty", "value": null}]},
            {"label": "ns_followup", "query": "What sample types were in those results?",
             "pass_criteria": [
-              {"field": "route", "op": "eq", "value": "nextseek_query"},
+              {"field": "route", "op": "eq", "value": "container_cc"},
               {"field": "last_reply", "op": "nonempty", "value": null}]}]}
       ]
     }
