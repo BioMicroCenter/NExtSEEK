@@ -54,6 +54,12 @@ ONTOLOGY (GRAPH)
   samples' file-location fields, which every data type carries. Emit D.FILE only when the
   user names D.FILE or the "Data File" type itself; otherwise emit the sample types the
   question names, or none.
+- **A code prefix names a family of types, not one type.** "D. types", "D. file types",
+  "D.* types", "data types starting with D.", "the D types" mean every raw data type whose
+  code starts with "D." (the D.* family), and "A. types" the A.* family. That is a question
+  about the catalog's codes, not about D.FILE: "How many different D. file types exist?"
+  asks how many D.* codes there are. Emit NO sample type for a prefix family (never D.FILE,
+  and never one member standing for the rest), and do not emit the prefix as a keyword.
 
 --------------------------------------------------
 CORE PRIORITY

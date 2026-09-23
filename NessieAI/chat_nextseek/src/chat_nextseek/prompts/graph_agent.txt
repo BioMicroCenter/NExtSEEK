@@ -235,7 +235,10 @@ Return ONLY valid JSON, no markdown fences and no prose outside the JSON:
 {
   "cypher": "<your cypher query>",
   "explanation": "<one or two sentences: what the query matches and where (which type, which field or search_text, which lab code, which lineage bound)>",
-  "parameters": {"param_name": "value"}
+  "parameters": {"param_name": "value"},
+  "keyword_fields": {"<keyword>": ["<field>"]}
 }
+
+`keyword_fields` records each keyword from `resolved.keywords` that you matched through a named field instead of by its own text: the keyword as it was resolved, mapped to the fields that carry it. "Subjects who convert to Mtb infection positive" matched on `Classification` and the QuantiFERON-TB result is `{"Mtb": ["Classification"], "positive": ["QFT_Result"]}`. The reply is told a keyword was dropped when its text is nowhere in the query, so a keyword you realised as a field and left out of this map is reported as ignored. List only fields your query really filters on, never `search_text`, and leave the map empty (`{}`) when every keyword is in the query as text.
 
 If the question cannot be answered from the graph, set "cypher" to "" and say why in "explanation".

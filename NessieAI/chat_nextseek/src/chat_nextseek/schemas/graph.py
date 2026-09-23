@@ -6,6 +6,14 @@ class GraphAgentPlan(BaseModel):
     cypher: str = Field(..., description="The Cypher query to execute against Neo4j")
     explanation: str = Field("", description="One-sentence explanation of what the query does")
     parameters: dict = Field(default_factory=dict, description="Named parameters referenced via $param in the query")
+    keyword_fields: dict = Field(
+        default_factory=dict,
+        description=(
+            "For each keyword from resolved.keywords that the query constrains through a named sample field "
+            "instead of by its own text, the keyword mapped to the list of field names it became "
+            "(\"positive\" -> [\"QFT_Result\"]). Empty when every keyword is matched as text."
+        ),
+    )
     context_mode: str | None = Field(
         None,
         description=(

@@ -34,7 +34,10 @@ Cypher fragment or request-body field name can reach the prompt through it.
 for is one value; a constraint counts as applied when that value appears, bounded by
 non-identifier characters and case-insensitively, in the text of the query that was
 actually dispatched. A value that happens to appear for an unrelated reason is read as
-applied, so this under-reports the gap and never invents one. When nothing describes
+applied, so this under-reports the gap and never invents one. The one step containment
+cannot see is a keyword the graph agent turned into a field ("positive" into
+``QFT_Result``): the agent names that field in ``keyword_fields``, and the keyword counts as
+applied only when the executed Cypher really filters on it. When nothing describes
 an executed query at all — the reporter path has no query text — the scope reports
 itself as unmeasurable and claims no gap, because "the query ignored your filter" is
 exactly the kind of confident false statement this is here to prevent.
@@ -290,6 +293,66 @@ def _keyword_is_applied(keyword: str, haystack: str) -> bool:
     return _name_is_applied(keyword, haystack) or _fragment_is_applied(keyword, haystack)
 
 
+#: Properties every Sample carries. A keyword said to be realised as one of these was matched as
+#: text (``search_text``) or not at all, so the declaration proves nothing about a field.
+_SYSTEM_PROPERTIES = frozenset({
+    "id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
+    "parent_titles", "parent_title_hashes",
+})
+
+
+def _declared_fields(keyword: str, graph_plan: dict | None) -> list[str]:
+    """The fields the graph agent says ``keyword`` became (``GraphAgentPlan.keyword_fields``)."""
+    declared = (graph_plan or {}).get("keyword_fields")
+    if not isinstance(declared, dict):
+        return []
+    key = _folded(keyword).strip()
+    fields: list[str] = []
+    for name, value in declared.items():
+        if _folded(name).strip() != key:
+            continue
+        for field_name in [value] if isinstance(value, str) else (value if isinstance(value, list) else []):
+            text = str(field_name or "").strip().strip("`")
+            # "s.Classification" names the same field as "Classification".
+            text = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*\.", "", text).strip("`")
+            if text and text not in _SYSTEM_PROPERTIES and text not in fields:
+                fields.append(text)
+    return fields
+
+
+def _field_is_filtered(field_name: str, cypher: str) -> bool:
+    """Whether the Cypher reads ``field_name`` as a property before its last ``RETURN``.
+
+    The field has to be written in the query (``s.QFT_Result``, ``s.`QuantiFERON-TB```,
+    ``s['QFT_Result']``), with its exact case, as a property of some variable. Only the text
+    before the last ``RETURN`` counts, so a field that is merely projected is not a
+    constraint.
+    """
+    returns = list(re.finditer(r"\bRETURN\b", cypher, re.IGNORECASE))
+    body = cypher[:returns[-1].start()] if returns else cypher
+    escaped = re.escape(field_name)
+    pattern = (
+        r"(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z0-9_]*\s*\.\s*(?:`" + escaped + r"`|" + escaped + r"(?![A-Za-z0-9_]))"
+        r"|\[\s*['\"]" + escaped + r"['\"]\s*\]"
+    )
+    return re.search(pattern, body) is not None
+
+
+def _keyword_realised_as_field(keyword: str, graph_plan: dict | None) -> bool:
+    """A keyword the query constrained through a named field instead of by its own text.
+
+    "Show samples for human subjects who convert to Mtb infection positive" (production,
+    2026-09-23) answered 98 patients by ``Classification`` and the QuantiFERON-TB result, a
+    correct query in which none of "Mtb", "infection" or "positive" appears as text, and the
+    reply opened by saying the search could not be constrained by them. Containment cannot
+    see that step, so the graph agent records it (``keyword_fields``), and it counts only when
+    a declared field really is filtered in the executed query: a declaration the query does
+    not bear out, or one naming a system property, changes nothing.
+    """
+    cypher = str((graph_plan or {}).get("cypher") or "")
+    return bool(cypher) and any(_field_is_filtered(f, cypher) for f in _declared_fields(keyword, graph_plan))
+
+
 def _fragment_is_applied(value: str, haystack: str) -> bool:
     """Whether any word of ``value`` of three or more characters is in the query.
 
@@ -463,6 +526,8 @@ def describe_query_scope(
             if not applied:
                 code = type_by_name.get(_folded(value).strip())
                 applied = bool(code) and _type_is_applied(code, haystack)
+            if not applied:
+                applied = _keyword_realised_as_field(value, graph_plan)
         elif kind == "project":
             applied = _name_is_applied(value, haystack)
         else:
