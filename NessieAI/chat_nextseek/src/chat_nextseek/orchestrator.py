@@ -24,7 +24,7 @@ from .artifacts import (
 )
 from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
 from .pipeline import agent as pipeline_agent
-from .agents.followup import resolve_followup_outcome, run_followup
+from .agents.followup import preview_rows, resolve_followup_outcome, run_followup
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -573,12 +573,18 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             applied = len(seed_uids)
         result = tool_neo4j_query(config, graph_plan.cypher, parameters)
         rows = result.get("data") or []
-        # Counts and a few examples. Never rows: this goes back into a conversation
-        # that is re-sent in full on every later iteration of the loop.
+        # The head of the rows, bounded: this goes back into a conversation that is
+        # re-sent in full on every later iteration of the loop. It used to be counts and
+        # three examples harvested from uid/id/name columns only, so a breakdown row such
+        # as {"type": "TIS", "n": 25936} reached the model as "count: 23" and nothing it
+        # could name (production acceptance run 2026-09-22, task 0006a373).
+        shown = preview_rows(rows)
         return {
             "ok": bool(result.get("ok")),
             "count": result.get("total") if result.get("total") is not None else result.get("count"),
             "rows_returned": len(rows),
+            "rows_shown": len(shown),
+            "rows": shown,
             "truncated": bool(result.get("truncated")),
             "examples": _followup_examples(rows),
             "error": result.get("error"),

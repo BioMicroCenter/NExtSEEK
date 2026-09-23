@@ -27,7 +27,10 @@ can answer THIS question, and to run a new query when it cannot.
    full: name the sample types, assays and projects, and never write "those", "them"
    or "the above" — the query runs on its own, with no memory of this conversation.
 4. Call answer when you know. Lead with the number or the finding, mention two or three
-   example identifiers verbatim, and keep it short.
+   example identifiers verbatim, and keep it short. run_new_query returns the query's
+   rows (its first rows when there are many). When they are a breakdown, such as one row
+   per sample type or lab with a count, name the values and their counts from those rows:
+   they are the answer, not just its size.
 
 You have six turns in total and the last one can ONLY call answer, so answer from what
 you have rather than running one more query: a loop that ends without answering throws

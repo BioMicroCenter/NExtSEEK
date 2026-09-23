@@ -25,10 +25,15 @@ tools and lets it choose:
 * ``run_new_query`` — re-run against the graph seeded with those UIDs.
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
-Every tool returns counts and a handful of examples, never rows. A tool loop re-sends
-its whole conversation on each iteration, so a tool that returned a result set would be
-paid for once per remaining iteration; the same reasoning that keeps the full payload
-out of ``results_history`` (see ``artifacts.py``) keeps it out of the conversation.
+``read_stored_result`` returns counts and a handful of examples, never rows: the stored
+rows are the previous turn's, already answered. ``run_new_query`` returns the head of its
+rows, bounded by ``preview_rows``. It used to return counts only, and on the production
+acceptance run of 2026-09-22 (task 0006a373) three seeded queries each returned the 23
+downstream types of 1,641 NDMA mice as ``{type, n}`` rows; the model was handed "count:
+23" and no type name, and replied that "the individual type names were not returned".
+A tool loop re-sends its whole conversation on each iteration, so the preview is capped
+far below the chatter's (``_graph_rows_for_writer``): a breakdown fits whole, a record
+list shows its head, and the turn attaches every row as a file.
 """
 from __future__ import annotations
 
@@ -48,6 +53,26 @@ MAX_ITER = 6
 #: How many example identifiers a tool result carries. Enough for the reply to quote
 #: some verbatim, small enough that re-sending it every iteration costs nothing.
 UID_SAMPLE = 5
+
+
+#: How many of a new query's rows the model is shown, and the most characters they may
+#: take. A breakdown by type or lab is a few dozen short rows and fits whole; a list of
+#: sample records shows its head. Re-sent on every later iteration, so kept small.
+FOLLOWUP_ROWS_MAX = 50
+FOLLOWUP_ROWS_CHARS = 6_000
+
+
+def preview_rows(rows: Any) -> list:
+    """The head of ``rows``, at most ``FOLLOWUP_ROWS_MAX`` of them and ``FOLLOWUP_ROWS_CHARS``
+    of compact JSON, in order. Always at least the first row when there is one."""
+    shown: list = []
+    size = 2
+    for row in list(rows or [])[:FOLLOWUP_ROWS_MAX]:
+        size += len(json.dumps(row, separators=(",", ":"), default=str)) + 1
+        if shown and size > FOLLOWUP_ROWS_CHARS:
+            break
+        shown.append(row)
+    return shown
 
 
 #: A NExtSEEK reply carries a fenced debug block. On turn 1147 `read_stored_result`
@@ -145,10 +170,12 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
             "name": "run_new_query",
             "description": (
                 "Run a NEW query against the graph, seeded with the previous result's "
-                "UIDs, and get back its count plus a few example UIDs. Use this whenever "
-                "the question needs data the stored result cannot contain: a different "
-                "data type, a property that was not selected, or anything about rows "
-                "beyond the stored ones. Returns counts, never rows."
+                "UIDs, and get back its count and its rows (the first "
+                f"{FOLLOWUP_ROWS_MAX} at most: `rows`, with `rows_shown` of "
+                "`rows_returned`). Use this whenever the question needs data the stored "
+                "result cannot contain: a different data type, a property that was not "
+                "selected, or anything about rows beyond the stored ones. Answer from "
+                "the rows: when they are a breakdown, name each value and its count."
             ),
             "input_schema": {
                 "type": "object",
