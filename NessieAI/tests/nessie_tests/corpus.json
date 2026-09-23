@@ -16483,17 +16483,17 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)SRP"
+                  "value": "(?is)impact"
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)200[0-9]"
+                  "value": "(?is)2020"
                 }
               ]
             }
           ],
-          "_why": "SRP: SampleCreationDate runs 2002-11-16 to 2025-01-30, 22 years. Impact's raw max is 2029-02-13 but that is a data-entry error, not a date. || VERIFIED: seek_production MySQL, verified 2026-08-06: MIN/MAX of $.SampleCreationDate per investigation over the 29,188 rows that have one. || TESTS: a comparison across investigations that must use SampleCreationDate (not created_at) and must not be fooled by the 2029 outlier.",
+          "_why": "RE-KEYED 2026-09-23 on the operator's ruling that a collection date is the UID date (YYMMDD in TYPE-YYMMDDLAB-n), which every sample carries: Impactb Investigation runs 2020-02-26 to 2026-08-06 (2,353 days), MIT_SRP 2020-06-13 to 2026-08-14 (2,253), measured on the workstation snapshot of production. The key below is the SampleCreationDate reading it replaces. || WAS: SRP: SampleCreationDate runs 2002-11-16 to 2025-01-30, 22 years. Impact's raw max is 2029-02-13 but that is a data-entry error, not a date. || VERIFIED: seek_production MySQL, verified 2026-08-06: MIN/MAX of $.SampleCreationDate per investigation over the 29,188 rows that have one. || TESTS: a comparison across investigations that must use SampleCreationDate (not created_at) and must not be fooled by the 2029 outlier.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
         }
       ]
@@ -21063,7 +21063,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no memory|no history|no record|haven.?t (seen|got)|start(ing)? (fresh|clean))"
+                  "value": "(?is)(nothing|fresh (session|start|chat)|first (turn|message)|no (cross.?session )?memory|no history|no record|clean slate|haven.?t (seen|got)|start(ing)? (fresh|clean)|(don.?t|do not) (have|retain|keep|carry) (any )?(memory|history|access))"
                 },
                 {
                   "field": "last_reply",

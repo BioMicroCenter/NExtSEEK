@@ -137,11 +137,12 @@ def test_the_routing_rules_are_unchanged():
     assert "→ graph_query" in rules[descriptive]
 
 
-def test_a_collection_date_question_reads_sample_creation_date():
-    """Operator ruling 2026-09-22: "collection dates" means SampleCreationDate (726,166 samples carry
-    it locally, CollectionDate 134). The local run asked for the longest span of collection dates and
-    the agent used CollectionDate, which the prompt's own date example had modelled."""
+def test_a_collection_date_question_reads_the_uid_date():
+    """Operator ruling 2026-09-23 (supersedes the SampleCreationDate reading of 2026-09-22): "collection
+    dates" means the YYMMDD in TYPE-YYMMDDLAB-n, which every sample carries. The local run asked for the
+    longest span of collection dates and the agent used CollectionDate (134 samples)."""
     assert "**Which date.**" in PROMPT
     rule = PROMPT.split("**Which date.**", 1)[1].split("\n", 1)[0]
-    assert "`SampleCreationDate`" in rule and "only when the user names that attribute" in rule
+    assert "TYPE-YYMMDDLAB-n" in rule and "split(s.uuid, '-')[1]" in rule
+    assert "only when the user names that attribute" in rule
     assert "s.CollectionDate STARTS WITH" not in PROMPT
