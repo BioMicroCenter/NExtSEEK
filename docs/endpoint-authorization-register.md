@@ -60,11 +60,12 @@ user.is_staff = 1
 ```
 
 **3.** Net effect: `is_superuser or is_staff` is true for essentially every account, so
-`getChildrenUIDs(requested_uids, user_project_ids, is_superuser)` at `nextseek_api/views.py:686`
-takes the admin branch of `getChildrenUIDs` in `seek/sample/trees.py` (`WHERE uuid IN (...)`,
+`getChildrenUIDs(requested_uids, user_project_ids, is_superuser)` in what was then
+`AdminSampleViewSet.admin_retrieve_samples` took the admin branch of `getChildrenUIDs` in `seek/sample/trees.py` (`WHERE uuid IN (...)`,
 no project join) rather than its scoped branch
 (`... JOIN projects_samples ps ... AND ps.project_id IN (...)`). The same bypass applies to
-the MySQL fallback path at `nextseek_api/views.py:710-716` versus `:717-729`. The project ids
+the MySQL fallback path in the same method (superuser branch versus project-joined branch). The download
+API's data path now lives in `nextseek_api/services/sample_retrieve.py` and is scoped by `resolve_scope`. The project ids
 are resolved correctly and for real at `nextseek_api/views.py:621-627`; they are simply not
 reached.
 
@@ -124,13 +125,14 @@ radius is therefore "every real user", not "3 accounts".
 
 ### The concrete consumers
 
-All four consumer families below call `/nextseek_api/admin/samples/retrieve/` **as the end
+All four consumer families below call the download API (`/nextseek_api/samples/retrieve/`, formerly
+`/nextseek_api/admin/samples/retrieve/`, which remains as its alias) **as the end
 user**, not as a service account. That is the crux: their `request.user` is a staff account, so
 they all take the unfiltered branch today, and they would all become project-scoped together.
 
 | # | Consumer | Entry point | Identity it authenticates as |
 |---|---|---|---|
-| 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/admin/samples/retrieve/"`; loaded by `seek/templates/newSearch.html:3`, `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
+| 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/samples/retrieve/"`; loaded by `seek/templates/newSearch.html:3`, `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
 | 2 | NExtSEEK assistant (`chat_nextseek` engine, in-process) | endpoint allowlisted at `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:39`; outbound Basic auth built at `:132` from `config.API_USER/API_PASS`; report path at `NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py:66` | The caller. `nextseek_api/services/assistant.py:235-250` and `:744-749` overwrite `API_USER`/`API_PASS` on a per-request `ChatConfig` copy with the credentials `resolve_seek_auth` returned |
 | 3 | Container-CC agent, via the ns-sidecar | sidecar forwards ops to `/nextseek_api/assistant/{op}/` (`NessieAI/docker/ns-sidecar/app/ns_client.py:97`); the `api-read` op reaches this path because it is allowlisted at `NessieAI/ns/read_safe_endpoints.json:39` and gated by `NessieAI/ns/write_gate.py:94` | The caller. The sidecar holds no credentials of its own; per-request Basic auth is built from the `ns_login` frame at `NessieAI/docker/ns-sidecar/app/server.py:40-47` |
 | 4 | LLM endpoint catalogs that steer both engines toward it | `NessieAI/chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json:3`, `.../min_api_endpoints_enriched.json:3,71`, which the cc-agent image bakes into `/app/plugins/nextseek/context/` through the `chat_nextseek` named context | n/a, prompt context |
@@ -159,7 +161,7 @@ have **no consumer anywhere in the worktree**.
    applies and answers narrow per user. As a service identity, scoping is centralized in one
    account, but every user's answer is that account's view.
 4. **Should a scoped read tell the caller that rows were withheld?** Today the scoped branches
-   in `getChildrenUIDs` (`seek/sample/trees.py`) and `nextseek_api/views.py:717-729` silently return
+   in the download API (`_hydrate` in `nextseek_api/services/sample_retrieve.py`) silently return
    fewer rows. An assistant cannot distinguish "no such data" from "not your project", which is
    a correctness problem for generated answers regardless of which way question 1 is decided.
 5. **What is the measurement cost?** Assistant ground-truth values in `nessie_tests` were all
@@ -184,7 +186,7 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/sample-tree/{uid}/tree/` | `SampleTreeViewSet.get_tree` | `IsAuthenticated` (`views.py:109`) | **Yes, added in this branch** (`665a103`): root gate + lineage pruning against `projects_samples`, admin bypass on `is_superuser` alone. Pre-fix: none | project-scoped (done) |
 | `POST /nextseek_api/samples/advanced_search/` | `SampleAdvancedSearchViewSet.create` | `IsAuthenticated` (`services/samples.py:357`) | **None. Deliberately NOT changed** in this branch, see note A | project-scoped (open, blocked) |
 | `POST /nextseek_api/samples/graph_search/` | `GraphSearchViewSet.create` | `IsAuthenticated` (`services/graph_search.py:140`) | **Yes, since it was added (2026-09-14)**: project-scoped through `group_memberships` x `work_groups` over `projects_samples` (`graph_search/scope.py:22-26`, resolved at `services/graph_search.py:270`); superuser unscoped on `is_superuser` alone (`graph_search/scope.py:53-54`) | project-scoped (done) |
-| `POST /nextseek_api/admin/samples/retrieve/` | `AdminSampleViewSet.admin_retrieve_samples` | `IsAuthenticated` (`views.py:537`) | Yes but bypassed for staff: `views.py:686` -> `getChildrenUIDs` in `seek/sample/trees.py`; bypass at `views.py:642`. See note B | project-scoped |
+| `POST /nextseek_api/samples/retrieve/` (alias `POST /nextseek_api/admin/samples/retrieve/`) | `SampleRetrieveViewSet.create` (alias `AdminSampleViewSet.admin_retrieve_samples`), both `handle_retrieve` in `services/sample_retrieve.py` | `IsAuthenticated` | Yes: `resolve_scope` (MySQL membership, superuser unscoped on `is_superuser` alone), applied to the walk's start samples and to every row read. See note B | project-scoped (done) |
 | `GET /nextseek_api/samples/{uid}/` | `SampleProxyViewSet.retrieve` | `IsAuthenticated` (`services/samples.py:74`) | Delegated to SEEK under the caller's creds (`services/samples.py:129` -> `helpers.py:135-148`) | project-scoped (already, upstream) |
 | `GET /nextseek_api/sample_types/` | `SampleTypeProxyViewSet.list` | `IsAuthenticated` (`services/sample_types.py:58`) | Delegated to SEEK (`services/sample_types.py:89`) | public-to-authenticated |
 | `GET /nextseek_api/sample_types/{uid}/` | `SampleTypeProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sample_types.py:120`) | public-to-authenticated |
@@ -348,19 +350,20 @@ and no broken SQL hook to rebuild. That asymmetry is why one landed and one did 
 exchange for scoping, and if so, to sequence it after (a) the clause-assembly rewrite in
 `seek/search.py` / `dbtable_sample.py`, and (b) a decision on withheld-row signalling.
 
-### Note B: `admin/samples/retrieve` is not admin-gated
+### Note B: the download API (`samples/retrieve`, formerly `admin/samples/retrieve`) is not admin-gated
 
-The `admin/` in the route is historical. Commit `2690598` ("feat(nextseek_api): un-gate sample
+The `admin/` in the old route was historical; the route is now `samples/retrieve/`, and the old path
+remains as an alias to the same handler. Commit `2690598` ("feat(nextseek_api): un-gate sample
 retrieval, resolve projects, add include_tree") deliberately dropped `IsAdminUser` and left
-`IsAuthenticated` (`nextseek_api/views.py:537`), because `IsAdminUser` checks `is_staff` and
+`IsAuthenticated`, because `IsAdminUser` checks `is_staff` and
 therefore already admitted everyone. The same commit fixed the project resolution that had
-always silently produced `user_project_ids = []`, and the docstring at `views.py:533-535`
-records the intent: this is the single download API behind every sample-download control in the
+always silently produced `user_project_ids = []`, and the `AdminSampleViewSet` docstring
+recorded the intent: this is the single download API behind every sample-download control in the
 UI. Do not describe it as admin-gated.
 
 It is nonetheless the **only** read endpoint in the whole register that implements real project
-scoping in NExtSEEK's own query layer (`getChildrenUIDs` in `seek/sample/trees.py` and
-`nextseek_api/views.py:717-729`), and that scoping is what the headline open question is about.
+scoping in NExtSEEK's own query layer (`_visible_ids` and `_hydrate` in
+`nextseek_api/services/sample_retrieve.py`), and that scoping is what the headline open question is about.
 
 ### Note C: two unscoped Neo4j traversals in `sample_types.py`
 
