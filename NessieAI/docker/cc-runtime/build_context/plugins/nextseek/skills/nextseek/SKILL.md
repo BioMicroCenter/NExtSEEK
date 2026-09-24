@@ -341,7 +341,10 @@ The runner emits a one-line JSON error to stderr with a code (exit code in paren
   non-read-safe endpoint. Apply the L3 prompt only for true writes; otherwise fix routing.
 - `CONFIG_ERROR` (6): a plugin/config file is missing server-side. Deploy-side issue; surface as
   "plugin misconfiguration, please rebuild image."
-- `TRANSPORT_ERROR` (7): sidecar/viewset unreachable. Surface as a deploy-side issue.
+- `TRANSPORT_ERROR` (7): sidecar/viewset unreachable, or an op that ran out of turn time. When
+  the message says this turn was nearly out of time, do not retry the op in this turn: answer
+  with what you already have, say that step did not finish in time, and offer to run it in the
+  next turn. Otherwise surface it as a deploy-side issue.
 - `AUTH_FAILED` (8): NExtSEEK rejected the login. Tell the user to check credentials.
 - `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
 

@@ -22,6 +22,30 @@ TURN_DEADLINE_HEADROOM_S: float = 45.0
 MIN_WAIT_S: float = 10.0
 
 
+def seconds_left(now: float) -> float | None:
+    """Seconds from ``now`` (Unix seconds) to the turn's deadline, or None when it is absent or
+    unreadable."""
+    raw = os.environ.get(TURN_DEADLINE_ENV, "").strip()
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return None
+    return deadline - now if math.isfinite(deadline) else None
+
+
+def out_of_turn_message(left_s: float, waited_s: float) -> str:
+    """The error text for a wait the turn's deadline cut short: the turn ran out, not the service.
+
+    Operator ruling 2026-09-24: the 10 s floor stays (a longer wait would outlive the turn, and
+    the user would get a timeout instead of an answer); the words tell the agent not to retry.
+    """
+    return (f"This turn was nearly out of time: about {max(0.0, left_s):.0f} s of it were left when "
+            f"this op started, so it could wait only {waited_s:.0f} s for the answer, and the answer "
+            "did not come in that time. The service did not report an error. Do not retry this op "
+            "in this turn: answer now with what you already have, say this step did not finish in "
+            "time, and offer to run it in the next turn.")
+
+
 def wait_s(now: float, *, fallback_s: float, ceiling_s: float = math.inf,
            headroom_s: float = TURN_DEADLINE_HEADROOM_S, floor_s: float = MIN_WAIT_S) -> float:
     """Seconds a client may wait at ``now`` (Unix seconds): the time left in this turn less
