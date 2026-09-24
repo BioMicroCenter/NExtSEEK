@@ -35,7 +35,7 @@ class _User:
 
 class _Admin:
     is_staff = True
-    is_superuser = False
+    is_superuser = True  # superuser is the only admin predicate (#74)
 
 
 def _turn(choice, status="completed", position=1):
