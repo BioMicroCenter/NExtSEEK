@@ -20,7 +20,7 @@ Node types: Sample, carrying every metadata attribute of the sample as a propert
 Relationships: DERIVED_FROM between samples, child to parent across any number of steps, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation; IN_PROJECT from sample to project.
 The graph agent writes Cypher over all of this, so it can filter on any attribute or on text anywhere in a sample, combine conditions with AND, OR and NOT, compare numbers and dates, count, group and break down, list the distinct values of an attribute, match a lab code inside UIDs, and follow lineage in either direction.
 
-Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
+Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Griffith, Impact, Impactb Investigation, MIT_SRP, MetNet, RMS-NGC, SRP, Shoulders, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
 This list is NOT exhaustive: it is the set the context generator knows about, and the graph
 holds more. Never refuse a project or investigation because it is missing from it.
 Known project titles: BPRC, Break Through Cancer, CSBC, Griffith, Impact, MIT-Koch, MetNet, NAMs, PUBLISHED, RMS-NGC, SRP, Shoulders. A project is the layer ABOVE an investigation and
@@ -29,13 +29,13 @@ consortium name for it, and the samples hang off the project. A title here that 
 the investigation list above is still real, and several are: route it graph_query rather than
 refusing it. Neither list carries the alternative names people use, which is another reason
 never to treat either as closed.
-Note: "GBM" is a study inside the GBM_BTC investigation. Most other study titles are
-full paper titles, not short codes, because in this instance a study IS a published paper.
+Note: "GBM" is a study inside the GBM_BTC investigation. Many study titles are full paper
+titles, not short codes, because a paper-level study is named after its paper; the rest are SEEK studies with their own titles.
 
 Use graph_query for every question about sample metadata: finding, filtering, counting or aggregating samples by sample type, attribute value, keyword, assay, protocol, study, investigation or project, person (a lab or PI, or the Scientist recorded on a sample), UID or lab code, and lineage or derivation. This holds for a plain keyword search, a numeric comparison and a simple count as much as for a traversal. The examples below need structure no REST endpoint can express at all:
 - "Which samples belong to study X?" requires IN_STUDY traversal; no REST endpoint can scope a sample query to a named study.
 - "Which studies belong to investigation X?" requires IN_INVESTIGATION traversal.
-- "Which projects contain samples of type T?" requires traversal from Sample to Study to Investigation.
+- "Which projects contain samples of type T?" is one hop, from Sample to Project through IN_PROJECT.
 - "What is the sample count of study X?" is a count scoped to a graph node.
 - "How many samples of type T exist, study by study?" is aggregation across graph structure.
 - "How many studies does investigation X contain?" is a count of related nodes via traversal.
@@ -60,6 +60,14 @@ files, a metadata export of samples named by UID, and the lineage tree view of o
   duplicates, which records use a key, which values an attribute holds) are graph_query,
   not unsupported: the graph lists each distinct value or key with its count and the reply
   reasons over that list.
+- Questions about the protocols (SOPs) that samples used are sample metadata, so they are
+  graph_query: which protocols are in use, or were used by a project's, investigation's,
+  study's or lab's samples, which samples followed a protocol and how many, which protocol a
+  sample used, and how the Protocol field is written. Each sample's Protocol value is a
+  property on its node and the SOP it names is protocol_title on DERIVED_FROM, so the graph
+  lists each protocol with its count, as it does for Scientist. The graph holds no SOP
+  records: the list of SOPs on file, their count, descriptions and files, and the SOPs
+  registered to a project are not on it.
 
 Do NOT use graph_query when:
 - The user wants catalog records themselves (assays, sample types, SOPs, projects or
@@ -109,8 +117,8 @@ A reporting system for project-level aggregate statistics and repository deliver
 Use reporter when the user wants aggregate statistics or a formal project report, not individual sample records. Distinguishing signals:
 - Time-scoped aggregate intent: "how many... in 2024", "uploaded last quarter", "ingestion stats since March", "breakdown by lab this year". The answer is a count/summary over a time window, not a list of samples.
 - Project-level reporting: a known project name plus summary/stats intent, with or without a date range. No date means all time.
-- Project-scoped summary/listing language about reporting domains: "show me protocols for CGR", "what protocols are registered for Impact", "what samples from SRP have been published" when the user is asking for the project-level reporting view, not raw catalog rows.
-- Protocol usage summary: "what protocols were used in Impact", "SOP summary for SRP". Treat "protocols registered for X" and similar project-scoped protocol summary/listing language as reporter unless the user explicitly asks for raw SOP records, attachments, IDs, or full protocol metadata.
+- Project-scoped summary/listing language about reporting domains: "what samples from SRP have been published" when the user is asking for the project-level reporting view, not raw catalog rows.
+- SOPs registered to a project: "what protocols are registered for Impact", "how many SOPs has MetNet filed", and the protocols line of a whole-project inventory or report ("how many samples, protocols and published datasets does MetNet have"). The reporter counts the SOP records filed under a project. Which protocols the samples USED ("what protocols were used in Impact", "show me protocols for SRP", "SOP summary for SRP") is graph_query, not reporter: the reporter reads registrations, not what the samples record, and cannot scope protocols to an investigation, so a protocol question scoped to an investigation or study is graph_query too.
 - Repository submission counts: "what has been published from CSBC", "published sample count for Impact", "submitted to public repositories". Prefer reporter over graph_query when the user is asking for the reporting view of what has been published from a project.
 - Formal report language: "RPPR", "NIH RePORT", "annual report", "full project report", "comprehensive summary", "progress report", "report", "summary".
 
@@ -132,6 +140,7 @@ Do NOT use reporter when:
 - User wants individual sample records or explicit raw catalog objects; use new_search or graph_query.
 - User asks how many samples are IN a named study/investigation; use graph_query for a structural count scoped to a graph node, not upload history.
 - User explicitly asks for raw SOP/catalog records, protocol files, attachments, protocol IDs, or detailed metadata for each protocol; use new_search.
+- User asks which protocols or SOPs samples used, in any scope (a project, investigation, study, lab, sample type or UID), or how many samples followed one; use graph_query.
 
 --------------------------------------------------
 PATH: refine_last_search
@@ -240,8 +249,8 @@ If the user is asking what exists in the catalog as available search categories 
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use graph_query.
 
 4. Is the user asking for aggregate statistics, a project summary, or a formal report?
-Signals: upload/ingestion counts, protocol usage summary, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, or project-scoped protocol/published reporting language like "show me protocols for CGR" or "what samples from CGR have been published?".
-Key distinction from graph_query: reporter answers the project reporting view, such as uploaded, published, protocols used/registered, and RPPR-style summaries. graph_query answers structural graph questions about named studies/investigations and lineage.
+Signals: upload/ingestion counts, SOPs registered to a project, published sample counts, time-scoped breakdowns, RPPR, NIH RePORT, annual report, progress report, "report", "summary" plus project name, repository submission, nf-core samplesheet generation, or project-scoped published reporting language like "what samples from CGR have been published?".
+Key distinction from graph_query: reporter answers the project reporting view, such as uploaded, published, SOPs registered, and RPPR-style summaries. graph_query answers structural graph questions about named studies/investigations and lineage, and which protocols samples used, even when a project is named or the user says "summary" ("protocol summary for SRP" is graph_query; go on to step 6).
 If yes, use reporter.
 
 5. Is the user referring back to results already returned this session?
@@ -257,6 +266,7 @@ Ask whether the request is about samples and their metadata, or needs graph stru
 - Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
 - Is the user asking for a global count of a sample type with no other attribute filters, such as "How many samples of type T are there?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.
 - Is the user filtering on an assay or protocol that lives on the DERIVED_FROM relationship, such as "underwent X", "processed via X", or "associated with X protocol"? REST endpoints cannot filter on relationship metadata.
+- Is the user asking which protocols or SOPs samples used, in any scope, which protocol a sample used, or how the Protocol field is written? Each sample's Protocol value and the DERIVED_FROM protocol_title are on the graph. Only the SOP records themselves (the list on file, a count of it, attachments) are REST, and SOPs registered to a project are reporter.
 - Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? That is graph_query, one UID or many. Only an explicit request to see or visualise the tree of ONE UID (sample-tree), or to retrieve or export the full record of named UIDs (retrieve), stays on REST.
 - Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
 If yes to any of the above, use graph_query.

@@ -11,11 +11,11 @@
     },
     {
       "label": "Study",
-      "description": "A research study grouping samples. In this instance a study IS a published paper: 'title' is the paper title. The publication properties are 'DOI' and 'PMID' \u2014 UPPERCASE, unlike every other property on this node. A study is published when its DOI or PMID is a non-empty string. The unset value is an empty string, NOT null, so never test IS NOT NULL: it is true for every study. Use coalesce(st.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
+      "description": "A research study grouping samples. Two kinds share this label: a paper-level study, whose 'title' is the paper title and which carries 'DOI' and 'PMID', and a SEEK study, which carries neither key. The publication properties are 'DOI' and 'PMID' \u2014 UPPERCASE, unlike every other property on this node. A study is published when its DOI or PMID is a non-empty string. On a paper-level study the unset value is an empty string, and on a SEEK study the key is absent, so never test IS NOT NULL: use coalesce(st.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
     },
     {
       "label": "Investigation",
-      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, and TCGA, which is not on every instance (loaded on local and dev only)."
+      "description": "A project grouping one or more studies. Property 'title'. Known values: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Griffith, Impact, Impactb Investigation, MIT_SRP, MetNet, RMS-NGC, SRP, Shoulders, and TCGA, which is not on every instance (loaded on local and dev only)."
     },
     {
       "label": "Project",
@@ -26,7 +26,7 @@
     {
       "type": "DERIVED_FROM",
       "direction": "(child_sample)-[:DERIVED_FROM]->(parent_sample)",
-      "note": "Carries assay and protocol metadata on the relationship (internal_assay_title, protocol_title). Used to traverse from derived data back to source samples."
+      "note": "Carries assay and protocol metadata on the relationship: internal_assay_title names one assay; an edge several assays share lists all of them in internal_assay_titles, which some edges lack; protocol_title names the protocol. Test an assay on an edge r with (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])). Used to traverse from derived data back to source samples."
     },
     {
       "type": "IN_STUDY",
@@ -36,7 +36,7 @@
     {
       "type": "IN_INVESTIGATION",
       "direction": "(study)-[:IN_INVESTIGATION]->(investigation)",
-      "note": "Links a study to its parent investigation/project."
+      "note": "Links a study to its parent investigation. A project is its own node, reached from a sample by IN_PROJECT."
     },
     {
       "type": "IN_PROJECT",
@@ -78,7 +78,7 @@
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
     "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 graph_query. The attribute is a property of the Sample node; advanced_search matches text anywhere in a record and cannot restrict it to one attribute, compare numbers, AND two terms or aggregate.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
-    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Impactb Investigation, MIT_SRP, MetNet, TCGA (TCGA is not on every instance)",
+    "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Griffith, Impact, Impactb Investigation, MIT_SRP, MetNet, RMS-NGC, SRP, Shoulders, TCGA (TCGA is not on every instance)",
     "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on Study nodes and no REST endpoint filters samples by them)",
     "If the query is a plain keyword or attribute search with no scope at all ('find X samples', 'samples mentioning Y') \u2192 graph_query; REST sample searches serve only refinements of a result that came from REST",
     "If the query names a person: a lab or PI (ENTITY_RESULT.labs / lab_codes) \u2192 graph_query on the lab code inside UIDs; anyone else \u2192 graph_query on the Scientist attribute. Never /people/, which lists registered user accounts"
