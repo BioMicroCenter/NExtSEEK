@@ -215,9 +215,7 @@ edges made of service definitions and names in string form.
   `tests/` package that does not exist anywhere in the worktree.
 
 Omitted from the list above: the 39 Python files under this boundary's `tests/`, which
-import their own siblings freely. Also excluded as a false match, `NessieAI/chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json:145`
-contains the word "attributes" in SEEK sample-creation prose and has no relationship to
-this package.
+import their own siblings freely.
 
 See `nextseek_api/attributes/CLAUDE.md` for the invariants, the traps, and the one
 command to run.

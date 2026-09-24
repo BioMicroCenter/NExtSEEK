@@ -188,8 +188,8 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     # converting it would spin up an Opus container for an out-of-scope question
     # instead of returning the canned refusal.
     #
-    # Delete this block to give follow-ups back to the NExtSEEK engine, whose
-    # follow-up code is untouched.
+    # NESSIE_FOLLOWUP_ROUTING=split (the default) already gives NExtSEEK-shaped follow-ups back to
+    # the NExtSEEK engine; see the split check below.
     turns = chat_log if chat_log is not None else history
     try:
         cue = (followup_rule.followup_reason(req.query, turns)
@@ -198,6 +198,16 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
     except Exception:  # noqa: BLE001 - routing must never crash on bad history
         logger.warning("CC router: follow-up/sticky history inspection failed", exc_info=True)
         cue, on_cc = None, False
+    # 2026-09-24 follow-up split (routing review 5.2): under the default "split" setting an
+    # NExtSEEK-shaped follow-up (count, filter, breakdown, recall, a one-change re-run) stays where
+    # the router sent it; only a Container-CC-shaped one, or any follow-up in a chat already on CC,
+    # is converted. The "cc" setting is the 2026-09-23 rule. Code never moves a turn toward NS.
+    try:
+        if cue and not (on_cc or followup_rule.followup_mode() == "cc"
+                        or followup_rule.followup_shape(req.query) == "cc"):
+            cue = None
+    except Exception:  # noqa: BLE001 - routing must never crash on a shape check
+        logger.warning("CC router: follow-up shape check failed", exc_info=True)
     if cue:
         return cc_router.RouteDecision(
             route=cc_router.ROUTE_CC, model_class="opus",

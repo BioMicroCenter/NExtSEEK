@@ -256,8 +256,13 @@ def log_api_call(
 
 def fix_sample_endpoint(plan: dict) -> dict:
     """
-    Auto-correct sample-retrieve endpoint selections when no UIDs are provided.
-    Rewrites to advanced_search and annotates notes to avoid invalid retrieve calls while keeping other fields intact.
+    Send a sample-retrieve plan that carries no UIDs to the graph.
+
+    retrieve needs UIDs, so "full records for every RNA sample" is a sample search, and every sample search runs
+    on the graph (routing review 6a, 2026-09-24). A new search becomes graph_query; a refine keeps its mode and is
+    marked ``refine_engine="graph"``, so the orchestrator's graph refine re-runs it with the prior turn's filters.
+    The endpoint is cleared and the notes say why; every other field is kept. A retrieve with UIDs, and every
+    other plan, is returned unchanged.
     """
     endpoint = plan.get("target_endpoint")
     mode = plan.get("mode")
@@ -269,10 +274,14 @@ def fix_sample_endpoint(plan: dict) -> dict:
         and endpoint in _RETRIEVE_PATHS
         and not uids
     ):
-        print("[DEBUG][PARSER_FIX] Rewriting endpoint from samples/retrieve to samples/advanced_search")
-        plan["target_endpoint"] = "/nextseek_api/samples/advanced_search/"
+        print("[DEBUG][PARSER_FIX] samples/retrieve with no UIDs; sending it to the graph")
+        if mode == "refine_last_search":
+            plan["refine_engine"] = "graph"   # the orchestrator's graph refine keeps the prior turn's filters
+        else:
+            plan["mode"] = "graph_query"
+        plan["target_endpoint"] = None
         notes = plan.get("notes", "")
-        plan["notes"] = (notes + " | endpoint auto-corrected to /samples/advanced_search/").strip(" |")
+        plan["notes"] = (notes + " | retrieve needs UIDs; sent to the graph").strip(" |")
 
     return plan
 

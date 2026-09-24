@@ -8,7 +8,7 @@ The text has three parts (spec section 4.2):
 
 1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with
    ``docs/neo4j-schema.md`` v1.1 by a test;
-2. the type index, one line per non-deprecated sample type;
+2. the type index, one line per sample type (a deprecated one only while it still holds samples);
 3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name,
    each with its sample count.
 
@@ -41,7 +41,7 @@ SUMMARY_MAX = 240  # a summary's first sentence is cut here, so one long summary
 
 # The keyword gates of the protocol and assay blocks, on both the catalog path and the committed-files path
 # (agents/graph.py), matched by ``mentions``. "dataset" is here because "data" no longer fires inside "datasets".
-PROTOCOL_WORDS = ("protocol", "method", "procedure", "technique")
+PROTOCOL_WORDS = ("protocol", "sop", "method", "procedure", "technique")
 ASSAY_WORDS = ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "dataset", "processed",
                "associated", "underwent", "via", "collection", "extraction")
 # Studies and published studies: study, paper, publication (and publish), DOI, PMID, as whole words.
@@ -63,7 +63,7 @@ _PLAIN_WORDS = frozenset("""
     only other our over per see shall she should show some such tell than that the their them then there these
     they this those too total under use used using very want was were what when where whether which while who
     whom whose why will with within without would you your
-    assay data database dataset investigation method procedure project protocol publication published sample
+    assay data database dataset investigation method procedure project protocol publication published sample sop
     study studies technique type kind associated underwent processed paper
 """.split())
 
@@ -267,10 +267,20 @@ def _index_line(row: Any) -> str:
     return ", ".join(parts)
 
 
+def _still_indexed(row: Any) -> bool:
+    """A non-deprecated type, or a deprecated one that still holds samples (fix 7 item 5, 2026-09-24:
+    LYS is deprecated but 12 samples carry :T_LYS, and hiding the type made lysate questions miss them)."""
+    if not _get(row, "deprecated", False):
+        return True
+    return (_get(row, "sample_count") or 0) > 0
+
+
 def render_type_index(rows) -> str:
-    """One line per non-deprecated sample type, in the order given, under a heading."""
+    """One line per sample type, in the order given, under a heading. A deprecated type is listed only
+    while it still holds samples, and its line says so."""
     lines = ["## Sample types (code :label \"name\" clade, samples, attributes with values)"]
-    lines += [_index_line(row) for row in rows or () if not _get(row, "deprecated", False)]
+    lines += [_index_line(row) + (", deprecated" if _get(row, "deprecated", False) else "")
+              for row in rows or () if _still_indexed(row)]
     return "\n".join(lines)
 
 

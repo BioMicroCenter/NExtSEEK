@@ -215,3 +215,11 @@ def test_the_tuned_scope_behaviours_stand():
     assert "its project held 568 samples" in STEP5
     assert "try the other two of Project title, Investigation title and Study title" in STEP5
     assert '"Shoulders" is `Shoulders Independent Projects`' in STEP5
+
+
+@pytest.mark.parametrize("name", ["PUBLISHED", "Published Data", "Published"])
+def test_published_data_maps_to_project_6_s_stored_title(name):
+    """Fix 7 item 1 (operator 2026-09-24): PUBLISHED is project 6, whose stored title is "Training/Test"
+    (it holds the already-published data), so "published data" scopes by IN_PROJECT on it."""
+    titles = (*GRAPH_TITLES, "Training/Test")
+    assert gctx.project_titles_for([name], PROJECT_ROWS, titles) == {name: "Training/Test"}

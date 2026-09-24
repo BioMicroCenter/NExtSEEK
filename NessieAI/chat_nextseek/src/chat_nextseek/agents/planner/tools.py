@@ -43,6 +43,14 @@ SCOPE_REFUSAL_HINT = (
     "Use the project-scoped sample search, /nextseek_api/samples/graph_search/, for this step instead."
 )
 
+#: The REST sample searches a planner step no longer calls: every sample question goes to the graph (routing
+#: review 6a, 2026-09-24), so a search step naming one of these, or no endpoint, runs as a graph step. graph_search
+#: is not here: it stays the scope fallback SCOPE_REFUSAL_HINT names.
+_RETIRED_REST_SAMPLE_SEARCHES = frozenset({
+    "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+})
+
 
 def _plan_tool_graph_query(
     config: ChatConfig,
@@ -108,10 +116,14 @@ def _plan_tool_new_search(
     enriched_context: "dict[int, ContextEngineerOutput]",
     parser_plan: "MultiParserPlan | None" = None,
 ) -> dict:
-    """Execute a planner search step by synthesizing a parser plan and running the API agent/tool."""
+    """Execute a planner search step by synthesizing a parser plan and running the API agent/tool.
+
+    A step with no endpoint, or one naming a retired REST sample search (the step's own, else the refined
+    result's), runs as a graph step instead, with the filters the REST call would have been given.
+    """
     entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
     query = step.execution.tool_query or query
-    endpoint = step.execution.target_endpoint or step.target_endpoint or "/nextseek_api/samples/advanced_search/"
+    endpoint = step.execution.target_endpoint or step.target_endpoint
     endpoint = fix_sample_endpoint({"target_endpoint": endpoint}).get("target_endpoint", endpoint)
     input_values, _missing = _resolve_step_inputs(step, enriched_context)
     base_filters = dict(step.execution.filters or {})
@@ -177,6 +189,19 @@ def _plan_tool_new_search(
             for key in ("sampletype_code", "assay_codes", "uids"):
                 if base_filters.get(key) in (None, "", [], {}) and previous_filters.get(key) not in (None, "", [], {}):
                     base_filters[key] = previous_filters[key]
+
+    if not endpoint or endpoint in _RETIRED_REST_SAMPLE_SEARCHES:
+        print(f"[DEBUG][PLAN_TOOL][new_search] step {step.step_id} has no REST sample search to call "
+              f"(endpoint={endpoint!r}); running it on the graph")
+        graph_step = step.model_copy(update={
+            "target_endpoint": "",
+            "execution": step.execution.model_copy(update={
+                "mode": "graph_query",
+                "target_endpoint": None,
+                "filters": {**base_filters, **input_values},
+            }),
+        })
+        return _plan_tool_graph_query(config, session, graph_step, query, entity_result, log_dir, enriched_context)
 
     for key, value in input_values.items():
         base_filters[key] = value

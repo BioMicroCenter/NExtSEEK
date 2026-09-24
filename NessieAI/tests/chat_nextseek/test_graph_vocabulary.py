@@ -58,7 +58,7 @@ def test_the_protocol_gate(question, fires):
 
 
 def test_the_gate_word_lists():
-    assert gc.PROTOCOL_WORDS == ("protocol", "method", "procedure", "technique")
+    assert gc.PROTOCOL_WORDS == ("protocol", "sop", "method", "procedure", "technique")  # "sop": 2026-09-24, SOP == protocol
     assert gc.ASSAY_WORDS == ("assay", "sequencing", "cytometry", "spectrometry", "imaging", "data", "dataset",
                               "processed", "associated", "underwent", "via", "collection", "extraction")
 

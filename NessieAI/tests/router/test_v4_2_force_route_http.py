@@ -38,7 +38,7 @@ def _wait_terminal(task_id, timeout=30.0):
 
 @pytest.fixture(autouse=True)
 def _patch_dispatch(monkeypatch):
-    def fake_run_query(session, config, query, send_event, credentials=None):
+    def fake_run_query(session, config, query, send_event, credentials=None, **_kw):
         send_event("query_complete", {"reply": "ns ok", "bundle_id": 1})
 
     def fake_cc_turn(**kw):
@@ -81,7 +81,7 @@ def _assistant_project_permission():
 @pytest.fixture
 def admin_user(db):
     return get_user_model().objects.create_user(
-        "v42-admin", password="x", is_staff=True,
+        "v42-admin", password="x", is_staff=True, is_superuser=True,
     )
 
 
@@ -122,7 +122,7 @@ def test_http_admin_force_route_ns_crosses_to_dispatch(admin_user, monkeypatch):
     client = _client_for(admin_user)
     dispatched = []
 
-    def tracking_run_query(session, config, query, send_event, credentials=None):
+    def tracking_run_query(session, config, query, send_event, credentials=None, **_kw):
         dispatched.append(query)
         send_event("query_complete", {"reply": "ns ok", "bundle_id": 1})
 

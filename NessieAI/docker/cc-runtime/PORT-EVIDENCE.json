@@ -28,7 +28,7 @@
     }
   ],
   "context_file_inventory": [
-    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 2425, "sha256": "3b33f89230f5f796f7c36a405835c9df52f44f0cd2526d3592078f76ad7a02c0"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 1975, "sha256": "54b7564e8f237f248d3df2509e002fcfe876040668c2d58d8cde9488b23241a4"},
     {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
     {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
     {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},
@@ -112,6 +112,19 @@
         "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
         "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_advertised_mutating_endpoints_are_pinned",
         "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_post_as_read_endpoints_are_attested_in_the_read_safety_audit",
+        "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
+      ],
+      "context_file_inventory_affected": true
+    },
+    {
+      "date": "2026-09-24",
+      "path": "build_context/plugins/nextseek/context/read_safe_endpoints.json",
+      "change": "Two entries left the read-safe list, byte-identical in both copies (NessieAI/ns/read_safe_endpoints.json, which the write gate enforces, and this baked copy): GET /nextseek_api/experiments/, which was never registered in the URL conf, and POST /nextseek_api/admin/samples/retrieve/, the download API's old alias, replaced by its new name /nextseek_api/samples/retrieve/. The server still answers the alias, so saved chats replay through the NS REST tool. The list is now eight pairs, and the canonical min_api_endpoints.json the image bakes was trimmed to the same eight.",
+      "why": "Operator ruling of 2026-09-24: REST covers only SEEK records the graph does not hold, downloads by UID and the catalog lists; there is no Container-CC write path.",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_endpoints_2026_09_24.py",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_enforced_allowlist_matches_the_baked_agent_copy",
+        "NessieAI/tests/cc/test_cc_context_drift_guard.py::test_advertised_mutating_endpoints_are_pinned",
         "NessieAI/tests/cc/test_step7_cc_runtime_port.py::test_port_evidence_context_file_inventory_matches_ported_files"
       ],
       "context_file_inventory_affected": true

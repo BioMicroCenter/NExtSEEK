@@ -129,7 +129,7 @@ EXPECTED_BAKED_ONLY = frozenset({
 #   source file deleted      -> here (if source-only) or EXPECTED_BAKED_ONLY (if shared)
 #
 # Adding a name here is the deliberate act of declaring "the agent does not need
-# this"; the alternative is to bake it. All 14 files in the source pack are
+# this"; the alternative is to bake it. All 15 files in the source pack are
 # git-tracked, so this set is stable rather than dependent on build artefacts.
 #
 # The Neo4j-derived files here are no longer refreshed from a live graph: the graph-search
@@ -156,6 +156,12 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
     # that skill was removed on 2026-09-18.
     "min_graph_schema.json",
+    # graph_search's catalog entry, kept out of the parser's catalog on 2026-09-24. Only the
+    # scope fallback reads it, and that runs in the app (the NS orchestrator, and the graph and
+    # aggregate ops through NessieAI/ns/granular.py), where api_agent_build_request builds the
+    # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
+    # nextseek-api-read hands its parser plan to the same in-app API agent.
+    "scope_fallback_endpoints.json",
 })
 
 # ---------------------------------------------------------------------------
@@ -553,38 +559,15 @@ WRITE = "write"
 # and the viewset method verified for each.
 POST_AS_READ = "post-as-read"
 
+# 2026-09-24: the operator ruled there is no CC write path (the REST tool behind
+# nextseek-api-write refuses every mutating pair), and the catalog was trimmed to the
+# eight pairs CC's api-read allowlist permits. Only two POSTs remain, both reads.
 ADVERTISED_MUTATIONS = {
-    ("DELETE", "/nextseek_api/samples/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/assays/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/data_files/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/investigations/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/people/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/projects/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/sample_types/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/samples/{uid}/"): WRITE,
-    ("PATCH", "/nextseek_api/sops/{uid}/"): WRITE,
     ("POST", "/nextseek_api/samples/retrieve/"): POST_AS_READ,
-    # Additive membership registration. WRITE, not POST_AS_READ: it inserts
-    # assay_assets rows. It cannot delete — removal is not expressible in the
-    # request shape — but "cannot delete" is not "does not write".
-    ("POST", "/nextseek_api/assay-registrations/"): WRITE,
-    ("POST", "/nextseek_api/assays/"): WRITE,
-    ("POST", "/nextseek_api/data_files/"): WRITE,
-    ("POST", "/nextseek_api/investigations/"): WRITE,
-    ("POST", "/nextseek_api/people/"): WRITE,
-    ("POST", "/nextseek_api/projects/"): WRITE,
-    ("POST", "/nextseek_api/sample_types/"): WRITE,
-    ("POST", "/nextseek_api/samples/"): WRITE,
     # Sample search answered from the graph, the caller's project scope added on
-    # the server. It replaced advanced_search and parents_by_child_types in the
-    # agent's catalog on 2026-09-18 (sample questions go to the graph; the second
-    # also crossed the project edge on lineage).
+    # the server; the graph op's scope fallback. It replaced advanced_search and
+    # parents_by_child_types in the agent's catalog on 2026-09-18.
     ("POST", "/nextseek_api/samples/graph_search/"): POST_AS_READ,
-    ("POST", "/nextseek_api/schema_rag/ingest/"): WRITE,
-    # #86, audited 2026-08-13: WRITE, not post-as-read. See
-    # SCHEMA_RAG_RETRIEVE_AUTO_INGEST below for the finding and the evidence.
-    ("POST", "/nextseek_api/schema_rag/retrieve/"): WRITE,
-    ("POST", "/nextseek_api/sops/"): WRITE,
 }
 
 
@@ -679,12 +662,18 @@ SCHEMA_RAG_INGEST_FN = "ingest_schema"
 
 
 def test_schema_rag_retrieve_is_classified_write():
-    """The audit's conclusion, pinned so it cannot be quietly softened."""
-    assert ADVERTISED_MUTATIONS[SCHEMA_RAG_RETRIEVE] == WRITE, (
+    """The audit's conclusion, pinned so it cannot be quietly softened.
+
+    2026-09-24: the maintainer ruling the comment above left open was made: the
+    catalog was trimmed to CC's eight read pairs, so the endpoint is no longer offered
+    at all. If it is ever re-added it must come back labelled WRITE.
+    """
+    assert ADVERTISED_MUTATIONS.get(SCHEMA_RAG_RETRIEVE, WRITE) == WRITE, (
         "POST /schema_rag/retrieve/ was audited on 2026-08-13 and found to "
         "auto-ingest (see the comment above). Re-labelling it as a read "
         "requires re-doing that audit, not editing this line."
     )
+    assert SCHEMA_RAG_RETRIEVE not in _advertised_mutations(_catalog("source", "min_api_endpoints.json"))
 
 
 def _called_function_names(node: ast.AST) -> set[str]:

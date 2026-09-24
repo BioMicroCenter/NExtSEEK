@@ -28,6 +28,9 @@ class RouterInput {
   user_query  string
   routes      RouteCapability[]
   history     HistoryTurn[]
+  // The follow-up paragraph, filled by NessieAI/router/followup.py from NESSIE_FOLLOWUP_ROUTING
+  // (split by default; cc is the 2026-09-23 rule), so the prompt and the policy guard cannot disagree.
+  followup_rule string?
 }
 
 enum Route {
@@ -106,23 +109,7 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     `unrelated` for subjects that could not plausibly be an entry in a sample
     catalog at all.
 
-    Follow-ups go to `container_cc`. When the CURRENT message refers back to
-    something an earlier turn in this chat returned or did — "of those", "which
-    of them", "those 73 samples", "break that down", "plot that", "download
-    those", "remind me", "what did you find", "what query did you run", "same
-    search but only D.SEQ", "just the 4 week ones" — select `container_cc`,
-    whichever route answered the earlier turn. That route is handed the earlier
-    turns' queries, parameters and result files. A new, self-contained question
-    that names its own subject and needs nothing from an earlier answer is routed
-    on its own merits, even in a chat that has earlier turns.
-
-    A chat that reaches `container_cc` stays there for anything that refers back:
-    after a completed `container_cc` turn, a message about its results, its chart
-    or file, or the conversation so far ("those", "that chart", "the file", "what
-    did you find") is `container_cc`. A self-contained question later in the same
-    chat — one that refers back to no earlier turn, such as "How many HeLa samples
-    do we have?" — is routed exactly as it would be in a new chat. An out-of-scope
-    message is still `unrelated`.
+    {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
 
     Open-ended summaries go to `container_cc`. A request to summarise a whole
     project or investigation — how much data it holds, an inventory of it, an

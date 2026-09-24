@@ -111,13 +111,25 @@ def test_index_line_format():
     assert 'TIS :T_TIS "Tissue Sample" clade Source, 107,412 samples, 41 attributes with values' in text.splitlines()
 
 
-def test_index_omits_deprecated_types():
+def test_index_omits_deprecated_types_that_hold_no_samples():
     text = gc.render_type_index([
         index_row("TIS", sample_count=3, attributes_with_values=2),
-        index_row("OLD", sample_count=9, attributes_with_values=1, deprecated=True),
+        index_row("OLD", sample_count=0, attributes_with_values=0, deprecated=True),
+        index_row("GONE", sample_count=None, attributes_with_values=0, deprecated=True),
     ])
     assert "TIS :T_TIS" in text
-    assert "OLD" not in text
+    assert "OLD" not in text and "GONE" not in text
+
+
+def test_index_keeps_a_deprecated_type_that_still_holds_samples_and_marks_it():
+    """Fix 7 item 5 (operator 2026-09-24): LYS is deprecated but 12 samples still carry :T_LYS;
+    hiding the type made "cell lysate" questions miss them."""
+    text = gc.render_type_index([
+        index_row("CEX", name="Cell Extract", sample_count=654, attributes_with_values=5),
+        index_row("LYS", name="Cell Lysate", sample_count=12, attributes_with_values=3, deprecated=True),
+    ])
+    assert 'LYS :T_LYS "Cell Lysate", 12 samples, 3 attributes with values, deprecated' in text.splitlines()
+    assert 'CEX :T_CEX "Cell Extract", 654 samples, 5 attributes with values' in text.splitlines()
 
 
 def test_index_flags_zero_sample_types():

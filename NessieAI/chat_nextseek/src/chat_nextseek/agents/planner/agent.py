@@ -341,8 +341,8 @@ def planner_agent(
             fallback_step = _build_step_from_candidate(
                 _fill_candidate_defaults(
                     ParserCandidate(
-                        mode="new_search",
-                        target_endpoint="/nextseek_api/samples/advanced_search/",
+                        mode="graph_query",
+                        target_endpoint=None,
                         tool_query=user_query,
                         rationale=f"fallback after planner error: {e}",
                         confidence=0.5,

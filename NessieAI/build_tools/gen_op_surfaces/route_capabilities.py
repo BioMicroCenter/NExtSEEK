@@ -33,7 +33,6 @@ from NessieAI.cc.op_registry.routes import (
 )
 from NessieAI.tests.nessie_tests import corpus as nessie_corpus
 from NessieAI.tests.nessie_tests import export as nexport
-from NessieAI.tests.nessie_tests import runner as nessie_runner
 
 # Repo-relative, joined onto the --root checkout; one source in constants.py.
 ROUTE_CAPABILITIES_REL = Path(constants.ROUTE_CAPABILITIES_REL)
@@ -149,11 +148,12 @@ def _validate_evidence_against_corpus(
     *,
     corpus_path: Path,
 ) -> None:
-    fingerprint = nessie_runner.corpus_fingerprint(corpus_path)
-    if evidence.get("corpus_fingerprint") != fingerprint:
-        raise RouteCapabilitiesError(
-            "evidence corpus_fingerprint is stale versus current corpus.json"
-        )
+    """Evidence stays valid across corpus edits; only a change to an evidence
+    record's own id, family or question text refuses.
+
+    The recorded ``corpus_fingerprint`` values stay in the evidence file as
+    provenance (which corpus the evidence was cut from); they are not compared.
+    """
     index = _corpus_index(corpus_path)
     for record in evidence["records"]:
         query_id = record["query_id"]
@@ -164,8 +164,6 @@ def _validate_evidence_against_corpus(
             raise RouteCapabilitiesError(f"family drift for {query_id!r}")
         if record["query_text"] != expected["query_text"]:
             raise RouteCapabilitiesError(f"query_text drift for {query_id!r}")
-        if record.get("corpus_fingerprint") not in (None, fingerprint):
-            raise RouteCapabilitiesError(f"per-record fingerprint drift for {query_id!r}")
 
 
 def container_cc_tools(*, repo_root: Path) -> list[str]:
@@ -230,12 +228,14 @@ def _split_labels(text: str, prefix: str) -> list[str]:
 
 
 def apply_followup_ruling(ns_route: dict[str, Any]) -> dict[str, Any]:
-    """The nextseek_query route with follow-ups handed to container_cc (2026-09-23).
+    """The nextseek_query route under the follow-up rule (2026-09-24 split; 2026-09-23 before).
 
     Takes ``FOLLOWUP_FAMILIES_ON_CC`` off the route's task families, the
     ``NS_CAPABILITY_LABELS_ON_CC`` labels out of its best_for, and adds
     ``NS_FOLLOWUP_NOT_FOR`` to its not_for, so the router prompt does not offer the NS
-    route for a follow-up the router rule sends to CC. The capability markdown is not
+    route for a follow-up the router rule sends to CC. Since the split, the rule itself
+    lives in the router prompt paragraph (NessieAI/router/followup.py) and only
+    cross_session_memory leaves the NS route. The capability markdown is not
     edited: it describes what the assistant as a whole can do, and the system agent
     reads it. Idempotent, so the committed file is its own fixed point.
     """

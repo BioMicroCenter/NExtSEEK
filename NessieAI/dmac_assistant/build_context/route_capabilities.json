@@ -13,8 +13,8 @@
         "system_agent",
         "pipeline_agent"
       ],
-      "best_for": "Requests supported by the NS capability authority: Sample Search; Graph Queries; Sample Lineage; Upload Statistics and Reporting; Entity and Catalog Information; System Capabilities Questions.",
-      "not_for": "Not intended for: Generate visualizations or charts.; Perform statistical analysis.; Explain external scientific concepts.; Answer questions about data outside NExtSEEK.; Compare groups analytically.; A follow-up to an earlier turn of the chat (a question about its results, a refinement of its search, or recall of what it found): container_cc answers every follow-up; An open-ended summary of a whole project or investigation (how much data it holds, an inventory, an overview, the span of its collection dates): container_cc writes it up with a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here.",
+      "best_for": "Requests supported by the NS capability authority: Sample Search; Graph Queries; Sample Lineage; Upload Statistics and Reporting; Follow-up Questions; Search Refinements; Entity and Catalog Information; System Capabilities Questions.",
+      "not_for": "Not intended for: Generate visualizations or charts.; Perform statistical analysis.; Explain external scientific concepts.; Answer questions about data outside NExtSEEK.; Compare groups analytically.; A follow-up the follow-up rule sends to container_cc (a file, a chart, code, analysis, or any follow-up once the chat has used container_cc); An open-ended summary of a whole project or investigation (how much data it holds, an inventory, an overview, the span of its collection dates): container_cc writes it up with a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here.",
       "task_families": [
         {
           "name": "sample_search",
@@ -70,6 +70,22 @@
           "example_queries": [
             "What can you do? List your capabilities.",
             "What is a D.SEQ sample?"
+          ]
+        },
+        {
+          "name": "followup_over_results",
+          "description": "Ask about results already returned, including aggregating an attribute over 'those'. Absorbs within-chat memory for both engines.",
+          "example_queries": [
+            "turn 1 (seed): Find the patient-visit samples whose Treatment1 is Acetaminophen.\nturn 2 (recall): How many results was that again?",
+            "turn 1 (seed): Find the imaging datasets whose Type is Brightfield.\nturn 2 (followup): Which lab did all of those come from?"
+          ]
+        },
+        {
+          "name": "search_refinement",
+          "description": "Change one filter and re-run the previous search.",
+          "example_queries": [
+            "turn 1 (seed): Find samples from a 4 week study.\nturn 2 (refine): Just the 4 week ones.",
+            "turn 1 (seed): Find NHP samples whose Origin is India.\nturn 2 (refine): Show me the ones from China instead."
           ]
         },
         {
@@ -172,8 +188,8 @@
         "filesystem",
         "skill-runner"
       ],
-      "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets. Also a question that must JOIN two sources the NS route reads separately -- comparing a REST catalog against sample metadata in the graph, such as the registered people against the scientists named on samples -- and any question whose answer is a FILE the user takes away. And every follow-up to an earlier turn of the chat, whichever route answered it: a question about 'those' results, the previous search re-run with a changed filter, what an earlier turn found or which query it ran, a plot or a download of it. This route is handed the earlier turns' queries, their search details and their result files, and in a chat that reached it, a later message that refers back stays here; a self-contained question is routed on its own merits. And an open-ended summary of a whole project or investigation -- how much data it holds, an inventory, an overview, the span of its collection dates -- written up with a file; formal NIH/RPPR/progress reports, upload statistics, submissions and 'what is X' stay on the NS route.",
-      "not_for": "Pure deterministic NExtSEEK lookups that the NS route handles without container tools; caller identity, session, or access-scope questions the NS route already resolves; catalog bookkeeping the NS route answers without shell access; and nf-core pipeline build/launch work that belongs on the NS route. Having a shell is not a reason to route here when NExtSEEK already holds the answer. The dividing line: a question answerable from sample metadata alone is the NS route, however large or analytical -- counts, breakdowns and harmonisation over metadata all run in the graph. It is only a question needing a source the graph does not hold, a produced file, an open-ended project or investigation summary, or a follow-up to an earlier turn that belongs here.",
+      "best_for": "Open-ended reasoning, file I/O, code, multi-tool workflows, and building/validating NExtSEEK batch-upload create/update sheets. Also a question that must JOIN two sources the NS route reads separately -- comparing a REST catalog against sample metadata in the graph, such as the registered people against the scientists named on samples -- and any question whose answer is a FILE the user takes away. And the follow-ups the follow-up rule sends here: this route is handed the earlier turns' queries, their search details and their result files, so it can export, plot, compare or analyse an earlier result, and in a chat that reached it, a later message that refers back stays here; a self-contained question is routed on its own merits. And an open-ended summary of a whole project or investigation -- how much data it holds, an inventory, an overview, the span of its collection dates -- written up with a file; formal NIH/RPPR/progress reports, upload statistics, submissions and 'what is X' stay on the NS route.",
+      "not_for": "Pure deterministic NExtSEEK lookups that the NS route handles without container tools; caller identity, session, or access-scope questions the NS route already resolves; catalog bookkeeping the NS route answers without shell access; and nf-core pipeline build/launch work that belongs on the NS route. Having a shell is not a reason to route here when NExtSEEK already holds the answer. The dividing line: a question answerable from sample metadata alone is the NS route, however large or analytical -- counts, breakdowns and harmonisation over metadata all run in the graph. It is only a question needing a source the graph does not hold, a produced file, an open-ended project or investigation summary, or a follow-up the follow-up rule sends here.",
       "task_families": [
         {
           "name": "sample_search",
@@ -375,4 +391,3 @@
     }
   ]
 }
-

@@ -116,9 +116,9 @@ overlay files and their generator were deleted outright. `FAMILIES.json` declare
 for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-09-23 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 474
-variants over 537 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 415; `bayesian_ids` selects 153; one
+Measured 2026-09-24 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 474
+variants over 538 turns; `curated`, which drops the unreviewed atlas set
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 416; `bayesian_ids` selects 153; one
 consistency group is defined; and 3 variants carry the `route_gate` tag.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
@@ -369,7 +369,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-09-23: 474 resolved / 415 curated. If that line and the pinned test ever
+(2026-09-24: 474 resolved / 416 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -512,9 +512,9 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **413 of 415 are still red**, with all seven floored families at 100%. Four
+and **414 of 416 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **325** variants, `parser_plan.mode` on **213**, `api_ok` on **20**
+fails on **328** variants, `parser_plan.mode` on **212**, `api_ok` on **20**
 and `api_plan.endpoint` on **19** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path). Those cases stay red until the corpus
 itself is settled.
@@ -525,8 +525,11 @@ skip and the *same* 2 with it monkeypatched off. `tree.then_ask_about` is red
 there too: its SEED turn asserts `route` nextseek_query and `parser_plan.mode`
 inline, and an all-CC run fails both before the follow-up is ever reached.
 
-The measurable payoff is the **mixed-route** case, which is what a real run
-actually produces: an NS seed followed by a CC follow-up. `tree.then_ask_about`
+The measurable payoff is the **mixed-route** case: an NS seed followed by a CC
+follow-up. Since the 2026-09-24 follow-up split the corpus expects this case's
+follow-up (a filter over the seed's result) on NS, so on a CC-routed follow-up the
+route is now the one criterion left failing, and the NS follow-up passes, the floor
+included (same test). `tree.then_ask_about`
 is the only multi-turn variant in any floored family, so it is that entire
 population, and in that frame it goes red -> green. Pinned by
 `tests/test_evaluate.py::test_the_one_mixed_route_variant_in_a_floored_family_now_passes`,
@@ -537,8 +540,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (415 total /
-2 green / 413 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (416 total /
+2 green / 414 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

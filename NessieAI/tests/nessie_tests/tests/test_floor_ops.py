@@ -944,7 +944,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 416  # 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}

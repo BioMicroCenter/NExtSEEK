@@ -39,7 +39,12 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # Re-pinned a third time, reviewed: the export rule names the download API by its new path, samples/retrieve
 # (admin/samples/retrieve is its deprecated alias). Checked by replacing that one string in the old frozen JSON,
 # which then equals the new one exactly; no rule or trigger changed (was c7d01c88e6d5...f908c47).
-FROZEN_ROUTING_SHA256 = "7273608d61fa36647eece09140690b0f630261fd6659da8bedaf6cccebb3673a"
+#
+# Re-pinned a fourth time, reviewed (operator 2026-09-24, schema flag F2): the "Investigation titles to recognize"
+# rule gained the five live titles it lacked (Griffith, Impact, RMS-NGC, SRP, Shoulders; the local graph holds 15,
+# less one test record). Checked by replacing that one string in the old frozen JSON, which then equals the new one
+# exactly; no other rule or trigger changed (was 7273608d61fa...bb3673a).
+FROZEN_ROUTING_SHA256 = "0cf426479396fd1f3bec473eb0a4672146304cd712fb9fc97d94c19659e1251f"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

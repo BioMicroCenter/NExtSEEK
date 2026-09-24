@@ -48,6 +48,8 @@ DEFAULTS = {
 }
 PLACEHOLDER = "{{PARSER_CORE_ROUTING}}"
 GRAPH_SEARCH = "/nextseek_api/samples/graph_search/"
+# Not a variant file: only the scope fallback reads it (ChatConfig.FALLBACK_API_ENDPOINTS), never the parser.
+SCOPE_FALLBACK = CONTEXT / "scope_fallback_endpoints.json"
 
 
 def read(path: Path) -> str:
@@ -80,15 +82,16 @@ def test_no_text_override_carries_a_template_marker(name):
     assert not re.search(r"\{\{[A-Z_]+\}\}", shipped(name))
 
 
-def test_the_context_json_parses_and_carries_graph_search():
+def test_the_context_json_parses_and_keeps_graph_search_out_of_the_catalog():
     schema = json.loads(shipped("min_graph_schema.json"))
     assert isinstance(schema, dict) and schema
 
     endpoints = json.loads(shipped("min_api_endpoints_enriched.json"))
     assert isinstance(endpoints, list) and endpoints
     assert all(isinstance(e, dict) and e.get("path") and e.get("method") for e in endpoints)
-    # 7.1 falls back to graph_search from the shipped prompts, so the catalog must advertise it.
-    assert GRAPH_SEARCH in {e["path"] for e in endpoints}
+    # Routing review 6a (2026-09-24): every sample question goes to the graph, so the catalog the parser chooses
+    # from has no sample search. 7.1's fallback builds graph_search from its own file instead (below).
+    assert GRAPH_SEARCH not in {e["path"] for e in endpoints}
 
 
 # --- the routing core sends metadata to the graph -----------------------------------------------------------------------------------
@@ -235,7 +238,7 @@ def test_the_prompt_ends_open_so_a_variant_can_append_a_section():
 
 
 def test_graph_search_is_advertised_and_the_read_only_tool_permits_it():
-    endpoints = {e["path"]: e for e in json.loads(shipped("min_api_endpoints_enriched.json"))}
+    endpoints = {e["path"]: e for e in json.loads(read(SCOPE_FALLBACK))}
     entry = endpoints[GRAPH_SEARCH]
     assert entry["method"] == "POST"
     assert set(entry["request_body"]) >= {"filter_searchText", "extensions"}

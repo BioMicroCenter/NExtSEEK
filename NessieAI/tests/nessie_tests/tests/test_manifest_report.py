@@ -233,7 +233,14 @@ def test_the_vacuous_turn_the_docs_promise_really_is_visible(tmp_path):
 
     doc = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "SKIPPED" in doc, "the report gives no signal that a whole turn asserted nothing"
-    assert f"{len(entry.observations)} criteria, {len(skipped)} skipped" in doc
+    # 2026-09-24, follow-up split (routing review 5): the corpus now expects this
+    # follow-up on nextseek_query. The container_cc fixture is kept because a CC-routed
+    # turn is what produces the outcome_observed skip; it fails exactly one criterion,
+    # the route, and the skips are still counted apart from it.
+    failed = [o for o in entry.observations if not o.passed and not o.skipped]
+    assert [(o.turn, o.field) for o in failed] == [("follow_up", "route")]
+    assert (f"{len(entry.observations)} criteria, {len(failed)} failed, "
+            f"{len(skipped)} skipped") in doc
 
 
 # --------------------------------------------------------------------------- #

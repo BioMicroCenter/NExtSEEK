@@ -1,4 +1,8 @@
-"""2026-09-23 rulings: every follow-up goes to container_cc; once a chat is on
+"""The 2026-09-23 rule, which is now the ``NESSIE_FOLLOWUP_ROUTING=cc`` setting (the rollback for
+the 2026-09-24 follow-up split; the split itself is pinned in test_followup_split.py). Every test
+here runs with the switch at ``cc``; stickiness holds under both settings.
+
+2026-09-23 rulings: every follow-up goes to container_cc; once a chat is on
 container_cc, a turn that refers back to its results or to the conversation stays there,
 and a SELF-CONTAINED question (one that refers back to nothing) is routed normally again.
 
@@ -60,6 +64,11 @@ def _entry(choice, status="completed", turn_id=1):
 def _decision(route, source="baml", reasoning="router reasoning"):
     return cc_router.RouteDecision(route=route, model_class=None, model_id=None,
                                    reasoning=reasoning, source=source)
+
+
+@pytest.fixture(autouse=True)
+def _followup_switch_at_cc(monkeypatch):
+    monkeypatch.setenv(followup.FOLLOWUP_ROUTING_ENV, "cc")
 
 
 @pytest.fixture
@@ -358,29 +367,34 @@ def _routes():
 
 
 def test_route_capabilities_carries_the_ruling():
+    """2026-09-24: the route descriptions stop restating the follow-up rule (it lives in the router
+    prompt paragraph, filled from the switch), so they are right under either setting."""
     from NessieAI.build_tools.gen_op_surfaces.route_capabilities import apply_followup_ruling
     from NessieAI.cc.op_registry.routes import (
         CONTAINER_CC_ROUTE,
         FOLLOWUP_FAMILIES_ON_CC,
-        NS_CAPABILITY_LABELS_ON_CC,
         NS_FOLLOWUP_NOT_FOR,
     )
 
     routes = _routes()
     ns, cc = routes[cc_router.ROUTE_NS], routes[cc_router.ROUTE_CC]
-    # The committed file is the generator's fixed point for the ruling.
     assert apply_followup_ruling(ns) == ns
     ns_families = {f["name"] for f in ns["task_families"]}
     cc_families = {f["name"] for f in cc["task_families"]}
-    assert not ns_families & set(FOLLOWUP_FAMILIES_ON_CC)
-    assert {"followup_over_results", "search_refinement"} <= cc_families
-    for label in NS_CAPABILITY_LABELS_ON_CC:
-        assert label not in ns["best_for"]
+    assert FOLLOWUP_FAMILIES_ON_CC == ("cross_session_memory",)
+    assert "cross_session_memory" not in ns_families
+    assert {"followup_over_results", "search_refinement"} <= ns_families
+    assert {"followup_over_results", "search_refinement", "cross_session_memory"} <= cc_families
+    for label in ("Follow-up Questions", "Search Refinements"):
+        assert label in ns["best_for"]
     assert NS_FOLLOWUP_NOT_FOR in ns["not_for"]
+    assert "container_cc answers every follow-up" not in ns["not_for"]
     assert cc["best_for"] == CONTAINER_CC_ROUTE.best_for
-    assert "every follow-up to an earlier turn" in cc["best_for"]
+    assert "every follow-up to an earlier turn" not in cc["best_for"]
+    assert "the follow-ups the follow-up rule sends here" in cc["best_for"]
     assert "a later message that refers back stays here" in cc["best_for"]
     assert "self-contained question is routed on its own merits" in cc["best_for"]
+    assert cc["not_for"].endswith("or a follow-up the follow-up rule sends here.")
 
 
 def test_apply_followup_ruling_is_idempotent_and_keeps_the_rest():
@@ -396,27 +410,30 @@ def test_apply_followup_ruling_is_idempotent_and_keeps_the_rest():
     }
     once = apply_followup_ruling(before)
     assert apply_followup_ruling(once) == once
-    assert once["best_for"] == ("Requests supported by the NS capability authority: "
-                                "Sample Search; Graph Queries.")
+    assert once["best_for"] == before["best_for"]
     assert once["not_for"].startswith("Not intended for: Generate visualizations or charts.; "
-                                      "Compare groups analytically.; A follow-up to an earlier turn")
-    assert "container_cc answers every follow-up; " in once["not_for"]
+                                      "Compare groups analytically.; A follow-up the follow-up rule sends")
     assert once["not_for"].endswith("'what is X' stay here.")
-    assert [f["name"] for f in once["task_families"]] == ["sample_search"]
+    assert [f["name"] for f in once["task_families"]] == [
+        "sample_search", "followup_over_results", "search_refinement"]
     assert once["description"] == "d" and once["tools"] == ["x"]
 
 
 def test_router_baml_states_the_followup_and_sticky_rules_after_the_unrelated_guard():
+    """The rule text now lives in followup.FOLLOWUP_RULE_CC / _SPLIT; router.baml renders it."""
     src = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
     guard = src.index("If the query has no connection")
-    rule = src.index("Follow-ups go to `container_cc`.")
-    sticky = src.index("A chat that reaches `container_cc` stays there for anything that refers back")
+    rule = src.index("{{ input.followup_rule }}")
     out = src.index("{{ ctx.output_format }}")
-    assert guard < rule < sticky < out
+    assert guard < rule < out
+    text = followup.FOLLOWUP_RULE_CC
+    assert text.index("Follow-ups go to `container_cc`.") < text.index(
+        "A chat that reaches `container_cc` stays there for anything that refers back")
     # The rule names the self-contained exception, and never lets CC take `unrelated`.
-    assert re.search(r"self-contained question[\s\S]{0,120}routed\s+on its own merits", src)
-    assert "is routed exactly as it would be in a new chat" in src
-    assert "message is still `unrelated`." in src
+    for rule_text in (followup.FOLLOWUP_RULE_CC, followup.FOLLOWUP_RULE_SPLIT):
+        assert re.search(r"self-contained question[\s\S]{0,120}routed\s+on its own merits", rule_text)
+        assert "message is still `unrelated`." in rule_text
+    assert "is routed exactly as it would be in a new chat" in followup.FOLLOWUP_RULE_CC
 
 
 def test_open_ended_summaries_are_ruled_to_container_cc_in_every_router_surface():

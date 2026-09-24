@@ -17,6 +17,7 @@ except ImportError:
     from router_context import HistoryTurn
 
 from NessieAI import paths
+from NessieAI.router import followup
 from NessieAI.router import posterior_selector
 from NessieAI.router import transport_trace
 from NessieAI.router.baml_introspect import declared_family_members, validate_member
@@ -227,6 +228,7 @@ def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteD
             user_query=query,
             routes=caps,
             history=_history_to_baml(history, Route),
+            followup_rule=followup.followup_rule_text(),
         )
         decision = asyncio.run(b.RouteQuery(input=request))
         return _route_from_baml(decision, Route)

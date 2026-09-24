@@ -28,10 +28,11 @@ def test_every_definition_carries_its_origin_as_a_tag():
         # "atlas" is the third origin, added 2026-08-04: generated variants, one
         # per expressible capability assertion. See corpus.curated.
         assert {"base", "overlay", "atlas"} & set(v.tags), f"{v.id} carries no origin tag"
-    assert len([v for v in defs if "overlay" in v.tags]) == 184  # 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len([v for v in defs if "atlas" in v.tags]) == 59  # 63 -> 59: four atlas
+    assert len([v for v in defs if "overlay" in v.tags]) == 186  # 184 -> 186: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set, so both carry the overlay tag. 134 -> 184: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 72 -> 134: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len([v for v in defs if "atlas" in v.tags]) == 58  # 59 -> 58: 2026-09-24, fix 9: the retired atlas case was read and ruled on. 63 -> 59: four atlas
     # variants were read, ground-truthed and put in the paid selection, which
-    # is an origin AND tag flip. `_atlas` provenance is kept on all 80.
+    # is an origin AND tag flip. `_atlas` provenance is kept on all 80 (81 since
+    # 2026-09-24: fix 9's new case keeps the retired case's).
 
 
 def test_merged_is_exactly_the_active_definitions():
@@ -43,7 +44,7 @@ def test_merged_is_exactly_the_active_definitions():
     retired = {vid for vid, m in meta.items() if m["status"] == "retired"}
     merged = corpus.curated(corpus.merged(CORPUS))
     all_defs = corpus.curated(all_defs)
-    assert len(merged) == len(all_defs) - len(retired) == 415  # 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == len(all_defs) - len(retired) == 416  # 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. Was: 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     assert len({v.id for v in merged}) == len(merged)  # no duplicate ids
     assert not ({v.id for v in merged} & retired)
 
@@ -282,7 +283,7 @@ def test_every_resolved_variant_carries_a_route_criterion():
     with_route = [v for v in expected
                   if any(c.field == "route" for t in v.turns for c in t.pass_criteria)]
 
-    assert len(with_route) == len(expected) == 367, (  # 320 -> 367: 2026-09-23: +50 variants for the 53 production researcher questions, 47 of them outside the unsettled artifact_delivery family. Was: 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(with_route) == len(expected) == 368, (  # 367 -> 368: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns is a curated engine_routing case and asserts its route. 320 -> 367: 2026-09-23: +50 variants for the 53 production researcher questions, 47 of them outside the unsettled artifact_delivery family. Was: 288 -> 320: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
         f"{len(with_route)} of {len(expected)} carry a route criterion — update {_DOCS}")
 
     # The exemption is real and bounded: nothing outside those 8 families may skip
@@ -324,7 +325,7 @@ def test_the_route_policy_injects_the_number_the_docs_quote():
     injected = corpus.curated(injected)
     inline = corpus.curated(inline)
     assert len(injected) == 280, f"{len(injected)} injected — update {_DOCS}"  # 305 -> 280: 2026-09-23: the REST-plumbing retirement wrote route nextseek_query inline on the seed of 25 multi-turn variants (follow-ups route container_cc per the operator ruling). # 273 -> 305: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
-    assert len(inline) == 90, f"{len(inline)} inline — update {_DOCS}"  # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
+    assert len(inline) == 91, f"{len(inline)} inline — update {_DOCS}"  # 90 -> 91: 2026-09-24: fix 9's route.ndma_mice_then_female_two_turns writes its route inline on its first turn. # 65 -> 90: 2026-09-23: those same 25 seeds. # 15 -> 65: 2026-09-23: +50 variants for the 53 production researcher questions, every one writing its route inline on its first turn
 
 
 def test_the_family_floor_injects_the_numbers_the_docs_quote():

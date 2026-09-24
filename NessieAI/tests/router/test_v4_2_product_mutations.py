@@ -11,7 +11,7 @@ from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
 from NessieAI.router import policy
 
-ADMIN = SimpleNamespace(is_staff=True, is_superuser=False)
+ADMIN = SimpleNamespace(is_staff=True, is_superuser=True)
 USER = SimpleNamespace(is_staff=False, is_superuser=False)
 
 

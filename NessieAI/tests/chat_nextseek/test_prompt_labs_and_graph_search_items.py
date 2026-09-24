@@ -10,7 +10,8 @@ Each test pins one item, read by path from this checkout so an installed copy of
   is typed investigation AND names a parent project (13.1); the system agent is told the same (13.5); the graph agents
   read `resolved.scientists` and `resolved.lab_matches` (13.4).
 * 7.1 falls back to graph_search for a refused graph question on every engine, and both engines' fallbacks build the
-  request from the DEFAULT config. The default catalog and API prompt must describe graph_search as it is now:
+  request from the DEFAULT config. graph_search's entry (in the scope-fallback file since 2026-09-24) and the API
+  prompt must describe graph_search as it is now:
   NOT CONTAINS, IS TRUE, IS FALSE, lineage in either direction, 1 to 12 hops, results limited to the caller's projects.
 * 6.14: no catalog sends a question about a person who made samples to /people/.
 """
@@ -31,6 +32,9 @@ CORES = {
 GRAPH_SCHEMAS = {"default": CONTEXT / "min_graph_schema.json",
 }
 CATALOGS = {"default": CONTEXT / "min_api_endpoints_enriched.json",
+}
+# graph_search left the parser's catalog on 2026-09-24 (routing review 6a); the scope fallback builds it from here.
+FALLBACK_CATALOGS = {"default": CONTEXT / "scope_fallback_endpoints.json",
 }
 GRAPH_AGENTS = {"default": PROMPTS / "graph_agent.txt"}
 GRAPH_SEARCH = "/nextseek_api/samples/graph_search/"
@@ -126,9 +130,9 @@ def _entry(catalog: Path, path: str) -> dict | None:
     return next((e for e in json.loads(read(catalog)) if e.get("path") == path), None)
 
 
-@pytest.mark.parametrize("name", sorted(CATALOGS))
+@pytest.mark.parametrize("name", sorted(FALLBACK_CATALOGS))
 def test_every_catalog_describes_graph_search_as_it_is_now(name):
-    entry = _entry(CATALOGS[name], GRAPH_SEARCH)
+    entry = _entry(FALLBACK_CATALOGS[name], GRAPH_SEARCH)
     assert entry is not None, f"the {name} catalog has no graph_search entry: 7.1's fallback builds blind"
     desc = entry["description"]
     for phrase in ("NOT CONTAINS", "IS TRUE", "IS FALSE", "either", "1 to 12 hops", "limited to the caller's projects"):

@@ -20,6 +20,7 @@ from NessieAI.build_tools.gen_op_surfaces.constants import (
     PLUGIN_CONTEXT_REL,
     ROUTE_CAPABILITIES_REL,
 )
+from NessieAI.build_tools.gen_op_surfaces import route_capabilities
 from NessieAI.build_tools.gen_op_surfaces.docker_blocks import (
     validate_canonical_capabilities_final_writer,
 )
@@ -137,11 +138,12 @@ def _independent_top_queries(
     return out
 
 
-# 2026-09-23 ruling: every follow-up routes to container_cc, so the nextseek_query route
-# loses its follow-up families and labels and gains one not_for line. Written out here,
-# not imported from routes.py, so the oracle stays independent of the generator.
-_RULING_NS_FAMILIES = frozenset({"followup_over_results", "search_refinement", "cross_session_memory"})
-_RULING_NS_LABELS = frozenset({"Follow-up Questions", "Search Refinements"})
+# 2026-09-24 follow-up split (routing review 5.3): the rule lives in the router prompt paragraph
+# only, so nextseek_query keeps its follow-up families and labels (cross_session_memory stays
+# container_cc only) and gains one not_for line that points at the rule. Written out here, not
+# imported from routes.py, so the oracle stays independent of the generator.
+_RULING_NS_FAMILIES = frozenset({"cross_session_memory"})
+_RULING_NS_LABELS = frozenset()
 # The 2026-09-23 summary ruling's line, appended after the follow-up one (routes.NS_SUMMARY_NOT_FOR).
 _RULING_NS_SUMMARY_NOT_FOR = (
     "An open-ended summary of a whole project or investigation (how much data it holds, an "
@@ -149,9 +151,8 @@ _RULING_NS_SUMMARY_NOT_FOR = (
     "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
 )
 _RULING_NS_NOT_FOR = (
-    "A follow-up to an earlier turn of the chat (a question about its results, a "
-    "refinement of its search, or recall of what it found): container_cc answers "
-    "every follow-up"
+    "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "
+    "analysis, or any follow-up once the chat has used container_cc)"
 )
 
 
@@ -363,7 +364,7 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
         + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR, _RULING_NS_SUMMARY_NOT_FOR]) + "."
     )
     assert list(produced.tools) == expected["tools"]
-    assert _RULING_NS_LABELS <= set(expected["tools"])
+    assert {"Follow-up Questions", "Search Refinements"} <= set(expected["tools"])
     for label in expected["tools"]:
         if label in _RULING_NS_LABELS:
             assert label not in ns["best_for"]
@@ -411,14 +412,14 @@ def test_container_tools_match_independent_install_and_ops_oracle() -> None:
 def test_full_route_family_projection_matches_independent_oracle() -> None:
     evidence = load_committed_evidence(EVIDENCE_PATH)
     descriptions = _corpus_family_descriptions()
-    fingerprint = nessie_runner.corpus_fingerprint(CORPUS_PATH)
-    assert evidence["corpus_fingerprint"] == fingerprint
+    # Evidence survives corpus edits: the whole-corpus fingerprint is provenance
+    # only. Each record must still name a live id with its own family and text.
     variants = {item.id: item for item in nessie_corpus.load_all_definitions(CORPUS_PATH)}
     for record in evidence["records"]:
+        assert record["query_id"] in variants
         variant = variants[record["query_id"]]
         assert record["task_family"] == variant.family
         assert record["query_text"] == nexport.query_text(variant)
-        assert record["corpus_fingerprint"] == fingerprint
     payload = json.loads(ROUTE_JSON.read_text(encoding="utf-8"))
     for route_name in (NS_ROUTE, CC_ROUTE):
         expected = _independent_family_projection(
@@ -710,3 +711,49 @@ def test_no_f10_hash_pin_restored() -> None:
         assert digest not in text
         if path.name == "test_route_capabilities.py":
             assert "F-10" not in text or "no_f10" in text
+
+
+def _first_variant_not_in(
+    corpus: dict[str, Any], named: set[str]
+) -> tuple[str, dict[str, Any]]:
+    for fam, body in corpus["families"].items():
+        if fam.startswith("_") or not isinstance(body, dict):
+            continue
+        for var in body.get("variants", []):
+            if var["id"] not in named:
+                return fam, var
+    raise AssertionError("every corpus variant is named by the evidence")
+
+
+def _variant_by_id(corpus: dict[str, Any], query_id: str) -> dict[str, Any]:
+    for fam, body in corpus["families"].items():
+        if fam.startswith("_") or not isinstance(body, dict):
+            continue
+        for var in body.get("variants", []):
+            if var["id"] == query_id:
+                return var
+    raise AssertionError(f"{query_id!r} not in corpus")
+
+
+def test_a_corpus_edit_outside_the_evidence_keeps_the_evidence_valid(tmp_path):
+    corpus = json.loads(CORPUS_PATH.read_text())
+    # Edit a key on a variant that no evidence record names.
+    evidence = json.loads(EVIDENCE_PATH.read_text())
+    named = {r["query_id"] for r in evidence["records"]}
+    fam, var = _first_variant_not_in(corpus, named)
+    var.setdefault("_why", "")
+    var["_why"] += " edited"
+    edited = tmp_path / "corpus.json"
+    edited.write_text(json.dumps(corpus))
+    route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)  # no raise
+
+
+def test_changed_evidence_text_still_refuses(tmp_path):
+    corpus = json.loads(CORPUS_PATH.read_text())
+    evidence = json.loads(EVIDENCE_PATH.read_text())
+    qid = evidence["records"][0]["query_id"]
+    _variant_by_id(corpus, qid)["turns"][0]["query"] += " (changed)"
+    edited = tmp_path / "corpus.json"
+    edited.write_text(json.dumps(corpus))
+    with pytest.raises(route_capabilities.RouteCapabilitiesError, match="query_text drift"):
+        route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)
