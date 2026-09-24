@@ -252,6 +252,14 @@ def test_a_failed_or_refused_read_is_listed_and_retried_next_turn(tmp_path, outp
     assert (dest / "turn-01" / "samples.csv").is_file()
 
 
+def test_uids_the_graph_no_longer_holds_give_no_empty_file(tmp_path, outputs):
+    graph = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=graph)
+    assert not (dest / "turn-01" / "samples.csv").exists()
+    reasons = {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}
+    assert reasons["samples.csv"] == "no_matching_samples"
+
+
 def test_a_count_only_turn_has_no_uids_and_no_samples_query(tmp_path, outputs):
     graph = _Graph()
     bundle = _thin_bundle(outputs, rows=[{"n": 1442}])

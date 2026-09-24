@@ -349,6 +349,9 @@ def _stage_samples(uids: list[str], turn_dir: Path, graph_query: GraphQuery,
                             "reason": "graph_scope_refused" if refused else "graph_error"})
             return {}
         rows = _sample_rows(result)
+        if not rows:
+            skipped.append({"file": SAMPLES_CSV, "reason": "no_matching_samples"})
+            return {}
         count = len({str(r.get("uuid")) for r in rows if r.get("uuid")})
         _write_text(dst, rows_csv(rows, _sample_columns(rows)))
     capped = f" (the first {len(wanted)} of {len(uids)} UIDs)" if len(wanted) < len(uids) else ""
