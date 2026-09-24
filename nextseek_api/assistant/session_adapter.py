@@ -62,6 +62,15 @@ class DictSessionAdapter:
             **(getattr(chat_session, "extra_state", None) or {}),
         }
 
+    def reload(self) -> None:
+        """Re-read the row and rebuild the cache: a turn must see the turn before it."""
+        self._session.refresh_from_db(fields=["results_history", "last_debug", "extra_state"])
+        self._cache = {
+            "results_history": list(self._session.results_history),
+            "last_debug": dict(self._session.last_debug),
+            **(getattr(self._session, "extra_state", None) or {}),
+        }
+
     # --- dict-like interface ---
 
     def get(self, key: str, default: Any = None) -> Any:

@@ -20,6 +20,7 @@ from NessieAI.build_tools.gen_op_surfaces.constants import (
     PLUGIN_CONTEXT_REL,
     ROUTE_CAPABILITIES_REL,
 )
+from NessieAI.build_tools.gen_op_surfaces import route_capabilities
 from NessieAI.build_tools.gen_op_surfaces.docker_blocks import (
     validate_canonical_capabilities_final_writer,
 )
@@ -411,14 +412,14 @@ def test_container_tools_match_independent_install_and_ops_oracle() -> None:
 def test_full_route_family_projection_matches_independent_oracle() -> None:
     evidence = load_committed_evidence(EVIDENCE_PATH)
     descriptions = _corpus_family_descriptions()
-    fingerprint = nessie_runner.corpus_fingerprint(CORPUS_PATH)
-    assert evidence["corpus_fingerprint"] == fingerprint
+    # Evidence survives corpus edits: the whole-corpus fingerprint is provenance
+    # only. Each record must still name a live id with its own family and text.
     variants = {item.id: item for item in nessie_corpus.load_all_definitions(CORPUS_PATH)}
     for record in evidence["records"]:
+        assert record["query_id"] in variants
         variant = variants[record["query_id"]]
         assert record["task_family"] == variant.family
         assert record["query_text"] == nexport.query_text(variant)
-        assert record["corpus_fingerprint"] == fingerprint
     payload = json.loads(ROUTE_JSON.read_text(encoding="utf-8"))
     for route_name in (NS_ROUTE, CC_ROUTE):
         expected = _independent_family_projection(
@@ -710,3 +711,49 @@ def test_no_f10_hash_pin_restored() -> None:
         assert digest not in text
         if path.name == "test_route_capabilities.py":
             assert "F-10" not in text or "no_f10" in text
+
+
+def _first_variant_not_in(
+    corpus: dict[str, Any], named: set[str]
+) -> tuple[str, dict[str, Any]]:
+    for fam, body in corpus["families"].items():
+        if fam.startswith("_") or not isinstance(body, dict):
+            continue
+        for var in body.get("variants", []):
+            if var["id"] not in named:
+                return fam, var
+    raise AssertionError("every corpus variant is named by the evidence")
+
+
+def _variant_by_id(corpus: dict[str, Any], query_id: str) -> dict[str, Any]:
+    for fam, body in corpus["families"].items():
+        if fam.startswith("_") or not isinstance(body, dict):
+            continue
+        for var in body.get("variants", []):
+            if var["id"] == query_id:
+                return var
+    raise AssertionError(f"{query_id!r} not in corpus")
+
+
+def test_a_corpus_edit_outside_the_evidence_keeps_the_evidence_valid(tmp_path):
+    corpus = json.loads(CORPUS_PATH.read_text())
+    # Edit a key on a variant that no evidence record names.
+    evidence = json.loads(EVIDENCE_PATH.read_text())
+    named = {r["query_id"] for r in evidence["records"]}
+    fam, var = _first_variant_not_in(corpus, named)
+    var.setdefault("_why", "")
+    var["_why"] += " edited"
+    edited = tmp_path / "corpus.json"
+    edited.write_text(json.dumps(corpus))
+    route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)  # no raise
+
+
+def test_changed_evidence_text_still_refuses(tmp_path):
+    corpus = json.loads(CORPUS_PATH.read_text())
+    evidence = json.loads(EVIDENCE_PATH.read_text())
+    qid = evidence["records"][0]["query_id"]
+    _variant_by_id(corpus, qid)["turns"][0]["query"] += " (changed)"
+    edited = tmp_path / "corpus.json"
+    edited.write_text(json.dumps(corpus))
+    with pytest.raises(route_capabilities.RouteCapabilitiesError, match="query_text drift"):
+        route_capabilities._validate_evidence_against_corpus(evidence, corpus_path=edited)
