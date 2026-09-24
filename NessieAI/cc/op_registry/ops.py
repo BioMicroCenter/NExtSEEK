@@ -145,7 +145,7 @@ OPS: list[OpSpec] = [
         ],
         skill_name="nextseek",
         skill_row=_row(
-            "Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.",
+            "Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned.",
             "--turn <N>",
             "{turn_id, bundle_id, total, row_count, columns, path}",
         ),
@@ -281,7 +281,7 @@ OPS: list[OpSpec] = [
         response_envelope_fields=["op", "result"],
         skill_name="nextseek",
         skill_row=_row(
-            "Execute a write (POST/PUT/DELETE) from a parser plan.",
+            "Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it; tell the user the change is made in NExtSEEK itself.",
             "--parser-plan '<json>' --confirmed-write",
             "API response",
         ),
