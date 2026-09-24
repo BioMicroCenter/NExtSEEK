@@ -125,8 +125,8 @@ without an error at the point of the change.
 - **The graph schema is no longer written into `context/`.** `neo4j_schema.json`,
   `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` are committed files the
   config only reads (`ChatConfig.NEO4J_SCHEMA`, `PROTOCOL_SCHEMA` and
-  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j any more, so a hand edit
-  is the only way they change. The graph agent reads the live v1.1 catalog through
+  `ASSAY_SAMPLE_CONNECTIONS`); nothing refreshes them from Neo4j by itself: regenerate
+  them, read only, with `scripts/graph_schema_fallback.py`. The graph agent reads the live v1.1 catalog through
   `graph_catalog.get_snapshot`, cached per process on `GraphMeta.catalog_hash`, and falls
   back to those committed files on any catalog failure (`resolve_catalog_context` in
   `NessieAI/chat_nextseek/src/chat_nextseek/agents/graph.py`). `graph_schema_snapshot`, beside
