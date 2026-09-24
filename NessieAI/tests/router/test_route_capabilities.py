@@ -138,11 +138,12 @@ def _independent_top_queries(
     return out
 
 
-# 2026-09-23 ruling: every follow-up routes to container_cc, so the nextseek_query route
-# loses its follow-up families and labels and gains one not_for line. Written out here,
-# not imported from routes.py, so the oracle stays independent of the generator.
-_RULING_NS_FAMILIES = frozenset({"followup_over_results", "search_refinement", "cross_session_memory"})
-_RULING_NS_LABELS = frozenset({"Follow-up Questions", "Search Refinements"})
+# 2026-09-24 follow-up split (routing review 5.3): the rule lives in the router prompt paragraph
+# only, so nextseek_query keeps its follow-up families and labels (cross_session_memory stays
+# container_cc only) and gains one not_for line that points at the rule. Written out here, not
+# imported from routes.py, so the oracle stays independent of the generator.
+_RULING_NS_FAMILIES = frozenset({"cross_session_memory"})
+_RULING_NS_LABELS = frozenset()
 # The 2026-09-23 summary ruling's line, appended after the follow-up one (routes.NS_SUMMARY_NOT_FOR).
 _RULING_NS_SUMMARY_NOT_FOR = (
     "An open-ended summary of a whole project or investigation (how much data it holds, an "
@@ -150,9 +151,8 @@ _RULING_NS_SUMMARY_NOT_FOR = (
     "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
 )
 _RULING_NS_NOT_FOR = (
-    "A follow-up to an earlier turn of the chat (a question about its results, a "
-    "refinement of its search, or recall of what it found): container_cc answers "
-    "every follow-up"
+    "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "
+    "analysis, or any follow-up once the chat has used container_cc)"
 )
 
 
@@ -364,7 +364,7 @@ def test_ns_fields_match_independent_markdown_oracle() -> None:
         + "; ".join([*expected["negative_labels"], _RULING_NS_NOT_FOR, _RULING_NS_SUMMARY_NOT_FOR]) + "."
     )
     assert list(produced.tools) == expected["tools"]
-    assert _RULING_NS_LABELS <= set(expected["tools"])
+    assert {"Follow-up Questions", "Search Refinements"} <= set(expected["tools"])
     for label in expected["tools"]:
         if label in _RULING_NS_LABELS:
             assert label not in ns["best_for"]

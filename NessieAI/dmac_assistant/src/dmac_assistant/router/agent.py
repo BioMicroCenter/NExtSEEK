@@ -106,13 +106,19 @@ class RouterAgent:
         self._capabilities = capabilities
 
     async def route(
-        self, user_query: str, history: list | None = None
+        self, user_query: str, history: list | None = None, followup_rule: str | None = None
     ) -> RouterDecision:
-        """Return a router decision, falling back if the BAML call fails."""
+        """Return a router decision, falling back if the BAML call fails.
+
+        ``followup_rule`` is the follow-up paragraph of the router prompt; the NExtSEEK router
+        fills it from NESSIE_FOLLOWUP_ROUTING (NessieAI/router/followup.py). Left out, the prompt
+        carries no follow-up paragraph.
+        """
         request = RouterInput(
             user_query=user_query,
             routes=self._capabilities,
             history=_to_baml_history(history),
+            followup_rule=followup_rule,
         )
         start = time.monotonic()
         try:

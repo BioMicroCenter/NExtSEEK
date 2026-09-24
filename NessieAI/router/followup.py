@@ -29,6 +29,7 @@ Pure: no Django, no BAML, no I/O, so it is importable anywhere the router is.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Iterable
 
@@ -138,3 +139,105 @@ def followup_reason(query: str | None, history: Iterable[Any] | None) -> str | N
     if not has_answered_engine_turn(history):
         return None
     return followup_cue(query)
+
+
+# ------------------------------------------------------------------------------------------------
+# The follow-up split (operator 2026-09-24, routing review section 5).
+#
+# A follow-up NExtSEEK can answer from the earlier result or by re-running the earlier search stays
+# on nextseek_query; one that needs a file, a chart, code, a comparison, summary or analysis goes to
+# container_cc; once a chat has a completed container_cc turn, anything that refers back stays there.
+# The rule text the router reads (RouterInput.followup_rule) and the guard in policy._decide_route
+# both read NESSIE_FOLLOWUP_ROUTING through this module, so they cannot disagree. "cc" restores the
+# 2026-09-23 rule (every follow-up to container_cc) word for word, with no rebuild: set it in the
+# box's env file and recreate the app container. ``followup_cue`` above is unchanged; the reviewer's
+# chip guard depends on it.
+# ------------------------------------------------------------------------------------------------
+
+FOLLOWUP_ROUTING_ENV = "NESSIE_FOLLOWUP_ROUTING"
+
+
+def followup_mode() -> str:
+    """``"split"`` (the default) or ``"cc"``; any other value is ``"split"``."""
+    value = str(os.environ.get(FOLLOWUP_ROUTING_ENV) or "").strip().lower()
+    return "cc" if value == "cc" else "split"
+
+
+# Words that make a follow-up need more than NExtSEEK's re-run of the earlier search: a file or a
+# download, a chart, code, or a comparison, summary or analysis. "graph" is left out on purpose:
+# "how many of those are in the graph" is an NExtSEEK question.
+_CC_SHAPE = re.compile(
+    r"\b(?:download\w*|export\w*|save|saved|files?|csv|excel|xlsx|spreadsheets?|workbooks?|"
+    r"plot\w*|charts?|figures?|visuali[sz]\w*|code|scripts?|python|"
+    r"compare|comparing|comparison|summari[sz]\w*|summary|report|analy[sz]\w*|send|write)\b",
+    re.IGNORECASE,
+)
+
+
+def followup_shape(query: str | None) -> str | None:
+    """Which engine a follow-up needs: ``"cc"``, ``"ns"``, or None when ``query`` is not a follow-up.
+
+    ``"cc"`` when the message names a file or download, a chart, code, or a comparison, summary or
+    analysis, or points at an artifact ("that chart", "the file"); every other follow-up is ``"ns"``.
+    """
+    cue = followup_cue(query)
+    if cue is None:
+        return None
+    text = " ".join(str(query or "").split())
+    if cue == "that-artifact" or _CC_SHAPE.search(text):
+        return "cc"
+    return "ns"
+
+
+#: The 2026-09-23 rule, word for word (router.baml before 2026-09-24).
+FOLLOWUP_RULE_CC = """\
+Follow-ups go to `container_cc`. When the CURRENT message refers back to
+something an earlier turn in this chat returned or did — "of those", "which
+of them", "those 73 samples", "break that down", "plot that", "download
+those", "remind me", "what did you find", "what query did you run", "same
+search but only D.SEQ", "just the 4 week ones" — select `container_cc`,
+whichever route answered the earlier turn. That route is handed the earlier
+turns' queries, parameters and result files. A new, self-contained question
+that names its own subject and needs nothing from an earlier answer is routed
+on its own merits, even in a chat that has earlier turns.
+
+A chat that reaches `container_cc` stays there for anything that refers back:
+after a completed `container_cc` turn, a message about its results, its chart
+or file, or the conversation so far ("those", "that chart", "the file", "what
+did you find") is `container_cc`. A self-contained question later in the same
+chat — one that refers back to no earlier turn, such as "How many HeLa samples
+do we have?" — is routed exactly as it would be in a new chat. An out-of-scope
+message is still `unrelated`."""
+
+#: The operator's rule of 2026-09-24 (routing review 5.1).
+FOLLOWUP_RULE_SPLIT = """\
+A follow-up refers back to something an earlier turn in this chat returned or
+did: "of those", "which of them", "those 73 samples", "break that down",
+"remind me", "what did you find", "what query did you run", "same search but
+only D.SEQ", "just the 4 week ones".
+
+A follow-up goes to `nextseek_query` when NExtSEEK can answer it from the
+earlier result or by re-running the earlier search: it counts or filters those
+results, breaks them down by one or two fields, recalls what an earlier turn
+found or which query it ran, or re-runs the earlier search with one filter
+added, removed or swapped.
+
+A follow-up goes to `container_cc` when it needs more than that: a file or a
+table to download, a chart or plot, code, a comparison or summary across
+several earlier results, a join with a source the graph does not hold, or
+open-ended analysis. That route is handed the earlier turns' queries,
+parameters and result files.
+
+Once a chat has a completed `container_cc` turn, a message that refers back
+goes to `container_cc` whatever it asks ("those", "that chart", "the file",
+"what did you find"): NExtSEEK cannot see Container-CC's results.
+
+A new, self-contained question that names its own subject and needs nothing
+from an earlier answer is routed on its own merits, even in a chat that has
+earlier turns, such as "How many HeLa samples do we have?". An out-of-scope
+message is still `unrelated`."""
+
+
+def followup_rule_text() -> str:
+    """The follow-up paragraph the router prompt renders, for the current mode."""
+    return FOLLOWUP_RULE_SPLIT if followup_mode() == "split" else FOLLOWUP_RULE_CC

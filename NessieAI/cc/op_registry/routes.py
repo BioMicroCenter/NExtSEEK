@@ -32,13 +32,11 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "question that must JOIN two sources the NS route reads separately -- "
         "comparing a REST catalog against sample metadata in the graph, such as "
         "the registered people against the scientists named on samples -- and any "
-        "question whose answer is a FILE the user takes away. And every follow-up to an "
-        "earlier turn of the chat, whichever route answered it: a question about 'those' "
-        "results, the previous search re-run with a changed filter, what an earlier turn "
-        "found or which query it ran, a plot or a download of it. This route is handed "
-        "the earlier turns' queries, their search details and their result files, and "
-        "in a chat that reached it, a later message that refers back stays here; a "
-        "self-contained question is routed on its own merits. And an open-ended summary of "
+        "question whose answer is a FILE the user takes away. And the follow-ups the "
+        "follow-up rule sends here: this route is handed the earlier turns' queries, their "
+        "search details and their result files, so it can export, plot, compare or analyse "
+        "an earlier result, and in a chat that reached it, a later message that refers back "
+        "stays here; a self-contained question is routed on its own merits. And an open-ended summary of "
         "a whole project or investigation -- how much data it holds, an inventory, an overview, "
         "the span of its collection dates -- written up with a file; formal NIH/RPPR/progress "
         "reports, upload statistics, submissions and 'what is X' stay on the NS route."
@@ -54,25 +52,21 @@ CONTAINER_CC_ROUTE = RouteSpec(
         "analytical -- counts, breakdowns and harmonisation over metadata all run "
         "in the graph. It is only a question needing a source the graph does not "
         "hold, a produced file, an open-ended project or investigation summary, or a "
-        "follow-up to an earlier turn that belongs here."
+        "follow-up the follow-up rule sends here."
     ),
 )
 
 
-# 2026-09-23 ruling: "Retire the memory agent in nextseek_query and have all follow ups
-# go to container_cc". The generator (``route_capabilities.apply_followup_ruling``)
-# takes these families off the nextseek_query route, these capability labels out of its
-# best_for, and adds NS_FOLLOWUP_NOT_FOR to its not_for, so the router prompt reads one
-# story. The NS engine's follow-up code is untouched: this is routing only.
+# 2026-09-24 follow-up split (routing review 5.3), replacing the 2026-09-23 "every follow-up
+# to container_cc" text: the rule lives in the router prompt paragraph only
+# (NessieAI/router/followup.py, filled from NESSIE_FOLLOWUP_ROUTING), so these descriptions
+# stop restating it and are right under either setting. The generator
+# (``route_capabilities.apply_followup_ruling``) keeps cross_session_memory off the
+# nextseek_query route (memory across chats is container_cc's) and adds NS_FOLLOWUP_NOT_FOR.
 FOLLOWUP_FAMILIES_ON_CC: tuple[str, ...] = (
-    "followup_over_results",
-    "search_refinement",
     "cross_session_memory",
 )
-NS_CAPABILITY_LABELS_ON_CC: tuple[str, ...] = (
-    "Follow-up Questions",
-    "Search Refinements",
-)
+NS_CAPABILITY_LABELS_ON_CC: tuple[str, ...] = ()
 # 2026-09-23 ruling: open-ended project and investigation summaries go to container_cc;
 # formal reports, upload statistics, submissions and "what is X" stay on the NS route.
 NS_SUMMARY_NOT_FOR = (
@@ -81,7 +75,6 @@ NS_SUMMARY_NOT_FOR = (
     "a file. Formal NIH/RPPR/progress reports, upload statistics and 'what is X' stay here"
 )
 NS_FOLLOWUP_NOT_FOR = (
-    "A follow-up to an earlier turn of the chat (a question about its results, a "
-    "refinement of its search, or recall of what it found): container_cc answers "
-    "every follow-up"
+    "A follow-up the follow-up rule sends to container_cc (a file, a chart, code, "
+    "analysis, or any follow-up once the chat has used container_cc)"
 )

@@ -1,5 +1,10 @@
 """The 2026-09-23 follow-up ruling through the real CC turn (POST -> start_task -> engine).
 
+Since the 2026-09-24 follow-up split this is the ``NESSIE_FOLLOWUP_ROUTING=cc`` setting (the
+rollback): these follow-ups are NExtSEEK-shaped, so under the default ``split`` they stay on
+NExtSEEK (pinned in NessieAI/tests/router/test_followup_split.py). The CC staging and fallback
+they check are the same for a Container-CC-shaped follow-up under either setting.
+
 The router is stubbed at ``cc_router.decide`` and the engine at ``cc_engine.run_cc_turn``,
 so no model, no container and no network: what runs is the policy, the fallback, the
 prior-turn staging and the memory file, in the order the live turn runs them.
@@ -27,6 +32,11 @@ _PROJECT = ProjectIdentity(id="1", slug="testproj", title="Test Project")
 CYPHER = "MATCH (n:T_NHP) RETURN n.uuid AS uuid, n.Species AS Species LIMIT 5000"
 ROWS = [{"uuid": "NHP-1", "Species": "Macaca mulatta"},
         {"uuid": "NHP-2", "Species": "Macaca fascicularis"}]
+
+
+@pytest.fixture(autouse=True)
+def _followup_switch_at_cc(monkeypatch):
+    monkeypatch.setenv("NESSIE_FOLLOWUP_ROUTING", "cc")
 
 
 @pytest.fixture(autouse=True)

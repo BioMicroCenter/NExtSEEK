@@ -228,12 +228,14 @@ def _split_labels(text: str, prefix: str) -> list[str]:
 
 
 def apply_followup_ruling(ns_route: dict[str, Any]) -> dict[str, Any]:
-    """The nextseek_query route with follow-ups handed to container_cc (2026-09-23).
+    """The nextseek_query route under the follow-up rule (2026-09-24 split; 2026-09-23 before).
 
     Takes ``FOLLOWUP_FAMILIES_ON_CC`` off the route's task families, the
     ``NS_CAPABILITY_LABELS_ON_CC`` labels out of its best_for, and adds
     ``NS_FOLLOWUP_NOT_FOR`` to its not_for, so the router prompt does not offer the NS
-    route for a follow-up the router rule sends to CC. The capability markdown is not
+    route for a follow-up the router rule sends to CC. Since the split, the rule itself
+    lives in the router prompt paragraph (NessieAI/router/followup.py) and only
+    cross_session_memory leaves the NS route. The capability markdown is not
     edited: it describes what the assistant as a whole can do, and the system agent
     reads it. Idempotent, so the committed file is its own fixed point.
     """
