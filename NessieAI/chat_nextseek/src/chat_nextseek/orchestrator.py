@@ -30,7 +30,13 @@ from .chat_memory import (
     resolve_bundle_for_recall,
 )
 from .pipeline import agent as pipeline_agent
-from .agents.followup import preview_rows, resolve_followup_outcome, run_followup
+from .agents.followup import (
+    describe_stored_result,
+    preview_rows,
+    resolve_followup_outcome,
+    run_followup,
+    stored_query_rebuildable,
+)
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -543,23 +549,114 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
     )
 
 
+#: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
+#: "stored_query"). The stored Cypher follows it on the next line.
+STORED_QUERY_REFINE_LEAD = "Start from this earlier query and add the new condition; keep every filter it has:\n"
+
+
+def _stored_query_refine(stored_query: dict) -> str:
+    """The graph agent's refine context for a set rebuilt from the query that produced it.
+
+    The stored parameters come with the Cypher, because a filter written as ``$type`` is
+    no filter without its value. So does one sentence on LIMIT: a capped result is capped
+    because its query hit a LIMIT, and a count that kept it would count the capped rows
+    again, which is the partial answer this path exists to replace.
+    """
+    text = STORED_QUERY_REFINE_LEAD + stored_query["cypher"]
+    parameters = stored_query.get("parameters") or {}
+    if parameters:
+        text += "\nIts parameters, which the new query needs too: " + json.dumps(
+            parameters, default=str, sort_keys=True)
+    return text + ("\nIts LIMIT, if it has one, capped only the rows that were kept, not the set: "
+                   "a count or a breakdown must not keep it.")
+
+
+def _count_text(value: Any) -> str | None:
+    return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
+                         total: Any, partial: bool) -> str | None:
+    """What the loop's model must know about how a query was scoped; None when nothing.
+
+    Silent for a complete seed that was bound (the set is exactly the earlier one) and for
+    a query handed no seed at all (a fresh question, not about the earlier result).
+    """
+    of_total = _count_text(total)
+    if seed_mode == "stored_query":
+        held = ("the stored copy kept no sample UIDs" if not uids_available else
+                f"the stored copy holds only {uids_available:,} of its {of_total} records" if of_total else
+                f"the stored copy holds only {uids_available:,} of its records")
+        return ("This query was rebuilt from the earlier query's filters, because " + held + ", so no "
+                "UIDs were bound and it covers the whole earlier set, not the stored rows. If it did "
+                "not keep every one of those filters, it is a different set: say so.")
+    if seed_mode == "uids":
+        if not uids_applied:
+            return ("This query did not filter on $uids, so it is not scoped to the previous result. "
+                    "Say so, or run it again scoped.")
+        if partial:
+            part = (f"{uids_available:,} of the {of_total} records" if of_total else
+                    "only part of the records")
+            return (f"This query is scoped to the {uids_available:,} UIDs the stored copy holds, which "
+                    f"are {part} in the earlier result, so it answers for those {uids_available:,}, not "
+                    "the whole set. Say so in caveats.")
+    return None
+
+
 def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir) -> dict | None:
     """Run the follow-up tool loop, and never let it be the reason a turn fails.
 
     Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
     a follow-up runs the same engine as a fresh question; the difference is only that
-    the previous result's UIDs are handed to it. Returns None on any failure, which
-    sends the caller to the pre-existing stored-result path.
+    it is scoped to the previous result. Returns None on any failure, which sends the
+    caller to the pre-existing stored-result path.
+
+    How a query is scoped is its ``seed_mode``, on every payload:
+
+    * ``"uids"``: the stored copy holds every UID of the result, or there is no query to
+      rebuild from (a REST result, or a follow-up's own ``$uids`` query:
+      ``stored_query_rebuildable``); every UID it holds is bound as ``$uids``.
+    * ``"stored_query"``: the stored copy is capped (fewer UIDs than the result's total,
+      or cut at its LIMIT) or kept no UIDs, and the result came from a graph query. The
+      graph agent starts from that query's Cypher and parameters; no ``$uids`` is bound.
+    * ``"none"``: nothing to scope by (a fresh question, or a result with neither UIDs nor
+      a query).
+
+    ``scope_note`` says what the mode means for the answer when it needs saying
+    (``_followup_scope_note``). Every query still runs through ``tool_neo4j_query``, with
+    its write check and scope prover.
 
     Every query that ran and returned rows is also kept, in full, on the outcome as
     ``graph_runs`` (plan, result): the turn attaches the last one's rows as a file the way
     a graph turn does. They stay out of the conversation, which sees ``preview_rows``.
     """
     graph_runs: list[dict] = []
+    extent: dict[str, Any] = {}
 
-    def _run_query(*, question: str, seed_uids: list[str]) -> dict:
+    def _stored_extent() -> tuple[Any, bool]:
+        """The previous result's total and whether its stored copy was capped, read once."""
+        if not extent:
+            try:
+                described = describe_stored_result(bundle)
+            except Exception as exc:  # unknown extent: treat the seed as complete, as before
+                print(f"[DEBUG][FOLLOWUP] could not describe the stored result: {exc!r}")
+                described = {}
+            extent.update(total=described.get("total"), capped=bool(described.get("capped")))
+        return extent["total"], extent["capped"]
+
+    def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None) -> dict:
+        seed_uids = list(seed_uids or [])
+        total, capped = _stored_extent() if (seed_uids or stored_query) else (None, False)
+        of_total = _count_text(total)
+        partial = bool(seed_uids) and (capped or (of_total is not None and len(seed_uids) < total))
+        rebuild = (stored_query if (partial or not seed_uids) and stored_query_rebuildable(stored_query)
+                   else None)
         refine = None
-        if seed_uids:
+        if rebuild is not None:
+            seed_mode = "stored_query"
+            refine = _stored_query_refine(rebuild)
+        elif seed_uids:
+            seed_mode = "uids"
             # The UIDs used to be pasted into the prompt, capped at 200, and the graph
             # agent copied that truncated list into `$uids` verbatim: on 2026-09-22 turn
             # 1147 three queries bound 28, 200 and 200 of 1,549 while the payload below
@@ -575,16 +672,21 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
                 f"$uids holds {len(seed_uids)} UIDs. A few of them, so you can see their "
                 f"shape: {shown}"
             )
+        else:
+            seed_mode = "none"
         graph_plan = graph_agent(
             config, question, EntityAgentOutput(),
             ParserPlan(mode="graph_query", intent_summary=question),
             refine_context=refine,
         )
         if not graph_plan.cypher:
-            return {"ok": False, "error": "no query could be generated for that question"}
+            return {"ok": False, "error": "no query could be generated for that question",
+                    "seed_mode": seed_mode}
         parameters = dict(graph_plan.parameters or {})
         applied = None
-        if seed_uids and "$uids" in graph_plan.cypher:
+        # Only a "uids" seed is bound: a rebuilt query holds the whole set through the
+        # stored filters, and binding the capped UIDs would cut it back to them.
+        if seed_mode == "uids" and "$uids" in graph_plan.cypher:
             parameters["uids"] = list(seed_uids)  # every one of them, not the ten shown
             applied = len(seed_uids)
         result = tool_neo4j_query(config, graph_plan.cypher, parameters)
@@ -609,11 +711,12 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "error": result.get("error"),
             "uids_available": len(seed_uids),
             # None when the query did not filter on $uids: it then covers whatever it
-            # matched, which is not the same set, and the answer has to say so.
+            # matched, which is not the same set, and the answer has to say so. Also None
+            # on a rebuilt query, which binds no UIDs by design; scope_note says which.
             "uids_applied": applied,
-            "scope_note": (None if applied or not seed_uids else
-                           "This query did not filter on $uids, so it is not scoped to "
-                           "the previous result. Say so, or run it again scoped."),
+            "seed_mode": seed_mode,
+            "scope_note": _followup_scope_note(seed_mode, uids_available=len(seed_uids),
+                                               uids_applied=applied, total=total, partial=partial),
         }
 
     try:
@@ -1548,7 +1651,8 @@ def run_query(
                     "queries": [
                         {"question": q.get("question"), "seeded": q.get("seeded"),
                          "count": (q.get("result") or {}).get("count"),
-                         "uids_applied": (q.get("result") or {}).get("uids_applied")}
+                         "uids_applied": (q.get("result") or {}).get("uids_applied"),
+                         "seed_mode": (q.get("result") or {}).get("seed_mode")}
                         for q in followup_outcome.get("queries") or []
                     ],
                     "caveats": followup_outcome.get("caveats"),

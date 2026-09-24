@@ -26,6 +26,8 @@ can answer THIS question, and to run a new query when it cannot.
 3. When it cannot, call run_new_query with seed_uids true. Write the question out in
    full: name the sample types, assays and projects, and never write "those", "them"
    or "the above" — the query runs on its own, with no memory of this conversation.
+   Keep seed_uids true when the stored copy is capped or kept no UIDs: the new query is
+   then rebuilt from the earlier query (stored_query), so it covers the whole earlier set.
 4. Call answer when you know. Lead with the number or the finding, mention two or three
    example identifiers verbatim, and keep it short. run_new_query returns the query's
    rows (its first rows when there are many). When they are a breakdown, such as one row
@@ -35,7 +37,10 @@ can answer THIS question, and to run a new query when it cannot.
 You have six turns in total and the last one can ONLY call answer, so answer from what
 you have rather than running one more query: a loop that ends without answering throws
 away everything it found. If a query came back scoped to fewer UIDs than were available
-(uids_applied below uids_available), that belongs in caveats.
+(uids_applied below uids_available), that belongs in caveats. Each query result says how
+it was scoped (seed_mode) and, when that matters for the answer, scope_note says what to
+do: follow it. When seed_mode is stored_query, uids_applied is empty because the set was
+rebuilt from the earlier query, not because the scope was lost.
 
 # The rules that matter
 

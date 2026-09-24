@@ -21,8 +21,11 @@ ability to decide to run another query with them, so this module gives the model
 tools and lets it choose:
 
 * ``read_stored_result`` — what the stored bundle holds, and what it does NOT: the row
-  count against the real total, whether it was capped, how many UIDs are available.
+  count against the real total, whether it was capped, how many UIDs are available, and
+  the query that produced it (``stored_query``).
 * ``run_new_query`` — re-run against the graph seeded with those UIDs.
+  When the stored copy is capped or kept no UIDs, the set is rebuilt from
+  ``stored_query`` instead.
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
 ``read_stored_result`` returns counts and a handful of examples, never rows: the stored
@@ -38,10 +41,12 @@ list shows its head, and the turn attaches every row as a file.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from typing import Any
 
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..config import ChatConfig
+from ..graph_scope import RESERVED_PREFIX
 from ..tool_loop import call_tools
 
 FOLLOWUP_AGENT_KEY = "followup"
@@ -53,6 +58,27 @@ MAX_ITER = 6
 #: How many example identifiers a tool result carries. Enough for the reply to quote
 #: some verbatim, small enough that re-sending it every iteration costs nothing.
 UID_SAMPLE = 5
+
+#: What ``read_stored_result`` says about a capped copy whose query can be rebuilt. It used
+#: to say "run a new query seeded with the UIDs", which scoped the new query to the capped
+#: part of the set. ``CAPPED_NOTE_SCOPING`` follows it because the tool's switch is still
+#: called ``seed_uids``: read literally, "do not seed" would turn scoping off altogether.
+CAPPED_NOTE = (
+    "The stored copy holds fewer rows than the total. For a question about the whole set, "
+    "run a new query that repeats the stored query's filters (stored_query) and adds the new "
+    "condition; do not seed with the stored UIDs."
+)
+CAPPED_NOTE_SCOPING = (
+    " Keep seed_uids true: on a capped result it rebuilds the set from stored_query instead "
+    "of binding the stored UIDs."
+)
+#: The capped note when there is no query to rebuild from (a REST result, or a follow-up's
+#: own query, which needs UIDs its bundle no longer holds): unchanged, and the new query's
+#: scope_note says it covers only the stored UIDs.
+CAPPED_NOTE_SEEDED = (
+    "The stored copy holds fewer rows than the total, so it cannot answer a "
+    "question about the whole set. Run a new query seeded with the UIDs."
+)
 
 
 #: How many of a new query's rows the model is shown, and the most characters they may
@@ -151,9 +177,11 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
             "description": (
                 "Read what the previous result actually holds. Returns its total, how "
                 "many rows were stored, whether the stored rows were capped, how many "
-                "UIDs are available, and a few example UIDs. It does NOT return the "
-                "rows. If rows_stored is less than total, the stored copy cannot answer "
-                "a question about the whole set and you must run a new query."
+                "UIDs are available, a few example UIDs, and the query that produced it "
+                "(stored_query; null when the result did not come from the graph). It "
+                "does NOT return the rows. If rows_stored is less than total, the stored "
+                "copy cannot answer a question about the whole set and you must run a "
+                "new query."
             ),
             "input_schema": {
                 "type": "object",
@@ -169,13 +197,15 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
         {
             "name": "run_new_query",
             "description": (
-                "Run a NEW query against the graph, seeded with the previous result's "
-                "UIDs, and get back its count and its rows (the first "
+                "Run a NEW query against the graph, scoped to the previous result, and "
+                "get back its count and its rows (the first "
                 f"{FOLLOWUP_ROWS_MAX} at most: `rows`, with `rows_shown` of "
                 "`rows_returned`). Use this whenever the question needs data the stored "
                 "result cannot contain: a different data type, a property that was not "
                 "selected, or anything about rows beyond the stored ones. Answer from "
-                "the rows: when they are a breakdown, name each value and its count."
+                "the rows: when they are a breakdown, name each value and its count. "
+                "The result's seed_mode says how it was scoped, and scope_note, when "
+                "present, says what that means for the answer."
             ),
             "input_schema": {
                 "type": "object",
@@ -190,9 +220,13 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                     "seed_uids": {
                         "type": "boolean",
                         "description": (
-                            "True to scope the query to the previous result's UIDs. "
+                            "True to scope the query to the previous result. "
                             "This is what makes 'of those, how many...' mean the same "
-                            "set the user is asking about."
+                            "set the user is asking about. When the stored copy holds "
+                            "every UID, they are bound as $uids. When it is capped or "
+                            "kept no UIDs, the query is rebuilt from the previous "
+                            "result's own query (stored_query) instead, so keep this "
+                            "true for any question about those records."
                         ),
                     },
                 },
@@ -233,6 +267,11 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     ``rows_stored`` against ``total`` is the whole point: mchao 118 was told that a
     20-row answer to a 250-row question was normal paging, because nothing in the
     stored bundle said otherwise.
+
+    ``stored_query`` is the query that produced the result (``_stored_query``). A capped
+    copy used to be answered by seeding a new query with the UIDs it held, which scoped
+    "of those, how many" to 5,000 of 36,622 records and said nothing; a count kept no UIDs
+    at all. Either way the set is now rebuilt from this query.
     """
     graph_result = bundle.get("graph_result") or {}
     api_slim = bundle.get("api_result_slim") or {}
@@ -249,6 +288,7 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     rows = _stored_rows(bundle)
     uids = _uids_from_rows(rows)
     rows_stored = len(rows)
+    stored_query = _stored_query(bundle)
 
     aggregate = _aggregate_values(rows, len(uids))
     if aggregate:
@@ -280,9 +320,11 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
         "uid_count": len(uids),
         "uid_sample": uids[:UID_SAMPLE],
         "filters": ((bundle.get("parser_plan") or {}).get("filters") or {}),
+        "stored_query": stored_query,
         "note": (
-            "The stored copy holds fewer rows than the total, so it cannot answer a "
-            "question about the whole set. Run a new query seeded with the UIDs."
+            CAPPED_NOTE + CAPPED_NOTE_SCOPING
+            if capped and stored_query_rebuildable(stored_query) else
+            CAPPED_NOTE_SEEDED
             if capped else
             "The stored copy holds every row of this result."
             if rows_stored and rows_stored == total else
@@ -296,6 +338,48 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
             "The stored copy holds the rows listed above."
         ),
     }
+
+
+def _stored_query(bundle: dict) -> dict[str, Any] | None:
+    """``{cypher, parameters}`` of the graph query that produced ``bundle``, or None.
+
+    The Cypher is the statement the graph agent wrote, as the bundle's ``graph_plan`` keeps
+    it, never the scoped text that ran. None for a REST result (no graph plan) and for a
+    plan with no Cypher.
+
+    Parameters named with the reserved scope prefix are dropped. A rebuilt query goes back
+    through ``tool_neo4j_query``, whose scope prover refuses any caller-supplied parameter
+    with that prefix, so carrying the server's own scope parameter forward would refuse
+    every rebuilt query for a caller who is not an admin.
+    """
+    plan = bundle.get("graph_plan")
+    if hasattr(plan, "model_dump"):
+        plan = plan.model_dump()
+    if not isinstance(plan, Mapping):
+        return None
+    cypher = plan.get("cypher")
+    if not isinstance(cypher, str) or not cypher.strip():
+        return None
+    raw = plan.get("parameters")
+    parameters = {
+        k: v for k, v in (raw.items() if isinstance(raw, Mapping) else ())
+        if not (isinstance(k, str) and k.lower().startswith(RESERVED_PREFIX))
+    }
+    return {"cypher": cypher, "parameters": parameters}
+
+
+def stored_query_rebuildable(stored_query: Any) -> bool:
+    """Whether a follow-up can start from ``stored_query`` alone.
+
+    Not when it filters on ``$uids``: that is a follow-up's own query, and its bundle keeps
+    the UIDs it bound only as a count (``orchestrator._followup_result_bundle``), so a query
+    rebuilt from it would have nothing to bind. The note above and the orchestrator's
+    ``run_new_query`` seam both read this, so they cannot disagree about a result.
+    """
+    if not isinstance(stored_query, Mapping):
+        return False
+    cypher = stored_query.get("cypher")
+    return isinstance(cypher, str) and bool(cypher.strip()) and "$uids" not in cypher
 
 
 def _aggregate_values(rows: list, uid_count: int) -> dict[str, Any] | None:
@@ -363,9 +447,11 @@ def run_followup(
 ) -> dict[str, Any]:
     """Drive the loop and return ``{reply, caveats, queries, tool_calls}``.
 
-    ``run_query(question, seed_uids)`` is injected rather than imported so this module
-    does not depend on the orchestrator (which imports it), and so a test can drive the
-    loop without a graph.
+    ``run_query(question, seed_uids, stored_query)`` is injected rather than imported so
+    this module does not depend on the orchestrator (which imports it), and so a test can
+    drive the loop without a graph. A scoped query (``seed_uids`` true) is handed every
+    stored UID and the stored query, and the seam decides which scopes it; a fresh
+    question is handed neither.
     """
     client, model_name, thinking_budget = config.get_agent_model(FOLLOWUP_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
@@ -460,7 +546,8 @@ def run_followup(
                 question = (tool_input.get("question") or "").strip() or user_text
                 seed = bool(tool_input.get("seed_uids", True))
                 try:
-                    payload = run_query(question=question, seed_uids=_all_uids(bundle) if seed else [])
+                    payload = run_query(question=question, seed_uids=_all_uids(bundle) if seed else [],
+                                        stored_query=_stored_query(bundle) if seed else None)
                 except Exception as exc:
                     payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
                 queries.append({"question": question, "seeded": seed, "result": payload})
