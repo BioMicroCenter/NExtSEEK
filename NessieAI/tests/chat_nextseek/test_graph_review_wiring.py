@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
@@ -131,44 +131,66 @@ def _comparable(debug: dict) -> dict:
     return out
 
 
+@dataclass
+class GraphStubs:
+    """What the stubs of one graph turn saw: the notes the chatter was handed, and the calls to the catalog
+    provider and the count tool."""
+    notes: list | None = None
+    live_values_calls: list = field(default_factory=list)
+    count_calls: list = field(default_factory=list)
+
+
+def install_graph_turn_stubs(m, *, cypher, rows, parameters=None, total=None, ok=True, error=None, catalog=None,
+                             count_tool=None, live_values=None, keep_append_turn=False) -> GraphStubs:
+    """Patch, through ``m`` (a ``monkeypatch.context()``), every agent and tool ``_execute_graph_turn`` calls.
+
+    The graph agent writes ``cypher`` with ``parameters``; Neo4j answers ``rows`` as the tool does for a member;
+    the chatter writes every note it is handed into the reply, so two replies are equal exactly when the chatter
+    was handed the same notes; the catalog is a ``DictCatalog`` over ``catalog`` (``CATALOG`` when None); a count
+    variant goes to ``count_tool``, the proving stub when None, the real tool for ``REAL_TOOL``. ``append_turn`` is
+    a no-op unless ``keep_append_turn``, for a caller that needs the turn in ``chat_log``."""
+    seen = GraphStubs()
+    plan = GraphAgentPlan(cypher=cypher, parameters=dict(parameters or {}), context_mode="catalog")
+    catalog = CATALOG if catalog is None else catalog
+
+    def _agent(config, user_text, entity_result, parser_plan, retry_context=None, refine_context=None):
+        return plan
+
+    def _neo4j(config, cy, params=None, **kwargs):
+        return _graph_result(cy, params, rows, total=total, ok=ok, error=error)
+
+    def _chatter(*a, **k):
+        seen.notes = list(k.get("query_notes") or [])
+        return "reply" + "".join(f" [{n}]" for n in seen.notes)
+
+    def _live_values(config, **kwargs):
+        seen.live_values_calls.append(kwargs)
+        return DictCatalog(catalog)
+
+    m.setattr(orch, "graph_agent", _agent)
+    m.setattr(orch, "tool_neo4j_query", _neo4j)
+    m.setattr(orch, "chatter_agent_answer", _chatter)
+    if not keep_append_turn:
+        m.setattr(orch, "append_turn", lambda *a, **k: None)
+    m.setattr(orch, "live_values", live_values or _live_values, raising=False)
+    if count_tool is not REAL_TOOL:
+        m.setattr(counts, "tool_neo4j_query", count_tool or _proving_count_tool(seen.count_calls))
+    return seen
+
+
 @pytest.fixture
 def graph_turn_harness(monkeypatch, tmp_path):
-    """Run ``_execute_graph_turn`` three times over the same stubs: as it is, with the reviewer out
-    (``_review_graph_turn`` answering an empty ok review), and with Tier 1 alone (``run_tier2`` a no-op).
-
-    The chatter stub writes every note it is handed into the reply, so two replies are equal exactly when the
-    chatter was handed the same notes."""
+    """Run ``_execute_graph_turn`` three times over the same stubs (``install_graph_turn_stubs``): as it is, with
+    the reviewer out (``_review_graph_turn`` answering an empty ok review), and with Tier 1 alone (``run_tier2`` a
+    no-op)."""
 
     def one(*, question, cypher, rows, parameters, total, ok, error, catalog, count_tool, turn_age_s, live_values,
             extra):
-        captured: dict = {"notes": None}
         events: list = []
-        live_calls: list = []
-        count_calls: list = []
-        plan = GraphAgentPlan(cypher=cypher, parameters=dict(parameters or {}), context_mode="catalog")
-
-        def _agent(config, user_text, entity_result, parser_plan, retry_context=None, refine_context=None):
-            return plan
-
-        def _neo4j(config, cy, params=None, **kwargs):
-            return _graph_result(cy, params, rows, total=total, ok=ok, error=error)
-
-        def _chatter(*a, **k):
-            captured["notes"] = list(k.get("query_notes") or [])
-            return "reply" + "".join(f" [{n}]" for n in captured["notes"])
-
-        def _live_values(config, **kwargs):
-            live_calls.append(kwargs)
-            return DictCatalog(catalog)
-
         with monkeypatch.context() as m:
-            m.setattr(orch, "graph_agent", _agent)
-            m.setattr(orch, "tool_neo4j_query", _neo4j)
-            m.setattr(orch, "chatter_agent_answer", _chatter)
-            m.setattr(orch, "append_turn", lambda *a, **k: None)
-            m.setattr(orch, "live_values", live_values or _live_values, raising=False)
-            if count_tool is not REAL_TOOL:
-                m.setattr(counts, "tool_neo4j_query", count_tool or _proving_count_tool(count_calls))
+            seen = install_graph_turn_stubs(m, cypher=cypher, rows=rows, parameters=parameters, total=total, ok=ok,
+                                            error=error, catalog=catalog, count_tool=count_tool,
+                                            live_values=live_values)
             for name, value in extra.items():
                 m.setattr(orch, name, value, raising=False)
             config = SimpleNamespace(MODEL_MODE="test", **{SCOPE_ATTR: MEMBER})
@@ -181,8 +203,9 @@ def graph_turn_harness(monkeypatch, tmp_path):
                 send_event=lambda name, data=None: events.append((name, data)), debug_payload=debug,
                 t_total_start=time.perf_counter() - turn_age_s,
             )
-        return Turn(reply=payload["reply"], query_notes=captured["notes"], debug=debug, session=session,
-                    events=events, payload=payload, live_values_calls=live_calls, count_calls=count_calls)
+        return Turn(reply=payload["reply"], query_notes=seen.notes, debug=debug, session=session,
+                    events=events, payload=payload, live_values_calls=seen.live_values_calls,
+                    count_calls=seen.count_calls)
 
     def run(*, question, cypher, rows, parameters=None, total=None, ok=True, error=None, catalog=None,
             count_tool=None, turn_age_s=0.0, live_values=None):

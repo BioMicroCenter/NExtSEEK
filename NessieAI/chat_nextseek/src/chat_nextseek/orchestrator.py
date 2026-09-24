@@ -22,7 +22,13 @@ from .artifacts import (
     build_saved_report_file_manifest,
     load_api_result_full,
 )
-from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
+from .chat_memory import (
+    CHAT_LOG_KEY,
+    append_turn,
+    build_tool_summary_for_mode,
+    next_turn_id,
+    resolve_bundle_for_recall,
+)
 from .pipeline import agent as pipeline_agent
 from .agents.followup import preview_rows, resolve_followup_outcome, run_followup
 from .agents import (
@@ -67,6 +73,7 @@ from .helpers import (
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.suggestions import accept, pending_for, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -780,6 +787,82 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
         return GraphReview("ok", [], None, None, [], _ms_since(t0), error=repr(exc))
 
 
+# --------------------------------------------------------------------------
+# Suggestion chips (#128, helpers/suggestions.py)
+# --------------------------------------------------------------------------
+#
+# A graph turn whose review suggests a next question offers it as a chip in debug.suggestions and remembers it
+# for the turn it was offered on. The next NS turn asks accept() whether its text is that chip's query, before it
+# is routed anywhere, and the offer is cleared either way: it lasts one turn, and any turn written to chat_log in
+# between (a Container-CC turn included) cancels it. A click offers no chip of its own, so chips never chain.
+
+
+def _last_turn_id(session) -> int:
+    """The id of the newest turn in ``chat_log``, or 0 when there is none.
+
+    Read the way ``chat_memory.next_turn_id`` numbers turns: the largest id, never the last entry's. Every writer
+    (``append_turn`` here, the Container-CC and non-answer writers in ``NessieAI/cc``) gives a new entry
+    ``next_turn_id(log)``, so right after a turn is written this is that turn's id, and anything written later,
+    whoever writes it, is larger."""
+    return next_turn_id(session.get(CHAT_LOG_KEY)) - 1
+
+
+class _PopByNone:
+    """``helpers.suggestions`` over a session that has no ``pop``.
+
+    The request path's ``DictSessionAdapter`` and the SQL session stores offer ``get`` and item assignment only, so
+    the pending entry is cleared by writing None, which ``accept`` reads as nothing pending. Nothing is written when
+    nothing was pending."""
+
+    def __init__(self, session):
+        self._session = session
+
+    def get(self, key, default=None):
+        return self._session.get(key, default)
+
+    def __setitem__(self, key, value):
+        self._session[key] = value
+
+    def pop(self, key, default=None):
+        value = self._session.get(key)
+        if value is None:
+            return default
+        self._session[key] = None
+        return value
+
+
+def _suggestion_session(session):
+    return session if callable(getattr(session, "pop", None)) else _PopByNone(session)
+
+
+def _accepted_suggestion(session, user_text: str) -> dict[str, Any] | None:
+    """The chip this message clicked, or None. Clears what the previous turn offered either way."""
+    try:
+        return accept(_suggestion_session(session), user_text, last_turn_id=_last_turn_id(session))
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not read the offered suggestion: {exc!r}")
+        return None
+
+
+def _suggestions_for(review: dict[str, Any] | None, bundle_id: int) -> list[dict[str, Any]]:
+    """The chips for this turn's review (``debug_payload["graph_review"]``), or [] when there are none."""
+    try:
+        return suggestions_from_review(review or {}, bundle_id=bundle_id)
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not build the suggestion: {exc!r}")
+        return []
+
+
+def _remember_suggestions(session, items: list[dict[str, Any]]) -> None:
+    """Keep the chips for the newest turn in ``chat_log``: called right after ``append_turn`` has written this
+    graph turn, so that is the id this turn is stored under, and the one the next turn's ``_last_turn_id`` reads
+    unless another turn is written in between. No chips clears the entry."""
+    try:
+        pending_for(_suggestion_session(session), items, turn_id=_last_turn_id(session))
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not remember the offered suggestion: {exc!r}")
+
+
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
                           send_event) -> GraphScopeFallback:
     """Record a refused graph turn and hand it back to run_query, which answers through graph_search.
@@ -838,8 +921,11 @@ def _execute_graph_turn(
     t_total_start: float,
     refine_context: str | None = None,
     note_agent: Callable[[str], None] | None = None,
+    offer_suggestions: bool = True,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
+
+    ``offer_suggestions`` is False on a turn that is itself a click on a chip: it offers no chip of its own.
 
     run_query's error handlers report ``current_agent``, a local of the caller. The
     graph turn runs in this function, so that local stayed "graph" for the whole turn:
@@ -1050,6 +1136,11 @@ def _execute_graph_turn(
 
     debug_payload["graph_plan"] = graph_plan.model_dump()
     debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+    # The reviewer's suggestion as a chip, from this turn's review only: session["_graph_review"] outlives the turn
+    # that wrote it. Built before the chatter runs, so its reply can offer the same step.
+    suggestions = _suggestions_for(debug_payload.get("graph_review"), bundle_id) if offer_suggestions else []
+    if suggestions:
+        debug_payload["suggestions"] = suggestions
 
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
@@ -1073,6 +1164,7 @@ def _execute_graph_turn(
         tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
         result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
     )
+    _remember_suggestions(session, suggestions)
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
     return _emit_query_complete(
         send_event, reply, debug_payload, bundle_id,
@@ -1314,6 +1406,9 @@ def run_query(
 
     _t_total_start = time.perf_counter()
     session["last_files"] = []
+    # Before the turn is routed anywhere, the wizard included: whatever this turn is, the previous turn's chip
+    # offer ends here.
+    accepted_suggestion = _accepted_suggestion(session, user_text)
 
     _raw_send_event = send_event
 
@@ -1388,6 +1483,8 @@ def run_query(
             "error_context": None,
             **variant_record(config),  # prompt_variant + prompt_variant_files; parser_plan.mode is the route
         }
+        if accepted_suggestion is not None:
+            debug_payload["suggestion_accepted"] = {k: accepted_suggestion.get(k) for k in ("id", "source", "kind")}
 
         if mode == "unsupported":
             reply = unsupported_reply(plan)
@@ -1826,7 +1923,7 @@ def run_query(
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
-                note_agent=_note_agent,
+                note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
             )
             if not isinstance(outcome, GraphScopeFallback):
                 return outcome
@@ -1857,7 +1954,7 @@ def run_query(
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
                         refine_context=_build_graph_refine_context(_prior),
-                        note_agent=_note_agent,
+                        note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
                     )
                     if not isinstance(outcome, GraphScopeFallback):
                         return outcome
