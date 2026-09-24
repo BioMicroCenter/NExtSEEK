@@ -153,11 +153,23 @@ RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid ORDER BY title
 
 # One pass over DERIVED_FROM gives the assay titles, the protocol titles and the assay connections, with no cap
 # (the old connection fetch stopped at LIMIT 300). Only Sample-to-Sample edges: no search sees an OrphanSample.
-VOCAB_EDGES = """
-MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-WHERE r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL
-RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
+# internal_assay_title names one assay; an edge several assays share lists all of them in internal_assay_titles, which
+# some edges lack, and some titles exist only there. So each edge gives one row per title from either (DISTINCT drops
+# the repeats, and the placeholder '' a list holds for an untitled assay is no title), and an edge with a protocol
+# but no assay gives one row whose assay is null.
+_EDGE_HAS_PLURAL_TITLE = "any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> '')"
+_EDGE_ROWS = """
+WITH c, r, p, [t IN [r.internal_assay_title] + coalesce(r.internal_assay_titles, []) WHERE t IS NOT NULL AND t <> '']
+     AS titles
+UNWIND CASE WHEN size(titles) = 0 THEN [null] ELSE titles END AS title
+RETURN DISTINCT title AS assay, r.protocol_title AS protocol,
        p.type AS parent_type, c.type AS child_type
+""".strip()
+
+VOCAB_EDGES = f"""
+MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
+WHERE r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_EDGE_HAS_PLURAL_TITLE}
+{_EDGE_ROWS}
 """.strip()
 
 
@@ -197,10 +209,9 @@ RETURN st.title AS title, st.DOI AS doi, st.PMID AS pmid ORDER BY title
 
 VOCAB_EDGES_SCOPED = f"""
 MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
-WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL)
+WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_EDGE_HAS_PLURAL_TITLE})
   AND {_visible("c")} AND {_visible("p")}
-RETURN DISTINCT r.internal_assay_title AS assay, r.protocol_title AS protocol,
-       p.type AS parent_type, c.type AS child_type
+{_EDGE_ROWS}
 """.strip()
 
 # (field, statement) per source, for every project and for a caller's projects.

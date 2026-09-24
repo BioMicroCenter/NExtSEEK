@@ -160,6 +160,15 @@ def test_a_live_catalog_sends_the_rendering(monkeypatch, live):
     assert "Old assay" not in blob and "Old protocol" not in blob
 
 
+def test_the_live_schema_header_names_the_structure_it_wraps(monkeypatch, live):
+    # SCH-F9: the structure text says schema v1.2, and the header around it said v1.1.
+    llm = FakeLLM(GOOD)
+    run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
+    header = llm.calls[0]["messages"][1]["content"].splitlines()[0]
+    assert header.startswith("GRAPH SCHEMA (v1.2 structure, ")
+    assert "v1.1" not in header
+
+
 def test_an_unavailable_catalog_sends_the_committed_json(monkeypatch, down):
     llm = FakeLLM(GOOD.replace("s:T_TIS", "s:Sample"))
     out = run(monkeypatch, llm, query="which protocol and assay made these samples")

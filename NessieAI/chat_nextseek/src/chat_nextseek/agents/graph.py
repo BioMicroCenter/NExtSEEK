@@ -2036,9 +2036,9 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
     ``graph_catalog`` (the Container-CC agent) describes the graph that is deployed rather than a snapshot
     baked into its image. It spends no model call: the catalog reads and the renderers, nothing else.
 
-    ``types`` names sample type codes to render in full (their attributes, value types and most frequent
-    values); ``question`` gates the vocabulary blocks exactly as a graph turn does. A code the catalog does
-    not know is returned in ``unknown_types`` rather than guessed at.
+    ``types`` names sample type codes to render in full (their attributes, value types and numeric or date
+    bounds, never the values themselves); ``question`` gates the vocabulary blocks exactly as a graph turn
+    does. A code the catalog does not know is returned in ``unknown_types`` rather than guessed at.
 
     ``source`` is ``catalog`` when the answer is the live graph and ``fallback`` when it is the committed
     ``context/neo4j_schema.json``, and a fallback carries both why (``unavailable_reason``) and how stale the
@@ -2195,7 +2195,7 @@ def graph_agent(
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
     context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
-        schema_message = ("GRAPH SCHEMA (v1.1 structure, sample type index and the resolved sample types; this is "
+        schema_message = ("GRAPH SCHEMA (v1.2 structure, sample type index and the resolved sample types; this is "
                           "the schema):\n" + catalog.schema)
         vocabulary_messages = (["GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
                                 + catalog.vocabulary] if catalog.vocabulary else [])

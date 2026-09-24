@@ -22,7 +22,7 @@ Work through the steps below before you write the query. Every question about sa
 - **Typed values.** Attributes whose value type is float, integer or date hold numbers and dates, so `<`, `>` and ranges work on them directly. A value that did not parse stays a string, and every other attribute is a string: guard a numeric test on a string attribute with `toFloat(s.X) IS NOT NULL`.
 - **Values keep their stored spelling**, and one concept is routinely stored several ways: `Paraffin`, `paraffin` and `PARAFFIN`; a word and its one-letter code; an abbreviation and its full name. The type sections show each attribute's value type, how many samples fill it (`n=`) and its meaning, plus a numeric or date range where the values parsed. They never show the values themselves, for any attribute: **the spellings in use are unknown, not absent.** Never infer that a value does not exist because the catalog did not show it, and when the spellings decide the query, read them out of the graph first (STEP 6, "Which values exist").
 - **The catalog** is itself in the graph: `(:SampleType)-[:HAS_ATTRIBUTE]->(:Attribute)`, where `Attribute.title` is the property name, `Attribute.sample_count` how many samples fill it, and `Attribute.sample_type` the type code.
-- **Relationships**: `(child:Sample)-[:DERIVED_FROM]->(parent:Sample)` with the assay and protocol on the edge (`internal_assay_title`, `protocol_title`). DERIVED_FROM edges can also end at a retired `:OrphanSample`, which is not a sample, so label both ends `:Sample` in every lineage pattern; `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)`; `(:Sample)-[:IN_PROJECT]->(:Project)`. Use only the patterns the schema lists.
+- **Relationships**: `(child:Sample)-[:DERIVED_FROM]->(parent:Sample)` with the assay and protocol on the edge (`internal_assay_title`, `internal_assay_titles`, `protocol_title`). `internal_assay_title` names one assay; an edge several assays share lists all of them in `internal_assay_titles`, which some edges lack, so test an assay on an edge `r` with `(r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))`. DERIVED_FROM edges can also end at a retired `:OrphanSample`, which is not a sample, so label both ends `:Sample` in every lineage pattern; `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)`; `(:Sample)-[:IN_PROJECT]->(:Project)`. Use only the patterns the schema lists.
 - **People**: `(:Person)` nodes carry only an id, no name. A person's name lives in two places only: the lab code inside sample UIDs (for a lab head or PI) and the `Scientist` attribute on samples (for the person who made or handled the sample).
 
 ---
@@ -121,12 +121,12 @@ WHERE EXISTS {
   MATCH (m)<-[:DERIVED_FROM*1..12]-(c:Sample)
   WHERE EXISTS {
     MATCH (c)-[r:DERIVED_FROM]->(:Sample)
-    WHERE r.internal_assay_title = $assay
+    WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
   }
 }
 RETURN count(m) AS n
 ```
-- **Assays and protocols** live on the edge. Match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary and use that exact string; when no title is close, use `toLower(r.internal_assay_title) CONTAINS toLower($term)`. Before combining an assay with a sample type, check ASSAY-SAMPLE CONNECTIONS: when the type is the assay's parent or child type, filter that side of the one-hop edge; when it is further up the chain, chain a bounded path to it as above.
+- **Assays and protocols** live on the edge. Match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary and use that exact string; when no title is close, use `(toLower(r.internal_assay_title) CONTAINS toLower($term) OR any(t IN coalesce(r.internal_assay_titles, []) WHERE toLower(t) CONTAINS toLower($term)))`. Before combining an assay with a sample type, check ASSAY-SAMPLE CONNECTIONS: when the type is the assay's parent or child type, filter that side of the one-hop edge; when it is further up the chain, chain a bounded path to it as above.
 - **Type vs assay**: when the question is about what data exists below a sample ("that have NMR data"), filter the descendant's type; when it is about the process applied ("that underwent NMR"), filter the edge's assay.
 
 ### Filters and relationships together
@@ -159,7 +159,7 @@ WHERE toLower(trim(toString(t.Organ))) = $organ
   AND EXISTS { (t)<-[:DERIVED_FROM*1..12]-(:T_D_SEQ) }
   AND EXISTS {
     MATCH (t)-[r:DERIVED_FROM]->(:Sample)
-    WHERE r.internal_assay_title = $assay
+    WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
   }
 RETURN count(t) AS n
 ```

@@ -37,3 +37,38 @@ def test_the_return_contract_sits_in_the_list_rule_of_the_return_rules():
     assert ("Return every attribute you filter on as its own column, next to the id, so the reader can see which "
             "values matched (for example `s.Classification AS Classification` when you filter on Classification)."
             ) in list_rule
+
+
+# --- SCH-F8: an edge several assays share lists all of them in internal_assay_titles ----------------------------------
+# 3,645 DERIVED_FROM edges name more than one assay, and 5 assay titles exist only in the plural list, so a test on
+# the singular alone misses them.
+
+ASSAY_TEST = "(r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))"
+FUZZY_ASSAY_TEST = ("(toLower(r.internal_assay_title) CONTAINS toLower($term) "
+                    "OR any(t IN coalesce(r.internal_assay_titles, []) WHERE toLower(t) CONTAINS toLower($term)))")
+
+
+def test_every_assay_example_tests_the_singular_and_the_plural():
+    t = _graph_prompt()
+    assert t.count("WHERE " + ASSAY_TEST) == 2
+    assert "WHERE r.internal_assay_title = $assay\n" not in t
+    assert "r.internal_assay_title = $assay" not in t.replace(ASSAY_TEST, "")
+
+
+def test_the_fuzzy_assay_fallback_reads_the_plural_too():
+    t = _graph_prompt()
+    assert "use `" + FUZZY_ASSAY_TEST + "`" in t
+    assert "toLower(r.internal_assay_title) CONTAINS toLower($term)" not in t.replace(FUZZY_ASSAY_TEST, "")
+
+
+def test_the_schema_section_names_the_plural_edge_property():
+    t = _graph_prompt()
+    rel = t[t.index("- **Relationships**"):]
+    rel = rel[:rel.index("\n- ")]
+    assert "`internal_assay_title`, `internal_assay_titles`, `protocol_title`" in rel
+    assert "an edge several assays share lists all of them in `internal_assay_titles`, which some edges lack" in rel
+
+
+def test_the_variable_length_typing_rule_is_unchanged():
+    assert ("`[r:DERIVED_FROM*1..12]` binds a list, so `r.internal_assay_title` there is a type error."
+            in _graph_prompt())

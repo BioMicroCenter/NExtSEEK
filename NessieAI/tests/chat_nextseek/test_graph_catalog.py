@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import types
 from pathlib import Path
@@ -612,6 +613,56 @@ def test_a_failed_vocabulary_source_is_empty_and_retried_after_the_failure_windo
     assert gc.get_vocabulary(cfg()).assay_titles == ()
     clock[0] += 1
     assert gc.get_vocabulary(cfg()).assay_titles == ("Flow Cytometry", "Short Read Sequencing")
+
+
+# SCH-F11: an edge several assays share lists all of them in internal_assay_titles, which some edges lack, and 5
+# assay titles exist only there, so a read of the singular alone never shows them in ASSAY TITLES or ASSAY-SAMPLE
+# CONNECTIONS.
+
+
+@pytest.mark.parametrize("name", ["VOCAB_EDGES", "VOCAB_EDGES_SCOPED"])
+def test_the_edge_vocabulary_reads_the_singular_and_the_plural_assay_titles(name):
+    statement = getattr(gc, name)
+    where = statement[statement.index("WHERE"):statement.index("WITH")]
+    # an edge whose only assay is in the plural list is read, and so is a protocol-only edge
+    assert "r.internal_assay_title IS NOT NULL" in where and "r.protocol_title IS NOT NULL" in where
+    assert "r.internal_assay_titles" in where
+    body = statement[statement.index("WITH"):]
+    # one row per title, from the singular or any element of the plural list; one null row for an edge with none
+    assert "[r.internal_assay_title] + coalesce(r.internal_assay_titles, [])" in body
+    assert "UNWIND" in body and "[null]" in body
+    returned = body[body.index("RETURN DISTINCT"):]
+    assert re.findall(r"\bAS (\w+)", returned) == ["assay", "protocol", "parent_type", "child_type"]
+
+
+def test_a_plural_only_assay_reaches_the_titles_and_the_connections(harness):
+    # The rows VOCAB_EDGES returns, one per assay title: an edge whose singular names Flow Cytometry and whose plural
+    # list adds Cell Isolation, an edge whose only assay is in its plural list, and a protocol-only edge.
+    harness.graph.vocab["VOCAB_EDGES"] = [
+        {"assay": "Flow Cytometry", "protocol": "Staining", "parent_type": "TIS", "child_type": "D.FLOW"},
+        {"assay": "Cell Isolation", "protocol": "Staining", "parent_type": "TIS", "child_type": "D.FLOW"},
+        {"assay": "Patient Visit", "protocol": None, "parent_type": "PAT", "child_type": "PAV"},
+        {"assay": None, "protocol": "Dissection", "parent_type": "PAT", "child_type": "TIS"},
+    ]
+    vocab = gc.get_vocabulary(cfg())
+
+    assert vocab.assay_titles == ("Cell Isolation", "Flow Cytometry", "Patient Visit")
+    assert vocab.assay_connections == (
+        {"assay": "Cell Isolation", "parent_type": "TIS", "child_type": "D.FLOW"},
+        {"assay": "Flow Cytometry", "parent_type": "TIS", "child_type": "D.FLOW"},
+        {"assay": "Patient Visit", "parent_type": "PAT", "child_type": "PAV"},
+    )
+    assert vocab.protocol_titles == ("Dissection", "Staining")
+
+
+def test_a_protocol_only_edge_still_yields_its_protocol(harness):
+    harness.graph.vocab["VOCAB_EDGES"] = [
+        {"assay": None, "protocol": "Dissection", "parent_type": "PAT", "child_type": "TIS"},
+    ]
+    vocab = gc.get_vocabulary(cfg())
+
+    assert vocab.protocol_titles == ("Dissection",)
+    assert vocab.assay_titles == () and vocab.assay_connections == ()
 
 
 def test_vocabulary_raises_when_the_catalog_is_unavailable(harness):
