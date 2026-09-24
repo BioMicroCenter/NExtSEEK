@@ -26,7 +26,7 @@ def test_the_graph_prompt_set_is_the_base_file():
 def test_graph_prompts_carry_the_return_contract():
     for f in P.glob("graph_agent*.txt"):
         t = f.read_text()
-        assert "Return every attribute you filter on as its own column" in t, f.name
+        assert "Return every attribute you filter on the samples you return as its own column" in t, f.name
 
 
 def test_the_return_contract_sits_in_the_list_rule_of_the_return_rules():
@@ -34,9 +34,18 @@ def test_the_return_contract_sits_in_the_list_rule_of_the_return_rules():
     rules = t[t.index("## STEP 6: Return the answer"):t.index("## When a query matched nothing")]
     list_rule = rules[rules.index("- **A list of samples**"):]
     list_rule = list_rule[:list_rule.index("\n- ")]
-    assert ("Return every attribute you filter on as its own column, next to the id, so the reader can see which "
-            "values matched (for example `s.Classification AS Classification` when you filter on Classification)."
+    assert ("Return every attribute you filter on the samples you return as its own column, next to the id, so the "
+            "reader can see which values matched (for example `s.Classification AS Classification` when you filter on "
+            "Classification). An attribute of a related sample that you filter inside `EXISTS { }` stays there."
             ) in list_rule
+
+
+def test_the_return_contract_leaves_a_related_samples_filter_inside_exists():
+    # A related sample's attribute cannot be returned from inside EXISTS, and moving that sample into the MATCH
+    # repeats rows and inflates the tool's total (the relationship recipe and the one-row-per-sample rule).
+    t = _graph_prompt()
+    assert "Return every attribute you filter on as its own column" not in t
+    assert "An attribute of a related sample that you filter inside `EXISTS { }` stays there." in t
 
 
 # --- SCH-F8: an edge several assays share lists all of them in internal_assay_titles ----------------------------------
