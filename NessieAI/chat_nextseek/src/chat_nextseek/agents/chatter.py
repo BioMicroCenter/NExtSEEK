@@ -165,6 +165,45 @@ def _type_names_block(config: Any, rows: list) -> str:
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
 
 
+# The graph-result reviewer's two outputs (graph_review.py, helpers/suggestions.py): the facts the result matched,
+# which the reply states first, and the one next step it offers as a chip, which the reply offers last. The prompt
+# asks for both; these make sure a reply that drops either still carries it.
+
+#: The line the notes carry when the reviewer offered a next step (the chip's label).
+OFFERED_STEP_NOTE = "Offered next step: {step}"
+#: The sentence appended when the reply does not name the offered step.
+OFFER_SENTENCE = "Would you like me to run: {step}?"
+
+#: A number as a whole token: "1,306" is one number, the "57" inside "1,570" or the "14" in "T14" is none.
+_NUMBER = re.compile(r"(?<![\w.,])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)")
+
+
+def _numbers(text: str) -> set[str]:
+    """The numbers in ``text`` without thousands separators, so "1,306" and "1306" are the same."""
+    return {m.group(0).replace(",", "") for m in _NUMBER.finditer(text or "")}
+
+
+def _one_line(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+def _with_review_backstop(reply: str, review_disclosure: str | None, offered_step: str | None, *,
+                          always_disclose: bool = False) -> str:
+    """``reply`` with the reviewer's facts first and its offered step last, where the reply lacks them.
+
+    The facts are prepended when they hold a number the reply does not; facts without a number (a failed query, a
+    value the query did not apply) are left to the model, which has them as a note. ``always_disclose`` prepends
+    them regardless, for the fallback reply, which no model wrote. The offer is appended when the reply does not
+    name the step, compared case-insensitively. Both are judged on the reply as given, before either is added."""
+    facts = _one_line(review_disclosure)
+    step = _one_line(offered_step)
+    add_facts = bool(facts) and (always_disclose or not _numbers(facts) <= _numbers(reply))
+    add_offer = bool(step) and step.casefold() not in _one_line(reply).casefold()
+    parts = ([facts] if add_facts else []) + ([reply] if reply else []) + (
+        [OFFER_SENTENCE.format(step=step)] if add_offer else [])
+    return "\n\n".join(parts)
+
+
 def chatter_agent_answer(
     config: ChatConfig,
     user_query: str,
@@ -180,6 +219,8 @@ def chatter_agent_answer(
     log_dir: str | None = None,
     session: "SessionState | SessionStateProxy | None" = None,
     query_notes: list[str] | None = None,
+    review_disclosure: str | None = None,
+    offered_step: str | None = None,
 ) -> str:
     """
     Unified chatter agent: produces a narrative answer for search, reporter, and graph results,
@@ -191,6 +232,11 @@ def chatter_agent_answer(
     ``query_notes`` are caveats the caller knows and the plans do not carry — the
     graph turn's ``graph_retry_changed_answer`` is the first one — each of which is
     disclosed to the writer verbatim.
+
+    ``review_disclosure`` is the graph reviewer's facts (already in ``query_notes`` as its note) and
+    ``offered_step`` the label of the chip the turn offers. The step is added to the notes as
+    ``OFFERED_STEP_NOTE``, and the reply, the model's or the fallback, gets the facts first and the
+    offer last where it lacks them (``_with_review_backstop``). With neither, nothing changes.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -271,12 +317,14 @@ def chatter_agent_answer(
     # asked for that it did not. That gap is what production issues B7, B8 and B13 all
     # needed and none of them had: a reply cannot avoid misreporting the question if
     # the writer has no way to know what ran. See helpers/query_scope.py.
+    offered_step = _one_line(offered_step) or None
     scope = describe_query_scope(
         entity_result=entity_result,
         parser_plan=parser_plan,
         api_plan=api_plan if not (is_graph or is_reporter) else None,
         graph_plan=graph_plan,
-        extra_notes=query_notes,
+        extra_notes=list(query_notes or [])
+        + ([OFFERED_STEP_NOTE.format(step=offered_step)] if offered_step else []),
         user_query=user_query,
     )
 
@@ -478,11 +526,20 @@ def chatter_agent_answer(
         + (
             "- MUST mention all example identifiers listed above verbatim — they are pre-extracted for you.\n"
             if example_ids else
+            # An offered step is the reply's only offer, so the count rule's own offer gives way to it.
+            "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
+            "the number and what it counts, and never write as though you had seen the records.\n"
+            if count_only and offered_step else
             "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
             "the number and what it counts, never write as though you had seen the records, and when naming "
             "them would answer the question better than the number does, offer that as the one next step.\n"
             if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
+        )
+        + (
+            "- The notes include an 'Offered next step': end the reply with one sentence offering exactly that "
+            "step, and make no other offer.\n"
+            if offered_step else ""
         )
         + (
             "- The query did NOT constrain on everything the user asked for. Say which "
@@ -531,6 +588,12 @@ def chatter_agent_answer(
     # answer. It now gets the same 503 -> provider-fallback, timeout-recycle and 429
     # backoff ladder as every structured agent, plus a ledger entry it never had.
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
+
+    def _fallback(text: str) -> str:
+        # No model wrote this reply, so it carries the reviewer's facts whether or not they hold
+        # a number, and the offered step.
+        return _with_review_backstop(text, review_disclosure, offered_step, always_disclose=True)
+
     try:
         answer = call_llm_text(
             config,
@@ -556,13 +619,14 @@ def chatter_agent_answer(
     except LLMAPIConnectionError as e:
         print("[DEBUG][CHATTER] APIConnectionError:", repr(e))
         if is_reporter:
-            return "Reporter completed, but had a connection issue summarizing the results."
+            return _fallback("Reporter completed, but had a connection issue summarizing the results.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return f"Graph query returned {count} record(s), but had a connection issue summarizing the results."
+            return _fallback(f"Graph query returned {count} record(s), but had a connection issue summarizing the "
+                             "results.")
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
-        return (
+        return _fallback(
             "I successfully queried NExtSEEK, but had a connection issue talking to the LLM to "
             "summarize the results.\n\n"
             f"Basic info:\n- searched: {scope.searched}\n"
@@ -573,13 +637,14 @@ def chatter_agent_answer(
     except LLMRateLimitError as e:
         print("[DEBUG][CHATTER] RateLimitError:", repr(e))
         if is_reporter:
-            return "Reporter completed, but the summarization call hit the model's token/throughput limit."
+            return _fallback("Reporter completed, but the summarization call hit the model's token/throughput limit.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return f"Graph query returned {count} record(s), but hit the rate limit while summarizing. Try again shortly."
+            return _fallback(f"Graph query returned {count} record(s), but hit the rate limit while summarizing. "
+                             "Try again shortly.")
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
-        return (
+        return _fallback(
             "I pulled the NExtSEEK results, but the summarization call hit the model's token/throughput limit. "
             "Try again with a narrower query or after a short pause.\n\n"
             f"Basic info:\n- searched: {scope.searched}\n"
@@ -601,13 +666,13 @@ def chatter_agent_answer(
             "The query itself ran. Ask again in a moment for the written version."
         )
         if is_reporter:
-            return f"{busy}\n\nThe report step completed."
+            return _fallback(f"{busy}\n\nThe report step completed.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return f"{busy}\n\nThe graph query returned {count} record(s)."
+            return _fallback(f"{busy}\n\nThe graph query returned {count} record(s).")
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
-        return (
+        return _fallback(
             f"{busy}\n\n"
             f"Basic info:\n- searched: {scope.searched}\n"
             f"- your question: {parser_plan.get('intent_summary')}\n"
@@ -617,6 +682,9 @@ def chatter_agent_answer(
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
+    # The reviewer's facts first and its offered step last, where the model's reply dropped
+    # them. Before the UIDs are linked, so a link's digits never count as a stated number.
+    answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step)
     # Every sample UID the reply names links to its sample page. Before the debug
     # block is appended, so that block is never a candidate.
     answer_no_links = link_sample_uids(answer_no_links)

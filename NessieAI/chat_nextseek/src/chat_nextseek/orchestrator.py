@@ -1042,8 +1042,9 @@ def _execute_graph_turn(
         debug_payload["lab_near_misses"] = [m.model_dump() if hasattr(m, "model_dump") else m
                                             for m in entity_result.lab_near_misses]
         query_notes.extend(near_miss_notes)
-    if review.verdict in ("note", "suggest") and review.disclosure:
-        query_notes.append(_review_note(review.disclosure))
+    review_disclosure = review.disclosure if review.verdict in ("note", "suggest") else None
+    if review_disclosure:
+        query_notes.append(_review_note(review_disclosure))
 
     send_event(
         "search_complete",
@@ -1117,10 +1118,14 @@ def _execute_graph_turn(
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
     _t1 = time.perf_counter()
+    # The chatter states the review's facts first and offers the first chip's step last, backed by code when the
+    # model's reply drops either. No chip (a click on one included) means no offer.
     reply = chatter_agent_answer(
         config, user_text, entity_result.model_dump(), plan.model_dump(),
         graph_plan=graph_plan.model_dump(), graph_result=graph_result,
         log_dir=log_dir, session=session, query_notes=query_notes,
+        review_disclosure=review_disclosure,
+        offered_step=suggestions[0].get("label") if suggestions else None,
     )
     print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
     send_event("agent_complete", {"agent": "chatter", "summary": None})
