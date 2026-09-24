@@ -516,7 +516,14 @@ def test_a_non_ascii_digit_is_a_failed_identifier_not_a_500(seek, graph):
     assert resp.status_code == 200 and _uuids(resp) == ["TIS-2"] and resp.json()["failed_uids"] == 1
 
 
-def test_a_rejected_statement_is_logged_as_an_error_not_a_blip(monkeypatch, caplog):
+def _levels(monkeypatch):
+    seen = []
+    monkeypatch.setattr(sr.log, "warning", lambda *a, **k: seen.append("WARNING"))
+    monkeypatch.setattr(sr.log, "error", lambda *a, **k: seen.append("ERROR"))
+    return seen
+
+
+def test_a_rejected_statement_is_logged_as_an_error_not_a_blip(monkeypatch):
     from neo4j.exceptions import CypherSyntaxError
 
     class Driver:
@@ -530,18 +537,20 @@ def test_a_rejected_statement_is_logged_as_an_error_not_a_blip(monkeypatch, capl
             raise CypherSyntaxError("Invalid input 'CYPHER 25'")
 
     monkeypatch.setattr(sr.GraphDatabase, "driver", lambda *a, **k: Driver())
-    with caplog.at_level("WARNING", logger=sr.log.name), pytest.raises(sr.GraphUnavailable):
+    seen = _levels(monkeypatch)
+    with pytest.raises(sr.GraphUnavailable):
         sr._neo4j_run(sr.LINEAGE_CYPHER, uuids=["NHP-1"])
-    assert [r.levelname for r in caplog.records] == ["ERROR"]
+    assert seen == ["ERROR"]
 
 
-def test_the_graph_being_down_is_a_warning(monkeypatch, caplog):
+def test_the_graph_being_down_is_a_warning(monkeypatch):
     from neo4j.exceptions import ServiceUnavailable
 
     def down(*a, **k):
         raise ServiceUnavailable("connection refused")
 
     monkeypatch.setattr(sr.GraphDatabase, "driver", down)
-    with caplog.at_level("WARNING", logger=sr.log.name), pytest.raises(sr.GraphUnavailable):
+    seen = _levels(monkeypatch)
+    with pytest.raises(sr.GraphUnavailable):
         sr._neo4j_run(sr.LINEAGE_CYPHER, uuids=["NHP-1"])
-    assert [r.levelname for r in caplog.records] == ["WARNING"]
+    assert seen == ["WARNING"]
