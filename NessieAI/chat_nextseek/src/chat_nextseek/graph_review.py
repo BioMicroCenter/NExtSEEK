@@ -1,0 +1,532 @@
+"""Read a finished graph result and say what it matched: the graph reviewer, Tier 1 (deterministic, no Neo4j).
+
+Nothing used to inspect a graph query that ran and returned rows, so confidently wrong numbers reached the reply
+(production 2026-09-23): 98 "converters" of which 57 were stored as ``Non-converter``; 1,306 TIFF images that left
+out every ``tif``/``TIF`` value; "how many different D. file types exist" narrowed by ``sample_count > 0``; RNA-Seq
+patients counted through miRNA-Seq alignments; a zero whose starting set was never counted.
+
+``review_tier1`` reads the question, the executed Cypher and parameters, the full in-memory result rows and the
+counts, and returns a ``GraphReview``: ``ok`` (say nothing), ``note`` (the turn broke: say so plainly) or
+``suggest`` (the result may not mean what the question asked: disclose the facts and, where one exists, offer one
+concrete next query). It never re-asks the graph agent and never runs a query; Tier 2 (bounded count queries) fills
+``variants`` later.
+
+Attribute values come from a ``ValuesProvider``: ``values(label, attribute) -> [(value, n), ...] | None``. A list
+shorter than ``VALUES_CAP`` is the complete set of stored values. Two keys ask for the type itself:
+``values(label, ATTRIBUTES)`` lists the type's attributes that hold values as ``[(attribute, n_values)]`` and
+``values(label, TYPE_NAME)`` gives ``[(display name, sample_count)]``.
+
+The rules were written against 110 labelled graph turns from the 2026-09-23 runs (11 should fire, 99 should stay
+quiet), kept as the offline fixture ``tests/chat_nextseek/fixtures/graph_review_replay.json``.
+"""
+from __future__ import annotations
+
+import dataclasses
+import json
+import os
+import re
+import time
+from collections import Counter
+from dataclasses import dataclass, field
+from typing import Callable
+
+VALUES_CAP = 50
+ATTRIBUTES = "*"
+TYPE_NAME = "@name"
+DISCLOSURE_MAX = 299
+LABEL_MAX = 60
+QUERY_MAX = 300
+
+ValuesProvider = Callable[[str, str], "list[tuple[str, int]] | None"]
+
+
+@dataclass
+class ReviewInput:
+    question: str
+    cypher: str | None
+    parameters: dict
+    keyword_fields: dict            # GraphPlan.keyword_fields
+    rows: list[dict]                # full in-memory graph_result["data"]
+    count: int | None
+    total: int | None
+    ok: bool
+    error: str | None
+    reply_draft: str | None = None  # only to suppress a note the reply already makes
+    elapsed_ms: int | None = None   # the final attempt's Neo4j time (Task B3 measures it)
+
+
+@dataclass
+class Check:
+    name: str
+    fired: bool
+    detail: str = ""
+
+
+@dataclass
+class GraphReview:
+    verdict: str                    # "ok" | "note" | "suggest"
+    checks: list[Check]
+    disclosure: str | None          # facts for the chatter note
+    suggestion: dict | None         # {"kind", "label", "query", "reason", "expected_count"?}
+    variants: list[dict] = field(default_factory=list)   # filled by Tier 2
+    elapsed_ms: int = 0
+    error: str | None = None
+
+
+# The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
+SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
+        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "premise_count")
+INFO_ONLY = ("title_contains_multi", "count_only")
+
+NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
+ALL_CUE = re.compile(r"\b(how many different|all|every|exist|exists|defined|in total|altogether)\b", re.I)
+STOP_VALUES = {"primary", "unknown", "other", "none", "yes", "no", "n/a", "na", "true", "false", "male", "female",
+               "tissue", "blood", "cell", "cells", "sample", "data"}
+CLAUSE_WORDS = {"who", "that", "which", "whose", "where"}
+# a reply that already tells the user to drop a filter has made the zero's point for us
+DROP_FILTER_OFFER = re.compile(
+    r"\b(?:without|remov\w*|drop\w*)\s+(?:the|that|this)\s+[\w\s-]{0,30}?(?:constraint|filter|restriction|condition)",
+    re.I)
+COUNT_WORD = r"\s+(?:\S+\s+){0,3}?(samples?|files?|records?|mice|patients|datasets?|rows|D\.[A-Z]+|sequencing|data)\b"
+NUMBER = r"(?<![\w./-])(\d{1,3}(?:,\d{3})+|\d{3,})(?![\w./-])"  # not inside a UID, DOI or PMID
+TERM = r"(?:toLower\(\s*)?(?:trim\(\s*)?(\$\w+|'[^']*')"
+
+
+# ---------------------------------------------------------------- Cypher reading -----------------------------------
+def _var_labels(cy: str) -> dict[str, str]:
+    """variable -> T_ label, from every ``(var:Label ...)`` pattern."""
+    out = {}
+    for var, labels in re.findall(r"\((\w+)((?::\w+)+)", cy):
+        for lab in labels.split(":"):
+            if lab.startswith("T_"):
+                out[var] = lab
+    return out
+
+
+def _resolve(tok: str, params: dict) -> str | None:
+    tok = tok.strip()
+    if tok.startswith("$"):
+        v = params.get(tok[1:])
+        return v if isinstance(v, str) else None
+    if tok.startswith("'"):
+        return tok.strip("'")
+    return None
+
+
+def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    """[(var, attr, term)] for every ``...var.attr...) CONTAINS term`` and the ``any(v IN [s.a, s.b] ...)`` form."""
+    out = []
+    for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
+        term = _resolve(tok, params)
+        if term:
+            out.append((var, attr, term.lower()))
+    for body, tok in re.findall(r"any\(\s*\w+\s+IN\s+\[([^\]]+)\][^)]*?CONTAINS\s+" + TERM, cy, re.S):
+        term = _resolve(tok, params)
+        for var, attr in re.findall(r"(\w+)\.(\w+)", body):
+            if term:
+                out.append((var, attr, term.lower()))
+    return out
+
+
+def _equality_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    out = []
+    for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s*=\s*" + TERM, cy):
+        term = _resolve(tok, params)
+        if term:
+            out.append((var, attr, term.lower()))
+    return out
+
+
+def _return_clause(cy: str) -> str:
+    parts = re.split(r"\bRETURN\b", cy)
+    return parts[-1] if len(parts) > 1 else ""
+
+
+def _returned_columns(cy: str) -> dict[str, tuple[str, str]]:
+    """alias -> (var, attr) for ``var.attr AS alias`` in the last RETURN."""
+    return {alias: (var, attr) for var, attr, alias in re.findall(r"(\w+)\.(\w+)\s+AS\s+(\w+)", _return_clause(cy))}
+
+
+def _is_grouped(cy: str) -> bool:
+    return bool(re.search(r"\bcount\s*\(", _return_clause(cy), re.I))
+
+
+def _return_items(cy: str) -> list[str]:
+    """Top-level comma split of the last RETURN clause (ORDER BY / LIMIT dropped)."""
+    rc = re.split(r"\bORDER\s+BY\b|\bLIMIT\b", _return_clause(cy))[0]
+    items, depth, cur = [], 0, ""
+    for ch in rc:
+        depth += ch in "([{"
+        depth -= ch in ")]}"
+        if ch == "," and depth == 0:
+            items.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    return [i.strip() for i in items + [cur] if i.strip()]
+
+
+def _is_count_only(cy: str) -> bool:
+    items = _return_items(cy)
+    return bool(items) and all(re.search(r"\b(count|sum)\s*\(", i, re.I) for i in items)
+
+
+def _tokens(s: str) -> set[str]:
+    return {w for w in re.split(r"[^a-z0-9]+", s.lower()) if w}
+
+
+def _distinct_meanings(values, term: str) -> bool:
+    """True when the matched values are not all spelling variants of one another (residual token sets not nested)."""
+    res = sorted({frozenset(_tokens(v) - _tokens(term)) for v in {str(x).lower() for x in values}}, key=len)
+    return any(not (res[i] <= res[j]) for i in range(len(res)) for j in range(i + 1, len(res)))
+
+
+def _states_number(text: str, n) -> bool:
+    return bool(re.search(rf"(?<![\d.]){re.escape(str(n))}(?![\d])", text))
+
+
+def _reply_states_split(reply: str | None, counter: Counter) -> bool:
+    """The reply already gives every matched value's COUNT (value names alone are not enough)."""
+    if not reply:
+        return False
+    txt = reply.replace(",", "")
+    return all(_states_number(txt, n) for _v, n in counter.items())
+
+
+def _negated(value: str, term: str) -> bool:
+    low = value.lower()
+    i = low.find(term)
+    return i > 0 and bool(NEGATION.search(low[:i]))
+
+
+# ---------------------------------------------------------------- the turn, read once --------------------------------
+@dataclass
+class _Turn:
+    inp: ReviewInput
+    values: ValuesProvider
+    cy: str
+    params: dict
+    q: str
+    rows: list[dict]
+    vl: dict
+    cf: list
+    eq: list
+    cols: dict
+    grouped: bool
+    count_only: bool
+
+    def vals(self, label: str | None, attr: str) -> list[tuple[str, int]]:
+        if not label:
+            return []
+        got = self.values(label, attr) or []
+        return [(v[0], v[1] if len(v) > 1 else 0) for v in got]
+
+    def result_n(self):
+        inp = self.inp
+        if inp.count == 0:
+            return 0
+        if self.count_only and len(self.rows) == 1 and len(self.rows[0]) == 1:
+            return next(iter(self.rows[0].values()))
+        return inp.total if inp.total is not None else inp.count
+
+
+def _prepare(inp: ReviewInput, values: ValuesProvider) -> _Turn:
+    cy = inp.cypher or ""
+    params = inp.parameters or {}
+    rows = [r for r in (inp.rows or []) if isinstance(r, dict)]
+    return _Turn(inp=inp, values=values, cy=cy, params=params, q=inp.question or "", rows=rows,
+                 vl=_var_labels(cy), cf=_contains_filters(cy, params), eq=_equality_filters(cy, params),
+                 cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy))
+
+
+# A finding: what fired, the facts to disclose, and (for three checks) one concrete next query.
+@dataclass
+class _Finding:
+    detail: str
+    fact: str
+    suggestion: dict | None = None
+
+
+def _clip(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def _list_values(counter_items) -> str:
+    items = list(counter_items)
+    shown = ", ".join(f"{v} {n:,}" if isinstance(n, int) else f"{v}" for v, n in items[:5])
+    return shown + (f" and {len(items) - 5} more" if len(items) > 5 else "")
+
+
+def _quoted(values) -> str:
+    q = [f"'{v}'" for v in values]
+    return q[0] if len(q) == 1 else ", ".join(q[:-1]) + " and " + q[-1]
+
+
+def _rewrite_with_value(question: str, term: str, value: str) -> str:
+    """The question with the matched term replaced by the exact stored value.
+
+    "show samples for human subjects who convert to Mtb infection positive" + Converter ->
+    "show samples for human subjects classified as Converter" (a relative clause holding the term is replaced
+    whole); "what macaca monkeys have ..." + Macaca fascicularis -> "what Macaca fascicularis monkeys have ...".
+    """
+    words = list(re.finditer(r"[A-Za-z0-9][\w\-]*", question))
+    hit = None
+    for i, m in enumerate(words):
+        w = m.group(0).lower()
+        if len(w) >= 3 and (term in w or w in term or len(os.path.commonprefix([w, term])) >= 5):
+            hit = i
+            break
+    if hit is None:
+        return _clip(f"{question.rstrip(' ?.')}. Only {value}.", QUERY_MAX)
+    for j in range(hit - 1, max(-1, hit - 3), -1):
+        if words[j].group(0).lower() in CLAUSE_WORDS:
+            return _clip(question[: words[j].start()].rstrip() + f" classified as {value}", QUERY_MAX)
+    m = words[hit]
+    return _clip(question[: m.start()] + value + question[m.end():], QUERY_MAX)
+
+
+def _split_suggestion(t: _Turn, term: str, pairs: list[tuple[str, int]], reason: str, from_rows: bool) -> dict | None:
+    keep = [(v, n) for v, n in pairs if not _negated(str(v), term)]
+    if not keep:
+        return None
+    value, n = max(keep, key=lambda p: p[1])
+    sug = {"kind": "value_split", "label": _clip(f"Only {value}", LABEL_MAX),
+           "query": _rewrite_with_value(t.q, term, str(value)), "reason": reason}
+    total = t.inp.total if t.inp.total is not None else t.inp.count
+    if from_rows and total is not None and len(t.rows) >= total:
+        sug["expected_count"] = n
+    return sug
+
+
+# ---------------------------------------------------------------- the checks ---------------------------------------
+def _value_checks(t: _Turn) -> dict[str, _Finding]:
+    """negated_value, value_split_rows, value_split_catalog and stem_miss, one pass over the CONTAINS filters."""
+    out: dict[str, _Finding] = {}
+    for var, attr, term in t.cf:
+        if attr in ("search_text", "title"):  # free text; a partial title is the Tier 2 title gate's business
+            continue
+        lab = t.vl.get(var)
+        stored = t.vals(lab, attr)
+        names = [str(v) for v, _n in stored]
+        matched = [(str(v), n) for v, n in stored if term in str(v).lower()]
+        alias = next((a for a, va in t.cols.items() if va == (var, attr)), None)
+        counter = None
+        if alias and t.rows and any(alias in r for r in t.rows):
+            counter = Counter(r.get(alias) for r in t.rows if r.get(alias) is not None)
+        told = t.grouped or (counter is not None and _reply_states_split(t.inp.reply_draft, counter))
+
+        # a matched stored value carries a negation right before the term (Non-converter for 'convert')
+        if not told and "negated_value" not in out:
+            neg = [v for v, _n in matched if _negated(v, term)]
+            if neg:
+                pairs = counter.most_common() if counter else matched
+                fact = (f"The matched values were: {_list_values(counter.most_common())}." if counter
+                        else f"The search term also matches {_quoted(neg[:3])}.")
+                out["negated_value"] = _Finding(f"{attr} CONTAINS '{term}' also matches '{neg[0]}'", fact,
+                                                _split_suggestion(t, term, pairs, fact, counter is not None))
+        # the matched column came back with values that are not spellings of one another
+        if counter is not None and not t.grouped:
+            # a column where no value repeats is a list of distinct records, not a split into categories
+            if (len(counter) >= 2 and max(counter.values()) >= 2 and _distinct_meanings(list(counter), term)
+                    and not told
+                    and "value_split_rows" not in out):
+                fact = f"The matched values were: {_list_values(counter.most_common())}."
+                out["value_split_rows"] = _Finding(
+                    f"{alias}: " + ", ".join(f"{v} {n}" for v, n in counter.most_common()), fact,
+                    _split_suggestion(t, term, counter.most_common(), fact, True))
+        elif (len({v.lower() for v, _n in matched}) >= 2 and _distinct_meanings([v for v, _ in matched], term)
+              and not t.grouped and "value_split_catalog" not in out):
+            fact = f"The search term matches several stored values: {_quoted([v for v, _ in matched[:4]])}."
+            out["value_split_catalog"] = _Finding(f"{attr} CONTAINS '{term}' matches {[v for v, _ in matched]}",
+                                                  fact, _split_suggestion(t, term, matched, fact, False))
+        # a stored value is a shorter stem of the term (tif for tiff), so CONTAINS misses it
+        stems = [v for v in names if 3 <= len(v.strip(".").lower()) < len(term)
+                 and term.startswith(v.strip(".").lower()) and term not in v.lower()]
+        if stems and "stem_miss" not in out:
+            fact = f"The search matched '{term}' only; stored values also include {_quoted(stems[:4])}."
+            stem = min((s.strip(".").lower() for s in stems), key=len)
+            out["stem_miss"] = _Finding(
+                f"{attr} CONTAINS '{term}' misses {stems}", fact,
+                {"kind": "relaxed_variant", "label": "Include all spellings",
+                 "query": _clip(f"{t.q.rstrip()} Include every spelling of {stem}.", QUERY_MAX), "reason": fact})
+    return out
+
+
+def _all_question_narrowed(t: _Turn) -> _Finding | None:
+    if not ALL_CUE.search(t.q):
+        return None
+    where = re.split(r"\bRETURN\b", t.cy)[0]
+    if re.search(r"sample_count\s*>\s*0", where):
+        fact = "The query counted only types that hold samples."
+        return _Finding("sample_count > 0 on an all/different question", fact,
+                        {"kind": "relaxed_variant", "label": "Count every defined type",
+                         "query": _clip(f"{t.q.rstrip()} Include types with no samples.", QUERY_MAX),
+                         "reason": fact})
+    for var, prop in re.findall(r"(\w+)\.(\w+)\s+IS NOT NULL", where):
+        rest = t.cy.replace(f"{var}.{prop} IS NOT NULL", "")
+        if not re.search(rf"{var}\.{prop}\b", rest):
+            return _Finding(f"{var}.{prop} IS NOT NULL on an all/different question",
+                            "The query left out records with no value for a property the question did not ask about.")
+    return None
+
+
+def _zero_unproven_base(t: _Turn) -> _Finding | None:
+    """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
+
+    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes, an exact
+    value missing from a complete stored list, and a reply that already offers dropping the filter.
+    """
+    if t.result_n() != 0:
+        return None
+    if re.search(r"uuid\s*[:=]\s*\$\w+", t.cy):
+        return None
+    if re.search(r"\(\w+:(Attribute|SampleType)\b", t.cy) and not t.vl:
+        return None
+    for var, attr, term in t.eq:
+        stored = t.vals(t.vl.get(var), attr)
+        if stored and len(stored) < VALUES_CAP and term not in {str(v).lower() for v, _n in stored}:
+            return None
+    n_filters = len(t.cf) + len(t.eq) + len(re.findall(r"\bEXISTS\s*\{", t.cy))
+    if not t.cf or n_filters < 2:
+        return None
+    if t.inp.reply_draft and DROP_FILTER_OFFER.search(t.inp.reply_draft):
+        return None
+    return _Finding("zero behind a fuzzy anchor and another filter; base never counted",
+                    "The starting set for this search was never counted.")
+
+
+def _named_alias_applied(question: str, value_words: list[str], blob: set[str]) -> bool:
+    """The question glosses the value with its own abbreviation, and that abbreviation is applied: 'glioblastoma
+    (GBM)' is applied when the query filters on 'gbm'."""
+    pat = r"(?<![a-z0-9])" + r"[^a-z0-9]+".join(map(re.escape, value_words)) + r"(?![a-z0-9])\s*\(([^)]{1,20})\)"
+    for m in re.finditer(pat, question.lower()):
+        gloss = _tokens(m.group(1))
+        if gloss and gloss <= blob:
+            return True
+    return False
+
+
+def _unapplied_value(t: _Turn) -> _Finding | None:
+    """A value the question names, stored on a queried type, that the query never applies (neither the value nor
+    its attribute)."""
+    qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
+    blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
+    for _var, lab in t.vl.items():
+        type_words: set[str] = set()
+        for name, _n in t.vals(lab, TYPE_NAME):
+            type_words |= _tokens(str(name))
+        for attr, _n in t.vals(lab, ATTRIBUTES):
+            if attr.lower() in blob:
+                continue
+            for v, _c in t.vals(lab, attr):
+                vn = re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
+                if len(vn) < 3 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
+                    continue
+                if f" {vn} " in qn and not _tokens(vn) <= blob and not _named_alias_applied(t.q, vn.split(), blob):
+                    return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it",
+                                    f"The question names '{v}', but the search did not filter on it.")
+    return None
+
+
+def _premise_count(t: _Turn) -> _Finding | None:
+    nums = [int(m.group(1).replace(",", "")) for m in re.finditer(NUMBER + COUNT_WORD, t.q, re.I)]
+    got = {t.result_n(), t.inp.total, t.inp.count}
+    for x in nums:
+        if x >= 50 and x not in got:
+            return _Finding(f"question states {x}, result is {t.result_n()}",
+                            f"The question says {x:,}; this search did not reproduce that number.")
+    return None
+
+
+def _breakage(inp: ReviewInput) -> _Finding | None:
+    if inp.cypher is None:
+        return _Finding("no Cypher ran", "No database query ran for this question.")
+    if inp.ok is False:
+        return _Finding("Neo4j error on the final attempt", "The database query failed on its final attempt.")
+    return None
+
+
+# ---------------------------------------------------------------- review -------------------------------------------
+def review_tier1(inp: ReviewInput, values: ValuesProvider) -> GraphReview:
+    """Tier 1: deterministic, no Neo4j. Never raises; a check that fails is recorded as not fired."""
+    t0 = time.monotonic()
+    findings: dict[str, _Finding] = {}
+    checks: list[Check] = []
+    error = None
+
+    def run(name, fn):
+        try:
+            f = fn()
+        except Exception as exc:  # a reviewer bug must never cost the user their answer
+            checks.append(Check(name, False, f"error: {type(exc).__name__}: {exc}"[:200]))
+            return
+        if f is not None:
+            findings[name] = f
+        checks.append(Check(name, f is not None, f.detail if f else ""))
+
+    run("breakage", lambda: _breakage(inp))
+    turn = None
+    if "breakage" not in findings:
+        try:
+            turn = _prepare(inp, values)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"[:200]
+
+    value_names = ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss")
+    if turn is None:
+        why = "skipped: the query did not run" if "breakage" in findings else f"error: {error}"
+        checks += [Check(n, False, why) for n in SHIP[1:]]
+    else:
+        try:
+            vf = _value_checks(turn)
+        except Exception as exc:
+            vf = None
+            checks += [Check(n, False, f"error: {type(exc).__name__}: {exc}"[:200]) for n in value_names]
+        if vf is not None:
+            for n in value_names:
+                findings.update({n: vf[n]} if n in vf else {})
+                checks.append(Check(n, n in vf, vf[n].detail if n in vf else ""))
+        run("all_question_narrowed", lambda: _all_question_narrowed(turn))
+        run("zero_unproven_base", lambda: _zero_unproven_base(turn))
+        run("unapplied_value", lambda: _unapplied_value(turn))
+        run("premise_count", lambda: _premise_count(turn))
+
+    # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
+    try:
+        titles = [term for _v, a, term in (turn.cf if turn else []) if a == "title"]
+        checks.append(Check("title_contains_multi", False,
+                            f"tier 2 gate: a title matched by the partial term '{titles[0]}'" if titles else ""))
+        checks.append(Check("count_only", False,
+                            "information only: the RETURN is an aggregate" if turn and turn.count_only else ""))
+    except Exception as exc:
+        checks += [Check(n, False, f"error: {type(exc).__name__}: {exc}"[:200]) for n in INFO_ONLY]
+
+    if "breakage" in findings:
+        verdict = "note"
+    elif findings:
+        verdict = "suggest"
+    else:
+        verdict = "ok"
+
+    disclosure = None
+    suggestion = None
+    if verdict != "ok":
+        facts: list[str] = []
+        for name in SHIP:
+            f = findings.get(name)
+            if f and f.fact not in facts and len(" ".join(facts + [f.fact])) <= DISCLOSURE_MAX:
+                facts.append(f.fact)
+        disclosure = " ".join(facts) or None
+        for name in ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
+                     "all_question_narrowed"):
+            f = findings.get(name)
+            if f and f.suggestion:
+                suggestion = f.suggestion
+                break
+    return GraphReview(verdict=verdict, checks=checks, disclosure=disclosure, suggestion=suggestion, variants=[],
+                       elapsed_ms=int((time.monotonic() - t0) * 1000), error=error)
+
+
+def as_debug(review: GraphReview) -> dict:
+    """The whole review, for ``debug.graph_review``."""
+    return dataclasses.asdict(review)
