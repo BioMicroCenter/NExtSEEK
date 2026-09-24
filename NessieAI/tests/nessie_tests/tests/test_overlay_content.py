@@ -162,7 +162,10 @@ def test_the_write_case_rejects_budget_abort_language():
     def passes(reply):
         return all(re.search(g, reply, re.IGNORECASE) for g in guards)
 
-    assert passes("Created investigation 'Testing Investigation. Still Testing' (id 42).")
+    # 2026-09-24: writes stay refused on NExtSEEK, so a claimed creation no longer passes
+    # and the recorded NS refusal does.
+    assert not passes("Created investigation 'Testing Investigation. Still Testing' (id 42).")
+    assert passes("I can't do that one from here.")
     assert passes("Shall I proceed with creating that investigation?")
     assert not passes("I hit the attempt budget and stopped.")
 

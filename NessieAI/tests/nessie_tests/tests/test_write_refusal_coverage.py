@@ -41,6 +41,10 @@ HERE = Path(__file__).resolve().parents[1]
 CORPUS = HERE / "corpus.json"
 
 _OBS_CC = RouteObservation("container_cc", None, "baml", "", None, "container_cc")
+# 2026-09-24 ruling: writes stay refused on NExtSEEK (there is no Container-CC write
+# path), so the create/update/delete cases are scored as the nextseek_query turn they
+# really are. The all-CC simulation and the CC write probe below keep the CC shape.
+_OBS_NS = RouteObservation("nextseek_query", None, "baml", "", "unsupported", "nextseek_query")
 
 CREATE = "write.create_me_investigation_testin"
 UPDATE = "write.update_scientist_must_confirm_first"
@@ -72,6 +76,16 @@ def _cc_payload(reply):
     ]}
 
 
+def _ns_payload(reply):
+    """A nextseek_query turn that refused: the route event and the reply."""
+    return {"status": "completed", "progress": [
+        {"event": "route_decided",
+         "data": {"route": "nextseek_query", "model_class": None,
+                  "source": "baml", "reasoning": ""}},
+        {"event": "query_complete", "data": {"reply": reply}},
+    ]}
+
+
 def _verdict(vid, reply):
     """(all_passed, failing criteria) for a case against one candidate reply.
 
@@ -82,7 +96,7 @@ def _verdict(vid, reply):
     """
     turn = _case(vid).turns[0]
     ok, results, _ = evaluate.evaluate_turn(
-        _cc_payload(reply), list(turn.pass_criteria), _OBS_CC, last_reply=reply)
+        _ns_payload(reply), list(turn.pass_criteria), _OBS_NS, last_reply=reply)
     failures = [r for r in results if not r.get("passed")]
     return ok, failures
 
@@ -199,7 +213,7 @@ def test_each_authored_case_asserts_exactly_the_four_kinds(vid):
     shapes = [(c.field, c.op) for c in crits]
 
     assert ("route", "eq") in shapes
-    assert next(c.value for c in crits if c.field == "route") == "container_cc"
+    assert next(c.value for c in crits if c.field == "route") == "nextseek_query"
     assert ("last_reply", "nonempty") in shapes
 
     regexes = [c.value for c in crits if c.field == "last_reply" and c.op == "matches_re"]
@@ -879,8 +893,12 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # inline (`parser_plan.mode` -5, `api_ok` -1, `api_plan.endpoint` -1). Not one
     # of the 58 additions asserts NS plumbing: they assert ground truth on the
     # reply, which is the only field a forced container_cc arm can produce.
+    # -> [327, 212, 20, 19] on 2026-09-24, route rulings: the create, update and delete
+    # cases and the GEO submission now assert nextseek_query (+4 route), the MetNet summary
+    # asserts container_cc (-1 route, and its reporter parser mode is gone: -1 mode), and
+    # the refine_recall seed accepts either route (-1 route).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [325, 213, 20, 19], (
+                                    "api_plan.endpoint")] == [327, 212, 20, 19], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

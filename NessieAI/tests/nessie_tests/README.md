@@ -514,7 +514,7 @@ curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
 and **413 of 415 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **325** variants, `parser_plan.mode` on **213**, `api_ok` on **20**
+fails on **327** variants, `parser_plan.mode` on **212**, `api_ok` on **20**
 and `api_plan.endpoint` on **19** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path). Those cases stay red until the corpus
 itself is settled.

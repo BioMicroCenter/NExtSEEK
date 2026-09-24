@@ -172,7 +172,8 @@ def test_the_refine_recall_override_is_kept_and_now_agrees():
     """Kept deliberately: it is consistent rather than contradictory, and deleting it
     would remove the one place the CC ruling for this case is written next to the
     other per-case route decisions."""
-    assert _overrides().get(REFINE_RECALL) == {"op": "eq", "value": "container_cc"}
+    assert _overrides().get(REFINE_RECALL) == {
+        "op": "matches_re", "value": "(nextseek_query|container_cc)"}
 
 
 # --------------------------------------------------------------------------- #
@@ -271,7 +272,10 @@ def test_the_three_seed_guards_partition_cleanly_so_each_test_names_its_own():
 
 
 def test_the_seed_turn_asserts_the_route_it_actually_takes():
-    assert ("route", "eq", "container_cc") in _crits(_merged()[REFINE_RECALL], 0)
+    """2026-09-24: the seed is a self-contained search, and in the prod suite (seed 17)
+    it routed nextseek_query and found both NHP UIDs. Either route is accepted."""
+    assert ("route", "matches_re", "(nextseek_query|container_cc)") in _crits(
+        _merged()[REFINE_RECALL], 0)
 
 
 def test_the_seed_turn_no_longer_asserts_ns_rest_internals():
