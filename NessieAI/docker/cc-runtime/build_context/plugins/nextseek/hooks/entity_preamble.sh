@@ -45,7 +45,9 @@ if [ -r "$PREV_DIR/manifest.json" ]; then
                   " It has no sample UIDs (a count or grouped result): the Cypher in search_details.json defines its samples, so to list or break them down change only its RETURN and keep every MATCH and WHERE."
                 else "" end)
            end)
-        + " Files in \($root)/\($t.folder)/: \([($t.files // [])[] | .file] | join(", "))."
+        + (if (($t.files // []) | length) > 0
+           then " Files in \($root)/\($t.folder)/: \([$t.files[] | .file] | join(", "))."
+           else "" end)
         + " A follow-up is about this turn unless the user names another. Read \($root)/MANIFEST.md first, then work from these files; never re-run its search as it was."
       end
   ' "$PREV_DIR/manifest.json" 2>/dev/null || true)"

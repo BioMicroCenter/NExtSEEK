@@ -129,3 +129,11 @@ def test_nothing_to_say_emits_nothing_and_never_blocks(tmp_path, manifest):
     (staged / "manifest.json").write_text(manifest)
     proc = _run(tmp_path, staged=staged)
     assert proc.returncode == 0 and proc.stdout == ""
+
+
+def test_a_turn_that_could_not_be_staged_lists_no_empty_file_list(tmp_path):
+    odd = {"turn_id": 4, "folder": "turn-04", "user_query": "q", "route": "unknown", "mode": None,
+           "files": [], "skipped": [{"file": "*", "reason": "OSError"}]}
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, odd)))
+    assert "turn 4" in ctx and "Files in" not in ctx
+    assert "Read /data/previous_turns/MANIFEST.md first" in ctx
