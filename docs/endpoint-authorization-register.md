@@ -134,7 +134,7 @@ they all take the unfiltered branch today, and they would all become project-sco
 |---|---|---|---|
 | 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/samples/retrieve/"`; loaded by `seek/templates/newSearch.html:3`, `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
 | 2 | NExtSEEK assistant (`chat_nextseek` engine, in-process) | endpoint allowlisted at `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:39`; outbound Basic auth built at `:132` from `config.API_USER/API_PASS`; report path at `NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py:66` | The caller. `nextseek_api/services/assistant.py:235-250` and `:744-749` overwrite `API_USER`/`API_PASS` on a per-request `ChatConfig` copy with the credentials `resolve_seek_auth` returned |
-| 3 | Container-CC agent, via the ns-sidecar | sidecar forwards ops to `/nextseek_api/assistant/{op}/` (`NessieAI/docker/ns-sidecar/app/ns_client.py:97`); the `api-read` op reaches this path because it is allowlisted at `NessieAI/ns/read_safe_endpoints.json:39` and gated by `NessieAI/ns/write_gate.py:94` | The caller. The sidecar holds no credentials of its own; per-request Basic auth is built from the `ns_login` frame at `NessieAI/docker/ns-sidecar/app/server.py:40-47` |
+| 3 | Container-CC agent, via the ns-sidecar | sidecar forwards ops to `/nextseek_api/assistant/{op}/` (`NessieAI/docker/ns-sidecar/app/ns_client.py:97`); the `api-read` op reaches this path because it is allowlisted at `NessieAI/ns/read_safe_endpoints.json:27` and gated by `NessieAI/ns/write_gate.py:94` | The caller. The sidecar holds no credentials of its own; per-request Basic auth is built from the `ns_login` frame at `NessieAI/docker/ns-sidecar/app/server.py:40-47` |
 | 4 | LLM endpoint catalogs that steer both engines toward it | `NessieAI/chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json:3`, `.../min_api_endpoints_enriched.json:3,71`, which the cc-agent image bakes into `/app/plugins/nextseek/context/` through the `chat_nextseek` named context | n/a, prompt context |
 
 The **one** exception to "always the end user" is the admin-only PROD toggle: when a turn routes
@@ -142,8 +142,8 @@ to the PROD `ChatConfig`, `nextseek_api/services/assistant.py:639-643` and `:758
 the configured `API_USER`/`API_PASS` instead. That is a genuine service identity, and its scope
 would be whatever that account's SEEK projects are.
 
-`/nextseek_api/entity_tree/lineage/` is also allowlisted for both engines
-(`NessieAI/ns/read_safe_endpoints.json:51`) and recommended to the model by
+`/nextseek_api/entity_tree/lineage/` was allowlisted for both engines until 2026-09-18 (it left
+`NessieAI/ns/read_safe_endpoints.json` when sample lineage moved to the graph) and is recommended to the model by
 `nextseek_api/endpoint_descriptions.py:18`, but it has no project predicate at all today, so
 tightening `admin/samples` does not touch it. `entity_tree/nodes`, `edges` and `edge_attributes`
 have **no consumer anywhere in the worktree**.
