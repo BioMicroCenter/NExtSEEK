@@ -85,6 +85,21 @@ class DictSessionAdapter:
     def __contains__(self, key: str) -> bool:
         return key in self._cache
 
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Remove ``key`` and return its value, or ``default`` when it is not there.
+
+        A popped ``extra_state`` key is gone after :meth:`save`, which writes that column from the cache
+        wholesale. The column-backed keys are refused: a column cannot be removed, and ``save`` reads them
+        from the cache with a default, so a popped one would be written back as an empty value (``last_debug``)
+        or silently keep the stored bundles (``results_history``, which is merged).
+        """
+        if key in _TYPED_KEYS:
+            raise ValueError(
+                f"{key!r} is a ChatSession column that save() reads from the cache; "
+                "assign an empty value instead of popping it"
+            )
+        return self._cache.pop(key, default)
+
     # --- persistence ---
 
     @staticmethod

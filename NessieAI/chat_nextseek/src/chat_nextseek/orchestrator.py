@@ -807,38 +807,10 @@ def _last_turn_id(session) -> int:
     return next_turn_id(session.get(CHAT_LOG_KEY)) - 1
 
 
-class _PopByNone:
-    """``helpers.suggestions`` over a session that has no ``pop``.
-
-    The request path's ``DictSessionAdapter`` and the SQL session stores offer ``get`` and item assignment only, so
-    the pending entry is cleared by writing None, which ``accept`` reads as nothing pending. Nothing is written when
-    nothing was pending."""
-
-    def __init__(self, session):
-        self._session = session
-
-    def get(self, key, default=None):
-        return self._session.get(key, default)
-
-    def __setitem__(self, key, value):
-        self._session[key] = value
-
-    def pop(self, key, default=None):
-        value = self._session.get(key)
-        if value is None:
-            return default
-        self._session[key] = None
-        return value
-
-
-def _suggestion_session(session):
-    return session if callable(getattr(session, "pop", None)) else _PopByNone(session)
-
-
 def _accepted_suggestion(session, user_text: str) -> dict[str, Any] | None:
     """The chip this message clicked, or None. Clears what the previous turn offered either way."""
     try:
-        return accept(_suggestion_session(session), user_text, last_turn_id=_last_turn_id(session))
+        return accept(session, user_text, last_turn_id=_last_turn_id(session))
     except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
         print(f"[DEBUG][SUGGEST] could not read the offered suggestion: {exc!r}")
         return None
@@ -858,7 +830,7 @@ def _remember_suggestions(session, items: list[dict[str, Any]]) -> None:
     graph turn, so that is the id this turn is stored under, and the one the next turn's ``_last_turn_id`` reads
     unless another turn is written in between. No chips clears the entry."""
     try:
-        pending_for(_suggestion_session(session), items, turn_id=_last_turn_id(session))
+        pending_for(session, items, turn_id=_last_turn_id(session))
     except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
         print(f"[DEBUG][SUGGEST] could not remember the offered suggestion: {exc!r}")
 

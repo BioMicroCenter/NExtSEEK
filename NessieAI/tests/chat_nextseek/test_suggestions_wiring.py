@@ -64,7 +64,7 @@ def _dict_session():
 
 
 def _adapter_session():
-    """The request path's session: a ``DictSessionAdapter``, which has get and item assignment but no ``pop``."""
+    """The request path's session: a ``DictSessionAdapter``, whose ``pop`` the chip bookkeeping relies on."""
     return DictSessionAdapter(SimpleNamespace(results_history=[], last_debug={}, extra_state={}))
 
 
