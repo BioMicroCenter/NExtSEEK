@@ -133,9 +133,12 @@ def _cfg(scope, **overrides):
 # --------------------------------------------------------------------------- #
 
 def test_the_signature_is_unchanged():
+    # The positional contract is unchanged; the one addition is the graph reviewer's keyword-only timeout_s.
+    # A scope is never a parameter: it rides on the config.
     params = inspect.signature(tool_neo4j_query).parameters
-    assert list(params) == ["config", "cypher", "parameters"]
+    assert list(params) == ["config", "cypher", "parameters", "timeout_s"]
     assert params["parameters"].default is None
+    assert params["timeout_s"].kind is inspect.Parameter.KEYWORD_ONLY and params["timeout_s"].default is None
 
 
 def test_the_refusal_texts():

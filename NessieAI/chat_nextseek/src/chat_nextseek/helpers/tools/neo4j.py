@@ -250,7 +250,8 @@ def _failure(error: str, *, ran: Any, submitted: Any, parameters: Any, scope: di
             "parameters": parameters, "scope": scope}
 
 
-def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None) -> dict:
+def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None, *,
+                     timeout_s: int | None = None) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance, held to the
     config's project scope.
@@ -258,7 +259,8 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     parameters, counters, scope} on success, or {ok: False, error, data, cypher, submitted_cypher,
     parameters, scope} on failure. `cypher` is the statement that ran (after the scope was
     inserted), or the submitted text when nothing ran. Opens and closes a driver per call. The
-    query and its total probe each run in a READ transaction with a QUERY_TIMEOUT_S timeout.
+    query and its total probe each run in a READ transaction with a QUERY_TIMEOUT_S timeout, or
+    `timeout_s` seconds each when the caller bounds it (the graph reviewer's count queries).
     """
     # A mapping is copied; anything else is handed to the prover as it came, which refuses it.
     submitted_params = dict(parameters) if isinstance(parameters, Mapping) else (parameters or {})
@@ -307,7 +309,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     if not getattr(config, "NEO4J_PASSWORD", None):
         return failed("NEO4J_PASSWORD not configured")
 
-    timed = unit_of_work(timeout=QUERY_TIMEOUT_S)
+    timed = unit_of_work(timeout=timeout_s or QUERY_TIMEOUT_S)
     driver = None
     try:
         try:
