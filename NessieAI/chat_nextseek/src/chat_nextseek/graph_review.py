@@ -11,10 +11,15 @@ counts, and returns a ``GraphReview``: ``ok`` (say nothing), ``note`` (the turn 
 concrete next query). It never re-asks the graph agent and never runs a query; Tier 2 (bounded count queries) fills
 ``variants`` later.
 
-Attribute values come from a ``ValuesProvider``: ``values(label, attribute) -> [(value, n), ...] | None``. A list
-shorter than ``VALUES_CAP`` is the complete set of stored values. Two keys ask for the type itself:
-``values(label, ATTRIBUTES)`` lists the type's attributes that hold values as ``[(attribute, n_values)]`` and
-``values(label, TYPE_NAME)`` gives ``[(display name, sample_count)]``.
+The catalog comes from a ``CatalogProvider``: ``values(label, attribute) -> [(value, n), ...] | None`` (a list
+shorter than ``VALUES_CAP`` is the complete set of stored values), ``attributes(label)`` (the type's attributes that
+hold values) and ``type_name(label)`` (its display name). One review calls each (method, args) at most once, so a
+live provider that queries Neo4j is hit once per key per turn. ``DictCatalog`` is the in-memory provider the offline
+fixture uses.
+
+``reply_draft`` is optional. In the live flow the reviewer runs before the chatter writes the reply, so it is None
+and nothing the reply says can suppress a check; offline (and for a later chatter-side backstop) it suppresses a
+note the reply already makes.
 
 The rules were written against 110 labelled graph turns from the 2026-09-23 runs (11 should fire, 99 should stay
 quiet), kept as the offline fixture ``tests/chat_nextseek/fixtures/graph_review_replay.json``.
@@ -28,16 +33,73 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Protocol
 
 VALUES_CAP = 50
-ATTRIBUTES = "*"
-TYPE_NAME = "@name"
 DISCLOSURE_MAX = 299
 LABEL_MAX = 60
 QUERY_MAX = 300
 
-ValuesProvider = Callable[[str, str], "list[tuple[str, int]] | None"]
+
+class CatalogProvider(Protocol):
+    """What Tier 1 reads about a sample type. ``None`` means unknown; a raise is recorded by the check that asked.
+
+    ``values``: the stored values of one attribute with their sample counts (complete when shorter than
+    ``VALUES_CAP``). ``attributes``: the type's attributes that hold values. ``type_name``: its display name."""
+
+    def values(self, label: str, attribute: str) -> list[tuple[str, int]] | None: ...
+    def attributes(self, label: str) -> list[str] | None: ...
+    def type_name(self, label: str) -> str | None: ...
+
+
+class DictCatalog:
+    """A ``CatalogProvider`` over a plain dict, the shape of the replay fixture's ``catalog`` block:
+    ``{"<label>.<attribute>": [[value, n], ...], "<label>.*": [[attribute, n_values], ...],
+    "<label>.@name": [[display name, sample_count]]}``."""
+
+    def __init__(self, block: dict | None):
+        self._b = block or {}
+
+    def values(self, label: str, attribute: str) -> list[tuple[str, int]] | None:
+        got = self._b.get(f"{label}.{attribute}")
+        return [tuple(v) for v in got] if got else None
+
+    def attributes(self, label: str) -> list[str] | None:
+        got = self._b.get(f"{label}.*")
+        return [a[0] if isinstance(a, (list, tuple)) else a for a in got] if got else None
+
+    def type_name(self, label: str) -> str | None:
+        got = self._b.get(f"{label}.@name")
+        return (got[0][0] if isinstance(got[0], (list, tuple)) else got[0]) if got else None
+
+
+class _Memo:
+    """Every provider call once per (method, args) within one review; a raise is remembered and re-raised."""
+
+    def __init__(self, catalog: CatalogProvider):
+        self._c = catalog
+        self._seen: dict = {}
+
+    def _call(self, method: str, *args):
+        key = (method, args)
+        if key not in self._seen:
+            try:
+                self._seen[key] = (True, getattr(self._c, method)(*args))
+            except Exception as exc:
+                self._seen[key] = (False, exc)
+        ok, got = self._seen[key]
+        if not ok:
+            raise got
+        return got
+
+    def values(self, label, attribute):
+        return self._call("values", label, attribute)
+
+    def attributes(self, label):
+        return self._call("attributes", label)
+
+    def type_name(self, label):
+        return self._call("type_name", label)
 
 
 @dataclass
@@ -203,7 +265,7 @@ def _negated(value: str, term: str) -> bool:
 @dataclass
 class _Turn:
     inp: ReviewInput
-    values: ValuesProvider
+    catalog: _Memo
     cy: str
     params: dict
     q: str
@@ -218,7 +280,7 @@ class _Turn:
     def vals(self, label: str | None, attr: str) -> list[tuple[str, int]]:
         if not label:
             return []
-        got = self.values(label, attr) or []
+        got = self.catalog.values(label, attr) or []
         return [(v[0], v[1] if len(v) > 1 else 0) for v in got]
 
     def result_n(self):
@@ -230,11 +292,11 @@ class _Turn:
         return inp.total if inp.total is not None else inp.count
 
 
-def _prepare(inp: ReviewInput, values: ValuesProvider) -> _Turn:
+def _prepare(inp: ReviewInput, catalog: _Memo) -> _Turn:
     cy = inp.cypher or ""
     params = inp.parameters or {}
     rows = [r for r in (inp.rows or []) if isinstance(r, dict)]
-    return _Turn(inp=inp, values=values, cy=cy, params=params, q=inp.question or "", rows=rows,
+    return _Turn(inp=inp, catalog=catalog, cy=cy, params=params, q=inp.question or "", rows=rows,
                  vl=_var_labels(cy), cf=_contains_filters(cy, params), eq=_equality_filters(cy, params),
                  cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy))
 
@@ -412,10 +474,8 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
     for _var, lab in t.vl.items():
-        type_words: set[str] = set()
-        for name, _n in t.vals(lab, TYPE_NAME):
-            type_words |= _tokens(str(name))
-        for attr, _n in t.vals(lab, ATTRIBUTES):
+        type_words = _tokens(str(t.catalog.type_name(lab) or ""))
+        for attr in t.catalog.attributes(lab) or []:
             if attr.lower() in blob:
                 continue
             for v, _c in t.vals(lab, attr):
@@ -447,7 +507,7 @@ def _breakage(inp: ReviewInput) -> _Finding | None:
 
 
 # ---------------------------------------------------------------- review -------------------------------------------
-def review_tier1(inp: ReviewInput, values: ValuesProvider) -> GraphReview:
+def review_tier1(inp: ReviewInput, catalog: CatalogProvider) -> GraphReview:
     """Tier 1: deterministic, no Neo4j. Never raises; a check that fails is recorded as not fired."""
     t0 = time.monotonic()
     findings: dict[str, _Finding] = {}
@@ -468,7 +528,7 @@ def review_tier1(inp: ReviewInput, values: ValuesProvider) -> GraphReview:
     turn = None
     if "breakage" not in findings:
         try:
-            turn = _prepare(inp, values)
+            turn = _prepare(inp, _Memo(catalog))
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"[:200]
 
