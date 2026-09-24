@@ -1,0 +1,450 @@
+{
+  "_name": "probe-followups-split - the follow-up split on a rebuilt box",
+  "_why": "Proves NESSIE_FOLLOWUP_ROUTING=split (the product default since c9e57058, routing review section 5) on a rebuilt box. An NExtSEEK-shaped follow-up (a breakdown, then a recall) stays on nextseek_query; a plot of the earlier result goes to container_cc; a self-contained question after NExtSEEK follow-ups is routed as in a new chat; and in a chat that used Container-CC a later 'of those' stays on container_cc although it is NExtSEEK-shaped, while a self-contained question in between still goes to nextseek_query. Route and route_source are asserted on every turn, numbers are pinned by _measure. probe-2026-09-23-followups-to-cc.json stays as the record of the rule before the split. Queries name no person.",
+  "_run": "manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-followups-split.json --out /app/runs/split-<date> (copy the tree in first, NessieAI/tests/README.md 'Harness container lane'). 12 turns, 3 of them Container-CC (paid). With NESSIE_FOLLOWUP_ROUTING=cc the four NExtSEEK follow-ups go red on their route, which is the rollback check.",
+  "_instance_warning": "NUMBERS: NDMA 207 is fairdata-dev's (2026-09-23); every other number was measured on production on 2026-09-23. Each _measure entry says where. Re-pin before the run on any box:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>   (run the batch on the box, read-only)\n  python ... pin_probe_truths.py --pin <this file> --from measured.json\nCases in mode 'each' list their numbers in the order of their locals.\nThe reject-73 guard on split.sticky_after_container_cc turn 4 is written by hand and does not re-pin.",
+  "families": {
+    "followup_split": {
+      "description": "Multi-turn: NExtSEEK seeds, then follow-ups routed by the follow-up split (routing review 5).",
+      "variants": [
+        {
+          "family": "followup_split",
+          "id": "split.nextseek_shaped_followups_stay",
+          "name": "An NExtSEEK-shaped follow-up stays on nextseek_query: a breakdown, then a recall",
+          "_why": "A breakdown of the earlier result by one field and a recall of the first search are follow-ups NExtSEEK can answer from the earlier result or by re-running its search, so under the split both stay on nextseek_query, decided by the router (route_source baml). 73 NHP with both flow and sequencing data; Macaca fascicularis 47, Macaca mulatta (Rhesus) 22, Macaca mulatta 4. Measured on production 2026-09-23 (also the workstation's numbers).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "breakdown",
+              "query": "Which species are among those 73, and how many of each?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])22(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "Remind me how many NHP samples the first search found.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_split",
+          "id": "split.plot_goes_to_container_cc",
+          "name": "A plot of the earlier result goes to container_cc",
+          "_why": "A chart needs more than a re-run of the search, so under the split the follow-up goes to container_cc (the router, or the code guard on the word 'plot'), and an image file is written.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "plot",
+              "query": "Plot the species of those as a bar chart.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup)$"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "\\.(png|svg|pdf)\\b"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_split",
+          "id": "split.fresh_question_after_an_ns_follow_up",
+          "name": "A fresh self-contained question after an NExtSEEK follow-up is routed as in a new chat",
+          "_why": "The seed and its recall run on nextseek_query; the third message names its own subject and refers back to nothing, so the follow-up rule must leave it to the router. NDMA-treated mice: 207 on fairdata-dev (2026-09-23), 1,551 on production. HeLa samples: 4 (production 2026-09-23).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with NDMA",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "Remind me how many mice that search found.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "fresh",
+              "query": "How many HeLa samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_split",
+          "id": "split.sticky_after_container_cc",
+          "name": "Sticky: after a Container-CC turn a later 'of those' stays on container_cc",
+          "_why": "Turn 2 is a plot (container_cc). Turn 3 is self-contained and goes to nextseek_query as in a new chat. Turn 4 is NExtSEEK-shaped ('of those', a count) and refers to turn 3's HeLa result, but the chat already has a completed Container-CC turn, and NExtSEEK cannot see Container-CC's results, so it stays on container_cc. The answer is about the 4 HeLa samples (3 carry a treatment: HeLa-ActD, -GSK, -TSA), never the 73 NHP: on 2026-09-23 Container-CC bound 'those' to the wrong turn. The reject-73 guard is written by hand and does not re-pin.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "plot",
+              "query": "Plot the species of those as a bar chart.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup)$"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "\\.(png|svg|pdf)\\b"
+                }
+              ]
+            },
+            {
+              "label": "fresh",
+              "query": "How many HeLa samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "route_source",
+                  "op": "eq",
+                  "value": "baml"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "back",
+              "query": "Of those, how many have a treatment recorded?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|followup|sticky)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)\\bHeLa\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "_measure": {
+    "split.nextseek_shaped_followups_stay": {
+      "locals": [
+        73,
+        47,
+        22,
+        4
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "split.plot_goes_to_container_cc": {
+      "locals": [
+        73
+      ],
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+    },
+    "split.fresh_question_after_an_ns_follow_up": {
+      "locals": [
+        207,
+        4
+      ],
+      "mode": "each",
+      "measured": "207 fairdata-dev, 2026-09-23; 4 production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' RETURN count(s)"
+      ]
+    },
+    "split.sticky_after_container_cc": {
+      "locals": [
+        73,
+        4,
+        3
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' RETURN count(s)",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' AND s.Treatment1 IS NOT NULL AND trim(toString(s.Treatment1)) <> '' RETURN count(s)"
+      ]
+    }
+  }
+}

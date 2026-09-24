@@ -1,0 +1,1699 @@
+{
+  "_name": "fu-compare - the follow-up A/B: every case run twice, NESSIE_FOLLOWUP_ROUTING=cc against =split",
+  "_why": "The paid measurement of routing review section 5.6 (02-followup-loop FINDINGS section 7): 22 follow-up cases from the 2026-09-23 runs plus 3 new ones. Arm A runs with NESSIE_FOLLOWUP_ROUTING=cc (every follow-up to Container-CC, the 2026-09-23 rule), arm B with =split (the operator's 2026-09-24 rule). Same image, box and day; only the switch differs, so no case asserts a route (the manifest records the route each turn took) and no criterion reads Container-CC's trace or NExtSEEK's plumbing, which only one arm could produce. Every criterion is on the reply. Seeds run on NExtSEEK in both arms. Criteria fixes from FINDINGS section 7: refers-back turn 4 names HeLa and rejects 73; the CC mice follow-up rejects 1,442 and accepts only a subset of the 745; LUAD leads with 122; SHA expects 962 and rejects the invented 'first 20 rows'; NDMA seeds are keyed for fairdata-dev (207); no seed asserts api_ok. Case ids carry no usernames; each case's _why names its source run and turn, and questions are verbatim except one seed that named a person, reworded to 'the lab'.",
+  "_run": "On fairdata-dev after rebuild 1 (rebuild the ns-sidecar too: the dev one had no aggregate op on 2026-09-23). Same image for both arms. Arm A: NESSIE_FOLLOWUP_ROUTING=cc in the app env, recreate the app container (then mkdir -p /app/runs and re-copy labs_db.json), and run manage.py nessie --tier full --cases /app/runs/fu-compare.json --pace 0 --user <account> --password-env <VAR> --out /app/runs/fu-compare-cc. Arm B: NESSIE_FOLLOWUP_ROUTING=split, recreate, same command with --out /app/runs/fu-compare-split. No --force-route in either arm (it would move the seeds too). --pace 0 is needed by ab.ns_chain_no_pause, the save-race case: the harness paces a whole run, not one case. PAID: 59 turns per arm, 34 after a seed; in arm A nearly all of those run on Container-CC (about $8-14 for the arm, routing review 5.6), in arm B only the controls, the table and what follows it.",
+  "_instance_warning": "NUMBERS ARE KEYED FOR FAIRDATA-DEV WHERE A DEV MEASUREMENT EXISTS (NDMA 207, the TCGA LUAD and MSI cases: 2026-09-23 dev suite; Kamm RNA 38, MIT_SRP 7,769, MIT_SRP liver 971, MIT_SRP NDMA 195: 2026-09-22 dev-box pin) and are production's (2026-09-23) everywhere else; each _measure entry says which. Re-pin every case on the box before the run:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>   (run the batch on the box, read-only)\n  python ... pin_probe_truths.py --pin <this file> --from measured.json\nCases in mode 'each' list their numbers in the order of their locals.\nWritten by hand and not re-pinned: the reject-73 guard (ab.refers_back_to_the_newest_result turn 4), the reject guard for unfiltered counts (ab.cc_mice_transcriptomic), the leads-with-122 criterion (ab.luad_smokers), and the names (ENG, the assay titles, the TCGA study codes, HeLa, MUS); check them against the re-pinned numbers.",
+  "families": {
+    "followup_ab": {
+      "description": "Multi-turn follow-up cases for the A/B of the follow-up split: NExtSEEK seeds, follow-ups scored on the reply only.",
+      "variants": [
+        {
+          "family": "followup_ab",
+          "id": "ab.species_of_those",
+          "name": "Break down the previous result: the species among those 73",
+          "_why": "From fu.species_of_those in the prod follow-ups probe of 2026-09-23 (R1), turn 563. NExtSEEK-shaped under the split (a breakdown by one field). Container-CC got it right (47 + 22 + 4 = 73, an operator highlight). Keys as that probe, production 2026-09-23.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Which species are among those 73, and how many of each?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])22(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.rerun_modified_cypher",
+          "name": "Rerun the earlier search with one requirement dropped",
+          "_why": "From fu.rerun_modified_cypher in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a re-run with one filter removed). 351 NHP have sequencing data derived from them, against 73 with both; Container-CC answered 351 (an operator highlight).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Same search, but drop the flow cytometry requirement: only require sequencing data derived from them.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])351(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.what_query_did_you_run",
+          "name": "Recall: what query did you run to get those?",
+          "_why": "From fu.what_query_did_you_run in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (recall of the stored query). The reply criteria are the answer: the query's labels and relationship. The NExtSEEK follow-up prompt does not quote Cypher today (FINDINGS L6), so this measures that gap.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "What query did you run to get those?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "T_NHP"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "T_D_FLOW"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "DERIVED_FROM"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.plot_species_of_those",
+          "name": "Plot the species of the previous result",
+          "_why": "From fu.plot_species_of_those in the prod follow-ups probe of 2026-09-23 (R1). A control: Container-CC in both arms (a chart). Its trace criteria are replaced by the reply-level check that an image was named; the 2026-09-23 reply named an .svg.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Plot the species of those as a bar chart.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\.(png|svg|pdf)\\b"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.file_from_previous_search",
+          "name": "Open the results file of the previous search",
+          "_why": "From fu.file_from_previous_search in the prod follow-ups probe of 2026-09-23 (R1). A control: Container-CC in both arms (it names a file). NDMA seed keyed for fairdata-dev (207); the female count 727 is production's and must be re-pinned (M 822, F 727, one 'F?', one 'DAM' on production).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with ndma",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Open the results file from that search and tell me how many of those mice are female.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.break_those_down_by_sex",
+          "name": "Break the previous result down by sex",
+          "_why": "From fu.break_those_down_by_sex in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a breakdown by one field). NDMA seed keyed for fairdata-dev (207); M 822 and F 727 are production's and must be re-pinned.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with ndma",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Break those down by sex.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])822(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.recall_that_number",
+          "name": "Recall: remind me what that number was",
+          "_why": "From fu.recall_that_number in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (recall). Kamm is a lab name already in the corpus. 38 RNA samples carry the KAM lab code on fairdata-dev (2026-09-22 pin; 140 on production).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many RNA samples does the Kamm lab have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])38(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Remind me what that number was.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])38(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.aggregate_those_by_genotype",
+          "name": "Aggregate the previous result by genotype: the five largest groups",
+          "_why": "From fu.aggregate_those_by_genotype in the prod follow-ups probe of 2026-09-23 (R1). NExtSEEK-shaped under the split (a breakdown by one field). 3,591 MIT_SRP mice; genotype groups 1,111, 626, 508 and 219 (production 2026-09-23; Container-CC answered them, an operator highlight). Whether the missing-value bucket is a 'group' is a reading of the question, so only the numbers both readings share are pinned.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the mice in the MIT_SRP project",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?591(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Group those by genotype and give me the five largest groups.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])1,?111(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])626(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])508(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])219(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.refers_back_to_the_newest_result",
+          "name": "Refers back to the newest result: species of those, a fresh HeLa question, then 'of those'",
+          "_why": "From fu.refers_back_stays_self_contained_leaves in the prod follow-ups probe of 2026-09-23 (R1). Turn 2 is NExtSEEK-shaped under the split (a breakdown); turn 3 is self-contained; turn 4 refers to turn 3's 4 HeLa samples (3 carry a treatment). On 2026-09-23 Container-CC answered turn 4 about the 73 NHP and passed on a stray 3, so turn 4 now names HeLa and rejects 73 (FINDINGS section 7). In arm A turn 4 follows a Container-CC turn and is sticky; in arm B no turn before it ran on Container-CC. The reject-73 guard is written by hand and does not re-pin.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Which species are among those?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "fresh",
+              "query": "How many HeLa samples do we have?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "back",
+              "query": "Of those, how many have a treatment recorded?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)\\bHeLa\\b"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.going_way_back_ndma",
+          "name": "Recall the first search: how many NDMA mice",
+          "_why": "From refrec.going_way_back_how_many_ndma_m in the prod suite of 2026-09-23, seed 17 (R5), turn 641. NExtSEEK-shaped under the split (recall). The question is the corpus's, word for word. NDMA keyed for fairdata-dev: 207 (1,551 on production).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with NDMA",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Going way back — how many NDMA mice did the very first search return",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.dseq_from_the_first_search",
+          "name": "Recall: how many D.SEQ samples the first search returned",
+          "_why": "From refrec.how_many_d_seq_samples_did_the in the prod suite of 2026-09-23, seed 17 (R5), turn 643. NExtSEEK-shaped under the split (recall). The first search returns studies, not samples, so the right answer is none; Container-CC said so. Not keyed: judged in the blind review.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me studies in MetNet",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "How many D.SEQ samples did the very first search in this session return",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.what_sample_types",
+          "name": "Break down the previous result by sample type",
+          "_why": "From refrec.what_sample_types_were_represe in the prod suite of 2026-09-23, seed 17 (R5), turn 645. NExtSEEK-shaped under the split (a breakdown by one field). The seed's entity_sampletype_codes criterion (NExtSEEK plumbing) is replaced by the NDMA count, keyed for fairdata-dev (207).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find mice treated with NDMA",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "What sample types were represented in those results",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "mentions",
+                  "value": "MUS"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.filter_to_cd8_depleted",
+          "name": "Filter the previous result to CD8-depleted animals",
+          "_why": "From refrec.now_filter_those_to_only_cd8_d in the prod suite of 2026-09-23, seed 17 (R5), turn 682. NExtSEEK-shaped under the split (a filter). Container-CC gave no answer (its CLI timed out). Not keyed: the CD8 cohorts were last measured over 408 NHP (2026-08-06) and production now holds 725.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find all NHP samples in the database",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Now filter those to only CD8-depleted animals",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.search_again_with_water",
+          "name": "Search again with one term swapped",
+          "_why": "From refrec.try_that_search_again_with_wat in the prod suite of 2026-09-23, seed 17 (R5), turn 684. NExtSEEK-shaped under the split (a re-run with one term swapped), but its premise ('Water Study') was never in the earlier search; Container-CC asked before running anything. Not keyed: judged in the blind review. NDMA keyed for fairdata-dev (207).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find me mice treated with NDMA",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])207(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Try that search again with \"Water\" instead of \"Water Study\"",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.refine_to_4_week",
+          "name": "Refine: just the 4 week ones",
+          "_why": "From green.refine_recall in the prod suite of 2026-09-23, seed 17 (R5), turn 680. NExtSEEK-shaped under the split (a filter). Container-CC stalled for 300 s. Criteria as the corpus case, without its route.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find samples from a 4 week study.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220524FLY-1"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "NHP-220524FLY-2"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)cohort"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)(substring|false positive)"
+                }
+              ]
+            },
+            {
+              "label": "refine",
+              "query": "Just the 4 week ones.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)(NHP-220524FLY-|cohort|4[- ]?week)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.sha_cap_and_limit",
+          "name": "SHA in the UID: a filter, a re-search, a table, then the limit question",
+          "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 111 and 115 to 118, asked as the original session did. Turn t115 is NExtSEEK-shaped under the split (a filter over the seed); t116 is a re-search over all D.SEQ; t117 asks for a table to download (Container-CC in both arms) and t118 asks about that turn, so it follows it. Criteria fixes (FINDINGS section 7): t116 and t117 expect 962, the SHA D.SEQ the graph turn found on production; t118 rejects the invented 'first 20 rows'. 962 was the production graph turn's answer, keyed by the operator's review; the Cypher below is the check to re-pin with.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "t111",
+              "query": "I am looking for single cell RNA sequencing datasets from across the IMPAcTB projects",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                }
+              ]
+            },
+            {
+              "label": "t115",
+              "query": "\"Which of those sequencing samples have 'SHA' in their UID?\"",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                }
+              ]
+            },
+            {
+              "label": "t116",
+              "query": "Can you individual search all the 4,095 Sequencing Data (D.SEQ) files for if they have 'SHA' in their UID?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])962(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "t117",
+              "query": "Can you provide a table of these 250 samples for download/copy into Excel with the metadata info?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])962(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "t118",
+              "query": "Is the limit of 20 due to memory limitations or something else?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*\\bfirst 20 (rows|samples|results|records)\\b)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.labs_of_those_mice",
+          "name": "Which labs are those mice from, after a count-only seed",
+          "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 427 and 428 (the same questions as the corpus case fu.which_labs_are_those_mice, whose keys these are). NExtSEEK-shaped under the split (a breakdown by one field over a count-only seed). 6,479 mice; ENG 3,513 by the lab position of the UID (production 2026-09-23).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "t427",
+              "query": "how many mice are there?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])6,?479(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "t428",
+              "query": "which labs are those mouse samples from?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(\\bENG\\b|Engelward)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?513(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*cannot be determined)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.three_assays_you_found",
+          "name": "Recall: the three assays that you found",
+          "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 130 and 131 (the same questions as the corpus case fu.assays_between_two_types_named, whose keys these are). NExtSEEK-shaped under the split (recall). The question's 'three' is wrong; Container-CC said the earlier turn found one.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "t130",
+              "query": "What assays exist that go from CEL to MUS",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                }
+              ]
+            },
+            {
+              "label": "t131",
+              "query": "What are the three assays that you found?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(Cell Isolation|Patient-Derived Xenograft|PDX)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*Cell Line Creation)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.investigators_distinct",
+          "name": "Which investigators, after a count and with a number nobody returned",
+          "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 444 and 445. The seed named a person in the original session; it is reworded to 'the lab' here. The follow-up quotes 1,411, which no earlier turn returned: the right move is to ask which set, or break down the Impact patients and say so. Not keyed: judged in the blind review. Container-CC dropped the Impact scope (1,562 patients).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "t444",
+              "query": "How many human samples are in the Impact project associated with the lab?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                }
+              ]
+            },
+            {
+              "label": "t445",
+              "query": "Which investigators are the 1,411 human patient samples associated with?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.cc_mice_transcriptomic",
+          "name": "Of the CC mice, how many have transcriptomic data",
+          "_why": "From the prod USERS set 2 of 2026-09-23 (R4), production turns 500 and 501. NExtSEEK-shaped under the split (a count over the earlier set), with a wrong premise: the seed returns 745 CC mice, not 1,206. Criteria fix (FINDINGS section 7): Container-CC dropped the CC filter and answered 1,442, so the reply rejects 1,442 (and the other unfiltered counts, 735 and 1,361) and accepts only a subset of the 745: 91 with an A.GEX, A.SCXP or A.SPTX descendant, or 105 with a D.SEQ descendant (both readings of 'transcriptomic', measured for the corpus case fu.cc_mice_with_transcriptomics on production 2026-09-23). The reject guard is written by hand and does not re-pin.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "t500",
+              "query": "are there any \"CC\" mice in the database?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                }
+              ]
+            },
+            {
+              "label": "t501",
+              "query": "how many of these 1,206 mouse sample records have transcriptomic data ?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(Internal pipeline error|Graph agent could not|Reason:|Reason from parser|not in the catalog|could not produce valid Cypher|Something went wrong on our side|~/\\.claude|/data/previous_turns))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(91|105)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*(?<![\\w.,/-])(1,?442|1,?361|735)(?![\\w]|[.,]\\d|[-/]\\d))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.luad_smokers",
+          "name": "LUAD patients, then the current smokers, then the women among them",
+          "_why": "From tcga.fu_luad_smokers in the dev TCGA suite of 2026-09-23 (R6), turns 1228 and 1229 (an operator highlight: 585, then 122 and 53 on Container-CC). Both follow-ups are NExtSEEK-shaped under the split (a filter, then a filter of the filter). Criteria fix (FINDINGS section 7): the 'must not say 433' guard is dropped (the full breakdown legitimately contains it) and the reply leads with 122. Keys measured on fairdata-dev 2026-09-23; the leads-with criterion is written by hand and does not re-pin.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the patients in the TCGA LUAD (lung adenocarcinoma) study.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])585(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "followup",
+              "query": "Of those, how many are current smokers?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])122(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "\\A\\s*[^\\n]*?(?<![\\w.,/-])122(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "And how many of those current smokers are female?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])53(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.msi_by_study",
+          "name": "MSI alignments, then the studies they come from",
+          "_why": "From tcga.fu_msi_by_study in the dev TCGA suite of 2026-09-23 (R6), turn 1231. NExtSEEK-shaped under the split (a breakdown by one field over a count-only seed). Container-CC gave up on 2026-09-23. UCEC 299, STAD 206, COAD 175 of 758, measured on fairdata-dev 2026-09-23.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "How many sequence alignment (A.ALN) samples in TCGA have an MSIStatus of MSI?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])758(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Of those, which TCGA studies do they come from? Give me the top three with counts.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])299(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])206(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])175(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "UCEC"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "STAD"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "COAD"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.capped_seed_liver",
+          "name": "Capped seed: all MIT_SRP samples, then how many are liver tissues",
+          "_why": "New (FINDINGS section 7). The seed is over the 5,000-row cap on fairdata-dev (7,769) and on production (58,142 by project), so the stored result holds only part of the set, and a liver count taken from the stored rows comes out low. FINDINGS names MIT_SRP tissues as the seed, but on fairdata-dev the MIT_SRP tissues are under the cap (the largest MIT_SRP type holds 1,548 samples, 2026-09-22 pin), so the seed asks for all MIT_SRP samples. 971 liver tissues on fairdata-dev with the case folded (Liver, LIVER and liver; 13,441 on production).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the samples in the MIT_SRP project.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])7,?769(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "How many of those are tissue samples from the liver?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])971(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?s)\\A(?!.*cannot determine)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.followup_of_a_followup",
+          "name": "Follow-up of a follow-up with a count in the middle",
+          "_why": "New (FINDINGS section 7). Turn 2 is a count, so its result keeps no rows, and turn 3 refers to turn 2's set: the answer needs both filters (MIT_SRP and NDMA), which the NExtSEEK loop's own bundle does not keep today (FINDINGS L5). 195 NDMA-treated mice in MIT_SRP on fairdata-dev (2026-09-22 pin). The seed (3,591) and the sex split (M 822, F 727) are production's, where every NDMA mouse is in MIT_SRP; re-pin them.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the mice in the MIT_SRP project.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?591(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "count",
+              "query": "How many of those were treated with NDMA?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])195(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Break those NDMA-treated mice down by sex.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])822(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "followup_ab",
+          "id": "ab.ns_chain_no_pause",
+          "name": "NS chain with no pause: breakdown, filter, recall",
+          "_why": "New (FINDINGS section 7): three NExtSEEK-shaped follow-ups back to back, run at --pace 0, which is where the save race shows (a follow-up asked within a second of the previous answer read no stored result; the 2026-09-12 replies said 'no stored results'). Each follow-up reads the turn before it. LUAD on fairdata-dev 2026-09-23: 585 patients; TobaccoSmokingStatus 170 and 137 (the two reformed-smoker durations) and 122 current smokers, 53 of them female.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find the patients in the TCGA LUAD (lung adenocarcinoma) study.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])585(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            },
+            {
+              "label": "breakdown",
+              "query": "Break those down by tobacco smoking status.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])170(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])137(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])122(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no stored results)"
+                }
+              ]
+            },
+            {
+              "label": "filter",
+              "query": "Of those current smokers, how many are female?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])53(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no stored results)"
+                }
+              ]
+            },
+            {
+              "label": "recall",
+              "query": "Remind me how many patients the first search found.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])585(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*no stored results)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "_measure": {
+    "ab.species_of_those": {
+      "locals": [
+        73,
+        47,
+        22,
+        4
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "ab.rerun_modified_cypher": {
+      "locals": [
+        73,
+        351
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+      ]
+    },
+    "ab.what_query_did_you_run": {
+      "locals": [
+        73
+      ],
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+    },
+    "ab.plot_species_of_those": {
+      "locals": [
+        73
+      ],
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+    },
+    "ab.file_from_previous_search": {
+      "locals": [
+        207,
+        727
+      ],
+      "mode": "each",
+      "measured": "207 fairdata-dev, 2026-09-23; 727 production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') AND m.Sex = 'F' RETURN count(m)"
+      ]
+    },
+    "ab.break_those_down_by_sex": {
+      "locals": [
+        207,
+        822,
+        727
+      ],
+      "mode": "each",
+      "measured": "207 fairdata-dev, 2026-09-23; 822 and 727 production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+        "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN m.Sex AS sex, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "ab.recall_that_number": {
+      "locals": [
+        38
+      ],
+      "measured": "fairdata-dev, 2026-09-22 (dev-box acceptance pin)",
+      "cypher": "MATCH (s:T_RNA) WHERE s.uuid =~ '(?i)^[^-]+-[0-9]{6}KAM-.*' RETURN count(s)"
+    },
+    "ab.aggregate_those_by_genotype": {
+      "locals": [
+        3591,
+        1111,
+        626,
+        508,
+        219
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project {title:'MIT_SRP'}) WITH DISTINCT m RETURN count(m)",
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project {title:'MIT_SRP'}) WITH DISTINCT m RETURN m.Genotype AS genotype, count(*) AS n ORDER BY n DESC LIMIT 6"
+      ]
+    },
+    "ab.refers_back_to_the_newest_result": {
+      "locals": [
+        73,
+        47,
+        4,
+        3
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+        "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' RETURN count(s)",
+        "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' AND s.Treatment1 IS NOT NULL AND trim(toString(s.Treatment1)) <> '' RETURN count(s)"
+      ]
+    },
+    "ab.going_way_back_ndma": {
+      "locals": [
+        207
+      ],
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)"
+    },
+    "ab.what_sample_types": {
+      "locals": [
+        207
+      ],
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)"
+    },
+    "ab.search_again_with_water": {
+      "locals": [
+        207
+      ],
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)"
+    },
+    "ab.sha_cap_and_limit": {
+      "locals": [
+        962
+      ],
+      "measured": "production (fairdata), 2026-09-23 (the graph turn's answer, keyed by the operator's review; not re-measured with this Cypher)",
+      "cypher": "MATCH (s:T_D_SEQ) WHERE s.uuid CONTAINS 'SHA' RETURN count(s)"
+    },
+    "ab.labs_of_those_mice": {
+      "locals": [
+        6479,
+        3513
+      ],
+      "mode": "each",
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (s:T_MUS) RETURN count(s)",
+        "MATCH (s:T_MUS) RETURN substring(s.uuid,10,3) AS lab, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "ab.cc_mice_transcriptomic": {
+      "locals": [
+        91,
+        105
+      ],
+      "measured": "production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (s:T_MUS) WHERE s.Genotype =~ '(?i)^CC[0-9].*' AND EXISTS { MATCH (s)<-[:DERIVED_FROM*1..12]-(x) WHERE x:T_A_GEX OR x:T_A_SCXP OR x:T_A_SPTX } RETURN count(s)",
+        "MATCH (s:T_MUS) WHERE s.Genotype =~ '(?i)^CC[0-9].*' AND EXISTS { MATCH (s)<-[:DERIVED_FROM*1..12]-(x:T_D_SEQ) } RETURN count(s)"
+      ]
+    },
+    "ab.luad_smokers": {
+      "locals": [
+        585,
+        122,
+        53
+      ],
+      "mode": "each",
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": [
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) RETURN count(DISTINCT s)",
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) WITH DISTINCT s RETURN s.TobaccoSmokingStatus AS status, count(*) AS n ORDER BY n DESC",
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) WITH DISTINCT s WHERE s.TobaccoSmokingStatus='Current Smoker' RETURN s.Sex AS sex, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "ab.msi_by_study": {
+      "locals": [
+        758,
+        299,
+        206,
+        175
+      ],
+      "mode": "each",
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": [
+        "MATCH (s:T_A_ALN) WHERE s.MSIStatus='MSI' AND EXISTS { MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) } RETURN count(s)",
+        "MATCH (a:T_A_ALN {MSIStatus:'MSI'})-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) RETURN st.title AS study, count(DISTINCT a) AS n ORDER BY n DESC LIMIT 3"
+      ]
+    },
+    "ab.capped_seed_liver": {
+      "locals": [
+        7769,
+        971
+      ],
+      "mode": "each",
+      "measured": "fairdata-dev, 2026-09-22 (dev-box acceptance pin)",
+      "cypher": [
+        "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' RETURN count(DISTINCT s)",
+        "MATCH (s:T_TIS)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' AND toLower(trim(toString(s.Organ)))='liver' RETURN count(DISTINCT s)"
+      ]
+    },
+    "ab.followup_of_a_followup": {
+      "locals": [
+        3591,
+        195,
+        822,
+        727
+      ],
+      "mode": "each",
+      "measured": "195 fairdata-dev, 2026-09-22 (dev-box acceptance pin); 3,591, 822 and 727 production (fairdata), 2026-09-23",
+      "cypher": [
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project {title:'MIT_SRP'}) WITH DISTINCT m RETURN count(m)",
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' AND any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(DISTINCT m)",
+        "MATCH (m:T_MUS)-[:IN_PROJECT]->(p:Project) WHERE p.title='MIT_SRP' AND any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') WITH DISTINCT m RETURN m.Sex AS sex, count(*) AS n ORDER BY n DESC"
+      ]
+    },
+    "ab.ns_chain_no_pause": {
+      "locals": [
+        585,
+        170,
+        137,
+        122,
+        53
+      ],
+      "mode": "each",
+      "measured": "fairdata-dev, 2026-09-23",
+      "cypher": [
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) RETURN count(DISTINCT s)",
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) WITH DISTINCT s RETURN s.TobaccoSmokingStatus AS status, count(*) AS n ORDER BY n DESC",
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study {title:'LUAD'})-[:IN_INVESTIGATION]->(:Investigation {title:'TCGA'}) WITH DISTINCT s WHERE s.TobaccoSmokingStatus='Current Smoker' RETURN s.Sex AS sex, count(*) AS n ORDER BY n DESC"
+      ]
+    }
+  }
+}
