@@ -9,7 +9,7 @@ message. The shape (SPEC 3.2), stored under ``debug.suggestions``::
 
 The guardrails a chip must pass (``check_suggestion``):
 
-* a non-empty ``label`` and ``query`` within their limits;
+* a non-empty ``label`` and ``query`` within their limits, and a query the reviewer did not cut short;
 * C7, self-contained: the router's follow-up cue check must not fire on the query. The router sends a message that
   refers back ("those", "just the X ones") to Container-CC, so a chip that refers back would turn a click into a CC
   turn. The check is ``NessieAI.router.followup.followup_cue`` unless the caller passes another; when it cannot be
@@ -29,6 +29,10 @@ from typing import Any, Callable
 MAX_SUGGESTIONS = 2
 MAX_LABEL = 60
 MAX_QUERY = 300
+
+#: What ``graph_review._clip`` appends to text it cuts short (U+2026). A clipped query has lost its end, which for a
+#: relaxed variant is the very instruction the chip adds, so the click would re-run the original search.
+CLIP_MARKER = "\u2026"
 
 SESSION_KEY = "pending_suggestions"
 SOURCE = "reviewer"
@@ -70,6 +74,8 @@ def _reject_reason(s: Any, cue: RefersBack | None) -> str | None:
         return "the query is empty"
     if len(query) > MAX_QUERY:
         return f"the query is over {MAX_QUERY} characters"
+    if query.endswith(CLIP_MARKER):
+        return "the query was cut short"
     for text in (label, query):
         m = WRITE_VERB.search(text)
         if m:

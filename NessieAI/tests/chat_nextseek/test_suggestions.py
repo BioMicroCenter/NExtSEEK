@@ -149,6 +149,27 @@ def test_the_length_limits_are_inclusive():
     assert sg.check_suggestion(dict(GOOD, label="L" * 60, query=q), refers_back=NO_CUE) is None
 
 
+def test_a_query_clipped_by_the_reviewer_is_rejected():
+    """graph_review clips a long question to 300 characters, and the clip cuts the chip's added instruction."""
+    from chat_nextseek.graph_review import QUERY_MAX, _clip
+
+    ask = " Include every spelling of tif."
+    short = "How many TIFF files are stored for imaging samples?"
+    long_q = "How many TIFF files are stored for imaging samples of " + ", ".join(
+        f"tissue {i}" for i in range(40)) + "?"
+    clipped = _clip(f"{long_q.rstrip()}{ask}", QUERY_MAX)
+    assert len(clipped) <= sg.MAX_QUERY and clipped.endswith(sg.CLIP_MARKER) and ask.strip() not in clipped
+    spelling = dict(GOOD, kind="relaxed_variant", label="Include all spellings")
+
+    reason = sg.check_suggestion(dict(spelling, query=clipped))
+    assert reason is not None and "cut short" in reason
+    assert sg.suggestions_from_review({"verdict": "suggest", "suggestion": dict(spelling, query=clipped)},
+                                      bundle_id=5) == []
+    unclipped = _clip(f"{short}{ask}", QUERY_MAX)
+    assert unclipped == f"{short}{ask}" and len(unclipped) < sg.MAX_QUERY
+    assert sg.check_suggestion(dict(spelling, query=unclipped)) is None
+
+
 def test_a_non_dict_is_rejected():
     for s in (None, "Only Converter", ["Only Converter"]):
         assert sg.check_suggestion(s, refers_back=NO_CUE) is not None
