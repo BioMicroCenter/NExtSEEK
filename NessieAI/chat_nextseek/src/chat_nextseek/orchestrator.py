@@ -685,7 +685,7 @@ GRAPH_MAX_TRIES = 3
 
 def _graph_attempt(cypher: str | None, result: dict, reason: str, *, elapsed_ms: int) -> dict[str, Any]:
     """One generate-execute round for debug.graph_attempts: what was written, what ran, the decision, and how long
-    the tool_neo4j_query call took (the graph reviewer reads the last one's)."""
+    the tool_neo4j_query call took."""
     scope = result.get("scope")
     return {
         "cypher": cypher, "ok": result.get("ok"),
@@ -729,25 +729,27 @@ def _review_note(disclosure: str) -> str:
     return REVIEW_NOTE.format(facts=facts)
 
 
-def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, attempts: list[dict], *,
+def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *, elapsed_ms: int | None,
                        t_turn_start: float) -> GraphReview:
     """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
 
     Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
     and counts, against the stored values the caller can see: one ``live_values`` provider per turn, reading only
-    cached values when the last attempt's statement took over ``SKIP_AFTER_MS`` or the turn has already run
+    cached values when the statement took over ``SKIP_AFTER_MS`` or the turn has already run
     ``REVIEW_LATE_TURN_S``. Tier 2 (``run_tier2``, bounded count variants) runs only when a check that has a variant
     fired and the turn is younger than ``REVIEW_LATE_TURN_S``, inside what Tier 1 left of ``REVIEW_BUDGET_S``.
 
     The server's scope parameter is left out of the parameters: every count goes back through
     ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it.
 
+    ``elapsed_ms`` is the Neo4j time of the statement under review, the one whose result the turn kept, never a
+    retry the turn threw away: a count variant relaxes that statement, so its time decides whether one runs.
+
     Never raises. Anything escaping becomes an ``ok`` review that records the error, so the turn goes on as it
     would without a reviewer; a failure inside Tier 2 keeps Tier 1's verdict (``run_tier2``'s own contract).
     """
     t0 = time.perf_counter()
     try:
-        elapsed_ms = attempts[-1].get("elapsed_ms") if attempts else None
         raw = graph_result.get("parameters")
         if not isinstance(raw, Mapping):
             raw = graph_plan.parameters or {}
@@ -896,7 +898,7 @@ def _execute_graph_turn(
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
     t_query = time.perf_counter()
     graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    query_ms = _ms_since(t_query)
+    kept_ms = _ms_since(t_query)  # the Neo4j time of graph_result, the result the turn keeps
 
     # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
     # This was one retry and only on a Cypher error, so a query that ran perfectly well
@@ -905,7 +907,7 @@ def _execute_graph_turn(
     # one more go, and if the second query also finds nothing the FIRST result stands:
     # reporting a different query's number would be worse than reporting zero.
     attempts: list[dict[str, Any]] = [
-        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=query_ms)]
+        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
 
@@ -941,8 +943,8 @@ def _execute_graph_turn(
             break
         t_query = time.perf_counter()
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
-        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason,
-                                       elapsed_ms=_ms_since(t_query)))
+        retry_ms = _ms_since(t_query)
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):
@@ -952,6 +954,7 @@ def _execute_graph_turn(
             break
         graph_plan = graph_plan_retry
         graph_result = retry_result
+        kept_ms = retry_ms
 
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
@@ -961,7 +964,7 @@ def _execute_graph_turn(
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
     # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
     # note or suggest to the chatter as one note.
-    review = _review_graph_turn(config, user_text, graph_plan, graph_result, attempts,
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=kept_ms,
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]

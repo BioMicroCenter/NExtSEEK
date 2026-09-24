@@ -403,6 +403,67 @@ def test_every_attempt_records_its_neo4j_time(monkeypatch, tmp_path):
     assert all(isinstance(a["elapsed_ms"], int) and 25 <= a["elapsed_ms"] < 5000 for a in attempts)
 
 
+TIFF_ZERO = _graph_result(TIFF_CYPHER, TIFF_PARAMS, [{"n": 0}])
+TIFF_FOUND = _graph_result(TIFF_CYPHER, TIFF_PARAMS, TIFF_ROWS)
+TIFF_TIMED_OUT = _graph_result(TIFF_CYPHER, TIFF_PARAMS, [], ok=False,
+                               error="Neo.ClientError.Transaction.TransactionTimedOutClientConfiguration")
+#: The two ways a retry is thrown away and the first result kept: it failed, or it also matched nothing.
+DISCARDED_RETRY = {"retry_failed": TIFF_TIMED_OUT, "retry_also_empty": TIFF_ZERO}
+
+
+def _scripted_turn(monkeypatch, tmp_path, *, results, times_ms):
+    """One TIFF graph turn whose queries return ``results`` in order, each timed at the matching ``times_ms``."""
+    queue, clock = list(results), list(times_ms)
+    live_calls, count_calls = [], []
+    monkeypatch.setattr(orch, "graph_agent", lambda *a, **k: GraphAgentPlan(
+        cypher=TIFF_CYPHER, parameters=dict(TIFF_PARAMS), context_mode="catalog"))
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda config, cy, params=None, **k: queue.pop(0))
+    monkeypatch.setattr(orch, "_ms_since", lambda t0: clock.pop(0) if clock else 0)
+    monkeypatch.setattr(orch, "chatter_agent_answer", lambda *a, **k: "reply")
+    monkeypatch.setattr(orch, "append_turn", lambda *a, **k: None)
+    monkeypatch.setattr(orch, "live_values", lambda config, **k: live_calls.append(k) or DictCatalog(CATALOG))
+    monkeypatch.setattr(counts, "tool_neo4j_query", _proving_count_tool(count_calls))
+    debug: dict = {}
+    orch._execute_graph_turn(
+        config=SimpleNamespace(MODEL_MODE="test", **{SCOPE_ATTR: MEMBER}), session={}, user_text=TIFF_Q,
+        entity_result=EntityAgentOutput(), plan=ParserPlan(mode="graph_query", intent_summary=TIFF_Q),
+        log_dir=str(tmp_path), artifact_store=SimpleNamespace(register_path=lambda **k: None,
+                                                              write_json=lambda **k: None),
+        send_event=lambda *a, **k: None, debug_payload=debug, t_total_start=time.perf_counter(),
+    )
+    assert queue == [] and clock == []
+    assert [a["elapsed_ms"] for a in debug["graph_attempts"]] == list(times_ms)
+    return debug, live_calls, count_calls
+
+
+@pytest.mark.parametrize("kind", sorted(DISCARDED_RETRY))
+def test_a_slow_kept_statement_behind_a_fast_discarded_retry_gets_no_count(monkeypatch, tmp_path, kind):
+    """The retry is thrown away, so the reviewed statement is the first one, which took over 5 s: its count
+    variant (a relaxation of that statement) is skipped and the catalog is read from the cache only."""
+    debug, live_calls, count_calls = _scripted_turn(
+        monkeypatch, tmp_path, results=[TIFF_ZERO, DISCARDED_RETRY[kind]], times_ms=[6000, 40])
+    assert live_calls == [{"max_cold": 0}]
+    assert count_calls == [] and debug["graph_review"]["variants"] == []
+    assert debug["graph_review"]["verdict"] == "suggest"      # Tier 1 still speaks
+
+
+@pytest.mark.parametrize("kind", sorted(DISCARDED_RETRY))
+def test_a_fast_kept_statement_behind_a_slow_discarded_retry_may_count(monkeypatch, tmp_path, kind):
+    debug, live_calls, count_calls = _scripted_turn(
+        monkeypatch, tmp_path, results=[TIFF_ZERO, DISCARDED_RETRY[kind]], times_ms=[40, 6000])
+    assert live_calls == [{}]
+    assert len(count_calls) == 1
+    assert [v["ok"] for v in debug["graph_review"]["variants"]] == [True]
+
+
+def test_a_kept_retry_is_timed_as_the_retry(monkeypatch, tmp_path):
+    """The retry found something and replaced the first result, so its time is the reviewed statement's."""
+    debug, live_calls, count_calls = _scripted_turn(
+        monkeypatch, tmp_path, results=[TIFF_ZERO, TIFF_FOUND], times_ms=[6000, 40])
+    assert debug["graph_attempts"][-1]["count"] == 1 and live_calls == [{}]
+    assert len(count_calls) == 1
+
+
 def _direct(monkeypatch, *, elapsed_ms, turn_age_s, catalog=None):
     """``_review_graph_turn`` on the TIFF turn, with live_values and run_tier2 recorded."""
     live_calls, tier2_calls = [], []
@@ -419,9 +480,8 @@ def _direct(monkeypatch, *, elapsed_ms, turn_age_s, catalog=None):
     monkeypatch.setattr(orch, "run_tier2", _run_tier2, raising=False)
     plan = GraphAgentPlan(cypher=TIFF_CYPHER, parameters=dict(TIFF_PARAMS))
     result = _graph_result(TIFF_CYPHER, TIFF_PARAMS, TIFF_ROWS)
-    attempts = [{"reason": "initial", "elapsed_ms": 40}, {"reason": "zero_rows", "elapsed_ms": elapsed_ms}]
-    review = orch._review_graph_turn(SimpleNamespace(**{SCOPE_ATTR: MEMBER}), TIFF_Q, plan, result, attempts,
-                                     t_turn_start=time.perf_counter() - turn_age_s)
+    review = orch._review_graph_turn(SimpleNamespace(**{SCOPE_ATTR: MEMBER}), TIFF_Q, plan, result,
+                                     elapsed_ms=elapsed_ms, t_turn_start=time.perf_counter() - turn_age_s)
     return review, live_calls, tier2_calls
 
 
@@ -430,7 +490,7 @@ def test_one_catalog_provider_per_turn_with_the_default_cold_budget(monkeypatch)
     assert live_calls == [{}]
     assert review.verdict == "suggest"
     [call] = tier2_calls
-    assert call["inp"].elapsed_ms == 120            # the last attempt's time
+    assert call["inp"].elapsed_ms == 120            # the kept statement's time
     assert call["inp"].cypher == TIFF_CYPHER         # the statement as the model wrote it
     assert call["inp"].parameters == TIFF_PARAMS     # without the server's scope parameter
     assert 7.0 < call["budget_s"] <= 8.0
@@ -458,7 +518,7 @@ def test_no_count_when_the_fired_check_has_no_variant(monkeypatch):
     plan = GraphAgentPlan(cypher=CONVERTER_CYPHER)
     review = orch._review_graph_turn(SimpleNamespace(**{SCOPE_ATTR: MEMBER}), CONVERTER_Q, plan,
                                      _graph_result(CONVERTER_CYPHER, {}, CONVERTER_ROWS),
-                                     [{"elapsed_ms": 30}], t_turn_start=time.perf_counter())
+                                     elapsed_ms=30, t_turn_start=time.perf_counter())
     assert review.verdict == "suggest" and tier2_calls == []
 
 
