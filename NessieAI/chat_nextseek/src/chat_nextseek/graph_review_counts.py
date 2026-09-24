@@ -451,11 +451,36 @@ def _bound_in(var: str, text: str) -> bool:
     return bool(re.search(rf"[(\[]\s*{re.escape(var)}\b", text))
 
 
+_FUZZY_OP = re.compile(r"\b(?:CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\b|=~", re.I)
+_STRING = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", re.S)
+
+
+def _text_match_on(conjunct: str, var: str) -> bool:
+    """``conjunct`` is one text match on ``var``'s own property: ``[f(...)]var.prop CONTAINS | STARTS WITH |
+    ENDS WITH | =~ <parameters, literals and function calls>``, with no AND, OR, XOR or NOT at its top level."""
+    text = _unwrap(conjunct)
+    mask = _mask(text)
+    ops = list(_FUZZY_OP.finditer(mask))
+    if len(ops) != 1 or re.search(r"\b(?:AND|OR|XOR|NOT)\b", mask, re.I):
+        return False
+    lhs, rhs = text[:ops[0].start()].strip(), text[ops[0].end():].strip()
+    if not re.fullmatch(rf"(?:[A-Za-z_]\w*\s*\(\s*)*{re.escape(var)}\.[A-Za-z_]\w*(?:\s*\))*", lhs):
+        return False
+    rest = _STRING.sub(" ", rhs)
+    if not rhs or not re.fullmatch(r"[\s\w$()+]*", rest):
+        return False
+    # every name on the right is a parameter or a function call, never a variable
+    return all(tok.startswith("$") or tok.endswith("(") for tok in re.findall(r"\$?[A-Za-z_]\w*(?:\s*\()?", rest))
+
+
 def _base_variant(cy: str, params: dict, detail: str) -> _Variant | None:
-    """The anchor MATCH alone: its WHERE and every later clause dropped, one row per anchor node."""
+    """The anchor set alone: the first MATCH with only its WHERE's text match on the counted variable (R3 601: NHP by
+    ``search_text CONTAINS`` a UID), every other filter and later clause dropped, one row per anchor node. Skipped
+    when that text match cannot be isolated as a top-level conjunct, or when nothing would be dropped."""
     mask = _mask(cy)
     clauses = _clauses(cy, mask)
-    if not clauses or clauses[0].kw != "MATCH" or cy[:clauses[0].start].strip():
+    if (len(clauses) < 2 or clauses[0].kw != "MATCH" or clauses[1].kw != "WHERE"
+            or cy[:clauses[0].start].strip()):
         return None
     anchor = cy[clauses[0].start:clauses[0].end].rstrip()
     var = None
@@ -475,11 +500,20 @@ def _base_variant(cy: str, params: dict, detail: str) -> _Variant | None:
         var = m.group(1) if m else None
     if var is None:
         return None
-    new = f"{anchor}\nWITH DISTINCT {var} AS k\nRETURN 1 AS n"
+    where = clauses[1]
+    body, bmask = cy[where.body:where.end], mask[where.body:where.end]
+    if re.search(r"\b(?:OR|XOR)\b", bmask, re.I):
+        return None
+    parts = _split_top(body, bmask, r"\bAND\b")
+    kept = [p for p in parts if _text_match_on(p, var)]
+    later = any(c.kw not in ("RETURN", "ORDER BY", "SKIP", "LIMIT") for c in clauses[2:])
+    if not kept or (len(kept) == len(parts) and not later):
+        return None
+    new = f"{anchor}\nWHERE {' AND '.join(_unwrap(p) for p in kept)}\nWITH DISTINCT {var} AS k\nRETURN 1 AS n"
 
     def fact(n, original):
-        return f"Without any of its filters, the starting set holds {n:,} records." if _differs(n, original) else None
-    return _Variant("zero_unproven_base", "zero_unproven_base: the anchor MATCH alone", new, dict(params), fact)
+        return f"Before its other filters, the search matches {n:,} records." if _differs(n, original) else None
+    return _Variant("zero_unproven_base", f"zero_unproven_base: keep {' AND '.join(kept)}", new, dict(params), fact)
 
 
 def _breakdown_variant(cy: str, params: dict, detail: str) -> _Variant | None:

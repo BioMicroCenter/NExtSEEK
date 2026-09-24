@@ -496,12 +496,24 @@ def test_a_where_with_a_top_level_or_is_not_edited():
     assert g2.relaxed_variants(_inp(cy), _review(("all_question_narrowed", SAMPLE_COUNT_DETAIL))) == []
 
 
-def test_zero_unproven_base_counts_the_anchor_match_alone():
-    cy = ("MATCH (nhp:T_NHP) WHERE toLower(nhp.search_text) CONTAINS toLower($uid) AND EXISTS { MATCH "
+R3_601 = ("MATCH (nhp:T_NHP) WHERE toLower(nhp.search_text) CONTAINS toLower($uid) AND EXISTS { MATCH "
           "(dflow:T_D_FLOW)-[:DERIVED_FROM*1..12]->(nhp) } RETURN count(DISTINCT nhp) AS n")
-    edits = g2.relaxed_variants(_inp(cy, {"uid": "MDL-1"}, rows=[{"n": 0}], count=1),
-                                _review(("zero_unproven_base", ZERO_DETAIL)))
-    assert edits[0][1] == "MATCH (nhp:T_NHP)\nWITH DISTINCT nhp AS k\nRETURN 1 AS n"
+
+
+def _zero_edits(cy, params=None):
+    return [c for e, c, _p in g2.relaxed_variants(_inp(cy, params or {}, rows=[{"n": 0}], count=1),
+                                                  _review(("zero_unproven_base", ZERO_DETAIL)))
+            if e.startswith("zero_unproven_base")]
+
+
+def test_zero_unproven_base_keeps_the_anchors_own_text_match_and_drops_the_rest():
+    # R3 601: NHP by search_text CONTAINS a UID, then a lineage filter; the base (the text match alone) was
+    # never counted
+    (variant,) = _zero_edits(R3_601, {"uid": "MDL-1"})
+    assert variant == ("MATCH (nhp:T_NHP)\nWHERE toLower(nhp.search_text) CONTAINS toLower($uid)\n"
+                       "WITH DISTINCT nhp AS k\nRETURN 1 AS n")
+    assert "toLower(nhp.search_text) CONTAINS toLower($uid)" in variant
+    assert "EXISTS" not in variant and "DERIVED_FROM" not in variant and "T_D_FLOW" not in variant
 
 
 def test_zero_unproven_base_keeps_a_multi_node_anchor_pattern():
@@ -509,9 +521,55 @@ def test_zero_unproven_base_keeps_a_multi_node_anchor_pattern():
           "   OR EXISTS { MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE toLower(inv.title) CONTAINS "
           "toLower($project) })\n  AND toLower(toString(s.Scientist)) CONTAINS toLower($scientist)\n"
           "RETURN count(DISTINCT s) AS n")
-    edits = g2.relaxed_variants(_inp(cy, {"project": "x", "scientist": "y"}, rows=[{"n": 0}], count=1),
-                                _review(("zero_unproven_base", "zero behind a fuzzy anchor")))
-    assert edits[0][1] == "MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)\nWITH DISTINCT s AS k\nRETURN 1 AS n"
+    assert _zero_edits(cy, {"project": "x", "scientist": "y"}) == [
+        "MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)\nWHERE toLower(toString(s.Scientist)) CONTAINS toLower($scientist)\n"
+        "WITH DISTINCT s AS k\nRETURN 1 AS n"]
+
+
+@pytest.mark.parametrize("cypher, kept", [
+    ("MATCH (s:T_X) WHERE s.title STARTS WITH $p AND s.Sex = 'F' RETURN count(s) AS n", "s.title STARTS WITH $p"),
+    ("MATCH (s:T_X) WHERE s.uuid =~ ('(?i)^[^-]+-[0-9]{6}' + $lab + '-.*') AND s.Sex = 'F' RETURN count(s) AS n",
+     "s.uuid =~ ('(?i)^[^-]+-[0-9]{6}' + $lab + '-.*')"),
+    ("MATCH (s:T_X) WHERE toLower(s.search_text) CONTAINS 'mdl' AND s.Sex = 'F' RETURN s.id AS id",
+     "toLower(s.search_text) CONTAINS 'mdl'"),
+    ("MATCH (s:T_X) WHERE s.search_text CONTAINS $u MATCH (s)-[:DERIVED_FROM]->(p:T_Y) RETURN count(s) AS n",
+     "s.search_text CONTAINS $u"),
+])
+def test_zero_unproven_base_recognises_each_text_match(cypher, kept):
+    (variant,) = _zero_edits(cypher, {"p": "a", "lab": "ENG", "u": "x"})
+    assert variant == f"MATCH (s:T_X)\nWHERE {kept}\nWITH DISTINCT s AS k\nRETURN 1 AS n"
+    assert isinstance(scope_cypher(variant, {"p": "a", "lab": "ENG", "u": "x"}, MEMBER), Scoped)
+
+
+@pytest.mark.parametrize("cypher", [
+    # a top-level OR: the anchor is not a conjunct
+    "MATCH (s:T_X) WHERE toLower(s.search_text) CONTAINS $u OR s.Sex = 'F' RETURN count(s) AS n",
+    # AND binds tighter than OR: (text match AND sex) OR age, so the text match is not a conjunct of the whole
+    "MATCH (s:T_X) WHERE s.title CONTAINS $u AND s.Sex = 'F' OR s.Age > 3 RETURN count(s) AS n",
+    # NOT written like a function call still negates the whole comparison
+    "MATCH (s:T_X) WHERE NOT(s.title) CONTAINS $u AND s.Sex = 'F' RETURN count(s) AS n",
+    # the right-hand side reads another variable, even inside a function call
+    "MATCH (s:T_X)-[:IN_STUDY]->(o:Study) WHERE s.title CONTAINS toString(o) AND s.Sex = 'F' RETURN count(s) AS n",
+    # no text match on the anchor variable at all
+    "MATCH (s:T_X) WHERE s.Sex = 'F' AND EXISTS { MATCH (s)-[:DERIVED_FROM]->(:T_Y) } RETURN count(s) AS n",
+    # the text match is on another variable, not on the counted one
+    "MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS $u AND s.Sex = 'F' "
+    "RETURN count(DISTINCT s) AS n",
+    # the text match sits inside a list predicate
+    "MATCH (s:T_X) WHERE any(v IN [s.a, s.b] WHERE toLower(v) CONTAINS $u) AND s.Sex = 'F' RETURN count(s) AS n",
+    # a negated text match is not an anchor
+    "MATCH (s:T_X) WHERE NOT s.title CONTAINS $u AND s.Sex = 'F' RETURN count(s) AS n",
+    # the right-hand side reads another node
+    "MATCH (s:T_X), (o:T_Y) WHERE s.title CONTAINS o.title AND s.Sex = 'F' RETURN count(s) AS n",
+    # the anchor's text match inside an OR group
+    "MATCH (s:T_X) WHERE (s.title CONTAINS $u OR s.name CONTAINS $u) AND s.Sex = 'F' RETURN count(s) AS n",
+    # nothing to drop: the text match is the whole query
+    "MATCH (s:T_X) WHERE s.title CONTAINS $u AND s.name CONTAINS $v RETURN count(s) AS n",
+    # no WHERE on the anchor MATCH
+    "MATCH (s:T_X) MATCH (s)-[:DERIVED_FROM]->(p:T_Y) WHERE p.title CONTAINS $u RETURN count(s) AS n",
+])
+def test_an_unisolatable_anchor_gives_no_zero_variant(cypher):
+    assert _zero_edits(cypher, {"u": "x", "v": "y"}) == []
 
 
 def test_unapplied_value_groups_the_matched_set_by_the_named_attribute():
@@ -701,7 +759,7 @@ def test_the_base_count_and_the_breakdown_are_disclosed(monkeypatch):
     rv = _review(("zero_unproven_base", "zero"),
                  ("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
     out = g2.run_tier2(object(), _inp(cy, {"uid": "MDL-1"}, rows=[{"n": 0}], count=1, total=1), rv)
-    assert out.disclosure == ("d Without any of its filters, the starting set holds 725 records. "
+    assert out.disclosure == ("d Before its other filters, the search matches 725 records. "
                               "The matched records hold 3 different values where the question named "
                               "'Macaca mulatta'.")
     assert out.suggestion is None
