@@ -448,7 +448,7 @@ def _stage_cc_turn(entry: dict, turn_dir: Path, *, cc_artifacts_root: Path | Non
                 found = [p for p in found if p.name != "artifacts.zip"]
             for path in found:
                 _stage_file(path, turn_dir, _file_name(path.name, "artifact"),
-                            "a file this turn published", files, skipped)
+                            "a file this turn wrote to /data/scratch and published", files, skipped)
     return {"route": "container_cc", "mode": "cc", "files": files, "skipped": skipped}
 
 
@@ -477,7 +477,8 @@ def _render_manifest(turns: list[dict]) -> str:
         "Start a follow-up here: the rows are in `rows.json` / `rows.csv` (analyse them directly),",
         "every stored property of the samples they name is in `samples.csv` where one is listed, and",
         "the stored cypher is in `search_details.json` (to change the search, hand it to",
-        "`nextseek-graph --query` with the one change asked for).",
+        "`nextseek-graph --query` with the one change asked for). Your own earlier Container-CC",
+        "turns are here too: their answer and every file they wrote, to read instead of redoing.",
         "",
     ]
     for t in turns:

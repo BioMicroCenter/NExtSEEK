@@ -451,3 +451,37 @@ def test_the_agent_is_told_to_start_from_the_previous_turn():
     counts = claude_md.split("## Counts and breakdowns", 1)[1].split("\n## ", 1)[0]
     assert "use `nextseek-aggregate`" in counts
     assert "aggregate that turn's `rows.json` or `rows.csv` directly" in counts
+
+
+def _claude_md() -> str:
+    return (Path(prior_turns.__file__).resolve().parents[1]
+            / "docker" / "cc-runtime" / "container" / "CLAUDE.md").read_text()
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_agent_reads_the_manifest_on_every_turn_and_finds_its_own_files_there(tmp_path, outputs):
+    """CC-RERUN-FINDINGS fix 3: a resumed agent skipped MANIFEST.md (r1-581, r4-608) and redid its
+    own previous turn although its full.json was staged (r6-1229), because it was told
+    /data/scratch is not seen later and nothing said where its own files went."""
+    text = _claude_md()
+    scratch = next(line for line in text.splitlines() if line.lstrip().startswith("- `/data/scratch`"))
+    assert "`/data/previous_turns/turn-NN/`" in scratch
+    follow = _section(text, "## Follow-ups: start from the previous turn")
+    assert "on every turn, including a resumed one" in follow
+    assert "names the newest staged turn" in follow
+    assert "your own earlier turns" in follow
+    assert "instead of redoing" in follow
+
+    art_root = tmp_path / "art" / "run-1"
+    art_root.mkdir(parents=True)
+    (art_root / "full.json").write_text("{}")
+    cc = {"turn_id": 2, "user_query": "smokers", "mode": "cc", "router_choice": "container_cc",
+          "status": "completed", "assistant_reply": "53", "cc_run_id": "run-1"}
+    dest, _ = _stage(tmp_path, outputs, [_ns_entry(), cc], [_graph_bundle(outputs)],
+                     cc_artifacts_root=tmp_path / "art")
+    md = (dest / "MANIFEST.md").read_text()
+    assert "Your own earlier Container-CC turns are here too" in " ".join(md.split())
+    assert "- `full.json`: a file this turn wrote" in md

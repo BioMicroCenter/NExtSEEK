@@ -121,7 +121,7 @@ NExtSEEK's router sent this turn to you on the `container_cc` route. Either it j
 - **Mounts.** Everything else on the filesystem comes from the image.
   - `/data/input` (read-only): the user's own input files for this project.
   - `/data/shared` (read-only): the project's shared files, the same for every member.
-  - `/data/scratch` (read-write): this turn's own directory, empty when the turn starts. Write every output file here; new files are published to the user after the turn. A later turn does not see it.
+  - `/data/scratch` (read-write): this turn's own directory, empty when the turn starts. Write every output file here; new files are published to the user after the turn. A later turn gets a new, empty `/data/scratch`, but every file you published is staged for it, read-only, in `/data/previous_turns/turn-NN/` with this turn's answer.
   - `/home/user/.claude` (read-write): this chat's Claude Code state, kept across its turns: the conversation you resume, and your memory file.
   - `/home/user/.cc-memory/transcripts` (read-only): transcripts of the user's recent other chat sessions, mounted only when there are any.
   - `/data/previous_turns` (read-only): this chat's earlier answered turns, staged before your turn and mounted only when there are any. See "Follow-ups: start from the previous turn" below.
@@ -131,13 +131,13 @@ NExtSEEK's router sent this turn to you on the `container_cc` route. Either it j
 
 ## Follow-ups: start from the previous turn
 
-When `/data/previous_turns/` exists, read `/data/previous_turns/MANIFEST.md` first. It lists this chat's answered turns, newest first: the question each asked, the route that answered it, and what each file in its `turn-NN/` folder holds. For an NExtSEEK turn that is:
+When `/data/previous_turns/` exists, read `/data/previous_turns/MANIFEST.md` first, on every turn, including a resumed one: what you remember of this conversation can be older than what is staged, and the newest turn may have been answered by NExtSEEK, not by you. The note added to each message names the newest staged turn. The manifest lists this chat's answered turns, newest first: the question each asked, the route that answered it, and what each file in its `turn-NN/` folder holds. For an NExtSEEK turn that is:
 
 - `search_details.json`: what the user saw under Search details. The entity resolution, the parser's mode and intent, the graph Cypher with its explanation and parameters, and the Neo4j count (or, for a REST turn, the endpoint and request).
 - `rows.json` and `rows.csv`: every row the turn returned, and the Cypher that produced them.
 - Any download the turn offered, such as a report workbook or the full API result.
 
-A Container-CC turn's folder holds its `answer.md` and the files it published.
+A Container-CC turn is one of your own earlier turns. Its folder holds its `answer.md` and every file it wrote to `/data/scratch/`: read them there instead of redoing that work.
 
 A follow-up ("of those", "which species among them", "plot that", "same search but only D.SEQ", "what query did you run?") is about the newest turn unless the user names another. Start from that turn's files, not from scratch:
 
