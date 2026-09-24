@@ -161,8 +161,12 @@ def test_committed_baked_projects_db_resolves_every_published_spelling(tmp_path)
     # A base map carrying a different id, so the assertions prove the catalog overrides it.
     merged = cfg._merge_project_name_to_id({"PUBLISHED": 999}, projects)
 
-    for spelling in ("PUBLISHED", "PUBLISHED DATA", "PUBLISHED", "PUB"):
+    # Fix 7 item 1 (operator 2026-09-24): project 6's stored title is "Training/Test", so that is an
+    # alias too (the graph agent matches aliases against Project.title), and "PUB" moved to tags: it
+    # collided with the -PUB suffix of published UIDs ("Fetch CEL-...-PUB." resolved PUBLISHED).
+    for spelling in ("PUBLISHED", "PUBLISHED DATA", "PUBLISHED", "TRAINING/TEST"):
         assert merged[spelling] == expected, spelling
+    assert "PUB" not in merged
 
 
 # --------------------------------------------------------------------------
