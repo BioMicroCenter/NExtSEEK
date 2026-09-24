@@ -88,9 +88,13 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
     `response.data` with the same disclosure. If that fails too, report the refusal and both
     errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
-- **Refinement** ("which of those…", "only the female ones"): ask `nextseek-graph` again with the
-  whole refined question, the earlier conditions restated plus the new one. To reuse rows a prior
-  turn already returned, use `nextseek-recall --turn N` instead of re-querying.
+- **Refinement and follow-ups** ("which of those…", "only the female ones", "by sex"): start from
+  the previous turn's files in `/data/previous_turns/`, in the order the container CLAUDE.md gives
+  ("When the question needs a field the rows do not show"): `rows.csv`, then `samples.csv` (every
+  stored attribute of those samples), then the stored Cypher from `search_details.json` handed to
+  `nextseek-graph` with the one change, then `nextseek-sample-search --uid` for named samples;
+  `nextseek-aggregate` only when the stored result was capped. Never restate the earlier question
+  from plain words: change the stored Cypher, and keep every MATCH and WHERE.
 - **Never search samples through `nextseek-parse` + `nextseek-api-read`.** The sample-search and
   lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
   are not on the read-safe list, so `api-read` refuses them.
@@ -326,7 +330,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
+The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
 
 ## Errors
 
