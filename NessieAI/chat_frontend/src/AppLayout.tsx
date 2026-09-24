@@ -149,6 +149,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           const artifacts = d.artifacts ?? null;
           const ccTraces = d.cc_traces ?? undefined;
           const mode = d.mode ?? undefined;
+          // The reviewer's chips (#128), on an NS turn only: a CC turn carries no
+          // debug, so its reply gets none. Kept in step with EmbeddedApp.
+          const suggestions = d.debug?.suggestions ?? undefined;
           queueMicrotask(() => {
             updateLastAssistantMessage({
               debugEntries: captured,
@@ -156,6 +159,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
               artifacts,
               ccTraces,
               mode,
+              suggestions,
             });
           });
           resetProcessing();

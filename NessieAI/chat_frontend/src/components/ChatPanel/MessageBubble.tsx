@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown, CornerDownRight, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types/chat";
 import { Badge } from "@/components/ui/badge";
@@ -55,9 +55,23 @@ interface MessageBubbleProps {
   index?: number;
   onArtifactDownload?: (bundleId: number, artifactKey: string) => void;
   onCcArtifactDownload?: (artifactKey: string) => void;
+  /** Sends a suggestion chip's query as the next message. */
+  onSuggestion?: (query: string) => void;
+  /** A turn is in flight: the chips show but cannot be clicked. */
+  disabled?: boolean;
+  /** This is the newest assistant reply, the only one whose chips show. */
+  isLast?: boolean;
 }
 
-export function MessageBubble({ message, index, onArtifactDownload, onCcArtifactDownload }: MessageBubbleProps) {
+export function MessageBubble({
+  message,
+  index,
+  onArtifactDownload,
+  onCcArtifactDownload,
+  onSuggestion,
+  disabled,
+  isLast,
+}: MessageBubbleProps) {
   const [debugOpen, setDebugOpen] = useState(false);
 
   // Strip debug sections from assistant messages
@@ -92,6 +106,14 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
   const hasExtracted = extractedSections.length > 0;
   const hasCcTrace = !message.isUser && (message.ccTraces?.length ?? 0) > 0;
   const hasSearchDetails = hasDebug || hasExtracted || hasCcTrace;
+  // The reviewer's chips (#128): under the newest reply only, and only those with
+  // a label to show and a query to send, since the list comes from the server.
+  const chips =
+    !message.isUser && isLast && onSuggestion && Array.isArray(message.suggestions)
+      ? message.suggestions.filter(
+          (s) => typeof s?.label === "string" && s.label !== "" && typeof s.query === "string" && s.query !== "",
+        )
+      : [];
 
   return (
     <div
@@ -122,6 +144,32 @@ export function MessageBubble({ message, index, onArtifactDownload, onCcArtifact
           />
         )}
       </div>
+
+      {/* Suggested next questions. Label and reason are React text, never markup. */}
+      {chips.length > 0 && (
+        <div
+          role="group"
+          aria-label="Suggested next questions"
+          className="mt-1.5 flex max-w-[80%] flex-wrap gap-1.5"
+        >
+          {chips.map((s, i) => (
+            <button
+              key={s.id || i}
+              type="button"
+              data-testid="suggestion-chip"
+              data-source={s.source}
+              data-suggestion-id={s.id}
+              title={s.reason || undefined}
+              disabled={disabled}
+              onClick={() => onSuggestion?.(s.query)}
+              className="flex items-center gap-1 rounded-md border border-border/60 px-2 py-1 text-left text-xs text-muted-foreground transition-colors enabled:hover:bg-muted/60 enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CornerDownRight className="h-3 w-3 shrink-0" />
+              <span>{s.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Search Details (assistant messages only) */}
       {hasSearchDetails && (
