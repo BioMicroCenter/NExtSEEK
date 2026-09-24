@@ -129,13 +129,14 @@ EXPECTED_BAKED_ONLY = frozenset({
 #   source file deleted      -> here (if source-only) or EXPECTED_BAKED_ONLY (if shared)
 #
 # Adding a name here is the deliberate act of declaring "the agent does not need
-# this"; the alternative is to bake it. All 16 files in the source pack are
+# this"; the alternative is to bake it. All 14 files in the source pack are
 # git-tracked, so this set is stable rather than dependent on build artefacts.
 #
 # The Neo4j-derived files here are no longer refreshed from a live graph: the graph-search
 # work removed _fetch_neo4j_schema / _ensure_neo4j_schema / _ensure_schema_file from
 # ChatConfig (pinned by NessieAI/tests/chat_nextseek/test_graph_catalog.py), so every name
-# below is a committed file that only a hand edit changes. Three database exports in this
+# below is a committed file that changes only by hand or, for the three graph fallback files,
+# by scripts/graph_schema_fallback.py. Three database exports in this
 # directory ARE still rewritten daily (min_sampletypes_db.json, min_assays_db.json,
 # projects_db.json, by _ensure_context_files) — those are baked, so they are not listed here.
 EXPECTED_SOURCE_ONLY = frozenset({
@@ -150,8 +151,6 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # the deployed graph through the nextseek-graph-schema op, which is what
     # test_the_cc_agent_reads_the_graph_schema_live_rather_than_baked below pins.
     "neo4j_schema.json",
-    "neo4j_schema_dev.json",          # per-environment snapshots, read by nothing on a turn
-    "neo4j_schema_prod.json",
     # The NS parser's graph-routing prose. The CC agent does not write Cypher (the
     # nextseek-graph op's server-side graph agent does, from the live catalog), and its
     # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted

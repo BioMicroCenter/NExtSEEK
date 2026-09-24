@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is nine purpose
+The surface is not a set of entry points behind a package boundary. It is ten purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -48,6 +48,7 @@ groups, each defined by what it reads and what it writes.
 | G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
 | H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
 | I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
+| J. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
@@ -212,6 +213,12 @@ the catalog graph_sync writes, and compares both with `graph_schema_structure.tx
 `min_graph_schema.json` and the guard's property sets in `agents/graph.py`. Every
 statement is a READ transaction with a timeout, and it calls no path procedure. Its
 docstring has the `docker run` line.
+
+**J. Graph fallback files.** `scripts/graph_schema_fallback.py` regenerates
+`neo4j_schema.json`, `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` in
+`NessieAI/chat_nextseek/src/chat_nextseek/context/`, the files the graph agent falls back to
+when the live catalog cannot be read. Nothing else refreshes them. Every statement is a READ
+transaction; its docstring has the `docker exec` line and says what each file holds.
 
 ## Running and testing
 

@@ -20,7 +20,10 @@
   it, so label both ends of every lineage pattern :Sample: an unlabelled end also matches OrphanSample nodes.
 
 ## Relationships
-(child:Sample)-[:DERIVED_FROM {internal_assay_title, protocol_title}]->(parent:Sample)   child to parent
+(child:Sample)-[:DERIVED_FROM {internal_assay_title, internal_assay_titles, protocol_title}]->(parent:Sample)
+  child to parent. internal_assay_title names one assay; an edge several assays share lists all of them in
+  internal_assay_titles, which some edges lack, so test an assay on an edge r with
+  (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])).
 (:Sample)-[:OF_TYPE]->(:SampleType)   every sample
 (:SampleType)-[:HAS_ATTRIBUTE]->(:Attribute)
 (:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)-[:IN_PROJECT]->(:Project)

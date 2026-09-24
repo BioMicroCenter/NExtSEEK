@@ -533,11 +533,25 @@ def test_structure_node_properties_are_in_the_doc():
         assert props <= doc[label], (label, props - doc[label])
 
 
+def test_structure_derived_from_properties_are_the_v12_labels():
+    # An edge several assays share names one in internal_assay_title and all in internal_assay_titles, so the
+    # plural has to be in the structure or the agent filters on the singular and misses the others.
+    labels = _doc_section("v1.2")
+    labels = labels[labels.index("### DERIVED_FROM labels"):labels.index("\nRules:")]
+    doc = {name for row in labels.splitlines() if row.startswith("| `") for name in re.findall(r"`([^`]+)`", row)}
+    text = " ".join(gc.STRUCTURE_PATH.read_text(encoding="utf-8").split())
+    (body,) = re.findall(r"\[:DERIVED_FROM \{([^}]*)\}\]", text)
+    props = {p.strip() for p in body.split(",")}
+    assert {"internal_assay_title", "internal_assay_titles", "protocol_title"} <= props <= doc, (props, doc)
+
+
 def test_structure_is_compact():
     # This block goes into every graph turn's context, so it stays budgeted. F1 promoted the
     # measured structure, which is larger than the previous default: the ceiling moved once,
-    # deliberately, to the size that was measured, not to whatever the file happens to be.
-    assert len(gc.STRUCTURE_PATH.read_bytes()) <= 5120
+    # deliberately, to the size that was measured, not to whatever the file happens to be. It
+    # moved again, by the operator's ruling of 2026-09-24, for the DERIVED_FROM assay list and its
+    # test: an edge several assays share names only one in internal_assay_title.
+    assert len(gc.STRUCTURE_PATH.read_bytes()) <= 5400
 
 
 # ---------------------------------------------------------------------------------------------------------------
