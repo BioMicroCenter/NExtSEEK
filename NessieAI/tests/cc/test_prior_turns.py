@@ -252,6 +252,22 @@ def test_a_failed_or_refused_read_is_listed_and_retried_next_turn(tmp_path, outp
     assert (dest / "turn-01" / "samples.csv").is_file()
 
 
+def test_one_failed_read_stops_the_others_in_the_same_staging(tmp_path, outputs):
+    """Staging runs before the agent starts, so a graph that is down must cost one failed read
+    per turn, not one per staged NS turn (each can wait out the tool's own timeout)."""
+    calls = []
+
+    def down(cypher, parameters):
+        calls.append(parameters)
+        raise TimeoutError("neo4j did not answer")
+    history = [_thin_bundle(outputs, n) for n in (1, 2, 3)]
+    log = [_ns_entry(turn_id=n, bundle_id=n) for n in (1, 2, 3)]
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=down)
+    assert len(calls) == 1
+    for turn in manifest["turns"]:
+        assert {s["file"]: s["reason"] for s in turn["skipped"]}["samples.csv"] == "graph_error"
+
+
 def test_uids_the_graph_no_longer_holds_give_no_empty_file(tmp_path, outputs):
     graph = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
     dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=graph)

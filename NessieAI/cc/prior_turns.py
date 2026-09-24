@@ -339,6 +339,8 @@ def _stage_samples(uids: list[str], turn_dir: Path, graph_query: GraphQuery,
     else:
         try:
             result = graph_query(SAMPLES_CYPHER, {"uids": wanted})
+        except _GraphError:
+            result = {"ok": False, "error": "skipped"}
         except Exception:  # noqa: BLE001 - a graph outage must not cost the turn its other files
             logger.warning("prior turns: the samples read failed", exc_info=True)
             result = {"ok": False, "error": "raised"}
@@ -537,6 +539,32 @@ def memory_pointer(manifest: dict | None) -> str:
     ])
 
 
+class _GraphError(Exception):
+    """The graph read failed (not refused): the samples reads left in this staging are skipped."""
+
+
+def _one_failure_stops(graph_query: GraphQuery) -> GraphQuery:
+    """``graph_query``, except that after one read that raised or failed (not a scope refusal) the
+    rest of this staging raises at once. Staging runs before the agent starts, so a graph that is
+    down costs one failed read per turn, not one per staged NS turn."""
+    failed = False
+
+    def query(cypher: str, parameters: dict) -> dict:
+        nonlocal failed
+        if failed:
+            raise _GraphError("an earlier samples read in this staging failed")
+        try:
+            result = graph_query(cypher, parameters)
+        except Exception:
+            failed = True
+            raise
+        result = _as_dict(result)
+        if not result.get("ok") and _as_dict(result.get("scope")).get("decision") != "refused":
+            failed = True
+        return result
+    return query
+
+
 def _previous_entries(dest_dir: Path) -> dict[str, dict]:
     """The last staging's manifest entries by folder: what ``samples.csv`` was read for."""
     previous = _as_dict(_read_json(dest_dir / MANIFEST_JSON))
@@ -570,6 +598,8 @@ def stage_prior_turns(*, chat_log: list, results_history: list, dest_dir: Path,
             return None
         dest_dir.mkdir(parents=True, exist_ok=True)
         previous = _previous_entries(dest_dir)
+        if graph_query is not None:
+            graph_query = _one_failure_stops(graph_query)
         keep: set[str] = set()
         turns: list[dict] = []
         for entry, bundle in reversed(wanted):
