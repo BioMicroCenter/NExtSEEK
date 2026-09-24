@@ -179,3 +179,40 @@ def test_a_followup_falls_back_to_ns_for_one_turn_when_cc_is_down(
     assert "no agent image" in rd["reasoning"]
     assert ran["ns"] == "which of them are female?"
     assert task.status == "completed"
+
+
+def test_the_follow_up_gets_every_property_of_the_previous_turns_samples(
+        client, user, cc_root, tmp_path, monkeypatch):
+    """CC-RERUN-FINDINGS fix 1 through the real turn: the staging read goes through the Neo4j
+    tool (write check and scope prover), on a config carrying this caller's scope."""
+    from chat_nextseek import helpers
+    from chat_nextseek.graph_scope import GraphScope, scope_of
+
+    session = _session_after_one_ns_graph_turn(user, tmp_path, monkeypatch)
+    _ns_router(monkeypatch)
+    calls = []
+
+    def fake_tool(config, cypher, parameters=None):
+        calls.append((scope_of(config), cypher, parameters))
+        return {"ok": True, "data": [
+            {"sample": {"uuid": "NHP-1", "id": 1, "type": "NHP", "Species": "Macaca mulatta",
+                        "Sex": "female"}},
+            {"sample": {"uuid": "NHP-2", "id": 2, "type": "NHP", "Species": "Macaca fascicularis",
+                        "Sex": "male"}}]}
+
+    monkeypatch.setattr(helpers, "tool_neo4j_query", fake_tool)
+    monkeypatch.setattr("nextseek_api.services.cc_assistant.plain_scope",
+                        lambda user: {"is_admin": False, "project_ids": [2]})
+    monkeypatch.setattr(cc_engine, "cc_runner_available", lambda: (True, "ok"))
+    monkeypatch.setattr(cc_engine, "run_cc_turn",
+                        lambda **kw: kw["send_event"]("query_complete", {"reply": "ok"}))
+
+    _wait(_post(client, "Break those down by sex", session.session_id))
+
+    (scope, cypher, parameters), = calls
+    assert isinstance(scope, GraphScope)
+    assert scope.is_admin is False and scope.project_ids == (2,)
+    assert parameters == {"uids": ["NHP-1", "NHP-2"]}
+    staged = cc_root / "1-testproj" / "fu-user" / "_memory" / str(session.session_id) / "previous_turns"
+    text = (staged / "turn-01" / "samples.csv").read_text()
+    assert "Sex" in text.splitlines()[0] and "female" in text and "male" in text

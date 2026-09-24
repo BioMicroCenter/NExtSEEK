@@ -338,6 +338,32 @@ def _with_prompt_variant(chat_config, user, req):
         return chat_config
 
 
+def _scoped_graph_query(chat_config, graph_scope):
+    """The graph read ``prior_turns`` stages ``samples.csv`` with (CC-RERUN-FINDINGS fix 1).
+
+    ``tool_neo4j_query`` with its default arguments, on a per-request copy of the NS config that
+    carries this caller's scope, so the write check and the scope prover apply exactly as they
+    do on the caller's own graph turns. ``graph_scope`` is the ViewSet's plain data; anything
+    that is not a well-formed scope becomes None, which refuses every statement.
+    """
+    from collections.abc import Mapping
+
+    from chat_nextseek import helpers
+    from chat_nextseek.graph_scope import GraphScope, with_scope
+
+    scope = graph_scope if isinstance(graph_scope, GraphScope) else None
+    if scope is None and isinstance(graph_scope, Mapping):
+        try:
+            scope = GraphScope.from_plain(graph_scope)
+        except ValueError:
+            logger.warning("cc: malformed graph scope; the previous turns get no samples.csv")
+    scoped = with_scope(chat_config, scope)
+
+    def query(cypher: str, parameters: dict) -> dict:
+        return helpers.tool_neo4j_query(scoped, cypher, parameters)
+    return query
+
+
 def _eval_config(chat_config, user, req):
     """Both evaluation switches on one per-request copy: the parser force, then the prompt variant."""
     return _with_prompt_variant(_with_parser_force(chat_config, user, req), user, req)
@@ -586,11 +612,14 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # details, rows and downloads are staged for this turn to read, from this
                 # chat only and through the download endpoint's own guard (prior_turns).
                 # Within-chat, so a fresh_session turn gets them too, like the digest.
+                # samples.csv: every stored property of the samples an NS turn returned, read
+                # once through the caller's own scoped graph tool.
                 staged_prior = prior_turns.stage_prior_turns(
                     chat_log=(chat_session.extra_state or {}).get("chat_log") or [],
                     results_history=chat_session.results_history or [],
                     dest_dir=Path(dirs.previous_turns_mnt),
                     cc_artifacts_root=Path(dirs.output_mnt) / "artifacts",
+                    graph_query=_scoped_graph_query(chat_config, graph_scope),
                 )
                 within_chat_md = "\n\n".join(
                     p for p in (prior_turns.memory_pointer(staged_prior), within_chat_md) if p)
