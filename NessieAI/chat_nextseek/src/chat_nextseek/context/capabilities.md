@@ -55,18 +55,18 @@ You can also search for parents that have children of multiple types — for exa
 
 ### 2. Graph Queries
 
-The knowledge graph captures organizational structure and biological relationships that the REST API cannot express. It stores three main node types:
+The knowledge graph captures organizational structure and biological relationships that the REST API cannot express. Its main node types:
 
-- **Sample** — an individual registered sample record (identified by its type code, e.g. `NHP`, `TIS`, `D.SEQ`).
-- **Study** — a named experimental study grouping related samples (e.g., "GBM Cohort 2023"). Samples belong to studies via the `IN_STUDY` relationship.
-- **Publication** — the paper a study was published as. Held as the `DOI` and
-  `PMID` properties on the Study node (uppercase; empty string when unset), so a
-  sample inherits the paper of every study it belongs to. You can ask which paper
-  a sample appears in, or which samples a paper used, by title, DOI or PMID. Most
-  studies are unpublished; that is expected, not a gap.
-- **Investigation** — a project-level grouping of studies (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Sample**: an individual registered sample record, with its sample type code (e.g. `NHP`, `TIS`, `D.SEQ`) and every metadata attribute it holds.
+- **SampleType** and **Attribute**: the catalog of sample types and the attributes each one carries.
+- **Study**: a named study grouping related samples. Samples belong to studies via the `IN_STUDY` relationship.
+  A paper-level study carries the paper's `DOI` and `PMID` (uppercase; empty string when unset), so a sample
+  inherits the paper of every study it belongs to. You can ask which paper a sample appears in, or which samples
+  a paper used, by title, DOI or PMID. Most studies are unpublished; that is expected, not a gap.
+- **Investigation**: a grouping of studies within a project (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
+- **Project**: a SEEK project. Samples and investigations belong to it via the `IN_PROJECT` relationship.
 
-Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries assay and protocol metadata.
+Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries the assays and the protocol used.
 
 Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, or filtering by which assay or protocol produced a sample.
 
