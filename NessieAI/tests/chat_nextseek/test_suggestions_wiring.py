@@ -188,14 +188,28 @@ def test_the_offer_is_kept_for_the_turn_the_graph_turn_is_stored_under(ns_turn, 
     assert _pending(session) == {"for_turn": entry["turn_id"], "items": [chip]}
 
 
+def _assert_took_the_path(turn, mode, *, refines_bundle):
+    """A refine of a graph result reruns the graph through run_query's refine call site, which alone records
+    ``refine_target``; a graph question goes through the new-question call site."""
+    if mode == "refine_last_search":
+        assert turn.debug["refine_target"] == {"bundle_id": refines_bundle, "requested": None, "chosen_by": "newest"}
+        assert turn.debug["graph_review"]["verdict"] == "suggest"      # and it reached _execute_graph_turn
+    else:
+        assert "refine_target" not in turn.debug
+
+
 @pytest.mark.parametrize("make_session", SESSIONS, ids=SESSION_IDS)
-def test_a_click_is_recorded_and_offers_no_new_chip(ns_turn, make_session):
+@pytest.mark.parametrize("mode", ["graph_query", "refine_last_search"])
+def test_a_click_is_recorded_and_offers_no_new_chip(ns_turn, make_session, mode):
+    """The parser may read a click (it narrows the previous graph result) as a new graph question or as a refine
+    of that result; either way the click is recorded and offers no chip."""
     session = make_session()
     first = ns_turn(session, CONVERTER_Q)
     [chip] = first.debug["suggestions"]
     assert chip["query"] == CHIP_QUERY
 
-    second = ns_turn(session, CHIP_QUERY)
+    second = ns_turn(session, CHIP_QUERY, mode=mode)
+    _assert_took_the_path(second, mode, refines_bundle=first.payload["bundle_id"])
     assert second.accept_calls == [{"for_turn": 1, "last_turn_id": 1, "accepted": chip}]
     assert second.debug["suggestion_accepted"] == {"id": chip["id"], "source": "reviewer", "kind": "value_split"}
     # the reviewer still reads the result and the chatter still gets its note, but no chip chains off a click
@@ -207,7 +221,8 @@ def test_a_click_is_recorded_and_offers_no_new_chip(ns_turn, make_session):
     assert event["debug"]["suggestion_accepted"] == second.debug["suggestion_accepted"]
 
     # the same text again, with nothing pending, is an ordinary turn: not a click, and it offers the chip afresh
-    third = ns_turn(session, CHIP_QUERY)
+    third = ns_turn(session, CHIP_QUERY, mode=mode)
+    _assert_took_the_path(third, mode, refines_bundle=second.payload["bundle_id"])
     assert third.accept_calls == [{"for_turn": None, "last_turn_id": 2, "accepted": None}]
     assert "suggestion_accepted" not in third.debug
     assert [s["query"] for s in third.debug["suggestions"]] == [CHIP_QUERY]
