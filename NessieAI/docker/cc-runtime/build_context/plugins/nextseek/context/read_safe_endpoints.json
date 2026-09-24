@@ -6,12 +6,6 @@
     "rationale": "Search endpoint over the metadata graph; runs in a Neo4j READ transaction and injects the caller's project clause server-side, so it mutates nothing and widens no caller's visibility."
   },
   {
-    "endpoint": "/nextseek_api/experiments/",
-    "methods": ["GET"],
-    "source": "min_api_endpoints_enriched.json",
-    "rationale": "List experiments; read-only GET."
-  },
-  {
     "endpoint": "/nextseek_api/projects/",
     "methods": ["GET"],
     "source": "min_api_endpoints_enriched.json",
@@ -34,12 +28,6 @@
     "methods": ["POST"],
     "source": "read_safety_audit_2026-07-06",
     "rationale": "Retrieve/export sample metadata by UID or SEEK ID (incl. parent/child lineage); read-only. POST carries the identifier list, not a mutation. Verified non-mutating in nextseek_api/services/sample_retrieve.py (SELECTs and a read transaction only)."
-  },
-  {
-    "endpoint": "/nextseek_api/admin/samples/retrieve/",
-    "methods": ["POST"],
-    "source": "read_safety_audit_2026-07-06",
-    "rationale": "Deprecated alias of /nextseek_api/samples/retrieve/ (same handler); kept readable for saved chats that replay it."
   },
   {
     "endpoint": "/nextseek_api/investigations/",
