@@ -129,7 +129,7 @@ EXPECTED_BAKED_ONLY = frozenset({
 #   source file deleted      -> here (if source-only) or EXPECTED_BAKED_ONLY (if shared)
 #
 # Adding a name here is the deliberate act of declaring "the agent does not need
-# this"; the alternative is to bake it. All 16 files in the source pack are
+# this"; the alternative is to bake it. All 17 files in the source pack are
 # git-tracked, so this set is stable rather than dependent on build artefacts.
 #
 # The Neo4j-derived files here are no longer refreshed from a live graph: the graph-search
@@ -157,6 +157,12 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # own op choice is the plugin skill's; the stale plugin-tree copy that contradicted
     # that skill was removed on 2026-09-18.
     "min_graph_schema.json",
+    # graph_search's catalog entry, kept out of the parser's catalog on 2026-09-24. Only the
+    # scope fallback reads it, and that runs in the app (the NS orchestrator, and the graph and
+    # aggregate ops through NessieAI/ns/granular.py), where api_agent_build_request builds the
+    # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
+    # nextseek-api-read hands its parser plan to the same in-app API agent.
+    "scope_fallback_endpoints.json",
 })
 
 # ---------------------------------------------------------------------------

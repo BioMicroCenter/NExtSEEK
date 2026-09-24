@@ -210,7 +210,7 @@ def test_an_unknown_switch_value_returns_the_same_object(bogus):
 
 
 def test_the_guardrail_entry_point_without_the_switch_returns_the_plan_itself():
-    plan = _plan("new_search")
+    plan = _plan("new_search", target_endpoint=SAMPLE_TREE)
     assert _apply_parser_guardrails(PLAIN_QUERY, plan) is plan
     assert _apply_parser_guardrails(PLAIN_QUERY, plan, force_mode=None) is plan
 
@@ -227,7 +227,7 @@ def test_the_switch_runs_after_the_refine_guard():
     """A refine on a fresh session is a new_search first, then forced."""
     out = _apply_parser_guardrails(
         "narrow those to males",
-        _plan("refine_last_search", target_endpoint=ADVANCED_SEARCH_PATH),
+        _plan("refine_last_search", target_endpoint=SAMPLE_TREE),
         session=_Session(results_history=[]),
         force_mode="graph",
     )
@@ -260,12 +260,12 @@ def _fake_config(**over):
 
 @pytest.fixture
 def _offline_parser(monkeypatch):
-    """No model, no session store: the LLM always answers new_search."""
+    """No model, no session store: the LLM always answers new_search on sample-tree (a REST endpoint the catalog keeps)."""
     calls = []
 
     def _fake_llm(**kwargs):
         calls.append(kwargs)
-        return _plan("new_search")
+        return _plan("new_search", target_endpoint=SAMPLE_TREE)
 
     monkeypatch.setattr(parser_mod, "call_llm_structured", _fake_llm)
     monkeypatch.setattr(parser_mod, "build_recent_results_summary", lambda session: "")

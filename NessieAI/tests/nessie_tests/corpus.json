@@ -2373,9 +2373,9 @@
               "query": "Give me the full records for every RNA sample in the database.",
               "pass_criteria": [
                 {
-                  "field": "api_plan.endpoint",
-                  "op": "contains",
-                  "value": "advanced_search"
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
                 }
               ]
             }

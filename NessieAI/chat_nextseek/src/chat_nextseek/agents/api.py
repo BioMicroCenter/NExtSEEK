@@ -49,8 +49,13 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
     # (→ "405 Method Not Allowed").
     if not methods and default_method:
         methods = [default_method]
-    # Also pull enriched catalog entry (has request_body, llm_hint, requires_uids, etc.)
-    enriched_entry = next((ep for ep in config.MIN_API_ENDPOINTS if ep.get("path") == endpoint), None)
+    # Also pull enriched catalog entry (has request_body, llm_hint, requires_uids, etc.). The scope fallback's
+    # graph_search entry is kept out of the parser's catalog, in FALLBACK_API_ENDPOINTS, and looked up here too.
+    enriched_entry = next(
+        (ep for ep in [*config.MIN_API_ENDPOINTS, *getattr(config, "FALLBACK_API_ENDPOINTS", [])]
+         if ep.get("path") == endpoint),
+        None,
+    )
     schema_text = (
         f"Schema for endpoint {endpoint}:\n"
         f"{json.dumps(schema, indent=2) if schema else 'No schema is registered for this endpoint.'}"

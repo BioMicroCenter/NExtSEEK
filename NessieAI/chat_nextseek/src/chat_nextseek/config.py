@@ -228,6 +228,9 @@ class ChatConfig:
         self.MIN_ASSAYS = self._load_json_list("min_assays_db.json", "min assays (db)")
         self.MIN_PROJECTS = self.FULL_PROJECTS
         self.MIN_API_ENDPOINTS = self._load_json_list("min_api_endpoints_enriched.json", "min API endpoints")
+        # graph_search's entry, kept out of the catalog the parser chooses from: only the scope fallback (a graph
+        # question refused for its project scope) calls it, and the API agent builds that request from this entry.
+        self.FALLBACK_API_ENDPOINTS = self._load_json_list("scope_fallback_endpoints.json", "fallback API endpoints")
 
         # FULL catalogs used only as embedding sources for the semantic indexes
         # (richer fields → better cosine separation). LLM still sees the MIN

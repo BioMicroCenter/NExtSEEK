@@ -325,8 +325,8 @@ def _fallback_multi_parser_plan(
         resolved=entity_out,
         candidates=[
             _fill_candidate_defaults(ParserCandidate(
-                mode="new_search",
-                target_endpoint="/nextseek_api/samples/advanced_search/",
+                mode="graph_query",
+                target_endpoint=None,
                 tool_query=user_query,
                 rationale=f"fallback after multi_parser error: {error}",
                 confidence=0.5,
@@ -417,7 +417,7 @@ def _canonical_multi_parse(
             print(f"[DEBUG][MULTI_PARSER]   candidate: mode={c.mode}, endpoint={c.target_endpoint}, confidence={c.confidence}")
         return result
     except Exception as e:
-        print(f"[DEBUG][MULTI_PARSER] Failed: {e!r}; falling back to single new_search candidate")
+        print(f"[DEBUG][MULTI_PARSER] Failed: {e!r}; falling back to single graph_query candidate")
         return _fallback_multi_parser_plan(user_query, entity_result, e)
 
 
@@ -429,8 +429,8 @@ def _candidate_to_parser_plan(
     """Project canonical candidate 0 into the legacy ParserPlan shape used by the standard pipeline."""
     candidate = _fill_candidate_defaults(parser_plan.candidates[0]) if parser_plan.candidates else _fill_candidate_defaults(
         ParserCandidate(
-            mode="new_search",
-            target_endpoint="/nextseek_api/samples/advanced_search/",
+            mode="graph_query",
+            target_endpoint=None,
             tool_query=user_query,
             rationale="fallback candidate missing from canonical parser output",
             confidence=0.5,
@@ -653,6 +653,70 @@ def _force_parser_mode(plan: ParserPlan, force_mode: str | None) -> ParserPlan:
     return plan.model_copy(update=updates)
 
 
+#: The REST sample searches the parser may no longer route to (routing review 6a, 2026-09-24): every sample
+#: question goes to the graph. None of them is in the catalog the parser reads any more, but nothing checks its
+#: chosen endpoint against that catalog, and an old chat's recent-results summary still shows these paths.
+#: Only this set and "no endpoint" are caught, not "anything outside the catalog": the old retrieve alias must
+#: stay readable so saved chats replay.
+RETIRED_SAMPLE_SEARCH_ENDPOINTS = frozenset({
+    "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+    "/nextseek_api/samples/graph_search/",   # code still sets it after this guard (the scope fallback)
+})
+#: Names no retired endpoint: a note naming advanced_search once steered the graph agent wrong.
+RETIRED_SEARCH_NOTE = "sent to graph_query: every sample question goes to the graph (the REST sample searches are retired)"
+
+
+def _refine_prior_endpoint(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> str | None:
+    """The endpoint of the stored result a refine modifies, or None.
+
+    Read as the orchestrator's refine branch reads it: the bundle ``select_refine_bundle`` picks (the one the
+    parser named in ``target_result_id``, else the newest), then that bundle's ``parser_plan.target_endpoint``,
+    else its ``search_context.endpoint``. No session, an unreadable one, or no bundle is None.
+    """
+    if session is None:
+        return None
+    try:
+        history = session.get("results_history", []) or []
+    except Exception:
+        return None
+    from ..chat_memory import select_refine_bundle
+
+    prior, _chosen = select_refine_bundle(history, plan.target_result_id)
+    if not prior:
+        return None
+    prev_plan = prior.get("parser_plan") or {}
+    search_context = prior.get("search_context") or {}
+    return (
+        (prev_plan.get("target_endpoint") if isinstance(prev_plan, dict) else None)
+        or (search_context.get("endpoint") if isinstance(search_context, dict) else None)
+    )
+
+
+def _route_retired_sample_search(
+    session: "SessionState | SessionStateProxy | None", plan: ParserPlan
+) -> ParserPlan:
+    """Send a sample search the REST path no longer serves to the graph, keeping its filters.
+
+    A new_search that names a retired sample search, or no endpoint at all, becomes graph_query. A refine of a
+    stored retired-search result (named on the plan, else the stored bundle's endpoint) keeps its mode and is
+    marked ``refine_engine="graph"``, so the orchestrator's graph refine re-runs it with the prior turn's filters.
+    Everything else is returned as the same object.
+    """
+    note = ((plan.notes + " | ") if plan.notes else "") + RETIRED_SEARCH_NOTE
+    if plan.mode == "new_search" and (not plan.target_endpoint or plan.target_endpoint in RETIRED_SAMPLE_SEARCH_ENDPOINTS):
+        print(f"[DEBUG][PARSER] {RETIRED_SEARCH_NOTE} (endpoint={plan.target_endpoint!r})")
+        return plan.model_copy(update={"mode": "graph_query", "target_endpoint": None, "notes": note})
+    if plan.mode == "refine_last_search" and plan.refine_engine != "graph":
+        endpoint = plan.target_endpoint or _refine_prior_endpoint(session, plan)
+        if endpoint in RETIRED_SAMPLE_SEARCH_ENDPOINTS:
+            print(f"[DEBUG][PARSER] refine of a retired sample search re-run on the graph (endpoint={endpoint!r})")
+            return plan.model_copy(update={"refine_engine": "graph", "target_endpoint": None, "notes": note})
+    return plan
+
+
 #: Modes the parser may emit that the orchestrator dispatches under another name.
 #: ``schemas/router.py`` has documented ``memory_lookup`` as an alias of
 #: ``ask_about_last_results`` since it was added, and nothing ever performed the
@@ -681,8 +745,10 @@ def _apply_parser_guardrails(
 ) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing.
 
-    ``force_mode`` is the evaluation switch (``_force_parser_mode``); it runs last,
-    after every product guardrail, and is None outside an evaluation run.
+    After the bulk-export check, a sample search the REST path no longer serves goes to the
+    graph (``_route_retired_sample_search``). ``force_mode`` is the evaluation switch
+    (``_force_parser_mode``); it runs last, after every product guardrail, and is None
+    outside an evaluation run.
     """
     plan = _normalise_mode_aliases(plan)
     plan = _note_refine_without_bundle(session, plan)
@@ -705,6 +771,7 @@ def _apply_parser_guardrails(
             report_mode=None,
             report_type=None,
         )
+    plan = _route_retired_sample_search(session, plan)
     return _force_parser_mode(plan, force_mode)
 
 
@@ -860,8 +927,8 @@ def _synthesize_top_candidate_plan(
     """Build a one-step planner output from canonical candidate 0."""
     top_candidate = _fill_candidate_defaults(parser_plan.candidates[0]) if parser_plan.candidates else _fill_candidate_defaults(
         ParserCandidate(
-            mode="new_search",
-            target_endpoint="/nextseek_api/samples/advanced_search/",
+            mode="graph_query",
+            target_endpoint=None,
             tool_query=user_query,
             rationale="planner synthesis fallback without parser candidates",
             confidence=0.5,

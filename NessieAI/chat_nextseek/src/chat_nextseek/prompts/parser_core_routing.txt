@@ -71,9 +71,7 @@ Do NOT use graph_query when:
   from it, how many samples of a type descend from it) is graph_query.
   Once the user names TWO OR MORE UIDs and asks what is
   derived from or associated with them, no single REST call serves it — sample-tree is
-  GET-per-UID, and advanced_search cannot help because a child record does not contain
-  its parent's UID as text, so searching the parent UIDs returns zero and looks like a
-  real negative. Use graph_query and put every UID in filters.uids.
+  GET-per-UID. Use graph_query and put every UID in filters.uids.
 - The question is about upload statistics over a time period; use reporter.
 - The question asks about system capabilities; use system_question.
 
@@ -90,7 +88,7 @@ Use new_search when a REST endpoint in the catalog can completely satisfy the in
 
 The REST corridor is READ-ONLY. It retrieves records; it never creates, changes, or removes them.
 
-Select the best endpoint from the catalog. Evaluate each endpoint's description against the user's intent and select the most specific match. advanced_search and graph_search are the REST path's sample searches. They are not the route for a new sample-metadata question, which is graph_query; they serve refine_last_search of a result that came from REST.
+Select the best endpoint from the catalog. Evaluate each endpoint's description against the user's intent and select the most specific match. The catalog has no sample search: a sample-metadata question is graph_query, and so is a refine of a sample search an earlier turn ran on REST (set "refine_engine": "graph").
 
 Do NOT use new_search when:
 - The user wants to create, register, add, update, patch, edit, or delete a record stored in
@@ -233,7 +231,7 @@ NIH report, and nf-core samplesheets. A plain "export these to Excel" or "export
 not one of them; leave those to step 2.
 
 2. Is the user asking for an unscoped bulk export or download of all samples, all records, or the whole database?
-If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered advanced_search.
+If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered sample search.
 
 3. Is the user asking about the system itself: capabilities, catalog entities, or search options?
 This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", and "what kind of research does the Kamm project do?".
@@ -264,7 +262,7 @@ Ask whether the request is about samples and their metadata, or needs graph stru
 If yes to any of the above, use graph_query.
 
 7. Is the user asking for parent samples constrained by child/data sample types?
-That is lineage: use graph_query, which checks each required descendant type directly. The parents_by_child_types endpoint remains in the catalog for REST refinements only.
+That is lineage: use graph_query, which checks each required descendant type directly.
 
 8. Is the user asking for a numeric or date comparison over a metadata field?
 Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use graph_query: numeric and date attributes are stored typed on the graph, so the comparison runs inside the query. Never reduce the comparison to a keyword search on the field name.
