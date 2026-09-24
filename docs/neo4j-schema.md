@@ -3,12 +3,66 @@
 The document of record for the NExtSEEK sample graph: what it holds (v1.0), what the graph_search work builds
 (v1.1), and what keeping it in sync adds (v1.2). Querying Neo4j over HTTP, Browser or bolt is in
 [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
-The auto-generated `neo4j_schema.json` files Nessie reads are caches, not this document.
+The graph agent reads the live catalog on every turn; the committed `neo4j_schema.json` it falls back to is a
+capture (`scripts/graph_schema_fallback.py` regenerates it), not this document.
 
-Counts are dated measurements (2026-09-14) on the local production snapshot unless a row says otherwise; re-measure
-before relying on one.
+Counts are dated measurements; re-measure before relying on one. "Measured" is the graph now; the v1.0 section
+records the graph as found on 2026-09-14, before v1.1.
 
-## v1.0: the graph as it is
+## Measured, 2026-09-24
+
+The local graph (the production snapshot plus TCGA) at schema 1.2, `catalog_hash` 7c3840b3d0be, synced
+2026-09-24T13:30Z, read only.
+
+| Label | Count | Note |
+|---|---:|---|
+| `Sample` | 1,084,762 | every one carries `synced_at`; no id sits on two nodes |
+| `SampleType` | 118 | 111 live, 7 deprecated |
+| `Attribute` | 3,569 | 2,671 declared with values, 860 declared and empty, 38 found only in data; 1,170 distinct titles hold a value |
+| `Study` | 97 | 48 published, 8 paper-level unpublished, 41 SEEK studies |
+| `Investigation` | 17 | |
+| `Project` | 14 | |
+| `Person` | 108 | |
+| `OrphanSample` | 270 | |
+| `GraphMeta` | 1 | |
+
+| Pattern | Count |
+|---|---:|
+| `(:Sample)-[:DERIVED_FROM]->(:Sample)` | 2,014,307 |
+| `DERIVED_FROM` with an `OrphanSample` at either end | 979 |
+| `(:Sample)-[:OF_TYPE]->(:SampleType)` | 1,084,762 |
+| `(:OrphanSample)-[:OF_TYPE]->(:SampleType)` | 220 |
+| `(:Sample)-[:IN_STUDY]->(:Study)` | 1,082,863 |
+| `(:OrphanSample)-[:IN_STUDY]->(:Study)` | 270 |
+| `(:Study)-[:IN_INVESTIGATION]->(:Investigation)` | 97 |
+| `(:Sample)-[:IN_PROJECT]->(:Project)` | 1,127,621 |
+| `(:Investigation)-[:IN_PROJECT]->(:Project)` | 17 |
+| `(:SampleType)-[:HAS_ATTRIBUTE]->(:Attribute)` | 3,569 |
+| `(:Person)-[:MEMBER_OF]->(:Project)` | 166 |
+| `CHILD_OF` | 0 |
+
+- Samples by clade: Analyzed 557,747, Processed 212,590, Source 202,812, Raw 111,613.
+- The longest DERIVED_FROM chain is 11 hops, over every edge between two Samples; there is no cycle.
+- DERIVED_FROM labels: 1,998,154 edges carry the three singular assay fields and 655,184 a `protocol_title`; 5,026
+  carry neither an assay nor a protocol; 3,645 name more than one assay.
+- Indexes: 631 range, the fulltext `sample_search_text` and the two lookup indexes; the ten uniqueness constraints
+  of v1.1.
+
+### Known issues
+
+- `internal_assay_title` names one assay per edge. On the 3,645 edges several assays share, the others are only in
+  `internal_assay_titles`, and five assay titles appear nowhere else, so a query tests both:
+  `r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])`.
+- 781,392 DERIVED_FROM edges between two Samples carry no plural lists (`plural_missing`, v1.2 rule 5); only
+  `--apply-label-changes` writes them.
+- A SEEK study (one with `seek_study_id`) carries only `title` and `seek_study_id`: no `id`, `DOI`, `PMID` or
+  `description`.
+- The 270 orphans predate 1.2 and keep edges the 1.2 rule removes (the v1.2 `OrphanSample` row).
+- LYS is deprecated in the catalog while 12 samples carry `:T_LYS`. The graph agent's type index leaves deprecated
+  types out, so it never sees them.
+- 435 samples belong to no project (`project_ids` is an empty list) and 3,413 to no study.
+
+## v1.0: the graph as found (2026-09-14)
 
 ### Nodes
 
@@ -59,10 +113,12 @@ Orphan resolution, assay registration and the legacy sample pages also write; no
 - Walking `IN_STUDY`, `IN_INVESTIGATION` and `project_id` does not reproduce `projects_samples`: it misses 49,621 of
   209,096 sample-project pairs and every project-6 sample.
 
+v1.1 deleted the ghosts, made the graph-only ids `OrphanSample` nodes and added `IN_PROJECT`; what remains is under
+"Known issues" in "Measured".
+
 ## v1.1: the graph_search target
 
-Built by the graph_search proof of concept (`docs/superpowers/specs/2026-09-14-graph-search-poc-design.md`, tracked
-on the `feat/graph-search` branch until it merges). It keeps every v1.0 node and relationship except `CHILD_OF` and
+Built by the graph_search proof of concept (`docs/superpowers/specs/2026-09-14-graph-search-poc-design.md`). It keeps every v1.0 node and relationship except `CHILD_OF` and
 the ghost nodes, and adds metadata, a catalog, people and projects.
 
 ### Nodes
@@ -135,7 +191,7 @@ here and in the writer in the same commit.
 ## v1.2: what the sync adds
 
 Built by the graph_sync follow-up (`docs/superpowers/specs/2026-09-15-graph-search-sync-design.md`, sections 6, 7.3
-and 9; tracked on the `feat/graph-search-sync` branch until it merges), so that graph_sync can keep the graph equal
+and 9), so that graph_sync can keep the graph equal
 to MySQL by itself. Everything in v1.1 holds unless this section changes it. A graph becomes 1.2 only through a full
 sync at 1.2; the sync's by-id paths write nothing to a graph at any other version.
 
@@ -146,7 +202,7 @@ sync at 1.2; the sync's by-id paths write nothing to a graph at any other versio
 | `Sample` | new system property `source_hash`: a sha256 hex digest of everything the node is projected from (the uuid, the title, the type's title and its attribute value types, the raw `json_metadata` bytes, the sorted project ids and the sorted assay ids). A node whose hash differs from the one computed from MySQL is synced again; a node written by anything else simply mismatches |
 | `Sample` | `parent_titles` and `parent_title_hashes` are projection-owned: every graph_sync write computes them from the parent tokens with batch upload's rule (`enrich_parent_titles`), so orphan discovery keeps finding new uploads. A write that does not carry them keeps the node's own |
 | `GraphMeta` | `schema_version` is `"1.2"`; new `label_maps_hash`, a digest of the resolved assay map and of `sops` (id, title), so a change to either is found without reading every edge. A write that does not name it keeps it |
-| `OrphanSample` | never carries a `T_` label, `OF_TYPE` or `IN_PROJECT` (see "The deletion rule"); `orphaned_at` records when it became one |
+| `OrphanSample` | never carries a `T_` label, `OF_TYPE` or `IN_PROJECT` (see "The deletion rule"); `orphaned_at` records when it became one. An orphan made before 1.2 is left as it is, so it may keep `OF_TYPE` and `IN_STUDY` and lack `orphaned_at` |
 
 ### DERIVED_FROM labels
 
