@@ -87,6 +87,8 @@ class WriteGateTests(SimpleTestCase):
 # tool behind api-read refuses them (NessieAI/tests/cc/test_cc_context_drift_guard.py,
 # test_every_read_safe_pair_passes_the_rest_tools_own_read_only_check).
 AUDIT_READ_ENDPOINTS = [
+    ("/nextseek_api/samples/retrieve/", "POST"),
+    # Its deprecated alias: saved chats replay the path they stored.
     ("/nextseek_api/admin/samples/retrieve/", "POST"),
     ("/nextseek_api/investigations/", "GET"),
     ("/nextseek_api/people/", "GET"),

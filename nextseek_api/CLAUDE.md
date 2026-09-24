@@ -110,11 +110,6 @@ from this file.
   that name over this one module returns the import and nothing else. It is a standing
   invitation to a gate that admits every logged-in SEEK user; see the invariant above for
   why that gate is worthless here.
-- **A cross-reference in this code is now false.** `nextseek_api/views.py:270-272` says
-  the sibling admin export "still does" widen its scope with `is_staff`; that method reads
-  `is_superuser` alone at `nextseek_api/views.py:765`, and its own comment at
-  `nextseek_api/views.py:751-752` describes the widening in the past tense. Trusting the
-  pointer sends you hunting for a hole that was closed.
 - **The migration sequence forks three times and is stitched by two merge migrations.**
   Listing `nextseek_api/migrations/` on 2026-09-03 shows two files each for the prefixes
   0005, 0010 and 0011 (`nextseek_api/migrations/0010_attribute_mutation_job.py:1` and

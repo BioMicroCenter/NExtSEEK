@@ -497,7 +497,7 @@ def test_the_rest_tool_check_this_guard_runs_is_the_real_policy():
 # ---------------------------------------------------------------------------
 # #65a: the specific privilege the drift leaked
 # ---------------------------------------------------------------------------
-# POST-as-read query endpoints (graph_search, admin/samples/retrieve) are
+# POST-as-read query endpoints (graph_search, samples/retrieve) are
 # legitimately advertised and deliberately absent from this list — see
 # read_safe_endpoints.json for their audited rationale.
 FORBIDDEN_SAMPLE_MUTATIONS = (
@@ -564,7 +564,7 @@ ADVERTISED_MUTATIONS = {
     ("PATCH", "/nextseek_api/sample_types/{uid}/"): WRITE,
     ("PATCH", "/nextseek_api/samples/{uid}/"): WRITE,
     ("PATCH", "/nextseek_api/sops/{uid}/"): WRITE,
-    ("POST", "/nextseek_api/admin/samples/retrieve/"): POST_AS_READ,
+    ("POST", "/nextseek_api/samples/retrieve/"): POST_AS_READ,
     # Additive membership registration. WRITE, not POST_AS_READ: it inserts
     # assay_assets rows. It cannot delete — removal is not expressible in the
     # request shape — but "cannot delete" is not "does not write".

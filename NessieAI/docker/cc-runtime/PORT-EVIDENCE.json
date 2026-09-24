@@ -28,7 +28,7 @@
     }
   ],
   "context_file_inventory": [
-    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 2152, "sha256": "dbecafd7bebfdadcfc0b76a0e3741481488d271c5c770c6e7625f77d3258808b"},
+    {"path": "build_context/plugins/nextseek/context/read_safe_endpoints.json", "size_bytes": 2425, "sha256": "3b33f89230f5f796f7c36a405835c9df52f44f0cd2526d3592078f76ad7a02c0"},
     {"path": "docs/nextseek/.content-hash", "size_bytes": 65, "sha256": "63bf80efdd5a692e50f9661b19ef9e35082935f62a3ed3a8687e31bc6cbd5059"},
     {"path": "docs/nextseek/01-overview.md", "size_bytes": 3414, "sha256": "1eafd47790d10dc6b7fe85d617d2c803aa6f0c3e1e9d85362c6d61a7bbfbea68"},
     {"path": "docs/nextseek/02-using-seek-and-nextseek.md", "size_bytes": 11052, "sha256": "f0d86d1eb7dbe745781f1713f7df00cc1f0ee48397b3de02aaa43d4cfd7e994e"},

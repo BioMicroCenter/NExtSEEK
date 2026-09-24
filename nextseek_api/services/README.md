@@ -61,6 +61,11 @@ as a detail lookup (`nextseek_api/services/assays.py:41`).
 `nextseek_api/services/users.py:359`, `nextseek_api/services/project_export.py:256` and
 `nextseek_api/services/graph_search.py:138`. The last, `samples/graph_search`, was registered
 on 2026-09-14, after the count above; it reads Neo4j for ids and MySQL for the rows.
+`samples/retrieve` (`SampleRetrieveViewSet` in `nextseek_api/services/sample_retrieve.py`) is the
+sample download API behind every download button, and `admin/samples/retrieve` its deprecated
+alias: MySQL is the authority for the rows and the caller's scope, and the graph maps UIDs to
+primary keys and supplies the lineage. A graph that is down or behind costs the lineage, flagged
+as `lineage_complete: false`, never the requested samples.
 
 *The chat pair*: `nextseek_api/services/assistant.py:276` with 18 actions, and
 `nextseek_api/services/cc_assistant.py:86` with 8. Their query endpoints share a shape

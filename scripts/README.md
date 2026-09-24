@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is eight purpose
+The surface is not a set of entry points behind a package boundary. It is nine purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -47,6 +47,7 @@ groups, each defined by what it reads and what it writes.
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
 | G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
 | H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
+| I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of

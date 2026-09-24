@@ -1,12 +1,12 @@
 """
-``POST /nextseek_api/admin/samples/retrieve/`` with ``output_format=excel`` leaves no workbook where ``/media/`` serves.
+``POST /nextseek_api/samples/retrieve/`` (and its ``admin/samples/retrieve/`` alias) with ``output_format=excel`` leaves no workbook where ``/media/`` serves.
 
 The export used to be written to ``MEDIA_ROOT/download/download-samples-<YYYY-MM-DD_HH-MM>.xlsx`` and left there, and
 that path was served by name alone, so the file's name was the only thing protecting it, and two exports made in the
 same minute shared one path, which crossed two callers' responses. The workbook is now a private temporary file with a random
 name outside ``MEDIA_ROOT``, removed as soon as the response holds it open; the download name is unchanged.
 
-Hermetic: SEEK, Neo4j and the workbook writer are stubbed; MEDIA_ROOT is a temporary directory.
+Hermetic: the rows and the workbook writer are stubbed; MEDIA_ROOT is a temporary directory.
 """
 
 import os
@@ -31,6 +31,7 @@ def media(tmp_path):
 
 
 def _export(written, superuser=True):
+    from nextseek_api.services import sample_retrieve as sr
     from nextseek_api.views import AdminSampleViewSet
 
     request = APIRequestFactory().post("/")
@@ -39,21 +40,21 @@ def _export(written, superuser=True):
     viewset = AdminSampleViewSet()
     viewset.format_kwarg, viewset.kwargs, viewset.request = None, {}, request
 
-    dbs = MagicMock()
-    dbs.getChildrenUIDs.return_value = pd.DataFrame(
-        [{"id": 1, "sample_type_id": 1, "uuid": "TIS-1", "json_metadata": "{}"}])
+    result = sr.RetrieveResult(
+        frame=pd.DataFrame([{"id": 1, "sample_type_id": 1, "uuid": "TIS-1", "json_metadata": "{}"}]),
+        requested_uids=["TIS-1"], unresolved_numeric=0, lineage_complete=True)
 
-    def _write(_df, path):
+    def _write(_df, path, notice=None):
         written.append(path)
         with open(path, "wb") as fh:
             fh.write(WORKBOOK)
 
+    dbs = MagicMock()
     dbs.sampleRetrievalData.side_effect = _write
-    seekdb = MagicMock()
-    seekdb.getCurrentUser.return_value = {"data": {"relationships": {"projects": {"data": [{"id": "2"}]}}}}
-    with patch("nextseek_api.views.resolve_seek_auth", return_value=(("member", "pw"), {})), \
-            patch("nextseek_api.views.SeekDB", return_value=seekdb), \
-            patch("nextseek_api.views.DBtable_sample", return_value=dbs):
+    with patch.object(sr, "resolve_seek_auth", return_value=(("member", "pw"), {})), \
+            patch.object(sr, "_caller_scope", return_value=sr.Scope(superuser, None, () if superuser else (2,))), \
+            patch.object(sr, "retrieve_samples", return_value=result), \
+            patch("seek.dbtable_sample.DBtable_sample", return_value=dbs):
         return viewset.admin_retrieve_samples(request)
 
 

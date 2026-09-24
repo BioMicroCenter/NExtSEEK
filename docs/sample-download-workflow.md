@@ -112,14 +112,19 @@ Every control now follows one path:
 ```
 control (a…g)
   └─ window.nsDownloadSamples(identifiers, {includeTree})   static/js/ns_sample_download.js:51
-       └─ POST /nextseek_api/admin/samples/retrieve/
+       └─ POST /nextseek_api/samples/retrieve/   (the old /nextseek_api/admin/samples/retrieve/ is an alias)
             {identifiers, output_format: "excel", include_tree}
-            └─ AdminSampleViewSet.admin_retrieve_samples    nextseek_api/views.py:689
-                 ├─ permission_classes = [IsAuthenticated]  nextseek_api/views.py:656
-                 ├─ SeekDB(None, *basic_tuple) → real projects   :740
-                 ├─ include_tree ? getChildrenUIDs (Neo4j)  :807
-                 │                : project-scoped MySQL query
-                 └─ dbs.sampleRetrievalData(df, path)   :945
+            └─ SampleRetrieveViewSet.create → handle_retrieve    nextseek_api/services/sample_retrieve.py
+                 ├─ permission_classes = [IsAuthenticated]; Basic or session only
+                 ├─ resolve_scope → the caller's projects from MySQL (superuser: unscoped)
+                 ├─ retrieve_samples
+                 │    ├─ UIDs → ids through the graph's uuid index, verified in MySQL
+                 │    │    (SEEK's samples.uuid has no index; a UID the graph misses is read by uuid)
+                 │    ├─ requested samples in the caller's projects are always exported
+                 │    ├─ include_tree ? one bounded Neo4j walk: every ancestor and descendant
+                 │    │    (graph down, slow or behind → lineage_complete false, never a 500)
+                 │    └─ rows by primary key, in chunks, in the caller's projects only
+                 └─ DBtable_sample.sampleRetrievalData(df, path, notice)
                       └─ write_samples_workbook(...)  nextseek_api/services/sample_workbook.py:428
                            ├─ lineage first, because the sheet order comes from it
                            │    (load_derivation_hops :218 → derivation_edges,
@@ -336,7 +341,7 @@ rather than shipping a broken button.
 
 No export is written under `MEDIA_ROOT`, the tree `/media/` serves from (`dmac/media.py`: a
 login, and only the legacy data-file tree). The two retrieve endpoints
-(`AdminSampleViewSet.admin_retrieve_samples` and `adminRetrieveSamples`) write a private
+(`handle_retrieve` behind `samples/retrieve/` and `adminRetrieveSamples`) write a private
 temporary file, answer with its bytes and remove it. The legacy views that answer with a
 `link` (`sampleDownload`, `sampleExport`, `sampleFindAjax`, `sampleDelete`), and the sample
 upload page for its feedback workbook (`sampleUploadAjax`), write into the private store in
@@ -350,7 +355,8 @@ and, for anyone but a superuser, read only the caller's samples, lineage include
   `ca1c9d9b` (issue #74). `dmac/views.py:80,97` set `is_staff = 1` on every SEEK
   user at login, so `or is_staff` made project scope a no-op for everyone and
   handed every authenticated account the unfiltered branch of `getChildrenUIDs`.
-  The predicate is now `is_superuser` alone (`nextseek_api/views.py:747-754`),
+  The predicate is now `is_superuser` alone (`resolve_scope` in
+  `nextseek_api/graph_search/scope.py`, which the download API uses),
   matching the legacy path it mirrors (`adminRetrieveSamples` in `seek/views/admin.py`, `verifySuperUser`).
   Kept here rather than deleted: this section records what was knowingly
   deferred, and this entry is the reason it stopped being deferred.

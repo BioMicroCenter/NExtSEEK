@@ -85,8 +85,8 @@ def adminRetrieveSamples(request):
 def get_children_uids(sample_uids, user_project_ids, admin):
     db = settings.DATABASES[SEEK_DATABASE]
     if not admin:
-        # The walk starts only from requested samples in the caller's projects, as getChildrenUIDs does for
-        # /nextseek_api/admin/samples/retrieve/: a UID outside them reads as an unknown one instead of listing the
+        # The walk starts only from requested samples in the caller's projects, as the download API
+        # (/nextseek_api/samples/retrieve/) and getChildrenUIDs do: a UID outside them reads as an unknown one instead of listing the
         # caller's own samples related to it. user_project_ids is a single-pass map() (the caller), read once here.
         user_project_ids = [str(pid) for pid in user_project_ids]
         sample_uids = DBtable_sample().getVisibleUIDs(sample_uids, user_project_ids)

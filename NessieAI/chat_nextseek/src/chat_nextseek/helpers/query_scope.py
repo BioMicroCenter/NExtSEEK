@@ -56,6 +56,9 @@ from .lab_code import fold
 #: fallback is what an endpoint added later gets until someone writes it a phrase.
 _SEARCH_KIND_BY_ENDPOINT: dict[str, str] = {
     "/nextseek_api/samples/advanced_search/": "a keyword search over sample records",
+    "/nextseek_api/samples/retrieve/":
+        "a lookup of the named samples and everything derived from them",
+    # The deprecated alias, still replayed by chats saved before the rename.
     "/nextseek_api/admin/samples/retrieve/":
         "a lookup of the named samples and everything derived from them",
     "/nextseek_api/sample-tree/{uid}/tree/": "the lineage tree of a named sample",

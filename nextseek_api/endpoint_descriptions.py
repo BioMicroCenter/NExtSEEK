@@ -141,22 +141,48 @@ SAMPLE_TREE_GET_DESC = (
 )
 
 # =============================================================================
-# AdminSampleViewSet (1 endpoint)
+# SampleRetrieveViewSet (samples/retrieve, and the deprecated admin/samples/retrieve alias)
 # =============================================================================
 
-ADMIN_SAMPLE_RETRIEVE_DESC = (
-    "**SUMMARY:** Export sample metadata for admin users given a list of sample identifiers.\n\n"
-    "**USE WHEN:** An admin needs to bulk-export metadata (JSON or Excel) for specific samples they already know by UID or SEEK ID, "
-    "including all parent/child derived samples.\n\n"
-    "**DO NOT USE WHEN:** The user wants to SEARCH or FILTER samples by type, attribute, or text — use `POST advanced_search` instead.\n\n"
-    "**ACCEPTS:** A list of sample UIDs (e.g. 'NHP-220630FLY-1-PUB') and/or SEEK IDs (numeric); optional `output_format` (`json` or `excel`).\n\n"
-    "**RETURNS:** JSON grouped by sample type with full metadata, or an Excel workbook. Includes derived (parent/child) samples automatically.\n\n"
-    "**TRIGGER PHRASES:** export samples, download sample metadata, admin sample retrieval, bulk sample export, sample data dump\n\n"
+SAMPLE_RETRIEVE_DESC = (
+    "**SUMMARY:** Download the full metadata of samples already known by UID or SEEK ID, with every ancestor and "
+    "descendant sample by default, as JSON or as an Excel workbook. The API behind every sample-download button.\n\n"
+    "**USE WHEN:** The user names specific samples (UIDs such as 'NHP-220630FLY-1-PUB', or numeric SEEK IDs) and wants "
+    "their complete metadata, or everything derived from them or that they were derived from.\n\n"
+    "**DO NOT USE WHEN:** The user wants to SEARCH or FILTER samples by type, attribute or text: use "
+    "`POST samples/graph_search` or `POST samples/advanced_search`. The user wants a whole project: use "
+    "`admin/project-export`.\n\n"
+    "**ACCEPTS:** `identifiers`, a list of sample UIDs and/or numeric SEEK IDs (a whitespace-separated string also "
+    "works); optional `output_format` (`json`, the default, or `excel`); optional `include_tree` (default true: add "
+    "every ancestor and descendant over the sample graph; false returns only the named samples). Any logged-in user "
+    "may call it with session or basic authentication; rows are limited to the caller's projects unless they are a "
+    "superuser.\n\n"
+    "**RETURNS:** JSON `{total_samples, total_sample_types, total_children, failed_uids, lineage_complete, data}` "
+    "where `data` is grouped by UID prefix (`sample_type`, `n_samples`, `samples` of `{id, uuid, sample_type_id, "
+    "metadata}`) and `total_children` counts every relative returned (ancestors too). `lineage_complete` is false when "
+    "the graph could not supply the whole lineage (the named samples are still returned). Or an .xlsx workbook with a "
+    "README sheet and one sheet per sample type. 404 when none of the identifiers is a sample the caller can see.\n\n"
+    "**TRIGGER PHRASES:** export samples, download sample metadata, sample retrieval, bulk sample export, "
+    "everything derived from this sample, full metadata for these UIDs\n\n"
     "**EXAMPLES:**\n"
     "- 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples as JSON'\n"
     "- 'Download an Excel spreadsheet with data for samples 12345 and 67890'\n"
     "- 'Get sample data for these three monkeys in JSON format'\n"
     "- 'Retrieve full metadata for tissue samples TIS-230324BOO-39-PUB and TIS-230324BOO-40-PUB'\n"
+)
+
+# The old path. Same handler, same body, same response; kept so saved Nessie chats, cached browser
+# scripts and external clients keep working. Agents are taught only the new path.
+ADMIN_SAMPLE_RETRIEVE_DESC = (
+    "**SUMMARY:** DEPRECATED alias of `POST samples/retrieve`: identical request and response. Use "
+    "`POST samples/retrieve` instead.\n\n"
+    "**USE WHEN:** Never in new code; existing clients may keep calling it.\n\n"
+    "**DO NOT USE WHEN:** Always prefer `POST samples/retrieve`.\n\n"
+    "**ACCEPTS:** Exactly what `POST samples/retrieve` accepts.\n\n"
+    "**RETURNS:** Exactly what `POST samples/retrieve` returns.\n\n"
+    "**TRIGGER PHRASES:** admin sample retrieval (legacy name)\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples as JSON'\n"
 )
 
 # =============================================================================
@@ -169,7 +195,7 @@ PROJECT_EXPORT_DESC = (
     "**USE WHEN:** An admin wants a complete dump of a whole project identified by its numeric SEEK "
     "project ID — every sample, every sample type, all metadata attributes flattened into columns.\n\n"
     "**DO NOT USE WHEN:** The user already knows which samples they want by UID or SEEK ID — use "
-    "`POST admin/samples/retrieve` instead. The user wants to SEARCH or FILTER by type, attribute, or "
+    "`POST samples/retrieve` instead. The user wants to SEARCH or FILTER by type, attribute, or "
     "text — use `POST advanced_search`. The user wants the lineage of one sample — use `GET sample-tree`. "
     "The caller is not a superuser — this endpoint returns 403 for ordinary and staff accounts.\n\n"
     "**ACCEPTS:** `project_id` (numeric SEEK project ID, e.g. 2 for IMPACT) and optional `output_format` "
@@ -816,7 +842,7 @@ ADVANCED_SEARCH_DESC = (
     "attribute values, text keywords, or combinations thereof. Also use when the user wants to "
     "retrieve all samples of a given type.\n\n"
     "**DO NOT USE WHEN:** The user already knows specific sample UIDs/IDs and wants to bulk-export "
-    "their metadata — use `POST admin/samples/retrieve` instead.\n\n"
+    "their metadata — use `POST samples/retrieve` instead.\n\n"
     "**ACCEPTS:** Sample type(s) (name or ID), attribute(s), search text(s), `match_type` (`PARTIAL`/`EXACT`), "
     "and logic operators (`AND`/`OR`) for combining multiple attributes or search terms.\n\n"
     "**RETURNS:** Paginated list of matching samples with full metadata (`json_metadata`, `sample_type`, etc.).\n\n"
@@ -842,7 +868,7 @@ GRAPH_SEARCH_DESC = (
     "paired conditions on one sample type (Organ is Lung and CellCount is at least 10 million), a numeric or date "
     "range, or a lineage condition (samples with a D.SEQ sample anywhere in their lineage tree).\n\n"
     "**DO NOT USE WHEN:** The user already knows specific sample UIDs/IDs and wants to bulk-export their metadata: "
-    "use `POST admin/samples/retrieve` instead. PubMed syntax inside `filter_searchText` (parentheses, `NOT`, "
+    "use `POST samples/retrieve` instead. PubMed syntax inside `filter_searchText` (parentheses, `NOT`, "
     "`term[TYPE]`) is not parsed; the string is one term. Send such text as `extensions.query`.\n\n"
     "**ACCEPTS:** advanced_search's body unchanged: `sampletype` (title or id, one or a list), `filter_searchText` "
     "(one string or a list; may be empty when `extensions.where` or `extensions.query` is given), `searchText_logic` "

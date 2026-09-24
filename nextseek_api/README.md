@@ -25,8 +25,7 @@ line, `nextseek_api/models.py:2708`, whose own comment says the import exists "s
 discovers it". Enumerating `get_models()` for this app config on 2026-09-03 returned 17
 models, none of them defined in `nextseek_api/models.py`.
 
-**`nextseek_api/views.py` is a re-export hub, not a view module.** It runs to
-`nextseek_api/views.py:960`, and the block at `nextseek_api/views.py:43-66` does nothing but import
+**`nextseek_api/views.py` is a re-export hub, not a view module.** The block at `nextseek_api/views.py:43-66` does nothing but import
 ViewSets from `services/` and from the child packages and alias them into this namespace,
 so that `nextseek_api/urls.py:5` can register them all from one module.
 
@@ -72,13 +71,14 @@ to `nextseek_api/endpoint_descriptions.py:1190`, and it contains no import state
 all: a grep for a line beginning with `import` or `from` over that one file returns
 nothing, which is why a description edit can never break an import cycle.
 
-**The four ViewSets defined here.** `SampleTreeViewSet` (`nextseek_api/views.py:180`) and
-`AdminSampleViewSet` (`nextseek_api/views.py:648`) are routed and live. `NHPViewSet`
+**The four ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
+and live; `AdminSampleViewSet` is only the deprecated `admin/samples/retrieve/` alias of the
+download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`. `NHPViewSet`
 (`nextseek_api/views.py:395`) and `SampleQueryViewSet` (`nextseek_api/views.py:549`) are
 not: their registrations are the two commented-out lines at `nextseek_api/urls.py:15-16`.
 Both live ViewSets scope data per caller rather than by Django role, and each says so
-where it decides: `nextseek_api/views.py:268-274` for the tree, and
-`nextseek_api/views.py:749-756` for the export.
+where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retrieve` in
+`nextseek_api/services/sample_retrieve.py` for the download.
 
 **The subpackages.** Each is documented in its own directory; one row each.
 

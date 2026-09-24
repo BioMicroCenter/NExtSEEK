@@ -52,7 +52,7 @@ def annotate_metadata_with_sampletypes(config, metadata: dict) -> dict:
 
 def fetch_reporter_metadata(config, uids: list[str]) -> dict:
     """
-    Fetch full sample metadata (and lineage) for provided UIDs using the admin retrieve endpoint.
+    Fetch full sample metadata (and lineage) for provided UIDs using the sample retrieve endpoint.
     Returns the raw request result so callers can inspect ok/status and enrich downstream reports.
     Logs debug hints but tolerates failures by returning an error payload instead of raising.
     """
@@ -63,7 +63,7 @@ def fetch_reporter_metadata(config, uids: list[str]) -> dict:
     try:
         result = tool_nextseek_api_request(
             config,
-            endpoint="/nextseek_api/admin/samples/retrieve/",
+            endpoint="/nextseek_api/samples/retrieve/",
             method="POST",
             requestBody={"identifiers": uids},
             queryParameters={},

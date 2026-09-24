@@ -1043,3 +1043,22 @@ def test_readme_renders_the_relationships_line_when_present():
     text = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value)
     assert "Typically derived from: AB" in text
     assert "Typically feeds into: TIS" in text
+
+
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a2_is_blank_without_a_notice(_ctx, tmp_path):
+    out = tmp_path / "w.xlsx"
+    write_samples_workbook(_df(), str(out))
+    assert load_workbook(out)["README"]["A2"].value is None
+
+
+@patch(f"{_MOD}.load_sample_type_context", return_value=CONTEXT)
+def test_a_notice_is_written_bold_in_a2_and_moves_nothing(_ctx, tmp_path):
+    """The download API passes a notice when the lineage is incomplete; it must be the first thing read."""
+    plain, flagged = tmp_path / "a.xlsx", tmp_path / "b.xlsx"
+    write_samples_workbook(_df(), str(plain))
+    write_samples_workbook(_df(), str(flagged), notice="Lineage incomplete.")
+    a, b = load_workbook(plain)["README"], load_workbook(flagged)["README"]
+    assert b["A2"].value == "Lineage incomplete." and b["A2"].font.bold
+    rows = lambda ws: [[c.value for c in r] for r in ws.iter_rows(min_row=3)]  # noqa: E731
+    assert rows(a) == rows(b)

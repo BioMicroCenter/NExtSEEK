@@ -60,6 +60,7 @@ from .services.samples import SampleProxyViewSet as SampleViewSet
 from .services.samples import _resolve_uid_to_seek_id
 from .services.samples import SampleAdvancedSearchViewSet as SampleAdvancedSearchViewSet
 from .services.graph_search import GraphSearchViewSet as GraphSearchViewSet
+from .services.sample_retrieve import SampleRetrieveViewSet, handle_retrieve, RETRIEVE_EXAMPLES, RETRIEVE_RESPONSES
 from .services.schema_rag import SchemaRAGViewSet
 from .services.assistant import AssistantViewSet
 # Additive dmac_assistant integration (router + Container-Claude-Code).
@@ -76,9 +77,7 @@ from nextseek_api.models import (
     SampleTreeResponse,
     SampleTreeNode,
     SampleTreeRel,
-    AdminSampleRetrieveRequest,
-    AdminSampleRetrieveResponse,
-    AdminSampleGroup,
+    SampleRetrieveRequest,
 )
 
 
@@ -112,7 +111,8 @@ def get_clade_color(sample_type):
 def _caller_seek_project_ids(basic_tuple):
     """SEEK project ids the caller belongs to, as a list of str.
 
-    Same derivation as AdminSampleViewSet.admin_retrieve_samples: SeekDB has to
+    The sample-tree route's derivation (the download API reads the same membership
+    from MySQL instead: nextseek_api/services/sample_retrieve.py). SeekDB has to
     be built from real credentials, because the username-is-None branch
     (seek/seekdb.py:31) never calls getSeekLogin() and so leaves __server unset,
     after which getCurrentUser() raises.
@@ -272,9 +272,8 @@ class SampleTreeViewSet(viewsets.GenericViewSet):
         #
         # is_superuser ALONE is the admin predicate, deliberately. is_staff is
         # set to 1 on every SEEK user at login (dmac/views.py:80 and :97, both
-        # the create and the update branch), so including it -- as
-        # admin_retrieve_samples still does, see the SECURITY comment there --
-        # would make this scoping a no-op for every account. Same predicate as
+        # the create and the update branch), so including it would make this
+        # scoping a no-op for every account. Same predicate as
         # nextseek_api.permissions.IsSuperUser and seek.views.verifySuperUser.
         is_admin = bool(getattr(request.user, 'is_superuser', False))
         project_ids = [] if is_admin else _caller_seek_project_ids(basic_tuple)
@@ -651,322 +650,24 @@ class SampleQueryViewSet(viewsets.GenericViewSet):
 
 
 class AdminSampleViewSet(viewsets.GenericViewSet):
-    """
-    ViewSet for sample retrieval and export.
-    Supports JSON export (default) and Excel export (opt-in) of sample metadata,
-    optionally including parent/child (derived) samples.
+    """The deprecated route ``admin/samples/retrieve/``: the same handler as ``samples/retrieve/``.
 
-    The `admin/` in the route is historical. This is the single download API
-    behind every sample-download control in the UI, so it is gated on
-    authentication only; data scope is enforced per caller further down.
+    Kept because saved Nessie chats replay the endpoint they stored, browsers may hold a cached
+    ``ns_sample_download.js``, and scripts outside this repo post here. The data path lives in
+    ``nextseek_api/services/sample_retrieve.py``; nothing is decided here.
     """
     permission_classes = [IsAuthenticated]
-    
+
     @extend_schema(
         operation_id="Admin Sample Retrieval",
         tags=['Samples'],
-        request=AdminSampleRetrieveRequest,
+        request=SampleRetrieveRequest,
         description=ADMIN_SAMPLE_RETRIEVE_DESC,
-        responses={
-            (200, "application/json"): AdminSampleRetrieveResponse,
-            (200, "application/vnd.ms-excel"): OpenApiResponse(
-                response=OpenApiTypes.BINARY,
-                description="Excel workbook (XLSX) containing sample metadata grouped by sample type.",
-            ),
-        },
-        examples=[
-            OpenApiExample(
-                name="JSON output (default)",
-                value={"identifiers": ["NHP-220630FLY-1-PUB", "TIS-230324BOO-39-PUB"]},
-                request_only=True,
-            ),
-            OpenApiExample(
-                name="Excel output with mixed IDs",
-                value={"identifiers": ["NHP-220630FLY-1-PUB", "12345"], "output_format": "excel"},
-                request_only=True,
-            ),
-            OpenApiExample(
-                name="SEEK IDs only",
-                value={"identifiers": ["12345", "67890"], "output_format": "json"},
-                request_only=True,
-            ),
-        ]
+        responses=RETRIEVE_RESPONSES,
+        examples=RETRIEVE_EXAMPLES,
+        deprecated=True,
     )
     @action(detail=False, methods=["post"], url_path="retrieve")
     def admin_retrieve_samples(self, request):
-        """Admin export: accepts sample UIDs/SEEK ids, returns JSON (default) or an Excel workbook (opt-in)."""
-        # Gate using BASIC header or session only (no token)
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if not basic_tuple:
-            return Response({"detail": "Authentication required"}, status=status.HTTP_401_UNAUTHORIZED)
-
-        # Normalize request payload for pydantic validation (support legacy field names as input)
-        body = request.data or {}
-        if isinstance(body, dict):
-            output_format = body.get("output_format", "json")
-            # Form-encoded callers send "false"/"0"; pydantic coerces both.
-            include_tree = body.get("include_tree", True)
-            raw_identifiers = body.get("identifiers")
-            if raw_identifiers is None:
-                raw_identifiers = body.get("retrieval_uids") or body.get("uids") or body.get("retrieval_uids_text") or ""
-        else:
-            output_format = "json"
-            include_tree = True
-            raw_identifiers = ""
-
-        if isinstance(raw_identifiers, list):
-            identifiers = [str(u).strip() for u in raw_identifiers if str(u).strip()]
-        else:
-            identifiers = str(raw_identifiers or "").strip().split()
-
-        try:
-            req = AdminSampleRetrieveRequest.model_validate(
-                {
-                    "identifiers": identifiers,
-                    "output_format": output_format,
-                    "include_tree": include_tree,
-                }
-            )
-        except ValidationError as e:
-            return Response(
-                {"detail": "Invalid request", "errors": e.errors()},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            )
-
-        if not req.identifiers:
-            return Response({"detail": "identifiers required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Project scope for this caller.
-        #
-        # This used to be SeekDB(None, None, None), which takes the username-is-None
-        # branch (seek/seekdb.py:31), never calls getSeekLogin(), and so leaves
-        # __server None. getCurrentUser() then did None + "/people/current"
-        # (seek/seekapi.py:188) -> TypeError -> swallowed by the bare except below ->
-        # user_project_ids was ALWAYS []. Build it from the credentials
-        # resolve_seek_auth already returned at the top of this method instead.
-        seekdb = SeekDB(None, basic_tuple[0], basic_tuple[1])
-        try:
-            user_projects = seekdb.getCurrentUser()['data']['relationships']['projects']['data']
-            user_project_ids = list(map(lambda x: x['id'], user_projects))
-        except Exception:
-            logger.exception("Could not resolve SEEK projects for the caller")
-            user_project_ids = []
-        # Project membership is the data-scope boundary for this endpoint (#74).
-        #
-        # `is_staff` must NOT widen it: dmac/views.py:80,97 set is_staff = 1 on every
-        # SEEK user at login, so `or is_staff` made project scope a no-op for everyone
-        # and handed every authenticated account the unfiltered branch of
-        # getChildrenUIDs. is_superuser is never assigned by any live application path,
-        # so it is the only trustworthy admin signal here — same predicate as the legacy
-        # path this mirrors, seek/views.py:1249 (verifySuperUser).
-        #
-        # FUTURE (deliberately not built): a scoped miss and a nonexistent UID are
-        # currently indistinguishable — both return the 404 below, because the
-        # project-id sentinel keeps the SQL valid and matching nothing. We COULD
-        # distinguish them by re-querying unscoped on an empty result and returning 403
-        # "exists but not in your projects". Not done on purpose: that response confirms
-        # a UID is real to someone not authorised to see it. Revisit only if the
-        # ambiguous 404 actually causes support load. See #74.
-        is_superuser = bool(getattr(request.user, 'is_superuser', False))
-        
-        dbs = DBtable_sample()
-
-        # Resolve numeric SEEK ids → sample UUIDs (used by downstream retrieval)
-        requested_uids: list[str] = []
-        numeric_ids: list[str] = []
-        for it in req.identifiers:
-            s = str(it or "").strip()
-            if not s:
-                continue
-            if s.isdigit():
-                numeric_ids.append(s)
-            else:
-                requested_uids.append(s)
-
-        unresolved_numeric = 0
-        if numeric_ids:
-            try:
-                db = settings.DATABASES[SEEK_DATABASE]
-                conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-                cursor = conn.cursor()
-                ids_str = ", ".join(str(int(x)) for x in numeric_ids)
-                cursor.execute(f"SELECT id, uuid FROM {db["NAME"]}.samples WHERE id IN ({ids_str})")
-                rows = cursor.fetchall()
-                id_to_uuid = {str(r[0]): str(r[1]) for r in rows if r and r[0] is not None and r[1] is not None}
-                for sid in numeric_ids:
-                    u = id_to_uuid.get(str(sid))
-                    if u:
-                        requested_uids.append(u)
-                    else:
-                        unresolved_numeric += 1
-                cursor.close()
-                conn.close()
-            except Exception:
-                unresolved_numeric = len(numeric_ids)
-
-        # Dedupe while preserving order
-        seen = set()
-        requested_uids = [u for u in requested_uids if not (u in seen or seen.add(u))]
-
-        # Build dataset and write Excel to a temp path under MEDIA_ROOT/download
-        try:
-            if req.include_tree:
-                children_uids_df = dbs.getChildrenUIDs(requested_uids, user_project_ids, is_superuser)
-            else:
-                # No graph expansion: fetch exactly what was asked for. Raising here
-                # reuses the handler below, which is already the project-scoped MySQL
-                # query this path needs.
-                raise Neo4jError("include_tree=False")
-        except IndexError:
-            return Response({"detail": "No samples found for provided UIDs"}, status=status.HTTP_404_NOT_FOUND)
-        except (AuthError, Neo4jError):
-            # Fallback: proceed without Neo4j expansion; export provided UIDs only
-            try:
-                import pandas as pd  # local import to minimize surface area
-                db = settings.DATABASES[SEEK_DATABASE]
-                conn = MySQLdb.connect(host=db['HOST'], user=db['USER'], passwd=db['PASSWORD'], db=db['NAME'])
-                cursor = conn.cursor()
-
-                # requested_uids comes straight from the caller's `identifiers`
-                # POST body (models.py:1974 is an unvalidated List[str]), so it
-                # MUST stay parameterized -- it used to be inlined as
-                # "'%s'" % uid and a single quote broke out of the literal.
-                # Only the schema name (from settings) is interpolated, matching
-                # get_clade_color and services/entity_tree.py.
-                uid_placeholders = ', '.join(['%s'] * len(requested_uids))
-
-                if is_superuser:
-                    query = f"""
-                    SELECT id, sample_type_id, uuid, json_metadata
-                    FROM {db["NAME"]}.samples
-                    WHERE uuid IN ({uid_placeholders})
-                    """
-                    params = list(requested_uids)
-                else:
-                    # Sentinel keeps the statement valid, and matching nothing,
-                    # when the caller has no mapped projects.
-                    scoped_project_ids = [str(pid) for pid in user_project_ids] or ['']
-                    project_placeholders = ', '.join(['%s'] * len(scoped_project_ids))
-                    query = f"""
-                    SELECT s.id, s.sample_type_id, s.uuid, s.json_metadata
-                    FROM {db["NAME"]}.samples s
-                    JOIN {db["NAME"]}.projects_samples ps
-                    ON s.id = ps.sample_id
-                    WHERE s.uuid IN ({uid_placeholders}) AND ps.sample_id = s.id AND ps.project_id IN ({project_placeholders})
-                    """
-                    params = list(requested_uids) + scoped_project_ids
-
-                cursor.execute(query, params)
-                columns = [col[0] for col in cursor.description]
-                rows = cursor.fetchall()
-                children_uids_df = pd.DataFrame(rows, columns=columns)
-                cursor.close()
-                conn.close()
-            except Exception as e:
-                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        except Exception as e:
-            return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        if getattr(children_uids_df, 'empty', False):
-            return Response({"detail": "No samples found for provided UIDs"}, status=status.HTTP_404_NOT_FOUND)
-
-        # JSON output (default)
-        if req.output_format == "json":
-            # Compute failure count: unresolved numeric ids + requested UIDs that didn't appear in results
-            try:
-                returned_uids = set(str(u) for u in list(children_uids_df.get("uuid", [])))
-            except Exception:
-                returned_uids = set()
-            missing_requested = len(set(requested_uids) - returned_uids) if requested_uids else 0
-            failed_uids = int(unresolved_numeric + missing_requested)
-
-            # Group by sample_type (same extraction used for Excel sheet naming)
-            try:
-                df = children_uids_df.copy()
-                df["uuid"] = df["uuid"].astype(str)
-                df["sample_type"] = df["uuid"].str.extract(r"([A-Z]+\.[A-Z]+|[A-Z]+)", expand=False).fillna("UNKNOWN")
-            except Exception:
-                df = children_uids_df
-
-            def _parse_meta(val):
-                try:
-                    if isinstance(val, str):
-                        return json.loads(val) if val else {}
-                    if isinstance(val, dict):
-                        return val
-                except Exception:
-                    pass
-                return {}
-
-            groups: list[AdminSampleGroup] = []
-            try:
-                for st, gdf in df.groupby("sample_type"):
-                    records = []
-                    for row in gdf.to_dict("records"):
-                        records.append(
-                            {
-                                "id": str(row.get("id")) if row.get("id") is not None else None,
-                                "uuid": str(row.get("uuid")) if row.get("uuid") is not None else None,
-                                "sample_type_id": row.get("sample_type_id"),
-                                "metadata": _parse_meta(row.get("json_metadata")),
-                            }
-                        )
-                    groups.append(AdminSampleGroup(sample_type=str(st), samples=records, n_samples=len(records)))
-            except Exception:
-                # Fallback: treat as a single group
-                records = []
-                try:
-                    for row in children_uids_df.to_dict("records"):
-                        records.append(
-                            {
-                                "id": str(row.get("id")) if row.get("id") is not None else None,
-                                "uuid": str(row.get("uuid")) if row.get("uuid") is not None else None,
-                                "sample_type_id": row.get("sample_type_id"),
-                                "metadata": _parse_meta(row.get("json_metadata")),
-                            }
-                        )
-                except Exception:
-                    records = []
-                groups = [AdminSampleGroup(sample_type="UNKNOWN", samples=records, n_samples=len(records))]
-
-            total_samples = int(getattr(children_uids_df, "shape", [0])[0] or 0)
-            total_sample_types = int(len(groups))
-            requested_found = len(set(requested_uids) & returned_uids) if requested_uids else 0
-            total_children = int(max(0, total_samples - requested_found))
-
-            resp = AdminSampleRetrieveResponse(
-                data=groups,
-                total_samples=total_samples,
-                total_sample_types=total_sample_types,
-                total_children=total_children,
-                failed_uids=failed_uids,
-            )
-            return Response(resp.model_dump(mode="json", exclude_none=True), status=status.HTTP_200_OK)
-
-        datenow = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-        filename = f"download-samples-{datenow}.xlsx"
-        # A private temporary file with a random name, never MEDIA_ROOT/download: /media/ serves that tree to anyone,
-        # and a per-minute name there was guessable and shared by two exports in the same minute. It is unlinked as
-        # soon as it is open, so the response streams it and nothing is left on disk; the download name is unchanged.
-        fd, downloadfile = tempfile.mkstemp(prefix="download-samples-", suffix=".xlsx")
-        os.close(fd)
-        try:
-            dbs.sampleRetrievalData(children_uids_df, downloadfile)
-
-            # Stream the file (let FileResponse manage the file handle)
-            try:
-                fh = open(downloadfile, 'rb')
-            except FileNotFoundError:
-                return Response({"detail": "Export failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        finally:
-            try:
-                os.unlink(downloadfile)
-            except OSError:
-                pass
-        response = FileResponse(
-            fh,
-            content_type="application/vnd.ms-excel",
-            as_attachment=True,
-            filename=filename,
-        )
-        return response
+        """Deprecated alias of POST samples/retrieve/."""
+        return handle_retrieve(request)

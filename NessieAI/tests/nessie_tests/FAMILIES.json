@@ -119,7 +119,7 @@
         "ALLOWED GET /nextseek_api/schema/",
         "ALLOWED GET /nextseek_api/sops/",
         "ALLOWED GET /nextseek_api/sops/{uid}/",
-        "ALLOWED POST /nextseek_api/admin/samples/retrieve/",
+        "ALLOWED POST /nextseek_api/samples/retrieve/",
         "ALLOWED POST /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "ALLOWED POST /nextseek_api/samples/advanced_search/",
         "BLOCKED POST /nextseek_api/assays/",
@@ -374,7 +374,7 @@
         "read-safe: GET /nextseek_api/projects/",
         "read-safe: GET /nextseek_api/sample_types/",
         "read-safe: GET /nextseek_api/assays/",
-        "read-safe: POST /nextseek_api/admin/samples/retrieve/",
+        "read-safe: POST /nextseek_api/samples/retrieve/",
         "read-safe: POST /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "read-safe: POST /nextseek_api/entity_tree/lineage/",
         "read-safe: POST /nextseek_api/batch-upload/validate/",
@@ -657,7 +657,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 10,
        "enum_values": [
-        "POST /nextseek_api/admin/samples/retrieve/ (sample_export)",
+        "POST /nextseek_api/samples/retrieve/ (sample_export)",
         "GET /nextseek_api/assays/ (assay_list)",
         "GET /nextseek_api/sample-tree/{uid}/tree/ (sample_lineage)",
         "GET /nextseek_api/sample_types/ (sampletype_list)",
@@ -690,7 +690,7 @@
        "reachable_from_chat": "no",
        "enum_count": 24,
        "enum_values": [
-        "POST /admin/samples/retrieve/",
+        "POST /samples/retrieve/",
         "GET|POST /assays/",
         "GET|PATCH /assays/{uid}/",
         "GET|POST /data_files/",
@@ -1102,13 +1102,13 @@
      "capabilities": [
       {
        "name": "Lineage / derivation tree for ONE named UID",
-       "description": "GET the bidirectional derivation graph for one sample: what it came from and what was derived from it, as graph-friendly nodes/edges. Node-only \u2014 the catalog explicitly redirects full metadata export to admin/samples/retrieve/.",
+       "description": "GET the bidirectional derivation graph for one sample: what it came from and what was derived from it, as graph-friendly nodes/edges. Node-only \u2014 the catalog explicitly redirects full metadata export to samples/retrieve/.",
        "modality": "both",
        "reachable_from_chat": "yes",
        "enum_count": 10,
        "enum_values": [
         "GET /nextseek_api/sample-tree/{uid}/tree/",
-        "POST /nextseek_api/admin/samples/retrieve/ (full metadata variant)",
+        "POST /nextseek_api/samples/retrieve/ (full metadata variant)",
         "GET /nextseek_api/samples/{uid}/",
         "intent_patterns: tree",
         "intent_patterns: lineage",
@@ -2659,7 +2659,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 13,
        "enum_values": [
-        "POST /nextseek_api/admin/samples/retrieve/ \u2014 full metadata + full lineage for explicit UIDs (body field must be 'identifiers'); output_format='excel' gives a workbook",
+        "POST /nextseek_api/samples/retrieve/ \u2014 full metadata + full lineage for explicit UIDs (body field must be 'identifiers'); output_format='excel' gives a workbook",
         "GET /nextseek_api/assays/ \u2014 list all assays (titles, types, technologies)",
         "GET /nextseek_api/sample-tree/{uid}/tree/ \u2014 bidirectional lineage tree around ONE UID",
         "GET /nextseek_api/sample_types/ \u2014 all sample type schema definitions",
@@ -3548,7 +3548,7 @@
        "reachable_from_chat": "yes",
        "enum_count": 5,
        "enum_values": [
-        "endpoint: POST /nextseek_api/admin/samples/retrieve/ body {'identifiers': uids}",
+        "endpoint: POST /nextseek_api/samples/retrieve/ body {'identifiers': uids}",
         "summary shape: {'by_sample_type': {st: {n_samples, fields:{name:{n_populated,n_distinct,examples}}}}, 'lineage_edges': [...], '_uid_index': {...}}",
         "fields starting with '_' skipped; examples capped at 3",
         "sequencing-lineage hints: D.SEQ, D.SEQUENCING, SEQ (exact or '<hint>.' prefix)",
@@ -5793,7 +5793,7 @@
        "reachable_from_chat": "no",
        "enum_count": 24,
        "enum_values": [
-        "POST /admin/samples/retrieve/",
+        "POST /samples/retrieve/",
         "GET|POST /assays/",
         "GET|PATCH /assays/{uid}/",
         "GET|POST /data_files/",
@@ -5942,7 +5942,7 @@
        "enum_count": 7,
        "enum_values": [
         "_READ_METHODS: GET, HEAD, OPTIONS",
-        "_READ_POST_PATHS: /nextseek_api/admin/samples/retrieve/",
+        "_READ_POST_PATHS: /nextseek_api/samples/retrieve/",
         "_READ_POST_PATHS: /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "_READ_POST_PATHS: /nextseek_api/samples/advanced_search/",
         "BLOCKED POST: /nextseek_api/assays/, /data_files/, /investigations/, /people/, /projects/, /sample_types/, /samples/, /sops/, /schema_rag/ingest/, /schema_rag/retrieve/",
@@ -9612,7 +9612,7 @@
         "_READ_METHODS: GET",
         "_READ_METHODS: HEAD",
         "_READ_METHODS: OPTIONS",
-        "_READ_POST_PATHS: /nextseek_api/admin/samples/retrieve/",
+        "_READ_POST_PATHS: /nextseek_api/samples/retrieve/",
         "_READ_POST_PATHS: /nextseek_api/sample_types/get_parents/parents_by_child_types/",
         "_READ_POST_PATHS: /nextseek_api/samples/advanced_search/",
         "denial: {ok:False, error:'Write operations are not permitted on the NExtSEEK REST path: <M> <E> was blocked\u2026'}"

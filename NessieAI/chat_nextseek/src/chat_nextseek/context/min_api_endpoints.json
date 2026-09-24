@@ -1,8 +1,8 @@
 [
   {
-    "path": "/nextseek_api/admin/samples/retrieve/",
+    "path": "/nextseek_api/samples/retrieve/",
     "method": "POST",
-    "description": "Export full metadata records for samples and their related lineage. This endpoint retrieves complete metadata for the requested samples plus all parent and child samples, including attributes, assays, protocols, and annotations. It supports JSON output grouped by sample type by default, or Excel (.xlsx) export when output_format is set to “excel,” and requires admin privileges. Use this endpoint whenever the user asks to retrieve, export, download, or analyze sample data, even if they refer to “all associated” or “derived” samples. Example queries include: “Retrieve all associated samples and their metadata for NHP-220630FLY-1-PUB,” “Export full metadata for these samples as JSON,” “Download an Excel spreadsheet with data for samples 12345 and 67890,” “Get all sample data for these three monkeys,” and “Export tissue and cell sample metadata derived from this patient.”"
+    "description": "Export full metadata records for samples and their related lineage. This endpoint retrieves complete metadata for the requested samples plus all parent and child samples, including every recorded attribute. It supports JSON output grouped by sample type by default, or Excel (.xlsx) export when output_format is set to “excel,” and include_tree false returns only the named samples. Any logged-in user may call it; rows are limited to the caller's projects. Use this endpoint whenever the user asks to retrieve, export, download, or analyze sample data, even if they refer to “all associated” or “derived” samples. Example queries include: “Retrieve all associated samples and their metadata for NHP-220630FLY-1-PUB,” “Export full metadata for these samples as JSON,” “Download an Excel spreadsheet with data for samples 12345 and 67890,” “Get all sample data for these three monkeys,” and “Export tissue and cell sample metadata derived from this patient.”"
   },
   {
     "path": "/nextseek_api/assay-registrations/",

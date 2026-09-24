@@ -269,7 +269,7 @@ def test_api_result_meta_on_a_complete_result_is_not_truncated():
 
 
 # --------------------------------------------------------------------------- #
-# The grouped-by-sample-type shape (`POST admin/samples/retrieve/`)
+# The grouped-by-sample-type shape (`POST samples/retrieve/`)
 #
 # `AdminSampleRetrieveResponse` (nextseek_api/models.py) is
 # `{total_samples, total_sample_types, total_children, failed_uids,
@@ -294,7 +294,7 @@ def test_api_result_meta_on_a_complete_result_is_not_truncated():
 # --------------------------------------------------------------------------- #
 
 def _retrieve_grouped(groups, total_samples=None):
-    """A faithful admin/samples/retrieve/ body, wrapped as the REST tool wraps it."""
+    """A faithful samples/retrieve/ body, wrapped as the REST tool wraps it."""
     body_groups = []
     for sample_type, n in groups:
         body_groups.append({
@@ -311,7 +311,7 @@ def _retrieve_grouped(groups, total_samples=None):
     n_total = total_samples if total_samples is not None else sum(n for _, n in groups)
     return {
         "ok": True, "status_code": 200, "method": "POST",
-        "url": "http://127.0.0.1:8000/nextseek_api/admin/samples/retrieve/",
+        "url": "http://127.0.0.1:8000/nextseek_api/samples/retrieve/",
         "data": {
             "total_samples": n_total,
             "total_sample_types": len(groups),
