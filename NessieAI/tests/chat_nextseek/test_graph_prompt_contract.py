@@ -72,3 +72,28 @@ def test_the_schema_section_names_the_plural_edge_property():
 def test_the_variable_length_typing_rule_is_unchanged():
     assert ("`[r:DERIVED_FROM*1..12]` binds a list, so `r.internal_assay_title` there is a type error."
             in _graph_prompt())
+
+
+# --- Q1: declare every keyword a filtered field stands for --------------------------------------------------------------
+# On R3-602 and R7-709 the agent filtered Classification and declared only 'convert' in keyword_fields, so Mtb,
+# infection and positive were reported NOT APPLIED: a false caveat.
+
+
+def _keyword_fields_rule() -> str:
+    t = _graph_prompt()
+    fmt = t[t.index("## Output format"):]
+    return fmt[fmt.index("`keyword_fields` records"):]
+
+
+def test_the_prompt_asks_for_every_keyword_a_filtered_field_stands_for():
+    rule = _keyword_fields_rule()
+    assert "Declare every keyword of the question that a filtered field stands for" in rule
+    assert ('{"convert": ["Classification"], "Mtb": ["Classification"], "infection": ["Classification"], '
+            '"positive": ["Classification"]}') in rule
+    # only when the query really filters that field
+    assert "List only fields your query really filters on" in rule
+
+
+def test_no_example_leaves_a_keyword_the_field_stands_for_undeclared():
+    # The old example mapped Mtb and positive and left infection out, the very omission the rule forbids.
+    assert '{"Mtb": ["Classification"], "positive": ["QFT_Result"]}' not in _keyword_fields_rule()

@@ -619,3 +619,46 @@ def test_a_dropped_project_is_still_reported():
     )
 
     assert any("SRP" in item for item in scope.not_applied)
+
+
+# --------------------------------------------------------------------------
+# Q1: every keyword a filtered field stands for. R3-602 and R7-709 filtered
+# Classification with CONTAINS 'convert' and declared only 'convert' in
+# keyword_fields, so Mtb, infection and positive were reported NOT APPLIED.
+# --------------------------------------------------------------------------
+
+_CONVERTER_QUESTION = "show samples for human subjects who convert to Mtb infection positive"
+_CONVERTER_KEYWORDS = ["convert", "Mtb", "infection", "positive"]
+_ALL_TO_CLASSIFICATION = {k: ["Classification"] for k in _CONVERTER_KEYWORDS}
+
+
+def _converter_scope(cypher):
+    return describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="PAT", name="Patient")], keywords=_CONVERTER_KEYWORDS),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": cypher, "parameters": {}, "keyword_fields": _ALL_TO_CLASSIFICATION},
+        user_query=_CONVERTER_QUESTION,
+    )
+
+
+def test_every_keyword_declared_for_a_filtered_field_counts_as_applied():
+    scope = _converter_scope(
+        "MATCH (s:T_PAT) WHERE toLower(toString(s.Classification)) CONTAINS 'convert' "
+        "RETURN s.id AS id, s.uuid AS uuid, s.Classification AS Classification ORDER BY id LIMIT 5000"
+    )
+
+    assert scope.not_applied == [], scope.not_applied
+    for keyword in _CONVERTER_KEYWORDS:
+        assert f'keyword "{keyword}"' in scope.applied
+
+
+@pytest.mark.parametrize("cypher", [
+    # the field is only returned, never filtered
+    "MATCH (s:T_PAT) RETURN s.id AS id, s.uuid AS uuid, s.Classification AS Classification ORDER BY id LIMIT 5000",
+    # another field is filtered
+    "MATCH (s:T_PAT) WHERE s.QFT_Result IS NOT NULL RETURN s.id AS id, s.uuid AS uuid ORDER BY id LIMIT 5000",
+])
+def test_keywords_declared_for_a_field_the_query_does_not_filter_stay_not_applied(cypher):
+    scope = _converter_scope(cypher)
+
+    assert scope.not_applied == [f'keyword "{keyword}"' for keyword in _CONVERTER_KEYWORDS]
