@@ -169,10 +169,14 @@ def _type_names_block(config: Any, rows: list) -> str:
 # which the reply states first, and the one next step it offers as a chip, which the reply offers last. The prompt
 # asks for both; these make sure a reply that drops either still carries it.
 
-#: The line the notes carry when the reviewer offered a next step (the chip's label).
-OFFERED_STEP_NOTE = "Offered next step: {step}"
+#: The input line naming the step the reviewer offered (the chip's label). Its own line, right after the block that
+#: holds the notes and never inside it: a note is the query author's words, which the prompt says not to quote back,
+#: and the step is offered in exactly its words.
+OFFERED_STEP_LINE = "Offered next step: {step}"
 #: The sentence appended when the reply does not name the offered step.
 OFFER_SENTENCE = "Would you like me to run: {step}?"
+#: A reply whose final sentence is a question, allowing for closing quotes, brackets and emphasis after the mark.
+_ENDS_WITH_QUESTION = re.compile(r"\?[\s\"'\u201d\u2019)\]*_]*$")
 
 #: A number as a whole token: "1,306" is one number, the "57" inside "1,570" or the "14" in "T14" is none.
 _NUMBER = re.compile(r"(?<![\w.,])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)")
@@ -194,11 +198,14 @@ def _with_review_backstop(reply: str, review_disclosure: str | None, offered_ste
     The facts are prepended when they hold a number the reply does not; facts without a number (a failed query, a
     value the query did not apply) are left to the model, which has them as a note. ``always_disclose`` prepends
     them regardless, for the fallback reply, which no model wrote. The offer is appended when the reply does not
-    name the step, compared case-insensitively. Both are judged on the reply as given, before either is added."""
+    name the step, compared case-insensitively, and does not end with a question: a closing question is the model's
+    offer in its own words, and a second one would double it. Both are judged on the reply as given, before either
+    is added."""
     facts = _one_line(review_disclosure)
     step = _one_line(offered_step)
     add_facts = bool(facts) and (always_disclose or not _numbers(facts) <= _numbers(reply))
-    add_offer = bool(step) and step.casefold() not in _one_line(reply).casefold()
+    add_offer = (bool(step) and step.casefold() not in _one_line(reply).casefold()
+                 and not _ENDS_WITH_QUESTION.search(reply or ""))
     parts = ([facts] if add_facts else []) + ([reply] if reply else []) + (
         [OFFER_SENTENCE.format(step=step)] if add_offer else [])
     return "\n\n".join(parts)
@@ -234,9 +241,10 @@ def chatter_agent_answer(
     disclosed to the writer verbatim.
 
     ``review_disclosure`` is the graph reviewer's facts (already in ``query_notes`` as its note) and
-    ``offered_step`` the label of the chip the turn offers. The step is added to the notes as
-    ``OFFERED_STEP_NOTE``, and the reply, the model's or the fallback, gets the facts first and the
-    offer last where it lacks them (``_with_review_backstop``). With neither, nothing changes.
+    ``offered_step`` the label of the chip the turn offers. The step is its own input line
+    (``OFFERED_STEP_LINE``), after the notes block and outside it, and the reply, the model's or the
+    fallback, gets the facts first and the offer last where it lacks them (``_with_review_backstop``).
+    With neither, nothing changes.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -323,8 +331,7 @@ def chatter_agent_answer(
         parser_plan=parser_plan,
         api_plan=api_plan if not (is_graph or is_reporter) else None,
         graph_plan=graph_plan,
-        extra_notes=list(query_notes or [])
-        + ([OFFERED_STEP_NOTE.format(step=offered_step)] if offered_step else []),
+        extra_notes=query_notes,
         user_query=user_query,
     )
 
@@ -505,7 +512,8 @@ def chatter_agent_answer(
         f"- Projects: {resolved_projects}\n"
         f"- Keywords: {keywords_str}\n\n"
         f"{render_query_scope(scope)}\n\n"
-        f"{data_section}\n\n"
+        + (f"{OFFERED_STEP_LINE.format(step=offered_step)}\n\n" if offered_step else "")
+        + f"{data_section}\n\n"
         "Result statistics:\n"
         f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
         f"- Preview rows shown: {preview_count}\n"
@@ -537,8 +545,8 @@ def chatter_agent_answer(
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
         + (
-            "- The notes include an 'Offered next step': end the reply with one sentence offering exactly that "
-            "step, and make no other offer.\n"
+            "- The message includes an 'Offered next step' line: end the reply with one sentence offering exactly "
+            "that step, and make no other offer.\n"
             if offered_step else ""
         )
         + (

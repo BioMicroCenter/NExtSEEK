@@ -5,10 +5,13 @@ Non-converter 57, Converter 32, Reverter 9.") and, on a ``suggest``, a chip whos
 chat panel shows. The orchestrator hands the chatter both, as ``review_disclosure`` and ``offered_step`` (the first
 chip's label). The chatter:
 
-* adds ``Offered next step: <label>`` to the notes, so the prompt rule for it can fire;
+* adds the line ``Offered next step: <label>`` to its input, beside the query notes rather than among them (a note
+  is the query author's words, which the prompt says never to quote back; the step is to be offered in exactly those
+  words), so the prompt rule for it can fire;
 * after the model reply, prepends the disclosure when it carries numbers and the reply is missing any of them
   (compared without thousands separators, so "1,306" matches "1306"); a disclosure without numbers gets no backstop;
-* appends ``Would you like me to run: <label>?`` when the reply does not already name the step (case-insensitive);
+* appends ``Would you like me to run: <label>?`` when the reply does not already name the step (case-insensitive)
+  and does not already end with a question, which is the model's reworded offer;
 * does the same on the fallback reply it writes when the model call raises.
 
 With no offered step and a reply that already holds the facts, the reply is exactly the model's.
@@ -45,9 +48,11 @@ STEP = "Only Converter"
 OFFER = f"Would you like me to run: {STEP}?"
 DEBUG_MARK = "\n\n**Debug info**"
 
-#: The prompt rule, verbatim from the plan.
-RULE = ("When the notes include 'Offered next step: X', end the reply with one sentence offering exactly X, and make "
-        "no other offer. The facts in 'What the result matched' come first, in the opening sentences.")
+#: The prompt rule: the plan's, with "the notes include" made "the message includes the line", because the step is
+#: its own line and no longer a note.
+RULE = ("When the message includes the line 'Offered next step: X', end the reply with one sentence offering "
+        "exactly X, and make no other offer. The facts in 'What the result matched' come first, in the opening "
+        "sentences.")
 
 
 class _StubConfig:
@@ -244,6 +249,27 @@ def test_a_reply_without_the_step_gets_the_offer_appended(model):
     assert body == f"{model['reply']}\n\n{OFFER}"
 
 
+@pytest.mark.parametrize("ending", [
+    "Shall I restrict this to the Converter subjects?",
+    "Do you want the 32 Converter subjects on their own?",
+    "**Want just the converters?**",
+])
+def test_a_reply_ending_with_a_reworded_offer_gets_no_second_offer(model, ending):
+    """The model offered the step in its own words: its closing question is the offer, so none is added."""
+    model["reply"] = f"98 samples matched: Non-converter 57, Converter 32, Reverter 9. {ending}"
+
+    assert _body(_graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP)) == model["reply"]
+
+
+def test_a_reply_ending_with_a_statement_still_gets_the_offer(model):
+    """Only the final sentence counts: a question earlier in the reply is not the closing offer."""
+    model["reply"] = "Did you mean the converters? 98 samples matched: Non-converter 57, Converter 32, Reverter 9."
+
+    body = _body(_graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP))
+
+    assert body == f"{model['reply']}\n\n{OFFER}"
+
+
 def test_the_offer_goes_before_the_debug_block(model):
     model["reply"] = "98 samples matched: Non-converter 57, Converter 32, Reverter 9."
 
@@ -257,10 +283,20 @@ def test_the_offer_goes_before_the_debug_block(model):
 # What the model is handed
 # --------------------------------------------------------------------------- #
 
-def test_the_offered_step_is_in_the_notes(model):
-    _graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP)
+def test_the_offered_step_is_its_own_line_outside_the_notes(model):
+    """A note is the query author's words, which the prompt says never to quote back; the step is quoted exactly.
+    So it is a line of its own, right after the block that holds the notes, and inside no note."""
+    notes = [f"What the result matched: {DISCLOSURE} State this plainly in the first sentences."]
+    _graph_answer(notes=notes, review_disclosure=DISCLOSURE, offered_step=STEP)
+    text = model["user_content"]
+    lines = text.splitlines()
 
-    assert "- Note from whoever built the query: Offered next step: Only Converter" in model["user_content"]
+    assert "Offered next step: Only Converter" in lines
+    assert not any("Offered next step" in line for line in lines if "Note from whoever built the query" in line)
+    scope_at = text.index("What the query actually did:")
+    scope_end = text.index("\n\n", scope_at)
+    assert "Offered next step" not in text[scope_at:scope_end], "not inside the scope block"
+    assert text[scope_end:].startswith("\n\nOffered next step: Only Converter\n"), "right after it"
 
 
 def test_no_offered_step_means_no_line_and_the_same_prompt(model):
@@ -307,6 +343,14 @@ def test_the_rule_wins_over_the_count_only_offer():
 
     assert "WHEN THE RESULT IS ONLY A NUMBER" in after
     assert "only offer" in after
+
+
+def test_the_prompt_names_the_offered_step_among_its_inputs():
+    """The prompt lists the blocks it is given and says there are no others, so the new line is listed."""
+    text = _prompt_text()
+    given = text[text.index("WHAT YOU ARE GIVEN"):text.index("Rules that apply in all modes")]
+
+    assert "`Offered next step: X`" in given
 
 
 def test_the_qualifying_list_names_what_the_result_matched():

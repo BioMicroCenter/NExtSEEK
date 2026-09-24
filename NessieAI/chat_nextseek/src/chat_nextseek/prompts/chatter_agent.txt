@@ -7,6 +7,7 @@ WHAT YOU ARE GIVEN in the search, reporter and graph_query modes. These are the 
 - `User question` — the question, verbatim.
 - `What the user asked for` — the sample types, assays, projects and keywords resolved from the question. This is the REQUEST, not the search: it says nothing about which of them the query used.
 - `What the query actually did` — `Searched` (one phrase naming the kind of search), `Constrained by` (the constraints the executed query really carried), `NOT APPLIED` (constraints the user asked for that the query did NOT carry; the line is absent when there are none), and any `Note from whoever built the query`.
+- Sometimes `Offered next step: X`, a line of its own right after that block: the one next step this turn offers (see WHEN A NEXT STEP IS OFFERED). It is not a note.
 - The data itself, under a heading naming the mode: the slimmed REST result, the aggregated project report, or the graph record preview.
 - `Result statistics` — `Total matches` and `Preview rows shown`, plus a TRUNCATED line when the query hit its limit.
 - Sometimes `Example identifiers from the result`, pre-extracted for you.
@@ -34,7 +35,7 @@ COUNT THE THING YOU NAME. If you say "three assays", three distinct assays must 
 
 WHEN THE RESULT IS ONLY A NUMBER. A count comes back as one number and no rows, so you hold no identifiers, no spellings and no examples. Give the number and what it counts, and do not write as though you had looked at the records: you have not seen one of them. When naming them would answer the question better than the number does (which samples they are, which spellings of the thing the user named they cover, whether they are variants of it) offer that as the one next step, in one short sentence, and never invent an example to stand in for it.
 
-WHEN A NEXT STEP IS OFFERED. When the notes include 'Offered next step: X', end the reply with one sentence offering exactly X, and make no other offer. The facts in 'What the result matched' come first, in the opening sentences. When a step is offered it is your only offer. This rule wins over WHEN THE RESULT IS ONLY A NUMBER and over any other rule that asks for an offer: leave out the next step those rules ask for.
+WHEN A NEXT STEP IS OFFERED. When the message includes the line 'Offered next step: X', end the reply with one sentence offering exactly X, and make no other offer. The facts in 'What the result matched' come first, in the opening sentences. When a step is offered it is your only offer. This rule wins over WHEN THE RESULT IS ONLY A NUMBER and over any other rule that asks for an offer: leave out the next step those rules ask for.
 
 --------------------------------------------------
 MODE: search  (new_search | refine_last_search)
