@@ -43,20 +43,21 @@ def _fresh_cache():
 
 
 # ------------------------------------------------------------------ the brief's four ------------------------------
-def test_count_of_uses_limit_1_and_reads_the_probed_total(monkeypatch):
+def test_count_of_asks_the_tool_for_the_total_only(monkeypatch):
+    # fix round 1: the brief's `LIMIT 1` + probe ran two statements per count; one total_only probe replaces it
     seen = {}
-    def fake(config, cypher, parameters=None, *, timeout_s=None):
-        seen.update(cypher=cypher, timeout_s=timeout_s)
-        return {"ok": True, "count": 1, "total": 8324, "truncated": True}
+    def fake(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        seen.update(cypher=cypher, timeout_s=timeout_s, total_only=total_only)
+        return {"ok": True, "count": None, "total": 8324, "truncated": False, "data": []}
     monkeypatch.setattr(g2, "tool_neo4j_query", fake)
     out = g2.count_of(object(), "MATCH (s:T_D_IMG) WHERE toLower(s.DataType) CONTAINS $t RETURN s.id AS id LIMIT 5000", {"t": "tif"})
     assert out["ok"] and out["total"] == 8324
-    assert seen["cypher"].rstrip().endswith("LIMIT 1") and seen["timeout_s"] == 5
+    assert seen["cypher"] == TIFF and seen["timeout_s"] == 5 and seen["total_only"] is True
 
 
 def test_a_refused_variant_is_skipped_not_retried(monkeypatch):
     calls = []
-    def fake(config, cypher, parameters=None, *, timeout_s=None):
+    def fake(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
         calls.append(cypher); return {"ok": False, "error": "This graph query could not be confirmed to stay within your projects"}
     monkeypatch.setattr(g2, "tool_neo4j_query", fake)
     assert g2.count_of(object(), "MATCH (s) RETURN s", {})["ok"] is False
@@ -151,14 +152,51 @@ def test_timeout_s_is_keyword_only_with_no_default_change():
     params = inspect.signature(tool_module.tool_neo4j_query).parameters
     assert list(params)[:3] == ["config", "cypher", "parameters"]
     assert params["timeout_s"].kind is inspect.Parameter.KEYWORD_ONLY and params["timeout_s"].default is None
+    assert params["total_only"].kind is inspect.Parameter.KEYWORD_ONLY and params["total_only"].default is False
+
+
+def test_total_only_is_one_transaction_under_the_timeout(fake_driver):
+    session = fake_driver(_Session([{"id": 1}], total=9))
+    out = tool_module.tool_neo4j_query(_cfg(ADMIN), "MATCH (s:T_TIS) RETURN s.id AS id LIMIT 5", {}, timeout_s=4,
+                                       total_only=True)
+    assert session.transactions == [("READ", 4)]
+    assert session.statements == ["CALL () {\nMATCH (s:T_TIS) RETURN s.id AS id\n}\nRETURN count(*) AS __total"]
+    assert out["ok"] is True and out["total"] == 9 and out["count"] is None
+    assert out["data"] == [] and out["truncated"] is False
+    assert out["cypher"] == "MATCH (s:T_TIS) RETURN s.id AS id LIMIT 5"
+
+
+def test_total_only_without_a_trailing_limit_counts_the_whole_statement(fake_driver):
+    session = fake_driver(_Session([], total=0))
+    out = tool_module.tool_neo4j_query(_cfg(ADMIN), "MATCH (s:T_TIS) RETURN s.id AS id", {}, total_only=True)
+    assert session.transactions == [("READ", 60)]
+    assert session.statements == ["CALL () {\nMATCH (s:T_TIS) RETURN s.id AS id\n}\nRETURN count(*) AS __total"]
+    assert out["ok"] is True and out["total"] == 0
+
+
+def test_total_only_still_refuses_a_write_and_scopes_a_member(fake_driver):
+    session = fake_driver(_Session([], total=3))
+    refused = tool_module.tool_neo4j_query(_cfg(ADMIN), "MATCH (s:T_TIS) DETACH DELETE s", {}, total_only=True)
+    assert refused["ok"] is False and refused["error"].startswith("Write operations are not permitted")
+    unscoped = tool_module.tool_neo4j_query(_cfg(MEMBER), "MATCH (a:Attribute) RETURN a.title AS t", {},
+                                            total_only=True)
+    assert unscoped["ok"] is False and unscoped["scope"]["decision"] == "refused"
+    assert tool_module.tool_neo4j_query(_cfg(None), TIFF, {"t": "x"}, total_only=True)["ok"] is False
+    assert session.transactions == []                                    # none of the three reached the database
+    out = tool_module.tool_neo4j_query(_cfg(MEMBER), TIFF + " LIMIT 50", {"t": "x"}, timeout_s=2, total_only=True)
+    assert out["ok"] is True and out["total"] == 3 and out["scope"]["decision"] == "proven"
+    (probe,) = session.statements
+    assert probe.startswith("CALL () {") and "__scope_projects" in probe and "LIMIT 50" not in probe
+    assert out["parameters"]["__scope_projects"] == [1, 3] and session.transactions == [("READ", 2)]
 
 
 # ------------------------------------------------------------------ count_of ---------------------------------------
 def _recording(monkeypatch, result):
     calls = []
 
-    def fake(config, cypher, parameters=None, *, timeout_s=None):
-        calls.append(SimpleNamespace(config=config, cypher=cypher, parameters=parameters, timeout_s=timeout_s))
+    def fake(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        calls.append(SimpleNamespace(config=config, cypher=cypher, parameters=parameters, timeout_s=timeout_s,
+                                     total_only=total_only))
         if isinstance(result, Exception):
             raise result
         return result(cypher) if callable(result) else result
@@ -170,21 +208,27 @@ def test_count_of_through_the_real_tool_reads_the_probe_scoped_and_bounded(fake_
     session = fake_driver(_Session([{"id": 1}], total=8324))
     out = g2.count_of(_cfg(MEMBER), TIFF + " ORDER BY id LIMIT 5000", {"t": "tif"}, timeout_s=4)
     assert out == {"ok": True, "total": 8324, "error": None, "elapsed_ms": out["elapsed_ms"]}
-    ran, probe = session.statements
-    assert ran.endswith("\nLIMIT 1") and "ORDER BY" not in ran        # a trailing sort buys a count nothing
-    assert "__scope_projects" in ran and probe.startswith("CALL () {")  # the scope prover ran; so did the probe
-    assert session.transactions == [("READ", 4), ("READ", 4)]
+    (probe,) = session.statements                                        # one statement: the total, nothing else
+    assert probe.startswith("CALL () {") and "__scope_projects" in probe  # scoped by the prover
+    assert "ORDER BY" not in probe and "LIMIT" not in probe             # a trailing sort buys a count nothing
+    assert session.transactions == [("READ", 4)]
+
+
+def test_count_of_a_zero_result_through_the_real_tool_is_zero(fake_driver):
+    session = fake_driver(_Session([], total=0))
+    out = g2.count_of(_cfg(MEMBER), TIFF, {"t": "nothing"})
+    assert out["ok"] is True and out["total"] == 0 and session.transactions == [("READ", 5)]
 
 
 def test_count_of_zero_rows_is_a_zero(monkeypatch):
-    _recording(monkeypatch, {"ok": True, "count": 0, "total": 0, "data": []})
+    _recording(monkeypatch, {"ok": True, "count": None, "total": 0, "data": []})
     assert g2.count_of(object(), TIFF, {"t": "x"}) == {"ok": True, "total": 0, "error": None,
                                                        "elapsed_ms": pytest.approx(0, abs=1000)}
 
 
 def test_count_of_an_unknown_total_is_not_a_count(monkeypatch):
-    # the probe failed: the tool says total None; one row must never be reported as the answer
-    _recording(monkeypatch, {"ok": True, "count": 1, "total": None, "truncated": True})
+    # the tool says total None: never report a count it did not make
+    _recording(monkeypatch, {"ok": True, "count": None, "total": None, "truncated": False})
     out = g2.count_of(object(), TIFF, {"t": "x"})
     assert out["ok"] is False and out["total"] is None and out["error"]
 
@@ -197,9 +241,9 @@ def test_count_of_never_raises(monkeypatch):
 
 
 def test_count_of_strips_an_unbound_limit_parameter_and_skip(monkeypatch):
-    calls = _recording(monkeypatch, {"ok": True, "count": 1, "total": 12})
-    g2.count_of(object(), TIFF + " SKIP 10 LIMIT $n;", {"t": "x"})
-    assert calls[0].cypher == TIFF + "\nLIMIT 1"
+    calls = _recording(monkeypatch, {"ok": True, "count": None, "total": 12})
+    assert g2.count_of(object(), TIFF + " SKIP 10 LIMIT $n;", {"t": "x"})["total"] == 12
+    assert calls[0].cypher == TIFF and calls[0].total_only is True
 
 
 # ------------------------------------------------------------------ live_values: the provider (R1, R2, R4, R6) -----
@@ -218,7 +262,7 @@ def test_values_is_one_distinct_query_through_the_tool_with_a_3s_timeout(monkeyp
     calls = _recording(monkeypatch, {"ok": True, "data": VALUES_ROWS, "count": 4, "total": 4})
     got = g2.live_values(_cfg()).values("T_D_IMG", "DataType")
     assert got == [("tif", 7000), ("tiff", 1306), ("TIF", 1300)]      # most frequent first, a null skipped
-    assert len(calls) == 1 and calls[0].timeout_s == 3
+    assert len(calls) == 1 and calls[0].timeout_s == 3 and calls[0].total_only is False
     assert calls[0].cypher == g2.values_statement("T_D_IMG", "DataType")
     assert "s.DataType IS NOT NULL" in calls[0].cypher and "LIMIT 50" in calls[0].cypher
 
@@ -607,6 +651,34 @@ def test_an_aggregate_that_is_not_one_count_is_skipped():
     cy = ("MATCH (s:T_D_IMG) WHERE toLower(s.DataType) CONTAINS $t WITH s.type AS t, count(*) AS n "
           "RETURN t, n")
     assert g2.relaxed_variants(_inp(cy, {"t": "tiff"}), _review(("stem_miss", "misses ['tif']"))) == []
+
+
+UNION_COUNT = ("MATCH (s:T_D_IMG) WHERE toLower(s.DataType) CONTAINS $t AND s.Size IS NOT NULL "
+               "RETURN count(s) AS n\nUNION ALL\n"
+               "MATCH (s:T_D_FILE) WHERE toLower(s.Format) CONTAINS $t AND s.Size IS NOT NULL RETURN count(s) AS n")
+
+
+@pytest.mark.parametrize("union", ["UNION ALL", "UNION", "union"])
+def test_a_union_statement_gets_no_variant(monkeypatch, union):
+    # an admin skips the prover, so a UNION count can reach the reviewer; only the last branch would be rewritten
+    cy = UNION_COUNT.replace("UNION ALL", union)
+    calls = _counting(monkeypatch, [61, 61, 61, 61])
+    inp = _inp(cy, {"t": "tiff"}, rows=[{"n": 60}, {"n": 1}], count=2, total=2)
+    rv = _review(*FOUR_REVIEW, ("all_question_narrowed", "s.Size IS NOT NULL on an all/different question"),
+                 suggestion={"kind": "relaxed_variant", "label": "Include all spellings"})
+    assert g2.relaxed_variants(inp, rv) == []
+    assert g2._row_level(cy) is None and g2._original_n(inp) is None
+    assert g2._original_n(_inp(cy, {"t": "tiff"}, rows=[], count=0)) is None
+    out = g2.run_tier2(object(), inp, rv)
+    assert calls == [] and out.variants == [] and out.disclosure == "d" and "expected_count" not in out.suggestion
+
+
+def test_a_union_inside_a_subquery_is_not_top_level():
+    cy = ("MATCH (s:T_D_IMG) WHERE toLower(s.DataType) CONTAINS $t AND EXISTS { MATCH (s)-[:DERIVED_FROM]->(:T_X) "
+          "RETURN 1 AS x UNION MATCH (s)-[:DERIVED_FROM]->(:T_Y) RETURN 1 AS x } RETURN s.id AS id")
+    assert g2._row_level(cy) == cy
+    assert [e.split(":")[0] for e, _c, _p in g2.relaxed_variants(_inp(cy, {"t": "tiff"}), _review(*FOUR_REVIEW))] \
+        == ["stem_miss", "zero_unproven_base", "unapplied_value"]
 
 
 VARIANT_CASES = [

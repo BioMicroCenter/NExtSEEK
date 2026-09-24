@@ -251,7 +251,7 @@ def _failure(error: str, *, ran: Any, submitted: Any, parameters: Any, scope: di
 
 
 def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None, *,
-                     timeout_s: int | None = None) -> dict:
+                     timeout_s: int | None = None, total_only: bool = False) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance, held to the
     config's project scope.
@@ -261,6 +261,11 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     inserted), or the submitted text when nothing ran. Opens and closes a driver per call. The
     query and its total probe each run in a READ transaction with a QUERY_TIMEOUT_S timeout, or
     `timeout_s` seconds each when the caller bounds it (the graph reviewer's count queries).
+
+    `total_only=True` (the graph reviewer's counts): after the same write check and scope, only
+    the total probe runs, over the scoped statement without its trailing LIMIT (the whole
+    statement when there is none), in one READ transaction. The success dict then carries
+    `total`, `count` None, no rows and `truncated` False.
     """
     # A mapping is copied; anything else is handed to the prover as it came, which refuses it.
     submitted_params = dict(parameters) if isinstance(parameters, Mapping) else (parameters or {})
@@ -324,6 +329,24 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
             )
         with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
+            if total_only:
+                # One statement: the probe over the scoped text, so a bounded count is one timeout.
+                body, _limit = split_trailing_limit(ran, params)
+                total = _probe_total(db_session, ran if body is None else body, params, timed(_read_total))
+                print(f"[DEBUG][GRAPHDB] Total only: {total}")
+                return {
+                    "ok": True,
+                    "data": [],
+                    "count": None,
+                    "total": total,
+                    "truncated": False,
+                    "limit": None,
+                    "cypher": ran,
+                    "submitted_cypher": cypher,
+                    "parameters": params,
+                    "counters": {},
+                    "scope": scope_info,
+                }
             records, counters = db_session.execute_read(timed(_read_rows), ran, params)
             print(f"[DEBUG][GRAPHDB] Query returned {len(records)} records")
 

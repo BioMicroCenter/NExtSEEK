@@ -9,9 +9,10 @@ that count, at most ``max_variants`` of them per turn, inside a wall-clock budge
 ``SKIP_AFTER_MS`` gets no variant at all.
 
 Every count goes through ``tool_neo4j_query`` like any graph query: the write check, the caller's project scope (the
-prover injects it or refuses), the READ transaction. ``count_of`` sends the statement with ``LIMIT 1`` and reads the
-tool's own total probe, so a variant must count rows: ``relaxed_variants`` rewrites a single ``count(...)`` RETURN
-into one row per counted thing, and skips any other aggregate.
+prover injects it or refuses), the READ transaction. ``count_of`` asks the tool for the total only: one statement,
+the tool's total probe over the scoped text, under one timeout. It counts rows, so a variant must return one row per
+counted thing: ``relaxed_variants`` rewrites a single ``count(...)`` RETURN that way, skips any other aggregate, and
+makes no variant at all for a statement with a top-level UNION.
 
 ``live_values(config)`` is the ``CatalogProvider`` Tier 1 reads in production, one fresh object per turn:
 ``values`` runs one capped DISTINCT query per (label, attribute) through the tool (so its values are the caller's
@@ -129,6 +130,11 @@ def _return_items(cy: str, mask: str, ret: _Clause) -> list[str]:
     return [i for i in _split_top(text, tmask, r",") if i]
 
 
+def _has_union(cy: str, mask: str) -> bool:
+    """A top-level UNION: the last RETURN is only the last branch, so no rewrite or comparison of it is sound."""
+    return any(c.kw == "UNION" for c in _clauses(cy, mask))
+
+
 def _with_aggregates(cy: str, mask: str) -> bool:
     """A top-level WITH aggregates, so the rows after it are groups, not records."""
     return any(c.kw == "WITH" and _AGGREGATE.search(mask[c.body:c.end]) for c in _clauses(cy, mask))
@@ -142,7 +148,7 @@ def _row_level(cy: str) -> str | None:
     aggregates, a count over an expression, a WITH that aggregates first) is None."""
     mask = _mask(cy)
     ret = _final_return(cy, mask)
-    if ret is None or _with_aggregates(cy, mask):
+    if ret is None or _has_union(cy, mask) or _with_aggregates(cy, mask):
         return None
     items = _return_items(cy, mask, ret)
     aggregates = [i for i in items if _AGGREGATE.search(_mask(i))]
@@ -173,18 +179,19 @@ _ANY_TRAILING_LIMIT = re.compile(r"\s+(?:SKIP\s+(?:\d+|\$\w+)\s+)?LIMIT\s+(?:\d+
 
 
 def _count_statement(cypher: str, parameters: dict | None) -> str:
+    """``cypher`` without its trailing ``[SKIP n] LIMIT n``, trailing ``;`` and a trailing ORDER BY after the final
+    RETURN: what the tool's total probe wraps."""
     body, _limit = split_trailing_limit(cypher, parameters)
     if body is None:
         body = _ANY_TRAILING_LIMIT.sub("", cypher)   # also a LIMIT $param that is not bound to an integer
-    body = _strip_trailing_order(body.rstrip().rstrip(";").rstrip())
-    return f"{body}\nLIMIT 1"
+    return _strip_trailing_order(body.rstrip().rstrip(";").rstrip())
 
 
 def count_of(config, cypher: str, parameters: dict, *, timeout_s: int = COUNT_TIMEOUT_S) -> dict:
     """How many rows ``cypher`` returns, as ``{ok, total, error, elapsed_ms}``; never raises, never retries.
 
-    The statement goes out with its trailing LIMIT (and a trailing ORDER BY) replaced by ``LIMIT 1``, so the tool's
-    own total probe counts it, in its own READ transaction under the same scope; both transactions are bounded by
+    The statement, without its trailing LIMIT (and a trailing ORDER BY), goes to the tool with ``total_only=True``:
+    the write check and the scope run as for any query, then only the total probe, one READ transaction bounded by
     ``timeout_s``. A statement that returns aggregate rows is counted by its rows (one for a bare ``count(...)``):
     callers send row-level statements (``relaxed_variants`` does). A refusal, an error or an unknown total is
     ``ok: False``."""
@@ -194,14 +201,13 @@ def count_of(config, cypher: str, parameters: dict, *, timeout_s: int = COUNT_TI
         return {"ok": ok, "total": total, "error": error, "elapsed_ms": int((time.perf_counter() - t0) * 1000)}
 
     try:
-        result = tool_neo4j_query(config, _count_statement(cypher, parameters), parameters, timeout_s=timeout_s)
+        result = tool_neo4j_query(config, _count_statement(cypher, parameters), parameters, timeout_s=timeout_s,
+                                  total_only=True)
     except Exception as exc:
         return done(False, error=f"{type(exc).__name__}: {exc}"[:200])
     if not isinstance(result, dict) or not result.get("ok"):
         error = result.get("error") if isinstance(result, dict) else None
         return done(False, error=str(error or "the count query failed")[:300])
-    if not result.get("count"):
-        return done(True, 0)
     total = result.get("total")
     if not isinstance(total, int) or isinstance(total, bool):
         return done(False, error="the total could not be counted")
@@ -480,7 +486,7 @@ def _base_variant(cy: str, params: dict, detail: str) -> _Variant | None:
     mask = _mask(cy)
     clauses = _clauses(cy, mask)
     if (len(clauses) < 2 or clauses[0].kw != "MATCH" or clauses[1].kw != "WHERE"
-            or cy[:clauses[0].start].strip()):
+            or cy[:clauses[0].start].strip() or _has_union(cy, mask)):
         return None
     anchor = cy[clauses[0].start:clauses[0].end].rstrip()
     var = None
@@ -543,7 +549,7 @@ _BUILDERS = (("stem_miss", _stem_variant), ("all_question_narrowed", _narrowed_v
 
 def _variants(inp: ReviewInput, review: GraphReview) -> list[_Variant]:
     cy = inp.cypher if isinstance(inp.cypher, str) else ""
-    if not cy.strip():
+    if not cy.strip() or _has_union(cy, _mask(cy)):
         return []
     fired = {c.name: c for c in review.checks if c.fired}
     params = dict(inp.parameters or {})
@@ -579,10 +585,12 @@ def _original_n(inp: ReviewInput) -> int | None:
     """The number the turn answered with, in the unit a variant counts: the aggregate of a one-row count; the sum
     of a complete breakdown's ``count(*)`` or ``count(v)`` column; else the row total. None when it cannot be told
     (a per-group ``count(DISTINCT ...)`` does not add up to the whole, nor does a capped breakdown)."""
-    if inp.count == 0:
-        return 0
     cy = inp.cypher or ""
     mask = _mask(cy)
+    if _has_union(cy, mask):
+        return None
+    if inp.count == 0:
+        return 0
     ret = _final_return(cy, mask)
     items = _return_items(cy, mask, ret) if ret else []
     aggregates = [i for i in items if _AGGREGATE.search(_mask(i))]
