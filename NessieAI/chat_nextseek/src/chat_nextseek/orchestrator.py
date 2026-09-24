@@ -44,7 +44,9 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
-from .graph_scope import SCOPE_ATTR, GraphScope
+from .graph_review import GraphReview, ReviewInput, as_debug, review_tier1
+from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
+from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
 from .helpers import (
@@ -681,8 +683,9 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
 GRAPH_MAX_TRIES = 3
 
 
-def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, Any]:
-    """One generate-execute round for debug.graph_attempts: what was written, what ran, and the decision."""
+def _graph_attempt(cypher: str | None, result: dict, reason: str, *, elapsed_ms: int) -> dict[str, Any]:
+    """One generate-execute round for debug.graph_attempts: what was written, what ran, the decision, and how long
+    the tool_neo4j_query call took (the graph reviewer reads the last one's)."""
     scope = result.get("scope")
     return {
         "cypher": cypher, "ok": result.get("ok"),
@@ -690,7 +693,89 @@ def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, A
         "reason": reason,
         "executed_cypher": result.get("cypher"),
         "scope_decision": scope.get("decision") if isinstance(scope, dict) else None,
+        "elapsed_ms": elapsed_ms,
     }
+
+
+def _ms_since(t0: float) -> int:
+    return int((time.perf_counter() - t0) * 1000)
+
+
+#: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
+#: without narrating how they were found.
+REVIEW_NOTE = ("What the result matched: {facts} State this plainly in the first sentences. "
+               "Do not mention a review or a second query.")
+#: describe_query_scope cuts a note at 400 characters, which would drop the instruction at this one's end.
+REVIEW_NOTE_MAX = 399
+#: The reviewer's wall clock, both tiers together.
+REVIEW_BUDGET_S = 8.0
+#: A turn this old runs no count variant and reads only cached catalog values.
+REVIEW_LATE_TURN_S = 45
+#: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
+REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
+
+
+def _review_note(disclosure: str) -> str:
+    """``REVIEW_NOTE`` holding the review's facts, at most ``REVIEW_NOTE_MAX`` characters.
+
+    A disclosure can hold 299 characters (graph_review.DISCLOSURE_MAX) and the template takes 111, so a full one
+    would pass the chatter's 400-character cut. Whole facts are dropped from the end until the note fits; a single
+    fact too long for the room is cut short."""
+    facts = " ".join(str(disclosure).split())
+    room = REVIEW_NOTE_MAX - len(REVIEW_NOTE.format(facts=""))
+    if len(facts) > room:
+        end = facts.rfind(". ", 0, room)
+        facts = facts[:end + 1] if end > 0 else facts[:room - 1].rstrip() + "…"
+    return REVIEW_NOTE.format(facts=facts)
+
+
+def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, attempts: list[dict], *,
+                       t_turn_start: float) -> GraphReview:
+    """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
+
+    Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
+    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, reading only
+    cached values when the last attempt's statement took over ``SKIP_AFTER_MS`` or the turn has already run
+    ``REVIEW_LATE_TURN_S``. Tier 2 (``run_tier2``, bounded count variants) runs only when a check that has a variant
+    fired and the turn is younger than ``REVIEW_LATE_TURN_S``, inside what Tier 1 left of ``REVIEW_BUDGET_S``.
+
+    The server's scope parameter is left out of the parameters: every count goes back through
+    ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it.
+
+    Never raises. Anything escaping becomes an ``ok`` review that records the error, so the turn goes on as it
+    would without a reviewer; a failure inside Tier 2 keeps Tier 1's verdict (``run_tier2``'s own contract).
+    """
+    t0 = time.perf_counter()
+    try:
+        elapsed_ms = attempts[-1].get("elapsed_ms") if attempts else None
+        raw = graph_result.get("parameters")
+        if not isinstance(raw, Mapping):
+            raw = graph_plan.parameters or {}
+        parameters = {k: v for k, v in raw.items()
+                      if not (isinstance(k, str) and k.lower().startswith(RESERVED_PREFIX))}
+        inp = ReviewInput(
+            question=user_text,
+            cypher=graph_plan.cypher,
+            parameters=parameters,
+            keyword_fields=dict(graph_plan.keyword_fields or {}),
+            rows=list(graph_result.get("data") or []),
+            count=graph_result.get("count"),
+            total=graph_result.get("total"),
+            ok=bool(graph_result.get("ok")),
+            error=graph_result.get("error"),
+            elapsed_ms=elapsed_ms,
+        )
+        slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
+        late = t0 - t_turn_start > REVIEW_LATE_TURN_S
+        catalog = live_values(config, max_cold=0) if slow or late else live_values(config)
+        review = review_tier1(inp, catalog)
+        fired = {check.name for check in review.checks if check.fired}
+        if fired & REVIEW_VARIANT_CHECKS and time.perf_counter() - t_turn_start < REVIEW_LATE_TURN_S:
+            spent = time.perf_counter() - t0
+            review = run_tier2(config, inp, review, budget_s=max(0.0, REVIEW_BUDGET_S - spent))
+        return review
+    except Exception as exc:  # a reviewer bug must never cost the user their answer
+        return GraphReview("ok", [], None, None, [], _ms_since(t0), error=repr(exc))
 
 
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
@@ -809,7 +894,9 @@ def _execute_graph_turn(
     send_event("agent_complete", {"agent": "graph", "summary": summary})
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
+    t_query = time.perf_counter()
     graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    query_ms = _ms_since(t_query)
 
     # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
     # This was one retry and only on a Cypher error, so a query that ran perfectly well
@@ -817,7 +904,8 @@ def _execute_graph_turn(
     # zero and the zero was reported as the answer). A zero-row result now gets exactly
     # one more go, and if the second query also finds nothing the FIRST result stands:
     # reporting a different query's number would be worse than reporting zero.
-    attempts: list[dict[str, Any]] = [_graph_attempt(graph_plan.cypher, graph_result, "initial")]
+    attempts: list[dict[str, Any]] = [
+        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=query_ms)]
     first_ok_empty = matched_nothing(graph_result)
     zero_row_retry_used = False
 
@@ -851,8 +939,10 @@ def _execute_graph_turn(
         )
         if not graph_plan_retry.cypher:
             break
+        t_query = time.perf_counter()
         retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
-        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason))
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason,
+                                       elapsed_ms=_ms_since(t_query)))
         # Keep the retry only when it is an improvement. A retry that errors, or that
         # also finds nothing after a zero-row first attempt, leaves the original alone.
         if not retry_result.get("ok"):
@@ -867,6 +957,14 @@ def _execute_graph_turn(
     debug_payload["graph_scope"] = graph_result.get("scope")
     if is_scope_refusal(graph_result):
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
+    # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
+    # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
+    # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
+    # note or suggest to the chatter as one note.
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, attempts,
+                                t_turn_start=t_total_start)
+    debug_payload["graph_review"] = as_debug(review)
+    session["_graph_review"] = debug_payload["graph_review"]
     # A number found by a changed filter may not mean what the question asked, so the
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
@@ -883,6 +981,8 @@ def _execute_graph_turn(
         debug_payload["lab_near_misses"] = [m.model_dump() if hasattr(m, "model_dump") else m
                                             for m in entity_result.lab_near_misses]
         query_notes.extend(near_miss_notes)
+    if review.verdict in ("note", "suggest") and review.disclosure:
+        query_notes.append(_review_note(review.disclosure))
 
     send_event(
         "search_complete",
