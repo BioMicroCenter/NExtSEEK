@@ -210,7 +210,84 @@ def test_cypher_tokens_are_rejected(q):
 
 
 def test_cypher_tokens_are_rejected_in_the_label():
-    assert sg.check_suggestion(dict(GOOD, label="Only s.Classification CONTAINS"), refers_back=NO_CUE) is not None
+    assert sg.check_suggestion(dict(GOOD, label="Only Classification CONTAINS"), refers_back=NO_CUE) is not None
+
+
+# C8 also covers field names and operators (review finding, fix round 1). Each string passed the first version.
+@pytest.mark.parametrize("q, rule", [
+    ("Show samples where s.Classification is Converter.", "field name"),
+    ("Show T_HUMAN samples classified as Converter.", "graph label"),
+    ("Show samples with Classification = 'Converter'.", "comparison operator"),
+    ("Show sample types with sample_count > 0.", "compared field"),
+    ("match (s:T_HUMAN) where s.Classification contains 'Conv' return count(s)", "node pattern"),
+])
+def test_the_reviews_field_name_and_operator_examples_are_rejected(q, rule):
+    reason = sg.check_suggestion(dict(GOOD, query=q), refers_back=NO_CUE)
+    assert reason is not None and rule in reason
+    assert sg.check_suggestion(dict(GOOD, query=q)) is not None
+    assert sg.suggestions_from_review({"verdict": "suggest", "suggestion": dict(GOOD, query=q)}, bundle_id=9) == []
+
+
+def test_a_bare_snake_case_name_still_passes():
+    """Pinned as passing on purpose: no blanket snake_case rule, because stored values such as whole_blood are
+    snake_case too and would lose their chips. A snake_case name is caught only beside an operator."""
+    assert sg.check_suggestion(dict(GOOD, query="Show samples with internal_assay_title RNA-seq."),
+                               refers_back=NO_CUE) is None
+    assert sg.check_suggestion(dict(GOOD, query="Show samples of type whole_blood."), refers_back=NO_CUE) is None
+
+
+@pytest.mark.parametrize("q, rule", [
+    ("Only samples with T_D_IMG files.", "graph label"),
+    ("Show T_HUMAN_2 samples.", "graph label"),
+    ("Show samples where s.Classification is Converter.", "field name"),
+    ("Show assays where r.internal_assay_title is RNA-seq.", "field name"),
+    ("Show types with st.sample_count over zero.", "field name"),
+    ("Show samples with Classification <> 'Converter'.", "comparison operator"),
+    ("Show samples with Classification != 'Converter'.", "comparison operator"),
+    ("Show samples with age >= 60.", "comparison operator"),
+    ("Show samples with age <= 60.", "comparison operator"),
+    ("Show samples with species =~ 'Mac.*'.", "comparison operator"),
+    ("Show sample types with sample_count>0.", "compared field"),
+    ("Show sample types with sample_count < 10.", "compared field"),
+    ("Show samples whose species IS NULL.", "null test"),
+    ("Show samples whose species is not null.", "null test"),
+    ("Show samples whose species Is  Not  Null.", "null test"),
+    ("Count (s:Sample) nodes.", "node pattern"),
+    ("Count (:Sample) nodes.", "node pattern"),
+    ("Count ( s:Sample ) nodes.", "node pattern"),
+])
+def test_each_field_name_and_operator_rule_is_rejected_in_the_query(q, rule):
+    reason = sg.check_suggestion(dict(GOOD, query=q), refers_back=NO_CUE)
+    assert reason is not None and rule in reason
+
+
+@pytest.mark.parametrize("label, rule", [
+    ("Only T_HUMAN", "graph label"),
+    ("Only s.Classification Converter", "field name"),
+    ("Classification = Converter", "comparison operator"),
+    ("Only sample_count > 0", "compared field"),
+    ("Species IS NOT NULL", "null test"),
+    ("Only (s:T_HUMAN)", "node pattern"),
+])
+def test_each_field_name_and_operator_rule_is_rejected_in_the_label(label, rule):
+    reason = sg.check_suggestion(dict(GOOD, label=label), refers_back=NO_CUE)
+    assert reason is not None and rule in reason
+
+
+@pytest.mark.parametrize("q", [
+    "Show samples for human subjects classified as Converter.",
+    "How many D.SEQ files are there? Include every spelling of tif.",
+    "Show samples where the donor is male.",
+    "Show lung samples, e.g. alveolar ones, classified as Converter.",
+    "Show lung samples classified as Converter, i.e. not Reverter.",
+    "Show donors older than 60 (age > 60).",
+    "Show samples with fewer than 5 files (< 5).",
+    "Show samples from the 2023 study (note that D.FLOW counts too).",
+    "How many T cell samples are there?",
+])
+def test_legitimate_chip_texts_pass(q):
+    assert sg.check_suggestion(dict(GOOD, query=q), refers_back=NO_CUE) is None
+    assert sg.check_suggestion(dict(GOOD, query=q)) is None     # and the router's cue does not fire either
 
 
 @pytest.mark.parametrize("q", [

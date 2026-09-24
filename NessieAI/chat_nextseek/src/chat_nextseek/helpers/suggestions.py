@@ -14,7 +14,18 @@ The guardrails a chip must pass (``check_suggestion``):
   refers back ("those", "just the X ones") to Container-CC, so a chip that refers back would turn a click into a CC
   turn. The check is ``NessieAI.router.followup.followup_cue`` unless the caller passes another; when it cannot be
   imported, every suggestion is rejected rather than risk a CC turn;
-* C2, no write verbs; C8, no Cypher in the chip text.
+* C2, no write verbs: ``create add update edit delete remove rename upload register write`` as whole words, any case
+  ("added" and "uploaded" pass);
+* C8, no Cypher, field names or operators, in the label and the query (``CHIP_TEXT_RULES``): the upper-case keywords
+  ``MATCH``, ``RETURN``, ``WHERE`` and ``CONTAINS``; a ``$param``; ``->`` and ``<-``; a node pattern ``(s:Label`` or
+  ``(:Label``, which also catches lower-case Cypher; a graph label ``T_HUMAN``; a ``variable.property`` form with a
+  one or two letter lower-case variable (``s.Classification``, ``st.sample_count``; ``e.g`` and ``i.e`` excepted,
+  upper-case codes such as ``D.SEQ`` untouched); any ``=`` (so ``!=``, ``>=``, ``<=``, ``=~``) and ``<>``; a
+  snake_case name directly before ``<`` or ``>`` (``sample_count > 0``); ``IS NULL`` and ``IS NOT NULL`` in any case.
+  The rules are narrow on purpose, so what they let through is known: lower-case "where", "match" and "return" are
+  English; a plain ``<`` or ``>`` passes (``age > 60``); a longer variable (``sample.Classification``) passes; and a
+  snake_case name on its own (``internal_assay_title``) passes, because stored values such as ``whole_blood`` are
+  snake_case too and would lose their chips.
 
 ``pending_for`` remembers the chips offered on a turn in the session; ``accept`` recognises the next message as a
 click (its text is exactly a chip's query, on the very next turn) and always clears what was pending (C5).
@@ -38,8 +49,19 @@ SESSION_KEY = "pending_suggestions"
 SOURCE = "reviewer"
 
 WRITE_VERB = re.compile(r"\b(create|add|update|edit|delete|remove|rename|upload|register|write)\b", re.IGNORECASE)
-# Upper-case keywords only: "where", "match" and "return" are ordinary English in a question.
-CYPHER = re.compile(r"\b(MATCH|RETURN|WHERE)\b|\$\w+|->|<-|CONTAINS")
+#: C8, (rule, pattern) in the order a rejection names them. See the module docstring for what each lets through.
+CHIP_TEXT_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # upper-case only: "where", "match" and "return" are ordinary English in a question
+    ("keyword", re.compile(r"\b(?:MATCH|RETURN|WHERE)\b|CONTAINS")),
+    ("parameter", re.compile(r"\$\w+")),
+    ("relationship arrow", re.compile(r"->|<-")),
+    ("node pattern", re.compile(r"\(\s*\w*:[A-Za-z_]")),
+    ("graph label", re.compile(r"\bT_[A-Z0-9_]+\b")),
+    ("field name", re.compile(r"(?<![\w.])(?!(?:e\.g|i\.e)\b)[a-z]{1,2}\.[A-Za-z_]\w*")),
+    ("comparison operator", re.compile(r"=|<>")),
+    ("compared field", re.compile(r"\b[A-Za-z][A-Za-z0-9]*_\w*\s*[<>]")),
+    ("null test", re.compile(r"\bIS\s+(?:NOT\s+)?NULL\b", re.IGNORECASE)),
+)
 
 RefersBack = Callable[[str], Any]
 
@@ -80,9 +102,10 @@ def _reject_reason(s: Any, cue: RefersBack | None) -> str | None:
         m = WRITE_VERB.search(text)
         if m:
             return f"write verb '{m.group(0).lower()}'"
-        m = CYPHER.search(text)
-        if m:
-            return f"Cypher in the chip text ('{m.group(0)}')"
+        for rule, pattern in CHIP_TEXT_RULES:
+            m = pattern.search(text)
+            if m:
+                return f"Cypher in the chip text: {rule} '{m.group(0)}'"
     if cue is None:
         return "the router's follow-up check is not available"
     try:
