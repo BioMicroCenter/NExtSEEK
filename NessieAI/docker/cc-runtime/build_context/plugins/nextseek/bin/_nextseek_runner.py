@@ -127,6 +127,19 @@ def _total_and_rows(api_result_full: dict) -> tuple[int | None, int, list]:
     return None, 0, []
 
 
+def _bundle_rows(bundle: dict) -> tuple[int | None, int, list]:
+    """(total, row_count, rows) of a downloaded bundle: a graph turn's ``graph_result.data``, else
+    the REST result. A graph turn has no API result, so reading only that returned no rows."""
+    graph = bundle.get("graph_result") if isinstance(bundle, dict) else None
+    if isinstance(graph, dict) and isinstance(graph.get("data"), list):
+        rows = graph["data"]
+        total = graph.get("total")
+        if not isinstance(total, int) or isinstance(total, bool):
+            total = None if graph.get("truncated") else len(rows)
+        return total, len(rows), rows
+    return _total_and_rows(bundle.get("api_result_full") or {} if isinstance(bundle, dict) else {})
+
+
 def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dict:  # pragma: no cover  # Minor-8
     """Shared helper: drive the NExtSEEK assistant viewset for query/plan/pipeline ops.
 
@@ -382,6 +395,7 @@ def _dispatch_recall(args):
 
     Resolves turn_id → bundle_id via session detail, downloads the bundle,
     materializes rows to scratch/recall/turn-<N>.json, returns manifest.
+    A graph turn's rows are its ``graph_result.data`` (CC-RERUN-FINDINGS fix 6).
     No latest-bundle fallback; errors before any scratch write.
     """
     session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
@@ -430,8 +444,7 @@ def _dispatch_recall(args):
             _err("TRANSPORT_ERROR", f"viewset unreachable: {type(e).__name__}", 7)
         raise
 
-    api_full = bundle.get("api_result_full") or {}
-    total, row_count, rows = _total_and_rows(api_full)
+    total, row_count, rows = _bundle_rows(bundle)
     first = rows[0] if rows and isinstance(rows[0], dict) else {}
     columns = [str(k) for k in first.keys()]
 

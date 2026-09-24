@@ -92,3 +92,19 @@ def test_recall_shim_arg_forms():
     assert '--agent recall --turn "$TURN"' in shim
     import os
     assert os.access(_BIN / "nextseek-recall", os.X_OK)
+
+
+def test_recall_returns_a_graph_turns_rows(monkeypatch, tmp_path):
+    """CC-RERUN-FINDINGS fix 6: a graph turn's rows are its graph_result.data, not an API result."""
+    rows = [{"id": i, "uuid": f"TCGA-{i:04d}"} for i in range(585)]
+    client = FakeClient(
+        turns=[{"turn_id": 2, "bundle_id": 5, "user_query": "LUAD samples", "mode": "graph_query"}],
+        bundles={5: {"id": 5, "mode": "graph_query",
+                     "graph_result": {"ok": True, "count": 585, "total": 585, "truncated": False,
+                                      "data": rows}}})
+    _install(monkeypatch, tmp_path, client)
+    manifest = runner._dispatch_recall(_args(2))
+    dest = tmp_path / "recall" / "turn-2.json"
+    assert json.loads(dest.read_bytes()) == rows
+    assert manifest == {"turn_id": 2, "bundle_id": 5, "total": 585, "row_count": 585,
+                        "columns": ["id", "uuid"], "path": str(dest)}

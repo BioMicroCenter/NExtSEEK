@@ -136,3 +136,46 @@ def test_total_and_rows_parity_with_chat_nextseek_helper():
         t1, r1 = _extract_total_and_rows(s)
         t2, r2, _ = ntc._total_and_rows(s)
         assert (t1, r1) == (t2, r2), s
+
+
+# ---------------------------------------------------- graph turns (CC-RERUN-FINDINGS fix 6)
+def _graph_bundle(bid=7, n=585, total=None, truncated=False):
+    rows = [{"id": i, "uuid": f"TCGA-{i:04d}", "type": "D.SEQ"} for i in range(n)]
+    return {"id": bid, "timestamp": "2026-09-23T00:00:00", "mode": "graph_query",
+            "user_query": "LUAD samples", "terminal_reply": f"{n} samples",
+            "endpoint": "neo4j", "method": None,
+            "parser_plan": {"mode": "graph_query", "filters": {"study": "LUAD"}},
+            "graph_plan": {"cypher": "MATCH (s:T_D_SEQ) RETURN s.id AS id, s.uuid AS uuid"},
+            "graph_result": {"ok": True, "count": n, "total": n if total is None else total,
+                             "truncated": truncated, "data": rows}}
+
+
+def test_a_graph_turn_reads_its_rows_from_the_graph_result():
+    """The digest said rows=0 for every graph turn (it read only the REST result), and
+    ``sample_uids`` looked for ``uid`` where graph rows carry ``uuid`` (r6-1228)."""
+    c = ntc.from_bundle(_graph_bundle(), session_id="s", turn_id=2)
+    assert c.ok is True and c.error is None
+    assert c.result.row_count == 585 and c.result.total == 585
+    assert c.result.truncated is False
+    assert c.result.columns == ["id", "uuid", "type"]
+    assert c.result.sample_uids == [f"TCGA-{i:04d}" for i in range(20)]
+    assert c.result.endpoint == "neo4j"
+    assert c.full_result_available is True
+
+
+def test_a_capped_graph_turn_is_truncated():
+    c = ntc.from_bundle(_graph_bundle(n=50, total=6000, truncated=True), session_id="s", turn_id=2)
+    assert (c.result.row_count, c.result.total, c.result.truncated) == (50, 6000, True)
+
+
+def test_a_failed_graph_turn_is_not_ok():
+    b = _graph_bundle(n=0)
+    b["graph_result"] = {"ok": False, "error": "refused", "data": []}
+    c = ntc.from_bundle(b, session_id="s", turn_id=2)
+    assert c.ok is False and c.error == "refused" and c.full_result_available is False
+
+
+def test_uid_keys_are_read_in_either_spelling():
+    rows = [{"uid": "A"}, {"uuid": "B"}, {"UID": "C"}, {"name": "no uid"}]
+    c = ntc.from_bundle(_bundle(rows=rows, total=4), session_id="s", turn_id=1)
+    assert c.result.sample_uids == ["A", "B", "C"]
