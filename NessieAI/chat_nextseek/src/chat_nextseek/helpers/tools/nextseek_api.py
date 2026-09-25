@@ -19,10 +19,10 @@ from ..results import DEFAULT_API_PAGE_SIZE
 # Write boundary: this tool is READ-ONLY.
 #
 # `method` arrives straight from the api_agent's plan, so a single mis-parsed turn
-# could otherwise issue DELETE against a live sample record. Mutation belongs on the
-# container_cc path, where `nextseek-api-write` exits WRITE_BLOCKED without an
-# explicit `--confirmed-write` and the skill demands plain-text confirmation first.
-# On this path there is no confirmation step, so there is no write.
+# could otherwise issue DELETE against a live sample record. No write reaches NExtSEEK
+# from chat at all: on the container_cc path the server refuses what `nextseek-api-write`
+# sends too, and the user is told the change is made in NExtSEEK itself. On this path
+# there is not even a confirmation step, so there is no write.
 #
 # This mirrors the Neo4j tool, which has always been hard-blocked before the driver
 # opens (`helpers/tools/neo4j.py`, `_WRITE_KEYWORDS`). The asymmetry was the bug.
@@ -108,9 +108,9 @@ def tool_nextseek_api_request(config: ChatConfig, endpoint, method, requestBody=
     if not _is_read_only_pair(verb, path):
         msg = (
             f"Write operations are not permitted on the NExtSEEK REST path: "
-            f"{method} {endpoint} was blocked. This tool is read-only; sample "
-            f"creation, modification and deletion must go through the confirmed-write "
-            f"path, not the assistant's REST corridor."
+            f"{method} {endpoint} was blocked. This tool is read-only, and no write "
+            f"reaches NExtSEEK from this chat: the change is made in NExtSEEK itself, "
+            f"on the record's own page, or with a batch-upload workbook for samples."
         )
         print(f"[DEBUG][API] Blocked write request: {method} {endpoint!r}")
         return {
