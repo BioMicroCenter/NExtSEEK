@@ -13,6 +13,7 @@ from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
     LLMAPIConnectionError,
     LLMError,
+    LLMModelUnusableError,
     LLMRateLimitError,
     LLMTimeoutError,
     LLMServiceUnavailableError,
@@ -510,8 +511,9 @@ MAX_PROVIDER_SWITCHES = 1
 
 # Why a call moved, as the ledger's ``fallback_reason`` and each ``model_fallback`` item
 # record it: a timeout, an empty body, a 5xx, a 429 that survived the SDK's own retries,
-# and a connection error.
-FALLBACK_REASONS = ("timeout", "empty", "unavailable", "rate_limited", "connection")
+# a connection error, and a model the provider refused (``LLMModelUnusableError``: an
+# unknown, retired or not-enabled model id, or no access to it).
+FALLBACK_REASONS = ("timeout", "empty", "unavailable", "rate_limited", "connection", "model_unusable")
 
 
 class _EmptyCompletion(LLMServiceUnavailableError):
@@ -522,6 +524,15 @@ class _EmptyCompletion(LLMServiceUnavailableError):
 def _text_is_empty(resp) -> bool:
     """The free-text empty-body test: nothing but whitespace came back."""
     return not (getattr(resp, "content", None) or "").strip()
+
+
+def _unavailable_kind(sue: LLMServiceUnavailableError) -> tuple[str, str, str]:
+    """``(ledger outcome, fallback reason, log wording)`` for a 5xx-class failure."""
+    if isinstance(sue, _EmptyCompletion):
+        return "service_unavailable", "empty", "empty body"
+    if isinstance(sue, LLMModelUnusableError):
+        return "model_unusable", "model_unusable", "model refused"
+    return "service_unavailable", "unavailable", "provider unavailable"
 
 
 def _call_with_recovery(
@@ -556,11 +567,13 @@ def _call_with_recovery(
     repair loop works). Returns ``(False, last_value)`` when the attempts run out, so
     the caller decides which error to raise.
 
-    One trigger decides when a call moves to another provider. Five failures are
+    One trigger decides when a call moves to another provider. Six failures are
     fallback-eligible, and they are the same failure to the user: the provider gave no
     answer.
 
       * 5xx/overloaded (``LLMServiceUnavailableError``)
+      * a model the provider refused (``LLMModelUnusableError``, a kind of 5xx here): an
+        unknown, retired or not-enabled model id, or no access to it (F1)
       * an empty body: ``is_empty(resp)`` is true (default: whitespace-only text)
       * a transport timeout (``LLMTimeoutError``)
       * a 429 (``LLMRateLimitError``): by the time one reaches here the SDK has already
@@ -584,7 +597,9 @@ def _call_with_recovery(
 
     Everything else is not eligible: a bare ``LLMError`` (a 400 validation error, say)
     is fatal at once and not ``unavailable``, and any other ``LLMError`` subclass
-    propagates unchanged.
+    propagates unchanged. So does any other exception (a raw ``ClientError``, a bug in a
+    client). Such an attempt still gets one ledger record, and so one report to the
+    turn's cost collector, which counts it as unobserved.
 
     ``agent_label`` is the name the ledger and the errors carry. ``chain_key`` is the
     catalog key the provider chain is looked up by, when it differs from that name
@@ -600,6 +615,7 @@ def _call_with_recovery(
     switches = 0
     moves: list[dict] = []  # the move this call made, for a fatal's model_fallback
     pending_move: dict = {}  # fallback_from / fallback_reason for the next ledger record
+    attempt_recorded = False  # whether this attempt has its ledger record yet
     attempt_messages = base_messages
     timeout_attempts = 0
     last_value: Any = None
@@ -639,8 +655,9 @@ def _call_with_recovery(
         The record, with the response or error behind it, also goes to this turn's cost
         collector (``turn_spend``), which prices the usage and counts what it cannot see.
         """
-        nonlocal pending_move
+        nonlocal pending_move, attempt_recorded
         move, pending_move = pending_move, {}
+        attempt_recorded = True
         entry = _ledger_entry(
             agent_label, target_model_name, target_client, attempt, outcome, t0, **kw, **move,
         )
@@ -650,6 +667,7 @@ def _call_with_recovery(
     while attempt + 1 < max_attempts:
         attempt += 1
         _t0 = time.perf_counter()
+        attempt_recorded = False
         try:
             resp = _call_llm_with_timeout(
                 client=target_client,
@@ -688,17 +706,17 @@ def _call_with_recovery(
             # what an operator needs to see in the log during an outage. The chain
             # lookup needs the catalog vocabulary, which _switch_provider translates.
             failed_provider = getattr(target_client, "provider", None)
+            outcome, reason, why = _unavailable_kind(sue)
+            status_word = "model refused" if reason == "model_unusable" else "503"
             print(
-                f"[STRUCTURED_PARSE][{label}] 503 from provider='{failed_provider}' "
+                f"[STRUCTURED_PARSE][{label}] {status_word} from provider='{failed_provider}' "
                 f"model='{target_model_name}' attempt {attempt+1}/{max_attempts}: {sue}"
             )
             _log(
-                "service_unavailable", _t0, timeout_seconds=timeout_seconds,
+                outcome, _t0, timeout_seconds=timeout_seconds,
                 thinking_budget=target_thinking_budget, err=sue,
             )
-            empty_body = isinstance(sue, _EmptyCompletion)
-            if _switch_provider("empty" if empty_body else "unavailable",
-                                "empty body" if empty_body else "provider unavailable"):
+            if _switch_provider(reason, why):
                 # The move gets an attempt of its own: it must never be the attempt
                 # that ran out, which used to end a call as a parse error.
                 max_attempts += 1
@@ -810,6 +828,16 @@ def _call_with_recovery(
                 agent=agent_label,
                 model_fallback=moves,
             ) from le
+        except BaseException as unrecorded:
+            # Anything else (a raw ClientError the client did not type, a bug in a client)
+            # propagates unchanged and never moves, but the attempt still gets its one
+            # ledger record, and the turn's cost collector counts it as unobserved (F1).
+            if not attempt_recorded:
+                _log(
+                    "error", _t0, timeout_seconds=_timeout,
+                    thinking_budget=target_thinking_budget, err=unrecorded,
+                )
+            raise
         _log(
             "ok", _t0, timeout_seconds=timeout_seconds,
             thinking_budget=target_thinking_budget, resp=resp,

@@ -7,6 +7,7 @@ without changing prompts or core logic.
 
 import dataclasses
 import inspect
+import re
 from typing import Any, List
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "LLMAPIConnectionError",
     "LLMTimeoutError",
     "LLMServiceUnavailableError",
+    "LLMModelUnusableError",
     "LLMStructuredUnsupportedError",
     "LLMFatalError",
     "LLMResponse",
@@ -85,6 +87,19 @@ class LLMServiceUnavailableError(LLMError):
     """Raised on 5xx / service temporarily unavailable or overloaded — triggers provider fallback.
     Covers: 500 Internal Server Error, 502 Bad Gateway, 503 Unavailable, 504 Gateway Timeout,
     and provider-specific equivalents (ModelNotReadyException, InternalServerException, etc.)
+    """
+
+
+class LLMModelUnusableError(LLMServiceUnavailableError):
+    """The provider refused the model itself, so the request never ran.
+
+    Bedrock's ``ResourceNotFoundException`` (a retired model), ``AccessDeniedException``
+    (a model this account may not use) and a ``ValidationException`` about the model id
+    (invalid, not supported, not enabled). Another model may well answer the same request,
+    so the recovery ladder moves on it once, like a 5xx, and records the reason
+    ``model_unusable`` (operator ruling 2026-09-25, F1). Before, the forced tool call let
+    these leave the ladder as a raw ``ClientError`` and the plain call made them a bare
+    ``LLMError``: neither moved.
     """
 
 
@@ -556,6 +571,44 @@ def _is_schema_rejection(message: str) -> bool:
     )
 
 
+# The Bedrock error codes that refuse the model itself rather than the request.
+_MODEL_UNUSABLE_CODES = ("ResourceNotFoundException", "AccessDeniedException")
+
+# What a ValidationException says when the model id is the problem: "The provided model
+# identifier is invalid.", "Invocation of model ID ... with on-demand throughput isn't
+# supported.", "This action doesn't support the model that you provided.", or a model id
+# that is not supported, enabled or found.
+_MODEL_ID_REJECTION = re.compile(
+    r"model identifier"
+    r"|on-demand throughput"
+    r"|does(?:n't| not) support the model"
+    r"|model id\b.{0,160}?\b(?:invalid|(?:is )?not (?:supported|enabled|found|available)"
+    r"|isn't (?:supported|enabled|available)|does(?:n't| not) exist)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_model_id_rejection(message: str) -> bool:
+    """True when a Bedrock ValidationException is about the model id, not the request.
+
+    Bedrock uses one ValidationException code for a bad model id, a schema it will not
+    take (``_is_schema_rejection``, checked first) and a malformed request, so the text
+    tells them apart. "The model returned the following errors" is the model's own
+    validation of the request: the model id worked, so it never counts.
+    """
+    text = (message or "").replace("’", "'")
+    if "the model returned the following errors" in text.lower():
+        return False
+    return bool(_MODEL_ID_REJECTION.search(text))
+
+
+def _bedrock_model_unusable(code: str, message: str) -> bool:
+    """True when a Bedrock ClientError refused the model itself (``LLMModelUnusableError``)."""
+    if code in _MODEL_UNUSABLE_CODES:
+        return True
+    return code == "ValidationException" and _is_model_id_rejection(message)
+
+
 def _converse_usage(resp: dict, cache_ttl: str | None = None) -> dict | None:
     """Token counts from a Converse response, including the cache fields.
 
@@ -832,6 +885,8 @@ class BedrockClient(BaseLLMClient):
                 "ModelErrorException",
             ):
                 raise LLMServiceUnavailableError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                raise LLMModelUnusableError(str(e)) from e
             raise LLMError(str(e)) from e
         except Exception as e:
             transport = _bedrock_transport_error(e)
@@ -1057,6 +1112,10 @@ class BedrockClient(BaseLLMClient):
                 # without one. Distinct from a 503 on purpose: failing over to another
                 # provider would be the wrong move, and so would killing the turn.
                 raise LLMStructuredUnsupportedError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                # The model id is refused (unknown, retired, or not enabled for this
+                # account): another model may answer, so the ladder moves on it.
+                raise LLMModelUnusableError(str(e)) from e
             raise   # unknown ClientError propagates
         except Exception as e:
             transport = _bedrock_transport_error(e)
