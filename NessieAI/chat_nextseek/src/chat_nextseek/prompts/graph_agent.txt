@@ -22,7 +22,7 @@ Work through the steps below before you write the query. Every question about sa
 - **Typed values.** Attributes whose value type is float, integer or date hold numbers and dates, so `<`, `>` and ranges work on them directly. A value that did not parse stays a string, and every other attribute is a string: guard a numeric test on a string attribute with `toFloat(s.X) IS NOT NULL`.
 - **Values keep their stored spelling**, and one concept is routinely stored several ways: `Paraffin`, `paraffin` and `PARAFFIN`; a word and its one-letter code; an abbreviation and its full name. The type sections show each attribute's value type, how many samples fill it (`n=`) and its meaning, plus a numeric or date range where the values parsed. They never show the values themselves, for any attribute: **the spellings in use are unknown, not absent.** Never infer that a value does not exist because the catalog did not show it, and when the spellings decide the query, read them out of the graph first (STEP 6, "Which values exist").
 - **The catalog** is itself in the graph: `(:SampleType)-[:HAS_ATTRIBUTE]->(:Attribute)`, where `Attribute.title` is the property name, `Attribute.sample_count` how many samples fill it, and `Attribute.sample_type` the type code.
-- **Relationships**: `(child:Sample)-[:DERIVED_FROM]->(parent:Sample)` with the assay and protocol on the edge (`internal_assay_title`, `protocol_title`). DERIVED_FROM edges can also end at a retired `:OrphanSample`, which is not a sample, so label both ends `:Sample` in every lineage pattern; `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)`; `(:Sample)-[:IN_PROJECT]->(:Project)`. Use only the patterns the schema lists.
+- **Relationships**: `(child:Sample)-[:DERIVED_FROM]->(parent:Sample)` with the assay and protocol on the edge (`internal_assay_title`, `internal_assay_titles`, `protocol_title`). `internal_assay_title` names one assay; an edge several assays share lists all of them in `internal_assay_titles`, which some edges lack, so test an assay on an edge `r` with `(r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))`. DERIVED_FROM edges can also end at a retired `:OrphanSample`, which is not a sample, so label both ends `:Sample` in every lineage pattern; `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)`; `(:Sample)-[:IN_PROJECT]->(:Project)`. Use only the patterns the schema lists.
 - **People**: `(:Person)` nodes carry only an id, no name. A person's name lives in two places only: the lab code inside sample UIDs (for a lab head or PI) and the `Scientist` attribute on samples (for the person who made or handled the sample).
 
 ---
@@ -121,12 +121,12 @@ WHERE EXISTS {
   MATCH (m)<-[:DERIVED_FROM*1..12]-(c:Sample)
   WHERE EXISTS {
     MATCH (c)-[r:DERIVED_FROM]->(:Sample)
-    WHERE r.internal_assay_title = $assay
+    WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
   }
 }
 RETURN count(m) AS n
 ```
-- **Assays and protocols** live on the edge. Match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary and use that exact string; when no title is close, use `toLower(r.internal_assay_title) CONTAINS toLower($term)`. Before combining an assay with a sample type, check ASSAY-SAMPLE CONNECTIONS: when the type is the assay's parent or child type, filter that side of the one-hop edge; when it is further up the chain, chain a bounded path to it as above.
+- **Assays and protocols** live on the edge. Match the user's term against the ASSAY TITLES (or PROTOCOL TITLES) vocabulary and use that exact string; when no title is close, use `(toLower(r.internal_assay_title) CONTAINS toLower($term) OR any(t IN coalesce(r.internal_assay_titles, []) WHERE toLower(t) CONTAINS toLower($term)))`. Before combining an assay with a sample type, check ASSAY-SAMPLE CONNECTIONS: when the type is the assay's parent or child type, filter that side of the one-hop edge; when it is further up the chain, chain a bounded path to it as above.
 - **Type vs assay**: when the question is about what data exists below a sample ("that have NMR data"), filter the descendant's type; when it is about the process applied ("that underwent NMR"), filter the edge's assay.
 
 ### Filters and relationships together
@@ -159,7 +159,7 @@ WHERE toLower(trim(toString(t.Organ))) = $organ
   AND EXISTS { (t)<-[:DERIVED_FROM*1..12]-(:T_D_SEQ) }
   AND EXISTS {
     MATCH (t)-[r:DERIVED_FROM]->(:Sample)
-    WHERE r.internal_assay_title = $assay
+    WHERE (r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, []))
   }
 RETURN count(t) AS n
 ```
@@ -197,7 +197,7 @@ WHERE toLower(st.title) CONTAINS toLower($project)
 - **A breakdown** ("by type", "per organ", "which types"): one row per group with its count, `RETURN s.type AS type, count(*) AS n ORDER BY n DESC`. A total across groups, when asked, is the sum of the rows, or a separate `count(*)`.
 - **Group a free-text attribute on its folded value, not its raw spelling.** `RETURN toLower(trim(toString(s.Organ))) AS organ, count(*) AS n ORDER BY n DESC`. Grouping on the raw value returns `Lung` and `lung` as two rows for one organ, and the reply then reports a split that is not in the data. A node label or a type code is already canonical, so group those as they are. Name the raw spellings only if the question asks which spellings exist.
 - **Which values exist, spelling variants, duplicates, which records use a key**: return each distinct value with its count, `MATCH (s:T_SLD) WHERE s.Stain IS NOT NULL RETURN s.Stain AS value, count(*) AS n ORDER BY n DESC`, and let the reply reason over the list. For attribute keys, read the catalog: `MATCH (a:Attribute) WHERE a.sample_type = $type RETURN a.title, a.sample_count, a.declared ORDER BY a.title`, or `keys(s)` on the samples.
-- **A list of samples**: return `s.id AS id`, `s.uuid AS uuid`, `s.type AS type` and the named properties the question needs, `ORDER BY id`, with `LIMIT 5000` as a safety cap. When the list could exceed the cap, the tool reports the true total beside the rows; say in the explanation that the rows are a capped sample.
+- **A list of samples**: return `s.id AS id`, `s.uuid AS uuid`, `s.type AS type` and the named properties the question needs, `ORDER BY id`, with `LIMIT 5000` as a safety cap. Return every attribute you filter on the samples you return as its own column, next to the id, so the reader can see which values matched (for example `s.Classification AS Classification` when you filter on Classification). An attribute of a related sample that you filter inside `EXISTS { }` stays there. When the list could exceed the cap, the tool reports the true total beside the rows; say in the explanation that the rows are a capped sample.
 - **A span in days is `duration.inDays(a, b).days`**, or `b.epochDays - a.epochDays`. `duration.between(a, b).days` is the day component left over after whole years and months, so a span of nearly two years reports as a couple of dozen days. The same applies to `.months` and `.years`: each is a component of the breakdown, not the whole span.
 - **The tool's total counts rows, not samples.** A list reached through a relationship must return each sample once: put the relationship in `EXISTS { }` on the samples you return (the mixed recipe above), or `RETURN DISTINCT` the sample columns. A pattern that returns one row per edge or per path (a tissue with two Tissue Collection edges, an image with two chip ancestors) counts that sample twice.
 - **Never return or collect a whole Sample node** (`RETURN s`, `collect(s)`, `s {.*}`, `properties(s)`): a Sample node carries every attribute. A query that does is sent back once and then refused.
@@ -245,6 +245,6 @@ Return ONLY valid JSON, no markdown fences and no prose outside the JSON:
   "keyword_fields": {"<keyword>": ["<field>"]}
 }
 
-`keyword_fields` records each keyword from `resolved.keywords` that you matched through a named field instead of by its own text: the keyword as it was resolved, mapped to the fields that carry it. "Subjects who convert to Mtb infection positive" matched on `Classification` and the QuantiFERON-TB result is `{"Mtb": ["Classification"], "positive": ["QFT_Result"]}`. The reply is told a keyword was dropped when its text is nowhere in the query, so a keyword you realised as a field and left out of this map is reported as ignored. List only fields your query really filters on, never `search_text`, and leave the map empty (`{}`) when every keyword is in the query as text.
+`keyword_fields` records each keyword from `resolved.keywords` that you matched through a named field instead of by its own text: the keyword as it was resolved, mapped to the fields that carry it. Declare every keyword of the question that a filtered field stands for, not only the one whose own words are in the filter: "human subjects who convert to Mtb infection positive", answered by filtering `Classification`, is `{"convert": ["Classification"], "Mtb": ["Classification"], "infection": ["Classification"], "positive": ["Classification"]}`, because that one field stands for all four words; when the query also filters the QuantiFERON-TB result, `positive` maps to `["Classification", "QFT_Result"]`. The reply is told a keyword was dropped when its text is nowhere in the query, so a keyword you realised as a field and left out of this map is reported as ignored. List only fields your query really filters on, never `search_text`, and leave the map empty (`{}`) when every keyword is in the query as text.
 
 If the question cannot be answered from the graph, set "cypher" to "" and say why in "explanation".

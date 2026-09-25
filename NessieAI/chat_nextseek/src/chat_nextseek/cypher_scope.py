@@ -129,13 +129,17 @@ def scope_cypher(cypher: str, parameters: Mapping[str, Any] | None, scope: Graph
 def strip_hidden(value: Any) -> Any:
     """For a non-admin's result rows: every graph Node (anything with labels and element_id and items()) becomes a
     plain dict of its properties minus HIDDEN_SAMPLE_PROPERTIES; a Relationship becomes a dict of its properties;
-    a Path becomes {"nodes": [...], "relationships": [...]}; lists, tuples and dicts are walked. Other values pass."""
+    a Path becomes {"nodes": [...], "relationships": [...]}; lists, tuples and dicts are walked. Other values pass,
+    including the driver's temporal and spatial tuple subclasses (a Duration, a Point), which are values, not
+    containers."""
     if value is None or isinstance(value, (str, bytes, bool, int, float)):
         return value
     if isinstance(value, dict):
         return {key: strip_hidden(item) for key, item in value.items()}
     if isinstance(value, list):
         return [strip_hidden(item) for item in value]
+    if isinstance(value, tuple) and type(value).__module__.startswith(("neo4j.time", "neo4j.spatial")):
+        return value
     if isinstance(value, tuple):
         return tuple(strip_hidden(item) for item in value)
     try:

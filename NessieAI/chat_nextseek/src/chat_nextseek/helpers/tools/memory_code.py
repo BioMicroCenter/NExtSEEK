@@ -5,6 +5,7 @@ import ast
 import json
 import re
 import signal
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -315,42 +316,54 @@ _MEMORY_ALLOWED_METHODS = {
 }
 
 _MEMORY_ALLOWED_RE_METHODS = {"search", "match", "fullmatch", "findall", "sub"}
+_MEMORY_ALLOWED_RE_FLAGS = {"I", "IGNORECASE", "M", "MULTILINE", "S", "DOTALL"}
 _MEMORY_ALLOWED_JSON_METHODS = {"loads", "dumps"}
 _MEMORY_ALLOWED_RUNTIME_HELPERS = {"strip_html"}
 _MEMORY_BLOCKED_NAMES = {"eval", "exec", "compile", "open", "__import__", "globals", "locals", "vars", "dir", "help", "input"}
 
+#: Every syntax node memory code may contain; anything else is refused. Statements: assignment, `for`, `if`,
+#: `try`/`except` (natural for parsing optional or malformed metadata, such as json_metadata as a string or a dict),
+#: `break`, `continue`, `pass`. Expressions: literals, names, attributes and subscripts (each attribute is checked
+#: again below), calls (checked below), arithmetic, comparisons, `and`/`or`/`not`, `x if c else y`, f-strings and
+#: list, set, dict and generator comprehensions. So there is no import, def, class, lambda, while, with, raise, del,
+#: global, nonlocal, yield or await, and no syntax this list does not name.
+_MEMORY_ALLOWED_NODES = (
+    ast.Module, ast.Expr, ast.Assign, ast.AugAssign, ast.For, ast.If, ast.Try, ast.ExceptHandler,
+    ast.Break, ast.Continue, ast.Pass,
+    ast.Constant, ast.Name, ast.Attribute, ast.Subscript, ast.Slice, ast.Call, ast.keyword,
+    ast.List, ast.Tuple, ast.Dict, ast.Set,
+    ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp, ast.comprehension,
+    ast.BinOp, ast.UnaryOp, ast.BoolOp, ast.Compare, ast.IfExp, ast.JoinedStr, ast.FormattedValue,
+    ast.Load, ast.Store,
+    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow, ast.BitOr, ast.BitAnd, ast.BitXor,
+    ast.UAdd, ast.USub, ast.Not, ast.And, ast.Or,
+    ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.Is, ast.IsNot, ast.In, ast.NotIn,
+)
+
 
 def _validate_memory_code(tree: ast.AST) -> None:
-    # Allow `try/except` — natural for safely parsing optional / malformed metadata
-    # fields (e.g. json_metadata as string vs dict). Body of the try and handlers
-    # are walked normally by the rest of this validator, so dunder access, blocked
-    # names, etc. inside a try still get caught.
-    blocked_nodes = (
-        ast.Import,
-        ast.ImportFrom,
-        ast.FunctionDef,
-        ast.AsyncFunctionDef,
-        ast.ClassDef,
-        ast.Lambda,
-        ast.With,
-        ast.AsyncWith,
-        ast.Delete,
-        ast.Global,
-        ast.Nonlocal,
-        ast.Raise,
-        ast.While,
-        ast.Await,
-        ast.Yield,
-        ast.YieldFrom,
-    )
     for node in ast.walk(tree):
-        if isinstance(node, blocked_nodes):
+        if not isinstance(node, _MEMORY_ALLOWED_NODES):
             raise MemoryCodeSafetyError(f"Disallowed syntax: {type(node).__name__}")
-        if isinstance(node, ast.Name) and node.id in _MEMORY_BLOCKED_NAMES:
+        if isinstance(node, ast.Name) and (node.id in _MEMORY_BLOCKED_NAMES or node.id.startswith("_")):
+            # No name starting with an underscore, as for attributes below; `_` itself included.
             raise MemoryCodeSafetyError(f"Disallowed name: {node.id}")
         if isinstance(node, ast.Attribute):
-            if node.attr.startswith("__"):
-                raise MemoryCodeSafetyError("Dunder attribute access is not allowed")
+            # Every attribute, whether it is read, called or assigned, must be on an allow-list: the
+            # re functions and flags on `re`, the json functions on `json`, and the listed methods on
+            # anything else. No name starting with an underscore.
+            attr = node.attr
+            value = node.value
+            if attr.startswith("_"):
+                allowed = False
+            elif isinstance(value, ast.Name) and value.id == "re":
+                allowed = attr in _MEMORY_ALLOWED_RE_METHODS | _MEMORY_ALLOWED_RE_FLAGS
+            elif isinstance(value, ast.Name) and value.id == "json":
+                allowed = attr in _MEMORY_ALLOWED_JSON_METHODS
+            else:
+                allowed = attr in _MEMORY_ALLOWED_METHODS
+            if not allowed:
+                raise MemoryCodeSafetyError(f"Disallowed attribute access: {attr}")
         if isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name):
@@ -380,6 +393,9 @@ def execute_memory_code(code: str, data: Any, *, timeout_seconds: int = 3) -> di
     """
     Execute LLM-generated memory extraction code against local JSON with a narrow Python subset.
     The code must assign JSON-serializable output to `result`.
+
+    This runs the code in the calling process. The chat engine's callers run it through
+    ``row_compute.run_code_isolated``, which calls this function in a separate, limited process.
     """
     tree = ast.parse(code, mode="exec")
     _validate_memory_code(tree)
@@ -414,8 +430,10 @@ def execute_memory_code(code: str, data: Any, *, timeout_seconds: int = 3) -> di
         "__builtins__": _MEMORY_ALLOWED_BUILTINS,
         "data": data,
         "rows": rows,
-        "re": re,
-        "json": json,
+        # Namespaces holding only what the validator allows on them, not the modules themselves.
+        "re": SimpleNamespace(**{name: getattr(re, name)
+                                 for name in sorted(_MEMORY_ALLOWED_RE_METHODS | _MEMORY_ALLOWED_RE_FLAGS)}),
+        "json": SimpleNamespace(loads=json.loads, dumps=json.dumps),
         "strip_html": _strip_html_helper,
         "result": {},
     }

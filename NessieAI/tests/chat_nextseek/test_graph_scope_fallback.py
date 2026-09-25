@@ -442,7 +442,7 @@ def test_the_follow_up_seam_reports_a_refusal_as_a_failed_query(monkeypatch, tmp
     monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: _refused())
     captured = {}
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         captured["result"] = run_query(question="how many", seed_uids=["TIS-1"])
         return {"reply": "from the stored result"}
 

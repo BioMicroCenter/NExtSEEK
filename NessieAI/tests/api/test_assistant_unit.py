@@ -133,6 +133,35 @@ class SessionAdapterTests(TestCase):
         )
         self.assertEqual(self.chat_session.last_debug, {"updated": True})
 
+    def test_pop_removes_a_key_and_returns_its_value(self):
+        adapter = DictSessionAdapter(self.chat_session)
+        adapter["pending_suggestions"] = {"for_turn": 3, "items": []}
+        self.assertEqual(adapter.pop("pending_suggestions"), {"for_turn": 3, "items": []})
+        self.assertNotIn("pending_suggestions", adapter)
+        self.assertIsNone(adapter.pop("pending_suggestions"))
+        self.assertEqual(adapter.pop("nonexistent", "default"), "default")
+
+    def test_a_popped_key_is_gone_from_extra_state_after_save(self):
+        """save() writes extra_state from the cache wholesale, so a popped key does not come back."""
+        self.chat_session.extra_state = {"pending_suggestions": {"for_turn": 3, "items": []}, "chat_log": []}
+        self.chat_session.save()
+        adapter = DictSessionAdapter(self.chat_session)
+        adapter.pop("pending_suggestions")
+        adapter.save()
+
+        self.chat_session.refresh_from_db()
+        self.assertEqual(self.chat_session.extra_state, {"chat_log": []})
+
+    def test_pop_refuses_a_column_backed_key(self):
+        """results_history and last_debug are columns save() reads from the cache with a default: popping one
+        would not remove it, so it is refused rather than answered."""
+        adapter = DictSessionAdapter(self.chat_session)
+        for key in ("results_history", "last_debug"):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, key):
+                    adapter.pop(key, None)
+                self.assertIn(key, adapter)
+
 
 # ---------------------------------------------------------------------------
 # MakeDbEventCallbackTests

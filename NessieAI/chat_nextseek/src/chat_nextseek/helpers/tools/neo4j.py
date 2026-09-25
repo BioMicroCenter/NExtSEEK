@@ -12,10 +12,10 @@ Every statement is also held to the caller's project scope, which rides on the c
 driver opens); the prover (`cypher_scope.scope_cypher`: an admin's text runs unchanged, anyone
 else's runs with the scope inserted, and what cannot be proven is refused before a driver
 opens); the READ transaction and total probe on the statement the prover returned; and, for a
-caller who is not an admin, `strip_hidden` over the rows. Every result names the statement
-that ran (`cypher`), the one submitted (`submitted_cypher`), the parameters that ran and the
-scope decision (`scope`). Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
-section 6.
+caller who is not an admin, `strip_hidden` over each row as it is read, before `plain_value`.
+Every result names the statement that ran (`cypher`), the one submitted (`submitted_cypher`),
+the parameters that ran and the scope decision (`scope`). Spec:
+docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 6.
 
 A statement that fails while it runs tells a caller who is not an admin only the error's codes
 (`RUNTIME_ERROR_WITHHELD`), never Neo4j's message, which can quote the stored value it failed
@@ -106,10 +106,14 @@ def plain_value(value: Any) -> Any:
     return value
 
 
-def _read_rows(tx, cypher: str, params: dict) -> "tuple[list[dict], dict]":
-    """Transaction function: the rows and the counters, read before the transaction closes."""
+def _read_rows(tx, cypher: str, params: dict, keep_hidden: bool = False) -> "tuple[list[dict], dict]":
+    """Transaction function: the rows and the counters, read before the transaction closes.
+
+    Unless ``keep_hidden`` (an admin), each row goes through `strip_hidden` first, while its values are still the
+    driver's Nodes, Relationships and Paths, and only then through `plain_value`.
+    """
     result = tx.run(cypher, params)
-    records = [plain_value(dict(record)) for record in result]
+    records = [plain_value(dict(record) if keep_hidden else strip_hidden(dict(record))) for record in result]
     summary = result.consume()
     counters = {}
     if summary and summary.counters:
@@ -250,7 +254,8 @@ def _failure(error: str, *, ran: Any, submitted: Any, parameters: Any, scope: di
             "parameters": parameters, "scope": scope}
 
 
-def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None) -> dict:
+def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = None, *,
+                     timeout_s: int | None = None, total_only: bool = False) -> dict:
     """
     Execute a read-only Cypher query against the configured Neo4j instance, held to the
     config's project scope.
@@ -258,7 +263,13 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     parameters, counters, scope} on success, or {ok: False, error, data, cypher, submitted_cypher,
     parameters, scope} on failure. `cypher` is the statement that ran (after the scope was
     inserted), or the submitted text when nothing ran. Opens and closes a driver per call. The
-    query and its total probe each run in a READ transaction with a QUERY_TIMEOUT_S timeout.
+    query and its total probe each run in a READ transaction with a QUERY_TIMEOUT_S timeout, or
+    `timeout_s` seconds each when the caller bounds it (the graph reviewer's count queries).
+
+    `total_only=True` (the graph reviewer's counts): after the same write check and scope, only
+    the total probe runs, over the scoped statement without its trailing LIMIT (the whole
+    statement when there is none), in one READ transaction. The success dict then carries
+    `total`, `count` None, no rows and `truncated` False.
     """
     # A mapping is copied; anything else is handed to the prover as it came, which refuses it.
     submitted_params = dict(parameters) if isinstance(parameters, Mapping) else (parameters or {})
@@ -307,7 +318,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     if not getattr(config, "NEO4J_PASSWORD", None):
         return failed("NEO4J_PASSWORD not configured")
 
-    timed = unit_of_work(timeout=QUERY_TIMEOUT_S)
+    timed = unit_of_work(timeout=timeout_s or QUERY_TIMEOUT_S)
     driver = None
     try:
         try:
@@ -322,7 +333,25 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
             )
         with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
-            records, counters = db_session.execute_read(timed(_read_rows), ran, params)
+            if total_only:
+                # One statement: the probe over the scoped text, so a bounded count is one timeout.
+                body, _limit = split_trailing_limit(ran, params)
+                total = _probe_total(db_session, ran if body is None else body, params, timed(_read_total))
+                print(f"[DEBUG][GRAPHDB] Total only: {total}")
+                return {
+                    "ok": True,
+                    "data": [],
+                    "count": None,
+                    "total": total,
+                    "truncated": False,
+                    "limit": None,
+                    "cypher": ran,
+                    "submitted_cypher": cypher,
+                    "parameters": params,
+                    "counters": {},
+                    "scope": scope_info,
+                }
+            records, counters = db_session.execute_read(timed(_read_rows), ran, params, scope.is_admin)
             print(f"[DEBUG][GRAPHDB] Query returned {len(records)} records")
 
             # `count` is len(records) and always has been, so a query that hit its
@@ -342,10 +371,6 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                     # Best effort: an unknown total is still more information than a
                     # capped count presented as complete.
                     print(f"[DEBUG][GRAPHDB] Total probe failed: {probe_err!r}")
-
-            if not scope.is_admin:
-                # A whole node can still be returned; its hidden properties never leave here.
-                records = strip_hidden(records)
 
             return {
                 "ok": True,

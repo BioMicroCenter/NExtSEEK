@@ -11,13 +11,13 @@ from ..llm_clients import LLMAPIConnectionError
 from ..helpers import (
     build_memory_data_profile,
     collect_bundle_files,
-    execute_memory_code,
     load_json_for_memory,
     load_file_for_memory,
     log_prompt,
     log_usage,
     strip_html_recursive,
 )
+from ..helpers.tools.row_compute import run_code_isolated
 from ..schemas.schema_helper import call_llm_structured
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..schemas import (
@@ -341,7 +341,11 @@ def memory_agent_answer(config: ChatConfig, user_query: str, result_bundle: dict
             data_profile=profile,
             log_dir=log_dir,
         )
-        computed_result = execute_memory_code(coder_output.extraction_code, memory_data)
+        # The code runs in a separate, limited process; a failure takes the fallback below, as before.
+        run = run_code_isolated(coder_output.extraction_code, memory_data)
+        if not run["ok"]:
+            raise RuntimeError(run["error"])
+        computed_result = run["result"]
 
         artifact_entry = None
         try:

@@ -145,3 +145,28 @@ def test_sra_wrong_row_key_falls_back():
     )
     writer.assert_called_once()
     assert out == "WRITER_OUTPUT"
+
+
+def test_a_report_that_cannot_start_falls_back_to_the_writer(monkeypatch, tmp_path):
+    """One report runs at a time: a second one that cannot start in time goes to the report writer, as before."""
+    import fcntl
+    import os
+    from chat_nextseek.helpers.tools import report_code
+    lock = str(tmp_path / "report.lock")
+    monkeypatch.setattr(report_code, "REPORT_LOCK_PATH", lock)
+    monkeypatch.setattr(report_code, "REPORT_WAIT_S", 0.1)
+    md = _metadata_with_n_dseq(25)
+    writer = MagicMock(name="report_writer_fn", return_value="WRITER_OUTPUT")
+    coder = MagicMock(return_value=_coder_returning_n_rows(25))
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        out = outmod._produce_report_output(
+            config=MagicMock(), user_query="GEO report", report_type_value="GEO",
+            reporter_context={}, template_for_llm={"samples": [{}]}, metadata=md,
+            report_writer_fn=writer, report_coder_fn=coder, log_dir="/tmp",
+        )
+    finally:
+        os.close(fd)
+    writer.assert_called_once()
+    assert out == "WRITER_OUTPUT"

@@ -30,7 +30,7 @@ from unittest.mock import MagicMock, patch
 
 from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import followup as followup_mod
-from chat_nextseek.agents.followup import FOLLOWUP_AGENT_KEY, MAX_ITER
+from chat_nextseek.agents.followup import FOLLOWUP_AGENT_KEY, FOLLOWUP_UNAVAILABLE_REPLY, MAX_ITER
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.graph import GraphAgentPlan
 from chat_nextseek.schemas.router import ParserPlan
@@ -179,7 +179,7 @@ def test_the_seam_reports_the_total_beside_a_capped_preview(monkeypatch, tmp_pat
     monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: {**_neo4j_result(rows), "total": 24421})
     captured = {}
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         captured["payload"] = run_query(question="q", seed_uids=PRIOR_UIDS)
         return {"reply": "x", "queries": [], "tool_calls": []}
 
@@ -215,7 +215,6 @@ def _run_followup_turn(tmp_path, fake_followup, rows=TYPE_ROWS, results=None):
                          lambda *a, **k: GraphAgentPlan(cypher=SEEDED_CYPHER, context_mode="catalog")), \
             patch.object(orch, "tool_neo4j_query", neo4j), \
             patch.object(orch, "run_followup", fake_followup), \
-            patch.object(orch, "memory_agent_answer", return_value="from the stored result"), \
             patch.object(orch, "append_turn"), \
             patch.object(orch, "_artifacts_for", artifacts_for):
         payload = orch.run_query(session, SimpleNamespace(MODEL_MODE="test", MIN_SAMPLETYPES=[], MIN_ASSAYS=[]),
@@ -223,8 +222,22 @@ def _run_followup_turn(tmp_path, fake_followup, rows=TYPE_ROWS, results=None):
     return payload, session, artifacts_for
 
 
+def test_the_turn_debug_records_each_computation(tmp_path):
+    def fake_followup(config, *, user_text, bundle, run_query, compute, log_dir, **_):
+        p = compute(source="stored", where=None, group_by=None, code=None)
+        return {"reply": "40 mice.", "caveats": [], "queries": [],
+                "computes": [{"source": "stored", "where": None, "group_by": None, "code": None, "result": p}],
+                "tool_calls": ["compute_over_rows", "answer"]}
+
+    payload, _session, _ = _run_followup_turn(tmp_path, fake_followup)
+    [c] = payload["debug"]["followup"]["computes"]
+    assert c["source"] == "stored" and c["ok"] is True and c["count"] == 40
+    assert c["review_verdict"] == "ok" and c["artifact"]
+    assert payload["bundle_id"] == 1, "a computation makes no bundle of its own"
+
+
 def test_a_follow_up_that_queried_attaches_the_rows_of_its_last_successful_query(tmp_path):
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         first = run_query(question="how many downstream samples", seed_uids=PRIOR_UIDS)
         second = run_query(question="downstream types with counts", seed_uids=PRIOR_UIDS)
         return {"reply": "23 downstream types, led by TIS (25,936).", "caveats": [],
@@ -261,21 +274,24 @@ def test_the_attached_file_is_the_last_successful_query_not_a_failed_one_after_i
     failed = {"ok": False, "error": "Variable `x` not defined", "data": None, "cypher": "BAD",
               "submitted_cypher": "BAD", "parameters": {}, "scope": {"decision": "proven"}}
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         results = [run_query(question=q, seed_uids=PRIOR_UIDS) for q in ("dump", "types", "broken")]
         return {"reply": "23 types.", "caveats": [],
                 "queries": [{"question": "q", "seeded": True, "result": r} for r in results],
                 "tool_calls": ["run_new_query"] * 3 + ["answer"]}
 
+    # A loop query that errors is retried as a graph turn's is, so the failed query is asked
+    # GRAPH_MAX_TRIES times and fails every time.
     payload, session, _ = _run_followup_turn(
-        tmp_path, fake_followup, results=[_neo4j_result(broad), _neo4j_result(TYPE_ROWS), failed])
+        tmp_path, fake_followup,
+        results=[_neo4j_result(broad), _neo4j_result(TYPE_ROWS)] + [failed] * orch.GRAPH_MAX_TRIES)
     written = json.loads(Path(payload["files"][0]["path"]).read_text())
     assert written["rows"] == TYPE_ROWS
     assert session["results_history"][-1]["graph_result"]["data"] == TYPE_ROWS
 
 
 def test_a_follow_up_answered_from_the_stored_result_attaches_nothing_new(tmp_path):
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         return {"reply": "There were 40 mice.", "caveats": [], "queries": [],
                 "tool_calls": ["read_stored_result", "answer"]}
 
@@ -289,7 +305,7 @@ def test_a_follow_up_answered_from_the_stored_result_attaches_nothing_new(tmp_pa
 
 
 def test_a_follow_up_whose_queries_all_returned_nothing_attaches_nothing_new(tmp_path):
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         empty = run_query(question="types", seed_uids=PRIOR_UIDS)
         return {"reply": "None found.", "caveats": [],
                 "queries": [{"question": "types", "seeded": True, "result": empty}],
@@ -299,3 +315,15 @@ def test_a_follow_up_whose_queries_all_returned_nothing_attaches_nothing_new(tmp
 
     assert [b["id"] for b in session["results_history"]] == [1]
     assert not list(Path(tmp_path).rglob("graph_result_bundle_*.json"))
+
+
+def test_a_failed_loop_gets_the_fixed_reply_not_a_stored_answer(tmp_path):
+    def fake_followup(config, **_):
+        raise RuntimeError("loop down")
+
+    payload, _session, _ = _run_followup_turn(tmp_path, fake_followup)
+    assert payload["reply"].startswith(FOLLOWUP_UNAVAILABLE_REPLY)
+    assert payload["bundle_id"] == 1
+    assert "memory_coder_artifact" not in payload["debug"]
+    assert payload["debug"]["followup"] == {"failed": True, "error": "RuntimeError"}, \
+        "the failure is recorded by its type only, never its message"

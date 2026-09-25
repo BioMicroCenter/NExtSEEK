@@ -80,11 +80,13 @@ export interface SearchCompleteData {
   [extra: string]: unknown;
 }
 
-import type { Artifact, CCTrace } from "./chat";
+import type { Artifact, CCTrace, Suggestion } from "./chat";
 
 export interface QueryCompleteData {
   reply: string;
-  debug: Record<string, unknown>;
+  /** An NS turn's debug; a Container-CC turn may carry none. `suggestions` only
+   * when the graph-result reviewer offered a next question (#128). */
+  debug?: Record<string, unknown> & { suggestions?: Suggestion[] };
   bundle_id: number;
   artifacts?: Artifact[] | null;
   cc_traces?: CCTrace[];

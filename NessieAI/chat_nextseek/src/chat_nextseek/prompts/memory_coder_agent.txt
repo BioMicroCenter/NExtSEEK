@@ -39,7 +39,8 @@ ALLOWED CONTROL FLOW
 HARD-FORBIDDEN — these crash the validator and silently fall back to the
 slow legacy memory path. Memorize this list:
   import, from-import, def, class, with, while, raise, del, lambda,
-  global, nonlocal, eval(), exec(), compile(), open(), __dunder__ access
+  global, nonlocal, eval(), exec(), compile(), open(), __dunder__ access,
+  and any name or attribute that starts with an underscore (not even `_`)
 - Do not print.
 - Do not assume fields exist. Handle missing/null values.
 - Do not hardcode answers from examples. Code must run over the full `data`.

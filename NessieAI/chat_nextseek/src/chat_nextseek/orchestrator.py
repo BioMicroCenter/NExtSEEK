@@ -9,9 +9,9 @@ import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
@@ -22,15 +22,29 @@ from .artifacts import (
     build_saved_report_file_manifest,
     load_api_result_full,
 )
-from .chat_memory import append_turn, build_tool_summary_for_mode, resolve_bundle_for_recall
+from .chat_memory import (
+    CHAT_LOG_KEY,
+    append_turn,
+    build_tool_summary_for_mode,
+    next_turn_id,
+    resolve_bundle_for_recall,
+)
 from .pipeline import agent as pipeline_agent
-from .agents.followup import preview_rows, resolve_followup_outcome, run_followup
+from .agents.followup import (
+    _stored_rows,
+    describe_stored_result,
+    plan_step_extent,
+    preview_rows,
+    resolve_followup_outcome,
+    run_followup,
+    stored_query_rebuildable,
+)
+from .agents.followup_compute import compute_over_rows
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
     entity_agent,
     graph_agent,
-    memory_agent_answer,
     multi_parser_agent,
     parser_agent,
     plan_evaluator_agent,
@@ -44,7 +58,10 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
-from .graph_scope import SCOPE_ATTR, GraphScope
+from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
+                           check_binding, check_premise, review_compute, review_tier1, with_checks)
+from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
+from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
 from .helpers import (
@@ -65,6 +82,7 @@ from .helpers import (
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
+from .helpers.suggestions import accept, pending_for, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
@@ -534,23 +552,162 @@ def _build_graph_refine_context(last_bundle: dict) -> str:
     )
 
 
-def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir) -> dict | None:
+#: The refine context of a follow-up query rebuilt from the stored query (``seed_mode``
+#: "stored_query"). The stored Cypher follows it on the next line.
+STORED_QUERY_REFINE_LEAD = "Start from this earlier query and add the new condition; keep every filter it has:\n"
+
+
+def _stored_query_refine(stored_query: dict) -> str:
+    """The graph agent's refine context for a set rebuilt from the query that produced it.
+
+    The stored parameters come with the Cypher, because a filter written as ``$type`` is
+    no filter without its value. So does one sentence on LIMIT: a capped result is capped
+    because its query hit a LIMIT, and a count that kept it would count the capped rows
+    again, which is the partial answer this path exists to replace.
+    """
+    text = STORED_QUERY_REFINE_LEAD + stored_query["cypher"]
+    parameters = stored_query.get("parameters") or {}
+    if parameters:
+        text += "\nIts parameters, which the new query needs too: " + json.dumps(
+            parameters, default=str, sort_keys=True)
+    return text + ("\nIts LIMIT, if it has one, capped only the rows that were kept, not the set: "
+                   "a count or a breakdown must not keep it.")
+
+
+def _count_text(value: Any) -> str | None:
+    return f"{value:,}" if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
+                         total: Any, partial: bool, scoped: bool) -> str | None:
+    """What the loop's model must know about how a query was scoped; None when nothing.
+
+    Silent for a complete seed that was bound (the set is exactly the earlier one) and for
+    a fresh question (``scoped`` false: not about the earlier result). A scoped question
+    with nothing to scope by (no UIDs, and no query to rebuild from) is not silent: it ran
+    over every matching sample, and read as "those" that number is wrong.
+    """
+    of_total = _count_text(total)
+    if seed_mode == "none":
+        if not scoped:
+            return None
+        return ("This query could not be scoped to the earlier result, because that result kept "
+                "no sample UIDs and has no query this one can be rebuilt from. It covers every "
+                "matching sample, not only the earlier ones: say so in caveats, and do not "
+                "present it as a number about those records.")
+    if seed_mode == "stored_query":
+        held = ("the stored copy kept no sample UIDs" if not uids_available else
+                f"the stored copy holds only {uids_available:,} of its {of_total} records" if of_total else
+                f"the stored copy holds only {uids_available:,} of its records")
+        return ("This query was rebuilt from the earlier query's filters, because " + held + ", so no "
+                "UIDs were bound and it covers the whole earlier set, not the stored rows. If it did "
+                "not keep every one of those filters, it is a different set: say so.")
+    if seed_mode == "uids":
+        if not uids_applied:
+            return ("This query did not filter on $uids, so it is not scoped to the previous result. "
+                    "Say so, or run it again scoped.")
+        if partial:
+            part = (f"{uids_available:,} of the {of_total} records" if of_total else
+                    "only part of the records")
+            return (f"This query is scoped to the {uids_available:,} UIDs the stored copy holds, which "
+                    f"are {part} in the earlier result, so it answers for those {uids_available:,}, not "
+                    "the whole set. Say so in caveats.")
+    return None
+
+
+def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir,
+                        failure: dict | None = None) -> dict | None:
     """Run the follow-up tool loop, and never let it be the reason a turn fails.
 
     Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
     a follow-up runs the same engine as a fresh question; the difference is only that
-    the previous result's UIDs are handed to it. Returns None on any failure, which
-    sends the caller to the pre-existing stored-result path.
+    it is scoped to the previous result. Returns None on any failure, and the caller then
+    answers with ``FOLLOWUP_UNAVAILABLE_REPLY`` (``resolve_followup_outcome``). ``failure``,
+    when given, receives the exception's type name as ``error`` so the turn's debug can say
+    why; only the type, since a message can carry provider or internal detail.
+
+    How a query is scoped is its ``seed_mode``, on every payload:
+
+    * ``"uids"``: the stored copy holds every UID of the result, or there is no query to
+      rebuild from (a REST result, or a follow-up's own ``$uids`` query:
+      ``stored_query_rebuildable``); every UID it holds is bound as ``$uids``.
+    * ``"stored_query"``: the stored copy is capped (fewer UIDs than the result's total,
+      or cut at its LIMIT) or kept no UIDs, and the result came from a graph query. The
+      graph agent starts from that query's Cypher and parameters; no ``$uids`` is bound.
+    * ``"none"``: nothing to scope by (a fresh question, or a result with neither UIDs nor
+      a query to rebuild from). ``scoped``, which ``run_followup`` passes explicitly, tells
+      the two apart: only a scoped one gets a ``scope_note``.
+
+    ``scope_note`` says what the mode means for the answer when it needs saying
+    (``_followup_scope_note``). Every query still runs through ``tool_neo4j_query``, with
+    its write check and scope prover.
 
     Every query that ran and returned rows is also kept, in full, on the outcome as
     ``graph_runs`` (plan, result): the turn attaches the last one's rows as a file the way
     a graph turn does. They stay out of the conversation, which sees ``preview_rows``.
+
+    Each query runs through the graph turn's own retries (``_run_graph_with_retries``: a
+    Cypher error, a zero-row result) and its payload carries ``review``
+    (``_review_followup_query``), read against one catalog provider for the whole loop turn.
+    A zero-row retry that found something adds ``retry_note``, the graph turn's note for a
+    number found by a changed filter.
+
+    Its ``compute`` seam (``_compute``) runs ``compute_over_rows`` over the stored rows or over
+    every row of the loop's newest query, adds the payload's ``source`` and ``review``
+    (``review_compute``), keeps the call and its payload as an artifact, and records each call on
+    the outcome as ``compute_runs``. When the newest query returned no rows, failed, or could not
+    be written, "last_query" is refused (``needs_query``), never computed over an older query's
+    rows. A computation makes no bundle of its own.
     """
     graph_runs: list[dict] = []
+    compute_runs: list[dict] = []
+    #: The loop's newest query: its question, how it was scoped, what it returned, and its graph_runs entry (None when
+    #: it returned no rows or failed). Empty until a query has been asked for.
+    newest: dict[str, Any] = {}
+    extent: dict[str, Any] = {}
+    provider: dict[str, Any] = {}
+    newest_bundle_id = _newest_bundle_id(session)
 
-    def _run_query(*, question: str, seed_uids: list[str]) -> dict:
+    def _catalog():
+        """The loop turn's one catalog provider (``live_values``, default cold budget), built on first use, so
+        its cap on uncached value reads covers every query of the turn. A failure to build it is kept and
+        raised to each review, which records it."""
+        if "value" not in provider:
+            try:
+                provider["value"] = live_values(config)
+            except Exception as exc:
+                provider["value"] = exc
+        if isinstance(provider["value"], Exception):
+            raise provider["value"]
+        return provider["value"]
+
+    def _stored_extent() -> tuple[Any, bool]:
+        """The previous result's total and whether its stored copy was capped, read once; its size as a
+        set (``_stored_set_size``) is kept beside them as ``extent["set_size"]``."""
+        if not extent:
+            try:
+                described = describe_stored_result(bundle)
+            except Exception as exc:  # unknown extent: treat the seed as complete, as before
+                print(f"[DEBUG][FOLLOWUP] could not describe the stored result: {exc!r}")
+                described = {}
+            extent.update(total=described.get("total"), capped=bool(described.get("capped")),
+                          set_size=_stored_set_size(described), described=described)
+        return extent["total"], extent["capped"]
+
+    def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None,
+                   scoped: bool = False) -> dict:
+        seed_uids = list(seed_uids or [])
+        total, capped = _stored_extent() if (seed_uids or stored_query) else (None, False)
+        of_total = _count_text(total)
+        partial = bool(seed_uids) and (capped or (of_total is not None and len(seed_uids) < total))
+        rebuild = (stored_query if (partial or not seed_uids) and stored_query_rebuildable(stored_query)
+                   else None)
         refine = None
-        if seed_uids:
+        if rebuild is not None:
+            seed_mode = "stored_query"
+            refine = _stored_query_refine(rebuild)
+        elif seed_uids:
+            seed_mode = "uids"
             # The UIDs used to be pasted into the prompt, capped at 200, and the graph
             # agent copied that truncated list into `$uids` verbatim: on 2026-09-22 turn
             # 1147 three queries bound 28, 200 and 200 of 1,549 while the payload below
@@ -566,30 +723,54 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
                 f"$uids holds {len(seed_uids)} UIDs. A few of them, so you can see their "
                 f"shape: {shown}"
             )
-        graph_plan = graph_agent(
-            config, question, EntityAgentOutput(),
-            ParserPlan(mode="graph_query", intent_summary=question),
-            refine_context=refine,
-        )
+        else:
+            seed_mode = "none"
+        entity = EntityAgentOutput()
+        parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
+        graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
-            return {"ok": False, "error": "no query could be generated for that question"}
-        parameters = dict(graph_plan.parameters or {})
-        applied = None
-        if seed_uids and "$uids" in graph_plan.cypher:
-            parameters["uids"] = list(seed_uids)  # every one of them, not the ten shown
-            applied = len(seed_uids)
-        result = tool_neo4j_query(config, graph_plan.cypher, parameters)
+            newest.update(question=question, seed_mode=seed_mode, ok=False, total=None, run=None)
+            return {"ok": False, "error": "no query could be generated for that question",
+                    "seed_mode": seed_mode}
+        # Only a "uids" seed is bound: a rebuilt query holds the whole set through the
+        # stored filters, and binding the capped UIDs would cut it back to them. It is bound
+        # into every attempt that names $uids, every one of them, not the ten shown.
+        seed = {"uids": list(seed_uids)} if seed_mode == "uids" else None
+        # The graph turn's safeguards (loop gap L4): one more try on a Cypher error, one on a
+        # result that matched nothing, and the first result stands when a retry is no better.
+        run = _run_graph_with_retries(config, question, entity, parser_plan, refine, seed,
+                                      graph_plan=graph_plan)
+        graph_plan, result = run.graph_plan, run.graph_result
+        parameters = dict(run.parameters or {})
+        applied = len(seed_uids) if seed is not None and "$uids" in (graph_plan.cypher or "") else None
         rows = result.get("data") or []
+        scope_note = _followup_scope_note(seed_mode, uids_available=len(seed_uids), uids_applied=applied,
+                                          total=total, partial=partial, scoped=scoped)
+        newest.update(question=question, seed_mode=seed_mode, ok=bool(result.get("ok")), run=None,
+                      total=result.get("total") if result.get("total") is not None else result.get("count"))
         if result.get("ok") and rows:
+            # How the query was scoped travels with its rows, so a computation over them says the same thing:
+            # a query bound to the UIDs of a capped copy covers only part of the earlier set.
             graph_runs.append({"graph_plan": graph_plan, "parameters": parameters,
-                               "result": result, "uids_applied": applied})
+                               "result": result, "uids_applied": applied, "question": question,
+                               "seed_mode": seed_mode, "scope_note": scope_note,
+                               "part_of_set": seed_mode == "uids" and partial and applied is not None})
+            newest["run"] = graph_runs[-1]
         # The head of the rows, bounded: this goes back into a conversation that is
         # re-sent in full on every later iteration of the loop. It used to be counts and
         # three examples harvested from uid/id/name columns only, so a breakdown row such
         # as {"type": "TIS", "n": 25936} reached the model as "count: 23" and nothing it
         # could name (production acceptance run 2026-09-22, task 0006a373).
         shown = preview_rows(rows)
-        return {
+        # The reviewer reads the loop's question (the one the statement answers) for Tier 1,
+        # and the user's own words against the stored result for premise and binding.
+        _stored_extent()
+        review = _review_followup_query(
+            _catalog, question=question, user_text=user_text, graph_plan=graph_plan, graph_result=result,
+            elapsed_ms=run.elapsed_ms, stored_total=extent["set_size"], seeded=applied is not None,
+            target_bundle_id=bundle.get("id"), newest_bundle_id=newest_bundle_id,
+        )
+        payload = {
             "ok": bool(result.get("ok")),
             "count": result.get("total") if result.get("total") is not None else result.get("count"),
             "rows_returned": len(rows),
@@ -600,23 +781,163 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "error": result.get("error"),
             "uids_available": len(seed_uids),
             # None when the query did not filter on $uids: it then covers whatever it
-            # matched, which is not the same set, and the answer has to say so.
+            # matched, which is not the same set, and the answer has to say so. Also None
+            # on a rebuilt query, which binds no UIDs by design; scope_note says which.
             "uids_applied": applied,
-            "scope_note": (None if applied or not seed_uids else
-                           "This query did not filter on $uids, so it is not scoped to "
-                           "the previous result. Say so, or run it again scoped."),
+            "seed_mode": seed_mode,
+            "scope_note": scope_note,
+            "review": as_debug(review),
         }
+        if run.changed_answer:
+            payload["retry_note"] = RETRY_CHANGED_ANSWER_NOTE
+        return payload
+
+    def _compute_artifact(payload: dict, review: GraphReview | None, *, where, group_by, code):
+        """The call, its payload and its whole review on disk, like the memory coder's artifact. None on failure."""
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            bundle_id = bundle.get("id")
+            return ArtifactStore(log_dir or config.LOG_DIR).write_json(
+                key=f"followup_compute_{ts}", label="Follow-up computation",
+                filename=f"followup_compute_bundle_{bundle_id}_{ts}.json",
+                payload={"bundle_id": bundle_id, "question": user_text, "source": payload.get("source"),
+                         "where": where, "group_by": group_by, "code": code, "payload": payload,
+                         "review": as_debug(review) if review is not None else None},
+                kind="memory", bundle_id=bundle_id,
+            )
+        except Exception as exc:  # never lose a computation to the file that records it
+            print(f"[DEBUG][FOLLOWUP] could not write the computation's artifact: {exc!r}")
+            return None
+
+    def _keep_compute(source, where, group_by, code, payload: dict, review: GraphReview | None) -> dict:
+        artifact = (_compute_artifact(payload, review, where=where, group_by=group_by, code=code)
+                    if review is not None else None)
+        compute_runs.append({
+            "source": source, "where": where, "group_by": group_by,
+            "code": code[:2000] if isinstance(code, str) else code,
+            "ok": payload.get("ok"), "count": payload.get("count"), "error": payload.get("error"),
+            "review_verdict": review.verdict if review is not None else None, "artifact": artifact,
+        })
+        return payload
+
+    def _compute(*, source: str = "stored", where=None, group_by=None, code=None) -> dict:
+        """``compute_over_rows`` over the stored rows (``source`` "stored") or every row of the loop's newest query
+        ("last_query"), with the payload's ``source`` and ``review`` added. A newest query with no rows (it matched
+        nothing, failed, or could not be written) is refused with ``needs_query``: an older query's rows answer the
+        question the loop asked before it, and counting them gave a number with nothing to say so (Task 24)."""
+        if source not in ("stored", "last_query"):
+            return _keep_compute(source, where, group_by, code, {
+                "ok": False, "error": f"unknown source {source!r}: use 'stored' or 'last_query'"}, None)
+        _stored_extent()
+        described = extent.get("described") or {}
+        if source == "last_query" and newest and newest.get("run") is None:
+            matched = "failed" if not newest.get("ok") else "matched no rows"
+            payload = {"ok": False, "needs_query": True, "columns": [],
+                       "error": (f"The newest query on this turn ({newest.get('question')!r}) {matched}, so there are "
+                                 "no rows of it to compute over, and an earlier query's rows answer a different "
+                                 "question. Answer from what that query returned, or use run_new_query.")}
+            origin = {"kind": "last_query", "question": newest.get("question"), "seed_mode": newest.get("seed_mode"),
+                      "rows_in": 0, "total": newest.get("total"), "complete": False}
+        elif source == "last_query":
+            if not graph_runs:
+                return _keep_compute(source, where, group_by, code, {
+                    "ok": False, "error": ("no query has run on this turn yet; run run_new_query first, "
+                                           "or use source 'stored'")}, None)
+            run = graph_runs[-1]
+            result = run["result"]
+            rows = list(result.get("data") or [])
+            total = result.get("total") if result.get("total") is not None else result.get("count")
+            # Every row of that query is in hand: the computation runs over all of them. It covers the whole earlier
+            # set only when the query did; the query's own scope_note says what it covers, and comes with it.
+            all_rows = (not result.get("truncated") and isinstance(total, int) and not isinstance(total, bool)
+                        and total <= len(rows))
+            origin = {"kind": "last_query", "question": run.get("question"), "seed_mode": run.get("seed_mode"),
+                      "rows_in": len(rows), "total": total,
+                      "complete": all_rows and not run.get("part_of_set")}
+            payload = compute_over_rows(rows=rows, total=total, complete=all_rows, where=where,
+                                        group_by=group_by, code=code)
+            if run.get("scope_note"):
+                payload["scope_note"] = " ".join(n for n in (run["scope_note"], payload.get("scope_note")) if n)
+        else:
+            rows = _stored_rows(bundle)
+            total = described.get("total")
+            complete = bool(rows) and not described.get("capped")
+            origin = {"kind": "stored", "bundle_id": bundle.get("id"), "rows_in": len(rows), "total": total,
+                      "complete": complete}
+            if described.get("aggregate_values"):
+                # One row holding what an aggregate computed: counting it would count that row.
+                payload = {"ok": False, "needs_query": True, "columns": sorted(described["aggregate_values"]),
+                           "error": ("The earlier result is an aggregate: read_stored_result's aggregate_values "
+                                     "holds what it computed. Answer from that, or use run_new_query for anything "
+                                     "about individual samples.")}
+            else:
+                payload = compute_over_rows(rows=rows, total=total, complete=complete, where=where,
+                                            group_by=group_by, code=code)
+            if payload.get("needs_query"):
+                # Task 11's flag, the one read_stored_result and run_new_query use: never claim a rebuild the seam
+                # would not do. It rebuilds only a copy that is capped or kept no rows.
+                rebuildable = bool(described.get("stored_query_rebuildable"))
+                payload["stored_query_available"] = rebuildable
+                if not complete:
+                    payload["error"] += (
+                        " With seed_uids true, run_new_query rebuilds the whole set from the stored query."
+                        if rebuildable else
+                        " No stored query can be rebuilt for this result, so a new query cannot cover the whole "
+                        "earlier set: its scope_note says what it covers.")
+        payload["source"] = origin
+        review = review_compute(question=user_text, source_kind=source, source_total=extent.get("set_size"),
+                                target_bundle_id=bundle.get("id"),
+                                newest_bundle_id=newest_bundle_id if newest_bundle_id is not None else bundle.get("id"),
+                                payload=payload)
+        payload["review"] = {"verdict": review.verdict, "fired": [c.name for c in review.checks if c.fired],
+                             "disclosure": review.disclosure}
+        return _keep_compute(source, where, group_by, code, payload, review)
 
     try:
         outcome = run_followup(
-            config, user_text=user_text, bundle=bundle, run_query=_run_query, log_dir=log_dir,
+            config, user_text=user_text, bundle=bundle, run_query=_run_query, compute=_compute, log_dir=log_dir,
         )
         if isinstance(outcome, dict):
             outcome["graph_runs"] = graph_runs
+            outcome["compute_runs"] = compute_runs
         return outcome
     except Exception as exc:
-        print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
+        print(f"[DEBUG][FOLLOWUP] agent failed, the turn gets the fixed reply: {exc!r}")
+        if failure is not None:
+            failure["error"] = type(exc).__name__
         return None
+
+
+def _stored_set_size(described: dict) -> Any:
+    """How many records the stored result is a set of, for ``check_premise``; None when its total is not that.
+
+    A record set (it holds UIDs) has its total, and a single-number aggregate has that number
+    (``describe_stored_result`` makes it the total). Any other total is no set size: a breakdown's counts its
+    groups (23 downstream types of 1,641 mice), and a one-row aggregate of two numbers has a total of 1."""
+    if described.get("uid_count"):
+        return described.get("total")
+    aggregate = described.get("aggregate_values")
+    if isinstance(aggregate, Mapping):
+        numbers = [v for v in aggregate.values() if isinstance(v, (int, float))]
+        if len(numbers) == 1:
+            return described.get("total")
+    return None
+
+
+def _newest_bundle_id(session) -> int | None:
+    """The id of the newest stored result in ``results_history``, or None when there is none."""
+    try:
+        ids = [b.get("id") for b in (session.get("results_history") or []) if isinstance(b, dict)]
+    except Exception:
+        return None
+    ids = [i for i in ids if isinstance(i, int) and not isinstance(i, bool)]
+    return max(ids) if ids else None
+
+
+def _review_verdict(result: Any) -> str | None:
+    """A loop query payload's review verdict, for ``debug.followup``."""
+    review = result.get("review") if isinstance(result, dict) else None
+    return review.get("verdict") if isinstance(review, dict) else None
 
 
 def _followup_examples(rows: list, limit: int = 3) -> list[str]:
@@ -681,8 +1002,9 @@ def _clamp_lab_codes_to_entity(plan, entity_result):
 GRAPH_MAX_TRIES = 3
 
 
-def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, Any]:
-    """One generate-execute round for debug.graph_attempts: what was written, what ran, and the decision."""
+def _graph_attempt(cypher: str | None, result: dict, reason: str, *, elapsed_ms: int) -> dict[str, Any]:
+    """One generate-execute round for debug.graph_attempts: what was written, what ran, the decision, and how long
+    the tool_neo4j_query call took."""
     scope = result.get("scope")
     return {
         "cypher": cypher, "ok": result.get("ok"),
@@ -690,7 +1012,282 @@ def _graph_attempt(cypher: str | None, result: dict, reason: str) -> dict[str, A
         "reason": reason,
         "executed_cypher": result.get("cypher"),
         "scope_decision": scope.get("decision") if isinstance(scope, dict) else None,
+        "elapsed_ms": elapsed_ms,
     }
+
+
+def _ms_since(t0: float) -> int:
+    return int((time.perf_counter() - t0) * 1000)
+
+
+class GraphRun(NamedTuple):
+    """What ``_run_graph_with_retries`` settled on."""
+    graph_plan: Any       # the GraphAgentPlan whose result was kept
+    graph_result: dict    # the kept result
+    attempts: list        # every generate-execute round, for debug.graph_attempts
+    elapsed_ms: int       # the Neo4j time of the kept result, never a discarded retry's
+    parameters: Any       # what the kept statement ran with
+    changed_answer: bool  # the first query matched nothing and a retry found something
+
+
+def _bind_parameters(graph_plan, parameters_extra: dict | None):
+    """The parameters ``graph_plan`` runs with: its own, plus each of ``parameters_extra`` that its Cypher names as
+    ``$name`` (over any value the model wrote for it). Its own, untouched, when none of them applies."""
+    named = {k: v for k, v in (parameters_extra or {}).items() if f"${k}" in (graph_plan.cypher or "")}
+    return {**dict(graph_plan.parameters or {}), **named} if named else graph_plan.parameters
+
+
+def _run_graph_with_retries(config, question: str, entity, plan, refine: str | None,
+                            parameters_extra: dict | None = None, *, graph_plan) -> GraphRun:
+    """Execute ``graph_plan``, read the outcome, and regenerate, up to ``GRAPH_MAX_TRIES`` statements in all.
+
+    The one execution path of the graph turn (``_execute_graph_turn``) and of the follow-up loop's queries
+    (``_run_followup_agent``), so the two retry the same way. ``graph_plan`` is the first statement, which the caller
+    has already had the graph agent write; a retry asks the agent again with ``question``, ``entity``, ``plan`` and
+    ``refine`` (the refine context) plus the failure. ``parameters_extra`` holds parameters the caller binds itself
+    (the follow-up's ``$uids``), bound into every attempt whose Cypher names them.
+
+    Each attempt is timed around ``tool_neo4j_query`` alone, and ``elapsed_ms`` is the kept attempt's, so the
+    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal is final at once:
+    another statement would be refused the same way, and the graph turn falls back to graph_search.
+    """
+    parameters = _bind_parameters(graph_plan, parameters_extra)
+    t_query = time.perf_counter()
+    graph_result = tool_neo4j_query(config, graph_plan.cypher, parameters)
+    kept_ms = _ms_since(t_query)  # the Neo4j time of graph_result, the result the caller keeps
+
+    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
+    # This was one retry and only on a Cypher error, so a query that ran perfectly well
+    # and matched nothing was final. That is case B11 (a guessed assay name returned
+    # zero and the zero was reported as the answer). A zero-row result now gets exactly
+    # one more go, and if the second query also finds nothing the FIRST result stands:
+    # reporting a different query's number would be worse than reporting zero.
+    attempts: list[dict[str, Any]] = [
+        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
+    first_ok_empty = matched_nothing(graph_result)
+    zero_row_retry_used = False
+
+    for _ in range(GRAPH_MAX_TRIES - 1):
+        if is_scope_refusal(graph_result):
+            # Final: another model call can only write another query the prover cannot
+            # prove. The graph turn falls back to graph_search.
+            break
+        if not graph_result.get("ok"):
+            neo4j_error = graph_result.get("error", "Unknown error")
+            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+            retry_ctx = (
+                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                "Revisit the schema carefully - check property types, relationship directions, "
+                "and graph_topology - then generate a corrected query."
+            )
+            reason = "cypher_error"
+        elif matched_nothing(graph_result) and not zero_row_retry_used:
+            zero_row_retry_used = True
+            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
+            # The wording, and why it no longer says "use the closest value", is in
+            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
+            retry_ctx = zero_row_retry_context(graph_plan.cypher)
+            reason = "zero_rows"
+        else:
+            break
+
+        graph_plan_retry = graph_agent(
+            config, question, entity, plan,
+            retry_context=retry_ctx, refine_context=refine,
+        )
+        if not graph_plan_retry.cypher:
+            break
+        retry_parameters = _bind_parameters(graph_plan_retry, parameters_extra)
+        t_query = time.perf_counter()
+        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
+        retry_ms = _ms_since(t_query)
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        # Keep the retry only when it is an improvement. A retry that errors, or that
+        # also finds nothing after a zero-row first attempt, leaves the original alone.
+        if not retry_result.get("ok"):
+            if graph_result.get("ok"):
+                break
+        elif reason == "zero_rows" and matched_nothing(retry_result):
+            break
+        graph_plan = graph_plan_retry
+        graph_result = retry_result
+        parameters = retry_parameters
+        kept_ms = retry_ms
+
+    return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
+                    parameters=parameters,
+                    changed_answer=first_ok_empty and not matched_nothing(graph_result))
+
+
+#: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
+#: without narrating how they were found.
+REVIEW_NOTE = ("What the result matched: {facts} State this plainly in the first sentences. "
+               "Do not mention a review or a second query.")
+#: The same note when the review's facts say the query itself broke (graph_review's ``breakage``: it failed, or none
+#: ran). Such a query matched nothing, so "What the result matched" would be false.
+BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sentences. "
+                 "Do not mention a review or a second query.")
+#: describe_query_scope cuts a note at 400 characters, which would drop the instruction at this one's end.
+REVIEW_NOTE_MAX = 399
+#: The reviewer's wall clock, both tiers together.
+REVIEW_BUDGET_S = 8.0
+#: A turn this old runs no count variant and reads only cached catalog values.
+REVIEW_LATE_TURN_S = 45
+#: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
+REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
+
+
+def _review_note(disclosure: str, template: str = REVIEW_NOTE) -> str:
+    """``template`` (``REVIEW_NOTE``, or ``BREAKAGE_NOTE`` for a query that broke) holding the review's facts, at
+    most ``REVIEW_NOTE_MAX`` characters.
+
+    A disclosure can hold 299 characters (graph_review.DISCLOSURE_MAX) and a template up to 111 (``REVIEW_NOTE``;
+    ``BREAKAGE_NOTE`` takes 103), so a full one would pass the chatter's 400-character cut. The room is computed from
+    the template in use. Whole facts are dropped from the end until the note fits; a single fact too long for the
+    room is cut short."""
+    facts = " ".join(str(disclosure).split())
+    room = REVIEW_NOTE_MAX - len(template.format(facts=""))
+    if len(facts) > room:
+        end = facts.rfind(". ", 0, room)
+        facts = facts[:end + 1] if end > 0 else facts[:room - 1].rstrip() + "…"
+    return template.format(facts=facts)
+
+
+def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int | None) -> ReviewInput:
+    """The reviewer's input for one kept result: the question the statement answers, the statement as the model
+    wrote it, its parameters, the rows and counts, and ``elapsed_ms`` (the kept statement's Neo4j time).
+
+    The server's scope parameter is left out of the parameters: every count goes back through
+    ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it."""
+    raw = graph_result.get("parameters")
+    if not isinstance(raw, Mapping):
+        raw = graph_plan.parameters or {}
+    parameters = {k: v for k, v in raw.items()
+                  if not (isinstance(k, str) and k.lower().startswith(RESERVED_PREFIX))}
+    return ReviewInput(
+        question=question,
+        cypher=graph_plan.cypher,
+        parameters=parameters,
+        keyword_fields=dict(graph_plan.keyword_fields or {}),
+        rows=list(graph_result.get("data") or []),
+        count=graph_result.get("count"),
+        total=graph_result.get("total"),
+        ok=bool(graph_result.get("ok")),
+        error=graph_result.get("error"),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, user_text: str, graph_plan,
+                           graph_result: dict, elapsed_ms: int | None, stored_total, target_bundle_id,
+                           newest_bundle_id, seeded: bool = False) -> GraphReview:
+    """The graph reviewer over one follow-up loop query (loop gap L4), for the tool payload's ``review``.
+
+    Tier 1 (``review_tier1``) reads the loop's own ``question``, the one the statement answers, without
+    ``premise_count`` (``FOLLOWUP_TIER1_SKIP``), and without ``unapplied_value`` when the statement is bound to
+    the earlier result's UIDs (``seeded``, ``FOLLOWUP_SEEDED_SKIP``); then ``check_premise`` and
+    ``check_binding`` read the user's words against the stored result the loop is about (``with_checks``
+    discloses them first). ``stored_total`` is that result's size as a set (``_stored_set_size``), or None.
+    ``get_catalog`` returns the loop turn's one catalog provider, or raises why it could not be built. No Tier 2:
+    the loop's model can run a relaxed query itself, and a count per loop query would stack the reviewer's time
+    budget.
+
+    Never raises. Anything escaping becomes an ``ok`` review that records the error, so the loop goes on as it
+    would without a reviewer."""
+    t0 = time.perf_counter()
+    try:
+        inp = _review_input(question, graph_plan, graph_result, elapsed_ms)
+        skip = {**FOLLOWUP_TIER1_SKIP, **(FOLLOWUP_SEEDED_SKIP if seeded else {})}
+        review = review_tier1(inp, get_catalog(), skip=skip)
+        return with_checks(review, [
+            check_premise(user_text, stored_total=stored_total),
+            check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id, user_text=user_text),
+        ])
+    except Exception as exc:  # a reviewer bug must never cost the user their answer
+        return GraphReview("ok", [], None, None, [], int((time.perf_counter() - t0) * 1000), error=repr(exc))
+
+
+def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *, elapsed_ms: int | None,
+                       t_turn_start: float) -> GraphReview:
+    """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
+
+    Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
+    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, reading only
+    cached values when the statement took over ``SKIP_AFTER_MS`` or the turn has already run
+    ``REVIEW_LATE_TURN_S``. Tier 2 (``run_tier2``, bounded count variants) runs only when a check that has a variant
+    fired and the turn is younger than ``REVIEW_LATE_TURN_S``, inside what Tier 1 left of ``REVIEW_BUDGET_S``.
+
+    The server's scope parameter is left out of the parameters: every count goes back through
+    ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it.
+
+    ``elapsed_ms`` is the Neo4j time of the statement under review, the one whose result the turn kept, never a
+    retry the turn threw away: a count variant relaxes that statement, so its time decides whether one runs.
+
+    Never raises. Anything escaping becomes an ``ok`` review that records the error, so the turn goes on as it
+    would without a reviewer; a failure inside Tier 2 keeps Tier 1's verdict (``run_tier2``'s own contract).
+    """
+    t0 = time.perf_counter()
+    try:
+        inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
+        slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
+        late = t0 - t_turn_start > REVIEW_LATE_TURN_S
+        catalog = live_values(config, max_cold=0) if slow or late else live_values(config)
+        review = review_tier1(inp, catalog)
+        fired = {check.name for check in review.checks if check.fired}
+        if fired & REVIEW_VARIANT_CHECKS and time.perf_counter() - t_turn_start < REVIEW_LATE_TURN_S:
+            spent = time.perf_counter() - t0
+            review = run_tier2(config, inp, review, budget_s=max(0.0, REVIEW_BUDGET_S - spent))
+        return review
+    except Exception as exc:  # a reviewer bug must never cost the user their answer
+        return GraphReview("ok", [], None, None, [], _ms_since(t0), error=repr(exc))
+
+
+# --------------------------------------------------------------------------
+# Suggestion chips (#128, helpers/suggestions.py)
+# --------------------------------------------------------------------------
+#
+# A graph turn whose review suggests a next question offers it as a chip in debug.suggestions and remembers it
+# for the turn it was offered on. The next NS turn asks accept() whether its text is that chip's query, before it
+# is routed anywhere, and the offer is cleared either way: it lasts one turn, and any turn written to chat_log in
+# between (a Container-CC turn included) cancels it. A click offers no chip of its own, so chips never chain.
+
+
+def _last_turn_id(session) -> int:
+    """The id of the newest turn in ``chat_log``, or 0 when there is none.
+
+    Read the way ``chat_memory.next_turn_id`` numbers turns: the largest id, never the last entry's. Every writer
+    (``append_turn`` here, the Container-CC and non-answer writers in ``NessieAI/cc``) gives a new entry
+    ``next_turn_id(log)``, so right after a turn is written this is that turn's id, and anything written later,
+    whoever writes it, is larger."""
+    return next_turn_id(session.get(CHAT_LOG_KEY)) - 1
+
+
+def _accepted_suggestion(session, user_text: str) -> dict[str, Any] | None:
+    """The chip this message clicked, or None. Clears what the previous turn offered either way."""
+    try:
+        return accept(session, user_text, last_turn_id=_last_turn_id(session))
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not read the offered suggestion: {exc!r}")
+        return None
+
+
+def _suggestions_for(review: dict[str, Any] | None, bundle_id: int) -> list[dict[str, Any]]:
+    """The chips for this turn's review (``debug_payload["graph_review"]``), or [] when there are none."""
+    try:
+        return suggestions_from_review(review or {}, bundle_id=bundle_id)
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not build the suggestion: {exc!r}")
+        return []
+
+
+def _remember_suggestions(session, items: list[dict[str, Any]]) -> None:
+    """Keep the chips for the newest turn in ``chat_log``: called right after ``append_turn`` has written this
+    graph turn, so that is the id this turn is stored under, and the one the next turn's ``_last_turn_id`` reads
+    unless another turn is written in between. No chips clears the entry."""
+    try:
+        pending_for(session, items, turn_id=_last_turn_id(session))
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not remember the offered suggestion: {exc!r}")
 
 
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
@@ -751,8 +1348,11 @@ def _execute_graph_turn(
     t_total_start: float,
     refine_context: str | None = None,
     note_agent: Callable[[str], None] | None = None,
+    offer_suggestions: bool = True,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
+
+    ``offer_suggestions`` is False on a turn that is itself a click on a chip: it offers no chip of its own.
 
     run_query's error handlers report ``current_agent``, a local of the caller. The
     graph turn runs in this function, so that local stayed "graph" for the whole turn:
@@ -809,70 +1409,29 @@ def _execute_graph_turn(
     send_event("agent_complete", {"agent": "graph", "summary": summary})
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
-    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-
-    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
-    # This was one retry and only on a Cypher error, so a query that ran perfectly well
-    # and matched nothing was final. That is B11 (juanita, a guessed assay name returned
-    # zero and the zero was reported as the answer). A zero-row result now gets exactly
-    # one more go, and if the second query also finds nothing the FIRST result stands:
-    # reporting a different query's number would be worse than reporting zero.
-    attempts: list[dict[str, Any]] = [_graph_attempt(graph_plan.cypher, graph_result, "initial")]
-    first_ok_empty = matched_nothing(graph_result)
-    zero_row_retry_used = False
-
-    for _ in range(GRAPH_MAX_TRIES - 1):
-        if is_scope_refusal(graph_result):
-            # Final for the turn: another model call can only write another query the
-            # prover cannot prove. The turn falls back to graph_search below.
-            break
-        if not graph_result.get("ok"):
-            neo4j_error = graph_result.get("error", "Unknown error")
-            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-            retry_ctx = (
-                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                "Revisit the schema carefully - check property types, relationship directions, "
-                "and graph_topology - then generate a corrected query."
-            )
-            reason = "cypher_error"
-        elif matched_nothing(graph_result) and not zero_row_retry_used:
-            zero_row_retry_used = True
-            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
-            # The wording, and why it no longer says "use the closest value", is in
-            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
-            retry_ctx = zero_row_retry_context(graph_plan.cypher)
-            reason = "zero_rows"
-        else:
-            break
-
-        graph_plan_retry = graph_agent(
-            config, user_text, entity_result, plan,
-            retry_context=retry_ctx, refine_context=agent_context,
-        )
-        if not graph_plan_retry.cypher:
-            break
-        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
-        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason))
-        # Keep the retry only when it is an improvement. A retry that errors, or that
-        # also finds nothing after a zero-row first attempt, leaves the original alone.
-        if not retry_result.get("ok"):
-            if graph_result.get("ok"):
-                break
-        elif reason == "zero_rows" and matched_nothing(retry_result):
-            break
-        graph_plan = graph_plan_retry
-        graph_result = retry_result
+    # The retry loop (a Cypher error, a zero-row result) is shared with the follow-up loop's queries.
+    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
+                                  graph_plan=graph_plan)
+    graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
 
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
     if is_scope_refusal(graph_result):
         return _graph_scope_fallback(graph_plan, graph_result, attempts, debug_payload, send_event)
+    # Nothing used to inspect a graph result that ran, so confidently wrong numbers reached the reply (98
+    # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
+    # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
+    # note or suggest to the chatter as one note.
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=run.elapsed_ms,
+                                t_turn_start=t_total_start)
+    debug_payload["graph_review"] = as_debug(review)
+    session["_graph_review"] = debug_payload["graph_review"]
     # A number found by a changed filter may not mean what the question asked, so the
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
     query_notes: list[str] = list(uid_reply_notes)
-    if first_ok_empty and not matched_nothing(graph_result):
+    if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
     # A lab the question misspells resolves to no code, by design, and used to leave the
@@ -883,6 +1442,10 @@ def _execute_graph_turn(
         debug_payload["lab_near_misses"] = [m.model_dump() if hasattr(m, "model_dump") else m
                                             for m in entity_result.lab_near_misses]
         query_notes.extend(near_miss_notes)
+    review_disclosure = review.disclosure if review.verdict in ("note", "suggest") else None
+    if review_disclosure:
+        broke = any(check.name == "breakage" and check.fired for check in review.checks)
+        query_notes.append(_review_note(review_disclosure, BREAKAGE_NOTE if broke else REVIEW_NOTE))
 
     send_event(
         "search_complete",
@@ -947,14 +1510,23 @@ def _execute_graph_turn(
 
     debug_payload["graph_plan"] = graph_plan.model_dump()
     debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
+    # The reviewer's suggestion as a chip, from this turn's review only: session["_graph_review"] outlives the turn
+    # that wrote it. Built before the chatter runs, so its reply can offer the same step.
+    suggestions = _suggestions_for(debug_payload.get("graph_review"), bundle_id) if offer_suggestions else []
+    if suggestions:
+        debug_payload["suggestions"] = suggestions
 
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
     _t1 = time.perf_counter()
+    # The chatter states the review's facts first and offers the first chip's step last, backed by code when the
+    # model's reply drops either. No chip (a click on one included) means no offer.
     reply = chatter_agent_answer(
         config, user_text, entity_result.model_dump(), plan.model_dump(),
         graph_plan=graph_plan.model_dump(), graph_result=graph_result,
         log_dir=log_dir, session=session, query_notes=query_notes,
+        review_disclosure=review_disclosure,
+        offered_step=suggestions[0].get("label") if suggestions else None,
     )
     print(f"[TIMING][CHATTER] {time.perf_counter() - _t1:.2f}s")
     send_event("agent_complete", {"agent": "chatter", "summary": None})
@@ -970,6 +1542,7 @@ def _execute_graph_turn(
         tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
         result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
     )
+    _remember_suggestions(session, suggestions)
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
     return _emit_query_complete(
         send_event, reply, debug_payload, bundle_id,
@@ -1211,6 +1784,9 @@ def run_query(
 
     _t_total_start = time.perf_counter()
     session["last_files"] = []
+    # Before the turn is routed anywhere, the wizard included: whatever this turn is, the previous turn's chip
+    # offer ends here.
+    accepted_suggestion = _accepted_suggestion(session, user_text)
 
     _raw_send_event = send_event
 
@@ -1285,6 +1861,8 @@ def run_query(
             "error_context": None,
             **variant_record(config),  # prompt_variant + prompt_variant_files; parser_plan.mode is the route
         }
+        if accepted_suggestion is not None:
+            debug_payload["suggestion_accepted"] = {k: accepted_suggestion.get(k) for k in ("id", "source", "kind")}
 
         if mode == "unsupported":
             reply = unsupported_reply(plan)
@@ -1353,27 +1931,36 @@ def run_query(
             # The follow-up agent first. This branch used to end here: it read one
             # stored bundle and answered from it, with no path back to the graph, so a
             # question the stored result could not answer was answered from it anyway
-            # (wesselr 440 was told "No other data types are available" about a result
-            # that could not have held them). The agent can look at what the bundle
-            # holds and run a new query seeded with its UIDs. When the profile has no
-            # tool-capable model, or the agent produces nothing, the old path still
-            # runs: worse, but never worse than before.
+            # (in task 440 the user was told "No other data types are available" about
+            # a result that could not have held them). The agent can look at what the bundle
+            # holds, compute over its rows, and run a new query seeded with its UIDs. It is
+            # the only path: when it fails, the profile has no tool-capable model, or it
+            # ends with nothing, the turn says so (FOLLOWUP_UNAVAILABLE_REPLY) rather than
+            # answering from the stored snapshot (n0914-1175).
+            followup_failure: dict[str, Any] = {}
             followup_outcome = _run_followup_agent(
                 config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
+                failure=followup_failure,
             )
             # Written whatever happened: on turn 1147 the loop ran six times, queried the
             # graph three times and produced no reply, and because this block sat inside
             # `if answer:` the turn's debug carried no `followup` key at all, which is why
-            # the failure read as "the memory agent is wrong" for a day.
-            if followup_outcome is not None:
+            # the failure read as "the memory agent is wrong" for a day. A loop that raised
+            # is recorded by its exception type only (None when it returned nothing).
+            if followup_outcome is None:
+                debug_payload["followup"] = {"failed": True, "error": followup_failure.get("error")}
+            else:
                 debug_payload["followup"] = {
                     "tool_calls": followup_outcome.get("tool_calls"),
                     "queries": [
                         {"question": q.get("question"), "seeded": q.get("seeded"),
                          "count": (q.get("result") or {}).get("count"),
-                         "uids_applied": (q.get("result") or {}).get("uids_applied")}
+                         "uids_applied": (q.get("result") or {}).get("uids_applied"),
+                         "seed_mode": (q.get("result") or {}).get("seed_mode"),
+                         "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
+                    "computes": followup_outcome.get("compute_runs") or [],
                     "caveats": followup_outcome.get("caveats"),
                     "exhausted": bool(followup_outcome.get("exhausted")),
                     "unsupported": bool(followup_outcome.get("unsupported")),
@@ -1381,16 +1968,10 @@ def run_query(
             # `if reply:` could not tell an exhausted loop from a profile with no tool
             # surface, so a lineage question was answered from a five-column bundle which
             # then reported the absence of what the loop had already found.
-            answer, may_use_stored = resolve_followup_outcome(followup_outcome)
-            if may_use_stored:
-                answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
-            elif not answer:
-                answer = ("I could not finish this follow-up. Ask it as a fresh question and "
-                          "I will run it properly.")
-            answer = link_sample_uids(answer)
+            answer = link_sample_uids(resolve_followup_outcome(followup_outcome))
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             own_bundle = None
-            if not may_use_stored:
+            if followup_outcome is not None:
                 try:
                     own_bundle = _followup_result_bundle(
                         session, artifact_store, outcome=followup_outcome, user_text=user_text,
@@ -1425,7 +2006,6 @@ def run_query(
                 "source_mode": bundle.get("mode"),
             }
             debug_payload["api_result_slim"] = bundle.get("api_result_slim")
-            debug_payload["memory_coder_artifact"] = bundle.get("memory_coder_artifact")
             session["last_debug"] = debug_payload
             send_event("agent_complete", {"agent": "memory", "summary": None})
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
@@ -1723,7 +2303,7 @@ def run_query(
                 entity_result=entity_result, plan=plan, log_dir=log_dir,
                 artifact_store=artifact_store, send_event=send_event,
                 debug_payload=debug_payload, t_total_start=_t_total_start,
-                note_agent=_note_agent,
+                note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
             )
             if not isinstance(outcome, GraphScopeFallback):
                 return outcome
@@ -1754,7 +2334,7 @@ def run_query(
                         log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
                         debug_payload=debug_payload, t_total_start=_t_total_start,
                         refine_context=_build_graph_refine_context(_prior),
-                        note_agent=_note_agent,
+                        note_agent=_note_agent, offer_suggestions=accepted_suggestion is None,
                     )
                     if not isinstance(outcome, GraphScopeFallback):
                         return outcome
@@ -2046,6 +2626,42 @@ def run_query(
 def handle_query(session: SessionState | SessionStateProxy, config: ChatConfig, user_text: str) -> str:
     """Convenience wrapper that runs the standard pipeline and returns only the reply text."""
     return run_query(session, config, user_text)["reply"]
+
+
+def _plan_filter_payload(step_results: dict, step_key, plan_steps) -> dict:
+    """A plan filter step's memory payload: its rows, and their total unless they derive from a capped step.
+
+    Its ``count`` is its own row count, so a filter over 1,000 of 36,622 rows used to be stored as 334 of 334, a
+    whole set. When the step inherits a cap (``plan_step_extent``) the total is unknown and the rows are marked
+    ``truncated``, which a follow-up reads as capped."""
+    sr = step_results.get(step_key) or {}
+    output = sr.get("output") or {}
+    rows = output.get("data") if isinstance(output.get("data"), list) else []
+    total, capped = plan_step_extent(step_results, step_key, plan_steps=plan_steps)
+    data: dict[str, Any] = {"rows": rows, "total": total}
+    if capped:
+        data["truncated"] = True
+    elif total is None:
+        data["total"] = len(rows)
+    return {"data": data, "source_output": output, "tool": sr.get("tool")}
+
+
+def _plan_graph_result(step_result: dict) -> dict:
+    """A planner graph step's result as the plan bundle stores it.
+
+    ``total`` and ``truncated`` are kept as the step has them from ``tool_neo4j_query``:
+    ``count`` is only the number of rows returned, so without them a step that hit its
+    LIMIT was stored as 1,000 of 1,000 and a follow-up read the capped rows as the set.
+    """
+    output = step_result.get("output") or {}
+    return {
+        "ok": step_result.get("ok"),
+        "data": output.get("data") or [],
+        "count": output.get("count", 0),
+        "total": output.get("total"),
+        "truncated": bool(output.get("truncated")),
+        "error": step_result.get("error"),
+    }
 
 
 def run_query_plan(
@@ -2395,7 +3011,7 @@ def run_query_plan(
         canonical_report_saved_files = None
         canonical_memory_payload = None
         canonical_search_context = None
-        for sr in step_results.values():
+        for step_key, sr in step_results.items():
             if not isinstance(sr, dict) or not sr.get("ok"):
                 continue
             output = sr.get("output") or {}
@@ -2423,20 +3039,10 @@ def run_query_plan(
                     "query_params": (canonical_api_plan or {}).get("queryParameters") if isinstance(canonical_api_plan, dict) else {},
                 }
             elif tool == "coding_filter":
-                rows = output.get("data") if isinstance(output.get("data"), list) else []
-                canonical_memory_payload = {
-                    "data": {"rows": rows, "total": output.get("count", len(rows))},
-                    "source_output": output,
-                    "tool": tool,
-                }
+                canonical_memory_payload = _plan_filter_payload(step_results, step_key, plan.steps)
             elif tool == "graph_query" and canonical_graph_plan is None:
                 canonical_graph_plan = output.get("graph_plan")
-                canonical_graph_result = {
-                    "ok": sr.get("ok"),
-                    "data": output.get("data") or [],
-                    "count": output.get("count", 0),
-                    "error": sr.get("error"),
-                }
+                canonical_graph_result = _plan_graph_result(sr)
                 if canonical_memory_payload is None:
                     canonical_memory_payload = canonical_graph_result
             elif tool in {"reporter", "report_generation"}:

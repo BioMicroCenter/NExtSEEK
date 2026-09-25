@@ -10,12 +10,12 @@ with retrieval mechanics.
 The cost of it is three production failures out of 84 turns, all the same shape: the
 reply described a result as if it answered a question the query never asked.
 
-* **B7** (wesselr 462) "list all the human patient samples (PAT) associated with
+* **B7** (task 462) "list all the human patient samples (PAT) associated with
   MDL-250912LAU-1" fetched the whole lineage of the model and never filtered to PAT.
   The reply reported 1,904 matching records; none of the nine it showed were PAT.
-* **B8** (wesselr 437) searched ``D.FLOW`` and ``D.CYTOF`` and the reply named
+* **B8** (task 437) searched ``D.FLOW`` and ``D.CYTOF`` and the reply named
   ``D.FCS``. The review's fix is "name types in the reply from the query that ran".
-* **B13** (mplaster 501/502) counted every mouse with transcriptomic descendants.
+* **B13** (tasks 501/502) counted every mouse with transcriptomic descendants.
   The plan's own note said the ``CC`` keyword filter could not be applied in the
   graph, and the reply still called the 731 a subset of the CC mice.
 
@@ -41,6 +41,20 @@ applied only when the executed Cypher really filters on it. When nothing describ
 an executed query at all — the reporter path has no query text — the scope reports
 itself as unmeasurable and claims no gap, because "the query ignored your filter" is
 exactly the kind of confident false statement this is here to prevent.
+
+The 2026-09-23 runs showed seven more steps containment could not see, each a false
+NOT APPLIED line over a correct query, and each now read from the query that ran:
+a question that asks for samples with no type before a topic asks for no sample type
+(R5-646, R5-678, R7-711); an assay counts when the query constrained a data type whose
+name holds its title, "Imaging" and D.IMG "Imaging Data" (R5-653); a project or keyword
+counts when the query compared a Project, Study or Investigation title that holds it, or a
+Study title that it holds, "Impact" and 'IMPAcTb' (R7-708, R6-1221, R6-1227); a word of a
+long keyword matched that way is covered with it (R7-711); a keyword glossed by a container
+title the query compared, or glossing one, counts (R6-1227); a keyword word counts in its singular or
+plural, or begun by a literal of four or more characters the query compared (R5-667,
+R5-631); and a whole-type everyday name ("monkey") counts when that type's label is in
+the query (R5-650, R5-670). Each of the seven only moves an item out of NOT APPLIED, or
+out of what counts as asked for, never into it, so the rule above still holds.
 """
 from __future__ import annotations
 
@@ -149,11 +163,16 @@ def _asked_for(
     Treatment" for "cd8 depletion", a "Published Data" project read into a -PUB UID),
     and a query that rightly ignored such a guess was reported as having dropped it.
     Sample types, scientists, UIDs and lab codes are always counted: "monkeys" asks for
-    NHP without saying it.
+    NHP without saying it. The one exception is a question that asks for samples with no
+    type before a topic ("Find me all samples associated with X", "Show me samples
+    processed via X"): it asks for every sample, so a type read out of X is not counted
+    unless the question writes that type's code, or names the type after the topic with a
+    cue ("from mice", "mouse samples"; ``_EVERY_SAMPLE``, ``_type_cued``).
     """
     filters = parser_plan.get("filters") or {}
     asked: list[tuple[str, str, str, str | None]] = []
     _guessable = {"assay", "project", "keyword"}
+    every_sample = _EVERY_SAMPLE.match(user_query) if user_query is not None else None
 
     def _add(kind: str, value: str, name: str | None = None) -> None:
         label = _label(kind, value, name)
@@ -165,6 +184,9 @@ def _asked_for(
         if any(label == existing for _, _, existing, _ in asked):
             return
         if user_query is not None and kind in _guessable and not _named_in(user_query, value, name):
+            return
+        if (kind == "sample type" and every_sample and not _code_written(user_query, value)
+                and not _type_cued(user_query[every_sample.end():], value, name)):
             return
         asked.append((kind, value, label, name))
 
@@ -410,7 +432,8 @@ def _data_type_segments(haystack: str) -> set[str]:
     return out
 
 
-def _assay_is_applied(code: str, name: str | None, haystack: str) -> bool:
+def _assay_is_applied(code: str, name: str | None, haystack: str,
+                      applied_types: list[tuple[str, str | None]] | None = None) -> bool:
     """Whether the query constrained on an assay.
 
     An assay is asked for by its full title, and the query almost never carries that title
@@ -440,6 +463,14 @@ def _assay_is_applied(code: str, name: str | None, haystack: str) -> bool:
         for word in re.split(r"[^A-Za-z0-9]+", title):
             if len(word) >= 3 and word.lower() not in _GENERIC_LAST_WORDS and word.lower() in segments:
                 return True
+    # A D.*/A.* type the query constrained whose name holds every word of the title: "Imaging" and D.IMG
+    # "Imaging Data" (R5-653). "CometChip Assay" and "Imaging Mass Cytometry" are not held by "Imaging Data".
+    wanted = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", title or "") if len(w) >= 3} - _GENERIC_LAST_WORDS
+    for type_code, type_name in applied_types or []:
+        if not wanted or not type_name or not re.match(r"^[AD]\.", type_code or ""):
+            continue
+        if wanted <= {w.lower() for w in re.split(r"[^A-Za-z0-9]+", type_name) if len(w) >= 3}:
+            return True
     return False
 
 
@@ -472,6 +503,171 @@ def _named_in(question: str, value: str, name: str | None = None) -> bool:
         for form in forms:
             if form.strip() and (form in q or form.replace(" ", "") in q_compact):
                 return True
+    return False
+
+
+# --------------------------------------------------------------------------- #
+# Phase F (D2): what the 2026-09-23 runs showed containment could not see.
+# Every route below only moves a constraint from NOT APPLIED to applied, or out
+# of "asked for": the module's rule (under-report, never invent) still holds.
+# --------------------------------------------------------------------------- #
+
+#: A question that asks for samples with no type and then names a topic: "Find me all samples associated with X",
+#: "What are the samples associated with this paper: ...", "Show me samples processed via X". graph_agent.txt reads
+#: it as every sample ("when it asks for 'samples' or 'all samples' with no type, search every sample"), so a type
+#: the entity step read out of X is not asked for (R5-646, R5-678, R7-711).
+_EVERY_SAMPLE = re.compile(
+    r"^\W*(?:(?:please|can you|could you|would you)\s+)?"
+    r"(?:(?:find|show|list|get|give|return|fetch|pull|display|what are|which are|what|which|how many)\s+)?"
+    r"(?:(?:me|to me|us)\s+)?(?:(?:all|every|any)\s+)?(?:(?:of\s+)?the\s+)?samples?\s+"
+    r"(?:(?:that\s+)?(?:are|were|have\s+been)\s+)?"
+    r"(?:associated\s+with|related\s+to|linked\s+to|mentioning|processed\s+(?:via|by|with|through))\b",
+    re.IGNORECASE,
+)
+
+
+def _code_written(question: str, code: str) -> bool:
+    """The question writes the type's code itself ("samples of type AB")."""
+    return re.search(r"(?<![A-Za-z0-9_])" + re.escape(code) + r"(?![A-Za-z0-9_])", question or "") is not None
+
+
+#: Whole-type everyday names, from entity_agent.txt's own examples ("mouse/mice/murine -> MUS, NHP/non-human
+#: primate/macaque/monkey -> NHP, tissue -> TIS, cell -> CEL") minus "macaque", a genus inside NHP. Never a narrowing
+#: term: the catalog Tags also list CC and rhesus macaque, and reading those as the type would hide B13's gap.
+_COMMON_TYPE_NAMES = {
+    "monkey": "NHP", "primate": "NHP", "non human primate": "NHP", "nonhuman primate": "NHP",
+    "mouse": "MUS", "mice": "MUS", "murine": "MUS",
+    "tissue": "TIS", "cell": "CEL",
+}
+
+
+def _singular(text: str) -> str:
+    """Lowercased words joined by one space, one trailing "s" dropped (not "ss"): "Monkeys" is "monkey"."""
+    t = " ".join(re.split(r"[^a-z0-9]+", str(text or "").lower())).strip()
+    return t[:-1] if len(t) > 3 and t.endswith("s") and not t.endswith("ss") else t
+
+
+def _common_name_is_applied(keyword: str, haystack: str) -> bool:
+    """R5-650, R5-670: "monkey" kept as a keyword, and the query constrained T_NHP."""
+    code = _COMMON_TYPE_NAMES.get(_singular(keyword))
+    return bool(code) and _type_is_applied(code, haystack)
+
+
+def _type_cued(text: str, code: str, name: str | None) -> bool:
+    """``text`` (the question after its "samples associated with" opening) names the type with a cue: "from" before
+    its name, its plural or an everyday name for it ("from mice", "are from patients"), or "samples" after one
+    ("mouse samples"). Not "in <name>": R7-711's paper title holds "in mice and humans"."""
+    names = ([name] if name else []) + [common for common, mapped in _COMMON_TYPE_NAMES.items() if mapped == code]
+    for candidate in names:
+        words = [w for w in re.split(r"[^a-z0-9]+", candidate.lower()) if w]
+        if not words:
+            continue
+        form = r"[\s\-]+".join(re.escape(w) for w in words) + r"(?:s|es)?"
+        cue = (r"\bfrom\s+(?:(?:the|all|any|some|these|those)\s+)?" + form + r"\b"
+               r"|\b" + form + r"\s+samples?\b")
+        if re.search(cue, text or "", re.IGNORECASE):
+            return True
+    return False
+
+
+def _literals(graph_plan: dict | None) -> list[str]:
+    """Single-token strings of 4+ characters the executed Cypher compares: quoted literals and string parameters."""
+    out: list[str] = []
+    for a, b in re.findall(r"'([^'\\]*)'|\"([^\"\\]*)\"", str((graph_plan or {}).get("cypher") or "")):
+        out.append(a or b)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, str):
+            out.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for value in ((graph_plan or {}).get("parameters") or {}).values():
+        walk(value)
+    return [v for v in out if re.fullmatch(r"[A-Za-z0-9]{4,}", v or "")]
+
+
+def _word_forms_applied(keyword: str, haystack: str, literals: list[str]) -> bool:
+    """Any word of the keyword in its singular or plural ("SOP" in /sops/, R5-667; "attributes" against
+    :Attribute, R5-631), or begun by a literal the query compared ('vocab' for "vocabulary", R5-631). Words under
+    three characters never widen, so "CC" keeps the strict test (B13)."""
+    bare = _GRAPH_LABEL.sub(" ", haystack)
+    for word in re.split(r"[^A-Za-z0-9]+", keyword):
+        if len(word) < 3:
+            continue
+        stem = _singular(word)
+        if re.search(r"(?<![A-Za-z0-9_])" + re.escape(stem) + r"(?:s|es)?(?![A-Za-z0-9_])", bare, re.IGNORECASE):
+            return True
+        if len(word) >= 5 and any(word.lower().startswith(v.lower()) and len(v) < len(word) for v in literals):
+            return True
+    return False
+
+
+def _squash(text: Any) -> str:
+    """Lowercase letters and digits only: "IMPAcTb", "impactb" and "IMPAc-Tb" are one string."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+_CONTAINER_VAR = re.compile(r"\(\s*(\w+)\s*:\s*`?(Project|Study|Investigation)`?\b")
+_CONTAINER_MAP = re.compile(
+    r"\(\s*\w*\s*:\s*`?(Project|Study|Investigation)`?\s*\{[^}]*\btitle\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")")
+_CONTAINERS = ("Project", "Study", "Investigation")
+#: The containers whose title may sit inside the asked name ("TCGA LUAD" holds the Study 'LUAD'). Only a Study:
+#: 'TCGA' is an Investigation title and, in the 1.2 graph, a Project title, and it sits inside every TCGA study's
+#: name, so either would apply "TCGA GBM" whatever study the query chose (or none).
+_NAME_MAY_HOLD = ("Study",)
+_TITLE_COMPARED = re.compile(
+    r"(?:toLower\(\s*)?(\w+)\.title\s*\)?\s*(?:=|IN|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*(?:toLower\(\s*)?"
+    r"(\$\w+|'[^']*'|\"[^\"]*\"|\[[^\]]*\])", re.IGNORECASE)
+
+
+def _container_titles(graph_plan: dict | None, labels: tuple[str, ...] = _CONTAINERS) -> list[str]:
+    """The values the executed Cypher compares a Project, Study or Investigation title to (only those of ``labels``
+    when given). A Sample's own title is not one: ``s.title CONTAINS`` is a text match."""
+    cypher = str((graph_plan or {}).get("cypher") or "")
+    params = (graph_plan or {}).get("parameters") or {}
+    containers: dict[str, set[str]] = {}
+    for m in _CONTAINER_VAR.finditer(cypher):
+        containers.setdefault(m.group(1), set()).add(m.group(2))
+    tokens = [m.group(2) for m in _CONTAINER_MAP.finditer(cypher) if m.group(1) in labels]
+    tokens += [m.group(2) for m in _TITLE_COMPARED.finditer(cypher)
+               if containers.get(m.group(1), set()) & set(labels)]
+    titles: list[str] = []
+    for token in tokens:
+        if token.startswith("$"):
+            value = params.get(token[1:])
+            titles += [v for v in (value if isinstance(value, list) else [value]) if isinstance(v, str)]
+        elif token.startswith("["):
+            titles += [a or b for a, b in re.findall(r"'([^']*)'|\"([^\"]*)\"", token)]
+        else:
+            titles.append(token[1:-1])
+    return [t for t in titles if len(_squash(t)) >= 3]
+
+
+def _container_title_is_applied(value: str, titles: list[str], held: list[str]) -> bool:
+    """The query scoped a project, study or investigation by a title that holds the asked name ("Impact" and
+    'IMPAcTb', R7-708), or a study by one the asked name holds (``held``, from ``_NAME_MAY_HOLD``): "TCGA LUAD"
+    and 'LUAD' (R6-1227, R6-1221)."""
+    key = _squash(value)
+    return len(key) >= 3 and (any(key in _squash(t) for t in titles) or any(_squash(t) in key for t in held))
+
+
+def _glossed_by_applied(keyword: str, question: str | None, titles: list[str]) -> bool:
+    """A keyword the question writes as the gloss of a container title the query compared, or glosses one with:
+    "LUAD (lung adenocarcinoma)" over st.title = 'LUAD' (R6-1227).
+
+    The applied side must be one of ``titles`` (a Project, Study or Investigation title the executed query
+    compared), never a sample type's code or name: "NHP (rhesus macaque)" over ``sampletype=NHP`` or
+    ``s.type = 'NHP'``, and "CC (MUS)" over ``s.type = 'MUS'``, ask for part of a type the query counted whole,
+    B13's shape, so the narrowing term keeps its gap."""
+    key = _squash(keyword)
+    compared = {_squash(t) for t in titles}
+    for m in re.finditer(r"([A-Za-z0-9][\w.\-]*)\s*\(\s*([^()]{2,80}?)\s*\)", question or ""):
+        outer, inner = m.group(1), m.group(2)
+        if (key == _squash(inner) and _squash(outer) in compared) or (
+                key == _squash(outer) and _squash(inner) in compared):
+            return True
     return False
 
 
@@ -534,18 +730,33 @@ def describe_query_scope(
     scope.measurable = True
     asked = _asked_for(entity_result, parser_plan, user_query)
     # A keyword the entity step also resolved to a sample type is constrained whenever that
-    # type is: "mouse" is realised as the label T_MUS and appears nowhere as a word.
+    # type is: "mouse" is realised as the label T_MUS and appears nowhere as a word. Every
+    # resolved type counts here, asked for or not: an every-sample question skips the type
+    # (``_asked_for``) and must not take this route away from a keyword that names it.
     type_by_name = {
-        _folded(name).strip(): value
-        for kind, value, _, name in asked if kind == "sample type" and name
+        _folded(name).strip(): code
+        for code, name in _codes_and_names(entity_result.get("sampletypes")) if name
     }
+    applied_types = [(value, name) for kind, value, _, name in asked
+                     if kind == "sample type" and _type_is_applied(value, haystack)]
+    titles = _container_titles(graph_plan)
+    held = _container_titles(graph_plan, _NAME_MAY_HOLD)
+    literals = _literals(graph_plan)
+    # A long keyword (a paper or study title) the query matched as a title covers the keywords whose words run
+    # inside it (R7-711). Whole words of three or more characters: "CC" is never covered by "Vaccine".
+    title_phrases = [_folded(value) for kind, value, _, _ in asked if kind == "keyword" and len(value.split()) >= 3
+                     and _container_title_is_applied(value, titles, held)]
     for kind, value, label, name in asked:
         if kind == "sample type":
             applied = _type_is_applied(value, haystack)
         elif kind == "assay":
-            applied = _assay_is_applied(value, name, haystack)
+            applied = _assay_is_applied(value, name, haystack, applied_types)
         elif kind == "keyword":
             applied = _keyword_is_applied(value, haystack)
+            if not applied:
+                applied = _word_forms_applied(value, haystack, literals)
+            if not applied:
+                applied = _common_name_is_applied(value, haystack)
             if not applied:
                 code = type_by_name.get(_folded(value).strip())
                 applied = bool(code) and _type_is_applied(code, haystack)
@@ -554,10 +765,20 @@ def describe_query_scope(
             if not applied:
                 # The entity step also copies a project's name into the keywords ("Impact").
                 applied = _project_title_is_applied(value, graph_plan, haystack)
+            if not applied:
+                applied = _container_title_is_applied(value, titles, held)
+            if not applied:
+                applied = _glossed_by_applied(value, user_query, titles)
+            if not applied:
+                words = _folded(value)
+                applied = len(_squash(value)) >= 3 and any(words in phrase and words != phrase
+                                                              for phrase in title_phrases)
         elif kind == "project":
             applied = _name_is_applied(value, haystack)
             if not applied:
                 applied = _project_title_is_applied(value, graph_plan, haystack)
+            if not applied:
+                applied = _container_title_is_applied(value, titles, held)
         else:
             applied = _is_applied(value, haystack)
         (scope.applied if applied else scope.not_applied).append(label)
