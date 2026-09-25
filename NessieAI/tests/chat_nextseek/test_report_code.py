@@ -3,9 +3,10 @@ import time
 
 import pytest
 
-from chat_nextseek.helpers.tools import row_compute
+from chat_nextseek.helpers.tools import report_code, row_compute
 from chat_nextseek.helpers.tools.report_code import (
     execute_report_code,
+    ReportCodeError,
     ReportCodeSafetyError,
     ReportCodeTimeoutError,
 )
@@ -182,3 +183,38 @@ def test_a_report_that_uses_too_much_memory_is_an_error():
     with pytest.raises(Exception) as err:
         execute_report_code("x = 'x' * (8 * 10**9)\nresult = {'n': len(x)}", SAMPLE_DATA)
     assert "memory" in str(err.value).lower()
+
+
+def test_a_report_body_over_its_limit_is_an_error_that_states_its_size(monkeypatch):
+    monkeypatch.setattr(report_code, "REPORT_REPLY_MAX_BYTES", 2000)
+    with pytest.raises(ReportCodeError, match="too large to return"):
+        execute_report_code("result = {'samples': ['x' * 5000]}", SAMPLE_DATA)
+
+
+def test_metadata_over_the_input_limit_starts_no_process(monkeypatch):
+    monkeypatch.setattr(report_code, "REPORT_INPUT_MAX_BYTES", 100)
+    started = []
+    monkeypatch.setattr(row_compute.subprocess, "run", lambda *a, **k: started.append(a))
+    with pytest.raises(ReportCodeError, match="too large"):
+        execute_report_code("result = {}", SAMPLE_DATA)
+    assert started == []
+
+
+def test_the_input_limit_fits_in_the_process_memory():
+    assert report_code.REPORT_INPUT_MAX_BYTES * 5 <= report_code.REPORT_MEM_MB << 20
+
+
+def test_a_second_report_waits_briefly_then_does_not_run(monkeypatch):
+    monkeypatch.setattr(report_code, "REPORT_WAIT_S", 0.1)
+    started = []
+    monkeypatch.setattr(row_compute.subprocess, "run", lambda *a, **k: started.append(a))
+    assert report_code._REPORT_SLOT.acquire(timeout=5)
+    try:
+        t0 = time.monotonic()
+        with pytest.raises(ReportCodeError, match="already running"):
+            execute_report_code("result = {}", SAMPLE_DATA)
+        assert time.monotonic() - t0 < 2 and started == []
+    finally:
+        report_code._REPORT_SLOT.release()
+    assert report_code._REPORT_SLOT.acquire(timeout=0), "the slot is free again"
+    report_code._REPORT_SLOT.release()

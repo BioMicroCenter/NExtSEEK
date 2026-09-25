@@ -6,13 +6,16 @@ small helpers), while import/exec/open/dunder access remain hard-blocked.
 ``execute_report_code`` checks the code here and runs it in a separate, limited
 process (``row_compute.run_in_child``), which holds its time limit from any thread.
 Report code imports nothing (the checker refuses an import), and this module and
-``memory_code`` use only the standard library, which is all that process has."""
+``memory_code`` use only the standard library, which is all that process has. One
+report runs at a time in each server process; another that cannot start within
+``REPORT_WAIT_S`` fails, and its caller falls back to the report writer."""
 from __future__ import annotations
 
 import ast
 import json
 import re
 import signal
+import threading
 from typing import Any
 
 from .memory_code import (
@@ -26,8 +29,18 @@ from .row_compute import TIME_LIMIT, run_in_child
 #: The report coder's process limits. A report reads a whole submission's metadata, so it gets more memory and
 #: a larger input than a follow-up computation, and time on top of its own limit to hand the data over and back.
 REPORT_MEM_MB = 4096
-REPORT_INPUT_MAX_BYTES = 512 << 20
+#: The largest metadata, as JSON, a report hands to its process. The process parses it inside REPORT_MEM_MB, and
+#: metadata-shaped JSON takes about four times its text once parsed (3.97x measured), on top of the text itself
+#: while it is parsed: about five times the input must fit. A fifth of 4,096 MiB is 819 MiB; 768 MiB leaves the
+#: interpreter and the code's first allocations room.
+REPORT_INPUT_MAX_BYTES = 768 << 20
+#: The largest report body the process may send back. A body is one row per sample of the fields a submission
+#: names, far smaller than the metadata it reads; this process holds about five times the reply while reading it.
+REPORT_REPLY_MAX_BYTES = 64 << 20
 REPORT_TRANSFER_S = 30
+#: One report at a time per server process: each can take REPORT_MEM_MB. Another waits this long, then fails.
+REPORT_WAIT_S = 5.0
+_REPORT_SLOT = threading.BoundedSemaphore(1)
 
 
 class ReportCodeSafetyError(ValueError):
@@ -142,12 +155,19 @@ def execute_report_code(code: str, data: Any, *, timeout_seconds: int = 15) -> d
 
     Raises ``ReportCodeSafetyError`` for code outside the allowed subset (before any process
     starts), ``ReportCodeTimeoutError`` when it runs past ``timeout_seconds``, and
-    ``ReportCodeError`` for any other failure. The caller's ``data`` is never changed: the
-    process gets a JSON copy."""
+    ``ReportCodeError`` for any other failure, including another report already running for
+    longer than ``REPORT_WAIT_S``. The caller's ``data`` is never changed: the process gets a
+    JSON copy."""
     tree = ast.parse(code, mode="exec")
     _validate_report_code(tree)
-    run = run_in_child("report", code, data, cpu_s=timeout_seconds, mem_mb=REPORT_MEM_MB,
-                       wall_s=timeout_seconds + REPORT_TRANSFER_S, input_max=REPORT_INPUT_MAX_BYTES)
+    if not _REPORT_SLOT.acquire(timeout=REPORT_WAIT_S):
+        raise ReportCodeError("another report's code is already running, so this one did not run")
+    try:
+        run = run_in_child("report", code, data, cpu_s=timeout_seconds, mem_mb=REPORT_MEM_MB,
+                           wall_s=timeout_seconds + REPORT_TRANSFER_S, input_max=REPORT_INPUT_MAX_BYTES,
+                           reply_max=REPORT_REPLY_MAX_BYTES)
+    finally:
+        _REPORT_SLOT.release()
     if run["ok"]:
         result = run["result"]
         return result if isinstance(result, dict) else {"value": result}

@@ -101,3 +101,30 @@ def test_the_two_existing_callers_use_the_isolated_runner():
     for fn in (memory.memory_agent_answer, planner_tools._plan_tool_coding_filter):
         src = inspect.getsource(fn)
         assert "run_code_isolated(" in src and "execute_memory_code(" not in src
+
+
+@pytest.mark.parametrize("code", [
+    "class Holder:\n    pass\nresult = {}",
+    "first, *rest = [1, 2, 3]\nresult = {'n': first}",
+    "n: int = 1\nresult = {'n': n}",
+    "result = {'n': (m := 1)}",
+    "assert rows\nresult = {}",
+])
+def test_syntax_the_allow_list_does_not_name_is_refused(code):
+    with pytest.raises(MemoryCodeSafetyError, match="Disallowed syntax"):
+        _validate_memory_code(ast.parse(code))
+    assert run_code_isolated(code, DATA)["ok"] is False
+
+
+def test_a_result_too_large_to_return_is_refused_with_its_size(monkeypatch):
+    monkeypatch.setattr(row_compute, "REPLY_MAX_BYTES", 2000)
+    out = run_code_isolated("result = {'s': 'x' * 5000}", DATA)
+    assert out["ok"] is False and "too large to return" in out["error"] and "2,000" in out["error"]
+    assert out["result_bytes"] > 5000
+
+
+def test_data_too_large_to_hand_over_starts_no_process(monkeypatch):
+    started = []
+    monkeypatch.setattr(row_compute.subprocess, "run", lambda *a, **k: started.append(a))
+    out = run_code_isolated("result = {}", {"data": {"rows": [{"note": "x" * (17 << 20)}]}})
+    assert out["ok"] is False and "too large" in out["error"] and started == []

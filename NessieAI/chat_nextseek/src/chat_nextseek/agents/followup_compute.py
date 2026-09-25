@@ -267,12 +267,14 @@ def compute_over_rows(*, rows: list, total: int | None, complete: bool, where: l
 
     if code is not None:
         run = run_code_isolated(code, {"data": {"rows": kept}})
-        if not run["ok"]:
+        too_large = not run["ok"] and isinstance(run.get("result_bytes"), int)  # it ran; its result could not come back
+        if not run["ok"] and not too_large:
             failed = _failure(run["error"], shown_columns, where_log)
             if str(run["error"]).startswith("the data is too large"):
                 failed["needs_query"] = True
             return failed
-        size = len(json.dumps(run["result"], separators=(",", ":"), default=str))
+        size = (run["result_bytes"] if too_large
+                else len(json.dumps(run["result"], separators=(",", ":"), default=str)))
         if size > FOLLOWUP_ROWS_CHARS:
             out.update(result=None, result_truncated=True, result_chars=size, note=RESULT_TOO_LARGE)
         else:
