@@ -268,11 +268,22 @@ def build_fallback_summary(parsed: ParsedTranscript, provenance: SummaryProvenan
     )
 
 
+# The summary of another chat runs inside the turn, before the agent container starts,
+# so the turn's watchdog does not cover it (F7, operator ruling 2026-09-25). The BAML call
+# gets this many seconds; a stall past it takes the actions-only summary, as an error does.
+# No collector prices this call, so a cut-off call leaves no cost record to correct.
+SUMMARIZE_LIMIT_S = 10
+
+
 def _default_summarize_fn(summarize_input):
-    """Guarded BAML b.Summarize via asyncio.run (mirrors router._baml_decision)."""
+    """Guarded BAML b.Summarize via asyncio.run under SUMMARIZE_LIMIT_S (mirrors router._ask)."""
     import asyncio
     from dmac_assistant.router.baml_client import b
-    return asyncio.run(b.Summarize(input=summarize_input))
+
+    async def _within_limit():
+        return await asyncio.wait_for(b.Summarize(input=summarize_input), timeout=SUMMARIZE_LIMIT_S)
+
+    return asyncio.run(_within_limit())
 
 
 def summarize_transcript(raw: bytes, provenance: SummaryProvenance, cfg,
@@ -304,6 +315,10 @@ def summarize_transcript(raw: bytes, provenance: SummaryProvenance, cfg,
         )
         summary = t.SessionSummary.model_validate(data)
         return apply_grounding(summary, parsed)
+    except TimeoutError:
+        logger.warning("cc-1c: summarizer timed out after %s s; using actions fallback",
+                       SUMMARIZE_LIMIT_S)
+        return build_fallback_summary(parsed, provenance, cfg)
     except Exception as exc:  # noqa: BLE001
         logger.warning("cc-1c: summarizer failed (%s); using actions fallback",
                        type(exc).__name__)
