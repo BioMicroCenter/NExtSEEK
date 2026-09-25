@@ -308,3 +308,25 @@ def test_every_fallback_chain_key_uses_the_catalog_vocabulary():
         key for key in _FALLBACK_CHAINS if key[1] not in catalog_vocabulary
     }
     assert not stray, f"unreachable _FALLBACK_CHAINS keys (not catalog providers): {stray}"
+
+
+# ------------------------------------------------- the operator's ruling, 2026-09-25
+
+SONNET_46 = "us.anthropic.claude-sonnet-4-6"
+
+
+@pytest.mark.parametrize("agent", ["graph", "api", "system", "evaluator"])
+def test_the_flash_agents_move_to_sonnet_46_first(agent):
+    """Graph, API, system and plan evaluator run on Gemini flash in the shipped
+    `default` profile; their chain's first entry is Sonnet 4.6 on Bedrock."""
+    gcp = _StubClient("gcp")
+    bedrock = _StubClient("bedrock")
+    config = _stub_config({"gcp": gcp, "anth": bedrock})
+    assert _shipped_catalog()["default"][agent]["provider"] == "gcp"
+
+    chain = _get_fallback_agent_configs(config, agent, _catalog_provider(gcp))
+
+    assert chain, f"no fallback resolved for {agent}"
+    first_client, first_model, _ = chain[0]
+    assert first_client is bedrock
+    assert first_model == SONNET_46

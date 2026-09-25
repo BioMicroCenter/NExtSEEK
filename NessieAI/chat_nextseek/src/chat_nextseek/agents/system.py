@@ -165,6 +165,7 @@ def system_agent(
             messages=messages,
             model_name=sys_model,
             temperature=0,
+            agent_label="system",
             log_label="system_agent",
             thinking_budget=sys_budget,
             client=sys_client,

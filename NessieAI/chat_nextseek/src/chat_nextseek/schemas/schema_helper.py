@@ -475,6 +475,7 @@ def _call_with_recovery(
     response_schema: dict | None = None,
     schema_name: str = "emit_result",
     is_empty: Callable[[Any], bool] | None = None,
+    chain_key: str | None = None,
 ) -> tuple[bool, Any]:
     """The provider-recovery ladder shared by every LLM call in the deterministic path.
 
@@ -508,7 +509,12 @@ def _call_with_recovery(
     Everything else is not eligible: a 429 backs off and retries the same provider, a
     bare ``LLMError`` (a 400 validation error, say) is fatal at once, and any other
     ``LLMError`` subclass propagates unchanged.
+
+    ``agent_label`` is the name the ledger and the errors carry. ``chain_key`` is the
+    catalog key the provider chain is looked up by, when it differs from that name
+    (the graph agent's calls are ledgered as ``graph_agent`` but its chain is ``graph``).
     """
+    chain_label = chain_key or agent_label
     target_client = client
     target_model_name = model_name
     target_thinking_budget = thinking_budget
@@ -528,10 +534,10 @@ def _call_with_recovery(
     def _switch_provider(reason: str) -> bool:
         """Move to the next provider in the chain, if this call still may. Never raises."""
         nonlocal chain, switches, target_client, target_model_name, target_thinking_budget
-        if switches >= MAX_PROVIDER_SWITCHES or not agent_label:
+        if switches >= MAX_PROVIDER_SWITCHES or not chain_label:
             return False
         if chain is None:
-            chain = list(_get_fallback_agent_configs(config, agent_label, _catalog_provider(target_client)))
+            chain = list(_get_fallback_agent_configs(config, chain_label, _catalog_provider(target_client)))
         if not chain:
             return False
         fb_client, fb_model, fb_budget = chain.pop(0)
@@ -727,6 +733,12 @@ def call_llm_structured(
     validates. It gets the parsed result and returns None to accept it, or a reason,
     which is sent back through the repair turn exactly like a schema error. When no
     attempt passes, ``StructuredOutputError`` is raised as for any unparseable output.
+
+    ``agent_label`` is the agent's catalog key, which the provider chain is looked up
+    by; ``log_label`` is the name the ledger and the response log record. A call that
+    passes only one of them uses it for both. A log label that is not a catalog key
+    (``graph_agent``) finds no chain at all, so a call whose log label differs from its
+    key must pass both.
     """
     base_messages: list[dict[str, str]] = []
     if messages is not None:
@@ -737,7 +749,8 @@ def call_llm_structured(
         base_messages.append({"role": "user", "content": prompt})
 
     rf = response_format if response_format is not None else {"type": "json_object"}
-    _effective_agent_label = agent_label or log_label
+    _ledger_label = log_label or agent_label
+    _chain_key = agent_label or log_label
 
     state: dict[str, Any] = {"raw_output": "", "errors": None}
 
@@ -809,7 +822,8 @@ def call_llm_structured(
         timeout_retry_seconds=timeout_retry_seconds,
         timeout_retries=timeout_retries,
         rate_limit_sleep=rate_limit_sleep,
-        agent_label=_effective_agent_label,
+        agent_label=_ledger_label,
+        chain_key=_chain_key,
         label=model.__name__,
         usage_label=usage_label,
         on_response=_on_response,
