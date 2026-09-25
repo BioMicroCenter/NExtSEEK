@@ -1186,6 +1186,10 @@ class AssistantViewSet(viewsets.ViewSet):
         # reporter summary / the submission-emitter workbooks), so both need a
         # writable run-root under an allowed artifact root.
         outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission", "build-upload-xlsx") else None
+        # A BaseException, so the except Exception below never sees it (F6). Imported here:
+        # this module keeps chat_nextseek out of its module scope (see the note on imports).
+        from chat_nextseek.failure_replies import MODEL_UNAVAILABLE_REASON
+        from chat_nextseek.llm_clients import LLMFatalError
 
         try:
             result = run_op(
@@ -1196,6 +1200,15 @@ class AssistantViewSet(viewsets.ViewSet):
             return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
         except WriteBlockedError as e:
             return _op_error_response("WRITE_BLOCKED", str(e), status.HTTP_403_FORBIDDEN)
+        except LLMFatalError as fatal:
+            # A model failure that ended the op, a double 503 say. The envelope and the
+            # sidecar contract stay as they are: when the models were unavailable the
+            # reason leads the error's detail, and the raw message follows it.
+            logger.exception("granular op %s failed", op)
+            detail = str(fatal)
+            if getattr(fatal, "unavailable", False):
+                detail = f"{MODEL_UNAVAILABLE_REASON}: {detail}"
+            return _op_error_response("AGENT_FAILED", detail, status.HTTP_502_BAD_GATEWAY)
         except Exception as e:  # noqa: BLE001 — any agent failure maps to AGENT_FAILED
             logger.exception("granular op %s failed", op)
             return _op_error_response("AGENT_FAILED", str(e), status.HTTP_502_BAD_GATEWAY)
