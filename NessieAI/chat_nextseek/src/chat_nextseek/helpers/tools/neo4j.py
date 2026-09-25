@@ -12,10 +12,10 @@ Every statement is also held to the caller's project scope, which rides on the c
 driver opens); the prover (`cypher_scope.scope_cypher`: an admin's text runs unchanged, anyone
 else's runs with the scope inserted, and what cannot be proven is refused before a driver
 opens); the READ transaction and total probe on the statement the prover returned; and, for a
-caller who is not an admin, `strip_hidden` over the rows. Every result names the statement
-that ran (`cypher`), the one submitted (`submitted_cypher`), the parameters that ran and the
-scope decision (`scope`). Spec: docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
-section 6.
+caller who is not an admin, `strip_hidden` over each row as it is read, before `plain_value`.
+Every result names the statement that ran (`cypher`), the one submitted (`submitted_cypher`),
+the parameters that ran and the scope decision (`scope`). Spec:
+docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 6.
 
 A statement that fails while it runs tells a caller who is not an admin only the error's codes
 (`RUNTIME_ERROR_WITHHELD`), never Neo4j's message, which can quote the stored value it failed
@@ -106,10 +106,14 @@ def plain_value(value: Any) -> Any:
     return value
 
 
-def _read_rows(tx, cypher: str, params: dict) -> "tuple[list[dict], dict]":
-    """Transaction function: the rows and the counters, read before the transaction closes."""
+def _read_rows(tx, cypher: str, params: dict, keep_hidden: bool = False) -> "tuple[list[dict], dict]":
+    """Transaction function: the rows and the counters, read before the transaction closes.
+
+    Unless ``keep_hidden`` (an admin), each row goes through `strip_hidden` first, while its values are still the
+    driver's Nodes, Relationships and Paths, and only then through `plain_value`.
+    """
     result = tx.run(cypher, params)
-    records = [plain_value(dict(record)) for record in result]
+    records = [plain_value(dict(record) if keep_hidden else strip_hidden(dict(record))) for record in result]
     summary = result.consume()
     counters = {}
     if summary and summary.counters:
@@ -347,7 +351,7 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                     "counters": {},
                     "scope": scope_info,
                 }
-            records, counters = db_session.execute_read(timed(_read_rows), ran, params)
+            records, counters = db_session.execute_read(timed(_read_rows), ran, params, scope.is_admin)
             print(f"[DEBUG][GRAPHDB] Query returned {len(records)} records")
 
             # `count` is len(records) and always has been, so a query that hit its
@@ -367,10 +371,6 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                     # Best effort: an unknown total is still more information than a
                     # capped count presented as complete.
                     print(f"[DEBUG][GRAPHDB] Total probe failed: {probe_err!r}")
-
-            if not scope.is_admin:
-                # A whole node can still be returned; its hidden properties never leave here.
-                records = strip_hidden(records)
 
             return {
                 "ok": True,
