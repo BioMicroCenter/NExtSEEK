@@ -291,7 +291,7 @@ Compose the user-facing answer from each op's JSON output.
 
   To report a file, find the entry whose `container_root` is a prefix of the file's path and
   replace that prefix with the same entry's `logical_root`. That result is the path to quote:
-  `/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`.
+  `/data/scratch/chart.svg` becomes `/dmac/users/<project>/<user>/scratch/<run id>/chart.svg`, where each <...> is the real value the variable holds; never copy a <...> into a reply.
   There is no host path in the mapping and you are not expected to produce one. Report the
   container path, and say the mapping was unavailable, ONLY when the variable is missing, is not
   valid JSON, or holds no entry whose `container_root` is a prefix of the path.

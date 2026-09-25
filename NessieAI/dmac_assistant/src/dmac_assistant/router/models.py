@@ -110,3 +110,47 @@ def resolve_cc_model() -> str:
     key; this reads it rather than hardcoding the literal.
     """
     return _ensure_cache()["opus"]
+
+
+# Optional entry: the model a container_cc turn falls back to (``claude --fallback-model``)
+# when the main one answers with a server error. It is not a ModelClass member, so the
+# loader does not require it, and it is checked here rather than at load: a missing or
+# malformed fallback id costs the fallback and never the main CC model id.
+_CC_FALLBACK_KEY = "opus_fallback"
+
+
+def is_bedrock_model_id(value: object) -> bool:
+    """True when ``value`` passes the same ``us.anthropic.`` id check the loader applies.
+
+    For a caller that takes a model id from somewhere other than the map (an env
+    override) and must hold it to the map's rule.
+    """
+    return isinstance(value, str) and bool(_BEDROCK_ID_RE.match(value))
+
+
+def resolve_cc_fallback_model() -> str | None:
+    """Return the Bedrock-qualified fallback model id for a container_cc turn, or None.
+
+    None when the map declares no ``opus_fallback`` entry. Raises ConfigError when the
+    entry is not a Bedrock-qualified id; the caller then runs the turn with no fallback.
+    """
+    value = _ensure_cache().get(_CC_FALLBACK_KEY)
+    if value is None:
+        return None
+    if not is_bedrock_model_id(value):
+        raise ConfigError(
+            f"router_model_class_map entry for {_CC_FALLBACK_KEY!r} is not a "
+            f"Bedrock-qualified id (must match {_BEDROCK_ID_RE.pattern!r}): {value!r}"
+        )
+    return value
+
+
+def resolve_cc_classifier_model() -> str:
+    """Return the model id a container_cc turn's auto-mode classifier should use.
+
+    Claude Code 2.1.282 asks a Sonnet model to screen each tool call in auto mode and
+    names its own default Sonnet id unless ``ANTHROPIC_DEFAULT_SONNET_MODEL`` is set.
+    The engine sets that variable to this id, the map's ``sonnet`` entry, which the
+    loader has already checked.
+    """
+    return _ensure_cache()["sonnet"]

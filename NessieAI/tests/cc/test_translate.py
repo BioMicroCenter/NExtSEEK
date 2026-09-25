@@ -51,7 +51,9 @@ def test_result_success_emits_query_complete_with_result_text():
                        "result": "Final answer.", "session_id": "s1", "is_error": False})
     assert frames == [("query_complete", {"reply": "Final answer.", "bundle_id": None,
                                           "cc_session_id": "s1", "total_cost_usd": None,
-                                          "num_turns": None, "duration_ms": None})]
+                                          "num_turns": None, "duration_ms": None,
+                                          # The turn record: no model known, nothing fell back.
+                                          "models_used": [], "model_fallback": []})]
 
 
 def test_terminal_frames_omit_session_id_so_callback_fills_nextseek_id():

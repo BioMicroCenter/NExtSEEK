@@ -5,7 +5,7 @@
 - **BAML imports stay lazy and guarded.** `router.py` loads `NessieAI/dmac_assistant` only inside function bodies, and a failure becomes a fallback, never an exception. A dependency hiccup must degrade routing, never stop Django booting.
 - **`<router_unavailable>` is a failure.** Treat it like a raised error and fall back to the heuristic. Treating it as a route sends every turn to CC.
 - **Routing degrades; it never raises.** Every strategy's caller catches and falls through, so the only symptom of a broken input is a wrong `source` on the route decision. When you add an input, log at ERROR when it is missing.
-- **The model id comes only from `NessieAI/dmac_assistant/build_context/router_model_class_map.json`.** Never hard-code one: the Bedrock proxy allows Opus only, and a CC turn without an explicit id gets a 403.
+- **The model id comes only from `NessieAI/dmac_assistant/build_context/router_model_class_map.json`.** Never hard-code one: the Bedrock proxy allows only the three ids a CC turn names (the map's `opus`, `opus_fallback` and `sonnet`), and a CC turn without an explicit id gets a 403.
 - **Overlays observe; they never change the outcome.** `risk_overlay.py` and `route_monitoring.py` are telemetry.
 - **Family labels come from the corpus**, `NessieAI/tests/nessie_tests/corpus.json`, reached through `NessieAI/paths.py`. The image must keep `NessieAI/tests/`.
 

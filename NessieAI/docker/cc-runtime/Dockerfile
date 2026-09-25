@@ -27,9 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV UV_INSTALL_DIR=/usr/local/bin
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock.
-RUN npm install -g @anthropic-ai/claude-code@2.1.163
+# 2.1.282 declares node >= 22 and this image is node:20: npm only warns and the native binary runs, so a later bump should move the base image.
+# OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock. The CC 503 fallback needs >= 2.1.282 (why: NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py).
+RUN npm install -g @anthropic-ai/claude-code@2.1.282
 
 # Pin uv-managed CPython 3.14 BEFORE any downstream dependency-install or run
 # step. Two well-known symlinks make `python` and `python3.14` resolve to the

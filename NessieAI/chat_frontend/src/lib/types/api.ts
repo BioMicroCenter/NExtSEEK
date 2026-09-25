@@ -101,8 +101,9 @@ export interface QueryErrorData {
   reason?: string;
   /**
    * Files a Container-CC turn published before its wall clock stopped it
-   * (reason `exec_timeout`), in the shape a completed CC turn's carry. No other
-   * error carries any.
+   * (reason `exec_timeout`, or `model_unavailable` when it was stopped while a
+   * model call was being retried), in the shape a completed CC turn's carry. No
+   * other error carries any.
    */
   artifacts?: Artifact[] | null;
 }

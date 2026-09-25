@@ -266,7 +266,145 @@ def test_agent_env_exact_key_set():
         "AWS_REGION", "NEXTSEEK_BASE_URL", "NEXTSEEK_URL",
         "NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT", "DMAC_PATH_MAPPINGS",
         "NEXTSEEK_CHAT_SESSION_ID", "NEXTSEEK_CC_TURN_DEADLINE_EPOCH",
+        "CLAUDE_CODE_MAX_RETRIES", "API_TIMEOUT_MS", "ANTHROPIC_DEFAULT_SONNET_MODEL",
     }
+
+
+# --- the CC 503 fallback: bounded retries, a request timeout, the classifier's model ---
+# Claude Code's own default is 11 attempts over about 175 s, which on a Bedrock 503
+# spends the whole 180 s turn before it gives up. Three retries end an outage turn in
+# seconds, and the fallback model (--fallback-model) takes over on the first 5xx.
+
+def _models():
+    from dmac_assistant.router import models
+    return models
+
+
+def test_agent_env_bounds_claude_codes_retries_and_request_time_by_default():
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={})
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
+    assert env["API_TIMEOUT_MS"] == "60000"
+
+
+def test_agent_env_points_the_auto_mode_classifier_at_the_maps_sonnet_id():
+    """2.1.282 asks its own default Sonnet id unless told otherwise, and the proxy
+    refuses any id it does not allow."""
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={})
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == _models().resolve_cc_classifier_model()
+
+
+def test_agent_env_retry_timeout_and_classifier_are_each_overridable():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_MAX_RETRIES": "5", "NEXTSEEK_CC_API_TIMEOUT_MS": "90000",
+                "NEXTSEEK_CC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-x"},
+        api_user="u", api_pass="p", path_mappings={})
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "5"
+    assert env["API_TIMEOUT_MS"] == "90000"
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "us.anthropic.claude-sonnet-x"
+
+
+@pytest.mark.parametrize("bad", ["", "three", "-1", "2.5", " "])
+def test_a_malformed_numeric_override_keeps_the_default(bad):
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_MAX_RETRIES": bad, "NEXTSEEK_CC_API_TIMEOUT_MS": bad},
+        api_user="u", api_pass="p", path_mappings={})
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
+    assert env["API_TIMEOUT_MS"] == "60000"
+
+
+@pytest.mark.parametrize("bad", ["claude-sonnet-4-6", "anthropic.claude-sonnet-4-6",
+                                 "us.anthropic.Claude Sonnet", "us.anthropic."])
+def test_a_classifier_override_that_is_not_a_bedrock_id_falls_back_to_the_map(bad, caplog):
+    """Review L2: the override gets the loader's own us.anthropic. id check."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
+        env = cc_engine.build_agent_environment(
+            source={"NEXTSEEK_CC_DEFAULT_SONNET_MODEL": bad},
+            api_user="u", api_pass="p", path_mappings={})
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == _models().resolve_cc_classifier_model()
+    assert "NEXTSEEK_CC_DEFAULT_SONNET_MODEL" in caplog.text
+
+
+@pytest.mark.parametrize("small", ["0", "1", "999", "0000"])
+def test_a_request_timeout_under_one_second_keeps_the_default(small, caplog):
+    """Review L3: a zero or tiny API_TIMEOUT_MS would fail every model call at once."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
+        env = cc_engine.build_agent_environment(
+            source={"NEXTSEEK_CC_API_TIMEOUT_MS": small},
+            api_user="u", api_pass="p", path_mappings={})
+    assert env["API_TIMEOUT_MS"] == "60000"
+    assert "NEXTSEEK_CC_API_TIMEOUT_MS" in caplog.text
+
+
+def test_a_request_timeout_of_one_second_or_more_is_used():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_API_TIMEOUT_MS": "1000"}, api_user="u", api_pass="p",
+        path_mappings={})
+    assert env["API_TIMEOUT_MS"] == "1000"
+
+
+def test_zero_retries_is_a_valid_override():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_MAX_RETRIES": "0"}, api_user="u", api_pass="p", path_mappings={})
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "0"
+
+
+def test_a_classifier_id_that_fails_to_resolve_is_left_out_not_raised(monkeypatch):
+    from dmac_assistant.config import ConfigError
+
+    def boom():
+        raise ConfigError("no map")
+
+    monkeypatch.setattr(_models(), "resolve_cc_classifier_model", boom)
+    env = cc_engine.build_agent_environment(
+        source={}, api_user="u", api_pass="p", path_mappings={})
+    assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in env
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
+
+
+def test_command_adds_the_fallback_model_after_the_main_model():
+    cmd = cc_engine._build_command(model_id="us.anthropic.a", fallback_model_id="us.anthropic.b")
+    assert cmd[cmd.index("--model") + 1] == "us.anthropic.a"
+    assert cmd[cmd.index("--fallback-model") + 1] == "us.anthropic.b"
+    assert cmd.index("--fallback-model") == cmd.index("--model") + 2
+
+
+@pytest.mark.parametrize("fallback", [None, "", "us.anthropic.a"])
+def test_command_has_no_fallback_when_there_is_none_or_it_is_the_main_model(fallback):
+    cmd = cc_engine._build_command(model_id="us.anthropic.a", fallback_model_id=fallback)
+    assert "--fallback-model" not in cmd
+
+
+def test_command_takes_the_fallback_from_the_model_map_by_default():
+    models = _models()
+    main = models.resolve_cc_model()
+    cmd = cc_engine._build_command(model_id=main)
+    fallback = models.resolve_cc_fallback_model()
+    assert fallback and fallback != main
+    assert cmd[cmd.index("--fallback-model") + 1] == fallback
+
+
+def test_a_fallback_that_fails_to_resolve_leaves_no_flag_and_does_not_raise(monkeypatch):
+    from dmac_assistant.config import ConfigError
+
+    def boom():
+        raise ConfigError("malformed opus_fallback")
+
+    monkeypatch.setattr(_models(), "resolve_cc_fallback_model", boom)
+    cmd = cc_engine._build_command(model_id="us.anthropic.a")
+    assert "--fallback-model" not in cmd
+    assert cmd[cmd.index("--model") + 1] == "us.anthropic.a"
+
+
+def test_resume_stays_last_with_a_fallback():
+    cmd = cc_engine._build_command(model_id="us.anthropic.a", fallback_model_id="us.anthropic.b",
+                                   session_id="s1")
+    assert cmd[-2:] == ["--resume", "s1"]
 
 
 # --- 13b.2: the agent learns when the host will stop its turn -----------------
