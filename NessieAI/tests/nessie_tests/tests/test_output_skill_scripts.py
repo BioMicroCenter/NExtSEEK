@@ -573,5 +573,32 @@ def test_a_pulled_case_is_the_sum_of_its_turns():
     assert cases["cons.g"]["cost"] == 0.32 and cases["cons.g"]["cost_partial"] is False
 
 
+def test_a_pulled_case_counts_a_turn_the_run_sent_but_could_not_join():
+    """A turn whose driver raised has no task id in the manifest, so joining by id
+    alone would present the other turns' sum as the whole cost."""
+    manifest = {"entries": [
+        {"id": "lost", "task_ids": ["a"], "turns_sent": 2},
+        {"id": "cons.lost", "task_ids": [], "turns_sent": 2,
+         "turns_meta": [{"task_id": "c"}]},
+        {"id": "all.lost", "task_ids": [], "turns_sent": 1},
+        # The run itself said the case was a floor (a part it priced said so).
+        {"id": "run.partial", "task_ids": ["d"], "turns_sent": 1, "cost_partial": True},
+    ]}
+    turns = fetch_run.price_turns([
+        _pulled("a", route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False),
+        _pulled("c", route="nextseek_query", cost=0.1, router_cost=0.01, cost_partial=False),
+        _pulled("d", route="nextseek_query", cost=0.1, router_cost=0.01, cost_partial=False),
+    ])
+
+    cases = fetch_run.case_costs(manifest, turns)
+
+    assert cases["lost"]["cost"] == 0.21 and cases["lost"]["cost_partial"] is True
+    assert cases["lost"]["missing_turns"] == 1
+    assert cases["cons.lost"]["cost_partial"] is True and cases["cons.lost"]["missing_turns"] == 1
+    assert cases["all.lost"] == {"cost": None, "cost_partial": False, "turns": 0,
+                                 "missing_turns": 1, "fallback_turns": 0}
+    assert cases["run.partial"]["cost_partial"] is True
+
+
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
     assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")

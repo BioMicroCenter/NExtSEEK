@@ -89,6 +89,7 @@ def case_money(turns_meta, *, turns_sent: int) -> dict:
         [(t.cost, t.partial) for t in turns_meta],
         missing_turns=max(0, turns_sent - len(turns_meta)))
     return {"cost": cost, "cost_partial": partial, "turns_meta": turns_meta,
+            "turns_sent": turns_sent,
             "fallback_turns": sum(1 for t in turns_meta if t.fell_back)}
 
 
@@ -141,6 +142,11 @@ class NessieManifestEntry(BaseModel):
     # One record per driven turn, in order: its router and engine costs and the
     # models that answered it. Defaults to [] so older manifests still load.
     turns_meta: list[TurnMeta] = Field(default_factory=list)
+    # How many turns the harness started. More than `len(turns_meta)` means a
+    # turn's driver raised: it may have billed and has no record and no task id,
+    # so a later pull that joins by task id must count it as missing. 0 in
+    # manifests written before it existed.
+    turns_sent: int = 0
     # How many of those turns had any model fall back (`TurnMeta.fell_back`).
     fallback_turns: int = 0
     elapsed_s: float = 0.0

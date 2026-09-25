@@ -1114,6 +1114,7 @@ def test_a_multi_turn_case_costs_the_sum_of_its_turns(tmp_path, monkeypatch):
     e = m.entries[0]
     assert e.cost == pytest.approx(1.83)
     assert e.cost_partial is False
+    assert e.turns_sent == 3
     assert [t.cost for t in e.turns_meta] == [pytest.approx(0.51), pytest.approx(0.61),
                                              pytest.approx(0.71)]
     assert [t.turn for t in e.turns_meta] == ["t0", "t1", "t2"]
@@ -1274,6 +1275,9 @@ def test_a_turn_the_driver_lost_mid_case_marks_the_case_partial(tmp_path, monkey
     assert e.cost == pytest.approx(0.51)
     assert e.cost_partial is True
     assert len(e.turns_meta) == 1
+    # Recorded, so a later pull that joins by task id knows a turn is missing: the
+    # lost turn has no task id to join on.
+    assert e.turns_sent == 2 and e.task_ids == ["t"]
 
 
 def test_a_consistency_group_costs_the_sum_of_its_queries(monkeypatch, tmp_path):
@@ -1328,6 +1332,7 @@ def test_a_consistency_group_that_raised_mid_way_keeps_what_it_saw(monkeypatch, 
     e = next(x for x in m.entries if x.id == "cons.lost")
     assert e.status == "error"
     assert e.cost == pytest.approx(0.21) and e.cost_partial is True
+    assert e.turns_sent == 2 and len(e.turns_meta) == 1
 
 
 def test_old_manifests_load_without_the_turn_record(tmp_path):
@@ -1341,6 +1346,7 @@ def test_old_manifests_load_without_the_turn_record(tmp_path):
 
     e = M.load_manifest(p).entries[0]
     assert e.turns_meta == [] and e.cost_partial is False and e.fallback_turns == 0
+    assert e.turns_sent == 0
     s = runner.classify_entries(M.load_manifest(p))
     assert s["total_cost"] == 0.3 and s["cost_partial"] is False
 

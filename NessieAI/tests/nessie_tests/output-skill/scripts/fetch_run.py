@@ -342,23 +342,27 @@ def case_costs(manifest: dict, turns: list[dict]) -> dict:
     """Each manifest case's cost, summed over its pulled turns by the harness's rule.
 
     A case is joined by its task ids: the entry's `task_ids`, or for a consistency
-    group, which records them per query, its `turns_meta`. A task id the pull did not
-    return (outside the window) is a missing turn, so a number it would have added to
-    is partial. A case with no task id sent nothing and is left out.
+    group, which records them per query, its `turns_meta`. A turn is missing when the
+    pull did not return its task (outside the window), or when the run sent it and
+    its driver raised, leaving no task id at all: the entry's `turns_sent` counts
+    those. A missing turn makes a number partial, and so does the run's own
+    `cost_partial` for the case. A case that sent no turn is left out.
     """
     by_task = {t.get("task_uuid"): t for t in turns if t.get("task_uuid")}
     out = {}
     for e in manifest.get("entries") or []:
         ids = list(e.get("task_ids") or []) or [
             m.get("task_id") for m in (e.get("turns_meta") or []) if m.get("task_id")]
-        if not ids:
+        sent = max(len(ids), e.get("turns_sent") or 0)
+        if not sent:
             continue
         rows = [by_task[i] for i in ids if i in by_task]
+        missing = max(0, sent - len(rows))
         cost, partial = turn_cost.case_total(
-            [(r["turn_cost"], r["turn_cost_partial"]) for r in rows],
-            missing_turns=len(ids) - len(rows))
-        out[e["id"]] = {"cost": cost, "cost_partial": partial, "turns": len(rows),
-                        "missing_turns": len(ids) - len(rows),
+            [(r["turn_cost"], r["turn_cost_partial"]) for r in rows], missing_turns=missing)
+        out[e["id"]] = {"cost": cost,
+                        "cost_partial": bool(cost is not None and (partial or e.get("cost_partial"))),
+                        "turns": len(rows), "missing_turns": missing,
                         "fallback_turns": sum(1 for r in rows if r["fell_back"])}
     return out
 
