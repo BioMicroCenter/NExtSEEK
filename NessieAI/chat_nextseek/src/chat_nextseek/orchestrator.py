@@ -33,6 +33,7 @@ from .pipeline import agent as pipeline_agent
 from .agents.followup import (
     _stored_rows,
     describe_stored_result,
+    plan_step_extent,
     preview_rows,
     resolve_followup_outcome,
     run_followup,
@@ -2598,6 +2599,24 @@ def handle_query(session: SessionState | SessionStateProxy, config: ChatConfig, 
     return run_query(session, config, user_text)["reply"]
 
 
+def _plan_filter_payload(step_results: dict, step_key, plan_steps) -> dict:
+    """A plan filter step's memory payload: its rows, and their total unless they derive from a capped step.
+
+    Its ``count`` is its own row count, so a filter over 1,000 of 36,622 rows used to be stored as 334 of 334, a
+    whole set. When the step inherits a cap (``plan_step_extent``) the total is unknown and the rows are marked
+    ``truncated``, which a follow-up reads as capped."""
+    sr = step_results.get(step_key) or {}
+    output = sr.get("output") or {}
+    rows = output.get("data") if isinstance(output.get("data"), list) else []
+    total, capped = plan_step_extent(step_results, step_key, plan_steps=plan_steps)
+    data: dict[str, Any] = {"rows": rows, "total": total}
+    if capped:
+        data["truncated"] = True
+    elif total is None:
+        data["total"] = len(rows)
+    return {"data": data, "source_output": output, "tool": sr.get("tool")}
+
+
 def _plan_graph_result(step_result: dict) -> dict:
     """A planner graph step's result as the plan bundle stores it.
 
@@ -2963,7 +2982,7 @@ def run_query_plan(
         canonical_report_saved_files = None
         canonical_memory_payload = None
         canonical_search_context = None
-        for sr in step_results.values():
+        for step_key, sr in step_results.items():
             if not isinstance(sr, dict) or not sr.get("ok"):
                 continue
             output = sr.get("output") or {}
@@ -2991,12 +3010,7 @@ def run_query_plan(
                     "query_params": (canonical_api_plan or {}).get("queryParameters") if isinstance(canonical_api_plan, dict) else {},
                 }
             elif tool == "coding_filter":
-                rows = output.get("data") if isinstance(output.get("data"), list) else []
-                canonical_memory_payload = {
-                    "data": {"rows": rows, "total": output.get("count", len(rows))},
-                    "source_output": output,
-                    "tool": tool,
-                }
+                canonical_memory_payload = _plan_filter_payload(step_results, step_key, plan.steps)
             elif tool == "graph_query" and canonical_graph_plan is None:
                 canonical_graph_plan = output.get("graph_plan")
                 canonical_graph_result = _plan_graph_result(sr)

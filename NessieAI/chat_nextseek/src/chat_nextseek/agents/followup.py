@@ -453,19 +453,24 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     api_slim = bundle.get("api_result_slim") or {}
     api_data = api_slim.get("data") if isinstance(api_slim.get("data"), dict) else {}
 
-    rows, payload_total, more_pages = _stored_rows_and_extent(bundle)
+    rows, payload_total, more_pages, from_plan = _stored_rows_and_extent(bundle)
 
-    # Every total the bundle holds, first found: the graph result's own, the slim API
-    # result's, then the one stored beside the rows (memory_payload, then the full API
-    # result, which is all a plan-mode search step keeps). A graph result's count is the
-    # number of rows returned: once its LIMIT was hit that is not a total.
-    total = graph_result.get("total")
-    if total is None and not graph_result.get("truncated"):
-        total = graph_result.get("count")
-    if total is None:
-        total = (api_data or {}).get("total")
-    if total is None:
+    if from_plan:
+        # A plan's rows are its final step's, with that step's own total and cap
+        # (``plan_step_extent``), never the first graph step's or search's.
         total = payload_total
+    else:
+        # Every total the bundle holds, first found: the graph result's own, the slim API
+        # result's, then the one stored beside the rows (memory_payload, then the full API
+        # result, which is all a plan-mode search step keeps). A graph result's count is the
+        # number of rows returned: once its LIMIT was hit that is not a total.
+        total = graph_result.get("total")
+        if total is None and not graph_result.get("truncated"):
+            total = graph_result.get("count")
+        if total is None:
+            total = (api_data or {}).get("total")
+        if total is None:
+            total = payload_total
 
     uids = _uids_from_rows(rows)
     rows_stored = len(rows)
@@ -486,7 +491,7 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
         # total is now the value it computed, and comparing that to a row count of 1 would
         # tell the agent to re-query for a number it already has.
         capped = False
-    if graph_result.get("truncated") or more_pages:
+    if (graph_result.get("truncated") and not from_plan) or more_pages:
         # After the aggregate reading, never before it: one UID-less row that hit LIMIT 1
         # looks like an aggregate and is a record cut short. A DRF page with a next page
         # is cut short whatever its count says.
@@ -619,9 +624,10 @@ def _is_count(value: Any) -> bool:
 def _payload_extent(data: Any) -> tuple[int | None, bool]:
     """``(total, a further page follows)`` as a stored result body states them.
 
-    ``{"rows", "total"}`` is a search, and a plan-mode step's copy of one. A DRF page is
-    ``{count, next, previous, results}``: ``count`` is its total, and a ``next`` that is not
-    null means a page follows, with or without a count.
+    ``{"rows", "total"}`` is a search, and a plan-mode step's copy of one; ``truncated`` true
+    says it is cut short (a plan filter over a capped step, whose total is not known). A DRF
+    page is ``{count, next, previous, results}``: ``count`` is its total, and a ``next`` that
+    is not null means a page follows, with or without a count.
     """
     if not isinstance(data, Mapping):
         return None, False
@@ -629,12 +635,15 @@ def _payload_extent(data: Any) -> tuple[int | None, bool]:
     page = isinstance(data.get("results"), list)
     if total is None and page and _is_count(data.get("count")):
         total = data["count"]
-    return total, page and data.get("next") is not None
+    return total, (page and data.get("next") is not None) or data.get("truncated") is True
 
 
-def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
-    """``(rows, total stored beside them, a further page follows)``.
+def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool, bool]:
+    """``(rows, total stored beside them, a further page follows or they were cut short, from a plan step)``.
 
+    A plan bundle's rows are its final step's (``_step_rows``), read first: its graph result is
+    its first graph step's, and its memory payload the builder's pick, and either can be an
+    earlier set than the one the plan ended with.
     A graph result's rows come with its own total, which ``describe_stored_result`` reads.
     Any other result's rows and total come from memory_payload, then the full API result,
     the first total found winning: a plan-mode filter step keeps its own rows and total in
@@ -642,9 +651,13 @@ def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
     is not theirs. A memory payload that was just read back from the full API result is not
     loaded a second time.
     """
+    plan_rows, plan_total, plan_capped = _step_rows(bundle)
+    if plan_rows is not None:
+        return plan_rows, plan_total, plan_capped, True
+
     graph_result = bundle.get("graph_result") or {}
     if isinstance(graph_result.get("data"), list):
-        return graph_result["data"], None, False
+        return graph_result["data"], None, False, False
 
     def sources():
         yield load_memory_payload(bundle)
@@ -667,41 +680,110 @@ def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
         more = more or follows
         if rows is not None and total is not None:
             break
-    if rows is None:
-        # A plan-mode bundle that kept no payload: the rows of the step that produced its final result.
-        rows, stated, cut = _step_rows(bundle)
-        if total is None:
-            total = stated
-        more = more or cut
-    return rows or [], total, more
+    return rows or [], total, more, False
 
 
 def _step_rows(bundle: dict) -> tuple[list | None, int | None, bool]:
-    """``(rows, total, truncated)`` of the step that produced a plan bundle's final result: the LAST successful
-    step in ``step_results`` whose output holds rows, so "those" after a search and a filter is the filtered set.
-
-    ``total`` and ``truncated`` are read as the plan bundle keeps a graph step's (``orchestrator._plan_graph_result``):
-    a graph step's ``count`` is only the number of rows returned, so its ``total`` is the step's own ``total``, and a
-    step that hit its LIMIT is ``truncated`` and reads as capped. A step without a ``total`` (a search, a filter) has
-    its ``count`` as its total unless it was cut short.
+    """``(rows, total, capped)`` of the step that produced a plan bundle's final result: the LAST successful step
+    in ``step_results`` whose output holds rows, so "those" after a search and a filter is the filtered set. Its
+    total and cap are ``plan_step_extent``'s. ``(None, None, False)`` when no step holds rows.
     """
     step_results = bundle.get("step_results")
     if not isinstance(step_results, Mapping):
         return None, None, False
     last = None
-    for result in step_results.values():
-        if not isinstance(result, Mapping) or not result.get("ok"):
-            continue
-        output = result.get("output")
-        if isinstance(output, Mapping) and isinstance(output.get("data"), list):
-            last = output
+    for key, result in step_results.items():
+        if _step_rows_of(result) is not None:
+            last = key
     if last is None:
         return None, None, False
-    truncated = bool(last.get("truncated"))
-    total = last.get("total") if _is_count(last.get("total")) else None
-    if total is None and not truncated and _is_count(last.get("count")):
-        total = last["count"]
-    return last["data"], total, truncated
+    total, capped = plan_step_extent(step_results, last, plan_steps=_plan_steps(bundle))
+    return _step_rows_of(step_results[last]), total, capped
+
+
+def _step_rows_of(result: Any) -> list | None:
+    """A successful plan step's rows, or None."""
+    if not isinstance(result, Mapping) or not result.get("ok"):
+        return None
+    output = result.get("output")
+    return output["data"] if isinstance(output, Mapping) and isinstance(output.get("data"), list) else None
+
+
+def _plan_steps(bundle: dict) -> list:
+    """The plan's steps as the bundle keeps them (``plan``, the planner output), or []."""
+    plan = bundle.get("plan")
+    steps = plan.get("steps") if isinstance(plan, Mapping) else None
+    return list(steps) if isinstance(steps, list) else []
+
+
+def _field(step: Any, name: str) -> Any:
+    return step.get(name) if isinstance(step, Mapping) else getattr(step, name, None)
+
+
+def _find_step(step_results: Mapping, key: Any) -> tuple[Any, Any]:
+    """``(key as stored, result)`` for ``key``, matched as text: a session round trip makes an int key a string."""
+    for stored, result in step_results.items():
+        if str(stored) == str(key):
+            return stored, result
+    return None, None
+
+
+def _step_inputs(step_results: Mapping, key: Any, plan_steps: list) -> list:
+    """The earlier steps a plan step's rows derive from: a filter's ``source_step_id``; for the intersection, the
+    steps the plan marks ``intersect``, or every other step when the plan's steps are not known."""
+    result = step_results.get(key)
+    output = result.get("output") if isinstance(result, Mapping) else None
+    output = output if isinstance(output, Mapping) else {}
+    if result.get("tool") == "coding_filter" or "source_step_id" in output:
+        source = output.get("source_step_id")
+        return [] if source is None else [source]
+    if result.get("tool") == "intersection" or str(key) == "intersection":
+        marked = [_field(s, "step_id") for s in plan_steps if _field(s, "combine_mode") == "intersect"]
+        return marked if plan_steps else [k for k in step_results if str(k) != str(key)]
+    return []
+
+
+def _own_extent(output: Mapping) -> tuple[int | None, bool]:
+    """``(total, capped)`` as one step's output states them. A graph step's ``count`` is only the number of rows
+    returned, so its ``total`` is its own ``total`` (``orchestrator._plan_graph_result``), and a step that hit its
+    LIMIT is ``truncated``. A step without a ``total`` (a search, a filter) has its ``count`` as its total unless it
+    was cut short. Capped means truncated, or a total larger than the rows it holds."""
+    rows = output.get("data") if isinstance(output.get("data"), list) else []
+    truncated = bool(output.get("truncated"))
+    total = output["total"] if _is_count(output.get("total")) else None
+    if total is None and not truncated and _is_count(output.get("count")):
+        total = output["count"]
+    return total, truncated or (total is not None and total > len(rows))
+
+
+def plan_step_extent(step_results: Mapping, key: Any, *, plan_steps: list | None = None) -> tuple[int | None, bool]:
+    """``(total, capped)`` of plan step ``key``'s rows.
+
+    A step is capped by its own output (``_own_extent``), or by any earlier successful capped step it derives from
+    (``_step_inputs``, followed through every step in between): a filter over 1,000 of 36,622 rows holds a filtered
+    part of a part, however whole its own count looks. An inherited cap reads as capped with an unknown total.
+    """
+    plan_steps = list(plan_steps or [])
+    stored, result = _find_step(step_results, key)
+    output = result.get("output") if isinstance(result, Mapping) else None
+    if not isinstance(output, Mapping):
+        return None, False
+    total, capped = _own_extent(output)
+    if capped:
+        return total, True
+    seen = {str(stored)}
+    pending = list(_step_inputs(step_results, stored, plan_steps))
+    while pending:
+        source, source_result = _find_step(step_results, pending.pop())
+        if source is None or str(source) in seen:
+            continue
+        seen.add(str(source))
+        if _step_rows_of(source_result) is None:
+            continue
+        if _own_extent(source_result["output"])[1]:
+            return None, True
+        pending.extend(_step_inputs(step_results, source, plan_steps))
+    return total, False
 
 
 def _uids_from_rows(rows: list) -> list[str]:

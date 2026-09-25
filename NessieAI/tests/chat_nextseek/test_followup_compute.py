@@ -432,7 +432,7 @@ def test_those_after_a_search_and_a_filter_is_the_filtered_set(tmp_path):
     filtered = searched[:40]
     bundle = _plan_bundle([
         {"ok": True, "tool": "new_search", "output": {"data": searched, "count": 250}},
-        {"ok": True, "tool": "coding_filter", "output": {"data": filtered, "count": 40}},
+        {"ok": True, "tool": "coding_filter", "output": {"data": filtered, "count": 40, "source_step_id": 1}},
         {"ok": False, "tool": "graph_query", "output": {"data": [{"uid": "X"}], "count": 1}},
         {"ok": True, "tool": "reporter", "output": {"reply": "a summary"}},
     ])
@@ -475,3 +475,83 @@ def test_a_computation_over_a_query_scoped_to_the_whole_set_is_complete(monkeypa
     assert query["scope_note"] is None
     assert p["ok"] is True and p["count"] == 731 and p["source"]["complete"] is True
     assert "scope_note" not in p
+
+
+
+# ---------------------------------------------------------------- a plan step inherits the cap of what it derives from
+
+def _search_step(rows, count):
+    return {"ok": True, "tool": "new_search", "output": {"data": rows, "count": count}}
+
+
+def _filter_step(rows, source):
+    return {"ok": True, "tool": "coding_filter", "output": {"data": rows, "count": len(rows), "source_step_id": source}}
+
+
+def _reads_capped_and_refuses(bundle, tmp_path):
+    from chat_nextseek.agents.followup import describe_stored_result
+    described = describe_stored_result(bundle)
+    assert described["capped"] is True and described["total"] is None and described["total_known"] is False
+    assert "rows" not in described and "column_summary" not in described
+    [p], _ = _seam(bundle, tmp_path, [dict(source="stored", where=None, group_by=["Tissue"], code=None)])
+    assert p["ok"] is False and p["needs_query"] is True and "count" not in p
+    return described
+
+
+def test_a_filter_over_a_capped_search_is_capped_with_or_without_its_payload(tmp_path):
+    searched = [{"uid": f"TIS-{i}", "Tissue": "liver" if i % 3 == 0 else "lung"} for i in range(1000)]
+    filtered = [r for r in searched if r["Tissue"] == "liver"]
+    steps = [_search_step(searched, 36622), _filter_step(filtered, 1)]
+    without = _plan_bundle(steps)
+    assert _reads_capped_and_refuses(without, tmp_path)["rows_stored"] == len(filtered) == 334
+
+    payload = orch._plan_filter_payload(without["step_results"], 2, [])
+    assert payload["data"]["total"] is None and payload["data"]["truncated"] is True
+    with_payload = {**without, "memory_payload": payload}
+    _reads_capped_and_refuses(with_payload, tmp_path)
+    payload_only = {"id": 5, "mode": "plan", "user_query": "q", "memory_payload": payload}
+    _reads_capped_and_refuses(payload_only, tmp_path)
+
+    twice = _plan_bundle(steps + [_filter_step(filtered[:100], 2)])
+    _reads_capped_and_refuses(twice, tmp_path)
+
+
+def test_a_filter_over_a_whole_search_keeps_its_own_total():
+    searched = [{"uid": f"TIS-{i}", "Tissue": "liver"} for i in range(60)]
+    step_results = _plan_bundle([_search_step(searched, 60), _filter_step(searched[:20], 1)])["step_results"]
+    assert orch._plan_filter_payload(step_results, 2, [])["data"] == {"rows": searched[:20], "total": 20}
+
+
+def test_a_filter_over_a_truncated_graph_step_is_capped_and_not_the_graph_steps_rows(tmp_path):
+    from chat_nextseek.agents.followup import _stored_rows
+    graph_rows = [{"uuid": f"TIS-{i}", "Tissue": "liver" if i % 3 == 0 else "lung"} for i in range(1000)]
+    filtered = [r for r in graph_rows if r["Tissue"] == "liver"]
+    bundle = _plan_bundle([_graph_step(graph_rows, total=36622, truncated=True), _filter_step(filtered, 1)])
+    bundle["graph_result"] = {"ok": True, "data": graph_rows, "count": 1000, "total": 36622, "truncated": True}
+    assert _stored_rows(bundle) == filtered
+    _reads_capped_and_refuses(bundle, tmp_path)
+
+
+def _intersect_bundle(counts):
+    first = [{"uid": f"S-{i}", "Tissue": "lung"} for i in range(500)]
+    second = [{"uid": f"S-{i}", "Tissue": "lung"} for i in range(500)]
+    bundle = _plan_bundle([_search_step(first, counts[0]), _search_step(second, counts[1])])
+    bundle["step_results"]["intersection"] = {
+        "ok": True, "tool": "intersection",
+        "output": {"data": [{"uid": r["uid"], "Tissue": "lung"} for r in first], "count": 500}}
+    bundle["plan"] = {"steps": [{"step_id": 1, "tool": "new_search", "combine_mode": "intersect"},
+                                {"step_id": 2, "tool": "new_search", "combine_mode": "intersect"}]}
+    return bundle
+
+
+def test_an_intersection_of_capped_searches_is_capped(tmp_path):
+    _reads_capped_and_refuses(_intersect_bundle((9000, 7000)), tmp_path)
+    no_plan = _intersect_bundle((9000, 500))
+    del no_plan["plan"]
+    _reads_capped_and_refuses(no_plan, tmp_path)
+
+
+def test_an_intersection_of_whole_searches_is_whole():
+    from chat_nextseek.agents.followup import describe_stored_result
+    described = describe_stored_result(_intersect_bundle((500, 500)))
+    assert described["capped"] is False and described["total"] == 500
