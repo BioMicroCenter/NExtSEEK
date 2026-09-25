@@ -12,6 +12,7 @@ The page is rendered with the real template, so a template syntax error fails he
 """
 
 import json
+import logging
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -227,6 +228,52 @@ def test_without_the_catalog_the_page_still_renders_with_codes(mock_db, mock_typ
     resp = seek.views.search.searchAdvanced(_get())
     options = json.loads(re.search(r"var type_options = (\[.*?\]);", resp.content.decode()).group(1))
     assert resp.status_code == 200 and [o["name"] for o in options] == ["", ""]
+
+
+# ---- the phone form's Sample type dropdown: one option per type, no traceback per character ----
+
+RESOLVE_FAILED = "Exception while resolving variable"
+
+
+def _phone_options(body):
+    select = re.search(r'<select id="m_sampletype">(.*?)</select>', body, re.S)
+    assert select, "no phone Sample type dropdown"
+    return re.findall(r'<option value="([^"]*)">([^<]*)</option>', select.group(1))
+
+
+def test_the_phone_dropdown_has_one_option_per_sample_type():
+    """Valued by id and labelled by code, as the desktop box's combobox is (valueField 'id',
+    textField 'title'), so SampleSearchCore.typeTitle turns the chosen value back into the code
+    graph_search takes. It used to loop over the JSON string of the options: one option per
+    character, every one with an empty value, so the phone filter never applied."""
+    _, body = _render()
+    options = _phone_options(body)
+    assert options == [("0", "All types"), ("26", "TIS"), ("11", "D.SEQ")]
+    assert all(value for value, _ in options)
+
+
+def test_the_page_renders_without_a_failed_variable_lookup(caplog):
+    """Django logs every template variable it cannot resolve at DEBUG with a traceback
+    (django.template.base). The phone loop over a JSON string failed one lookup per character,
+    about 10,000 per load, and formatting their tracebacks was 8 s of every request."""
+    caplog.set_level(logging.DEBUG, logger="django.template")
+    _render()
+    failed = [r.getMessage() for r in caplog.records if r.getMessage().startswith(RESOLVE_FAILED)]
+    assert failed == []
+
+
+def test_a_failed_variable_lookup_formats_no_traceback(caplog):
+    """dmac/settings.py LOGGING runs django.template at INFO. The django logger above it runs at
+    DEBUG, and at DEBUG Django formats a full traceback for every variable a template cannot
+    resolve, on any page, before a handler can drop the record: that is how one loop cost this
+    page 8 s. At INFO the record is never built."""
+    from django.conf import settings
+    from django.template import Context, Template
+
+    assert settings.LOGGING["loggers"].get("django.template", {}).get("level") == "INFO"
+    assert not logging.getLogger("django.template.base").isEnabledFor(logging.DEBUG)
+    Template("{% for c in s %}{{ c.id }}{% endfor %}").render(Context({"s": "abc"}))
+    assert not [r for r in caplog.records if r.getMessage().startswith(RESOLVE_FAILED)]
 
 
 # ---- the separate Graph Search page is retired: Sample Search is the one search page ----
