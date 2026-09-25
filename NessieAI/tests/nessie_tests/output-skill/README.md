@@ -14,20 +14,24 @@ output-skill/
 ├── scripts/
 │   ├── fetch_run.py            Read-only pull of per-turn evidence (+ manifest, raw rows,
 │   │                           output files) off any instance: --instance local|dev|prod.
-│   ├── build_report.py         Join run data + your triage.json -> report.html
+│   ├── build_report.py         Validate your triage.json, join it with the run -> report.html
+│   ├── review_forms.py         The forms: triage (validate), grades (grades.json, GRADES.md,
+│   │                           a triage), notes (fold the reviewer's notes back). The logic
+│   │                           is the importable package ../output_skill/.
 │   └── reply_style.py          Count machinery vs answer across a run's replies,
 │                               offline: the before/after number for a prompt change.
 ├── templates/
 │   └── report.html.tpl         The page. Fully data-driven; no run specifics baked in.
 └── examples/
     ├── triage.json             A complete worked triage (the 2026-07-24 run).
+    ├── grades-form.json        A filled grades form (synthetic ids and numbers).
     └── run-2026-07-24/         That run's manifest.json + turns.json.
 ```
 
 Regenerate the worked example end to end, no dev box needed:
 
 ```bash
-python scripts/build_report.py \
+uv run scripts/build_report.py \
     --run examples/run-2026-07-24 \
     --repo /path/to/NExtSEEK \
     --triage examples/triage.json \

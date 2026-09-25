@@ -144,7 +144,19 @@ wholesale with your own `stats` block.
 `graph_limit` now comes from `NessieAI/tests/nessie_tests/limits.py` (currently 5000). Set it in
 `triage.json` only to review an OLDER run that really was capped at 250.
 
-Copy `examples/triage.json` and edit. Each verdict entry takes:
+Copy `examples/triage.json` and edit. The triage is a validated form: unknown keys and words
+outside the vocabularies below are refused, and so is a verdict for a case the run does not hold
+(a mistyped id used to drop its verdict silently). Check it before building:
+
+```bash
+uv run scripts/review_forms.py triage --form ./triage.json --manifest ./run-<date>/manifest.json
+```
+
+It rewrites the file in its canonical shape and exits 2 naming every problem. Older triages that
+wrote `gaps` as `{title, body}` or `next` as objects (the page rendered those as "undefined" and
+"[object Object]") are converted and the conversion is printed.
+
+Each verdict entry takes:
 
 ```json
 "advanced.find_me_nhp_samples_from_study": {
@@ -158,15 +170,37 @@ Copy `examples/triage.json` and edit. Each verdict entry takes:
 The fourth element of an `observed` row is `ok`, `fail`, or `info`. Use `info` for
 context that is not a criterion, such as a row count.
 
-`findings`, `gaps` and `next` hold the cross-cutting analysis. Their `body`
-entries are HTML strings, so inline markup is allowed.
+`findings` (`{severity: real|drift|policy|mute, title, body: [paragraphs], evidence}`), `gaps`
+(`{id, text}`) and `next` (strings) hold the cross-cutting analysis. Their text is HTML, so
+inline markup is allowed. `head` is required on every verdict entry.
+
+#### Grading a run for a report (grades.json, GRADES.md)
+
+When the brief asks for graded verdicts per case and per turn (a launch's Nessie run), fill the
+grades form instead of writing a grades file by hand, then let the script count and render:
+
+```bash
+uv run scripts/review_forms.py grades --form ./grades-form.json --out-dir ./ --triage
+```
+
+Copy `examples/grades-form.json`. You fill `meta`, `verdict_text` (the lead paragraph), each
+case's `verdict`, `class` (product, probe, environment, none), `head` and turns (label, task id,
+route, server seconds, cost or null for unpriced, verdict, evidence), then `defects`, `features`,
+`harness_issues` and `cost`. The script refuses (exit 2) a harness pass graded `real` (that is
+`masked`), `masked` on a case the harness failed, `notrun` on a case that ran, a `pass` case
+holding a non-pass turn, and any `real` or `masked` case no defect names. It computes every count,
+cost sum and median itself, and writes `grades.json`, `GRADES.md` (the same layout every run) and,
+with `--triage`, the review page's triage for the same verdicts.
 
 ### 3. Build
 
 ```bash
-python scripts/build_report.py --run ./run-<date> \
+uv run scripts/build_report.py --run ./run-<date> \
     --repo <NExtSEEK checkout> --triage ./triage.json --out ./report.html
 ```
+
+It validates the triage first (the same form as above) and exits 2 before rendering anything
+if it is wrong.
 
 It joins each manifest entry to its declared turns, their asserted criteria (from
 `NessieAI/tests/nessie_tests/corpus.json`), each turn's task
@@ -202,7 +236,19 @@ downloads a `nessie-notes.json` the reviewer sends back:
 
 Each note carries the verdict and family it was written against, so you can tell
 whether the reviewer was agreeing with or disputing your call. Fold the result
-back into `triage.json` (adjusting verdicts, notes, findings) and rebuild. The
+back as a form, then rebuild:
+
+```bash
+uv run scripts/review_forms.py notes fold --notes ./nessie-notes.json --triage ./triage.json --out ./fold.json
+#   fill every item: decision keep | change (with new_verdict) | ask, and a reply
+uv run scripts/review_forms.py notes apply --fold ./fold.json --triage ./triage.json \
+    --out ./triage.json --summary ./FOLD.md --force
+```
+
+`apply` refuses until every note has a decision and a reply (and an overall reply when the
+reviewer wrote an overall note). It changes the verdicts you decided to change, appends the
+reviewer's note and your reply to each case's note, and writes `FOLD.md` with the questions back
+to the reviewer first. The
 "Import" button restores a JSON into the page, so a reviewer can resume later or
 a second reviewer can build on the first one's pass.
 

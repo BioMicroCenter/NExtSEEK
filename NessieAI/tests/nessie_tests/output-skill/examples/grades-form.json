@@ -1,0 +1,86 @@
+{
+  "meta": {
+    "title": "Nessie grades: example rebuild on the dev box",
+    "instance": "dev",
+    "sha": "0123abcd",
+    "build": "app rebuilt on 0123abcd; cc-agent and sidecar from the previous launch",
+    "graded_at": "2026-01-15",
+    "grader": "an opus subagent of the supervisor session (read-only)",
+    "window_utc": ["2026-01-15T13:00:00Z", "2026-01-15T13:20:00Z"],
+    "basis": "every reply, the graph plan and the Container-CC trace of each turn, read from the task rows; never the harness pass rate"
+  },
+  "verdict_text": "The follow-up routing works: every turn went where the probe designed, each by the router. One real defect: a fresh count after a follow-up dropped the resolved sample type and doubled the number. One harness pass hides a wrong statement: a Container-CC reply names a count it never computed.",
+  "files": [
+    {
+      "file": "launch-example-cases-1.json",
+      "run_dir": "dev-launch-example-cases-1",
+      "name": "Follow-up probe (example)",
+      "harness_line": "3 passed, 1 failed; cost $0.61 PARTIAL",
+      "cases": [
+        {
+          "id": "fu.breakdown_stays_on_ns",
+          "family": "followup_over_results",
+          "harness_status": "passed",
+          "verdict": "pass",
+          "class": "none",
+          "head": "The breakdown and the recall stay on NS and answer from the stored result.",
+          "turns": [
+            {"label": "seed", "task_id": 101, "route": "nextseek_query", "route_source": "baml", "server_s": 31.2, "cost_usd": null, "verdict": "pass", "evidence": "\"There are 58 NHP samples ...\" 58 = the dev pin"},
+            {"label": "breakdown", "task_id": 102, "route": "nextseek_query", "route_source": "baml", "server_s": 18.4, "cost_usd": null, "verdict": "pass", "evidence": "47 / 8 / 3 by species, from the stored result"}
+          ]
+        },
+        {
+          "id": "fu.plot_goes_to_cc",
+          "family": "followup_over_results",
+          "harness_status": "passed",
+          "verdict": "masked",
+          "class": "product",
+          "head": "The chart is right, but the reply states a species count that was never computed (44, true 47).",
+          "turns": [
+            {"label": "seed", "task_id": 103, "route": "nextseek_query", "route_source": "baml", "server_s": 29.5, "cost_usd": null, "verdict": "pass", "evidence": "58 NHP"},
+            {"label": "plot", "task_id": 104, "route": "container_cc", "route_source": "baml", "server_s": 50.3, "cost_usd": 0.25, "verdict": "real", "evidence": "species_chart.svg is right; the text says 44 where the file holds 47"}
+          ]
+        },
+        {
+          "id": "fu.fresh_count_after_follow_up",
+          "family": "search_refinement",
+          "harness_status": "failed",
+          "harness_failed": ["fresh:last_reply"],
+          "verdict": "real",
+          "class": "product",
+          "head": "The fresh count is 8 instead of 4: the graph agent dropped the resolved sample type.",
+          "turns": [
+            {"label": "seed", "task_id": 105, "route": "nextseek_query", "route_source": "baml", "server_s": 38.5, "cost_usd": null, "verdict": "pass", "evidence": "207 mice treated with NDMA"},
+            {"label": "fresh", "task_id": 106, "route": "nextseek_query", "route_source": "baml", "server_s": 47.8, "cost_usd": null, "verdict": "real", "evidence": "8, re-measured 4 on the dev graph; the Cypher has no type label"}
+          ]
+        },
+        {
+          "id": "cons.sequencing_engine",
+          "family": "engine_routing",
+          "harness_status": "passed",
+          "verdict": "pass",
+          "class": "none",
+          "head": "The auto-run consistency group: both phrasings 1,614.",
+          "extra": true,
+          "turns": [
+            {"label": "q1", "task_id": 107, "route": "nextseek_query", "route_source": "baml", "server_s": 35.5, "cost_usd": null, "verdict": "pass", "evidence": "1,614"},
+            {"label": "q2", "task_id": 108, "route": "nextseek_query", "route_source": "baml", "server_s": 30.9, "cost_usd": null, "verdict": "pass", "evidence": "1,614, consistent"}
+          ]
+        }
+      ]
+    }
+  ],
+  "defects": [
+    {"id": "D1", "severity": "high", "class": "product", "area": "graph agent", "cases": ["fu.fresh_count_after_follow_up"], "tasks": [106],
+     "summary": "A fresh count after a follow-up drops the resolved sample type.", "evidence": "task 106 Cypher has no type label; 8 against 4 on the dev graph", "expected": "4"},
+    {"id": "D2", "severity": "medium", "class": "product", "area": "Container-CC reply", "cases": ["fu.plot_goes_to_cc"], "tasks": [104],
+     "summary": "A count stated in the reply was never computed.", "evidence": "the trace prints the table only; no count ran", "expected": "47, computed from the file"}
+  ],
+  "features": [
+    {"name": "follow-up split routing", "shown": "yes", "evidence": "every turn routed as designed, all by the router (baml)"}
+  ],
+  "harness_issues": [
+    "--tier full turns the consistency group on even with --cases: it ran once per file."
+  ],
+  "cost": {"budget_usd": 10, "harness_printed": "$0.61 PARTIAL", "bedrock_503": 0}
+}
