@@ -103,23 +103,41 @@ def _catalog_provider(client) -> str:
     return _CLIENT_TO_CATALOG_PROVIDER.get(raw, raw)
 
 
+# The catalog's top-level block of per-agent fallbacks, consulted before the profile
+# chains. It is not a profile: ChatConfig passes every "_" key through unnormalised and
+# no MODEL_MODE resolves to it, so it changes no agent's primary model.
+FALLBACK_OVERRIDE_KEY = "_fallback"
+
+
 def _get_fallback_agent_configs(
     config: "ChatConfig",
     agent_label: str,
     failed_provider: str,
+    *,
+    failed_model: str | None = None,
 ) -> list[tuple]:
     """
     Return an ordered list of (client, model_name, thinking_budget) tuples to try
-    after a 503 from `failed_provider` for `agent_label`.
+    after a failure from `failed_provider` for `agent_label`.
     Skips any fallback profile that lacks the required client credentials.
+
+    The agent's entry in the catalog's ``_fallback`` block, when it has one, comes
+    first, then the profile chain. Given ``failed_model``, an entry that would ask the
+    same provider for the same model is skipped: the follow-up and pipeline agents run
+    Opus 4.7 in ``gcp:current`` as well, so their chain's first entry used to be the
+    very model that had just failed.
     """
+    catalog = getattr(config, "AGENT_MODEL_CATALOG", None) or {}
     catalog_key = getattr(config, "_CATALOG_KEY", "default")
-    fallback_profiles = _FALLBACK_CHAINS.get((catalog_key, failed_provider), [])
+    candidates: list[tuple[str, Any]] = []
+    override = catalog.get(FALLBACK_OVERRIDE_KEY)
+    if isinstance(override, dict) and isinstance(override.get(agent_label), dict):
+        candidates.append((FALLBACK_OVERRIDE_KEY, override[agent_label]))
+    for profile in _FALLBACK_CHAINS.get((catalog_key, failed_provider), []):
+        candidates.append((profile, (catalog.get(profile) or {}).get(agent_label)))
 
     results = []
-    for profile in fallback_profiles:
-        profile_catalog = config.AGENT_MODEL_CATALOG.get(profile, {})
-        agent_cfg = profile_catalog.get(agent_label)
+    for profile, agent_cfg in candidates:
         if not agent_cfg:
             continue
         provider = agent_cfg.get("provider")
@@ -129,6 +147,8 @@ def _get_fallback_agent_configs(
         client = config.LLM_CLIENTS.get(provider) if provider else config.LLM_CLIENT
         if client is None:
             print(f"[FALLBACK] Skipping profile '{profile}' for agent '{agent_label}': provider '{provider}' client not available.")
+            continue
+        if failed_model is not None and (_catalog_provider(client), model) == (failed_provider, failed_model):
             continue
         results.append((client, model, budget))
     return results
@@ -200,6 +220,35 @@ def _parse_model_output(raw_output: str, model: Type[BaseModel]) -> BaseModel:
         return model.model_validate(_normalize_parsed_output(parsed))
 
 
+def _run_with_wall_clock(fn: Callable[[], Any], timeout_seconds: float) -> Any:
+    """Run ``fn()`` on a worker thread and give up after ``timeout_seconds``.
+
+    Raises ``LLMTimeoutError`` when time runs out. The worker is abandoned, not joined:
+    a provider SDK stuck on a dead socket does not return until its own read timeout,
+    which is what this bound exists to not wait for.
+    """
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(fn)
+    try:
+        return future.result(timeout=timeout_seconds)
+    except FuturesTimeoutError:
+        # Don't block waiting for a stuck thread (common with some providers).
+        try:
+            future.cancel()
+        except Exception:
+            pass
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        raise LLMTimeoutError(f"LLM call timed out after {timeout_seconds} seconds")
+    finally:
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+
+
 def _call_llm_with_timeout(
     client,
     model_name: str,
@@ -251,26 +300,7 @@ def _call_llm_with_timeout(
             thinking_budget=thinking_budget,
         )
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(_do_call)
-    try:
-        return future.result(timeout=timeout_seconds)
-    except FuturesTimeoutError:
-        # Don't block waiting for a stuck thread (common with some providers).
-        try:
-            future.cancel()
-        except Exception:
-            pass
-        try:
-            executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            pass
-        raise LLMTimeoutError(f"LLM call timed out after {timeout_seconds} seconds")
-    finally:
-        try:
-            executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:
-            pass
+    return _run_with_wall_clock(_do_call, timeout_seconds)
 
 
 def _structured_via(resp, client, response_format, thinking_budget) -> str | None:
@@ -567,7 +597,9 @@ def _call_with_recovery(
         if switches >= MAX_PROVIDER_SWITCHES or not chain_label:
             return False
         if chain is None:
-            chain = list(_get_fallback_agent_configs(config, chain_label, _catalog_provider(target_client)))
+            chain = list(_get_fallback_agent_configs(
+                config, chain_label, _catalog_provider(target_client), failed_model=target_model_name,
+            ))
         if not chain:
             return False
         fb_client, fb_model, fb_budget = chain.pop(0)

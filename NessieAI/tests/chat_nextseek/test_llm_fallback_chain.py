@@ -330,3 +330,72 @@ def test_the_flash_agents_move_to_sonnet_46_first(agent):
     first_client, first_model, _ = chain[0]
     assert first_client is bedrock
     assert first_model == SONNET_46
+
+
+def _normalized_shipped_catalog() -> dict:
+    """The shipped catalog exactly as ChatConfig normalises it, "_" keys included."""
+    raw = json.loads((paths.CHAT_NEXTSEEK_DIR / "agent_model_catalog.json").read_text())
+    return ChatConfig._normalize_agent_model_catalog(ChatConfig.__new__(ChatConfig), raw)
+
+
+class _ToolStub(_StubClient):
+    def chat_with_tools(self, **kwargs):  # pragma: no cover - never called here
+        raise AssertionError
+
+
+@pytest.mark.parametrize("profile", ["default", "gcp:current", "anth:current"])
+@pytest.mark.parametrize("agent", ["followup", "pipeline_agent"])
+def test_the_tool_loops_move_to_sonnet_46_not_the_opus_that_failed(profile, agent):
+    """Their chains (where there is one) lead back to the same Bedrock Opus 4.7, and
+    Gemini has no tool surface; the catalog's _fallback block names Sonnet 4.6."""
+    bedrock = _ToolStub("bedrock")
+    gcp = _StubClient("gcp")
+    catalog = _normalized_shipped_catalog()
+    primary = catalog[profile][agent]
+    assert (primary["provider"], primary["model"]) == ("anth", "us.anthropic.claude-opus-4-7")
+    config = types.SimpleNamespace(
+        LLM_CLIENT=None, LLM_MODEL="unused", LLM_CLIENTS={"anth": bedrock, "gcp": gcp},
+        AGENT_MODEL_CATALOG=catalog, _CATALOG_KEY=profile,
+        _THINKING_BUDGET_MAP=ChatConfig._THINKING_BUDGET_MAP,
+    )
+
+    chain = _get_fallback_agent_configs(config, agent, "anth", failed_model=primary["model"])
+
+    assert chain, f"{agent} has nowhere to move in {profile}"
+    assert chain[0] == (bedrock, SONNET_46, None)
+    assert all(model != primary["model"] for _, model, _ in chain), "the failed model is never retried"
+
+
+def test_the_fallback_block_changes_no_profiles_primary():
+    """_fallback is not a profile: no mode resolves to it, and every agent's primary in
+    every profile is what the profile says."""
+    catalog = _normalized_shipped_catalog()
+    assert "_fallback" in catalog
+    config = ChatConfig.__new__(ChatConfig)
+    config.AGENT_MODEL_CATALOG = catalog
+    config.LLM_MODEL = "unused"
+    for mode in ("mixed", "gcp", "gcp:current", "gcp:lite", "anth", "anth:current", "anth:lite", "aws:son", ""):
+        config.MODEL_MODE = mode
+        assert not config._resolve_catalog_key().startswith("_")
+    config._CATALOG_KEY = "default"
+    for agent in ("followup", "pipeline_agent"):
+        assert config.agent_config(agent)["model"] == "us.anthropic.claude-opus-4-7"
+
+
+def test_an_entry_for_the_model_that_just_failed_is_skipped():
+    """anth:current's chain for followup is gcp:current (the same Opus 4.7),
+    anth:lite (Opus 4.5), gcp:lite (Opus 4.7 again). Without the _fallback block, only
+    the one that is a different model is left."""
+    bedrock = _ToolStub("bedrock")
+    catalog = {k: v for k, v in _normalized_shipped_catalog().items() if k != "_fallback"}
+    config = types.SimpleNamespace(
+        LLM_CLIENT=None, LLM_MODEL="unused", LLM_CLIENTS={"anth": bedrock},
+        AGENT_MODEL_CATALOG=catalog, _CATALOG_KEY="anth:current",
+        _THINKING_BUDGET_MAP=ChatConfig._THINKING_BUDGET_MAP,
+    )
+    chain = _get_fallback_agent_configs(config, "followup", "anth", failed_model="us.anthropic.claude-opus-4-7")
+    assert [model for _, model, _ in chain] == ["anthropic.claude-opus-4-5-20251101-v1:0"]
+
+    unfiltered = _get_fallback_agent_configs(config, "followup", "anth")
+    assert [model for _, model, _ in unfiltered][0] == "us.anthropic.claude-opus-4-7", (
+        "without failed_model nothing is skipped, as before")

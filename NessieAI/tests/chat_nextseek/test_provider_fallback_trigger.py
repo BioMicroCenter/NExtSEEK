@@ -606,3 +606,144 @@ def test_a_call_that_never_moved_has_no_fallback_fields(tmp_path):
     _structured(config, primary)
     (entry,) = _ledger(tmp_path)
     assert "fallback_from" not in entry and "fallback_reason" not in entry
+
+
+# --------------------------------------------------------------------------
+# The tool loops (follow-up, pipeline): a wall clock, an empty-body check, and a
+# move to Sonnet 4.6 rather than to the same Opus (operator ruling 2026-09-25).
+# --------------------------------------------------------------------------
+
+OPUS = "us.anthropic.claude-opus-4-7"
+SONNET = "us.anthropic.claude-sonnet-4-6"
+
+
+class _SlowToolClient(_ToolClient):
+    """An outcome may be a float: sleep that long, then answer "late"."""
+
+    def chat_with_tools(self, *, model, **kw):
+        self.calls.append(model)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, float):
+            time.sleep(outcome)
+            outcome = "late"
+        if isinstance(outcome, dict):
+            return outcome
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": outcome}],
+                "usage": {}, "metadata": {}}
+
+
+def _bedrock_loop_config(bedrock, agent="followup"):
+    """The shipped shape: one Bedrock client, the profile chain's entry is the same Opus,
+    and the catalog's _fallback block names Sonnet 4.6."""
+    config = _Config(bedrock, agent=agent)
+    config.LLM_CLIENTS = {"anth": bedrock}
+    config.AGENT_MODEL_CATALOG = {
+        "_fallback": {agent: {"provider": "anth", "model": SONNET, "thinking_level": None}},
+        "gcp:current": {agent: {"provider": "anth", "model": OPUS, "thinking_level": None}},
+    }
+    return config
+
+
+def _loop(config, client, agent="followup", **kw):
+    from chat_nextseek.tool_loop import call_tools
+
+    return call_tools(config, messages=[], tools=[], system="s", model_name=OPUS, client=client,
+                      agent_label=agent, **kw)
+
+
+@pytest.mark.parametrize("agent", ["followup", "pipeline_agent"])
+def test_a_tool_loop_moves_to_sonnet_not_the_same_opus(agent):
+    bedrock = _SlowToolClient("bedrock", [LLMServiceUnavailableError("503"), "ok"])
+    result = _loop(_bedrock_loop_config(bedrock, agent), bedrock, agent=agent)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+
+
+def test_the_tool_loop_has_a_wall_clock_and_its_retry_gets_the_retry_window():
+    bedrock = _SlowToolClient("bedrock", [2.0, "ok"])
+    t0 = time.perf_counter()
+    result = _loop(_bedrock_loop_config(bedrock), bedrock, timeout_seconds=0.2, timeout_retry_seconds=0.5)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+    assert time.perf_counter() - t0 < 1.5, "the move must not wait out the stalled call"
+
+
+def test_the_tool_loop_wall_clock_defaults():
+    from chat_nextseek import tool_loop
+
+    params = inspect.signature(tool_loop.call_tools).parameters
+    assert params["timeout_seconds"].default == 120
+    assert params["timeout_retry_seconds"].default == 60
+    assert params["timeout_retries"].default == 1
+
+
+@pytest.mark.parametrize("empty", [
+    {"stop_reason": "end_turn", "content": [], "usage": {}, "metadata": {}},
+    {"stop_reason": "end_turn", "content": [{"type": "text", "text": "  \n"}], "usage": {}, "metadata": {}},
+], ids=["no-blocks", "blank-text"])
+def test_an_empty_tool_turn_moves(empty):
+    bedrock = _SlowToolClient("bedrock", [empty, "ok"])
+    result = _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+
+
+def test_a_tool_use_block_with_no_text_is_not_empty():
+    turn = {"stop_reason": "tool_use", "usage": {}, "metadata": {},
+            "content": [{"type": "tool_use", "id": "t1", "name": "answer", "input": {}}]}
+    bedrock = _SlowToolClient("bedrock", [turn])
+    assert _loop(_bedrock_loop_config(bedrock), bedrock) is turn
+    assert bedrock.calls == [OPUS]
+
+
+@pytest.mark.parametrize("second, reason", [
+    (LLMTimeoutError("t2"), "timeout"),
+    ({"stop_reason": "end_turn", "content": [], "usage": {}, "metadata": {}}, "empty"),
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    (LLMRateLimitError("ThrottlingException"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_a_tool_loop_failure_after_the_move_is_fatal_and_unavailable(second, reason, no_sleep):
+    first = second if not isinstance(second, dict) else dict(second)
+    bedrock = _SlowToolClient("bedrock", [first, second, "never"])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert bedrock.calls == [OPUS, SONNET]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "followup", "from": OPUS, "to": SONNET, "reason": reason},
+    ]
+
+
+def test_a_tool_loop_timeout_with_nowhere_to_move_retries_once_then_is_unavailable():
+    bedrock = _SlowToolClient("bedrock", [LLMTimeoutError("t1"), LLMTimeoutError("t2"), "never"])
+    config = _Config(bedrock, agent="followup")
+    with pytest.raises(LLMFatalError) as excinfo:
+        _loop(config, bedrock)
+    assert bedrock.calls == [OPUS, OPUS]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == []
+
+
+def test_a_bare_error_in_a_tool_loop_still_propagates_unchanged():
+    bedrock = _SlowToolClient("bedrock", [LLMError("ValidationException"), "ok"])
+    with pytest.raises(LLMError) as excinfo:
+        _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert type(excinfo.value) is LLMError
+    assert bedrock.calls == [OPUS]
+
+
+def test_the_tool_loop_ledger_names_the_move(tmp_path):
+    import json
+
+    bedrock = _SlowToolClient("bedrock", [LLMServiceUnavailableError("503"), "ok"])
+    config = _bedrock_loop_config(bedrock)
+    config.LOG_DIR = str(tmp_path)
+    _loop(config, bedrock)
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    assert [(e["model"], e["outcome"]) for e in entries] == [(OPUS, "service_unavailable"), (SONNET, "ok")]
+    assert "fallback_from" not in entries[0]
+    assert entries[1]["fallback_from"] == OPUS and entries[1]["fallback_reason"] == "unavailable"
+    assert entries[1]["timeout_seconds"] == 120
