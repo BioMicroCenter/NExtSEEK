@@ -108,3 +108,15 @@ def test_recall_returns_a_graph_turns_rows(monkeypatch, tmp_path):
     assert json.loads(dest.read_bytes()) == rows
     assert manifest == {"turn_id": 2, "bundle_id": 5, "total": 585, "row_count": 585,
                         "columns": ["id", "uuid"], "path": str(dest)}
+
+
+def test_recall_keeps_a_plan_bundles_rest_rows(monkeypatch, tmp_path):
+    rows = [{"uid": "MUS-1"}, {"uid": "MUS-2"}]
+    client = FakeClient(
+        turns=[{"turn_id": 4, "bundle_id": 9, "mode": "plan"}],
+        bundles={9: {"id": 9, "mode": "plan",
+                     "graph_result": {"ok": False, "data": [], "count": 0, "error": "boom"},
+                     "api_result_full": {"ok": True, "data": {"total": 2, "rows": rows}}}})
+    _install(monkeypatch, tmp_path, client)
+    manifest = runner._dispatch_recall(_args(4))
+    assert manifest["row_count"] == 2 and manifest["total"] == 2

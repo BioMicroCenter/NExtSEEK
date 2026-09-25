@@ -179,3 +179,13 @@ def test_uid_keys_are_read_in_either_spelling():
     rows = [{"uid": "A"}, {"uuid": "B"}, {"UID": "C"}, {"name": "no uid"}]
     c = ntc.from_bundle(_bundle(rows=rows, total=4), session_id="s", turn_id=1)
     assert c.result.sample_uids == ["A", "B", "C"]
+
+
+def test_a_plan_bundle_whose_graph_step_found_nothing_keeps_its_rest_rows():
+    """Plan mode always stores graph_result.data as a list, even when its graph step failed and a
+    REST step returned the rows; those rows must still be the turn's rows."""
+    b = _bundle()
+    b["mode"] = "plan"
+    b["graph_result"] = {"ok": False, "data": [], "count": 0, "error": "boom"}
+    c = ntc.from_bundle(b, session_id="s", turn_id=1)
+    assert c.ok is True and c.result.row_count == 2 and c.result.sample_uids == ["MUS-1", "MUS-2"]

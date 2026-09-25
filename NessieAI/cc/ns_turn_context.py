@@ -98,17 +98,19 @@ def _graph_rows(bundle: dict) -> tuple[bool, str | None, int | None, bool, list]
 
 
 def from_bundle(bundle: dict, *, session_id: str, turn_id: int) -> NSTurnContext:
+    from chat_nextseek.artifacts import load_api_result_full
+
+    api_full = load_api_result_full(bundle)
     graph = _graph_rows(bundle)
-    if graph is not None:
-        # A graph turn keeps its rows in the bundle itself. Reading only the REST result, the
-        # digest said rows=0 for every one of them and ``nextseek-recall`` found nothing (r6-1228).
+    # A graph turn keeps its rows in the bundle itself. Reading only the REST result, the digest
+    # said rows=0 for every one of them and ``nextseek-recall`` found nothing (r6-1228). A plan
+    # bundle stores a (possibly empty) graph list beside its REST result: the graph rows count
+    # only when there are some, or when there is no REST result at all.
+    if graph is not None and (graph[4] or not api_full):
         ok, error, total, capped, rows = graph
         row_count = len(rows)
     else:
         capped = False
-        from chat_nextseek.artifacts import load_api_result_full
-
-        api_full = load_api_result_full(bundle)
         ok = bool(api_full.get("ok", True))
         error = None if ok else str(api_full.get("error") or "NS turn failed")
         total, row_count, rows = _total_and_rows(api_full)

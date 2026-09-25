@@ -131,13 +131,17 @@ def _bundle_rows(bundle: dict) -> tuple[int | None, int, list]:
     """(total, row_count, rows) of a downloaded bundle: a graph turn's ``graph_result.data``, else
     the REST result. A graph turn has no API result, so reading only that returned no rows."""
     graph = bundle.get("graph_result") if isinstance(bundle, dict) else None
-    if isinstance(graph, dict) and isinstance(graph.get("data"), list):
+    api_full = (bundle.get("api_result_full") or {}) if isinstance(bundle, dict) else {}
+    # A plan bundle stores a (possibly empty) graph list beside its REST result: the graph rows
+    # count only when there are some, or when there is no REST result at all.
+    if (isinstance(graph, dict) and isinstance(graph.get("data"), list)
+            and (graph["data"] or not api_full)):
         rows = graph["data"]
         total = graph.get("total")
         if not isinstance(total, int) or isinstance(total, bool):
             total = None if graph.get("truncated") else len(rows)
         return total, len(rows), rows
-    return _total_and_rows(bundle.get("api_result_full") or {} if isinstance(bundle, dict) else {})
+    return _total_and_rows(api_full)
 
 
 def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dict:  # pragma: no cover  # Minor-8

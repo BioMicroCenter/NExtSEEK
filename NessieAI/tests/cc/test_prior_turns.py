@@ -313,6 +313,18 @@ def test_the_staging_cypher_is_accepted_by_the_scope_prover():
     assert "__scope_projects" in out.cypher
 
 
+def test_a_plan_bundle_whose_graph_step_found_nothing_stages_its_rest_rows(tmp_path, outputs):
+    raw = outputs / "api_result_bundle_5.json"
+    rest_rows = [{"uid": "MUS-1", "Genotype": "CC001"}, {"uid": "MUS-2", "Genotype": "CC002"}]
+    raw.write_text(json.dumps({"ok": True, "data": {"total": 2, "rows": rest_rows}}))
+    bundle = {"id": 5, "user_query": "plan q", "mode": "plan",
+              "graph_result": {"ok": False, "data": [], "count": 0, "error": "boom"},
+              "api_plan": {"endpoint": "/nextseek_api/projects/", "method": "GET"},
+              "raw_result_path": str(raw)}
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry(turn_id=5, bundle_id=5, mode="plan")], [bundle])
+    assert json.loads((dest / "turn-05" / "rows.json").read_text())["rows"] == rest_rows
+
+
 # ---------------------------------------------------------------- scope guards
 def test_a_file_outside_the_artifact_roots_is_never_copied(tmp_path, outputs):
     secret = tmp_path / "elsewhere" / "local_settings.py"

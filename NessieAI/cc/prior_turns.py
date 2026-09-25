@@ -379,14 +379,18 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
 
     rows: list = []
     graph_result = _as_dict(bundle.get("graph_result"))
-    if isinstance(graph_result.get("data"), list):
+    raw_path = bundle.get("raw_result_path") or _as_dict(bundle.get("paths")).get("raw_result_path")
+    # A plan bundle stores a (possibly empty) graph list beside its REST result: the graph rows
+    # are the turn's rows only when there are some, or when there is no REST result at all.
+    if isinstance(graph_result.get("data"), list) and (
+            graph_result["data"] or not (raw_path or bundle.get("api_result_full"))):
         rows = graph_result["data"]
         payload = {"cypher": details.get("graph", {}).get("cypher"),
                    "parameters": details.get("graph", {}).get("parameters"),
                    "count": graph_result.get("count"), "total": graph_result.get("total"),
                    "truncated": bool(graph_result.get("truncated")), "rows": rows}
     else:
-        raw = bundle.get("raw_result_path") or _as_dict(bundle.get("paths")).get("raw_result_path")
+        raw = raw_path
         safe = safe_ns_path(raw) if isinstance(raw, str) and raw else None
         full = _read_json(safe) if safe else bundle.get("api_result_full")
         rows = _rows_of(full)
