@@ -35,6 +35,8 @@ from django.conf import settings
 from nextseek_api.assistant.session_adapter import SessionSaveError
 
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.failure_replies import fatal_query_error
+from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 
 logger = logging.getLogger(__name__)
@@ -189,6 +191,24 @@ def _error_tracking_send_event(send_event):
     return wrapped, state
 
 
+def _report_fatal(fatal: LLMFatalError, send_event, error_state, session_id) -> None:
+    """End a turn that an ``LLMFatalError`` escaped from with the orchestrator's own query_error.
+
+    ``LLMFatalError`` is a ``BaseException``, so the bodies' ``except Exception`` never saw
+    it. ``run_query`` and ``run_query_plan`` answer it themselves, but ``run_pipeline_launch``
+    calls the pipeline agent unguarded, and a pipeline tool loop whose models both fail
+    raises it: the thread died with no terminal event and the ``QueryTask`` stayed
+    running. The event is the one the orchestrator's fatal handlers send
+    (``chat_nextseek.failure_replies.fatal_query_error``): the plain text with
+    ``reason: model_unavailable`` for unavailability, the raw message otherwise.
+    """
+    logger.error("Pipeline ended by a fatal model error: %s", fatal)
+    if error_state["sent"]:
+        return
+    _, data = fatal_query_error(fatal, agent=getattr(fatal, "agent", None) or "unknown")
+    send_event("query_error", {**data, "session_id": session_id})
+
+
 def _scope_kwargs(graph_scope) -> dict:
     """The orchestrator's ``graph_scope`` keyword, when the ViewSet resolved one.
 
@@ -217,6 +237,8 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 run_query_plan(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
+    except LLMFatalError as fatal:
+        _report_fatal(fatal, send_event, error_state, resolved_session_id)
     except Exception:
         logger.exception("Unhandled pipeline error")
         if not error_state["sent"]:
@@ -250,6 +272,8 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 run_pipeline_launch(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
             case _:
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
+    except LLMFatalError as fatal:
+        _report_fatal(fatal, send_event, error_state, resolved_session_id)
     except Exception:
         logger.exception("Unhandled pipeline error (async)")
         if not error_state["sent"]:
