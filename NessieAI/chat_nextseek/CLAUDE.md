@@ -97,12 +97,16 @@ without an error at the point of the change.
 ## Landmines
 
 - **A cc-agent build bakes this tree as it is on disk, committed or not.** The config
-  refreshes `min_sampletypes_db.json`, `min_assays_db.json` and `projects_db.json` in its
-  context directory from the database once a day (`_ensure_context_files` in
-  `NessieAI/chat_nextseek/src/chat_nextseek/config.py`). Run it against a checkout and
-  those tracked files change in place; the next cc-agent build then ships the refreshed
-  bytes, exactly as the app image build does. Check `git status` on this directory before
-  a cc-agent rebuild.
+  refreshes all five `*_db.json` catalogs in its context directory from the database once
+  a day (`_ensure_context_files` in
+  `NessieAI/chat_nextseek/src/chat_nextseek/config.py`), and every one of them is tracked.
+  Run it against a checkout and those files change in place; the next cc-agent build then
+  ships the refreshed bytes, exactly as the app image build does. Check `git status` on
+  this directory before a cc-agent rebuild. A **test** run no longer does this:
+  `_db_context_refresh_enabled` suppresses the refresh whenever `DJANGO_SETTINGS_MODULE`
+  names a test settings module, so no lane can rewrite tracked source by merely building
+  the config. Any other entry point against a checkout still refreshes, which is the
+  wanted behavior on a real instance.
 - **That refresh also reads SEEK, and writes real lab data into the checkout.** Its first
   statement is the read-only SELECT over SEEK's institutions in `chat_nextseek.labs`, which
   writes `labs_db.json` into the context directory and adds `labs` to every project row

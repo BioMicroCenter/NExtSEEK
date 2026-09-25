@@ -10,6 +10,12 @@ The fix tracks "a DB refresh happened today" with a dedicated marker file that
 ONLY a successful refresh writes (never baked into the image), so a freshly
 baked context file can no longer suppress the first-load refresh, while the
 once-per-day caching intent is preserved.
+
+The tests below pass ``refresh=True`` explicitly because they exercise the
+refresh gate itself, and the default is now lane-dependent: under a test
+settings module the refresh is suppressed outright so a test run can never
+rewrite this package's tracked context files. That suppression has its own
+tests at the bottom of this file.
 """
 from __future__ import annotations
 
@@ -65,7 +71,7 @@ def test_baked_today_files_do_not_suppress_first_refresh(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=True)
 
-    cfg._ensure_context_files()
+    cfg._ensure_context_files(refresh=True)
 
     assert calls["n"] == 1, "refresh must run on first load despite today-mtime baked files"
 
@@ -76,8 +82,8 @@ def test_second_same_day_load_skips_refresh(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=True)
 
-    cfg._ensure_context_files()
-    cfg._ensure_context_files()
+    cfg._ensure_context_files(refresh=True)
+    cfg._ensure_context_files(refresh=True)
 
     assert calls["n"] == 1, "daily caching intent must be preserved after a successful refresh"
 
@@ -88,12 +94,12 @@ def test_stale_marker_triggers_refresh_next_day(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=True)
 
-    cfg._ensure_context_files()  # writes today marker
+    cfg._ensure_context_files(refresh=True)  # writes today marker
     marker = Path(cfg.CONTEXT_DIR) / cfg._REFRESH_MARKER_NAME
     yesterday = time.time() - 24 * 3600
     os.utime(marker, (yesterday, yesterday))
 
-    cfg._ensure_context_files()
+    cfg._ensure_context_files(refresh=True)
     assert calls["n"] == 2, "a prior-day marker must trigger a fresh refresh"
 
 
@@ -103,10 +109,10 @@ def test_missing_target_file_triggers_refresh(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=True)
 
-    cfg._ensure_context_files()  # marker now today
+    cfg._ensure_context_files(refresh=True)  # marker now today
     (Path(cfg.CONTEXT_DIR) / "projects_db.json").unlink()
 
-    cfg._ensure_context_files()
+    cfg._ensure_context_files(refresh=True)
     assert calls["n"] == 2, "a missing target file must force a refresh"
 
 
@@ -117,8 +123,8 @@ def test_failed_refresh_does_not_write_marker(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=False)
 
-    cfg._ensure_context_files()
-    cfg._ensure_context_files()
+    cfg._ensure_context_files(refresh=True)
+    cfg._ensure_context_files(refresh=True)
 
     marker = Path(cfg.CONTEXT_DIR) / cfg._REFRESH_MARKER_NAME
     assert not marker.exists(), "a failed refresh must not write the today marker"
@@ -217,6 +223,99 @@ def test_a_baked_marker_would_have_suppressed_the_refresh(tmp_path):
     cfg = _bare_config(tmp_path)
     calls = _install_fetch_spy(cfg, succeeds=True)
 
-    cfg._ensure_context_files()
+    # refresh=True so the marker is what suppresses the fetch here, not the lane
+    # gate below -- otherwise this would go green without testing the marker.
+    cfg._ensure_context_files(refresh=True)
 
     assert calls["n"] == 0, "a today marker skips the refresh, which is why it must not be baked"
+
+
+# ---------------------------------------------------------------------------
+# A test lane must never write into the tracked context directory.
+#
+# The five files the refresh writes here are all git-tracked (it also writes
+# the runtime-only labs document). Any lane
+# that has BOTH a writable checkout and a reachable database therefore
+# rewrites tracked source as a side effect of merely constructing the config
+# -- silently, with pytest still exiting 0. scripts/run_tests.sh is exactly
+# such a lane. The refresh itself is wanted in production (the cc-agent image
+# bakes the refreshed bytes, see NessieAI/chat_nextseek/CLAUDE.md
+# "Landmines"), so the gate is on the lane, never on the refresh.
+# ---------------------------------------------------------------------------
+
+def test_test_settings_lane_does_not_reach_the_db(tmp_path, monkeypatch):
+    """dmac.test_settings names a test run: no DB round trip for context."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "dmac.test_settings")
+    _write_all_targets_today(tmp_path)
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert calls["n"] == 0, "a test lane must never hit the DB for context files"
+
+
+def test_realstack_test_settings_lane_does_not_reach_the_db(tmp_path, monkeypatch):
+    """The realstack lane settings module is a test lane too."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "dmac.test_settings_realstack")
+    _write_all_targets_today(tmp_path)
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert calls["n"] == 0, "the realstack lane must never hit the DB for context files"
+
+
+def test_test_settings_lane_writes_nothing_into_the_context_dir(tmp_path, monkeypatch):
+    """Not one byte, marker included: the context dir is tracked source."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "dmac.test_settings")
+    cfg = _bare_config(tmp_path)
+    _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == [], \
+        "a test lane must not create files under CONTEXT_DIR"
+
+
+def test_test_settings_lane_still_returns_the_files_on_disk(tmp_path, monkeypatch):
+    """Suppressing the refresh must not blind the caller: the committed
+    catalogs already on disk are still reported, so the config loads them."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "dmac.test_settings")
+    _write_all_targets_today(tmp_path)
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    paths_out = cfg._ensure_context_files()
+
+    assert calls["n"] == 0, "precondition: the refresh must have been suppressed"
+    assert sorted(paths_out) == [
+        "assays_full", "assays_min", "projects_full",
+        "sampletypes_full", "sampletypes_min",
+    ]
+
+
+def test_production_settings_module_still_refreshes(tmp_path, monkeypatch):
+    """The daily production refresh is the wanted behavior and stays."""
+    monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "dmac.settings")
+    _write_all_targets_today(tmp_path)
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert calls["n"] == 1, "production must still refresh once a day"
+
+
+def test_unset_settings_module_still_refreshes(tmp_path, monkeypatch):
+    """Absence of the variable must fail toward production behavior, never
+    toward silently disabling the refresh on a real instance."""
+    monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
+    _write_all_targets_today(tmp_path)
+    cfg = _bare_config(tmp_path)
+    calls = _install_fetch_spy(cfg, succeeds=True)
+
+    cfg._ensure_context_files()
+
+    assert calls["n"] == 1, "an unset settings module must not disable the refresh"
