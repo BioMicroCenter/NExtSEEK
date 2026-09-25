@@ -292,7 +292,7 @@ Thirteen model classes live in this module across four `assistant_*` tables and 
 
 ### Agent image (`NessieAI/docker/cc-runtime/Dockerfile`)
 
-Pins `@anthropic-ai/claude-code@2.1.163` (≥ 2.1.158 required for auto mode on Bedrock, `NessieAI/docker/cc-runtime/Dockerfile:31-32`), runs as a non-root uid-1001 user (`NessieAI/docker/cc-runtime/Dockerfile:47`, `NessieAI/docker/cc-runtime/Dockerfile:140`), bakes a `CLAUDE.md` at `/app/CLAUDE.md` (`NessieAI/docker/cc-runtime/Dockerfile:72`) symlinked into the agent home (`NessieAI/docker/cc-runtime/Dockerfile:88-89`), and sets `WORKDIR /home/user` (`NessieAI/docker/cc-runtime/Dockerfile:141`) so Claude Code discovers it. `chat_nextseek` is deliberately absent: the image installs only its own dependency manifest (`NessieAI/docker/cc-runtime/pyproject.toml:7-24`) via `uv sync --locked` (`NessieAI/docker/cc-runtime/Dockerfile:105-107`).
+Pins `@anthropic-ai/claude-code@2.1.282` (≥ 2.1.158 required for auto mode on Bedrock, ≥ 2.1.282 for the `model_fallback` frame the CC 503 fallback records, `NessieAI/docker/cc-runtime/Dockerfile:31-32`), runs as a non-root uid-1001 user (`NessieAI/docker/cc-runtime/Dockerfile:47`, `NessieAI/docker/cc-runtime/Dockerfile:140`), bakes a `CLAUDE.md` at `/app/CLAUDE.md` (`NessieAI/docker/cc-runtime/Dockerfile:72`) symlinked into the agent home (`NessieAI/docker/cc-runtime/Dockerfile:88-89`), and sets `WORKDIR /home/user` (`NessieAI/docker/cc-runtime/Dockerfile:141`) so Claude Code discovers it. `chat_nextseek` is deliberately absent: the image installs only its own dependency manifest (`NessieAI/docker/cc-runtime/pyproject.toml:7-24`) via `uv sync --locked` (`NessieAI/docker/cc-runtime/Dockerfile:105-107`).
 
 ---
 
