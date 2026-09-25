@@ -109,6 +109,9 @@ class CCStreamTranslator:
     api_retries: int = 0
     _init_model: str | None = None
     _fallbacks: tuple[dict[str, Any], ...] | list[dict[str, Any]] = ()
+    # (type, system subtype) of the last frame handled, and the last api_retry frame.
+    _last_frame: tuple[Any, Any] | None = None
+    _last_api_retry: dict[str, Any] | None = None
 
     def __init__(self, model_id: str | None = None) -> None:
         # The ``--model`` id this turn was started with: what ``models_used`` names when
@@ -138,6 +141,7 @@ class CCStreamTranslator:
         if not isinstance(payload, dict):
             return []
         etype = payload.get("type")
+        self._last_frame = (etype, payload.get("subtype") if etype == "system" else None)
         if etype == "system":
             return self._handle_system(payload)
         if etype == "assistant":
@@ -170,6 +174,22 @@ class CCStreamTranslator:
         """Every model switch this turn, ``[]`` when nothing fell back (a copy)."""
         return [dict(item) for item in self._fallbacks]
 
+    @property
+    def retrying_model(self) -> dict[str, Any] | None:
+        """The last ``system/api_retry`` frame when it is the last frame of all, else None.
+
+        Set, the turn was waiting on a model call Claude Code was retrying: nothing the
+        agent did came after it. The engine reads it when its watchdog stops a turn.
+        """
+        if self._last_frame == ("system", "api_retry"):
+            return self._last_api_retry
+        return None
+
+    def model_unavailable_error(self) -> str:
+        """The approved text for a turn the model's unavailability ended: the "second
+        model" wording only when a fallback was recorded this turn."""
+        return MODEL_UNAVAILABLE_TRIED if self._fallbacks else MODEL_UNAVAILABLE
+
     # ----------------------------------------------------------------- handlers
     def _handle_system(self, payload: dict[str, Any]) -> list[Frame]:
         sid = payload.get("session_id")
@@ -195,6 +215,7 @@ class CCStreamTranslator:
             })
         elif subtype == "api_retry":
             self.api_retries += 1
+            self._last_api_retry = payload
         # "informational", "permission_denied" and any other notice: nothing to do.
         return []
 
@@ -280,7 +301,7 @@ class CCStreamTranslator:
                 # and Claude Code's own words stay in ``detail`` for whoever triages it.
                 return [(
                     "query_error",
-                    {"error": MODEL_UNAVAILABLE_TRIED if self._fallbacks else MODEL_UNAVAILABLE,
+                    {"error": self.model_unavailable_error(),
                      "reason": MODEL_UNAVAILABLE_REASON, "detail": detail,
                      "agent": "container_cc", "cc_session_id": self.session_id,
                      "model_fallback": self.model_fallback},

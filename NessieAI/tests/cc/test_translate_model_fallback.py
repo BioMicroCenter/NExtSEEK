@@ -232,3 +232,23 @@ def test_any_other_error_keeps_todays_text(frame):
     assert data["error"] == expected
     assert "reason" not in data and "detail" not in data
     assert data["agent"] == "container_cc"
+
+
+# --- was the turn waiting on a model retry? (read by the engine's watchdog) -----------
+
+def test_a_turn_whose_last_frame_is_a_retry_is_waiting_on_the_model():
+    t, _ = _run([INIT, _answer(MAIN), RETRY_503])
+    assert t.retrying_model == RETRY_503
+
+
+@pytest.mark.parametrize("after", [_answer(MAIN), INFORMATIONAL, FALLBACK_503,
+                                   {"type": "user", "message": {"content": []}}])
+def test_any_frame_after_the_retry_means_the_turn_moved_on(after):
+    t, _ = _run([INIT, RETRY_503, after])
+    assert t.retrying_model is None
+
+
+def test_a_turn_with_no_retry_is_not_waiting_on_the_model():
+    t, _ = _run([INIT, _answer(MAIN)])
+    assert t.retrying_model is None
+    assert CCStreamTranslator().retrying_model is None

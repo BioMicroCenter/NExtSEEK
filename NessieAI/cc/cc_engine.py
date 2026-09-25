@@ -37,7 +37,7 @@ from urllib.parse import quote, quote_plus
 import docker
 
 from .attach import BridgeAttachSocket
-from .translate import CCStreamTranslator
+from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
 from NessieAI.cc import cc_session
@@ -1450,8 +1450,9 @@ def run_cc_turn(
             result = {"artifacts": [], "raw": []}
 
         if timed_out:
-            # Still a query_error with the same text, never a query_complete: the
-            # user is told the turn timed out, and on_turn_complete is not called
+            # Always a query_error, never a query_complete: the user is told the turn
+            # was stopped (at its time limit, or while the model it was waiting on was
+            # being retried; see below), and on_turn_complete is not called
             # (it writes a "completed" chat_log entry, which the sticky-CC rule
             # reads). The transcript row and raw/ copy come from the #68 fallback
             # in the finally, as for every turn that did not complete.
@@ -1463,9 +1464,19 @@ def run_cc_turn(
                 partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
+            # Review M2: stopped while Claude Code was still retrying a model call, the
+            # model was the problem, not the size of the task. With the approved retry
+            # bound and request timeout a hung upstream needs about 244 s to give up, so
+            # this watchdog fires first, and "say continue" would only stall again.
+            retry = translator.retrying_model
+            if retry is not None:
+                stopped = {"error": translator.model_unavailable_error(),
+                           "reason": MODEL_UNAVAILABLE_REASON,
+                           "detail": _retry_stop_detail(turn_timeout, retry)}
+            else:
+                stopped = {"error": _time_limit_message(turn_timeout), "reason": "exec_timeout"}
             send_event("query_error", {
-                "error": _time_limit_message(turn_timeout),
-                "reason": "exec_timeout", "agent": "container_cc",
+                **stopped, "agent": "container_cc",
                 "cc_session_id": translator.session_id,
                 "partial_reply": partial or None,
                 "artifacts": result["artifacts"] or None,
@@ -1735,6 +1746,17 @@ def _time_limit_phrase(seconds: float) -> str:
     if value > 0 and value % 60 == 0:
         return f"{int(value // 60)}-minute"
     return f"{value:g}-second"
+
+
+def _retry_stop_detail(seconds: float, retry: Mapping[str, Any]) -> str:
+    """The technical fact behind a turn stopped while a model call was being retried."""
+    error = retry.get("error") or "unknown error"
+    status = retry.get("error_status")
+    what = f"{error} ({status})" if status not in (None, "") else str(error)
+    attempt, most = retry.get("attempt"), retry.get("max_retries")
+    tail = f", attempt {attempt} of {most}" if attempt is not None and most is not None else ""
+    return (f"stopped at the {float(seconds):g} s limit while retrying the model: "
+            f"{what}{tail}")
 
 
 def _time_limit_message(seconds: float) -> str:

@@ -4,12 +4,43 @@ The old text ("Container-CC turn exceeded the 180s limit and was stopped. ...") 
 the engine and the limit in seconds. The approved one speaks to the researcher, renders
 the limit from the turn's own ``turn_timeout`` (whole minutes as "N-minute", anything
 else as "N-second"), and keeps ``reason: "exec_timeout"`` and every other field.
+
+One exception (review M2): a turn stopped while Claude Code was retrying a model call.
+With the approved retry bound (3) and request timeout (60 s) a hung upstream needs about
+244 s to give up, so the 180 s watchdog always fires first, and "say continue" would
+only stall again. When the last frame before the stop was a ``system/api_retry``, the
+user gets the approved unavailability text instead, with ``reason: "model_unavailable"``
+and the time-limit fact in ``detail``. The ``api_retry`` frames below are the shapes
+Claude Code 2.1.282 printed against a fake Bedrock endpoint on 2026-09-25.
 """
 from __future__ import annotations
 
+import json
+import time
+
+import docker as docker_mod
 import pytest
 
 from NessieAI.cc import cc_engine
+from NessieAI.cc.cc_config import CCPaths
+from NessieAI.cc.translate import MODEL_UNAVAILABLE, MODEL_UNAVAILABLE_TRIED
+
+INIT = {"type": "system", "subtype": "init", "session_id": "s-1", "model": "us.anthropic.a"}
+FALLBACK = {"type": "system", "subtype": "model_fallback", "trigger": "server_error",
+            "original_model": "us.anthropic.a", "fallback_model": "us.anthropic.b",
+            "session_id": "s-1"}
+FALLBACK_RECORD = [{"agent": "container_cc", "from": "us.anthropic.a", "to": "us.anthropic.b",
+                    "reason": "server_error"}]
+# A hung upstream: no status, error "unknown" (runs j_hang_* / z_hang_*).
+RETRY_HANG = {"type": "system", "subtype": "api_retry", "attempt": 3, "max_retries": 3,
+              "retry_delay_ms": 2219, "error_status": None, "error": "unknown",
+              "session_id": "s-1", "uuid": "u-1"}
+# A 503 (runs a503_* / g503_*).
+RETRY_503 = {"type": "system", "subtype": "api_retry", "attempt": 2, "max_retries": 3,
+             "retry_delay_ms": 1068, "error_status": 503, "error": "server_error",
+             "session_id": "s-1", "uuid": "u-2"}
+SAID = {"type": "assistant", "message": {"content": [{"type": "text", "text": "Found 58 samples."}]},
+        "session_id": "s-1"}
 
 
 @pytest.mark.parametrize("seconds, phrase", [
@@ -26,19 +57,10 @@ def test_a_three_minute_limit_reads_as_the_approved_sentence():
         "Say continue and I will carry on from where I got to.")
 
 
-def test_a_turn_stopped_at_its_limit_keeps_its_fields_and_says_what_fell_back(tmp_path, monkeypatch):
-    """A fallback model that then hangs ends the turn at its limit: the record still says
-    a second model was used."""
-    import json
-    import time
-
-    import docker as docker_mod
-
-    from NessieAI.cc.cc_config import CCPaths
-
-    frames = [json.dumps({"type": "system", "subtype": "model_fallback",
-                          "trigger": "server_error", "original_model": "us.anthropic.a",
-                          "fallback_model": "us.anthropic.b", "session_id": "s-1"})]
+def _stopped_turn(tmp_path, monkeypatch, frames, *, write=None):
+    """Feed ``frames``, then idle until the watchdog stops the turn; return its terminal."""
+    lines = [json.dumps(frame) for frame in frames]
+    scratch = tmp_path / "proj" / "alice" / "scratch" / "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
     class _Container:
         stopped = False
@@ -63,8 +85,12 @@ def test_a_turn_stopped_at_its_limit_keeps_its_fields_and_says_what_fell_back(tm
             return None
 
         def read_event_line(self):
-            if frames:
-                return frames.pop(0)
+            if write:
+                for name, body in write.items():
+                    (scratch / name).write_bytes(body)
+                write.clear()
+            if lines:
+                return lines.pop(0)
             time.sleep(0.02)
             return None if _Container.stopped else ""
 
@@ -86,10 +112,58 @@ def test_a_turn_stopped_at_its_limit_keeps_its_fields_and_says_what_fell_back(tm
     )
     [(event, data)] = [(e, d) for e, d in events if e in ("query_complete", "query_error")]
     assert event == "query_error"
+    return data
+
+
+def test_a_turn_stopped_at_its_limit_keeps_its_fields_and_says_what_fell_back(tmp_path, monkeypatch):
+    """A fallback model that then works slowly ends the turn at its limit: the record still
+    says a second model was used, and the message is the time-limit one."""
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, FALLBACK])
     assert data["error"] == cc_engine._time_limit_message(0.3)
     assert data["reason"] == "exec_timeout"
     assert data["agent"] == "container_cc"
     assert data["cc_session_id"] == "s-1"
     assert {"partial_reply", "artifacts", "cc_raw_files"} <= set(data)
-    assert data["model_fallback"] == [{"agent": "container_cc", "from": "us.anthropic.a",
-                                       "to": "us.anthropic.b", "reason": "server_error"}]
+    assert data["model_fallback"] == FALLBACK_RECORD
+
+
+def test_a_turn_stopped_while_retrying_a_hung_model_says_the_model_was_unavailable(
+        tmp_path, monkeypatch):
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, SAID, RETRY_HANG],
+                         write={"part.csv": b"a,b\n1,2\n"})
+    assert data["error"] == MODEL_UNAVAILABLE
+    assert data["reason"] == "model_unavailable"
+    assert data["detail"] == ("stopped at the 0.3 s limit while retrying the model: "
+                              "unknown, attempt 3 of 3")
+    # Everything the time-limit error carries is kept.
+    assert data["agent"] == "container_cc"
+    assert data["cc_session_id"] == "s-1"
+    assert data["partial_reply"] == "Found 58 samples."
+    assert [a["label"] for a in data["artifacts"]] == ["part.csv"]
+    assert "cc_raw_files" in data
+    assert data["model_fallback"] == []
+
+
+def test_a_turn_stopped_while_retrying_after_a_fallback_says_a_second_model_was_tried(
+        tmp_path, monkeypatch):
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, FALLBACK, RETRY_503])
+    assert data["error"] == MODEL_UNAVAILABLE_TRIED
+    assert data["reason"] == "model_unavailable"
+    assert data["detail"] == ("stopped at the 0.3 s limit while retrying the model: "
+                              "server_error (503), attempt 2 of 3")
+    assert data["model_fallback"] == FALLBACK_RECORD
+
+
+def test_a_turn_whose_retry_succeeded_before_the_stop_keeps_the_time_limit_text(
+        tmp_path, monkeypatch):
+    """The model answered after the retry, so the turn was busy, not waiting on a model."""
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, RETRY_503, SAID])
+    assert data["error"] == cc_engine._time_limit_message(0.3)
+    assert data["reason"] == "exec_timeout"
+    assert "detail" not in data
+
+
+def test_a_turn_with_no_retry_keeps_the_time_limit_text(tmp_path, monkeypatch):
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, SAID])
+    assert data["error"] == cc_engine._time_limit_message(0.3)
+    assert data["reason"] == "exec_timeout"
