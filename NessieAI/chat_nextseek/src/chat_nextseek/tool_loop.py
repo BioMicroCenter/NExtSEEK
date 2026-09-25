@@ -29,6 +29,8 @@ agent) does not repeat the mistakes:
   move, and one call's cache is worth nothing.
 * **A ledger entry per call**, including cache hits, so a loop's cost is measurable.
   The first call after a move also names it (``fallback_from``, ``fallback_reason``).
+  A call that ended in an exception nothing above types (a raw ``ClientError``) still
+  gets its entry, and still propagates unchanged.
 """
 from __future__ import annotations
 
@@ -131,6 +133,7 @@ def call_tools(
     switches = 0
     moves: list[dict] = []
     pending_move: dict = {}
+    attempt_recorded = False  # whether this attempt has its ledger record yet
     timeout_attempts = 0
     _timeout = timeout_seconds
 
@@ -161,8 +164,9 @@ def call_tools(
         return True
 
     def _log(outcome: str, t0: float, **kw) -> None:
-        nonlocal pending_move
+        nonlocal pending_move, attempt_recorded
         move, pending_move = pending_move, {}
+        attempt_recorded = True
         entry = _ledger_entry(
             agent_label, target_model, target_client, attempt, outcome, t0,
             timeout_seconds=_timeout, thinking_budget=target_budget, **kw, **move,
@@ -182,6 +186,7 @@ def call_tools(
     while attempt + 1 < max_attempts:
         attempt += 1
         t0 = time.perf_counter()
+        attempt_recorded = False
         try:
             call_client, call_model, call_budget = target_client, target_model, target_budget
             # No cache point once the call has moved (see the module docstring).
@@ -261,6 +266,13 @@ def call_tools(
             raise _unavailable("connection error", ce) from ce
         except LLMError as le:
             _log("error", t0, err=le)
+            raise
+        except BaseException as unrecorded:
+            # Anything else (a raw ClientError the client did not type, a bug in a client)
+            # propagates unchanged and never moves, but the attempt still gets its one
+            # ledger record, and the turn's cost collector counts it as unobserved (F1).
+            if not attempt_recorded:
+                _log("error", t0, err=unrecorded)
             raise
 
         _log("ok", t0, resp=_LedgerView(result))

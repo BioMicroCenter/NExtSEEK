@@ -15,8 +15,9 @@ Spend is summed from USAGE, never by counting ledger records:
   body writes two records, ``empty_completion`` with the usage and then
   ``service_unavailable`` without it, and is one billed call;
 * an attempt the wall clock abandoned (a timeout) may still be billed and its usage is
-  never seen; a connection error may have reached the provider. Each is an unobserved
-  call and makes the turn's cost partial;
+  never seen; a connection error may have reached the provider; an exception that is not
+  an ``LLMError`` at all (a raw ``ClientError``, a bug in a client) says nothing about
+  whether the call ran. Each is an unobserved call and makes the turn's cost partial;
 * a 5xx, a 429, a refused model (``LLMModelUnusableError``) and a 400 are not billed:
   nothing is recorded;
 * a model with no price is named in ``unpriced_models`` and makes the cost partial.
@@ -34,7 +35,7 @@ import threading
 from typing import Any, Callable, Iterator, TypeVar
 
 from . import model_prices
-from .llm_clients import LLMAPIConnectionError, LLMTimeoutError
+from .llm_clients import LLMAPIConnectionError, LLMError, LLMTimeoutError
 
 __all__ = ["TurnSpend", "current", "record_call", "collecting", "collects_turn", "turn_record", "cost_fields"]
 
@@ -97,6 +98,9 @@ class TurnSpend:
                     self.unobserved.append({**who, "why": "timed out: abandoned while it may still be billed"})
                 elif isinstance(err, LLMAPIConnectionError):
                     self.unobserved.append({**who, "why": "connection error: whether it was billed is unknown"})
+                elif err is not None and not isinstance(err, LLMError):
+                    self.unobserved.append({**who, "why": f"untyped error ({type(err).__name__}): "
+                                                          "whether it was billed is unknown"})
                 return
             if entry.get("outcome") == "ok" and model and model not in self.answered:
                 self.answered.append(model)
