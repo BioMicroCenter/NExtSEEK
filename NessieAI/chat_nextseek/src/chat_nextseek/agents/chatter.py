@@ -87,6 +87,22 @@ def _returned_something(rows: Any, total: Any) -> bool:
     return _above_zero(total)
 
 
+def _report_returned_rows(summary: Any) -> bool:
+    """A project report with rows, in the shape ``reports.runners.run_reporter_summary`` builds: ``rows_returned``
+    above zero at the top (the samples and protocols modes), in its ``samples`` or ``protocols`` block (RPPR,
+    published), or in the RPPR ``published`` block's samples; or a published protocol count above zero."""
+    if not isinstance(summary, dict):
+        return False
+
+    def rows(block: Any) -> Any:
+        return block.get("rows_returned") if isinstance(block, dict) else None
+
+    published = summary.get("published") if isinstance(summary.get("published"), dict) else {}
+    return any(_above_zero(n) for n in (
+        rows(summary), rows(summary.get("samples")), rows(summary.get("protocols")), rows(published.get("samples")),
+        summary.get("protocols_count"), published.get("protocols_count")))
+
+
 def _graph_rows_for_writer(rows: list) -> list:
     """The graph rows the writer is shown: an aggregate whole, up to a size cap; a list of
     sample records as its first 20."""
@@ -672,7 +688,7 @@ def chatter_agent_answer(
         answered = bool((graph_result or {}).get("ok")) and _returned_something(
             (graph_result or {}).get("data"), total_matches)
     elif is_reporter:
-        answered = _above_zero(total_matches)
+        answered = _report_returned_rows(reporter_summary)
     else:
         api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
         rest_rows = api_row_count(api_result_full)

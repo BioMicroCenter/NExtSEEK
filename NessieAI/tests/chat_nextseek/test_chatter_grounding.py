@@ -287,12 +287,33 @@ def _rest_turn(monkeypatch, reply, *, total, error_context=None):
     return out.split("**Debug info**")[0].strip()
 
 
-def _report_turn(monkeypatch, reply, total_rows):
+def _real_summary(monkeypatch, mode, *, samples=0, protocols=0, published=0, published_protocols=0):
+    """A reporter summary in the shape ``reports.runners.run_reporter_summary`` builds (its ``_sub_summary`` blocks
+    and all), from that function itself: only the three database runners under it are stubbed, each returning
+    ``rows_returned`` rows."""
+    from types import SimpleNamespace
+    from chat_nextseek.reports import runners
+
+    def block(n):
+        return {"ok": True, "rows_returned": n, "sampletypes_table": {}, "labs_table": {}, "years_table": {},
+                "months_table": {}, "study_count": 1 if n else 0}
+
+    monkeypatch.setattr(runners, "run_project_sample_report", lambda *a, **k: block(samples))
+    monkeypatch.setattr(runners, "run_project_protocols_report", lambda *a, **k: block(protocols))
+    monkeypatch.setattr(runners, "run_project_published_report",
+                        lambda *a, **k: {"ok": True, "samples": block(published),
+                                         "protocols": block(published_protocols)})
+    plan = SimpleNamespace(project="Impact", years=[], month_range=None, day_range=None, summary_mode=mode,
+                           reporter_context=None)
+    _result, _files, summary = runners.run_reporter_summary(SimpleNamespace(), plan, None)
+    return summary
+
+
+def _report_turn(monkeypatch, reply, summary):
     monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
     out = chatter_mod.chatter_agent_answer(
         _Config(), "Summarise the Impact project", EntityAgentOutput().model_dump(),
-        ParserPlan(mode="reporter").model_dump(), reporter_summary={"project": "Impact", "total_rows": total_rows},
-        log_dir="")
+        ParserPlan(mode="reporter").model_dump(), reporter_summary=summary, log_dir="")
     return out.split("**Debug info**")[0].strip()
 
 
@@ -340,10 +361,31 @@ def test_a_rest_closer_on_an_answered_turn_still_goes(monkeypatch):
         "140 RNA samples match.")
 
 
-def test_a_report_closer_goes_only_when_the_report_has_rows(monkeypatch):
-    reply = "The Impact report has {n} rows. Let me know if you want it by lab."
-    assert _report_turn(monkeypatch, reply.format(n=12), 12) == "The Impact report has 12 rows."
-    assert _report_turn(monkeypatch, reply.format(n=0), 0) == reply.format(n=0)
+REPORT_REPLY = "The Impact report has its rows. Let me know if you want them by lab."
+
+
+@pytest.mark.parametrize("mode,rows,where", [
+    ("samples", {"samples": 12}, "rows_returned"),
+    ("protocols", {"protocols": 7}, "rows_returned"),
+    ("RPPR", {"samples": 30}, "samples.rows_returned"),
+    ("RPPR", {"protocols": 3}, "protocols.rows_returned"),
+    ("RPPR", {"published": 5}, "published.samples.rows_returned"),
+    ("published", {"published": 9}, "samples.rows_returned"),
+    ("published", {"published_protocols": 4}, "protocols_count"),
+    ("RPPR", {"published_protocols": 4}, "published.protocols_count"),
+])
+def test_a_report_with_rows_loses_its_closer(monkeypatch, mode, rows, where):
+    summary = _real_summary(monkeypatch, mode, **rows)
+    value = summary
+    for key in where.split("."):
+        value = value[key]
+    assert value == next(iter(rows.values())), "the summary carries the rows where the gate reads them"
+    assert _report_turn(monkeypatch, REPORT_REPLY, summary) == "The Impact report has its rows."
+
+
+@pytest.mark.parametrize("mode", ["samples", "protocols", "RPPR", "published"])
+def test_a_report_with_no_rows_keeps_its_closer(monkeypatch, mode):
+    assert _report_turn(monkeypatch, REPORT_REPLY, _real_summary(monkeypatch, mode)) == REPORT_REPLY
 
 
 def test_no_closing_offer_says_it_applies_to_an_answered_result():
