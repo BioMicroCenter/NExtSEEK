@@ -110,6 +110,9 @@ def searchAdvanced(request):
     report = {}
     stype = DBtable_sampletype()
     report['type_options'] = _with_names(stype.getSampleTypes())
+    # type_options stays the JSON string the page's scripts read; the phone dropdown loops
+    # over this list, since a {% for %} over the string runs once per character.
+    report['type_option_list'] = json.loads(report['type_options'])
     report['showSamplePage'] = True
     report['showSearch'] = True        
     return render(request,"searchAdvanced.html", {'report':report})
