@@ -185,9 +185,11 @@ def _error_tracking_send_event(send_event):
     state = {"sent": False}
 
     def wrapped(event_type: str, data: dict[str, Any]) -> None:
+        send_event(event_type, data)
+        # Only once the send returned: a query_error whose send raised never reached the
+        # user, so the caller's generic one must still go out.
         if event_type == "query_error":
             state["sent"] = True
-        send_event(event_type, data)
 
     return wrapped, state
 

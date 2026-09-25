@@ -113,3 +113,16 @@ def test_generic_error_still_fires_when_nothing_was_reported(monkeypatch, body):
     assert len(errors) == 1
     assert errors[0]["error"] == "Internal pipeline error"
     assert errors[0]["session_id"] == "sid"
+
+
+def test_an_error_whose_send_failed_is_not_counted_as_sent():
+    """If forwarding the real query_error raises (a DB write, a payload that cannot be
+    serialized), the error never went out: the caller's generic query_error must still be
+    sent, or the turn ends with no terminal event and the task stays running."""
+    def failing_send(event_type, data):
+        raise RuntimeError("db write failed")
+
+    wrapped, state = _error_tracking_send_event(failing_send)
+    with pytest.raises(RuntimeError):
+        wrapped("query_error", {"error": "503 UNAVAILABLE", "agent": "graph"})
+    assert state["sent"] is False
