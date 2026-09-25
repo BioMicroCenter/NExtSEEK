@@ -26,10 +26,11 @@ can answer THIS question, and to run a new query when it cannot.
 3. When it cannot, call run_new_query with seed_uids true. Write the question out in
    full: name the sample types, assays and projects, and never write "those", "them"
    or "the above" — the query runs on its own, with no memory of this conversation.
-   Keep seed_uids true when the stored copy is capped or kept no UIDs. When stored_query
-   is present, the set is then rebuilt from it, so it covers the whole earlier set. When a
-   result kept no UIDs and has no stored_query, the new query cannot be scoped: it covers
-   every matching sample, and that goes in caveats.
+   Keep seed_uids true when the stored copy is capped or kept no UIDs. When
+   stored_query_rebuildable is true, the set is then rebuilt from stored_query, so it
+   covers the whole earlier set. When it is false, a capped copy is scoped to the UIDs it
+   holds, which is only part of the set and goes in caveats, and a copy that kept no UIDs
+   cannot be scoped: the new query covers every matching sample, and that goes in caveats.
 4. Call answer when you know. Lead with the number or the finding, mention two or three
    example identifiers verbatim, and keep it short. run_new_query returns the query's
    rows (its first rows when there are many). When they are a breakdown, such as one row

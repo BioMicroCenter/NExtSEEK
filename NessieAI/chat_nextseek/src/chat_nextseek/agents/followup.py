@@ -178,9 +178,10 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
             "description": (
                 "Read what the previous result actually holds. Returns its total, how "
                 "many rows were stored, whether the stored rows were capped, how many "
-                "UIDs are available, a few example UIDs, and the query that produced it "
-                "(stored_query; null when the result did not come from the graph). It "
-                "does NOT return the rows. If rows_stored is less than total, the stored "
+                "UIDs are available, a few example UIDs, the query that produced it "
+                "(stored_query; null when the result did not come from the graph), and "
+                "whether a new query can be rebuilt from that query "
+                "(stored_query_rebuildable). It does NOT return the rows. If rows_stored is less than total, the stored "
                 "copy cannot answer a question about the whole set and you must run a "
                 "new query."
             ),
@@ -226,10 +227,12 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                             "set the user is asking about, so keep it true for any "
                             "question about those records. When the stored copy holds "
                             "every UID, they are bound as $uids. When it is capped or "
-                            "kept no UIDs and read_stored_result shows a stored_query, "
-                            "the set is rebuilt from that query instead. With no "
-                            "stored_query, a UID-less result cannot be scoped, and the "
-                            "result's scope_note says so."
+                            "kept no UIDs and read_stored_result says "
+                            "stored_query_rebuildable is true, the set is rebuilt from "
+                            "stored_query instead. When that flag is false, a capped "
+                            "copy is scoped to the UIDs it holds, which is only part of "
+                            "the set, and a copy that kept no UIDs cannot be scoped; the "
+                            "result's scope_note says which."
                         ),
                     },
                 },
@@ -324,6 +327,9 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
         "uid_sample": uids[:UID_SAMPLE],
         "filters": ((bundle.get("parser_plan") or {}).get("filters") or {}),
         "stored_query": stored_query,
+        # The same rule the note below and the orchestrator's seam use: shown to the model
+        # so that it is told a set will be rebuilt only when it will be.
+        "stored_query_rebuildable": stored_query_rebuildable(stored_query),
         "note": (
             CAPPED_NOTE + CAPPED_NOTE_SCOPING
             if capped and stored_query_rebuildable(stored_query) else

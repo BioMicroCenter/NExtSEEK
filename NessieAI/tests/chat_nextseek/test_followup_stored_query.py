@@ -149,6 +149,23 @@ def test_a_result_with_no_graph_query_has_no_stored_query(bundle):
     assert describe_stored_result(bundle)["stored_query"] is None
 
 
+@pytest.mark.parametrize("bundle,rebuildable", [
+    (_graph_bundle(), True),
+    (_count_bundle(), True),
+    (_followup_count_bundle(), False),
+    (_graph_bundle(cypher="MATCH (s:Sample) WHERE s.uuid IN $uids RETURN s.uuid AS uid LIMIT 20",
+                   parameters={"uids": "<1549 UIDs of bundle 1>"}), False),
+    (_rest_bundle(), False),
+], ids=["graph", "graph-count", "followup-count", "followup-capped", "rest"])
+def test_the_description_says_whether_the_stored_query_can_be_rebuilt_from(bundle, rebuildable):
+    """The same rule the note and the seam use, so the model is not told a set is rebuilt
+    when the seam will not rebuild it."""
+    described = describe_stored_result(bundle)
+    assert described["stored_query_rebuildable"] is rebuildable
+    if bundle.get("graph_plan"):
+        assert described["stored_query"] is not None, "the query stays visible either way"
+
+
 def test_a_capped_result_says_to_rebuild_from_the_stored_query_not_to_seed():
     described = describe_stored_result(_graph_bundle(stored=20, total=250))
 
@@ -298,8 +315,11 @@ def test_the_prompt_tells_the_model_to_follow_the_scope_note():
     assert "stored_query" in prompt
 
 
-#: How a sentence may make "rebuilt" conditional on there being a query to rebuild from.
-_REBUILD_CONDITIONS = ("stored_query is present", "shows a stored_query", "seed_mode is stored_query")
+#: How a sentence may make "rebuilt" conditional: on the flag that says the stored query can
+#: be rebuilt from, or on the query result's own seed_mode, which reports what happened. Not
+#: on stored_query merely being there: a follow-up's own ``$uids`` query is shown and cannot
+#: be rebuilt from.
+_REBUILD_CONDITIONS = ("stored_query_rebuildable is true", "seed_mode is stored_query")
 
 
 def _sentences_saying_rebuilt(text):
@@ -320,6 +340,14 @@ def test_rebuilt_is_only_claimed_when_there_is_a_stored_query(source):
     assert sentences, "the rebuild is described"
     for sentence in sentences:
         assert any(c in sentence for c in _REBUILD_CONDITIONS), sentence
+    flat = " ".join(text.split())
+    assert "stored_query_rebuildable is true" in flat
+    assert "is false" in flat and "cannot be scoped" in flat, "the other branch is described too"
+
+
+def test_read_stored_result_names_the_rebuildable_flag():
+    tools = {t["name"]: t for t in build_followup_tool_schemas()}
+    assert "stored_query_rebuildable" in tools["read_stored_result"]["description"]
 
 
 def test_the_prompt_says_what_happens_when_there_is_nothing_to_scope_by():
@@ -549,6 +577,23 @@ def test_a_uid_less_rest_seed_says_it_could_not_be_scoped(monkeypatch, tmp_path)
     payload, _ = _loop(monkeypatch, tmp_path, _rest_count_bundle(), seed=True)
     assert payload["seed_mode"] == "none"
     assert "could not be scoped" in payload["scope_note"]
+
+
+@pytest.mark.parametrize("bundle,seed_mode", [
+    (_graph_bundle(stored=20, total=250), "stored_query"),
+    (_count_bundle(), "stored_query"),
+    (_followup_count_bundle(), "none"),
+    (_graph_bundle(stored=20, total=250,
+                   cypher="MATCH (s:Sample) WHERE s.uuid IN $uids RETURN s.uuid AS uid LIMIT 20",
+                   parameters={"uids": "<1549 UIDs of bundle 1>"}), "uids"),
+], ids=["graph-capped", "graph-count", "followup-count", "followup-capped"])
+def test_the_flag_the_model_reads_agrees_with_what_the_seam_does(monkeypatch, tmp_path, bundle, seed_mode):
+    """Rebuilt exactly when the model was told it would be; otherwise UIDs or no scope."""
+    flag = describe_stored_result(bundle)["stored_query_rebuildable"]
+    payload, _ = _loop(monkeypatch, tmp_path, bundle, seed=True)
+
+    assert payload["seed_mode"] == seed_mode
+    assert (payload["seed_mode"] == "stored_query") is flag
 
 
 @pytest.mark.parametrize("bundle", [_followup_count_bundle(), _rest_count_bundle()], ids=["followup", "rest"])
