@@ -24,6 +24,8 @@ largest module here and holds several concerns; read the part you need.
 | Mounts: one named volume, one subpath per mount | `_build_volumes` |
 | Fail-closed check that each subpath directory exists | `_preflight_subpath_dirs` |
 | Wall-clock clamp for one turn | `clamp_turn_timeout` |
+| The fallback model on a server error, bounded retries, the classifier's model | `_build_command` (`--fallback-model`), `build_agent_environment` (env `NEXTSEEK_CC_MAX_RETRIES`, `NEXTSEEK_CC_API_TIMEOUT_MS`, `NEXTSEEK_CC_DEFAULT_SONNET_MODEL`) |
+| Container paths in a reply become this turn's real paths | `rewrite_container_paths` |
 | Secret-scrub watermark for a stored transcript | `transcript_is_verified_scrubbed` |
 | Agent image and network defaults | `DEFAULT_IMAGE`, `DEFAULT_NETWORK` (env `NEXTSEEK_CC_IMAGE`, `NEXTSEEK_CC_NETWORK`) |
 
