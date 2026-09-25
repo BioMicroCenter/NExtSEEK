@@ -11,8 +11,10 @@ Two properties these tests hold to:
 
 * the agent can find out that the stored result cannot answer the question, which is
   what makes re-querying a decision rather than a guess;
-* no tool ever returns rows. A tool loop re-sends its whole conversation on each
-  iteration, so a tool result is paid for once per remaining iteration.
+* no tool returns more than a bounded view of rows (the stored rows only when the stored
+  copy is complete, and a per-column summary once there are more than 50). A tool loop
+  re-sends its whole conversation on each iteration, so a tool result is paid for once
+  per remaining iteration.
 """
 from __future__ import annotations
 
@@ -147,7 +149,9 @@ def test_rows_carrying_a_uid_are_records_not_an_aggregate():
     assert described["total"] == 1
 
 
-def test_the_description_never_carries_rows():
+def test_the_description_never_carries_a_large_result_s_rows():
+    """500 complete rows come back as a summary per column, not as rows: the value repeated
+    on every row is sent once, with its count."""
     bundle = {
         "id": 1, "user_query": "q", "mode": "graph_query",
         "graph_result": {"ok": True, "count": 500, "total": 500,
@@ -156,7 +160,8 @@ def test_the_description_never_carries_rows():
     described = describe_stored_result(bundle)
     blob = json.dumps(described)
     assert len(described["uid_sample"]) <= 5
-    assert "secret" not in blob
+    assert "rows" not in described
+    assert blob.count("x" * 100) == 1
     assert len(blob) < 2000, "a tool result is re-sent on every later iteration"
 
 

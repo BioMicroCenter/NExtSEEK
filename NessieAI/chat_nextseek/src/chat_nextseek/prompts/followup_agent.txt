@@ -15,7 +15,11 @@ can answer THIS question, and to run a new query when it cannot.
    second call spends a turn you need for the answer.
 2. Decide honestly whether the stored result can answer the question.
    - It CAN when the question is about something already in it: a count it reported,
-     the UIDs it listed, a value it selected.
+     the UIDs it listed, a value it selected. When the stored copy is complete, it also
+     shows you those values: rows (50 rows or fewer) or column_summary (more rows: each
+     column's distinct count and its 5 most common values), so answer from them without a
+     new query when they hold the answer. A capped copy has neither rows nor
+     column_summary.
    - When aggregate_values is present, THAT is the answer to a question about the
      number the previous turn gave. Do not report rows_stored as if it were the count:
      an aggregate always stores one row, and that row holds the number. Saying "there

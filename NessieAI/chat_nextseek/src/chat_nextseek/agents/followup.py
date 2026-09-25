@@ -22,15 +22,18 @@ tools and lets it choose:
 
 * ``read_stored_result`` — what the stored bundle holds, and what it does NOT: the row
   count against the real total, whether it was capped, how many UIDs are available, and
-  the query that produced it (``stored_query``).
+  the query that produced it (``stored_query``). When the stored copy is complete, also
+  its rows (50 or fewer) or a per-column summary (more), so a follow-up those rows
+  answer needs no new query.
 * ``run_new_query`` — re-run against the graph seeded with those UIDs.
   When the stored copy is capped or kept no UIDs, the set is rebuilt from
   ``stored_query`` if there is one it can be rebuilt from; when there is not, the
   query covers every matching sample and its ``scope_note`` says so.
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
-``read_stored_result`` returns counts and a handful of examples, never rows: the stored
-rows are the previous turn's, already answered. ``run_new_query`` returns the head of its
+``read_stored_result`` returns counts and a handful of examples, and the stored rows only
+when the stored copy is complete (``_stored_contents``): a capped copy's rows are not the
+set, so a follow-up about it has to query. ``run_new_query`` returns the head of its
 rows, bounded by ``preview_rows``. It used to return counts only, and on the production
 acceptance run of 2026-09-22 (task 0006a373) three seeded queries each returned the 23
 downstream types of 1,641 NDMA mice as ``{type, n}`` rows; the model was handed "count:
@@ -42,6 +45,7 @@ list shows its head, and the turn attaches every row as a file.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -88,6 +92,12 @@ CAPPED_NOTE_SEEDED = (
 FOLLOWUP_ROWS_MAX = 50
 FOLLOWUP_ROWS_CHARS = 6_000
 
+#: A complete stored copy with more than ``FOLLOWUP_ROWS_MAX`` rows is shown as a summary
+#: per column: this many of its most common values, within the same character budget as
+#: a rows preview.
+COLUMN_TOP = 5
+COLUMN_SUMMARY_CHARS = FOLLOWUP_ROWS_CHARS
+
 
 def preview_rows(rows: Any) -> list:
     """The head of ``rows``, at most ``FOLLOWUP_ROWS_MAX`` of them and ``FOLLOWUP_ROWS_CHARS``
@@ -100,6 +110,77 @@ def preview_rows(rows: Any) -> list:
             break
         shown.append(row)
     return shown
+
+
+def _summary_value(value: Any) -> tuple[tuple, Any]:
+    """``(key, value shown)`` for one cell of ``column_summary``.
+
+    The key counts and orders: ranked by kind first, so a column mixing null, numbers and
+    text still sorts, and so True, 1 and "1" stay three values. A list or dict is counted
+    and shown by its serialisation with sorted keys, so key order does not make two values
+    different.
+    """
+    if value is None:
+        return (0, 0), None
+    if isinstance(value, bool):
+        return (1, int(value)), value
+    if isinstance(value, int) or (isinstance(value, float) and math.isfinite(value)):
+        return (2, value), value
+    if isinstance(value, str):
+        return (3, value), value
+    shown = (json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+             if isinstance(value, (list, tuple, dict, float)) else str(value))
+    return (4, shown), shown
+
+
+def _column_summary(rows: list) -> tuple[dict[str, dict], int]:
+    """``({column: {distinct, top}}, columns left out)`` over every row of ``rows``.
+
+    ``top`` is the ``COLUMN_TOP`` most common values as ``[value, count]``, ties ordered by
+    value. A key missing from a row counts as null, so every column accounts for every row.
+    Columns go in the order they first appear; one that does not fit in
+    ``COLUMN_SUMMARY_CHARS`` is left out whole rather than cut, and counted.
+    """
+    records = [row for row in rows if isinstance(row, dict)]
+    columns = list(dict.fromkeys(key for row in records for key in row))
+    summary: dict[str, dict] = {}
+    omitted = 0
+    size = 2
+    for column in columns:
+        counts: dict[tuple, int] = {}
+        shown: dict[tuple, Any] = {}
+        for row in records:
+            key, value = _summary_value(row.get(column))
+            counts[key] = counts.get(key, 0) + 1
+            shown.setdefault(key, value)
+        ranked = sorted(counts, key=lambda k: (-counts[k], k))[:COLUMN_TOP]
+        entry = {"distinct": len(counts), "top": [[shown[k], counts[k]] for k in ranked]}
+        cost = len(json.dumps({column: entry}, separators=(",", ":"), default=str))
+        if size + cost > COLUMN_SUMMARY_CHARS:
+            omitted += 1
+            continue
+        summary[column] = entry
+        size += cost
+    return summary, omitted
+
+
+def _stored_contents(rows: list, *, capped: bool) -> dict[str, Any]:
+    """What a complete stored copy holds, for the loop to answer from without a new query.
+
+    ``capped`` is ``describe_stored_result``'s own flag, the one its note uses: a capped
+    copy gets nothing here, because its rows are not the set. Otherwise 50 rows or fewer
+    are shown as rows, bounded as ``preview_rows`` bounds a new query's, and a cut list
+    says so; more rows are shown as ``column_summary``.
+    """
+    if capped or not rows:
+        return {}
+    if len(rows) <= FOLLOWUP_ROWS_MAX:
+        shown = preview_rows(rows)
+        return {"rows": shown, "rows_shown": len(shown), "rows_truncated": len(shown) < len(rows)}
+    summary, omitted = _column_summary(rows)
+    if not summary and not omitted:
+        return {}
+    return {"column_summary": summary, "columns_omitted": omitted}
 
 
 #: A NExtSEEK reply carries a fenced debug block. On turn 1147 `read_stored_result`
@@ -181,9 +262,19 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                 "UIDs are available, a few example UIDs, the query that produced it "
                 "(stored_query; null when the result did not come from the graph), and "
                 "whether a new query can be rebuilt from that query "
-                "(stored_query_rebuildable). It does NOT return the rows. If rows_stored is less than total, the stored "
-                "copy cannot answer a question about the whole set and you must run a "
-                "new query."
+                "(stored_query_rebuildable). When the stored copy is complete (capped "
+                "is false), it also returns what the copy holds: the rows themselves "
+                f"(rows) when there are {FOLLOWUP_ROWS_MAX} or fewer, or else "
+                "column_summary, which gives each column's number of distinct values "
+                f"(distinct) and its {COLUMN_TOP} most common values with their "
+                "counts (top), over every stored row. Answer from rows or column_summary "
+                "without a new query when they hold the answer. If rows_truncated is "
+                "true, only rows_shown of the rows fit; if a column's distinct is larger "
+                "than its top list, its other values are not shown; columns_omitted "
+                "counts columns left out for length. When the copy is capped, neither "
+                "rows nor column_summary is present. If rows_stored is less than total, "
+                "the stored copy cannot answer a question about the whole set and you "
+                "must run a new query."
             ),
             "input_schema": {
                 "type": "object",
@@ -278,6 +369,10 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     copy used to be answered by seeding a new query with the UIDs it held, which scoped
     "of those, how many" to 5,000 of 36,622 records and said nothing; a count kept no UIDs
     at all. Either way the set is now rebuilt from this query.
+
+    A complete copy also carries its rows, or a summary of them (``_stored_contents``), so
+    "which labs are those from?" about 40 stored records that selected the lab is answered
+    from them instead of spending a query on data already on disk.
     """
     graph_result = bundle.get("graph_result") or {}
     api_slim = bundle.get("api_result_slim") or {}
@@ -314,7 +409,7 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
         # tell the agent to re-query for a number it already has.
         capped = False
 
-    return {
+    described = {
         "bundle_id": bundle.get("id"),
         "user_query": bundle.get("user_query"),
         "mode": bundle.get("mode"),
@@ -347,6 +442,10 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
             "The stored copy holds the rows listed above."
         ),
     }
+    # The rows themselves, or a summary of them, only when the copy is complete: by the
+    # same `capped` the note above uses, so the two cannot disagree about a result.
+    described.update(_stored_contents(rows, capped=capped))
+    return described
 
 
 def _stored_query(bundle: dict) -> dict[str, Any] | None:
