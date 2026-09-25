@@ -1,12 +1,14 @@
 """A number in the question is a stated count only when it sizes a set the user names (Phase F, F-b).
 
-``premise_count`` (the graph turn's Tier 1, through ``stated_counts``) and ``check_premise`` (the follow-up loop's,
-through ``SET_COUNT``) both read a number before a count word as the size the user says a set has. Neither reads a
-year ("In 2023 ...", "Of the 2024 samples"), a rank or sample size ("the 100 most recent samples", "a random subset
-of 200 samples", "the 500 samples with the highest RIN") or a threshold ("more than 100 samples"): one shared rule
-(``graph_review._not_a_stated_count``) drops those for both. A number right after "these" or "those" points back at a
-set the user has seen, so only the year and threshold rules apply to it. ``check_premise`` still needs a
-set-pointing word right before the number; ``stated_counts`` does not.
+``premise_count`` (the graph turn's Tier 1, through ``claimed_counts``) and ``check_premise`` (the follow-up
+loop's, through ``SET_COUNT``) both read a number before a count word as the size the user says a set has. Neither
+reads a year ("In 2023 ...", "Of the 2024 samples"), a rank or sample size ("the 100 most recent samples", "a random
+subset of 200 samples", "the 500 samples with the highest RIN") or a threshold ("more than 100 samples"): one shared
+rule (``graph_review._not_a_stated_count``) drops those for both. A number right after "these" or "those" points
+back at a set the user has seen, so only the year and threshold rules apply to it. Both need a set-pointing word right
+before the number (these, those, the, all, of, your): without one the number is a criterion or a request ("Which
+projects have 1,000 samples?", "Show me 100 samples from mice"), not a claim (Task 24). ``stated_counts``, the same
+reading without that word, keeps its own contract and no longer decides a premise.
 
 The premise fact is one shared sentence (``PREMISE_FACT``), which the chatter's backstop finds in the reviewer's
 note by ``PREMISE_FACT_RE``.
@@ -38,6 +40,7 @@ def test_a_year_is_not_a_stated_count(q):
 ])
 def test_a_count_is_still_read(q, n):
     assert gr.stated_counts(q) == [n]
+    assert gr.claimed_counts(q) == [n]
 
 
 def _premise(question):
@@ -134,6 +137,7 @@ NOT_A_SET_SIZE = [
 @pytest.mark.parametrize("q", NOT_A_SET_SIZE)
 def test_a_rank_sample_size_or_threshold_is_not_a_stated_count(q):
     assert gr.stated_counts(q) == []
+    assert gr.claimed_counts(q) == []
 
 
 @pytest.mark.parametrize("q", NOT_A_SET_SIZE)
@@ -185,6 +189,7 @@ def test_a_known_set_is_still_read_by_both_scans(q, n):
     latest pipeline") and a set named by "these" or "those" (a back-reference, which no rank, sort or subset rule
     reads away) are set sizes (fix rounds 1 and 2)."""
     assert gr.stated_counts(q) == [n]
+    assert gr.claimed_counts(q) == [n]
     check = gr.check_premise(q, stored_total=7)
     assert check.fired and check.detail == f"the earlier result had 7, not {n:,}"
 
@@ -194,17 +199,24 @@ def test_a_known_set_is_still_read_by_both_scans(q, n):
                                "Of those more than 100 samples, how many are female?"])
 def test_a_back_reference_keeps_the_year_and_threshold_rules(q):
     assert gr.stated_counts(q) == [] and not _fired(gr.check_premise(q, stored_total=745))
+    assert gr.claimed_counts(q) == []
 
 
 def test_a_year_does_not_hide_a_count_after_it():
-    """The year is dropped on its own: it does not take the words up to the count word with it."""
+    """The year is dropped on its own: it does not take the words up to the count word with it. "we uploaded 4,095"
+    names no set with a set-pointing word, so since Task 24 it is ``stated_counts``' reading only and no premise;
+    the same year before "the 4,095 D.SEQ files" still leaves that count to premise_count."""
     q = "In 2023 we uploaded 4,095 D.SEQ files; how many have 'ABC' in their UID?"
     assert gr.stated_counts(q) == [4095]
+    assert gr.claimed_counts(q) == [] and not _premise(q)[0].fired
+    q = "Of the 2023 uploads, the 4,095 D.SEQ files: how many have 'ABC' in their UID?"
+    assert gr.claimed_counts(q) == [4095]
     assert _premise(q)[0].fired
 
 
 def test_a_comma_makes_a_four_digit_number_a_count():
     assert gr.stated_counts("Of the 2,024 samples, how many are female?") == [2024]
+    assert gr.claimed_counts("Of the 2,024 samples, how many are female?") == [2024]
 
 
 def test_the_premise_fact_is_the_shared_sentence():
@@ -256,6 +268,7 @@ def _premise_on(question, n):
 @pytest.mark.parametrize("n", [962, 4095])
 def test_either_number_of_an_n_of_m_claim_in_the_result_is_quiet(n):
     assert gr.stated_counts(OF_CLAIM) == [962, 4095]
+    assert gr.claimed_counts(OF_CLAIM) == [962, 4095]
     check, _ = _premise_on(OF_CLAIM, n)
     assert not check.fired
 
@@ -277,3 +290,25 @@ def test_the_follow_up_premise_reads_an_n_of_m_claim_the_same_way(q):
     assert not _fired(gr.check_premise(q, stored_total=whole))
     check = gr.check_premise(q, stored_total=500)
     assert check.fired and check.detail == f"the earlier result had 500, not {part:,}"
+
+
+# A criterion or a request is no claim about a set (Task 24, the independent validator)
+#: A number with no set-pointing word before it asks for records (a criterion, a size to show), it does not say what
+#: a set holds. Before Task 24 premise_count read each of these and the reply opened "The question says 1,000; this
+#: search did not reproduce that number." over a correct answer.
+CRITERION_OR_REQUEST = [
+    "Which projects have 1,000 samples?",
+    "Show me 100 samples from mice",
+    "Which 5 projects hold 500 samples each?",
+    "Find the 3 projects with 1,000 samples",
+    "Show 1000 samples of type MUS",
+    "Download 500 files",
+]
+
+
+@pytest.mark.parametrize("q", CRITERION_OR_REQUEST)
+def test_a_criterion_or_a_request_is_no_graph_premise(q):
+    assert gr.claimed_counts(q) == []
+    check, rv = _premise(q)
+    assert not check.fired and not gr.PREMISE_FACT_RE.search(rv.disclosure or "")
+

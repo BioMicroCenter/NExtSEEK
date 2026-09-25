@@ -161,6 +161,14 @@ PREMISE_FACT_RE = re.compile(r"The question says [\d,]+; this search did not rep
 #: (a year) does not take the words up to the count word with it: "In 2023 we uploaded 4,095 D.SEQ files" reads 4,095.
 #: Group 1 is the number, group 2 the count word.
 STATED_COUNT = re.compile(NUMBER + "(?=" + COUNT_WORD + ")", re.I)
+#: A word that points at a set, right before its size: "these 1,206 mice", "all 731 samples", "the 4,095 D.SEQ files",
+#: "Of the 2,023 samples", "your 500 files". ``SET_COUNT`` and ``CLAIMED_COUNT`` read a number only after one.
+SET_ANCHOR = r"\b(?:these|those|the|all|of|your)\s+"
+#: ``STATED_COUNT`` after ``SET_ANCHOR``: what ``premise_count`` reads. Without the anchor a number is what the user
+#: asks for, a criterion or a size to show ("Which projects have 1,000 samples?", "Show me 100 samples from mice"),
+#: not what they say a set holds (Task 24). The count word is still read ahead, so an anchored year keeps no words:
+#: "Of the 2023 uploads, the 4,095 D.SEQ files" reads 4,095.
+CLAIMED_COUNT = re.compile(SET_ANCHOR + NUMBER + "(?=" + COUNT_WORD + ")", re.I)
 
 # What makes a number before a count word something other than the size of a set the user states. Each is read
 # around the number only: right before it, right after it, between it and its count word, or right after the count
@@ -220,7 +228,7 @@ def _not_a_stated_count(text: str, m: re.Match) -> bool:
     ("between 100 and 500 samples", "100 to 500 samples"), or, unless "these" or "those" comes right before it, a rank
     or sample size ("the 100 most recent samples", "the first 200 samples", "a random subset of 200 samples", "a
     sample of 300 mice", "the 500 samples with the highest RIN"). The one rule for ``premise_count``
-    (``stated_counts``) and ``check_premise``."""
+    (``claimed_counts``), ``stated_counts`` and ``check_premise``."""
     raw = m.group(1)
     if "," not in raw and len(raw) == 4 and 1900 <= int(raw) <= 2100:
         return True
@@ -266,8 +274,16 @@ def _of_partners(text: str) -> dict[int, set[int]]:
 def stated_counts(text: str) -> list[int]:
     """Counts the question states ("the 4,095 D.SEQ files"). A 4-digit number from 1900 to 2100 written without a
     comma is a year ("in 2023 samples"), not a count; a rank, a sample size or a threshold is not one either
-    (``_not_a_stated_count``)."""
+    (``_not_a_stated_count``). Any number before a count word is read, set-pointing word or not; ``premise_count``
+    reads ``claimed_counts``."""
     return _set_sizes(STATED_COUNT, text)
+
+
+def claimed_counts(text: str) -> list[int]:
+    """``stated_counts`` read only after a word that points at a set (``CLAIMED_COUNT``): the sizes the user says a
+    set has. "Which projects have 1,000 samples?" and "Show me 100 samples from mice" claim nothing; "all the 4,095
+    Sequencing Data (D.SEQ) files" (r4-607) and "Of the 2,023 samples" do."""
+    return _set_sizes(CLAIMED_COUNT, text)
 
 
 # ---------------------------------------------------------------- Cypher reading -----------------------------------
@@ -607,7 +623,7 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
 def _premise_count(t: _Turn) -> _Finding | None:
     got = {t.result_n(), t.inp.total, t.inp.count}
     partners = _of_partners(t.q)
-    for x in stated_counts(t.q):
+    for x in claimed_counts(t.q):
         if x >= 50 and x not in got and not partners.get(x, set()) & got:
             return _Finding(f"question states {x}, result is {t.result_n()}", PREMISE_FACT.format(n=f"{x:,}"))
     return None
@@ -738,11 +754,11 @@ FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the 
                                             "which carry that result's filters"}
 
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
-#: Sequencing Data (D.SEQ) files". It must follow a word that points at a set, so a threshold ("more than 100
-#: samples") is not read as one; NUMBER and COUNT_WORD are premise_count's own. A year, a rank or a sample size
-#: after such a word ("Of the 2024 samples", "the 100 most recent samples", "a random subset of 200 samples") is
-#: dropped by premise_count's own rule (``_not_a_stated_count``).
-SET_COUNT = re.compile(r"\b(?:these|those|the|all|of|your)\s+" + NUMBER + COUNT_WORD, re.I)
+#: Sequencing Data (D.SEQ) files". It must follow a word that points at a set (``SET_ANCHOR``, which premise_count's
+#: ``CLAIMED_COUNT`` shares), so a threshold ("more than 100 samples") is not read as one; NUMBER and COUNT_WORD are
+#: premise_count's own. A year, a rank or a sample size after such a word ("Of the 2024 samples", "the 100 most recent
+#: samples", "a random subset of 200 samples") is dropped by premise_count's own rule (``_not_a_stated_count``).
+SET_COUNT = re.compile(SET_ANCHOR + NUMBER + COUNT_WORD, re.I)
 
 
 def _is_count(value) -> bool:

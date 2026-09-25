@@ -220,3 +220,38 @@ def test_a_top_n_aggregate_gets_no_correction_end_to_end(monkeypatch, q):
 ])
 def test_premise_first_is_pure(notes, reply, expected):
     assert chatter_mod._premise_first(reply, notes) == expected
+
+
+# --------------------------------------------------------------------------- #
+# Task 24 (the independent validator)
+# --------------------------------------------------------------------------- #
+
+GROUPED = ("MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WITH p, count(s) AS n WHERE n >= 1000 "
+           "RETURN p.title AS project, n ORDER BY n DESC")
+
+
+@pytest.mark.parametrize("q,cypher,rows,total,reply", [
+    ("Which projects have 1,000 samples?", GROUPED, [{"project": "MIT_SRP", "n": 57441}], 1,
+     "One project has more than 1,000 samples: MIT_SRP (57,441)."),
+    ("Show me 100 samples from mice", "MATCH (s:T_MUS) RETURN s.uuid AS uuid ORDER BY s.id",
+     [{"uuid": f"M-{i}"} for i in range(200)], 705, "There are 705 mouse samples; here are the first 100."),
+], ids=["criterion", "request"])
+def test_a_criterion_or_a_request_gets_no_correction_end_to_end(monkeypatch, q, cypher, rows, total, reply):
+    """M3: a number with no set-pointing word before it is what the user asks for, not what they say a set holds.
+    premise_count read both, and the reply opened "The question says 1,000; this search did not reproduce that
+    number." over a correct answer."""
+    from chat_nextseek.graph_review import DictCatalog, ReviewInput, review_tier1
+    from chat_nextseek.orchestrator import _review_note
+    inp = ReviewInput(question=q, cypher=cypher, parameters={}, keyword_fields={}, rows=rows, count=len(rows),
+                      total=total, ok=True, error=None)
+    rv = review_tier1(inp, DictCatalog(None))
+    assert not next(c for c in rv.checks if c.name == "premise_count").fired
+    disclosure = rv.disclosure if rv.verdict in ("note", "suggest") else None
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _says(reply))
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), q, EntityAgentOutput().model_dump(), ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": cypher, "parameters": {}},
+        graph_result={"ok": True, "count": len(rows), "total": total, "data": rows},
+        query_notes=[_review_note(disclosure)] if disclosure else [], review_disclosure=disclosure, log_dir="")
+    body = out.split("**Debug info**")[0].strip()
+    assert not PREMISE_FACT_RE.search(body) and body == reply
