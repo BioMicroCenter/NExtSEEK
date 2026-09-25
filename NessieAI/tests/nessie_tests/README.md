@@ -29,8 +29,9 @@ has already returned 202 and is running the turn on its own thread, and its
 single early return is the `unrelated` route
 (`NessieAI/cc/turn.py:350-363`), so every gate routed anywhere
 else runs to completion and bills for it after the harness has walked away. That
-is why a route-tier run reports its spend as unmeasured instead of zero
-(`NessieAI/tests/nessie_tests/manifest.py:153-158`). No route is free: the router's own model
+is why a route-tier run reports its spend as partial (the router's price only) or
+unmeasured, never as a total or a zero
+(`NessieAI/tests/nessie_tests/manifest.py:224-233`). No route is free: the router's own model
 call happens on every turn and the routing event is emitted before the
 `unrelated` check, not after (`NessieAI/cc/turn.py:344-350`).
 
@@ -96,7 +97,8 @@ The surface has three different shapes, so it is described three ways.
 | `NessieAI/tests/nessie_tests/runner.py:409-413` | `run_suite`, one whole run; `NessieAI/tests/nessie_tests/runner.py:142-146` is one case |
 | `NessieAI/tests/nessie_tests/corpus.py:415` | `merged`, the resolved active corpus |
 | `NessieAI/tests/nessie_tests/evaluate.py:662` | `evaluate_turn`, criterion scoring for one turn |
-| `NessieAI/tests/nessie_tests/manifest.py:153` | `cost_summary`, what a run may claim about money |
+| `NessieAI/tests/nessie_tests/manifest.py:224` | `cost_summary`, what a run may claim about money |
+| `NessieAI/tests/nessie_tests/turn_cost.py:92-131` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
 | `NessieAI/tests/nessie_tests/bayesian.py:76` | `run_paired`, the paid dual-route run |
 | `NessieAI/tests/nessie_tests/preflight.py:94-98` | refuses a paid run whose force did not land |
 | `NessieAI/tests/nessie_tests/export.py:961` | paired manifest to the locked HiBayes CSVs |
@@ -459,13 +461,19 @@ every turn, and `route_decided` is emitted at `NessieAI/cc/turn.py:344` *before*
 the `ROUTE_UNRELATED` check at `NessieAI/cc/turn.py:350`. `unrelated` skips the answering turn, not
 the router that decided to skip it.
 
-Cost is read off `query_complete`, which route-tier polling never reaches, so a
-route run cannot account for what it spent. It reports `unmeasured`, not `$0`.
-A full-tier total is a floor too, for two independent reasons: NS-routed turns
-are never priced at all (`chat_nextseek` logs a per-call token ledger to a *log
-file*, with no USD conversion anywhere and nothing attached to `query_complete`),
-and a CC turn that ends in `query_error` carries no cost field either. Any run
-mixing the two prints `PARTIAL`.
+A case's cost is the sum of its turns, and a turn's is its router part
+(`router_cost_usd` on `route_decided`) plus its engine part (`total_cost_usd` on the
+turn's terminal event), over the parts observed
+(`NessieAI/tests/nessie_tests/turn_cost.py:92-131`). Each turn's record is kept on
+the manifest entry as `turns_meta`. Route-tier polling reaches `route_decided` and
+never the terminal event, so a route run sees at most the router's price: it
+reports `PARTIAL`, or `unmeasured` where the server does not price the router, and
+never `$0`. An `unrelated` gate calls no engine, so its router price is its whole
+cost, and a forced turn calls no router. A full-tier total is a floor whenever some
+turn's part went unseen or said it was partial: a server that prices neither NS nor
+router calls, or a CC turn that ends in `query_error`, which carries no cost field.
+The summary counts partial and unmeasured cases, and prints how many turns had a
+model fall back (`model_fallback`, `router_fallback`).
 
 ## Known-fail (RED) cases
 
@@ -690,8 +698,8 @@ to a `SNAPSHOT` file at the repository root.
   `compare.json`, `compare.md` (the verdict first) and `questions.csv`. `--cost-only`
   and `--checks` print and write nothing.
 
-A manifest carries no cost for an NS turn ("Cadence" above), so the scorer is the only
-place these runs are priced. chat_nextseek appends one line per model call to a single
+A manifest from a server that does not price NS turns carries no cost for them
+("Cadence" above), so for such a run the scorer is the only place they are priced. chat_nextseek appends one line per model call to a single
 `llm_calls.jsonl` under the process's `LOG_DIR`, not one per run, so the scorer gives a
 turn the ledger lines from its run-root timestamp to that plus its elapsed time and
 `engine_compare.LEDGER_SLACK_S`, priced with the operator's price table. The arms run
