@@ -464,7 +464,8 @@ def test_one_catalog_provider_serves_the_whole_loop_turn(seam):
 
     seen = seam([_plan(CONVERTER_CYPHER)],
                 [_ok(CONVERTER_CYPHER, {}, CONVERTER_ROWS), _ok(CONVERTER_CYPHER, {}, CONVERTER_ROWS)], calls=two)
-    assert seen.live_values == [{}], "one provider, with the default cold budget, for every query of the turn"
+    assert seen.live_values == [{"budget_s": orch.REVIEW_TIER1_BUDGET_S}], \
+        "one provider, with the Tier 1 budget, for every query of the turn"
     assert all(p["review"]["verdict"] == "suggest" for p in seen.payloads)
 
 

@@ -8,7 +8,7 @@ import shutil
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _replace_fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
@@ -674,7 +674,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         raised to each review, which records it."""
         if "value" not in provider:
             try:
-                provider["value"] = live_values(config)
+                provider["value"] = live_values(config, budget_s=REVIEW_TIER1_BUDGET_S)
             except Exception as exc:
                 provider["value"] = exc
         if isinstance(provider["value"], Exception):
@@ -1135,6 +1135,11 @@ REVIEW_BUDGET_S = 8.0
 REVIEW_LATE_TURN_S = 45
 #: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
 REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
+#: Tier 1's time for uncached catalog reads (value lists, value probes), and the smaller one it gets when the
+#: kept statement took over SKIP_AFTER_MS or the turn is past REVIEW_LATE_TURN_S. Cache only there made the reviewer
+#: silent on the turns it was built for (2026-09-25); a value probe of three types costs about 0.1 s warm on dev.
+REVIEW_TIER1_BUDGET_S = 2.0
+REVIEW_TIER1_LATE_BUDGET_S = 1.0
 
 
 def _review_note(disclosure: str, template: str = REVIEW_NOTE) -> str:
@@ -1178,6 +1183,18 @@ def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int
     )
 
 
+def _with_lookups(review: GraphReview, catalog, **turn) -> GraphReview:
+    """``review`` with the provider's ``lookups()`` (what it read, what the budget stopped) and ``turn``'s facts in
+    ``lookups``, so a review that fired nothing says whether it could have. A provider without ``lookups`` adds only
+    ``turn``."""
+    read = getattr(catalog, "lookups", None)
+    try:
+        found = dict(read()) if callable(read) else {}
+    except Exception as exc:  # the reviewer's bookkeeping must never cost the user their answer
+        found = {"error": repr(exc)[:200]}
+    return _replace_fields(review, lookups={**found, **turn})
+
+
 def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, user_text: str, graph_plan,
                            graph_result: dict, elapsed_ms: int | None, stored_total, target_bundle_id,
                            newest_bundle_id, seeded: bool = False) -> GraphReview:
@@ -1198,7 +1215,8 @@ def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, use
     try:
         inp = _review_input(question, graph_plan, graph_result, elapsed_ms)
         skip = {**FOLLOWUP_TIER1_SKIP, **(FOLLOWUP_SEEDED_SKIP if seeded else {})}
-        review = review_tier1(inp, get_catalog(), skip=skip)
+        catalog = get_catalog()
+        review = _with_lookups(review_tier1(inp, catalog, skip=skip), catalog)
         return with_checks(review, [
             check_premise(user_text, stored_total=stored_total),
             check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id, user_text=user_text),
@@ -1212,10 +1230,12 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
     """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
 
     Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
-    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, reading only
-    cached values when the statement took over ``SKIP_AFTER_MS`` or the turn has already run
-    ``REVIEW_LATE_TURN_S``. Tier 2 (``run_tier2``, bounded count variants) runs only when a check that has a variant
-    fired and the turn is younger than ``REVIEW_LATE_TURN_S``, inside what Tier 1 left of ``REVIEW_BUDGET_S``.
+    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, whose uncached
+    reads get ``REVIEW_TIER1_BUDGET_S``, or ``REVIEW_TIER1_LATE_BUDGET_S`` when the statement took over
+    ``SKIP_AFTER_MS`` or the turn has already run ``REVIEW_LATE_TURN_S``. What the provider read, and why it read no
+    more, goes to ``review.lookups`` with the turn's age and those two flags. Tier 2 (``run_tier2``, bounded count
+    variants) runs only when a check that has a variant fired and the turn is younger than ``REVIEW_LATE_TURN_S``,
+    inside what Tier 1 left of ``REVIEW_BUDGET_S``.
 
     The server's scope parameter is left out of the parameters: every count goes back through
     ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it.
@@ -1231,8 +1251,9 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
         inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
         slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
         late = t0 - t_turn_start > REVIEW_LATE_TURN_S
-        catalog = live_values(config, max_cold=0) if slow or late else live_values(config)
-        review = review_tier1(inp, catalog)
+        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow or late else REVIEW_TIER1_BUDGET_S)
+        review = _with_lookups(review_tier1(inp, catalog), catalog,
+                               turn_age_s=round(t0 - t_turn_start, 1), slow=slow, late=late)
         fired = {check.name for check in review.checks if check.fired}
         if fired & REVIEW_VARIANT_CHECKS and time.perf_counter() - t_turn_start < REVIEW_LATE_TURN_S:
             spent = time.perf_counter() - t0

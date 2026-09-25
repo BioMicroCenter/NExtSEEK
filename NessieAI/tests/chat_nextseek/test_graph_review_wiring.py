@@ -346,7 +346,8 @@ def test_a_count_that_runs_reaches_the_note_and_the_suggestion(graph_turn_harnes
 def test_the_review_is_in_the_debug_payload_and_the_session(graph_turn_harness):
     out = graph_turn_harness(question=CONVERTER_Q, cypher=CONVERTER_CYPHER, rows=CONVERTER_ROWS)
     review = out.debug["graph_review"]
-    assert set(review) == {"verdict", "checks", "disclosure", "suggestion", "variants", "elapsed_ms", "error"}
+    assert set(review) == {"verdict", "checks", "disclosure", "suggestion", "variants", "elapsed_ms", "error",
+                           "lookups", "fired"}
     assert out.session["_graph_review"] == review
     assert json.loads(json.dumps(review)) == review   # the Django session keeps it in a JSON column
     assert out.payload["debug"]["graph_review"] == review
@@ -488,10 +489,10 @@ def _scripted_turn(monkeypatch, tmp_path, *, results, times_ms):
 @pytest.mark.parametrize("kind", sorted(DISCARDED_RETRY))
 def test_a_slow_kept_statement_behind_a_fast_discarded_retry_gets_no_count(monkeypatch, tmp_path, kind):
     """The retry is thrown away, so the reviewed statement is the first one, which took over 5 s: its count
-    variant (a relaxation of that statement) is skipped and the catalog is read from the cache only."""
+    variant (a relaxation of that statement) is skipped and Tier 1's uncached reads get the late budget."""
     debug, live_calls, count_calls = _scripted_turn(
         monkeypatch, tmp_path, results=[TIFF_ZERO, DISCARDED_RETRY[kind]], times_ms=[6000, 40])
-    assert live_calls == [{"max_cold": 0}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_LATE_BUDGET_S}]
     assert count_calls == [] and debug["graph_review"]["variants"] == []
     assert debug["graph_review"]["verdict"] == "suggest"      # Tier 1 still speaks
 
@@ -500,7 +501,7 @@ def test_a_slow_kept_statement_behind_a_fast_discarded_retry_gets_no_count(monke
 def test_a_fast_kept_statement_behind_a_slow_discarded_retry_may_count(monkeypatch, tmp_path, kind):
     debug, live_calls, count_calls = _scripted_turn(
         monkeypatch, tmp_path, results=[TIFF_ZERO, DISCARDED_RETRY[kind]], times_ms=[40, 6000])
-    assert live_calls == [{}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_BUDGET_S}]
     assert len(count_calls) == 1
     assert [v["ok"] for v in debug["graph_review"]["variants"]] == [True]
 
@@ -509,7 +510,7 @@ def test_a_kept_retry_is_timed_as_the_retry(monkeypatch, tmp_path):
     """The retry found something and replaced the first result, so its time is the reviewed statement's."""
     debug, live_calls, count_calls = _scripted_turn(
         monkeypatch, tmp_path, results=[TIFF_ZERO, TIFF_FOUND], times_ms=[6000, 40])
-    assert debug["graph_attempts"][-1]["count"] == 1 and live_calls == [{}]
+    assert debug["graph_attempts"][-1]["count"] == 1 and live_calls == [{"budget_s": orch.REVIEW_TIER1_BUDGET_S}]
     assert len(count_calls) == 1
 
 
@@ -534,9 +535,9 @@ def _direct(monkeypatch, *, elapsed_ms, turn_age_s, catalog=None):
     return review, live_calls, tier2_calls
 
 
-def test_one_catalog_provider_per_turn_with_the_default_cold_budget(monkeypatch):
+def test_one_catalog_provider_per_turn_with_the_tier1_budget(monkeypatch):
     review, live_calls, tier2_calls = _direct(monkeypatch, elapsed_ms=120, turn_age_s=3)
-    assert live_calls == [{}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_BUDGET_S}]
     assert review.verdict == "suggest"
     [call] = tier2_calls
     assert call["inp"].elapsed_ms == 120            # the kept statement's time
@@ -545,16 +546,17 @@ def test_one_catalog_provider_per_turn_with_the_default_cold_budget(monkeypatch)
     assert 7.0 < call["budget_s"] <= 8.0
 
 
-def test_a_slow_statement_reads_the_catalog_cache_only(monkeypatch):
+def test_a_slow_statement_gets_the_late_tier1_budget(monkeypatch):
+    """Cache only there made the reviewer silent on the turns it was built for (2026-09-25)."""
     _review, live_calls, tier2_calls = _direct(monkeypatch, elapsed_ms=5001, turn_age_s=3)
-    assert live_calls == [{"max_cold": 0}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_LATE_BUDGET_S}]
     # run_tier2 is still handed the turn; it skips a statement over SKIP_AFTER_MS itself
     assert [c["inp"].elapsed_ms for c in tier2_calls] == [5001]
 
 
-def test_a_turn_past_45_seconds_reads_the_cache_only_and_runs_no_count(monkeypatch):
+def test_a_turn_past_45_seconds_gets_the_late_tier1_budget_and_runs_no_count(monkeypatch):
     review, live_calls, tier2_calls = _direct(monkeypatch, elapsed_ms=120, turn_age_s=46)
-    assert live_calls == [{"max_cold": 0}]
+    assert live_calls == [{"budget_s": orch.REVIEW_TIER1_LATE_BUDGET_S}]
     assert tier2_calls == []
     assert review.verdict == "suggest" and review.disclosure == TIFF_FACT
 
@@ -601,3 +603,52 @@ def test_anything_escaping_the_reviewer_is_an_ok_review(graph_turn_harness, monk
     assert out.reply == out.reply_without_reviewer
     assert out.query_notes == out.notes_without_reviewer == []
     assert _comparable(out.debug) == _comparable(out.debug_without_reviewer)
+
+
+# --------------------------------------------------------------------------- #
+# The RNA-Seq turn (dev 1276): the answer stands, the mix is named, "Only RNA-Seq" is offered
+# --------------------------------------------------------------------------- #
+
+RNA_Q = "How many TCGA patients have at least one RNA-Seq alignment derived from their samples?"
+RNA_CYPHER = ("MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+              "WHERE inv.title = $investigation_title AND EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->"
+              "(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p:T_PAT) } RETURN count(DISTINCT p) AS n")
+RNA_CATALOG = {
+    "T_A_ALN.*": [["DataType", 6]], "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]],
+    "T_A_ALN.DataType": [["RNA-Seq", 33227], ["WGS", 23723], ["WXS", 22441], ["miRNA-Seq", 11441]],
+    "T_PAT.@name": [["Patient", 12108]], "T_RNA.@name": [["RNA Sample", 18200]],
+}
+RNA_SPLIT = [{"value": "miRNA-Seq", "n": 10561}, {"value": "RNA-Seq", "n": 10517}, {"value": "WXS", "n": 3}]
+RNA_FACTS = ("The question names 'RNA-Seq', but the search did not filter on it. Counted by DataType: miRNA-Seq "
+             "10,561, RNA-Seq 10,517, WXS 3; one result can fall under more than one.")
+
+
+def _split_tool(seen):
+    """Proves every statement for the member, then answers the split with its rows and a count with 10,517."""
+    def tool(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        seen.append(cypher)
+        outcome = scope_cypher(cypher, parameters, MEMBER)
+        assert not isinstance(outcome, Refused), outcome.reasons
+        if cypher.endswith("RETURN value, n"):
+            return {"ok": True, "data": list(RNA_SPLIT), "count": 3, "total": None}
+        return {"ok": True, "data": [], "count": None, "total": 10517}
+    return tool
+
+
+def test_the_rna_seq_turn_names_the_mix_and_offers_only_rna_seq(graph_turn_harness):
+    seen: list = []
+    out = graph_turn_harness(question=RNA_Q, cypher=RNA_CYPHER, rows=[{"n": 10761}],
+                             parameters={"investigation_title": "TCGA"}, catalog=RNA_CATALOG,
+                             count_tool=_split_tool(seen))
+    review = out.debug["graph_review"]
+    assert review["verdict"] == "suggest" and review["fired"] == ["unapplied_value"]
+    assert review["disclosure"] == RNA_FACTS
+    assert THE_NOTE.format(facts=RNA_FACTS) in out.query_notes
+    [chip] = out.debug["suggestions"]
+    assert chip["label"] == "Only RNA-Seq" and chip["expected_count"] == 10517 and chip["kind"] == "narrow_value"
+    assert chip["query"] == (RNA_Q + " Count only Sequence Alignment Analysis records whose DataType is RNA-Seq.")
+    assert [v["edit"] for v in review["variants"]] == ["unapplied_value: split by DataType"]
+    assert review["lookups"]["late"] is False and review["lookups"]["slow"] is False
+    assert "turn_age_s" in review["lookups"]
+    # the reply's answer is untouched: the note only adds what the result matched
+    assert out.reply.startswith("reply") and out.reply_without_reviewer == "reply"

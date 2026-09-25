@@ -2,8 +2,10 @@
 
 Nothing used to inspect a graph query that ran and returned rows, so confidently wrong numbers reached the reply
 (production 2026-09-23): 98 "converters" of which 57 were stored as ``Non-converter``; 1,306 TIFF images that left
-out every ``tif``/``TIF`` value; "how many different D. file types exist" narrowed by ``sample_count > 0``; RNA-Seq
-patients counted through miRNA-Seq alignments; a zero whose starting set was never counted.
+out every ``tif``/``TIF`` value; "how many different D. file types exist" narrowed by ``sample_count > 0``; a zero
+whose starting set was never counted. And answers that are fine but mix what the question named with other values:
+"patients with an RNA-Seq alignment" counted through miRNA-Seq alignments too (10,761 on dev, which the operator
+accepts, 2026-09-25), where the reply must say what is mixed in and offer the narrowed search.
 
 ``review_tier1`` reads the question, the executed Cypher and parameters, the full in-memory result rows and the
 counts, and returns a ``GraphReview``: ``ok`` (say nothing), ``note`` (the turn broke: say so plainly) or
@@ -17,6 +19,13 @@ hold values) and ``type_name(label)`` (its display name). One review calls each 
 live provider that queries Neo4j is hit once per key per turn. ``DictCatalog`` is the in-memory provider the offline
 fixture uses.
 
+A provider may also offer ``attributes_holding(label, attributes, spellings)``: which of those attributes store one
+of those exact spellings. ``unapplied_value`` looks for a stored value the question names on any attribute the query
+leaves alone, which walked every attribute of every queried type; live, a TCGA patient has 122 of them, and the
+provider stopped after two uncached lists (2026-09-25: it never fired on dev). With ``attributes_holding`` the check
+asks once per type, by the question's own phrases (``value_spellings``), and reads only the attributes that answer.
+A provider without it (``DictCatalog``) is walked in full, as before.
+
 ``reply_draft`` is optional. In the live flow the reviewer runs before the chatter writes the reply, so it is None
 and nothing the reply says can suppress a check; offline (and for a later chatter-side backstop) it suppresses a
 note the reply already makes.
@@ -27,6 +36,7 @@ quiet), kept as the offline fixture ``tests/chat_nextseek/fixtures/graph_review_
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import os
 import re
@@ -45,7 +55,11 @@ class CatalogProvider(Protocol):
     """What Tier 1 reads about a sample type. ``None`` means unknown; a raise is recorded by the check that asked.
 
     ``values``: the stored values of one attribute with their sample counts (complete when shorter than
-    ``VALUES_CAP``). ``attributes``: the type's attributes that hold values. ``type_name``: its display name."""
+    ``VALUES_CAP``). ``attributes``: the type's attributes that hold values. ``type_name``: its display name.
+
+    Optional, ``attributes_holding(label, attributes, spellings) -> set[str] | None``: the subset of ``attributes``
+    that store one of ``spellings`` exactly as a value (an attribute it could not check may be included, so it is
+    still read); None when it cannot tell. Tier 1 checks for it with ``getattr``, so the protocol does not list it."""
 
     def values(self, label: str, attribute: str) -> list[tuple[str, int]] | None: ...
     def attributes(self, label: str) -> list[str] | None: ...
@@ -101,6 +115,15 @@ class _Memo:
     def type_name(self, label):
         return self._call("type_name", label)
 
+    def holds_by_spelling(self) -> bool:
+        """Whether the provider can say which attributes hold a spelling (``attributes_holding``)."""
+        return callable(getattr(self._c, "attributes_holding", None))
+
+    def attributes_holding(self, label, attributes, spellings):
+        if not self.holds_by_spelling():
+            return None
+        return self._call("attributes_holding", label, tuple(attributes), tuple(spellings))
+
 
 @dataclass
 class ReviewInput:
@@ -133,6 +156,7 @@ class GraphReview:
     variants: list[dict] = field(default_factory=list)   # filled by Tier 2
     elapsed_ms: int = 0
     error: str | None = None
+    lookups: dict = field(default_factory=dict)         # what the live catalog read for this review, and why not
 
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
@@ -145,6 +169,21 @@ ALL_CUE = re.compile(r"\b(how many different|all|every|exist|exists|defined|in t
 STOP_VALUES = {"primary", "unknown", "other", "none", "yes", "no", "n/a", "na", "true", "false", "male", "female",
                "tissue", "blood", "cell", "cells", "sample", "data"}
 CLAUSE_WORDS = {"who", "that", "which", "whose", "where"}
+
+#: The longest stored value, in words, that ``value_spellings`` looks up by the question's words. Longer values the
+#: question names are missed (a recall loss, never a false alarm).
+PHRASE_MAX_WORDS = 4
+#: A phrase that starts or ends on one of these is not looked up: "at least one", "have at", "of their" are not
+#: stored values, and leaving them out keeps the spelling list short.
+FUNCTION_WORDS = frozenset("""
+a all an and any are as at be been both by can do does each find for from get give had has have how i in into is it
+its least list many me more most much my no not of on one or our show some tell that the their them there these they
+this those to was we were what when where which who whose why will with you your
+""".split())
+#: The most spellings one type is asked about; the longest phrases are dropped first.
+SPELLINGS_MAX = 600
+#: The separators a stored value may use between the words the question writes: as typed, or all one of these.
+SPELLING_SEPARATORS = (" ", "-", "_")
 # a reply that already tells the user to drop a filter has made the zero's point for us
 DROP_FILTER_OFFER = re.compile(
     r"\b(?:without|remov\w*|drop\w*)\s+(?:the|that|this)\s+[\w\s-]{0,30}?(?:constraint|filter|restriction|condition)",
@@ -600,23 +639,107 @@ def _named_alias_applied(question: str, value_words: list[str], blob: set[str]) 
     return False
 
 
+def _case_forms(word: str) -> set[str]:
+    return {word, word.lower(), word.upper(), word[:1].upper() + word[1:].lower()}
+
+
+def value_spellings(question: str, *, blob: set[str], type_words: set[str]) -> list[str]:
+    """The spellings under which a stored value would be one the question names, for one queried type.
+
+    Each run of 1 to ``PHRASE_MAX_WORDS`` question words that neither starts nor ends on a ``FUNCTION_WORDS`` word, and
+    that ``_unapplied_value`` would accept as a named value (three characters or more, not all digits, not a
+    ``STOP_VALUES`` word, not only the type's own words, not only words the query already uses), is spelled every way
+    a stored value plausibly writes it: the separators as typed or all ``SPELLING_SEPARATORS[i]``; the case as typed,
+    lower, upper or capitalized, per word for a phrase of up to two words ("RNA-Seq" for "rna-seq"), for the whole
+    phrase otherwise. A stored value written any other way ("miRNA-Seq" typed "mirna-seq") is missed: the lookup only
+    narrows which attributes ``_unapplied_value`` reads, and the check itself still decides. At most
+    ``SPELLINGS_MAX``, the longest phrases dropped first. Sorted."""
+    words = list(re.finditer(r"[A-Za-z0-9]+", question or ""))
+    by_length: dict[int, set[str]] = {}
+    for i in range(len(words)):
+        for j in range(i, min(len(words), i + PHRASE_MAX_WORDS)):
+            span = words[i:j + 1]
+            low = [m.group(0).lower() for m in span]
+            if low[0] in FUNCTION_WORDS or low[-1] in FUNCTION_WORDS:
+                continue
+            phrase, tokens = " ".join(low), set(low)
+            if (len(phrase) < 3 or phrase.isdigit() or phrase in STOP_VALUES or tokens <= type_words
+                    or tokens <= blob):
+                continue
+            raw = [m.group(0) for m in span]
+            typed = tuple(question[span[k].end():span[k + 1].start()] for k in range(len(span) - 1))
+            separators = {tuple([s] * (len(span) - 1)) for s in SPELLING_SEPARATORS}
+            if all(len(s) <= 3 and not re.search(r"[A-Za-z0-9]", s) for s in typed):
+                separators.add(typed)
+            if len(raw) <= 2:
+                cases = set(itertools.product(*[sorted(_case_forms(w)) for w in raw]))
+            else:
+                cases = {tuple(raw), tuple(w.lower() for w in raw), tuple(w.upper() for w in raw),
+                         tuple(w[:1].upper() + w[1:].lower() for w in raw),
+                         tuple([raw[0][:1].upper() + raw[0][1:].lower()] + [w.lower() for w in raw[1:]])}
+            out = by_length.setdefault(len(span), set())
+            for case in cases:
+                for seps in separators:
+                    out.add(case[0] + "".join(s + w for s, w in zip(seps, case[1:])))
+    kept: set[str] = set()
+    for n in sorted(by_length):
+        if len(kept) + len(by_length[n]) > SPELLINGS_MAX:
+            break
+        kept |= by_length[n]
+    return sorted(kept)
+
+
+#: What the chip for an unapplied value sends: the question, then the filter spelled out, so the graph agent applies
+#: it (operator ruling 2026-09-25).
+NARROW_QUERY = "{question} Count only {type_name} records whose {attribute} is {value}."
+NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {value}."
+
+
+def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
+    """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``."""
+    question = t.q.strip()
+    if question and question[-1] not in ".?!":
+        question += "."
+    type_name = t.catalog.type_name(lab)
+    template = NARROW_QUERY if type_name else NARROW_QUERY_NO_TYPE
+    query = template.format(question=question, type_name=type_name, attribute=attr, value=value)
+    return {"kind": "narrow_value", "label": _clip(f"Only {value}", LABEL_MAX), "query": _clip(query, QUERY_MAX),
+            "reason": fact}
+
+
 def _unapplied_value(t: _Turn) -> _Finding | None:
     """A value the question names, stored on a queried type, that the query never applies (neither the value nor
-    its attribute)."""
+    its attribute).
+
+    With a provider that has ``attributes_holding``, each type is asked once which of its attributes store one of the
+    question's spellings (``value_spellings``), and only those are read; a type with no spelling to ask about is
+    skipped. Otherwise every attribute is read. Either way the rule below decides.
+
+    The finding offers "Only <value>" (``_narrow_suggestion``): the operator's ruling on "TCGA patients with an RNA-Seq
+    alignment" (10,761, miRNA-Seq alignments counted too) is that the answer stands, but the reply says what is mixed
+    in and offers the narrowed search (2026-09-25)."""
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
+    by_spelling = t.catalog.holds_by_spelling()
     for _var, lab in t.vl.items():
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))
-        for attr in t.catalog.attributes(lab) or []:
-            if attr.lower() in blob:
+        attrs = [a for a in (t.catalog.attributes(lab) or []) if a.lower() not in blob]
+        if by_spelling and attrs:
+            spellings = value_spellings(t.q, blob=blob, type_words=type_words)
+            if not spellings:
                 continue
+            held = t.catalog.attributes_holding(lab, attrs, spellings)
+            if held is not None:
+                attrs = [a for a in attrs if a in held]
+        for attr in attrs:
             for v, _c in t.vals(lab, attr):
                 vn = re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
                 if len(vn) < 3 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
                     continue
                 if f" {vn} " in qn and not _tokens(vn) <= blob and not _named_alias_applied(t.q, vn.split(), blob):
-                    return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it",
-                                    f"The question names '{v}', but the search did not filter on it.")
+                    fact = f"The question names '{v}', but the search did not filter on it."
+                    return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it", fact,
+                                    _narrow_suggestion(t, lab, attr, str(v), fact))
     return None
 
 
@@ -719,7 +842,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
                 facts.append(f.fact)
         disclosure = " ".join(facts) or None
         for name in ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-                     "all_question_narrowed"):
+                     "all_question_narrowed", "unapplied_value"):
             f = findings.get(name)
             if f and f.suggestion:
                 suggestion = f.suggestion
@@ -729,8 +852,11 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
 
 
 def as_debug(review: GraphReview) -> dict:
-    """The whole review, for ``debug.graph_review``."""
-    return dataclasses.asdict(review)
+    """The whole review, for ``debug.graph_review``, plus ``fired``: the names of the checks that fired, in order. A
+    harness criterion reads dicts by dotted path and cannot index the ``checks`` list, so this is what it asserts on."""
+    out = dataclasses.asdict(review)
+    out["fired"] = [c.name for c in review.checks if c.fired]
+    return out
 
 
 # ---------------------------------------------------------------- the follow-up loop's checks ----------------------

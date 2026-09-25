@@ -6,6 +6,8 @@ Every Neo4j call is stubbed: through ``tool_neo4j_query`` (the module-level name
 """
 from __future__ import annotations
 
+import json
+import re
 import sys
 import threading
 import types
@@ -260,7 +262,7 @@ def test_live_values_returns_a_fresh_provider_with_all_three_methods():
 
 def test_values_is_one_distinct_query_through_the_tool_with_a_3s_timeout(monkeypatch):
     calls = _recording(monkeypatch, {"ok": True, "data": VALUES_ROWS, "count": 4, "total": 4})
-    got = g2.live_values(_cfg()).values("T_D_IMG", "DataType")
+    got = g2.live_values(_cfg(), budget_s=10).values("T_D_IMG", "DataType")      # the budget leaves the 3 s cap
     assert got == [("tif", 7000), ("tiff", 1306), ("TIF", 1300)]      # most frequent first, a null skipped
     assert len(calls) == 1 and calls[0].timeout_s == 3 and calls[0].total_only is False
     assert calls[0].cypher == g2.values_statement("T_D_IMG", "DataType")
@@ -282,7 +284,7 @@ def test_the_values_statement_is_proven_and_scoped_for_a_member():
 def test_values_through_the_real_tool_runs_one_transaction_no_probe(fake_driver):
     rows = [{"v": f"v{i}", "n": 100 - i} for i in range(50)]           # a full page of 50 distinct values
     session = fake_driver(_Session(rows, total=999))
-    got = g2.live_values(_cfg(MEMBER)).values("T_D_IMG", "DataType")
+    got = g2.live_values(_cfg(MEMBER), budget_s=10).values("T_D_IMG", "DataType")
     assert len(got) == 50
     assert session.transactions == [("READ", 3)]                         # no second scan for a total
     assert "__scope_projects" in session.statements[0]
@@ -337,7 +339,7 @@ def test_at_most_max_cold_uncached_queries_per_provider(monkeypatch):
     calls = _recording(monkeypatch, {"ok": True, "data": [{"v": "x", "n": 1}], "count": 1})
     warm = g2.live_values(_cfg())
     assert warm.values("T_A", "Warm") == [("x", 1)]
-    provider = g2.live_values(_cfg())                                     # default max_cold=2
+    provider = g2.live_values(_cfg(), max_cold=2)
     assert provider.values("T_A", "One") == [("x", 1)]
     assert provider.values("T_A", "Two") == [("x", 1)]
     assert provider.values("T_A", "Three") is None                        # the third cold key: no query
@@ -475,7 +477,7 @@ def test_tier1_runs_on_the_live_provider(monkeypatch):
     calls = _recording(monkeypatch, {"ok": True, "data": VALUES_ROWS, "count": 4})
     monkeypatch.setattr(graph_catalog, "get_snapshot", lambda config: _snapshot())
     inp = ReviewInput("how many TIFF images are there", TIFF, {"t": "tiff"}, {}, [{"id": 1}], 1, 1306, True, None)
-    review = review_tier1(inp, g2.live_values(_cfg()))
+    review = review_tier1(inp, g2.live_values(_cfg(), budget_s=10))
     assert review.verdict == "suggest"
     assert next(c for c in review.checks if c.name == "stem_miss").fired
     assert all(c.timeout_s == 3 for c in calls) and len(calls) <= 2
@@ -638,11 +640,70 @@ def _breakdowns(cy, params=None, detail=ALN_DETAIL):
             if e.startswith("unapplied_value")]
 
 
-def test_a_variable_bound_only_inside_exists_gets_no_breakdown():
-    """r6-1225: aln is bound only inside EXISTS {}, so grouping by it after the subquery is invalid Cypher. The
-    prover refuses it for a member ("the name aln is not bound here"); an admin's path skips the prover and would
-    send it to Neo4j."""
-    assert _breakdowns(R6_1225, {"investigation": "TCGA"}) == []
+DEV_1276 = ("MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+            "WHERE inv.title = $investigation_title AND EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->"
+            "(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p:T_PAT) } RETURN count(DISTINCT p) AS n")
+
+
+def test_a_variable_bound_only_inside_exists_gets_the_split_hoisted_out_of_it():
+    """r6-1225: aln is bound only inside EXISTS {}, so grouping by it after the subquery would be invalid Cypher (the
+    prover refuses it for a member: "the name aln is not bound here"). The operator's ruling (2026-09-25) wants the
+    mix named, so the EXISTS pattern is hoisted into a MATCH and each patient is counted once per DataType."""
+    [(cypher, params)] = _breakdowns(R6_1225, {"investigation": "TCGA"})
+    assert cypher == ("MATCH (s:T_PAT)\nWHERE EXISTS {\n"
+                      "  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+                      "  WHERE inv.title = $investigation\n}\n"
+                      "MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(r:T_RNA)-[:DERIVED_FROM*1..12]->(s)\n"
+                      "WITH DISTINCT s, aln.DataType AS value WHERE value IS NOT NULL\n"
+                      "WITH value, count(*) AS n ORDER BY n DESC LIMIT 20\nRETURN value, n")
+    assert params == {"investigation": "TCGA"}
+    assert split_trailing_limit(cypher, params) == (None, None)          # the tool runs it once, no total probe
+    assert isinstance(scope_cypher(cypher, params, MEMBER), Scoped)
+
+
+@pytest.mark.parametrize("cypher, params, counted", [
+    (R6_1225, {"investigation": "TCGA"}, "WITH s AS k"),
+    (DEV_1276, {"investigation_title": "TCGA"}, "WITH DISTINCT p AS k"),
+], ids=["r6-1225", "dev-1276"])
+def test_the_split_falls_back_to_the_count_with_the_value_applied_inside_the_exists(cypher, params, counted):
+    variant = g2._unapplied_variant(cypher, params, ALN_DETAIL)
+    assert variant.rows is not None and variant.fallback is not None
+    fallback = variant.fallback
+    assert "(s) WHERE aln.DataType = $review_value }" in fallback.cypher.replace("\n", " ") or \
+        "(p:T_PAT) WHERE aln.DataType = $review_value }" in fallback.cypher
+    assert counted in fallback.cypher and fallback.cypher.endswith("RETURN 1 AS n")
+    assert fallback.parameters == {**params, "review_value": "RNA-Seq"}
+    for v in (variant, fallback):
+        outcome = scope_cypher(v.cypher, v.parameters, MEMBER)
+        assert isinstance(outcome, Scoped), (v.cypher, getattr(outcome, "reasons", None))
+
+
+def test_an_existing_where_inside_the_exists_is_kept_whole():
+    cy = ("MATCH (p:T_PAT) WHERE EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) "
+          "WHERE aln.Scientist = 'TCGA' OR aln.Scientist = 'x' } RETURN count(p) AS n")
+    fallback = g2._unapplied_variant(cy, {}, ALN_DETAIL).fallback
+    assert "WHERE (aln.Scientist = 'TCGA' OR aln.Scientist = 'x') AND aln.DataType = $review_value }" in fallback.cypher
+
+
+def test_a_taken_review_value_parameter_is_not_overwritten():
+    fallback = g2._unapplied_variant(R6_1225, {"investigation": "TCGA", "review_value": "x"}, ALN_DETAIL).fallback
+    assert fallback.parameters["review_value"] == "x" and fallback.parameters["review_value_2"] == "RNA-Seq"
+    assert "$review_value_2" in fallback.cypher
+
+
+@pytest.mark.parametrize("cypher", [
+    # the EXISTS sits under an OR: no conjunct can be edited by text
+    "MATCH (s:T_PAT) WHERE s.Sex = 'F' OR EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) } RETURN count(s)",
+    # a WITH before the RETURN may drop what the hoisted MATCH needs
+    "MATCH (s:T_PAT) WHERE EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) } WITH s RETURN count(s) AS n",
+    # two aggregates
+    "MATCH (s:T_PAT) WHERE EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) } RETURN count(s), count(*)",
+    # the EXISTS variable is bound outside it too
+    "MATCH (s:T_PAT), (aln:T_A_ALN) WHERE EXISTS { MATCH (aln)-[:DERIVED_FROM*1..12]->(s) } RETURN count(s) AS n",
+], ids=["or", "with", "two-aggregates", "bound-outside"])
+def test_an_exists_shape_that_cannot_be_edited_by_text_gets_no_split(cypher):
+    variant = g2._unapplied_variant(cypher, {}, ALN_DETAIL)
+    assert variant is None or variant.rows is None
 
 
 @pytest.mark.parametrize("cypher", [
@@ -742,6 +803,8 @@ VARIANT_CASES = [
      "RETURN count(DISTINCT nhp) AS n", {"uid": "MDL-1"}, ("zero_unproven_base", "zero")),
     ("MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..6]->(p:T_PAT) WHERE p.Project = $p RETURN count(DISTINCT p) AS n",
      {"p": "x"}, ("unapplied_value", "question names T_D_SEQ.DataType='RNA-Seq', Cypher never applies it")),
+    (R6_1225, {"investigation": "TCGA"}, ("unapplied_value", ALN_DETAIL)),
+    (DEV_1276, {"investigation_title": "TCGA"}, ("unapplied_value", ALN_DETAIL)),
 ]
 
 
@@ -934,3 +997,269 @@ def test_run_tier2_adds_its_time_to_the_review(monkeypatch, fake_clock):
     rv = GraphReview("suggest", [Check("stem_miss", True, "misses ['tif']")], "d", None, [], 40)
     out = g2.run_tier2(object(), _inp(TIFF, {"t": "tiff"}, rows=[{"id": 1}], total=1306), rv)
     assert out.elapsed_ms == 290
+
+
+# ------------------------------------------------------------------ run_tier2: the split and its fallback ----------
+def _rows(monkeypatch, results):
+    calls = []
+
+    def fake(config, cypher, parameters, *, timeout_s=5):
+        calls.append(SimpleNamespace(cypher=cypher, parameters=parameters, timeout_s=timeout_s))
+        got = results[len(calls) - 1]
+        return got if isinstance(got, dict) else {"ok": True, "rows": got, "error": None, "elapsed_ms": 30}
+    monkeypatch.setattr(g2, "rows_of", fake)
+    return calls
+
+
+NARROW = {"kind": "narrow_value", "label": "Only RNA-Seq", "query": "q", "reason": "r"}
+SPLIT_ROWS = [{"value": "miRNA-Seq", "n": 10561}, {"value": "RNA-Seq", "n": 10517}, {"value": "WXS", "n": 3}]
+TIER1_FACT = "The question names 'RNA-Seq', but the search did not filter on it."
+
+
+def _r6(count=10761):
+    return _inp(R6_1225, {"investigation": "TCGA"}, rows=[{"n": count}], count=1, total=1)
+
+
+def test_the_split_is_disclosed_and_sets_the_chips_expected_count(monkeypatch):
+    rows = _rows(monkeypatch, [SPLIT_ROWS])
+    counts = _counting(monkeypatch, [])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv)
+    assert len(rows) == 1 and counts == []
+    assert out.disclosure == (TIER1_FACT + " Counted by DataType: miRNA-Seq 10,561, RNA-Seq 10,517, WXS 3; "
+                              "one result can fall under more than one.")
+    assert out.suggestion["expected_count"] == 10517
+    [entry] = out.variants
+    assert entry["ok"] is True and entry["rows"] == SPLIT_ROWS and entry["edit"] == "unapplied_value: split by DataType"
+
+
+def test_a_failed_split_falls_back_to_the_narrowed_count(monkeypatch):
+    _rows(monkeypatch, [{"ok": False, "rows": [], "error": "timed out", "elapsed_ms": 5000}])
+    counts = _counting(monkeypatch, [10517])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv)
+    assert "$review_value" in counts[0].cypher and counts[0].parameters["review_value"] == "RNA-Seq"
+    assert out.disclosure == TIER1_FACT + " With DataType 'RNA-Seq' only, the count is 10,517."
+    assert out.suggestion["expected_count"] == 10517
+    assert [v["ok"] for v in out.variants] == [False, True]
+
+
+def test_the_fallback_counts_against_the_cap(monkeypatch):
+    _rows(monkeypatch, [{"ok": False, "rows": [], "error": "x", "elapsed_ms": 1}])
+    counts = _counting(monkeypatch, [10517])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv, max_variants=1)
+    assert counts == [] and len(out.variants) == 1
+
+
+def test_a_split_of_one_value_names_nothing_but_still_gives_the_count(monkeypatch):
+    _rows(monkeypatch, [[{"value": "RNA-Seq", "n": 10761}]])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv)
+    assert out.disclosure == TIER1_FACT and out.suggestion["expected_count"] == 10761
+
+
+def test_the_old_distinct_count_breakdown_never_sets_an_expected_count(monkeypatch):
+    cy = "MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..6]->(p:T_PAT) WHERE p.Project = $p RETURN count(DISTINCT p) AS n"
+    _counting(monkeypatch, [3])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, SEQ_DETAIL)], "f", dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _inp(cy, {"p": "TCGA"}, rows=[{"n": 9}], count=1, total=1), rv)
+    assert "3 different values" in out.disclosure and "expected_count" not in out.suggestion
+
+
+def test_rows_of_returns_the_rows_and_never_raises(monkeypatch):
+    _recording(monkeypatch, {"ok": True, "data": SPLIT_ROWS, "count": 3})
+    got = g2.rows_of(object(), "RETURN 1", {})
+    assert got["ok"] and got["rows"] == SPLIT_ROWS
+    _recording(monkeypatch, RuntimeError("boom"))
+    assert g2.rows_of(object(), "RETURN 1", {})["ok"] is False
+    _recording(monkeypatch, {"ok": False, "error": "refused"})
+    assert g2.rows_of(object(), "RETURN 1", {})["error"] == "refused"
+
+
+# ------------------------------------------------------------------ the value probe ------------------------------
+def test_the_probe_statement_asks_one_exists_per_attribute():
+    assert g2.probe_statement("T_A_ALN", ["Aligner", "DataType"]) == (
+        "RETURN EXISTS { MATCH (s:T_A_ALN) WHERE s.Aligner IN $spellings } AS a0, "
+        "EXISTS { MATCH (s:T_A_ALN) WHERE s.DataType IN $spellings } AS a1")
+
+
+def test_the_probe_is_proven_for_a_member_with_the_seekable_comparison_outside_the_guard():
+    outcome = scope_cypher(g2.probe_statement("T_A_ALN", ["Aligner", "DataType"]), {"spellings": ["RNA-Seq"]}, MEMBER)
+    assert isinstance(outcome, Scoped) and outcome.decision == "proven"
+    # the index seek survives: the comparison is its own conjunct, not inside the CASE guard
+    assert "WHERE (s.DataType IN $spellings) AND any(" in outcome.cypher and "CASE" not in outcome.cypher
+    assert split_trailing_limit(outcome.cypher, {}) == (None, None)
+
+
+def _probe_catalog(monkeypatch, *, seekable=None, types=None, attrs=("Aligner", "DataType", "Note")):
+    row = graph_catalog.TypeIndexRow(title="A.ALN", label="T_A_ALN", name="Sequence Alignment Analysis", clade=None,
+                                     sample_count=None, deprecated=False, attributes_with_values=len(attrs))
+    snap = graph_catalog.CatalogSnapshot(catalog_hash="h", synced_at=None, has_usage=False, index=(row,),
+                                         guard={"T_A_ALN": frozenset(attrs)})
+    monkeypatch.setattr(graph_catalog, "get_snapshot", lambda config: snap)
+    monkeypatch.setattr(graph_catalog, "get_seekable", lambda config: seekable)
+    detail = SimpleNamespace(attributes=[SimpleNamespace(title=a, value_type=(types or {}).get(a, "string"))
+                                         for a in attrs])
+    monkeypatch.setattr(graph_catalog, "get_type_details", lambda config, titles: [detail])
+
+
+def _probe_tool(monkeypatch, stored, fail=None):
+    """The tool, answering probes from ``stored`` ({attribute: [values]}); ``fail`` returns that result instead."""
+    calls = []
+
+    def answer(cypher):
+        attrs = re.findall(r"WHERE s\.(\w+) IN \$spellings", cypher)
+        return {"ok": True, "data": [{f"a{i}": bool(set(stored.get(a, ())) & set(calls[-1].parameters["spellings"]))
+                                      for i, a in enumerate(attrs)}], "count": 1}
+
+    def fake(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        calls.append(SimpleNamespace(cypher=cypher, parameters=parameters, timeout_s=timeout_s))
+        return fail if fail is not None else answer(cypher)
+    monkeypatch.setattr(g2, "tool_neo4j_query", fake)
+    return calls
+
+
+def test_a_small_type_is_probed_whole(monkeypatch):
+    _probe_catalog(monkeypatch, seekable={"T_A_ALN": frozenset({"Aligner"})}, types={"Aligner": "integer"})
+    calls = _probe_tool(monkeypatch, {"DataType": ["RNA-Seq"]})
+    provider = g2.live_values(_cfg())
+    assert provider.attributes_holding("T_A_ALN", ["Aligner", "DataType", "Note"], ["RNA-Seq", "rna-seq"]) == \
+        {"DataType"}
+    assert len(calls) == 1 and "s.Note IN" in calls[0].cypher
+    assert calls[0].parameters == {"spellings": ["RNA-Seq", "rna-seq"]}
+
+
+def test_a_large_type_is_probed_on_its_indexed_attributes_only(monkeypatch):
+    _probe_catalog(monkeypatch, seekable={"T_A_ALN": frozenset({"Aligner", "DataType"})})
+    calls = _probe_tool(monkeypatch, {"DataType": ["RNA-Seq"], "Note": ["RNA-Seq"]})
+    provider = g2.live_values(_cfg())
+    held = provider.attributes_holding("T_A_ALN", ["Aligner", "DataType", "Note"], ["RNA-Seq"])
+    assert held == {"DataType"}                              # Note is unindexed on a large type: skipped, not read
+    assert "s.Note IN" not in calls[0].cypher
+    assert provider.lookups()["counts"] == {"skipped": 1, "fetched": 1}
+
+
+def test_unknown_indexes_probe_every_attribute(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    calls = _probe_tool(monkeypatch, {"Note": ["x"]})
+    assert g2.live_values(_cfg()).attributes_holding("T_A_ALN", ["Aligner", "Note"], ["x"]) == {"Note"}
+    assert "s.Aligner IN" in calls[0].cypher and "s.Note IN" in calls[0].cypher
+
+
+def test_the_probe_is_cut_by_length_into_as_few_statements_as_fit(monkeypatch):
+    attrs = sorted(f"Attribute_{i:03d}_with_a_long_title" for i in range(300))
+    _probe_catalog(monkeypatch, seekable=None, attrs=attrs)
+    calls = _probe_tool(monkeypatch, {attrs[250]: ["x"]})
+    assert g2.live_values(_cfg()).attributes_holding("T_A_ALN", attrs, ["x"]) == {attrs[250]}
+    assert len(calls) >= 2 and sum(c.cypher.count("EXISTS") for c in calls) == 300
+    assert all(len(c.cypher) <= g2.PROBE_MAX_CHARS for c in calls)
+    assert all(isinstance(scope_cypher(c.cypher, {"spellings": ["x"]}, MEMBER), Scoped) for c in calls)
+
+
+def test_a_chunk_that_fails_is_returned_whole_so_it_is_still_read(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    _probe_tool(monkeypatch, {}, fail={"ok": False, "error": "Neo.ClientError.Transaction.TransactionTimedOut"})
+    provider = g2.live_values(_cfg())
+    assert provider.attributes_holding("T_A_ALN", ["Aligner", "Note"], ["x"]) == {"Aligner", "Note"}
+    assert provider.lookups()["counts"] == {"timeout": 1}
+
+
+def test_a_refused_probe_is_a_failure_not_a_timeout(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    _probe_tool(monkeypatch, {}, fail={"ok": False, "error": "could not be confirmed to stay within your projects"})
+    provider = g2.live_values(_cfg())
+    provider.attributes_holding("T_A_ALN", ["Aligner"], ["x"])
+    assert provider.lookups()["counts"] == {"failed": 1}
+
+
+def test_a_probe_answer_is_cached_per_scope(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    calls = _probe_tool(monkeypatch, {"Note": ["x"]})
+    assert g2.live_values(_cfg()).attributes_holding("T_A_ALN", ["Note"], ["x"]) == {"Note"}
+    again = g2.live_values(_cfg())
+    assert again.attributes_holding("T_A_ALN", ["Note"], ["x"]) == {"Note"} and len(calls) == 1
+    assert again.lookups()["counts"] == {"cache": 1}
+    g2.live_values(_cfg(OTHER_MEMBER)).attributes_holding("T_A_ALN", ["Note"], ["x"])
+    assert len(calls) == 2                                                  # another scope asks for itself
+
+
+@pytest.mark.parametrize("label, attrs", [("T_A_ALN; DROP", ["Note"]), ("x", ["Note"])])
+def test_a_bad_label_issues_no_probe(monkeypatch, label, attrs):
+    calls = _probe_tool(monkeypatch, {})
+    provider = g2.live_values(_cfg())
+    assert provider.attributes_holding(label, attrs, ["x"]) is None and calls == []
+    assert provider.lookups()["counts"] == {"invalid": 1}
+
+
+def test_bad_attribute_names_are_left_out_of_the_probe(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    calls = _probe_tool(monkeypatch, {"Note": ["x"]})
+    assert g2.live_values(_cfg()).attributes_holding("T_A_ALN", ["Note", "Bead Catalog#"], ["x"]) == {"Note"}
+    assert "Bead" not in calls[0].cypher
+
+
+def test_no_scope_issues_no_probe(monkeypatch):
+    calls = _probe_tool(monkeypatch, {})
+    provider = g2.live_values(SimpleNamespace(NEO4J_URI="bolt://graph:7687"))
+    assert provider.attributes_holding("T_A_ALN", ["Note"], ["x"]) is None and calls == []
+
+
+def test_past_the_type_cap_every_attribute_is_returned_unprobed(monkeypatch):
+    _probe_catalog(monkeypatch, seekable=None)
+    calls = _probe_tool(monkeypatch, {})
+    provider = g2.live_values(_cfg())
+    for k in range(g2.PROBE_MAX_LABELS):
+        provider.attributes_holding(f"T_L{k}", ["Note"], ["x"])
+    assert provider.attributes_holding("T_OVER", ["Note", "Other"], ["x"]) == {"Note", "Other"}
+    assert len(calls) == g2.PROBE_MAX_LABELS
+
+
+# ------------------------------------------------------------------ the Tier 1 budget ------------------------------
+def test_no_uncached_read_starts_once_the_budget_is_spent(monkeypatch, fake_clock):
+    calls = []
+
+    def slow(config, cypher, parameters=None, *, timeout_s=None, total_only=False):
+        calls.append(timeout_s)
+        fake_clock.t += 0.8
+        return {"ok": True, "data": [{"v": "x", "n": 1}], "count": 1}
+    monkeypatch.setattr(g2, "tool_neo4j_query", slow)
+    provider = g2.live_values(_cfg(), budget_s=2.0)
+    got = [provider.values("T_A", f"K{i}") for i in range(5)]
+    assert got[:3] == [[("x", 1)]] * 3 and got[3:] == [None, None]    # 0.8 s each: 2.4 s spent, then no more
+    assert calls[0] == 2.0 and calls[1] == pytest.approx(1.2) and calls[2] == pytest.approx(0.5)
+    looked = provider.lookups()
+    assert looked["counts"] == {"fetched": 3, "budget": 2} and 2390 <= looked["spent_ms"] <= 2400
+    assert looked["budget_s"] == 2.0 and looked["max_cold"] == g2.MAX_COLD
+
+
+def test_the_timeout_is_what_is_left_at_most_the_values_timeout(monkeypatch, fake_clock):
+    calls = _recording(monkeypatch, {"ok": True, "data": [{"v": "x", "n": 1}], "count": 1})
+    g2.live_values(_cfg(), budget_s=10).values("T_A", "K")
+    g2.live_values(_cfg(), budget_s=1.0).values("T_A", "L")
+    assert [c.timeout_s for c in calls] == [g2.VALUES_TIMEOUT_S, 1.0]
+
+
+def test_every_call_is_recorded_for_the_debug_payload(monkeypatch):
+    _recording(monkeypatch, {"ok": True, "data": [{"v": "x", "n": 1}], "count": 1})
+    provider = g2.live_values(_cfg(), max_cold=1)
+    provider.values("T_A", "One")
+    provider.values("T_A", "One")
+    provider.values("T_A", "Two")
+    provider.values("bad label", "x")
+    calls = provider.lookups()["calls"]
+    assert [(c["kind"], c["key"], c["outcome"]) for c in calls] == [
+        ("values", "T_A.One", "fetched"), ("values", "T_A.One", "cache"), ("values", "T_A.Two", "budget"),
+        ("values", "bad label.x", "invalid")]
+    assert json.loads(json.dumps(provider.lookups())) == provider.lookups()
+
+
+def test_only_statement_time_counts_against_the_budget(monkeypatch, fake_clock):
+    """The follow-up loop's one provider serves several queries with model calls in between: that time is not the
+    provider's to spend, so a later query still reads what it needs."""
+    _recording(monkeypatch, {"ok": True, "data": [{"v": "x", "n": 1}], "count": 1})
+    provider = g2.live_values(_cfg(), budget_s=1.0)
+    assert provider.values("T_A", "First") == [("x", 1)]
+    fake_clock.t += 30.0                                                    # the loop's model thinks
+    assert provider.values("T_A", "Later") == [("x", 1)]
+    assert provider.lookups()["counts"] == {"fetched": 2}
