@@ -470,6 +470,94 @@ def test_cost_summary_of_an_empty_run_is_a_truthful_zero():
     assert "unmeasured" not in s["cost_display"]
 
 
+def _e(i, cost=None, partial=False, status="passed", turns=()):
+    return M.NessieManifestEntry(id=f"c{i}", family="f", tier="full", status=status,
+                                 cost=cost, cost_partial=partial, turns_meta=list(turns))
+
+
+def test_cost_summary_counts_partial_cases_apart_from_unmeasured_ones():
+    """A case measured in part is a number, but a floor. The summary says how many."""
+    s = M.cost_summary([_e(0, 0.5), _e(1, 0.2, partial=True), _e(2, None)])
+
+    assert s["total_cost"] == 0.7, "the run total is still the sum of observed case costs"
+    assert s["cost_observed"] == 2
+    assert s["cost_partial_cases"] == 1
+    assert s["cost_unmeasured"] == 1
+    assert s["cost_partial"] is True
+    assert "PARTIAL" in s["cost_display"]
+    assert "1 case(s) measured only in part" in s["cost_display"]
+    assert "1 reported no cost" in s["cost_display"]
+    assert "\u2014" not in s["cost_display"], "no em-dash in printed text"
+
+
+def test_a_run_whose_only_gap_is_a_partial_case_is_still_partial():
+    """Every case reported a number, and one of those numbers is a floor."""
+    s = M.cost_summary([_e(0, 0.5), _e(1, 0.2, partial=True)])
+
+    assert s["cost_unmeasured"] == 0
+    assert s["cost_partial"] is True
+    assert "PARTIAL" in s["cost_display"]
+    assert "all 2 executed case(s) reported a cost" not in s["cost_display"]
+
+
+def test_an_unmeasured_case_is_never_counted_as_partial_too():
+    s = M.cost_summary([_e(0, None, partial=True)])
+
+    assert s["cost_partial_cases"] == 0 and s["cost_unmeasured"] == 1
+    assert s["total_cost"] is None
+
+
+def _turn(fb=None, rfb=None, reported=True):
+    return M.TurnMeta(model_fallback=[fb] if fb else [], router_fallback=rfb,
+                      fallback_reported=reported)
+
+
+def test_the_fallback_summary_counts_turns_and_names_the_cases():
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    entries = [_e(0, turns=[_turn(fb), _turn()]),
+               _e(1, turns=[_turn(rfb={"from": "a", "to": "heuristic", "reason": "error"})]),
+               _e(2, turns=[_turn(reported=False)])]
+    for e in entries:
+        e.fallback_turns = sum(1 for t in e.turns_meta if t.fell_back)
+
+    s = M.fallback_summary(entries)
+
+    assert s["fallback_turns"] == 2
+    assert [e.id for e in s["fallback_cases"]] == ["c0", "c1"]
+    assert s["fallback_unreported_turns"] == 1
+    assert s["fallback_display"] == ("2 of 4 turn(s) fell back to another model, in 2 case(s); "
+                                     "1 turn(s) did not report whether they fell back")
+
+
+def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():
+    assert M.fallback_summary([_e(0)])["fallback_display"] == "no turn recorded a model record"
+
+
+def test_a_manifest_that_kept_the_count_but_not_the_turns_does_not_contradict_itself():
+    """A manifest rebuilt by a tool that dropped `turns_meta` still says how many
+    turns fell back, rather than claiming no turn was recorded."""
+    e = _e(0)
+    e.fallback_turns = 2
+
+    s = M.fallback_summary([e])
+
+    assert s["fallback_turns"] == 2
+    assert s["fallback_display"] == ("2 turn(s) fell back to another model, in 1 case(s); "
+                                     "the per-turn records were not kept")
+
+
+def test_the_report_states_partial_cost_and_the_fallback_turns(tmp_path):
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    e = _e(0, 0.2, partial=True, turns=[_turn(fb)])
+    e.fallback_turns = 1
+    m = M.NessieManifest(started_at="t0", ended_at="t1", tier="full", scope="all", entries=[e])
+
+    doc = report.generate_html(m, tmp_path).read_text(encoding="utf-8")
+
+    assert "PARTIAL" in doc
+    assert "1 of 1 turn(s) fell back" in doc
+
+
 @pytest.mark.skipif(not SEED6B.exists(), reason=f"stored run evidence absent: {SEED6B}")
 def test_the_stored_seed6b_run_still_totals_its_real_spend():
     """$1.4791 across 5 cases that had at least one container_cc TURN.

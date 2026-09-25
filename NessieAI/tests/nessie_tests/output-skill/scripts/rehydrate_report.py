@@ -55,6 +55,12 @@ _ENTRY_FIELDS = (
     ("route_source", "route_source", None),
     ("route_sources", "route_sources", []),
     ("cost", "cost", None),
+    # Beside `cost` for the reason `outage` is here: without it a rebuilt manifest's
+    # `cost_summary` calls a floor the whole spend.
+    ("cost_partial", "cost_partial", False),
+    ("fallback_turns", "fallback_turns", 0),
+    ("turns_meta", "turns_meta", []),
+    ("turns_sent", "turns_sent", 0),
     ("elapsed_s", "elapsed", 0.0),
     ("failed_criteria", "failed", []),
     ("expected_fail", "xfail", False),

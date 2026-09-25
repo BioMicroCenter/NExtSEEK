@@ -16,8 +16,8 @@ from NessieAI.tests.nessie_tests.bundle import (
     BundleReaderOtherInstance, BundleReaderUnavailable,
 )
 from NessieAI.tests.nessie_tests.manifest import (
-    CriterionObservation, NessieManifest, NessieManifestEntry, cost_summary,
-    load_manifest, write_manifest,
+    CriterionObservation, NessieManifest, NessieManifestEntry, TurnMeta, case_money,
+    cost_summary, fallback_summary, load_manifest, write_manifest,
 )
 
 
@@ -224,11 +224,12 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # turn, not the router that decided to skip it.
     #
     # What route-only actually buys is WALL CLOCK and a shorter window for the
-    # harness to trip over a slow turn — not money, and not blast radius. It
-    # also costs the run its accounting: `v_cost` below is read off
-    # `query_complete`, which route-tier polling never observes, so the spend
-    # is real and unmeasurable from here. `manifest.cost_summary` reports that
-    # as `unmeasured` rather than as $0.
+    # harness to trip over a slow turn, not money, and not blast radius. It
+    # also costs the run part of its accounting: the engine's cost is on the
+    # turn's terminal event, which route-tier polling never observes, so only
+    # the router's price on `route_decided` is seen. `turn_cost.turn_total`
+    # records such a turn as partial rather than complete, and one that saw no
+    # price at all as unmeasured rather than $0.
     case_tier = "route" if is_gate else tier
     session_id = None
     # EVERY turn's task id, not just the first: this is the collector's join key
@@ -236,7 +237,14 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     # refine_and_recall case's actual answer lives. Accumulated inside the turn
     # loop so a case that raises partway still reports the turns it did drive.
     task_ids: list[str] = []
-    v_status, v_route, v_engine, v_cost, failed, reason = "passed", None, None, None, [], ""
+    # One money-and-model record per turn the driver returned, and a count of the
+    # turns started, so a turn whose driver raised is known to be missing. The
+    # case's cost is summed from these at the end (`manifest.case_money`), never
+    # read off one turn: the last-write-wins read reported only the final turn
+    # of a multi-turn case, and a null key erased an earlier cost.
+    turns_meta: list[TurnMeta] = []
+    turns_sent = 0
+    v_status, v_route, v_engine, failed, reason = "passed", None, None, [], ""
     v_route_source = None
     v_route_sources: list[str] = []
     v_outage = False
@@ -269,6 +277,7 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
             # Read only when payloads are written: some callers hand in a clock
             # that yields a fixed number of ticks.
             t_turn = clock() if payload_dir is not None else None
+            turns_sent += 1
             # force_new ONLY on a case's first turn: isolate the case, but
             # keep its own follow-ups in the session its seed opened.
             res = http_driver.drive(turn.query, tier=case_tier, post_query=post_query,
@@ -282,6 +291,10 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
             session_id = res.session_id
             if res.task_id:
                 task_ids.append(res.task_id)
+            # First, before anything below can raise: a paid turn's price is kept
+            # even when scoring it fails.
+            turns_meta.append(TurnMeta.from_payload(res.payload, turn=turn.label,
+                                                    task_id=res.task_id))
             poll_errors += res.poll_errors
             v_route, v_engine = res.route_obs.route, res.route_obs.engine
             # `route` and `engine` stay LAST-write-wins: the report displays
@@ -311,7 +324,6 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                     payload_dir, v.id, turn, res, qc, payload_names,
                     force_route=force_route, force_parser_mode=force_parser_mode,
                     elapsed_s=round(clock() - t_turn, 3), prompt_variant=prompt_variant)
-            v_cost = qc.get("total_cost_usd", v_cost)
             bundle_summary = None
             if case_tier == "full" and bundle_reader is not None and session_id is not None:
                 bundle_summary = bundle_reader(session_id)
@@ -411,9 +423,10 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
     return NessieManifestEntry(
         id=v.id, family=v.family, tier=tier, status=v_status, route=v_route, engine=v_engine,
         route_source=v_route_source, route_sources=v_route_sources,
-        cost=v_cost, elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
+        elapsed_s=round(clock() - t0, 3), failed_criteria=failed,
         observations=observations, task_ids=task_ids, poll_errors=poll_errors,
-        reason=reason, expected_fail=expected_fail, outage=v_outage)
+        reason=reason, expected_fail=expected_fail, outage=v_outage,
+        **case_money(turns_meta, turns_sent=turns_sent))
 
 
 def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, variant_id=None,
@@ -496,19 +509,26 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
     if run_consistency:
         from NessieAI.tests.nessie_tests import consistency
         for g in corpus.load_consistency_groups(corpus_path):
-            def _drive(q):
+            # Each query is a paid turn like any other, so it is priced like one.
+            # Groups used to record no cost at all.
+            g_turns: list[TurnMeta] = []
+            g_sent = [0]
+
+            def _drive(q, g_turns=g_turns, g_sent=g_sent):
                 # force_new: without it the API falls back to the caller's most
                 # recently updated session, so the group inherited whatever ran
                 # before it. Confirmed in the 2026-07-27 run: tasks 837 (a CC write),
                 # 838 and 839 all shared sid=1310fa6cbdc74d50903e709e619db733, which
                 # means the "same question twice" comparison was contaminated by a
                 # third, unrelated turn's results_history.
+                g_sent[0] += 1
                 r = http_driver.drive(q, tier="full" if tier == "full" else "route",
                                       post_query=post_query, get_progress=get_progress,
                                       force_new=True, force_route=force_route,
                                       force_parser_mode=force_parser_mode,
                                       prompt_variant=prompt_variant,
                                       sleep=sleep, clock=clock)
+                g_turns.append(TurnMeta.from_payload(r.payload, turn=q, task_id=r.task_id))
                 # `reply` is what lets run_group see a provider outage. Without it
                 # the group only ever saw {route, count}, so an outage surfaced as
                 # "count could not be resolved" and read as product drift.
@@ -554,13 +574,15 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                     # An outaged group failed no criterion — it evaluated none.
                     # Its reason already carries the whole story.
                     failed_criteria=[] if g_outage else gr.reasons,
-                    expected_fail=g_expected_fail))
+                    expected_fail=g_expected_fail,
+                    **case_money(g_turns, turns_sent=g_sent[0])))
             except Exception as exc:  # infra/endpoint failure ≠ assertion failure
                 entries.append(NessieManifestEntry(
                     id=g["id"], family="nessie_consistency", tier=tier,
                     status="error", reason=f"{type(exc).__name__}: {exc}",
                     elapsed_s=round(clock() - g_t0, 3),
-                    expected_fail=g_expected_fail))
+                    expected_fail=g_expected_fail,
+                    **case_money(g_turns, turns_sent=g_sent[0])))
     manifest = NessieManifest(started_at=started, ended_at=_iso(clock), tier=tier, scope=scope,
                               entries=entries, **run_meta)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -694,6 +716,9 @@ def classify_entries(manifest: NessieManifest) -> dict:
         # `manage.py nessie` reads it; `cost_display` is what a summary should
         # actually print.
         **cost_summary(entries),
+        # Turns where some model fell back: `fallback_turns`, `fallback_cases`,
+        # `fallback_unreported_turns` and the printed `fallback_display`.
+        **fallback_summary(entries),
     }
 
 

@@ -87,6 +87,11 @@ decision (route, source, and the router's own reasoning), the parser mode, and t
 **full engine call** — the graph plan with its bound parameters and result meta, or
 the API plan with its complete request body and result meta — plus the reporter
 plan, CC model id and cost. Graph result rows are stripped so the file stays small.
+Each turn also carries the router's price off `route_decided` (`router_cost`), the
+turn record (`models_used`, `model_fallback`, `router_model`, `router_fallback`, the
+partial flags), and `turn_cost` / `turn_cost_partial`, summed by the harness's own
+rule. With a manifest, `case_costs.json` sums each case over its turns the way the
+run did, so grade against that, not against one turn's `cost`.
 
 Check the printed summary immediately. **Any turn with `src: "pipeline"` means the
 BAML router was bypassed entirely** — see the gotchas below.
