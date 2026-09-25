@@ -324,7 +324,8 @@ def stack_health(
     checkout: Path | None = None,
 ) -> StackHealth:
     """``checkout`` is the tree the images were built from, which the cc-agent's
-    baked context is compared with. It defaults to ``repo_root``, the runtime
+    baked context, the app container's code, the cc-agent runtime and the proxy
+    allow list are compared with. It defaults to ``repo_root``, the runtime
     checkout; a ``--source-tree`` rebuild passes the clean tree it built."""
     return StackHealth(
         blocking=(check_app_runtimes(repo_root, env),),
@@ -332,8 +333,22 @@ def stack_health(
             check_first_party_images(compose_project_name),
             check_cc_services(repo_root, env),
             check_cc_agent_context(checkout or repo_root, compose_project_name),
+            *deployed_checks(repo_root, env, compose_project_name, checkout or repo_root),
         ),
     )
+
+
+def deployed_checks(
+    repo_root: Path, env: dict[str, str], compose_project_name: str, checkout: Path
+) -> tuple[HealthResult, ...]:
+    """Whether what runs is what the checkout builds: the app container's code,
+    the cc-agent's node, Claude Code and chart library, the running proxy's allow
+    list, and the models a CC turn names (``startup/steps/deploy_checks.py``).
+    Advisory: the smoke suite requests none of them. Imported here, not at module
+    scope, because that module takes ``HealthResult`` from this one."""
+    from startup.steps import deploy_checks
+
+    return deploy_checks.deploy_checks(repo_root, env, compose_project_name, checkout)
 
 
 def nessie_prerequisites(
