@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,7 +63,10 @@ def test_the_real_proxy_allow_list_starts_with_the_maps_opus():
 
 
 def test_the_app_code_roots_exist_and_the_context_files_are_left_out():
-    paths = dc.app_code_paths(REPO_ROOT)
+    try:
+        paths = dc.app_code_paths(REPO_ROOT)
+    except OSError as exc:  # no git, or a copy of the tree that is not a checkout
+        pytest.skip(f"git cannot list this tree: {exc}")
     assert len(paths) > 500
     assert "seek/views/search.py" in paths
     assert "static/js/chat_assistant/.vite/manifest.json" in paths
@@ -279,7 +283,7 @@ def test_the_app_code_probe_itself_hashes_what_it_is_sent(tmp_path, monkeypatch)
             "b.py": hashlib.sha256(b"original\n").hexdigest(),
             "c.py": "0" * 64}
     script = dc.APP_CODE_PROBE.replace("'/app'", repr(str(tmp_path)))
-    out = subprocess.run(["python3", "-c", script], input=json.dumps(want),
+    out = subprocess.run([sys.executable, "-c", script], input=json.dumps(want),
                          capture_output=True, text=True, check=True).stdout
     report = dc._marked_json(out, "APP-CODE")
     assert report == {"checked": 3, "differs": ["b.py"], "absent": ["c.py"]}

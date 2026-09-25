@@ -317,7 +317,8 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests pytest \
   ci/smoke/test_registry_unit.py ci/smoke/test_registry_contents.py \
   ci/smoke/test_guard_unit.py ci/smoke/test_profile_unit.py \
   ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
-  ci/smoke/test_terminal_unit.py ci/smoke/test_attribute_jobs_unit.py -q
+  ci/smoke/test_terminal_unit.py ci/smoke/test_attribute_jobs_unit.py \
+  ci/smoke/test_deploy_live_unit.py -q
 ```
 
 It runs on a host with no Django installed.
