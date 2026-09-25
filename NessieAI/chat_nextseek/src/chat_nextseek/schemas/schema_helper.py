@@ -105,7 +105,10 @@ def _catalog_provider(client) -> str:
 
 # The catalog's top-level block of per-agent fallbacks, consulted before the profile
 # chains. It is not a profile: ChatConfig passes every "_" key through unnormalised and
-# no MODEL_MODE resolves to it, so it changes no agent's primary model.
+# no MODEL_MODE resolves to it, so it changes no agent's primary model. It applies in
+# every profile, aws:* included: there the follow-up and pipeline agents, which had no
+# chain, now move to Sonnet 4.6, while every other agent keeps aws:*'s no-chain
+# behaviour (the ("aws", ...) chains do not exist). Both accepted in review, 2026-09-25.
 FALLBACK_OVERRIDE_KEY = "_fallback"
 
 

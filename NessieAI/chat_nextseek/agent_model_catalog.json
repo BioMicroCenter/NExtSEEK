@@ -112,7 +112,7 @@
     }
   },
   "_fallback": {
-    "_comment": "Not a profile. The model a call moves to on a timeout, an empty body, a 5xx, a 429 or a connection error, consulted before the profile chains in schemas/schema_helper.py. Only the two tool loops need one: they can move only to a tool-capable (Bedrock) model, and their profile chains lead back to the Opus 4.7 that failed, or to nothing (operator ruling 2026-09-25).",
+    "_comment": "Not a profile. The model a call moves to on a timeout, an empty body, a 5xx, a 429 or a connection error, consulted before the profile chains in schemas/schema_helper.py. Only the two tool loops need one: they can move only to a tool-capable (Bedrock) model, and their profile chains lead back to the Opus 4.7 that failed, or to nothing (operator ruling 2026-09-25). It applies in every profile, the aws:* one included, where these two agents had no chain and now move to Sonnet 4.6; the other agents keep aws:*'s no-chain behaviour (accepted in review, 2026-09-25).",
     "followup": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": null},
     "pipeline_agent": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": null}
   },
