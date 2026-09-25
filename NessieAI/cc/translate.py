@@ -13,7 +13,8 @@ assistant text is accumulated, and the terminal ``result`` becomes one
 ``query_complete``.
 
 Pure stdlib (no Django, no docker, no dmac imports) so it is unit-testable in
-isolation. Claude stream-json event shapes are documented in
+isolation; the one exception, ``chat_nextseek.model_prices`` (itself stdlib only), is
+imported lazily to price a turn on the NS table. Claude stream-json event shapes are documented in
 dmac_assistant/src/dmac_assistant/streamjson.py and ws.py.
 """
 from __future__ import annotations
@@ -45,6 +46,58 @@ MODEL_UNAVAILABLE_REASON = "model_unavailable"
 _MODEL_UNAVAILABLE_TEXT = re.compile(
     r"API Error: (?:5\d\d\b|Repeated 529\b|Request rejected \(429\))|^\s*Request timed out\b"
 )
+
+
+def _cost_by_price_table(model_usage: Any, usage: Any) -> float | None:
+    """What a Container-CC turn cost on this repo's price table, or None.
+
+    Claude Code prices Bedrock on its own table: ``modelUsage`` says ``costBasis:
+    "list"``, the first-party list price, with no US-geo premium, so its
+    ``total_cost_usd`` does not compare with an NS turn's. This prices the same
+    ``modelUsage`` on ``NessieAI/chat_nextseek/model_prices.json``, the table every NS
+    turn and the router are priced on (``chat_nextseek.model_prices.call_cost``), per
+    model: ``outputTokens`` already holds the thinking (``thinkingTokens`` is a part of
+    it). Cache writes are not split by TTL per model; they are priced at the 5-minute
+    and 1-hour rates in the proportion the frame's ``usage.cache_creation`` gives, else
+    at 5 minutes.
+
+    The auto-mode classifier's calls are NOT in ``modelUsage`` (a local 2.1.282 run;
+    not yet confirmed live), so this number, like Claude Code's own, leaves them out.
+    None when there is no ``modelUsage`` or any model in it has no price: a number
+    that covers only some of the turn's models would not compare.
+    """
+    if not isinstance(model_usage, dict) or not model_usage:
+        return None
+    try:
+        from chat_nextseek import model_prices
+    except ImportError:
+        return None
+    creation = (usage or {}).get("cache_creation") if isinstance(usage, dict) else None
+    one_hour = five_min = 0
+    if isinstance(creation, dict):
+        one_hour = int(creation.get("ephemeral_1h_input_tokens") or 0)
+        five_min = int(creation.get("ephemeral_5m_input_tokens") or 0)
+    share_1h = one_hour / (one_hour + five_min) if one_hour + five_min else 0.0
+    total = 0.0
+    try:
+        for model, counts in model_usage.items():
+            if not isinstance(counts, dict):
+                return None
+            written = int(counts.get("cacheCreationInputTokens") or 0)
+            written_1h = round(written * share_1h)
+            cost = model_prices.call_cost(str(model), {
+                "prompt_tokens": counts.get("inputTokens"),
+                "completion_tokens": counts.get("outputTokens"),
+                "cache_read_tokens": counts.get("cacheReadInputTokens"),
+                "cache_write_5m_tokens": written - written_1h,
+                "cache_write_1h_tokens": written_1h,
+            }).cost_usd
+            if cost is None:
+                return None
+            total += cost
+    except Exception:  # a missing or malformed price table: no comparable number
+        return None
+    return round(total, 10)
 
 
 def _model_unavailable(payload: dict[str, Any], text: str) -> bool:
@@ -340,6 +393,9 @@ class CCStreamTranslator:
              # Surface Claude Code's own accrued spend so the caller can ledger it
              # (the per-turn cost lives only on the terminal `result` frame).
              "total_cost_usd": payload.get("total_cost_usd"),
+             # The same turn on the NS price table, so the engines compare (fix 6a).
+             "cost_by_price_table_usd": _cost_by_price_table(
+                 payload.get("modelUsage"), payload.get("usage")),
              "num_turns": payload.get("num_turns"),
              "duration_ms": payload.get("duration_ms"),
              # The turn record: which models answered, and what fell back.
