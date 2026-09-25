@@ -13,6 +13,7 @@ from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
     LLMAPIConnectionError,
     LLMError,
+    LLMModelUnusableError,
     LLMRateLimitError,
     LLMTimeoutError,
     LLMServiceUnavailableError,
@@ -510,8 +511,9 @@ MAX_PROVIDER_SWITCHES = 1
 
 # Why a call moved, as the ledger's ``fallback_reason`` and each ``model_fallback`` item
 # record it: a timeout, an empty body, a 5xx, a 429 that survived the SDK's own retries,
-# and a connection error.
-FALLBACK_REASONS = ("timeout", "empty", "unavailable", "rate_limited", "connection")
+# a connection error, and a model the provider refused (``LLMModelUnusableError``: an
+# unknown, retired or not-enabled model id, or no access to it).
+FALLBACK_REASONS = ("timeout", "empty", "unavailable", "rate_limited", "connection", "model_unusable")
 
 
 class _EmptyCompletion(LLMServiceUnavailableError):
@@ -522,6 +524,15 @@ class _EmptyCompletion(LLMServiceUnavailableError):
 def _text_is_empty(resp) -> bool:
     """The free-text empty-body test: nothing but whitespace came back."""
     return not (getattr(resp, "content", None) or "").strip()
+
+
+def _unavailable_kind(sue: LLMServiceUnavailableError) -> tuple[str, str, str]:
+    """``(ledger outcome, fallback reason, log wording)`` for a 5xx-class failure."""
+    if isinstance(sue, _EmptyCompletion):
+        return "service_unavailable", "empty", "empty body"
+    if isinstance(sue, LLMModelUnusableError):
+        return "model_unusable", "model_unusable", "model refused"
+    return "service_unavailable", "unavailable", "provider unavailable"
 
 
 def _call_with_recovery(
@@ -556,11 +567,13 @@ def _call_with_recovery(
     repair loop works). Returns ``(False, last_value)`` when the attempts run out, so
     the caller decides which error to raise.
 
-    One trigger decides when a call moves to another provider. Five failures are
+    One trigger decides when a call moves to another provider. Six failures are
     fallback-eligible, and they are the same failure to the user: the provider gave no
     answer.
 
       * 5xx/overloaded (``LLMServiceUnavailableError``)
+      * a model the provider refused (``LLMModelUnusableError``, a kind of 5xx here): an
+        unknown, retired or not-enabled model id, or no access to it (F1)
       * an empty body: ``is_empty(resp)`` is true (default: whitespace-only text)
       * a transport timeout (``LLMTimeoutError``)
       * a 429 (``LLMRateLimitError``): by the time one reaches here the SDK has already
@@ -688,17 +701,17 @@ def _call_with_recovery(
             # what an operator needs to see in the log during an outage. The chain
             # lookup needs the catalog vocabulary, which _switch_provider translates.
             failed_provider = getattr(target_client, "provider", None)
+            outcome, reason, why = _unavailable_kind(sue)
+            status_word = "model refused" if reason == "model_unusable" else "503"
             print(
-                f"[STRUCTURED_PARSE][{label}] 503 from provider='{failed_provider}' "
+                f"[STRUCTURED_PARSE][{label}] {status_word} from provider='{failed_provider}' "
                 f"model='{target_model_name}' attempt {attempt+1}/{max_attempts}: {sue}"
             )
             _log(
-                "service_unavailable", _t0, timeout_seconds=timeout_seconds,
+                outcome, _t0, timeout_seconds=timeout_seconds,
                 thinking_budget=target_thinking_budget, err=sue,
             )
-            empty_body = isinstance(sue, _EmptyCompletion)
-            if _switch_provider("empty" if empty_body else "unavailable",
-                                "empty body" if empty_body else "provider unavailable"):
+            if _switch_provider(reason, why):
                 # The move gets an attempt of its own: it must never be the attempt
                 # that ran out, which used to end a call as a parse error.
                 max_attempts += 1

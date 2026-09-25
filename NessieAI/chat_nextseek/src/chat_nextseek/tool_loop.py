@@ -8,8 +8,9 @@ One 503 anywhere in a build ended it, and the tokens the loop spent were invisib
 This module is that call done once, properly, so a second tool loop (the follow-up
 agent) does not repeat the mistakes:
 
-* **Recovery.** A timeout, an empty turn, a 503, a 429 and a connection error move
-  once to the next provider, the same trigger ``_call_with_recovery`` uses, skipping
+* **Recovery.** A timeout, an empty turn, a 503, a 429, a connection error and a model
+  the provider refused (``model_unusable``) move once to the next provider, the same
+  trigger ``_call_with_recovery`` uses, skipping
   any fallback client that cannot take tools and any that is the model that just
   failed. For the follow-up and pipeline agents the catalog's ``_fallback`` block
   names that provider (Sonnet 4.6, operator ruling 2026-09-25): their profile chains
@@ -52,6 +53,7 @@ from .schemas.schema_helper import (
     _ledger_entry,
     _recycle_client_connections,
     _run_with_wall_clock,
+    _unavailable_kind,
 )
 
 # The wall clock on one tool-loop call. The local ledger's Opus 4.7 calls for these two
@@ -205,18 +207,19 @@ def call_tools(
                     f"model='{target_model}' stop_reason={(result or {}).get('stop_reason')!r}"
                 )
         except LLMServiceUnavailableError as sue:
+            outcome, reason, why = _unavailable_kind(sue)
+            why = "empty turn" if isinstance(sue, _EmptyCompletion) else why
+            status_word = "model refused" if reason == "model_unusable" else "503"
             print(
-                f"[TOOL_LOOP][{agent_label}] 503 from "
+                f"[TOOL_LOOP][{agent_label}] {status_word} from "
                 f"provider='{getattr(target_client, 'provider', None)}' model='{target_model}' "
                 f"attempt {attempt + 1}/{max_attempts}: {sue}"
             )
-            _log("service_unavailable", t0, err=sue)
-            empty_turn = isinstance(sue, _EmptyCompletion)
-            if _switch("empty" if empty_turn else "unavailable",
-                       "empty turn" if empty_turn else "provider unavailable"):
+            _log(outcome, t0, err=sue)
+            if _switch(reason, why):
                 max_attempts += 1
                 continue
-            raise _unavailable("empty turn" if empty_turn else "provider unavailable", sue) from sue
+            raise _unavailable(why, sue) from sue
         except LLMTimeoutError as te:
             timeout_attempts += 1
             _log("timeout", t0, err=te)

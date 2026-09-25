@@ -17,7 +17,8 @@ Spend is summed from USAGE, never by counting ledger records:
 * an attempt the wall clock abandoned (a timeout) may still be billed and its usage is
   never seen; a connection error may have reached the provider. Each is an unobserved
   call and makes the turn's cost partial;
-* a 5xx, a 429 and a 400 are not billed: nothing is recorded;
+* a 5xx, a 429, a refused model (``LLMModelUnusableError``) and a 400 are not billed:
+  nothing is recorded;
 * a model with no price is named in ``unpriced_models`` and makes the cost partial.
 
 ``total_cost_usd`` is the sum of the priced calls, 0.0 for a turn with no model call,
