@@ -98,13 +98,17 @@ def test_total_and_rows_shapes(api_full, exp_total, exp_rows):
     assert (total, rows) == (exp_total, exp_rows)
 
 
-def test_total_and_rows_parity_with_chat_nextseek_helper():
-    """The mirror must agree with the real extractor on every shape above."""
+def test_total_and_rows_parity_with_chat_nextseek_helper(monkeypatch):
+    """The mirror must agree with the real extractor on every shape above.
+
+    Every stub, the path entry and the fresh module load go through monkeypatch, so all of it is
+    undone after the test. Set by hand, ChatConfig = object stayed on the real chat_nextseek.config
+    and broke every later test in the same run that builds a ChatConfig."""
     import importlib.util
     import types
 
     src_root = paths.CHAT_NEXTSEEK_DIR / "src"
-    sys.path.insert(0, str(src_root))
+    monkeypatch.syspath_prepend(str(src_root))
     for mod_name in (
         "chat_nextseek",
         "chat_nextseek.config",
@@ -113,14 +117,14 @@ def test_total_and_rows_parity_with_chat_nextseek_helper():
         "chat_nextseek.helpers.tools",
     ):
         if mod_name not in sys.modules:
-            sys.modules[mod_name] = types.ModuleType(mod_name)
-    sys.modules["chat_nextseek.config"].ChatConfig = object
-    sys.modules["chat_nextseek.session"].SessionState = object
+            monkeypatch.setitem(sys.modules, mod_name, types.ModuleType(mod_name))
+    monkeypatch.setattr(sys.modules["chat_nextseek.config"], "ChatConfig", object, raising=False)
+    monkeypatch.setattr(sys.modules["chat_nextseek.session"], "SessionState", object, raising=False)
     api_path = src_root / "chat_nextseek" / "helpers" / "tools" / "nextseek_api.py"
     spec = importlib.util.spec_from_file_location(
         "chat_nextseek.helpers.tools.nextseek_api", api_path)
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
+    monkeypatch.setitem(sys.modules, spec.name, mod)
     spec.loader.exec_module(mod)
     _extract_total_and_rows = mod._extract_total_and_rows
     shapes = [
