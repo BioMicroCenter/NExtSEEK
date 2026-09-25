@@ -1,7 +1,9 @@
-"""The graph agent's context: the rendered catalog when it is live, the committed JSON when it is not (spec 4.2 to 4.3).
+"""The graph agent's context: the rendered catalog when it is live, the committed schema rendered in the same shape
+when it is not (spec 4.2 to 4.3, SCH-F13).
 
-The committed JSON carries a vocabulary read over every project (study, investigation and protocol titles, assay
-connections), so only an admin is sent it; anyone else gets the committed structure alone
+The committed files carry a vocabulary read over every project (study, investigation and protocol titles, assay
+connections), so only an admin is sent the committed protocol and assay blocks; anyone else gets the committed structure
+alone. The committed schema text itself reads only the sample type codes from that vocabulary, for every caller
 (docs/superpowers/specs/2026-09-18-graph-cypher-scope.md section 8). The configs below are admins unless a test says
 otherwise.
 
@@ -31,6 +33,8 @@ FALLBACK_SCHEMA = {
     "relationship_properties": {"DERIVED_FROM": ["internal_assay_title", "protocol_title"]},
     "vocabulary": {"investigation_titles": ["FallbackOnly"]},
 }
+# The committed Sample property names as the fallback renders them (agents/graph.py, _render_committed_schema).
+FALLBACK_PROPERTIES = "## Sample properties (names only)\nuuid, type, id"
 
 
 def _label(title):
@@ -169,15 +173,20 @@ def test_the_live_schema_header_names_the_structure_it_wraps(monkeypatch, live):
     assert "v1.1" not in header
 
 
-def test_an_unavailable_catalog_sends_the_committed_json(monkeypatch, down):
+def test_an_unavailable_catalog_sends_the_committed_schema_rendered_like_the_live_one(monkeypatch, down):
+    # SCH-F13: the structure, a type index and the committed property names, never a JSON dump of the file.
     llm = FakeLLM(GOOD.replace("s:T_TIS", "s:Sample"))
     out = run(monkeypatch, llm, query="which protocol and assay made these samples")
     assert out.context_mode == graph_mod.CONTEXT_FALLBACK == "fallback"
+    schema = llm.calls[0]["messages"][1]["content"]
+    assert gctx.load_structure() in schema
+    assert gctx.render_type_index(()) in schema
+    assert FALLBACK_PROPERTIES in schema
     blob = llm.blob()
-    assert '"node_properties"' in blob
+    assert "node_properties" not in blob
     assert "Old protocol" in blob and "Old assay" in blob
-    assert "FallbackOnly" in blob
-    assert "## Sample types" not in blob
+    # Only the sample type codes are read from the committed vocabulary, for every caller (SCH-F13 ruling).
+    assert "FallbackOnly" not in blob
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
@@ -186,7 +195,8 @@ def test_an_unavailable_catalog_sends_a_non_admin_the_committed_structure_only(m
     out = run(monkeypatch, llm, query="which study, protocol and assay made these samples", scope=scope)
     assert out.context_mode == "fallback"
     blob = llm.blob()
-    assert '"node_properties"' in blob and '"relationship_properties"' in blob
+    assert gctx.load_structure() in blob and FALLBACK_PROPERTIES in blob
+    assert "node_properties" not in blob
     for value in COMMITTED_VOCABULARY:
         assert value not in blob, value
 
@@ -196,7 +206,7 @@ def test_a_failed_type_detail_read_falls_back_for_the_whole_turn(monkeypatch, li
     llm = FakeLLM("MATCH (s:Sample) RETURN count(*) AS n")
     out = run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
     assert out.context_mode == "fallback"
-    assert '"node_properties"' in llm.blob()
+    assert FALLBACK_PROPERTIES in llm.blob()
 
 
 def test_an_unexpected_catalog_error_falls_back(monkeypatch, live):
@@ -463,11 +473,13 @@ def test_the_schema_snapshot_falls_back_loudly_when_the_graph_is_down(down):
     assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z", (
         "how stale the committed file is must be in the answer, not left to be guessed"
     )
-    assert '"node_properties"' in out["schema"]
+    assert out["schema"].startswith(gctx.load_structure()) and FALLBACK_PROPERTIES in out["schema"]
+    assert "node_properties" not in out["schema"]
     assert out["resolved_types"] == []
     assert out["unknown_types"] == ["TIS"]
     assert "Old protocol" in out["vocabulary"]
-    assert "FallbackOnly" in out["schema"]
+    # Only the sample type codes are read from the committed vocabulary, for every caller (SCH-F13 ruling).
+    assert "FallbackOnly" not in out["schema"]
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
@@ -475,7 +487,7 @@ def test_the_schema_snapshot_fallback_sends_a_non_admin_the_committed_structure_
     out = graph_mod.graph_schema_snapshot(_config(scope), types=["TIS"], question="which study, protocol and assay")
     assert out["source"] == graph_mod.CONTEXT_FALLBACK
     assert out["fallback_fetched_at"] == "2026-08-21T00:00:00Z"
-    assert '"node_properties"' in out["schema"]
+    assert out["schema"].startswith(gctx.load_structure()) and FALLBACK_PROPERTIES in out["schema"]
     assert out["vocabulary"] == ""
     for value in COMMITTED_VOCABULARY:
         assert value not in json.dumps(out), value

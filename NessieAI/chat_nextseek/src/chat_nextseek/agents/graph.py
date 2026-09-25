@@ -1922,6 +1922,12 @@ def _shape_refusal(shapes: list[_Shape]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# The graph agent's schema message heading, on a live turn and on a fallback alike: both send the structure, the
+# sample type index and the resolved types' sections (none on a fallback), rendered the same way.
+SCHEMA_HEADING = ("GRAPH SCHEMA (v1.2 structure, sample type index and the resolved sample types; this is the "
+                  "schema):\n")
+
+
 class CatalogContext(NamedTuple):
     """The live catalog for one question: the snapshot the guard checks, and the two texts the agents read."""
 
@@ -2074,9 +2080,9 @@ def graph_schema_snapshot(config: ChatConfig, *, types=(), question: str = "") -
 
 
 def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list[str], reason: str) -> dict:
-    """The committed ``neo4j_schema.json`` as the answer, saying so and saying why (and logging it as a WARNING)."""
+    """The committed ``neo4j_schema.json`` as the answer, rendered as the live schema is (``_render_committed_schema``),
+    saying so and saying why (and logging it as a WARNING)."""
     fallback = _catalog_fallback(config, reason, "graph-schema op")
-    shown = graph_catalog.committed_schema(config) or {}  # without its vocabulary for a caller who is not an admin
     vocabulary = (_fallback_vocabulary(config, question or "")
                   if graph_catalog.shows_committed_vocabulary(config) else [])
     return {
@@ -2087,11 +2093,96 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "sample_types": 0,
         "resolved_types": [],
         "unknown_types": list(requested),
-        "schema": json.dumps(shown, indent=2) if shown else "{}",
+        "schema": _render_committed_schema(config),
         "vocabulary": "\n\n".join(vocabulary),
         "unavailable_reason": reason,
         "fallback_fetched_at": fallback.fallback_fetched_at,
     }
+
+
+# SCH-F13: the committed schema in the live schema's shape. graph_catalog's rules for a row with no label and for a
+# property name that must be backticked, copied rather than imported across a module's private names.
+_COMMITTED_LABEL_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
+_COMMITTED_PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+COMMITTED_PROPERTIES_HEADING = "## Sample properties (names only)"
+
+
+def _committed_strings(values) -> list[str]:
+    """The distinct non-empty strings of a committed list, stripped, in the file's order; [] for anything else."""
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(v.strip() for v in values if isinstance(v, str) and v.strip()))
+
+
+def _render_committed_schema(config) -> str:
+    """The committed ``neo4j_schema.json`` rendered in the live schema's shape, for the graph agent's schema message
+    and the graph-schema op's ``schema`` when the live catalog is unavailable (SCH-F13).
+
+    A live turn reads the structure text, the sample type index and the resolved types' sections
+    (``graph_context.render_graph_context``); this is the same text but for freshness, joined as that is joined:
+
+    1. the structure: an evaluation prompt variant's (``_variant_structure``), else ``graph_context.load_structure()``;
+    2. the type index, one line per code of the file's ``vocabulary.sampletype_titles`` in the file's order;
+    3. the file's ``node_properties.Sample`` names as one names-only block. The committed file carries no per-type
+       attributes, so a fallback turn has no resolved sections; without this block the model would see no attribute
+       name at all, while the fallback guard checks names against this same list.
+
+    Two fields of the file are read. The property names come through ``graph_catalog.committed_schema(config)``, the
+    caller's view every reader of the committed file goes through. The type codes come from the raw file
+    (``config.NEO4J_SCHEMA``) for every caller, and nothing else of its ``vocabulary`` is read: sample type codes are
+    catalog-level and the live index shows them to everyone, while ``committed_schema`` drops the whole vocabulary
+    for a caller who is not an admin because its project, study, investigation and assay titles were read over every
+    project. The text stays within ``graph_context.BUDGET_BYTES``: the structure and the index are always sent, and
+    the names block is cut to fit, ending with how many names it left out. A missing or malformed file renders the
+    structure and an index that says it lists no sample types; it never raises.
+    """
+    structure = _variant_structure(config)
+    structure = graph_context.load_structure() if structure is None else structure
+
+    raw = getattr(config, "NEO4J_SCHEMA", None)
+    vocabulary = raw.get("vocabulary") if isinstance(raw, dict) else None
+    codes = _committed_strings(vocabulary.get("sampletype_titles") if isinstance(vocabulary, dict) else None)
+    # The index lines are written here rather than by graph_context.render_type_index, which always writes
+    # "N attributes with values" from each row's attributes_with_values: the committed file does not know that count,
+    # and a row without it would claim "0 attributes with values", telling the model every type is empty. The heading
+    # is render_type_index's own, and each line is its shape without that claim: code, :label, and the sample count
+    # a row with no count renders ("sample count unknown"). The label is graph_catalog's rule for a row with none.
+    lines = [graph_context.render_type_index(())]
+    lines += [f"{code} :T_{_COMMITTED_LABEL_UNSAFE.sub('_', code)}, sample count unknown" for code in codes]
+    if not codes:
+        lines.append("The committed capture lists no sample types.")
+    parts = [structure, "\n".join(lines)]
+
+    shown = graph_catalog.committed_schema(config)
+    node_properties = shown.get("node_properties") if isinstance(shown, dict) else None
+    names = [name if _COMMITTED_PLAIN_NAME.fullmatch(name) else "`" + name.replace("`", "``") + "`"
+             for name in _committed_strings(node_properties.get("Sample") if isinstance(node_properties, dict)
+                                            else None)]
+    if names:
+        parts.append(_fit_committed_names(parts, names))
+    return "\n\n".join(parts) + "\n"
+
+
+def _fit_committed_names(parts: list[str], names: list[str]) -> str:
+    """The names-only block: every name when the whole text fits ``graph_context.BUDGET_BYTES``, else the first names
+    that fit with room for ``... and N more`` naming how many were left out (none at all when ``parts`` alone are
+    over the budget)."""
+    head = COMMITTED_PROPERTIES_HEADING + "\n"
+    used = len(("\n\n".join(parts) + "\n\n" + head + "\n").encode("utf-8"))
+    whole = ", ".join(names)
+    if used + len(whole.encode("utf-8")) <= graph_context.BUDGET_BYTES:
+        return head + whole
+    kept: list[str] = []
+    size = 0  # bytes of ", ".join(kept)
+    for name in names:
+        grown = size + (2 if kept else 0) + len(name.encode("utf-8"))
+        tail = f", ... and {len(names) - len(kept) - 1} more"  # what would be left out with this name kept
+        if used + grown + len(tail.encode("utf-8")) > graph_context.BUDGET_BYTES:
+            break
+        kept.append(name)
+        size = grown
+    left_out = f"... and {len(names) - len(kept)} more"
+    return head + (", ".join(kept) + ", " + left_out if kept else left_out)
 
 
 def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
@@ -2180,7 +2271,8 @@ def graph_agent(
 
     The schema is the live v1.1 catalog rendered as text when it is available (with the
     per-label property guard and the whole-node guard), else the committed JSON schema
-    with the type-blind guard (spec D7). Every returned plan records which in
+    rendered in the same shape (``_render_committed_schema``, SCH-F13) with the type-blind
+    guard (spec D7). Every returned plan records which in
     ``context_mode`` (spec D15), and a fallback plan records why and how old the committed
     schema is in ``context_fallback``; the fallback is also logged as a WARNING.
     """
@@ -2195,15 +2287,15 @@ def graph_agent(
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
     context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
-        schema_message = ("GRAPH SCHEMA (v1.2 structure, sample type index and the resolved sample types; this is "
-                          "the schema):\n" + catalog.schema)
+        schema_message = SCHEMA_HEADING + catalog.schema
         vocabulary_messages = (["GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
                                 + catalog.vocabulary] if catalog.vocabulary else [])
     else:
-        # The committed schema, without its vocabulary for a caller who is not an admin (graph_catalog).
-        committed = graph_catalog.committed_schema(config)
-        schema_json = json.dumps(committed, indent=2) if committed else "{}"
-        schema_message = "GRAPH SCHEMA (node labels, relationships, properties, vocabulary):\n" + schema_json
+        # The committed schema rendered in the live shape under the live heading (SCH-F13), so the model reads what
+        # it reads on a live turn but for freshness. It says nothing to the model about the fallback: that is loud
+        # already in the WARNING and the turn's debug (context_fallback). Only the type codes are read from the
+        # committed vocabulary, for every caller.
+        schema_message = SCHEMA_HEADING + _render_committed_schema(config)
         vocabulary_messages = (_fallback_vocabulary(config, user_query)
                                if graph_catalog.shows_committed_vocabulary(config) else [])
 
@@ -2300,7 +2392,10 @@ def graph_agent(
             # rather than running a query that can only match nothing. A variant that allows
             # procedures adds the procedure guard to the same round, the query-shape guard
             # (P6a, P6b) joins it on every turn, and the repair is re-checked by all of them.
-            known = known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
+            # Every relationship property of the documented schema is known too, as insurance for a committed file
+            # captured before a property existed (DERIVED_FROM.internal_assay_titles, SCH-F13).
+            known = (known_node_properties(config.NEO4J_SCHEMA) | known_relationship_properties(config.NEO4J_SCHEMA)
+                     | set().union(*V11_RELATIONSHIP_PROPERTIES.values()))
             unknown = unknown_cypher_properties(result.cypher, known)
             calls = _procedure_problems(result.cypher, procedures)
             shapes = query_shape_problems(result.cypher, result.parameters)
