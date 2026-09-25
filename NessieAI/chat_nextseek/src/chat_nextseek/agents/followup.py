@@ -25,7 +25,8 @@ tools and lets it choose:
   the query that produced it (``stored_query``).
 * ``run_new_query`` — re-run against the graph seeded with those UIDs.
   When the stored copy is capped or kept no UIDs, the set is rebuilt from
-  ``stored_query`` instead.
+  ``stored_query`` if there is one it can be rebuilt from; when there is not, the
+  query covers every matching sample and its ``scope_note`` says so.
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
 ``read_stored_result`` returns counts and a handful of examples, never rows: the stored
@@ -222,11 +223,13 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                         "description": (
                             "True to scope the query to the previous result. "
                             "This is what makes 'of those, how many...' mean the same "
-                            "set the user is asking about. When the stored copy holds "
+                            "set the user is asking about, so keep it true for any "
+                            "question about those records. When the stored copy holds "
                             "every UID, they are bound as $uids. When it is capped or "
-                            "kept no UIDs, the query is rebuilt from the previous "
-                            "result's own query (stored_query) instead, so keep this "
-                            "true for any question about those records."
+                            "kept no UIDs and read_stored_result shows a stored_query, "
+                            "the set is rebuilt from that query instead. With no "
+                            "stored_query, a UID-less result cannot be scoped, and the "
+                            "result's scope_note says so."
                         ),
                     },
                 },
@@ -451,7 +454,9 @@ def run_followup(
     this module does not depend on the orchestrator (which imports it), and so a test can
     drive the loop without a graph. A scoped query (``seed_uids`` true) is handed every
     stored UID and the stored query, and the seam decides which scopes it; a fresh
-    question is handed neither.
+    question is handed neither. ``scoped`` says which of the two it is, explicitly: with
+    no UIDs and no stored query the two look the same, and only a scoped one must say
+    that it could not be scoped.
     """
     client, model_name, thinking_budget = config.get_agent_model(FOLLOWUP_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
@@ -547,7 +552,8 @@ def run_followup(
                 seed = bool(tool_input.get("seed_uids", True))
                 try:
                     payload = run_query(question=question, seed_uids=_all_uids(bundle) if seed else [],
-                                        stored_query=_stored_query(bundle) if seed else None)
+                                        stored_query=_stored_query(bundle) if seed else None,
+                                        scoped=seed)
                 except Exception as exc:
                     payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
                 queries.append({"question": question, "seeded": seed, "result": payload})

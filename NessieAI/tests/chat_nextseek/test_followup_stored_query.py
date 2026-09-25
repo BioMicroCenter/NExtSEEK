@@ -81,6 +81,29 @@ def _count_bundle():
     }
 
 
+def _followup_count_bundle():
+    """A follow-up's own bundle for a count: its query filters on ``$uids``, which the bundle
+    keeps only as a count, and its one row is the number, so it holds no UIDs either."""
+    cypher = ("MATCH (m:Sample) WHERE m.uuid IN $uids MATCH (d:Sample)-[:DERIVED_FROM*1..]->(m) "
+              "RETURN count(DISTINCT d) AS n")
+    return {
+        "id": 5, "mode": "graph_query", "user_query": "how many samples came from those mice",
+        "graph_plan": {"cypher": cypher, "parameters": {"uids": "<1549 UIDs of bundle 1>"}},
+        "graph_result": {"ok": True, "count": 1, "total": 1, "data": [{"n": 705}]},
+        "search_context": {"endpoint": "neo4j", "followup_of_bundle": 1},
+    }
+
+
+def _rest_count_bundle():
+    """A REST turn that kept a total and no rows."""
+    return {
+        "id": 6, "mode": "new_search", "user_query": "how many mouse samples",
+        "api_plan": {"endpoint": "/nextseek_api/samples/advanced_search/", "requestBody": {"type": "MUS"}},
+        "api_result_slim": {"data": {"total": 705}},
+        "memory_payload": {"data": []},
+    }
+
+
 def _rest_bundle():
     """A REST turn: an API plan and rows, no graph plan."""
     return {
@@ -242,6 +265,14 @@ def test_a_rest_result_hands_no_stored_query():
     assert len(calls[0]["seed_uids"]) == 20
 
 
+def test_run_followup_says_explicitly_whether_a_scope_was_asked_for():
+    """The seam cannot tell "no seed asked for" from "asked for, but there was nothing to
+    seed with" by the seed alone: both hand it no UIDs and no stored query."""
+    assert _drive(_graph_bundle(), seed=True)[0]["scoped"] is True
+    assert _drive(_graph_bundle(), seed=False)[0]["scoped"] is False
+    assert _drive(_rest_count_bundle(), seed=True)[0]["scoped"] is True
+
+
 def test_reading_the_stored_result_shows_the_stored_query():
     client = _ScriptedClient([
         _tool_use("read_stored_result", {}),
@@ -265,6 +296,35 @@ def test_the_prompt_tells_the_model_to_follow_the_scope_note():
     prompt = (Path(orch.__file__).parent / "prompts" / "followup_agent.txt").read_text()
     assert "scope_note" in prompt
     assert "stored_query" in prompt
+
+
+#: How a sentence may make "rebuilt" conditional on there being a query to rebuild from.
+_REBUILD_CONDITIONS = ("stored_query is present", "shows a stored_query", "seed_mode is stored_query")
+
+
+def _sentences_saying_rebuilt(text):
+    flat = " ".join(text.split())
+    return [s for s in flat.replace(": ", ". ").split(". ") if "rebuil" in s]
+
+
+@pytest.mark.parametrize("source", ["prompt", "seed_uids"])
+def test_rebuilt_is_only_claimed_when_there_is_a_stored_query(source):
+    """Without a stored query nothing is rebuilt, and a prompt that says otherwise gives the
+    model a reason to present a whole-graph number as "those"."""
+    if source == "prompt":
+        text = (Path(orch.__file__).parent / "prompts" / "followup_agent.txt").read_text()
+    else:
+        tools = {t["name"]: t for t in build_followup_tool_schemas()}
+        text = tools["run_new_query"]["input_schema"]["properties"]["seed_uids"]["description"]
+    sentences = _sentences_saying_rebuilt(text)
+    assert sentences, "the rebuild is described"
+    for sentence in sentences:
+        assert any(c in sentence for c in _REBUILD_CONDITIONS), sentence
+
+
+def test_the_prompt_says_what_happens_when_there_is_nothing_to_scope_by():
+    prompt = " ".join((Path(orch.__file__).parent / "prompts" / "followup_agent.txt").read_text().split())
+    assert "cannot be scoped" in prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -435,6 +495,67 @@ def test_no_seed_and_no_stored_query_runs_unscoped_with_no_note(monkeypatch, tmp
     assert seen.refine[0] is None
     assert seen.payloads[0]["seed_mode"] == "none"
     assert seen.payloads[0]["scope_note"] is None
+
+
+def test_a_scope_asked_for_but_impossible_says_so(monkeypatch, tmp_path):
+    bundle = _rest_count_bundle()
+    seen = _seam(monkeypatch, tmp_path, bundle, cypher=REBUILT_CYPHER,
+                 calls=lambda rq: [rq(question="q", seed_uids=[], stored_query=None, scoped=True),
+                                   rq(question="q", seed_uids=[], stored_query=None, scoped=False)])
+
+    asked, fresh = seen.payloads
+    assert asked["seed_mode"] == fresh["seed_mode"] == "none"
+    assert "could not be scoped" in asked["scope_note"]
+    assert "every matching sample" in asked["scope_note"] and "caveats" in asked["scope_note"]
+    assert fresh["scope_note"] is None, "a fresh question stays silent"
+    assert "\u2014" not in asked["scope_note"], "plain words, no em-dash"
+
+
+def _loop(monkeypatch, tmp_path, bundle, *, seed):
+    """The real loop and the real seam, with the model, graph agent and Neo4j stubbed.
+    Returns the run_new_query payload the model was handed, and the refine contexts."""
+    refines = []
+
+    def graph_agent(config, question, entity, plan, refine_context=None, **kw):
+        refines.append(refine_context)
+        return GraphAgentPlan(cypher=REBUILT_CYPHER, context_mode="catalog")
+
+    monkeypatch.setattr(orch, "graph_agent", graph_agent)
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda config, cypher, params=None: {
+        "ok": True, "count": 1, "total": 1, "truncated": False, "data": [{"n": 9000}],
+        "cypher": cypher, "submitted_cypher": cypher, "parameters": dict(params or {})})
+    client = _ScriptedClient([
+        _tool_use("run_new_query", {"question": "which labs are the mouse samples from", "seed_uids": seed}),
+        _tool_use("answer", {"text": "x", "caveats": []}),
+    ])
+    orch._run_followup_agent(_Cfg(client), session={}, user_text="which labs are those from?",
+                             bundle=bundle, log_dir=str(tmp_path))
+    payload = json.loads(client.turns[1]["messages"][-1]["content"][0]["content"])
+    return payload, refines
+
+
+def test_a_follow_up_of_a_follow_up_count_says_it_could_not_be_scoped(monkeypatch, tmp_path):
+    """"Which labs are those from?" one turn deeper: the earlier result is a follow-up's count.
+    It holds no UIDs, and its query needs UIDs it no longer has, so nothing can scope the new
+    query. It then covers every matching sample, and the model must be told so."""
+    payload, refines = _loop(monkeypatch, tmp_path, _followup_count_bundle(), seed=True)
+
+    assert refines == [None], "nothing to scope by, so no scope text is invented"
+    assert payload["seed_mode"] == "none"
+    assert "could not be scoped" in payload["scope_note"]
+
+
+def test_a_uid_less_rest_seed_says_it_could_not_be_scoped(monkeypatch, tmp_path):
+    payload, _ = _loop(monkeypatch, tmp_path, _rest_count_bundle(), seed=True)
+    assert payload["seed_mode"] == "none"
+    assert "could not be scoped" in payload["scope_note"]
+
+
+@pytest.mark.parametrize("bundle", [_followup_count_bundle(), _rest_count_bundle()], ids=["followup", "rest"])
+def test_a_fresh_question_about_such_a_result_stays_silent(monkeypatch, tmp_path, bundle):
+    payload, _ = _loop(monkeypatch, tmp_path, bundle, seed=False)
+    assert payload["seed_mode"] == "none"
+    assert payload["scope_note"] is None
 
 
 def test_a_seeded_query_that_ignores_uids_still_says_so(monkeypatch, tmp_path):

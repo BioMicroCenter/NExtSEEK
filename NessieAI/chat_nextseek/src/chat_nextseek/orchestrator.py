@@ -576,13 +576,22 @@ def _count_text(value: Any) -> str | None:
 
 
 def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: int | None,
-                         total: Any, partial: bool) -> str | None:
+                         total: Any, partial: bool, scoped: bool) -> str | None:
     """What the loop's model must know about how a query was scoped; None when nothing.
 
     Silent for a complete seed that was bound (the set is exactly the earlier one) and for
-    a query handed no seed at all (a fresh question, not about the earlier result).
+    a fresh question (``scoped`` false: not about the earlier result). A scoped question
+    with nothing to scope by (no UIDs, and no query to rebuild from) is not silent: it ran
+    over every matching sample, and read as "those" that number is wrong.
     """
     of_total = _count_text(total)
+    if seed_mode == "none":
+        if not scoped:
+            return None
+        return ("This query could not be scoped to the earlier result, because that result kept "
+                "no sample UIDs and has no query this one can be rebuilt from. It covers every "
+                "matching sample, not only the earlier ones: say so in caveats, and do not "
+                "present it as a number about those records.")
     if seed_mode == "stored_query":
         held = ("the stored copy kept no sample UIDs" if not uids_available else
                 f"the stored copy holds only {uids_available:,} of its {of_total} records" if of_total else
@@ -620,7 +629,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
       or cut at its LIMIT) or kept no UIDs, and the result came from a graph query. The
       graph agent starts from that query's Cypher and parameters; no ``$uids`` is bound.
     * ``"none"``: nothing to scope by (a fresh question, or a result with neither UIDs nor
-      a query).
+      a query to rebuild from). ``scoped``, which ``run_followup`` passes explicitly, tells
+      the two apart: only a scoped one gets a ``scope_note``.
 
     ``scope_note`` says what the mode means for the answer when it needs saying
     (``_followup_scope_note``). Every query still runs through ``tool_neo4j_query``, with
@@ -644,7 +654,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             extent.update(total=described.get("total"), capped=bool(described.get("capped")))
         return extent["total"], extent["capped"]
 
-    def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None) -> dict:
+    def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None,
+                   scoped: bool = False) -> dict:
         seed_uids = list(seed_uids or [])
         total, capped = _stored_extent() if (seed_uids or stored_query) else (None, False)
         of_total = _count_text(total)
@@ -716,7 +727,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "uids_applied": applied,
             "seed_mode": seed_mode,
             "scope_note": _followup_scope_note(seed_mode, uids_available=len(seed_uids),
-                                               uids_applied=applied, total=total, partial=partial),
+                                               uids_applied=applied, total=total, partial=partial,
+                                               scoped=scoped),
         }
 
     try:

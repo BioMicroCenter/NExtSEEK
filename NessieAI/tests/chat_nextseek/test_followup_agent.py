@@ -180,7 +180,7 @@ def test_the_agent_reads_the_stored_result_then_requeries_and_answers():
     ])
     seen = {}
 
-    def _run_query(*, question, seed_uids, stored_query=None):
+    def _run_query(*, question, seed_uids, **_):
         seen["question"] = question
         seen["seed_uids"] = seed_uids
         return {"ok": True, "count": 731, "examples": ["MUS-1"], "seeded_uid_count": len(seed_uids)}
@@ -217,7 +217,7 @@ def test_seed_uids_can_be_declined_for_a_genuinely_fresh_question():
     ])
     seen = {}
 
-    def _run_query(*, question, seed_uids, stored_query=None):
+    def _run_query(*, question, seed_uids, **_):
         seen["seed_uids"] = seed_uids
         return {"ok": True, "count": 704}
 
