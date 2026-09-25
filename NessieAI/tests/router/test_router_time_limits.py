@@ -125,7 +125,9 @@ def test_the_primary_answers_and_says_so(baml):
 
     assert (d.route, d.source) == (cc_router.ROUTE_NS, "baml")
     assert d.router_model == PRO and d.router_fallback is None
-    assert len(fake.calls) == 1 and fake.calls[0]["baml_options"] is None
+    # The primary runs on the client its function declares: no client override. Its
+    # options carry only the Collector decide() prices it with (test_router_cost.py).
+    assert len(fake.calls) == 1 and set(fake.calls[0]["baml_options"] or {}) <= {"collector"}
 
 
 @pytest.mark.parametrize("first, reason", [

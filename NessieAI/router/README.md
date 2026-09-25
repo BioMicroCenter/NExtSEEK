@@ -26,6 +26,13 @@ stays in `nextseek_api/`.
 
 The decision records `router_model` (the model that answered; none for the heuristic or a forced
 turn) and `router_fallback` (`from`, `to`, `reason`), and the CC turn puts both on `route_decided`.
+`decide()` also attaches a `baml_py.Collector` to each BAML call it makes and prices every attempt
+in it, BAML's retries included, with `NessieAI/chat_nextseek/model_prices.json`: `router_cost_usd`,
+`router_usage` (per call: client, model, status, tokens, thinking read from the response body)
+and `router_cost_partial` (a call cut off by the time limit, a call nothing was logged for, an
+unpriced model or unreadable thinking). The policy carries all five fields through every decision
+it rebuilds (`router_record`), and `route_decided` gets the three cost fields on every routed turn,
+`unrelated` included; a forced turn made no router call and gets none (`router_cost_fields`).
 
 Routing degrades; it never raises. A missing corpus, a missing build context or a BAML failure
 drops a turn to the heuristic and logs, so a wrong route is the only symptom. The route decision

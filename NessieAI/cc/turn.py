@@ -459,6 +459,10 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # when the keyword rules decided or the turn was forced.
                 "router_model": getattr(decision, "router_model", None),
                 "router_fallback": getattr(decision, "router_fallback", None),
+                # What the router's model calls cost (fix 6a): router_cost_usd,
+                # router_cost_partial and router_usage. Absent on a forced turn, which made
+                # no router call; present on every routed one, unrelated included.
+                **cc_router.router_cost_fields(decision),
             })
             _record_ledger_row(chat_session, decision, query_task=query_task)
 
