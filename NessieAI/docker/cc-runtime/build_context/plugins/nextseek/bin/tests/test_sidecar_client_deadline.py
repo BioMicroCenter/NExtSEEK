@@ -106,3 +106,76 @@ def test_a_sidecar_that_does_not_answer_in_time_is_a_transport_error_naming_the_
 
     assert exc.value.code == "TRANSPORT_ERROR"
     assert f"{100 - HEADROOM:.0f} s" in exc.value.message
+
+
+# ------------------------------------------------------------------------------------------
+# The message when the turn, not the service, ran out (operator ruling 2026-09-24). r5-682 hit
+# TRANSPORT_ERROR twice with a 10 s wait: about 245 of the turn's 300 s were already spent, and
+# the text blamed the sidecar, so the agent retried. The floor stays; the words change.
+# ------------------------------------------------------------------------------------------
+
+def _late_graph(monkeypatch, socket, seconds_left):
+    monkeypatch.setattr(sc, "_wallclock", lambda: 1_800_000_000.0)
+    monkeypatch.setenv(ENV, str(1_800_000_000 + seconds_left))
+    socket.answer = TimeoutError("timed out while waiting to receive a message")
+    with pytest.raises(sc.SidecarCallError) as exc:
+        _graph()
+    return exc.value
+
+
+def test_an_op_that_runs_out_of_turn_says_the_turn_was_nearly_out_of_time(monkeypatch, socket):
+    err = _late_graph(monkeypatch, socket, 55)
+    assert err.code == "TRANSPORT_ERROR" and err.exit_code == 7
+    assert socket.timeouts == [10.0]                       # the floor is unchanged
+    msg = err.message
+    assert "nearly out of time" in msg
+    assert "about 55 s" in msg                             # the time the turn had left
+    assert "10 s" in msg                                   # the wait it could afford
+    assert "Do not retry" in msg and "in this turn" in msg
+    assert "answer now with what you already have" in msg
+    assert "offer to run it in the next turn" in msg
+    assert "did not answer within" not in msg              # it does not blame the service
+
+
+def test_the_floor_case_still_names_the_time_left(monkeypatch, socket):
+    """Past the headroom, the wait is the 10 s floor and the time left can be under it."""
+    err = _late_graph(monkeypatch, socket, 8)
+    assert socket.timeouts == [10.0]
+    assert "about 8 s" in err.message and "nearly out of time" in err.message
+
+
+def test_a_wait_at_its_ceiling_keeps_the_service_message(monkeypatch, socket):
+    """No deadline, or plenty of turn left: the 300 s bound ran out, so it is the service."""
+    socket.answer = TimeoutError("timed out")
+    with pytest.raises(sc.SidecarCallError) as exc:
+        _graph()
+    assert exc.value.message == "the sidecar did not answer within 300 s"
+    assert "nearly out of time" not in exc.value.message
+
+
+def test_other_transport_failures_are_unchanged(monkeypatch, socket):
+    monkeypatch.setattr(sc, "_wallclock", lambda: 1_800_000_000.0)
+    monkeypatch.setenv(ENV, str(1_800_000_000 + 30))
+    socket.answer = ConnectionResetError("reset")
+    with pytest.raises(sc.SidecarCallError) as exc:
+        _graph()
+    assert exc.value.message == "sidecar I/O failed: ConnectionResetError"
+
+
+def test_a_slow_service_early_in_the_turn_is_not_blamed_on_the_turn(monkeypatch, socket):
+    """Review S4: with a 180 s turn every wait is under the 300 s ceiling, so "deadline-bound"
+    alone is every timeout. An op that started with most of the turn left and still got no
+    answer is a slow service: say so, and that the turn has no time left for another try."""
+    err = _late_graph(monkeypatch, socket, 175)
+    assert socket.timeouts == [175 - HEADROOM]
+    msg = err.message
+    assert err.code == "TRANSPORT_ERROR"
+    assert "nearly out of time" not in msg and "did not report an error" not in msg
+    assert f"did not answer within {175 - HEADROOM:.0f} s" in msg
+    assert "no time left" in msg and "Do not retry" in msg
+    assert "offer to run it in the next turn" in msg
+
+
+def test_late_means_under_twice_the_headroom(monkeypatch, socket):
+    assert "nearly out of time" in _late_graph(monkeypatch, socket, 2 * HEADROOM - 1).message
+    assert "nearly out of time" not in _late_graph(monkeypatch, socket, 2 * HEADROOM + 1).message

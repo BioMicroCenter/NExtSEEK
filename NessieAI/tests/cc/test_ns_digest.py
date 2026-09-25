@@ -143,3 +143,12 @@ def test_render_within_chat_digest_has_both_sections():
 def test_render_within_chat_digest_ns_only_when_no_cc():
     md = render_within_chat_digest([_ns(1, "find NHP", 139, ["D.SEQ-1"])], [])
     assert "Prior NExtSEEK results" in md and "Container-CC turns" not in md
+
+
+def test_a_graph_turn_digest_shows_its_rows_and_the_recall_pointer():
+    from NessieAI.tests.cc.test_ns_turn_context import _graph_bundle
+
+    md = ns_digest.render_digest([ntc.from_bundle(_graph_bundle(), session_id="s", turn_id=2)])
+    assert "total=585, rows=585" in md
+    assert "sample UIDs: TCGA-0000" in md
+    assert "nextseek-recall --turn 2" in md and "no raw rows available" not in md

@@ -1,0 +1,630 @@
+{
+ "_name": "probe-2026-09-24-cc-followup-reruns - Container-CC follow-ups answered from the staged turns, not re-run",
+ "_why": "Proves fix/cc-followup (CC-RERUN-FINDINGS fixes 1, 2, 3, 4) on a box rebuilt with BOTH the app and the cc-agent image: samples.csv staged next to rows.csv (app), the trace built from this turn only (app), the newest-turn note in the UserPromptSubmit hook and the follow-up decision order (cc-agent). Every seed is an NExtSEEK graph question and every follow-up asks for a file, a chart or an analysis, so it stays on Container-CC under the follow-up split as well.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-24-cc-followup-reruns.json --out /app/runs/cc-followup-<date>\nPAID: 6 cases, 16 turns: 9 on Container-CC and 7 on NExtSEEK. Needs the operator's approval for the run.\nTrace criteria need the path and the file inside ONE tool call (a `cd` into the folder then a relative read counts); a Glob or Grep call carries no path in the trace and cannot satisfy them.",
+ "_instance_warning": "EVERY NUMBER HERE WAS MEASURED ON THE WORKSTATION'S GRAPH ON 2026-09-23 (the same values as probe-2026-09-23-followups-to-cc). Re-pin before the run:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>\n  python ... pin_probe_truths.py --pin <this file> --from measured.json",
+ "_observability": "cc_trace_text is one line per tool call of the CC turn's trace. Since fix 2 the trace holds THIS turn's calls only, so a negative trace assertion is valid on any CC turn of a chat, not only the first. The harness sees the agent read /data/previous_turns, not the staged tree itself.",
+ "_measure": {
+  "ccfu.species_and_sex_file_from_samples_csv": {
+   "locals": [
+    73,
+    47,
+    22,
+    4
+   ],
+   "mode": "each",
+   "cypher": [
+    "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+    "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN n.Species AS species, count(*) AS n ORDER BY n DESC"
+   ]
+  },
+  "ccfu.ndma_by_sex_file_from_samples_csv": {
+   "locals": [
+    1549,
+    820,
+    727
+   ],
+   "mode": "each",
+   "cypher": [
+    "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+    "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN m.Sex AS sex, count(*) AS n ORDER BY n DESC"
+   ]
+  },
+  "ccfu.count_only_seed_keeps_its_filter": {
+   "locals": [
+    1549,
+    820,
+    727
+   ],
+   "mode": "each",
+   "cypher": [
+    "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN count(m)",
+    "MATCH (m:T_MUS) WHERE any(v IN [m.Treatment1,m.Treatment2,m.Treatment3,m.Treatment4] WHERE v IS NOT NULL AND toLower(toString(v)) CONTAINS 'ndma') RETURN m.Sex AS sex, count(*) AS n ORDER BY n DESC"
+   ]
+  },
+  "ccfu.count_only_breakdown_is_given_not_refused": {
+   "locals": [
+    73
+   ],
+   "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+  },
+  "ccfu.newest_turn_after_ns_cc_ns": {
+   "locals": [
+    73,
+    4
+   ],
+   "mode": "each",
+   "cypher": [
+    "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)",
+    "MATCH (s:T_CEL) WHERE toLower(s.Name) STARTS WITH 'hela' RETURN count(s)"
+   ]
+  },
+  "ccfu.own_previous_file_is_read_not_redone": {
+   "locals": [
+    73
+   ],
+   "cypher": "MATCH (n:T_NHP) WHERE EXISTS { MATCH (f:T_D_FLOW)-[:DERIVED_FROM*1..12]->(n) } AND EXISTS { MATCH (s:T_D_SEQ)-[:DERIVED_FROM*1..12]->(n) } RETURN count(n)"
+  }
+ },
+ "families": {
+  "cc_followup_reruns": {
+   "description": "Multi-turn: an NS graph seed, then Container-CC follow-ups that must work from the staged turns (samples.csv, their own earlier files, the stored Cypher) instead of re-running searches.",
+   "variants": [
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.species_and_sex_file_from_samples_csv",
+     "name": "Fix 1: a follow-up that needs a field the rows do not carry is answered from samples.csv",
+     "_why": "The seed's rows carry the Cypher's projection only. The follow-up asks for sex as well as species and for a file, so it stays on Container-CC; every attribute of the 73 is in turn-NN/samples.csv, so the turn reads that file and makes no server call. Species 47 + 22 + 4 = 73, measured 2026-09-23 on the workstation graph (the r1-563 shape: +80 s and 3 exploration calls before).",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "Make me a CSV file of those 73 samples with their UID, species and sex, and tell me how many there are of each species.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])47(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])22(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?samples\\.csv"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*nextseek-(graph|aggregate|sample-search|query|parse|entity-extract|recall|api-read)\\b)"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.ndma_by_sex_file_from_samples_csv",
+     "name": "Fix 1: a breakdown by a field the rows do not carry, from samples.csv",
+     "_why": "The r1-573 shape (+46 s, an aggregate restating turn 1): the NDMA rows carry no Sex, samples.csv does. 1549 mice, 820 of one sex and 727 of the other, measured 2026-09-23.",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "Find the mouse samples treated with NDMA",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "Break those down by sex and save the table as a CSV file.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])820(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?samples\\.csv"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*nextseek-(graph|aggregate|sample-search|query|parse|entity-extract|recall|api-read)\\b)"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.count_only_seed_keeps_its_filter",
+     "name": "Fix 4 and fix 2: a count-only seed is broken down with its filter kept, and the next turn's trace is its own",
+     "_why": "The r4-625 shape: a count keeps no UIDs, and the follow-up was rewritten from plain words and lost its filter. Now the stored Cypher is re-run with only its RETURN changed, so the sex counts still sum to the seed's 1549 (820 + 727); the counts of every mouse would be far larger. The third turn plots the table the second made: its trace must not show the second turn's graph call (the trace was the whole conversation before fix 2).",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "How many mice were treated with NDMA?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])1,?549(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "Save a CSV file of those NDMA-treated mice broken down by sex.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])820(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])727(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "nextseek-(graph|aggregate)\\b"
+        }
+       ]
+      },
+      {
+       "label": "plot",
+       "query": "Now plot that sex breakdown as a bar chart and save it as a PNG.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*nextseek-(graph|aggregate|sample-search|query|parse|entity-extract|recall|api-read)\\b)"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.count_only_breakdown_is_given_not_refused",
+     "name": "Fix 4: a count-only seed broken down by project gives a breakdown",
+     "_why": "The r6-1231 shape: after a count, 'which studies' went to nextseek-aggregate, failed, and the turn gave up. Now the stored Cypher is re-run with only its RETURN changed, and a failed step falls back to nextseek-graph with the stored Cypher. The per-project counts are not pinned (a sample can sit in two projects): the turn must publish the one named CSV, and the reply must not give up.",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "How many NHP samples have both flow cytometry data and sequencing data derived from them?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "Which projects are those 73 in? Save the counts per project to one CSV file named nhp73_by_project.csv.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "nextseek-(graph|aggregate)\\b"
+        },
+        {
+         "field": "api_artifact.nhp73_by_project.csv",
+         "op": "true",
+         "value": null
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)project"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*\\b(?:couldn't|could not|was unable to|unable to|cannot|can't)\\b[^.\\n]{0,60}\\b(?:break|answer|get|produce|complete|determine|find)\\b)"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.newest_turn_after_ns_cc_ns",
+     "name": "Fix 3: NS, CC, NS, CC in a row, the last CC turn works on the newest turn",
+     "_why": "The r1-581 and r4-608 shape: a resumed CC turn skipped MANIFEST.md and answered about an older turn. Now the hook names the newest staged turn every turn, so the fourth turn reads the manifest and the HeLa turn's files (turn 3), not the NHP turn's (turn 1), and makes no server call. 4 HeLa samples, measured 2026-09-23.",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "chart",
+       "query": "Plot the species of those 73 as a bar chart and save it as a PNG.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        }
+       ]
+      },
+      {
+       "label": "second_search",
+       "query": "Find the HeLa cell line samples.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "Save those samples with all their attributes to a CSV file.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?i)hela"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns/turn-0?3/(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?(rows|samples)\\.csv"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*/data/previous_turns/turn-0?1/(rows|samples)\\.csv)"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*nextseek-(graph|aggregate|sample-search|query|parse|entity-extract|recall|api-read)\\b)"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "family": "cc_followup_reruns",
+     "id": "ccfu.own_previous_file_is_read_not_redone",
+     "name": "Fix 3: the agent reads the file its own previous turn wrote",
+     "_why": "The r6-1229 shape: its own previous turn's full.json was staged in turn-02/, and the resumed turn re-fetched all 585 samples instead. Here turn 2 writes nhp73.csv, and turn 3 must read it from /data/previous_turns/turn-NN/ with no server call.",
+     "tags": [
+      "nessie",
+      "probe",
+      "full"
+     ],
+     "requires_env": [],
+     "turns": [
+      {
+       "label": "seed",
+       "query": "Find NHP samples that have both flow cytometry data and sequencing data derived from them",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "nextseek_query"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+        }
+       ]
+      },
+      {
+       "label": "write",
+       "query": "Write a CSV file named nhp73.csv of those 73 samples with their UID, species and sex.",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "route_source",
+         "op": "matches_re",
+         "value": "^(baml|followup|sticky)$"
+        }
+       ]
+      },
+      {
+       "label": "main",
+       "query": "How many rows are in the nhp73.csv file you just made?",
+       "pass_criteria": [
+        {
+         "field": "last_reply",
+         "op": "nonempty",
+         "value": null
+        },
+        {
+         "field": "route",
+         "op": "eq",
+         "value": "container_cc"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?<![\\w.,/-])73(?![\\w]|[.,]\\d|[-/]\\d)"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?nhp73\\.csv"
+        },
+        {
+         "field": "cc_trace_text",
+         "op": "matches_re",
+         "value": "(?s)\\A(?!.*nextseek-(graph|aggregate|sample-search|query|parse|entity-extract|recall|api-read)\\b)"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

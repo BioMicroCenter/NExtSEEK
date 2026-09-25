@@ -16,8 +16,9 @@ is invalidated by the scrub of the bytes ahead of it.
 
 ``_read_turn_transcript`` is the capture helper built on those three, and the
 AST tests at the bottom pin which of its two members reaches which sink in
-``run_cc_turn``: the per-turn sinks get the SLICE, the Debug-panel trace keeps
-the FULL session.
+``run_cc_turn``: the per-turn sinks get the SLICE, and so does the Debug-panel
+trace (CC-RERUN-FINDINGS fix 2: parsed from the full session it replayed every
+earlier turn's calls under each resumed reply).
 
 Hermetic: tmp_path + stdlib only, no docker, no DB.
 """
@@ -643,15 +644,16 @@ _RAW_COPY = "_write_raw_turn_copy"
 _PAYLOAD_ARG = 2
 
 
-def test_the_debug_trace_still_parses_the_FULL_session():
-    """Deliberate, and pinned so a later refactor cannot silently swap the two
-    members. Slicing the summariser's input would change every Debug-panel
-    trace's ``steps``, ``transcript_line_count`` and ``turn_count`` — a separate
-    defect with its own blast radius, out of scope for #68 (see SPEC.md)."""
+def test_the_debug_trace_parses_this_turns_slice():
+    """Pinned so a later refactor cannot silently swap the two members back. Parsed
+    from ``captured.session``, the trace under a resumed reply listed every earlier
+    CC turn's calls (r5-637 ran no tool and showed turn 1's graph search), which is
+    what read as "it re-ran the previous searches". The behaviour is pinned in
+    ``test_cc_trace_this_turn_only.py``."""
     calls = _calls(_run_cc_turn_ast(), attr="parse_transcript")
 
     assert len(calls) == 1, "expected exactly one parse_transcript call"
-    assert _arg_src(calls[0], 0) == "captured.session"
+    assert _arg_src(calls[0], 0) == "captured.turn"
 
 
 def test_the_SUCCESS_path_raw_copy_gets_that_turns_slice():

@@ -149,6 +149,264 @@ def test_a_rest_turn_carries_its_request_and_its_result_file(tmp_path, outputs):
     assert manifest["turns"][0]["count"] == 2
 
 
+# ------------------------------------------------ every property of the samples (fix 1)
+THIN_ROWS = [{"id": 11, "uuid": "MUS-1"}, {"id": 12, "uuid": "MUS-2"}, {"id": 13, "uuid": "MUS-3"}]
+NODES = {
+    "MUS-1": {"id": 11, "uuid": "MUS-1", "type": "MUS", "title": "m1", "project_ids": [2],
+              "Sex": "female", "Genotype": "CC001", "search_text": "m1\nfemale\nCC001",
+              "source_hash": "ab12", "parent_titles": ["hidden"], "parent_title_hashes": ["h"]},
+    "MUS-2": {"id": 12, "uuid": "MUS-2", "type": "MUS", "project_ids": [2],
+              "Sex": "male", "Genotype": "CC002"},
+    "MUS-3": {"id": 13, "uuid": "MUS-3", "type": "MUS", "project_ids": [2],
+              "Sex": "female", "Genotype": "CC001", "Age": 12},
+}
+
+
+class _Graph:
+    """The caller-scoped graph read turn.py hands in: ``tool_neo4j_query``'s result shape."""
+
+    def __init__(self, result=None):
+        self.calls = []
+        self.result = result
+
+    def __call__(self, cypher, parameters):
+        self.calls.append((cypher, parameters))
+        if self.result is not None:
+            return self.result
+        rows = [{"sample": dict(NODES[u])} for u in sorted(parameters["uids"]) if u in NODES]
+        return {"ok": True, "data": rows, "count": len(rows), "total": len(rows), "truncated": False}
+
+
+def _thin_bundle(outputs, bundle_id=1, rows=THIN_ROWS):
+    bundle = _graph_bundle(outputs, bundle_id)
+    bundle["graph_result"] = {**bundle["graph_result"], "data": rows, "count": len(rows),
+                              "total": len(rows)}
+    return bundle
+
+
+def test_samples_csv_holds_every_property_of_the_returned_samples(tmp_path, outputs):
+    """The acceptance case: rows carry only id and uuid, and a follow-up by sex or genotype
+    is still answered from disk."""
+    graph = _Graph()
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)],
+                            graph_query=graph)
+    (cypher, params), = graph.calls
+    assert cypher == prior_turns.SAMPLES_CYPHER
+    assert params == {"uids": ["MUS-1", "MUS-2", "MUS-3"]}
+
+    table = list(csv.DictReader(io.StringIO((dest / "turn-01" / "samples.csv").read_text())))
+    by_uid = {r["uuid"]: r for r in table}
+    assert set(by_uid) == {"MUS-1", "MUS-2", "MUS-3"}
+    assert [by_uid[u]["Sex"] for u in ("MUS-1", "MUS-2", "MUS-3")] == ["female", "male", "female"]
+    assert [by_uid[u]["Genotype"] for u in ("MUS-1", "MUS-2", "MUS-3")] == ["CC001", "CC002", "CC001"]
+    header = next(csv.reader(io.StringIO((dest / "turn-01" / "samples.csv").read_text())))
+    assert header[:5] == ["uuid", "id", "type", "title", "project_ids"]
+    assert by_uid["MUS-3"]["Age"] == "12" and by_uid["MUS-2"]["Age"] == ""
+
+    turn = manifest["turns"][0]
+    assert turn["sample_uids"] == 3
+    assert any(f["file"] == "samples.csv" for f in turn["files"])
+    md = (dest / "MANIFEST.md").read_text()
+    assert "`samples.csv`" in md and "3 samples" in md
+
+
+def test_samples_csv_never_carries_the_hidden_parent_lists(tmp_path, outputs):
+    """The properties ``graph_scope`` keeps hidden never reach the file, whatever the read
+    returned: staging drops them itself."""
+    from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
+    dest, _ = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=_Graph())
+    text = (dest / "turn-01" / "samples.csv").read_text()
+    header = next(csv.reader(io.StringIO(text)))
+    assert not set(HIDDEN_SAMPLE_PROPERTIES) & set(header)
+    assert "hidden" not in text
+    assert "search_text" not in header and "source_hash" not in header
+
+
+def test_samples_csv_is_read_once_per_turn_not_on_every_follow_up(tmp_path, outputs):
+    graph = _Graph()
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    _stage(tmp_path, outputs, log, history, graph_query=graph)
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=graph)
+    assert len(graph.calls) == 1
+    assert (dest / "turn-01" / "samples.csv").is_file()
+    assert any(f["file"] == "samples.csv" for f in manifest["turns"][0]["files"])
+
+
+def test_a_failed_or_refused_read_is_listed_and_retried_next_turn(tmp_path, outputs):
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    refused = _Graph({"ok": False, "error": "not run", "data": [],
+                      "scope": {"decision": "refused"}})
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=refused)
+    assert not (dest / "turn-01" / "samples.csv").exists()
+    reasons = {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}
+    assert reasons["samples.csv"] == "graph_scope_refused"
+    assert (dest / "turn-01" / "rows.csv").is_file()                 # the rest is staged
+
+    def boom(cypher, parameters):
+        raise RuntimeError("neo4j down")
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=boom)
+    assert {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}["samples.csv"] == "graph_error"
+
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=_Graph())
+    assert (dest / "turn-01" / "samples.csv").is_file()
+
+
+def test_one_failed_read_stops_the_others_in_the_same_staging(tmp_path, outputs):
+    """Staging runs before the agent starts, so a graph that is down must cost one failed read
+    per turn, not one per staged NS turn (each can wait out the tool's own timeout)."""
+    calls = []
+
+    def down(cypher, parameters):
+        calls.append(parameters)
+        raise TimeoutError("neo4j did not answer")
+    history = [_thin_bundle(outputs, n) for n in (1, 2, 3)]
+    log = [_ns_entry(turn_id=n, bundle_id=n) for n in (1, 2, 3)]
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=down)
+    assert len(calls) == 1
+    for turn in manifest["turns"]:
+        assert {s["file"]: s["reason"] for s in turn["skipped"]}["samples.csv"] == "graph_error"
+
+
+def test_the_cache_is_per_scope_as_well_as_per_uid_set(tmp_path, outputs):
+    """A cached samples.csv is reused only for the same UIDs read under the same scope and
+    graph: a changed membership (or the prod toggle) reads again."""
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    member_of_2 = _Graph()
+    member_of_2.cache_key = "projects=[2]"
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_2)
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_2)
+    assert len(member_of_2.calls) == 1
+    member_of_3 = _Graph()
+    member_of_3.cache_key = "projects=[3]"
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_3)
+    assert len(member_of_3.calls) == 1
+
+
+def test_uids_found_only_in_part_say_how_many(tmp_path, outputs):
+    rows = THIN_ROWS + [{"id": 99, "uuid": "MUS-GONE"}]
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)],
+                            graph_query=_Graph())
+    (samples,) = [f for f in manifest["turns"][0]["files"] if f["file"] == "samples.csv"]
+    assert "3 of the 4 UIDs were found" in samples["holds"]
+
+
+def test_no_matching_samples_is_remembered_too(tmp_path, outputs):
+    empty = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    _stage(tmp_path, outputs, log, history, graph_query=empty)
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=empty)
+    assert len(empty.calls) == 1
+    assert {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}["samples.csv"] == "no_matching_samples"
+
+
+def test_lineage_rows_name_both_samples(tmp_path, outputs):
+    graph = _Graph()
+    rows = [{"parent_uuid": "MUS-1", "child_uuid": "MUS-2"}, {"s": {"uuid": "MUS-3", "id": 13}}]
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)],
+                            graph_query=graph)
+    assert graph.calls[0][1] == {"uids": ["MUS-1", "MUS-2", "MUS-3"]}
+    assert manifest["turns"][0]["sample_uids"] == 3
+
+
+def test_a_rest_list_is_not_called_a_count_with_a_cypher(tmp_path, outputs):
+    """A REST list (projects, people) has no sample UIDs and no Cypher: say nothing about either."""
+    raw = outputs / "api_result_bundle_6.json"
+    raw.write_text(json.dumps({"ok": True, "data": {"total": 2, "rows": [
+        {"id": 2, "title": "MetNet"}, {"id": 3, "title": "IMPAcTb"}]}}))
+    bundle = {"id": 6, "user_query": "list projects", "mode": "new_search",
+              "api_plan": {"endpoint": "/nextseek_api/projects/", "method": "GET"},
+              "raw_result_path": str(raw)}
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry(turn_id=6, bundle_id=6, mode="new_search")],
+                            [bundle], graph_query=_Graph())
+    assert manifest["turns"][0]["has_cypher"] is False
+    md = (dest / "MANIFEST.md").read_text()
+    assert "no sample UIDs" not in md and "change only its RETURN" not in md
+
+
+def test_the_memory_pointer_follows_the_newest_turns_route(tmp_path, outputs):
+    art = tmp_path / "art" / "run-1"
+    art.mkdir(parents=True)
+    (art / "chart.png").write_bytes(b"png")
+    cc = {"turn_id": 2, "user_query": "plot", "mode": "cc", "router_choice": "container_cc",
+          "status": "completed", "assistant_reply": "done", "cc_run_id": "run-1"}
+    _, manifest = _stage(tmp_path, outputs, [_ns_entry(), cc], [_graph_bundle(outputs)],
+                         cc_artifacts_root=tmp_path / "art")
+    text = " ".join(prior_turns.memory_pointer(manifest).split())
+    assert "turn 2 (container_cc)" in text
+    assert "your own earlier turn" in text and "answer.md" in text
+    assert "The newest NExtSEEK search is turn 1" in text and "/data/previous_turns/turn-01/" in text
+
+
+def test_uids_the_graph_no_longer_holds_give_no_empty_file(tmp_path, outputs):
+    graph = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=graph)
+    assert not (dest / "turn-01" / "samples.csv").exists()
+    reasons = {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}
+    assert reasons["samples.csv"] == "no_matching_samples"
+
+
+def test_a_count_only_turn_has_no_uids_and_no_samples_query(tmp_path, outputs):
+    graph = _Graph()
+    bundle = _thin_bundle(outputs, rows=[{"n": 1442}])
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [bundle], graph_query=graph)
+    assert graph.calls == []
+    assert manifest["turns"][0]["sample_uids"] == 0
+    assert not (dest / "turn-01" / "samples.csv").exists()
+    md = (dest / "MANIFEST.md").read_text()
+    assert "no sample UIDs" in md
+
+
+def test_uids_are_read_from_uid_or_uuid_and_capped(tmp_path, outputs, monkeypatch):
+    monkeypatch.setattr(prior_turns, "MAX_SAMPLE_UIDS", 2)
+    graph = _Graph()
+    rows = [{"uid": "MUS-3"}, {"uuid": "MUS-1"}, {"UID": "MUS-2"}, {"uuid": "MUS-1"}]
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)],
+                            graph_query=graph)
+    assert graph.calls[0][1] == {"uids": ["MUS-3", "MUS-1"]}
+    assert manifest["turns"][0]["sample_uids"] == 3
+
+
+def test_without_a_graph_reader_nothing_changes(tmp_path, outputs):
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)])
+    assert not (dest / "turn-01" / "samples.csv").exists()
+    assert all(s["file"] != "samples.csv" for s in manifest["turns"][0]["skipped"])
+
+
+def test_the_staging_cypher_is_accepted_by_the_scope_prover():
+    """It must run for a caller limited to projects, with the scope inserted, not be refused."""
+    from chat_nextseek.cypher_scope import Refused, scope_cypher
+    from chat_nextseek.graph_scope import GraphScope
+
+    out = scope_cypher(prior_turns.SAMPLES_CYPHER, {"uids": ["MUS-1"]}, GraphScope.for_projects([2]))
+    assert not isinstance(out, Refused), getattr(out, "codes", None)
+    assert "__scope_projects" in out.cypher
+
+
+def test_a_plan_bundle_whose_graph_step_found_nothing_stages_its_rest_rows(tmp_path, outputs):
+    raw = outputs / "api_result_bundle_5.json"
+    rest_rows = [{"uid": "MUS-1", "Genotype": "CC001"}, {"uid": "MUS-2", "Genotype": "CC002"}]
+    raw.write_text(json.dumps({"ok": True, "data": {"total": 2, "rows": rest_rows}}))
+    bundle = {"id": 5, "user_query": "plan q", "mode": "plan",
+              "graph_result": {"ok": False, "data": [], "count": 0, "error": "boom"},
+              "api_plan": {"endpoint": "/nextseek_api/projects/", "method": "GET"},
+              "raw_result_path": str(raw)}
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry(turn_id=5, bundle_id=5, mode="plan")], [bundle])
+    assert json.loads((dest / "turn-05" / "rows.json").read_text())["rows"] == rest_rows
+
+
+def test_staged_rows_never_carry_the_hidden_parent_lists(tmp_path, outputs):
+    """Whatever a turn's rows hold, the properties graph_scope keeps hidden (at any depth, as in a
+    whole node) are not written to rows.json or rows.csv."""
+    rows = [{"uuid": "MUS-1", "parent_titles": ["x"], "s": {"uuid": "MUS-1", "Sex": "F",
+                                                              "parent_title_hashes": ["h"]}}]
+    dest, _ = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)])
+    staged = (dest / "turn-01" / "rows.json").read_text() + (dest / "turn-01" / "rows.csv").read_text()
+    assert "parent_title" not in staged
+    assert json.loads((dest / "turn-01" / "rows.json").read_text())["rows"] == [
+        {"uuid": "MUS-1", "s": {"uuid": "MUS-1", "Sex": "F"}}]
+
+
 # ---------------------------------------------------------------- scope guards
 def test_a_file_outside_the_artifact_roots_is_never_copied(tmp_path, outputs):
     secret = tmp_path / "elsewhere" / "local_settings.py"
@@ -311,3 +569,44 @@ def test_the_agent_is_told_to_start_from_the_previous_turn():
     counts = claude_md.split("## Counts and breakdowns", 1)[1].split("\n## ", 1)[0]
     assert "use `nextseek-aggregate`" in counts
     assert "aggregate that turn's `rows.json` or `rows.csv` directly" in counts
+
+
+def _claude_md() -> str:
+    return (Path(prior_turns.__file__).resolve().parents[1]
+            / "docker" / "cc-runtime" / "container" / "CLAUDE.md").read_text()
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_agent_reads_the_manifest_on_every_turn_and_finds_its_own_files_there(tmp_path, outputs):
+    """CC-RERUN-FINDINGS fix 3: a resumed agent skipped MANIFEST.md (r1-581, r4-608) and redid its
+    own previous turn although its full.json was staged (r6-1229), because it was told
+    /data/scratch is not seen later and nothing said where its own files went."""
+    text = _claude_md()
+    scratch = next(line for line in text.splitlines() if line.lstrip().startswith("- `/data/scratch`"))
+    assert "`/data/previous_turns/turn-NN/`" in scratch
+    follow = _section(text, "## Follow-ups: start from the previous turn")
+    assert "on every turn, including a resumed one" in follow
+    assert "names the newest staged turn" in follow
+    assert "your own earlier turns" in follow
+    assert "instead of redoing" in follow
+
+    art_root = tmp_path / "art" / "run-1"
+    art_root.mkdir(parents=True)
+    (art_root / "full.json").write_text("{}")
+    cc = {"turn_id": 2, "user_query": "smokers", "mode": "cc", "router_choice": "container_cc",
+          "status": "completed", "assistant_reply": "53", "cc_run_id": "run-1"}
+    dest, _ = _stage(tmp_path, outputs, [_ns_entry(), cc], [_graph_bundle(outputs)],
+                     cc_artifacts_root=tmp_path / "art")
+    md = (dest / "MANIFEST.md").read_text()
+    assert "Your own earlier Container-CC turns are here too" in " ".join(md.split())
+    assert "- `full.json`: a file this turn wrote" in md
+
+
+def test_staging_hides_at_least_what_graph_scope_hides():
+    from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= prior_turns._HIDDEN
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= prior_turns._DROPPED_SAMPLE_PROPERTIES

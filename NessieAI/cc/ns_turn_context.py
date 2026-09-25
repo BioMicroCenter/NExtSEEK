@@ -68,15 +68,56 @@ def _total_and_rows(api_result_full: dict) -> tuple[int | None, int, list]:
     return None, 0, []
 
 
+#: Where a row names its sample: a REST row's ``uid``, the graph's ``uuid``, the metadata ``UID``.
+_UID_KEYS = ("uid", "uuid", "UID")
+
+
+def _row_uid(row: Any) -> str | None:
+    if not isinstance(row, dict):
+        return None
+    for key in _UID_KEYS:
+        value = row.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _graph_rows(bundle: dict) -> tuple[bool, str | None, int | None, bool, list] | None:
+    """(ok, error, total, capped, rows) of a graph turn, whose rows are ``graph_result.data``;
+    None for a REST turn."""
+    graph = bundle.get("graph_result")
+    if not isinstance(graph, dict) or not isinstance(graph.get("data"), list):
+        return None
+    rows = graph["data"]
+    capped = bool(graph.get("truncated"))
+    total = graph.get("total")
+    if not isinstance(total, int) or isinstance(total, bool):
+        total = None if capped else len(rows)
+    ok = bool(graph.get("ok", True))
+    return ok, None if ok else str(graph.get("error") or "NS turn failed"), total, capped, rows
+
+
 def from_bundle(bundle: dict, *, session_id: str, turn_id: int) -> NSTurnContext:
     from chat_nextseek.artifacts import load_api_result_full
 
     api_full = load_api_result_full(bundle)
-    ok = bool(api_full.get("ok", True))
-    total, row_count, rows = _total_and_rows(api_full)
+    graph = _graph_rows(bundle)
+    # A graph turn keeps its rows in the bundle itself. Reading only the REST result, the digest
+    # said rows=0 for every one of them and ``nextseek-recall`` found nothing (r6-1228). A plan
+    # bundle stores a (possibly empty) graph list beside its REST result: the graph rows count
+    # only when there are some, or when there is no REST result at all.
+    if graph is not None and (graph[4] or not api_full):
+        ok, error, total, capped, rows = graph
+        row_count = len(rows)
+    else:
+        capped = False
+        ok = bool(api_full.get("ok", True))
+        error = None if ok else str(api_full.get("error") or "NS turn failed")
+        total, row_count, rows = _total_and_rows(api_full)
     first = rows[0] if rows and isinstance(rows[0], dict) else {}
     reply_raw = str(bundle.get("terminal_reply") or "")
     truncated_reply = len(reply_raw) > _REPLY_CAP
+    uids = [u for u in (_row_uid(r) for r in rows) if u is not None]
     return NSTurnContext(
         session_id=session_id,
         turn_id=turn_id,
@@ -87,17 +128,16 @@ def from_bundle(bundle: dict, *, session_id: str, turn_id: int) -> NSTurnContext
         reply=reply_raw[:_REPLY_CAP],
         reply_truncated=truncated_reply,
         ok=ok,
-        error=None if ok else str(api_full.get("error") or "NS turn failed"),
+        error=error,
         result=NSResultSummary(
             endpoint=bundle.get("endpoint"),
             method=bundle.get("method"),
             total=total if isinstance(total, int) and not isinstance(total, bool) else None,
             row_count=row_count,
-            truncated=bool(isinstance(total, int) and not isinstance(total, bool)
-                             and row_count < total),
+            truncated=capped or bool(isinstance(total, int) and not isinstance(total, bool)
+                                     and row_count < total),
             columns=[str(k) for k in first.keys()],
-            sample_uids=[str(r.get("uid")) for r in rows[:_SAMPLE_UIDS_CAP]
-                         if isinstance(r, dict) and r.get("uid")],
+            sample_uids=uids[:_SAMPLE_UIDS_CAP],
         ),
         filters=(bundle.get("parser_plan") or {}).get("filters")
                 if isinstance(bundle.get("parser_plan"), dict) else None,

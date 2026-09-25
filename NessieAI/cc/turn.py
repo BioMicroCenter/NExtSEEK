@@ -63,6 +63,23 @@ logger = logging.getLogger(__name__)
 
 MAX_CC_CHAT_LOG_TURNS = 50  # match chat_nextseek/chat_memory.py MAX_TURNS
 
+
+def _save_before_complete(send_event, adapter):
+    """The NS turn's session is written BEFORE query_complete is sent.
+
+    The task row turns `completed` on query_complete and the client sends the next question at once; the save used
+    to run later, in `_run`'s finally, so a follow-up within a second read a session without the turn it followed
+    (HeLa, 2026-09-23: 0.97 s). Saving twice is harmless: save() merges history by bundle id.
+    """
+    def wrapped(event, data):
+        if event == "query_complete":
+            try:
+                adapter.save()
+            except Exception:  # noqa: BLE001 - the finally save still runs
+                logger.warning("pre-complete session save failed", exc_info=True)
+        return send_event(event, data)
+    return wrapped
+
 # Evaluation only (the graph_search Nessie POC): the process flag that lets a
 # superuser's QueryRequest.force_parser_mode reach the NS parser, and its
 # QueryRequest.prompt_variant reach the NS agents. The venue sets it; no compose
@@ -321,6 +338,44 @@ def _with_prompt_variant(chat_config, user, req):
         return chat_config
 
 
+def _scoped_graph_query(chat_config, graph_scope):
+    """The graph read ``prior_turns`` stages ``samples.csv`` with (CC-RERUN-FINDINGS fix 1).
+
+    ``tool_neo4j_query`` with its default arguments, on a per-request copy of the NS config that
+    carries this caller's scope, so the write check and the scope prover apply exactly as they
+    do on the caller's own graph turns. ``graph_scope`` is the ViewSet's plain data; anything
+    that is not a well-formed scope becomes None, which refuses every statement. The reader's
+    ``cache_key`` names the scope and the graph, so a samples.csv read under one is never reused
+    under another. None when the reader cannot be built: staging must never fail the turn.
+    """
+    try:
+        import json as _json
+        from collections.abc import Mapping
+
+        from chat_nextseek import helpers
+        from chat_nextseek.graph_scope import GraphScope, with_scope
+
+        scope = graph_scope if isinstance(graph_scope, GraphScope) else None
+        if scope is None and isinstance(graph_scope, Mapping):
+            try:
+                scope = GraphScope.from_plain(graph_scope)
+            except ValueError:
+                logger.warning("cc: malformed graph scope; the previous turns get no samples.csv")
+        scoped = with_scope(chat_config, scope)
+
+        def query(cypher: str, parameters: dict) -> dict:
+            return helpers.tool_neo4j_query(scoped, cypher, parameters)
+        query.cache_key = _json.dumps({
+            "admin": None if scope is None else scope.is_admin,
+            "projects": None if scope is None else list(scope.project_ids),
+            "graph": str(getattr(chat_config, "NEO4J_URI", "") or ""),
+        }, sort_keys=True)
+        return query
+    except Exception:  # noqa: BLE001 - the turn runs without samples.csv
+        logger.warning("cc: could not build the samples.csv reader", exc_info=True)
+        return None
+
+
 def _eval_config(chat_config, user, req):
     """Both evaluation switches on one per-request copy: the parser force, then the prompt variant."""
     return _with_prompt_variant(_with_parser_force(chat_config, user, req), user, req)
@@ -377,6 +432,16 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
         ran_ns = False
         decision = None
         try:
+            # Fresh state per turn: the adapter was built in the request thread, possibly while the
+            # previous turn's save was still in flight. reload() refreshes chat_session itself (the
+            # adapter wraps the same object), so the chat_log read below is fresh too. Fakes without
+            # reload() are tolerated; a failed reload must not fail the turn.
+            _reload = getattr(adapter, "reload", None)
+            if _reload is not None:
+                try:
+                    _reload()
+                except Exception:  # noqa: BLE001 - run on the request-time snapshot
+                    logger.warning("session reload at turn start failed", exc_info=True)
             chat_log = (chat_session.extra_state or {}).get("chat_log") or []
             history = router_context.build_history(chat_log)
             # The whole chat_log too: stickiness holds for the rest of the chat, not
@@ -411,15 +476,16 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             if decision.route == cc_router.ROUTE_NS:
                 ran_ns = True
                 creds = {"api_user": api_user, "api_pass": api_pass}
+                ns_send = _save_before_complete(send_event, adapter)
                 try:
                     if mode == "plan":
                         run_query_plan(adapter, _with_prompt_variant(chat_config, request.user, req),
-                                       req.query, send_event, credentials=creds, **scope_kw)
+                                       req.query, ns_send, credentials=creds, **scope_kw)
                     else:
                         # The evaluation switches: a per-request copy, made after the
                         # PROD identity check above has compared the singleton.
                         run_query(adapter, _eval_config(chat_config, request.user, req),
-                                  req.query, send_event, credentials=creds, **scope_kw)
+                                  req.query, ns_send, credentials=creds, **scope_kw)
                 finally:
                     # In a `finally` deliberately. run_query resolves
                     # run_root_dir three statements in (orchestrator.py:620),
@@ -558,11 +624,14 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # details, rows and downloads are staged for this turn to read, from this
                 # chat only and through the download endpoint's own guard (prior_turns).
                 # Within-chat, so a fresh_session turn gets them too, like the digest.
+                # samples.csv: every stored property of the samples an NS turn returned, read
+                # once through the caller's own scoped graph tool.
                 staged_prior = prior_turns.stage_prior_turns(
                     chat_log=(chat_session.extra_state or {}).get("chat_log") or [],
                     results_history=chat_session.results_history or [],
                     dest_dir=Path(dirs.previous_turns_mnt),
                     cc_artifacts_root=Path(dirs.output_mnt) / "artifacts",
+                    graph_query=_scoped_graph_query(chat_config, graph_scope),
                 )
                 within_chat_md = "\n\n".join(
                     p for p in (prior_turns.memory_pointer(staged_prior), within_chat_md) if p)

@@ -44,7 +44,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-entity-extract` | Resolve NL terms to NExtSEEK vocabulary. | `--query "<text>"` | `{sampletypes, assays, keywords, projects}` |
 | `nextseek-parse` | Turn an NL question into a parser plan. | `--query "<text>"` | parser plan `{mode, target_endpoint, filters, ...}` |
 | `nextseek-api-read` | Execute a read-safe REST call from a parser plan. | `--parser-plan '<json>'` | API response |
-| `nextseek-api-write` | Execute a write (POST/PUT/DELETE) from a parser plan. | `--parser-plan '<json>' --confirmed-write` | API response |
+| `nextseek-api-write` | Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it. | `--parser-plan '<json>' --confirmed-write` | API response (`ok: false`) |
 | `nextseek-graph` | Find and read samples from the graph: filter, lineage, attribute values of the samples found. Held to the user's projects; a query refused for its scope is answered through graph_search under `fallback`. How many and breakdowns go to `nextseek-aggregate`. | `--query "<text>"` | `{plan, result, fallback?}` |
 | `nextseek-aggregate` | **How many, broken down by what**: counts, breakdowns, tallies, histograms, distinct values. One call; the question alone, or 1 to 4 parts run in parallel. Each part is a small table with the sum of its group counts and its missing-value bucket, never sample records. Held to the user's projects. | `--query "<whole question>" [--parts '["<part>", ...]']` | `{question, complete, parts: [{status, kind, columns, groups, sum_of_group_counts, groups_may_overlap, null_group, truncated, fallback}], notes}` |
 | `nextseek-report` | Project summary report. | `--mode {samples,protocols,published,rppr} --project <name>` | report `{summary, saved_files, rows}` |
@@ -52,7 +52,7 @@ is the complete contract; there are no hidden flags.
 | `nextseek-pipeline` | **Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard. | `--message "<summary: explicit UIDs + species/genome + metadata + pipeline>"` | `{reply, debug, bundle_id}` |
 | `nextseek-plan` | Multi-step planner advisor (read-only). | `--query "<text>"` | `{plan, recommended_next_actions, ...}` |
 | `nextseek-query` | Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present. | `--query "<text>"` | `{reply, debug, bundle_id}` (+ scratch manifest path when applicable) |
-| `nextseek-recall` | Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
+| `nextseek-recall` | Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned. | `--turn <N>` | `{turn_id, bundle_id, total, row_count, columns, path}` |
 | `nextseek-run-ls` | **Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory. | `--run-dir <abs path under the Luria runs root>` | `{tree, truncated, run_dir}` |
 | `nextseek-build-upload-xlsx` | **Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK. | `--rows '<json array>' [--existing-parent-uids <csv>]` | `{saved_files, qa}` |
 
@@ -88,17 +88,23 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
     `response.data` with the same disclosure. If that fails too, report the refusal and both
     errors, and stop.
 - **Read `result.ok` and `result.data`.** An empty `data` is an answer: state it plainly.
-- **Refinement** ("which of those…", "only the female ones"): ask `nextseek-graph` again with the
-  whole refined question, the earlier conditions restated plus the new one. To reuse rows a prior
-  turn already returned, use `nextseek-recall --turn N` instead of re-querying.
+- **Refinement and follow-ups** ("which of those…", "only the female ones", "by sex"): start from
+  the previous turn's files in `/data/previous_turns/`, in the order the container CLAUDE.md gives
+  ("When the question needs a field the rows do not show"): `rows.csv`, then `samples.csv` (every
+  stored attribute of those samples), then the stored Cypher from `search_details.json` handed to
+  `nextseek-graph` with the one change, then `nextseek-sample-search --uid` for named samples;
+  `nextseek-aggregate` only when the stored result was capped. Never restate the earlier question
+  from plain words: change the stored Cypher, and keep every MATCH and WHERE.
 - **Never search samples through `nextseek-parse` + `nextseek-api-read`.** The sample-search and
   lineage endpoints (advanced_search, parents_by_child_types, entity_tree/lineage, the sample list)
   are not on the read-safe list, so `api-read` refuses them.
 
 **Counts and breakdowns — `nextseek-aggregate`.** "How many", "break down by", tallies, histograms,
 "which values does this attribute hold, and how often", and duplicate or variant spellings all go
-here, not to `nextseek-graph`. Never count by pulling records and tallying them yourself: a page of
-records is not the population. Ask the whole question; when it needs more than one independent number
+here, not to `nextseek-graph`, except over a previous turn's result: that is tallied from its staged
+files, or its stored Cypher is re-run with a new RETURN (see "Refinement and follow-ups" above). Never
+count by pulling records and tallying them yourself: a page of records is not the population. Ask the
+whole question; when it needs more than one independent number
 or breakdown, also pass `--parts`, one plain-language sub-question per number, each complete on its
 own (restate the project, sample type and filters in every part):
 
@@ -134,7 +140,7 @@ nextseek-aggregate --query "How many samples have no parent at all, and how many
 - **People and other catalog lists** (registered users, protocols, projects) are REST lists, not graph
   counts: count those with `nextseek-parse` then `nextseek-api-read`, and add that number yourself.
 
-**Catalog lists, people and writes — the REST API, parse then read.** A REST lookup
+**Catalog lists and people: the REST API, parse then read.** A REST lookup
 is two stages: parse the question into a plan, then execute the plan. `nextseek-api-read` runs
 only the read-safe endpoints (`context/read_safe_endpoints.json`), which are: the lists of
 projects, investigations, sample types, assays, protocols (`/nextseek_api/sops/`) and registered
@@ -146,7 +152,7 @@ and ask `nextseek-graph` for a sample's lineage or the files a sample points to 
 `File_PrimaryData`, `Link_PrimaryData` and `Checksum_PrimaryData` attributes). `api-read`
 downloads no file, neither a data file nor a protocol document, and checks no upload workbook:
 say so, and point to the record instead (a sample's file attributes, a protocol's entry in its
-list). Every write goes through `nextseek-api-write`.
+list). No write goes through: see "Create / update / delete" below.
 
 ```bash
 nextseek-parse --query "Show me the protocol documents registered for the MetNet project."
@@ -237,14 +243,12 @@ upload**; producing the reviewable sheet is the final step.
 
 **Multi-step "do X, then Y" — `nextseek-plan`.** See the planner section below.
 
-**Create / update / delete — parse, confirm, then write.** Any create/update/delete is a WRITE.
-Build the body by parsing the instruction, apply the Layer-3 confirmation, then write:
-
-```bash
-nextseek-parse --query "Create Investigation 'Testing 404'"     # build the request body
-# ... Layer-3 plain-text confirmation; wait for the user's "yes" ...
-nextseek-api-write --parser-plan '<plan>' --confirmed-write
-```
+**Create / update / delete: not from this chat.** Any create, update or delete is a WRITE, and
+the server refuses every write `nextseek-api-write` sends (the NExtSEEK REST tool behind it is
+read-only), so do not parse one and send it. Say plainly that you cannot make the change from
+here, repeat the change as you understood it, and tell the user it is made in NExtSEEK itself:
+on the record's own page, or, for samples, with a batch-upload workbook they upload (the
+`nextseek-batch-upload` skill builds and validates one).
 
 **Pure capability / vocabulary questions — read the cached catalogs.** For "what sampletypes
 exist?", "what can I ask?", read the baked catalogs directly with `Read` (no op, no network):
@@ -264,9 +268,9 @@ nextseek-plan --query "Find me mouse samples in the Kamm project, then filter th
 ```
 
 `nextseek-plan` is read-only: it executes the read-safe steps and returns recommended actions. If
-the plan advises a write, stop and route that write through `nextseek-api-write` under Layer 3 —
-the planner never writes. For a single non-compound question about samples, use `nextseek-graph`; for a record,
-people or write lookup, `nextseek-parse` → `nextseek-api-read`.
+the plan advises a write, stop: no write reaches NExtSEEK from this chat ("Create / update / delete"
+above), and the planner never writes. For a single non-compound question about samples, use
+`nextseek-graph`; for a record or people lookup, `nextseek-parse` → `nextseek-api-read`.
 
 ## Composing the reply
 
@@ -294,7 +298,9 @@ Compose the user-facing answer from each op's JSON output.
 
 ## Write safety — 3 layers
 
-For non-GET operations (`nextseek-api-write`, write-class endpoints):
+For non-GET operations (`nextseek-api-write`, write-class endpoints), three layers apply. Today no
+write reaches NExtSEEK from this chat: the server refuses every create, update and delete, so these
+layers guard a path that ends in a refusal.
 
 - **Layer 1 (mechanical, deployment-dependent)**: a Claude Code permission allowlist / deny rule that gates `nextseek-api-write`. **In the dmac-assistant bridge POC, the `container_cc` route runs under `--permission-mode auto` (per the host bridge's launch command), NOT `--dangerously-skip-permissions`.** Under auto mode, blanket `Bash(*)` allow rules are dropped and every tool call — including `nextseek-api-write` — is screened by the auto-mode classifier, which blocks escalation/exfiltration. That classifier is a behavioral gate, not a hard guarantee, and no explicit `Bash(nextseek-api-write:*)` deny rule is shipped here. Treat L1 as defense-in-depth, not as a guarantee — the load-bearing layers are L2 and L3.
 - **Layer 2 (mechanical, always on — enforced server-side)**: an `api-write` op is refused unless write confirmation is explicit. The `nextseek-api-write` shim requires `--confirmed-write`, and the authoritative gate now runs **outside** the agent container: the sidecar's write gate (`sidecar/app/write_gate.py`) refuses the op unless `confirmed_write` is exactly `True`, and NExtSEEK enforces its own server-side write gate behind that. Because neither gate runs in a process the in-container agent controls, the agent cannot bypass L2.
@@ -326,7 +332,7 @@ After a `nextseek-*` tool returns nulls, empty data, or a non-zero exit, you MUS
 - call `--help` repeatedly looking for hidden flags — the matrix above is the complete contract; there are no hidden flags
 - call a sibling `nextseek-*` tool to attempt to "fetch what the failed tool needed"
 
-The only legitimate chaining is the documented recipes above (`nextseek-parse` → `nextseek-api-read`, `nextseek-parse` → `nextseek-api-write`); do not invent others. A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
+The only legitimate chaining is the documented recipe above (`nextseek-parse` → `nextseek-api-read`); do not invent others. One more is sanctioned: when `nextseek-aggregate` fails or is not available on a follow-up, the second attempt is `nextseek-graph` with the stored Cypher from `search_details.json` and the one change (the follow-up order in the container CLAUDE.md). A `nextseek-graph` answer that arrives under `fallback` is the op's own second attempt, not yours: it does not count against this cap, and it is not a reason to try another op. The same holds for `nextseek-aggregate`: its own retry and fallback inside a part are not your attempts, and one `nextseek-aggregate` call counts once however many parts it carries.
 
 ## Errors
 
@@ -341,14 +347,18 @@ The runner emits a one-line JSON error to stderr with a code (exit code in paren
   non-read-safe endpoint. Apply the L3 prompt only for true writes; otherwise fix routing.
 - `CONFIG_ERROR` (6): a plugin/config file is missing server-side. Deploy-side issue; surface as
   "plugin misconfiguration, please rebuild image."
-- `TRANSPORT_ERROR` (7): sidecar/viewset unreachable. Surface as a deploy-side issue.
+- `TRANSPORT_ERROR` (7): sidecar/viewset unreachable, or an op that ran out of turn time. When
+  the message says this turn was nearly out of time, or has no time left for another try, do not
+  retry the op in this turn: answer with what you already have, say that step did not finish (and
+  whether the service was slow), and offer to run it in the next turn. Otherwise surface it as a
+  deploy-side issue.
 - `AUTH_FAILED` (8): NExtSEEK rejected the login. Tell the user to check credentials.
 - `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
 
 <!-- BEGIN PLAN005-GEN:skill-ops -->
 aggregate	nextseek-aggregate	Count samples or break them down (by type, attribute value, project, person), held to the user's projects: one call, the question alone or 1 to 4 parts run in parallel, each returned as a small table with the sum of its group counts (not a sample total when groups may overlap) and its missing-value bucket, never sample records.	sidecar	read	true	true
 api-read	nextseek-api-read	Execute a read-safe REST call from a parser plan.	sidecar	read	true	true
-api-write	nextseek-api-write	Execute a write (POST/PUT/DELETE) from a parser plan.	sidecar	write_confirm	true	true
+api-write	nextseek-api-write	Refused: the server refuses every create, update and delete this op sends, so no write reaches NExtSEEK from this chat. Do not call it; tell the user the change is made in NExtSEEK itself.	sidecar	write_confirm	true	true
 build-upload-xlsx	nextseek-build-upload-xlsx	**Reingest step 2** — render NExtSEEK 4-sheet upload workbook(s) from composed rows (one per sample type) for the user to review + upload. Does NOT write to NExtSEEK.	sidecar	read	true	true
 entity	nextseek-entity-extract	Resolve NL terms to NExtSEEK vocabulary.	sidecar	read	true	true
 generate-submission	nextseek-generate-submission	Build a submission **workbook** (samplesheet/metadata **file**) for a UID set. Does NOT run/launch a pipeline.	sidecar	read	true	true
@@ -358,7 +368,7 @@ parse	nextseek-parse	Turn an NL question into a parser plan.	sidecar	read	true	t
 pipeline	nextseek-pipeline	**Launch** an nf-core pipeline on the cluster (Luria/Tower) — hand a composed cohort summary to the pipeline agent, which then runs the interactive launch wizard.	viewset	unrouted	true	true
 plan	nextseek-plan	Multi-step planner advisor (read-only).	viewset	unrouted	true	true
 query	nextseek-query	Single-shot deterministic NS run in the live chat session; materializes scratch manifest when a bundle is present.	viewset	unrouted	true	false
-recall	nextseek-recall	Fetch a prior turn's raw rows by `--turn N` from the digest — never re-query for data a prior turn already returned.	viewset	unrouted	true	false
+recall	nextseek-recall	Fetch a prior NExtSEEK turn's rows (graph or REST) by `--turn N`. The same rows are already staged in /data/previous_turns/turn-NN/rows.csv: read those first, and never re-query for data a prior turn already returned.	viewset	unrouted	true	false
 report	nextseek-report	Project summary report.	sidecar	read	true	true
 run-ls	nextseek-run-ls	**Reingest step 1** — recursive read-only listing (`ls -laR`) of a finished Luria run directory.	sidecar	read	true	true
 <!-- END PLAN005-GEN:skill-ops -->

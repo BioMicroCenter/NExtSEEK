@@ -1377,12 +1377,14 @@ def run_cc_turn(
                 # this copy is named for run_id, so it must hold that run's
                 # records rather than the whole conversation so far.
                 _write_raw_turn_copy(dirs.output_mnt, run_id, captured.turn)
-            # ...but the trace keeps the FULL session. extract_trace's steps,
-            # transcript_line_count and turn_count are conversation-scoped;
-            # feeding it the slice would change every Debug-panel trace, which is
-            # a separate defect and deliberately out of scope for #68.
-            parsed = (cc_summary.parse_transcript(captured.session)
-                      if captured.session else None)
+            # The trace is THIS turn's too (CC-RERUN-FINDINGS fix 2). Parsed from the
+            # whole --resume session it listed every earlier CC turn's calls under this
+            # reply, so a turn that ran nothing showed turn 1's graph search (r5-637),
+            # which read as "it re-ran the previous searches". Its steps, line numbers,
+            # transcript_line_count and turn_count now count this turn's records, the
+            # same slice the transcript row stores.
+            parsed = (cc_summary.parse_transcript(captured.turn)
+                      if captured.turn else None)
             trace = cc_trace.extract_trace(
                 parsed, cc_session_id=translator.session_id or "",
                 ts=timezone.now().isoformat(),
@@ -1793,12 +1795,12 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
 class CapturedTranscript(NamedTuple):
     """One turn's transcript capture, in the two shapes its readers need.
 
-    ``session`` is the WHOLE ``--resume`` session file (scrubbed) and feeds
-    ``cc_summary.parse_transcript`` / ``cc_trace.extract_trace``, which count
-    turns and steps across the conversation and would report differently off a
-    slice. ``turn`` is only the records this turn appended (scrubbed) and feeds
-    the two per-TURN-keyed sinks — the ``raw/transcript-<run_id>.jsonl`` copy and
-    the ``CCSessionTranscript`` blob — which otherwise store turns 1..N in row N.
+    ``session`` is the WHOLE ``--resume`` session file (scrubbed). ``turn`` is only
+    the records this turn appended (scrubbed) and feeds the per-TURN sinks: the
+    ``raw/transcript-<run_id>.jsonl`` copy and the ``CCSessionTranscript`` blob,
+    which otherwise store turns 1..N in row N, and the Debug-panel trace
+    (``cc_summary.parse_transcript`` / ``cc_trace.extract_trace``), which
+    otherwise lists every earlier turn's calls under this reply.
 
     Both are ``b""`` when there was nothing to capture, and by ``_turn_slice``'s
     invariant ``turn`` is empty only when ``session`` is: a caller can gate on
