@@ -17,7 +17,7 @@ cause of bad answers, 10 of 53:
   query, which kept no rows at all.
 
 Nothing was forgotten in any of those. The UIDs were on disk. What was missing was the
-ability to decide to run another query with them, so this module gives the model three
+ability to decide to run another query with them, so this module gives the model its
 tools and lets it choose:
 
 * ``read_stored_result`` — what the stored bundle holds, and what it does NOT: the row
@@ -32,6 +32,11 @@ tools and lets it choose:
   retried as a graph turn's is, and its result carries the graph reviewer's
   ``review``, with two checks of the user's words against the stored result
   (``premise`` and ``binding``).
+* ``compute_over_rows``, offered when the caller passes a ``compute`` seam: filter, count
+  and break down rows already in hand (the stored rows, or every row of the loop's last
+  query) without a new query. It refuses when those rows are not the whole set or lack a
+  column it names, and its result carries a review of what its filters matched
+  (``agents/followup_compute.py``, ``graph_review.review_compute``).
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
 ``read_stored_result`` returns counts and a handful of examples, and the stored rows only
@@ -205,19 +210,47 @@ def _without_debug_block(reply: Any) -> str | None:
     return (reply[:at] if at > 0 else reply).strip()
 
 
-def _reply_from_queries(queries: list[dict]) -> str | None:
+#: The end of a reply made from what the loop found when it ran out of turns.
+_PARTIAL = ("I ran out of steps before I could finish, so treat this as partial: "
+            "ask it again and I will answer it properly.")
+
+
+def _reply_from_computes(computes) -> str | None:
+    """The last successful computation's count, as a partial reply, or None when none succeeded."""
+    done = [c for c in computes or () if isinstance(c, dict) and isinstance(c.get("result"), dict)
+            and c["result"].get("ok") is True and _is_count(c["result"].get("count"))]
+    if not done:
+        return None
+    last = done[-1]
+    n = last["result"]["count"]
+    rows = ("the rows the follow-up query returned" if last.get("source") == "last_query"
+            else "the earlier result's rows")
+    if n == 0:
+        return f"None of {rows} show this, which does not mean that none exist. {_PARTIAL}"
+    return f"{n:,} of {rows} match. {_PARTIAL}"
+
+
+def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
     """What the loop established, when it ran out of turns before saying it.
 
     Worse than an answer the model composed, and far better than the stored-result path,
     which cannot see what these queries returned and on turn 1147 reported its absence.
+    A query that found something comes first; failing that, the last computation over rows
+    in hand that succeeded.
     """
     ran = [q for q in queries or [] if isinstance(q, dict)]
-    if not ran:
-        return None
     found = [q for q in ran if (q.get("result") or {}).get("ok") and (q.get("result") or {}).get("count")]
     if not found:
-        return ("I could not finish checking this. The follow-up query I ran did not come back with "
-                "anything I can stand behind, so ask it as a fresh question and I will run it properly.")
+        computed = _reply_from_computes(computes)
+        if computed:
+            return computed
+        if ran:
+            return ("I could not finish checking this. The follow-up query I ran did not come back with "
+                    "anything I can stand behind, so ask it as a fresh question and I will run it properly.")
+        if computes:
+            return ("I could not finish checking this. The computation I ran over the earlier result did "
+                    "not succeed, so ask it as a fresh question and I will run it properly.")
+        return None
     last = found[-1]
     result = last["result"]
     examples = [str(e) for e in (result.get("examples") or [])][:5]
@@ -225,8 +258,7 @@ def _reply_from_queries(queries: list[dict]) -> str | None:
              if isinstance(result.get("count"), int) else "The follow-up query found records."]
     if examples:
         parts.append("Examples: " + ", ".join(examples) + ".")
-    parts.append("I ran out of steps before I could finish, so treat this as partial: "
-                 "ask it again and I will answer it properly.")
+    parts.append(_PARTIAL)
     return " ".join(parts)
 
 
@@ -237,7 +269,7 @@ def resolve_followup_outcome(outcome: dict | None) -> tuple[str | None, bool]:
     three completed graph queries from a profile with no tool surface, so it answered a
     lineage question from a five-column bundle and asserted the absence of what the
     queries had found. The rule: the stored path answers only when nothing queried the
-    graph on this turn.
+    graph or computed over rows on this turn.
     """
     if not outcome or outcome.get("unsupported"):
         return None, True
@@ -247,13 +279,14 @@ def resolve_followup_outcome(outcome: dict | None) -> tuple[str | None, bool]:
         if caveats:
             reply = reply + "\n\n" + "\n".join(f"- {c}" for c in caveats)
         return reply, False
-    if outcome.get("queries"):
-        return _reply_from_queries(outcome["queries"]), False
+    if outcome.get("queries") or outcome.get("computes"):
+        return _reply_from_queries(outcome.get("queries") or [], computes=outcome.get("computes") or ()), False
     return None, True
 
 
-def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
-    """The three tools, in the order a follow-up naturally uses them.
+def build_followup_tool_schemas(*, final: bool = False, compute: bool = False) -> list[dict]:
+    """The tools, in the order a follow-up naturally uses them. ``compute_over_rows`` is
+    offered only when ``compute`` is true: the caller has a seam that runs it.
 
     ``final`` offers only ``answer``, which is what the extra terminal pass in
     ``run_followup`` uses. Restricting the SIXTH iteration this way was tried first and
@@ -346,6 +379,31 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
             },
         },
         {
+            "name": "compute_over_rows",
+            "description": (
+                "Compute over rows you already have, without a new query: the stored result's rows (source "
+                "'stored') or every row of the last query you ran this turn (source 'last_query'; you were shown "
+                f"at most {FOLLOWUP_ROWS_MAX}). For a count after a filter, a breakdown by a column, values matching "
+                "a pattern, or numbers over a column. `where` filters rows (AND); `group_by` counts rows per value of "
+                "one or two columns; `code` is optional Python over `rows` (after `where`) that assigns `result`. It "
+                "refuses when the rows are not the whole set or lack a column you named: then use run_new_query. A "
+                "zero here only means these rows do not show it. A row with no value in a group_by column is in no "
+                "group and is counted in group_nulls. When the result has scope_note, follow it. Its review checks "
+                "what the filters matched: when its verdict is not ok, say its disclosure in the answer."),
+            "input_schema": {"type": "object", "properties": {
+                "source": {"type": "string", "enum": ["stored", "last_query"]},
+                "where": {"type": "array", "items": {"type": "object", "properties": {
+                    "column": {"type": "string",
+                               "description": "a column of the rows; json_metadata.<Field> reads a metadata field"},
+                    "op": {"type": "string", "enum": ["equals", "contains", "in", "present", "absent"]},
+                    "value": {"description": ("a string for equals and contains, a list of strings for in; "
+                                              "omit for present and absent")}},
+                    "required": ["column", "op"]}},
+                "group_by": {"type": "array", "items": {"type": "string"}, "maxItems": 2},
+                "code": {"type": "string", "description": "optional; see the rules in your instructions"}},
+                "required": ["source"]},
+        },
+        {
             "name": "answer",
             "description": (
                 "Finish the turn. Say what was found. If a filter the user named could "
@@ -370,7 +428,9 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
             },
         },
     ]
-    return [t for t in schemas if t["name"] == "answer"] if final else schemas
+    if final:
+        return [t for t in schemas if t["name"] == "answer"]
+    return schemas if compute else [t for t in schemas if t["name"] != "compute_over_rows"]
 
 
 def describe_stored_result(bundle: dict) -> dict[str, Any]:
@@ -607,7 +667,28 @@ def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
         more = more or follows
         if rows is not None and total is not None:
             break
+    if rows is None:
+        # A plan-mode bundle that kept no payload: its steps' own rows, the first successful step's that has
+        # them, and that step's count as their total.
+        rows, stated = _step_rows(bundle)
+        if total is None:
+            total = stated
     return rows or [], total, more
+
+
+def _step_rows(bundle: dict) -> tuple[list | None, int | None]:
+    """``(rows, count)`` of the first successful plan step in ``step_results`` whose output holds rows."""
+    step_results = bundle.get("step_results")
+    if not isinstance(step_results, Mapping):
+        return None, None
+    for result in step_results.values():
+        if not isinstance(result, Mapping) or not result.get("ok"):
+            continue
+        output = result.get("output")
+        if isinstance(output, Mapping) and isinstance(output.get("data"), list):
+            count = output.get("count")
+            return output["data"], count if _is_count(count) else None
+    return None, None
 
 
 def _uids_from_rows(rows: list) -> list[str]:
@@ -633,9 +714,10 @@ def run_followup(
     user_text: str,
     bundle: dict,
     run_query: Any,
+    compute: Any = None,
     log_dir: str | None = None,
 ) -> dict[str, Any]:
-    """Drive the loop and return ``{reply, caveats, queries, tool_calls}``.
+    """Drive the loop and return ``{reply, caveats, queries, computes, tool_calls}``.
 
     ``run_query(question, seed_uids, stored_query)`` is injected rather than imported so
     this module does not depend on the orchestrator (which imports it), and so a test can
@@ -644,12 +726,15 @@ def run_followup(
     question is handed neither. ``scoped`` says which of the two it is, explicitly: with
     no UIDs and no stored query the two look the same, and only a scoped one must say
     that it could not be scoped.
+
+    ``compute(source, where, group_by, code)``, when given, runs ``compute_over_rows`` and
+    offers it to the model; each call is kept in ``computes`` with its result.
     """
     client, model_name, thinking_budget = config.get_agent_model(FOLLOWUP_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
         # No tool surface on this profile. The caller falls back to the old
         # read-the-stored-result path, which is worse but is what shipped before.
-        return {"reply": None, "caveats": [], "queries": [], "tool_calls": [],
+        return {"reply": None, "caveats": [], "queries": [], "computes": [], "tool_calls": [],
                 "unsupported": True}
 
     system_prompt = config._load_prompt("followup_agent.txt")
@@ -663,16 +748,17 @@ def run_followup(
     }]
 
     queries: list[dict] = []
+    computes: list[dict] = []
     tool_calls: list[str] = []
     read_already = False
 
     # MAX_ITER working iterations, then one pass that can only answer -- taken only when
-    # something was queried, because a loop that just read the bundle has nothing to
-    # report and the stored-result path is then the only thing that can speak.
+    # something was queried or computed, because a loop that just read the bundle has
+    # nothing to report and the stored-result path is then the only thing that can speak.
     for iteration in range(MAX_ITER + 1):
         terminal = iteration == MAX_ITER
         if terminal:
-            if not queries:
+            if not (queries or computes):
                 break
             messages.append({"role": "user", "content": (
                 "This is your final turn and only `answer` is available. Answer now from the "
@@ -682,7 +768,7 @@ def run_followup(
         resp = call_tools(
             config,
             messages=messages,
-            tools=build_followup_tool_schemas(final=terminal),
+            tools=build_followup_tool_schemas(final=terminal, compute=compute is not None),
             system=system_prompt,
             model_name=model_name,
             client=client,
@@ -699,7 +785,7 @@ def run_followup(
                 b.get("text", "") for b in content if b.get("type") == "text"
             ).strip()
             return {"reply": text or None, "caveats": [], "queries": queries,
-                    "tool_calls": tool_calls}
+                    "computes": computes, "tool_calls": tool_calls}
 
         messages.append({"role": "assistant", "content": content})
         results: list[dict] = []
@@ -713,6 +799,7 @@ def run_followup(
                     "reply": tool_input.get("text") or None,
                     "caveats": list(tool_input.get("caveats") or []),
                     "queries": queries,
+                    "computes": computes,
                     "tool_calls": tool_calls,
                 }
 
@@ -744,6 +831,16 @@ def run_followup(
                 except Exception as exc:
                     payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
                 queries.append({"question": question, "seeded": seed, "result": payload})
+            elif name == "compute_over_rows" and compute is not None:
+                call = {"source": tool_input.get("source") or "stored",
+                        "where": tool_input.get("where") or None,
+                        "group_by": tool_input.get("group_by") or None,
+                        "code": tool_input.get("code") or None}
+                try:
+                    payload = compute(**call)
+                except Exception as exc:
+                    payload = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                computes.append({**call, "result": payload})
             else:
                 payload = {"ok": False, "error": f"unknown tool {name!r}"}
 
@@ -754,5 +851,5 @@ def run_followup(
             })
         messages.append({"role": "user", "content": results})
 
-    return {"reply": None, "caveats": [], "queries": queries, "tool_calls": tool_calls,
-            "exhausted": True}
+    return {"reply": None, "caveats": [], "queries": queries, "computes": computes,
+            "tool_calls": tool_calls, "exhausted": True}

@@ -699,3 +699,136 @@ def with_checks(review: GraphReview, extra: list[Check]) -> GraphReview:
             facts.append(fact)
     verdict = "note" if review.verdict == "note" else "suggest"
     return dataclasses.replace(review, verdict=verdict, checks=checks, disclosure=" ".join(facts) or None)
+
+
+# ---------------------------------------------------------------- a computation over rows in hand -------------------
+# The follow-up loop's compute_over_rows (agents/followup_compute.py) filters and counts rows it already has, so there
+# is no Cypher and no catalog to read: its payload says what each filter matched. The checks that read those are
+# Tier 1's own ideas applied to the payload, and premise and binding read the user's words as they do for a loop query.
+
+#: How many matched values a disclosure names before "and N more".
+COMPUTE_VALUES_SHOWN = 5
+
+
+def _matched_pairs(entry: dict) -> list[tuple[str, int]]:
+    pairs = []
+    for item in entry.get("matched_values") or []:
+        if isinstance(item, (list, tuple)) and len(item) == 2 and _is_count(item[1]):
+            pairs.append((str(item[0]), item[1]))
+    return pairs
+
+
+def _matched_text(entry: dict, pairs: list[tuple[str, int]]) -> str:
+    """The matched values with their counts, the most common first, and how many more there were."""
+    shown = pairs[:COMPUTE_VALUES_SHOWN]
+    distinct = entry.get("distinct_matched")
+    more = (distinct if _is_count(distinct) else len(pairs)) - len(shown)
+    return ", ".join(f"{v} {n:,}" for v, n in shown) + (f" and {more:,} more" if more > 0 else "")
+
+
+def _columns_text(columns: list, room: int) -> str:
+    """The column names, as many as fit in ``room`` characters, then how many more."""
+    names = [str(c) for c in columns]
+    for k in range(len(names), 0, -1):
+        text = ", ".join(names[:k]) + (f" and {len(names) - k} more" if k < len(names) else "")
+        if len(text) <= room:
+            return text
+    return f"{len(names)} columns"
+
+
+def review_compute(*, question: str, source_kind: str, source_total, target_bundle_id, newest_bundle_id,
+                   payload: dict) -> GraphReview:
+    """The reviewer over one ``compute_over_rows`` payload, for the payload's ``review``.
+
+    Six checks, always recorded in this order: ``breakage`` (the computation failed; a refusal that sends the model
+    to a new query is not a failure), ``premise`` (``check_premise``: the user's number against ``source_total``, the
+    stored result's size as a set), ``binding`` (``check_binding``, stored rows only: the rows of this turn's own query
+    were checked when that query ran), ``negated_value`` (a ``contains`` matched a value that negates its term:
+    "Non-converter" for "convert"), ``value_split`` (a ``contains`` matched two or more different values that repeat;
+    every count is disclosed) and ``snapshot_zero`` (a zero from these rows only means they do not show it: the
+    disclosure names the columns they hold).
+
+    The verdict is ``note`` on breakage or snapshot_zero, else ``suggest`` when anything fired, else ``ok``; the
+    disclosure is the fired checks' facts in that order, whole facts only, within ``DISCLOSURE_MAX``. No suggestion
+    and no variants: the loop's model runs any next query itself. Never raises: a malformed payload or an error gives
+    an ``ok`` review with ``error`` set and the checks recorded so far."""
+    t0 = time.monotonic()
+    checks: list[Check] = []
+    facts: list[str] = []
+
+    def record(name: str, fired: bool, detail: str = "", fact: str | None = None) -> None:
+        checks.append(Check(name, fired, detail))
+        if fired and fact and fact not in facts and len(" ".join(facts + [fact])) <= DISCLOSURE_MAX:
+            facts.append(fact)
+
+    def from_check(check: Check | None, name: str) -> None:
+        fired = bool(check is not None and check.fired)
+        detail = check.detail if check is not None else ""
+        record(name, fired, detail, _sentence(detail) if fired and detail else None)
+
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("the computation's payload is not a dict")
+        where = payload.get("where")
+        where = [] if where is None else where
+        if not isinstance(where, list):
+            raise ValueError("the computation's `where` is not a list")
+        ok = payload.get("ok") is True
+        breakage = not ok and not payload.get("needs_query")
+        record("breakage", breakage, str(payload.get("error") or "")[:200] if breakage else "",
+               "The computation over the earlier result failed.")
+
+        from_check(check_premise(question, stored_total=source_total), PREMISE)
+        if source_kind == "stored":
+            from_check(check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id,
+                                     user_text=question), BINDING)
+        else:
+            record(BINDING, False, "skipped: these are the rows of this turn's own query, checked when it ran")
+
+        contains = [e for e in where if isinstance(e, dict) and e.get("op") == "contains"] if ok else []
+        negated_at = None
+        for i, entry in enumerate(contains):
+            term = str(entry.get("value") or "").lower()
+            pairs = _matched_pairs(entry)
+            neg = [v for v, _n in pairs if term and _negated(v, term)]
+            if neg:
+                negated_at = i
+                column = entry.get("column")
+                record("negated_value", True, f"{column} contains '{term}' also matches '{neg[0]}'",
+                       f"The filter on {column} also matched '{neg[0]}': {_matched_text(entry, pairs)}.")
+                break
+        else:
+            record("negated_value", False)
+
+        for i, entry in enumerate(contains):
+            if i == negated_at:  # its values are disclosed already
+                continue
+            pairs = _matched_pairs(entry)
+            if len({v.lower() for v, _n in pairs}) >= 2 and max(n for _v, n in pairs) >= 2:
+                column = entry.get("column")
+                record("value_split", True, f"{column}: " + ", ".join(f"{v} {n}" for v, n in pairs),
+                       f"The filter on {column} matched several values: {_matched_text(entry, pairs)}.")
+                break
+        else:
+            record("value_split", False)
+
+        result = payload.get("result")
+        zero = ok and ((bool(where) and payload.get("count") == 0)
+                       or (isinstance(result, dict) and result.get("count") == 0))
+        columns = payload.get("columns") if isinstance(payload.get("columns"), list) else []
+        lead = "Zero here means none of these rows show it; they hold only: "
+        record("snapshot_zero", zero, "a zero over the rows in hand" if zero else "",
+               lead + _columns_text(columns, DISCLOSURE_MAX - len(lead) - 1) + ".")
+    except Exception as exc:  # a reviewer bug must never cost the user their answer
+        return GraphReview("ok", checks, None, None, [], int((time.monotonic() - t0) * 1000),
+                           error=f"{type(exc).__name__}: {exc}"[:200])
+
+    fired = {c.name for c in checks if c.fired}
+    if fired & {"breakage", "snapshot_zero"}:
+        verdict = "note"
+    elif fired:
+        verdict = "suggest"
+    else:
+        verdict = "ok"
+    disclosure = (" ".join(facts) or None) if verdict != "ok" else None
+    return GraphReview(verdict, checks, disclosure, None, [], int((time.monotonic() - t0) * 1000))

@@ -9,7 +9,7 @@ import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
@@ -31,12 +31,14 @@ from .chat_memory import (
 )
 from .pipeline import agent as pipeline_agent
 from .agents.followup import (
+    _stored_rows,
     describe_stored_result,
     preview_rows,
     resolve_followup_outcome,
     run_followup,
     stored_query_rebuildable,
 )
+from .agents.followup_compute import compute_over_rows
 from .agents import (
     chatter_agent_answer,
     chatter_agent_plan,
@@ -57,7 +59,7 @@ from .agents import (
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
-                           check_binding, check_premise, review_tier1, with_checks)
+                           check_binding, check_premise, review_compute, review_tier1, with_checks)
 from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
@@ -646,8 +648,14 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     (``_review_followup_query``), read against one catalog provider for the whole loop turn.
     A zero-row retry that found something adds ``retry_note``, the graph turn's note for a
     number found by a changed filter.
+
+    Its ``compute`` seam (``_compute``) runs ``compute_over_rows`` over the stored rows or over
+    every row of the loop's last query that returned rows, adds the payload's ``source`` and
+    ``review`` (``review_compute``), keeps the call and its payload as an artifact, and records
+    each call on the outcome as ``compute_runs``. A computation makes no bundle of its own.
     """
     graph_runs: list[dict] = []
+    compute_runs: list[dict] = []
     extent: dict[str, Any] = {}
     provider: dict[str, Any] = {}
     newest_bundle_id = _newest_bundle_id(session)
@@ -675,7 +683,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
                 print(f"[DEBUG][FOLLOWUP] could not describe the stored result: {exc!r}")
                 described = {}
             extent.update(total=described.get("total"), capped=bool(described.get("capped")),
-                          set_size=_stored_set_size(described))
+                          set_size=_stored_set_size(described), described=described)
         return extent["total"], extent["capped"]
 
     def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None,
@@ -729,7 +737,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         rows = result.get("data") or []
         if result.get("ok") and rows:
             graph_runs.append({"graph_plan": graph_plan, "parameters": parameters,
-                               "result": result, "uids_applied": applied})
+                               "result": result, "uids_applied": applied, "question": question})
         # The head of the rows, bounded: this goes back into a conversation that is
         # re-sent in full on every later iteration of the loop. It used to be counts and
         # three examples harvested from uid/id/name columns only, so a breakdown row such
@@ -768,12 +776,99 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             payload["retry_note"] = RETRY_CHANGED_ANSWER_NOTE
         return payload
 
+    def _compute_artifact(payload: dict, review: GraphReview | None, *, where, group_by, code):
+        """The call, its payload and its whole review on disk, like the memory coder's artifact. None on failure."""
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            bundle_id = bundle.get("id")
+            return ArtifactStore(log_dir or config.LOG_DIR).write_json(
+                key=f"followup_compute_{ts}", label="Follow-up computation",
+                filename=f"followup_compute_bundle_{bundle_id}_{ts}.json",
+                payload={"bundle_id": bundle_id, "question": user_text, "source": payload.get("source"),
+                         "where": where, "group_by": group_by, "code": code, "payload": payload,
+                         "review": as_debug(review) if review is not None else None},
+                kind="memory", bundle_id=bundle_id,
+            )
+        except Exception as exc:  # never lose a computation to the file that records it
+            print(f"[DEBUG][FOLLOWUP] could not write the computation's artifact: {exc!r}")
+            return None
+
+    def _keep_compute(source, where, group_by, code, payload: dict, review: GraphReview | None) -> dict:
+        artifact = (_compute_artifact(payload, review, where=where, group_by=group_by, code=code)
+                    if review is not None else None)
+        compute_runs.append({
+            "source": source, "where": where, "group_by": group_by,
+            "code": code[:2000] if isinstance(code, str) else code,
+            "ok": payload.get("ok"), "count": payload.get("count"), "error": payload.get("error"),
+            "review_verdict": review.verdict if review is not None else None, "artifact": artifact,
+        })
+        return payload
+
+    def _compute(*, source: str = "stored", where=None, group_by=None, code=None) -> dict:
+        """``compute_over_rows`` over the stored rows (``source`` "stored") or every row of the loop's last query
+        that returned rows ("last_query"), with the payload's ``source`` and ``review`` added."""
+        if source not in ("stored", "last_query"):
+            return _keep_compute(source, where, group_by, code, {
+                "ok": False, "error": f"unknown source {source!r}: use 'stored' or 'last_query'"}, None)
+        _stored_extent()
+        described = extent.get("described") or {}
+        if source == "last_query":
+            if not graph_runs:
+                return _keep_compute(source, where, group_by, code, {
+                    "ok": False, "error": ("no query has run on this turn yet; run run_new_query first, "
+                                           "or use source 'stored'")}, None)
+            run = graph_runs[-1]
+            result = run["result"]
+            rows = list(result.get("data") or [])
+            total = result.get("total") if result.get("total") is not None else result.get("count")
+            complete = (not result.get("truncated") and isinstance(total, int) and not isinstance(total, bool)
+                        and total <= len(rows))
+            origin = {"kind": "last_query", "question": run.get("question"), "rows_in": len(rows),
+                      "total": total, "complete": complete}
+            payload = compute_over_rows(rows=rows, total=total, complete=complete, where=where,
+                                        group_by=group_by, code=code)
+        else:
+            rows = _stored_rows(bundle)
+            total = described.get("total")
+            complete = bool(rows) and not described.get("capped")
+            origin = {"kind": "stored", "bundle_id": bundle.get("id"), "rows_in": len(rows), "total": total,
+                      "complete": complete}
+            if described.get("aggregate_values"):
+                # One row holding what an aggregate computed: counting it would count that row.
+                payload = {"ok": False, "needs_query": True, "columns": sorted(described["aggregate_values"]),
+                           "error": ("The earlier result is an aggregate: read_stored_result's aggregate_values "
+                                     "holds what it computed. Answer from that, or use run_new_query for anything "
+                                     "about individual samples.")}
+            else:
+                payload = compute_over_rows(rows=rows, total=total, complete=complete, where=where,
+                                            group_by=group_by, code=code)
+            if payload.get("needs_query"):
+                # Task 11's flag, the one read_stored_result and run_new_query use: never claim a rebuild the seam
+                # would not do. It rebuilds only a copy that is capped or kept no rows.
+                rebuildable = bool(described.get("stored_query_rebuildable"))
+                payload["stored_query_available"] = rebuildable
+                if not complete:
+                    payload["error"] += (
+                        " With seed_uids true, run_new_query rebuilds the whole set from the stored query."
+                        if rebuildable else
+                        " No stored query can be rebuilt for this result, so a new query cannot cover the whole "
+                        "earlier set: its scope_note says what it covers.")
+        payload["source"] = origin
+        review = review_compute(question=user_text, source_kind=source, source_total=extent.get("set_size"),
+                                target_bundle_id=bundle.get("id"),
+                                newest_bundle_id=newest_bundle_id if newest_bundle_id is not None else bundle.get("id"),
+                                payload=payload)
+        payload["review"] = {"verdict": review.verdict, "fired": [c.name for c in review.checks if c.fired],
+                             "disclosure": review.disclosure}
+        return _keep_compute(source, where, group_by, code, payload, review)
+
     try:
         outcome = run_followup(
-            config, user_text=user_text, bundle=bundle, run_query=_run_query, log_dir=log_dir,
+            config, user_text=user_text, bundle=bundle, run_query=_run_query, compute=_compute, log_dir=log_dir,
         )
         if isinstance(outcome, dict):
             outcome["graph_runs"] = graph_runs
+            outcome["compute_runs"] = compute_runs
         return outcome
     except Exception as exc:
         print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
@@ -1819,6 +1914,7 @@ def run_query(
                          "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
+                    "computes": followup_outcome.get("compute_runs") or [],
                     "caveats": followup_outcome.get("caveats"),
                     "exhausted": bool(followup_outcome.get("exhausted")),
                     "unsupported": bool(followup_outcome.get("unsupported")),

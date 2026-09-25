@@ -377,7 +377,7 @@ def _seam(monkeypatch, tmp_path, bundle, *, cypher, parameters=None, calls):
     monkeypatch.setattr(orch, "graph_agent", graph_agent)
     monkeypatch.setattr(orch, "tool_neo4j_query", neo4j)
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         seen.payloads.extend(calls(run_query))
         return {"reply": "x", "queries": [], "tool_calls": []}
 
@@ -646,7 +646,7 @@ def test_the_turn_debug_records_each_loop_query_s_seed_mode(tmp_path):
     prior = _graph_bundle(stored=20, total=250, bundle_id=1)
     session = {"results_history": [prior], "bundle_seq": 1}
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         uids = [r["uid"] for r in bundle["graph_result"]["data"]]
         stored = describe_stored_result(bundle)["stored_query"]
         result = run_query(question="liver", seed_uids=uids, stored_query=stored)

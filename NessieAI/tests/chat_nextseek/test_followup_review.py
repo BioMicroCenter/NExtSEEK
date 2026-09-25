@@ -129,7 +129,7 @@ def seam(monkeypatch, tmp_path):
         monkeypatch.setattr(orch, "run_tier2", _run_tier2)
         monkeypatch.setattr(counts, "tool_neo4j_query", _count_tool)
 
-        def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+        def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
             seen.payloads.extend(calls(run_query))
             return {"reply": "x", "caveats": [], "queries": [], "tool_calls": []}
 
@@ -348,7 +348,7 @@ def test_the_turn_debug_records_each_loop_querys_review(tmp_path):
     """debug.followup.queries is what a run review reads; it names each query's verdict."""
     session = {"results_history": [_bundle(1)], "bundle_seq": 1}
 
-    def fake_followup(config, *, user_text, bundle, run_query, log_dir):
+    def fake_followup(config, *, user_text, bundle, run_query, log_dir, **_):
         result = run_query(question="downstream types of the collaborative cross mice", seed_uids=list(MICE))
         return {"reply": "402 RNA samples.", "caveats": [],
                 "queries": [{"question": "q", "seeded": True, "result": result}],
