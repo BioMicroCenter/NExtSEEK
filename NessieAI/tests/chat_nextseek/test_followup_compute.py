@@ -12,7 +12,7 @@ from chat_nextseek.agents.followup import (
     MAX_ITER, build_followup_tool_schemas, resolve_followup_outcome, run_followup,
 )
 from chat_nextseek.agents.followup_compute import COMPUTE_ROWS_MAX, compute_over_rows
-from chat_nextseek.graph_review import review_compute
+from chat_nextseek.graph_review import DictCatalog, review_compute
 from chat_nextseek.schemas.graph import GraphAgentPlan
 
 
@@ -320,6 +320,67 @@ def test_the_seam_computes_over_every_row_of_the_loops_last_query(tmp_path, monk
                    before=lambda run_query: run_query(question="downstream types", seed_uids=["D.SEQ-1SHA"]))
     assert p["ok"] is True and p["result"] == {"types": 60}
     assert p["source"]["kind"] == "last_query" and p["source"]["rows_in"] == 60
+
+
+SEX_Q = "MATCH (m:Sample) WHERE m.uuid IN $uids RETURN m.uuid AS uuid, m.Sex AS Sex"
+LIVER_Q = "MATCH (m:Sample) WHERE m.uuid IN $uids AND m.Tissue = 'liver' RETURN m.uuid AS uuid"
+MICE_40 = [{"uuid": f"MUS-{i}", "Sex": "F" if i % 2 else "M"} for i in range(40)]
+FEMALE = [{"column": "Sex", "op": "equals", "value": "F"}]
+
+
+def _after_two_queries(monkeypatch, tmp_path, second, *, third=False):
+    """The validator's case (Task 24, M5): the loop's first query returns 40 mice with their sex, its second ("which
+    of the mice are liver") is ``second``: "empty" (it and its zero-row retry match nothing), "failed" (a Cypher error,
+    retried) or "no_query" (the graph agent writes none). With ``third`` a third query returns the 40 again. Then a
+    last_query computation counts the female mice."""
+    def plan(config, question, *a, **k):
+        if "liver" in question:
+            return GraphAgentPlan(cypher="" if second == "no_query" else LIVER_Q, context_mode="catalog")
+        return GraphAgentPlan(cypher=SEX_Q, context_mode="catalog")
+
+    def tool(config, cypher, params=None, **k):
+        failed = "liver" in cypher and second == "failed"
+        data = [] if "liver" in cypher else MICE_40
+        return {"ok": not failed, "error": "Invalid input 'liver'" if failed else None, "count": len(data),
+                "total": len(data), "truncated": False, "data": data, "cypher": cypher, "submitted_cypher": cypher,
+                "parameters": params or {}, "counters": {}, "scope": {"decision": "proven"}}
+
+    monkeypatch.setattr(orch, "graph_agent", plan)
+    monkeypatch.setattr(orch, "tool_neo4j_query", tool)
+    monkeypatch.setattr(orch, "live_values", lambda *a, **k: DictCatalog(None))
+    uids = [r["uuid"] for r in MICE_40]
+    queried = []
+
+    def before(run_query):
+        queried.append(run_query(question="sex of the mice", seed_uids=uids, scoped=True))
+        queried.append(run_query(question="which of the mice are liver", seed_uids=uids, scoped=True))
+        if third:
+            queried.append(run_query(question="sex of the mice again", seed_uids=uids, scoped=True))
+
+    [p], out = _seam(_bundle(), tmp_path, [dict(source="last_query", where=FEMALE, group_by=None, code=None)],
+                     before=before)
+    return p, queried, out
+
+
+@pytest.mark.parametrize("second", ["empty", "failed", "no_query"])
+def test_last_query_after_a_newest_query_with_no_rows_is_refused_not_computed_over_an_older_one(
+        monkeypatch, tmp_path, second):
+    """The compute counted 20 female mice over the first query's rows, with no note, although the newest query (the
+    liver one) returned nothing: an answer to a question the loop had moved on from."""
+    p, queried, out = _after_two_queries(monkeypatch, tmp_path, second)
+    assert queried[0]["rows_returned"] == 40
+    assert queried[1]["ok"] is (second == "empty") and queried[1].get("rows_returned", 0) == 0
+    assert p["ok"] is False and p["needs_query"] is True and "count" not in p
+    assert p["source"]["kind"] == "last_query" and p["source"]["question"] == "which of the mice are liver"
+    assert p["source"]["rows_in"] == 0 and p["source"]["complete"] is False
+    assert "breakage" not in p["review"]["fired"]
+    assert out["compute_runs"][0]["ok"] is False and out["compute_runs"][0]["count"] is None
+
+
+def test_last_query_is_the_newest_query_once_it_returns_rows_again(monkeypatch, tmp_path):
+    p, _queried, _out = _after_two_queries(monkeypatch, tmp_path, "empty", third=True)
+    assert p["ok"] is True and p["count"] == 20
+    assert p["source"]["question"] == "sex of the mice again" and p["source"]["rows_in"] == 40
 
 
 # ---------------------------------------------------------------- completeness, nulls and what a refusal claims

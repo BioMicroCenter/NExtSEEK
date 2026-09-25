@@ -653,12 +653,17 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     number found by a changed filter.
 
     Its ``compute`` seam (``_compute``) runs ``compute_over_rows`` over the stored rows or over
-    every row of the loop's last query that returned rows, adds the payload's ``source`` and
-    ``review`` (``review_compute``), keeps the call and its payload as an artifact, and records
-    each call on the outcome as ``compute_runs``. A computation makes no bundle of its own.
+    every row of the loop's newest query, adds the payload's ``source`` and ``review``
+    (``review_compute``), keeps the call and its payload as an artifact, and records each call on
+    the outcome as ``compute_runs``. When the newest query returned no rows, failed, or could not
+    be written, "last_query" is refused (``needs_query``), never computed over an older query's
+    rows. A computation makes no bundle of its own.
     """
     graph_runs: list[dict] = []
     compute_runs: list[dict] = []
+    #: The loop's newest query: its question, how it was scoped, what it returned, and its graph_runs entry (None when
+    #: it returned no rows or failed). Empty until a query has been asked for.
+    newest: dict[str, Any] = {}
     extent: dict[str, Any] = {}
     provider: dict[str, Any] = {}
     newest_bundle_id = _newest_bundle_id(session)
@@ -724,6 +729,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
         graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
+            newest.update(question=question, seed_mode=seed_mode, ok=False, total=None, run=None)
             return {"ok": False, "error": "no query could be generated for that question",
                     "seed_mode": seed_mode}
         # Only a "uids" seed is bound: a rebuilt query holds the whole set through the
@@ -740,6 +746,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         rows = result.get("data") or []
         scope_note = _followup_scope_note(seed_mode, uids_available=len(seed_uids), uids_applied=applied,
                                           total=total, partial=partial, scoped=scoped)
+        newest.update(question=question, seed_mode=seed_mode, ok=bool(result.get("ok")), run=None,
+                      total=result.get("total") if result.get("total") is not None else result.get("count"))
         if result.get("ok") and rows:
             # How the query was scoped travels with its rows, so a computation over them says the same thing:
             # a query bound to the UIDs of a capped copy covers only part of the earlier set.
@@ -747,6 +755,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
                                "result": result, "uids_applied": applied, "question": question,
                                "seed_mode": seed_mode, "scope_note": scope_note,
                                "part_of_set": seed_mode == "uids" and partial and applied is not None})
+            newest["run"] = graph_runs[-1]
         # The head of the rows, bounded: this goes back into a conversation that is
         # re-sent in full on every later iteration of the loop. It used to be counts and
         # three examples harvested from uid/id/name columns only, so a breakdown row such
@@ -812,14 +821,24 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         return payload
 
     def _compute(*, source: str = "stored", where=None, group_by=None, code=None) -> dict:
-        """``compute_over_rows`` over the stored rows (``source`` "stored") or every row of the loop's last query
-        that returned rows ("last_query"), with the payload's ``source`` and ``review`` added."""
+        """``compute_over_rows`` over the stored rows (``source`` "stored") or every row of the loop's newest query
+        ("last_query"), with the payload's ``source`` and ``review`` added. A newest query with no rows (it matched
+        nothing, failed, or could not be written) is refused with ``needs_query``: an older query's rows answer the
+        question the loop asked before it, and counting them gave a number with nothing to say so (Task 24)."""
         if source not in ("stored", "last_query"):
             return _keep_compute(source, where, group_by, code, {
                 "ok": False, "error": f"unknown source {source!r}: use 'stored' or 'last_query'"}, None)
         _stored_extent()
         described = extent.get("described") or {}
-        if source == "last_query":
+        if source == "last_query" and newest and newest.get("run") is None:
+            matched = "failed" if not newest.get("ok") else "matched no rows"
+            payload = {"ok": False, "needs_query": True, "columns": [],
+                       "error": (f"The newest query on this turn ({newest.get('question')!r}) {matched}, so there are "
+                                 "no rows of it to compute over, and an earlier query's rows answer a different "
+                                 "question. Answer from what that query returned, or use run_new_query.")}
+            origin = {"kind": "last_query", "question": newest.get("question"), "seed_mode": newest.get("seed_mode"),
+                      "rows_in": 0, "total": newest.get("total"), "complete": False}
+        elif source == "last_query":
             if not graph_runs:
                 return _keep_compute(source, where, group_by, code, {
                     "ok": False, "error": ("no query has run on this turn yet; run run_new_query first, "
