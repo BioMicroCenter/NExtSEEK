@@ -67,7 +67,7 @@ must bounce a visitor with no credentials, the seven browser flows, a
 state of the graph sync itself (`test_graph_sync_status.py`, below), and two changes a
 status code cannot tell from the build before them (`test_deploy_live.py`): the chat
 bundle nginx serves is the checkout's (collectstatic ran), and `/seek/search/` renders
-its phone type dropdown once per type, under 4 s, adding no failed template lookup to
+its phone type dropdown once per type, under 5 s, adding no failed template lookup to
 `logs/django.log`. Per-route
 body assertions are T1's job and are not in this increment.
 

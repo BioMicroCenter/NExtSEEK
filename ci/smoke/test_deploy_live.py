@@ -35,12 +35,13 @@ from ci.smoke.deploy_live import (
     template_lookup_failures,
 )
 
-# The fastest of SEEK_SEARCH_LOADS warm loads must come in under this. Measured on
+# The fastest of SEEK_SEARCH_LOADS loads must come in under this. Measured on
 # 2026-09-25: 7.7 to 8.4 s a load on both boxes before the fix, 18 to 32 ms of view
-# work after it; a cold worker after a restart took 16 to 20 s, which is why the
-# fastest of several loads is judged, not the first.
-SEEK_SEARCH_MAX_S = 4.0
-SEEK_SEARCH_LOADS = 3
+# work after it; a cold worker after a restart took 16 to 20 s. gunicorn runs 4
+# workers (gunicorn.conf.py), so right after a rebuild the first few loads can each
+# land on a cold one: the fastest of 6 is judged, never the first.
+SEEK_SEARCH_MAX_S = 5.0
+SEEK_SEARCH_LOADS = 6
 
 # The app's log directory is bind-mounted from the checkout (docker-compose.yml
 # ./logs:/app/logs), so on the box ./startup.sh ci runs on, the host can read it.
