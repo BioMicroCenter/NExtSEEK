@@ -454,6 +454,13 @@ class _Turn:
         got = self.catalog.values(label, attr) or []
         return [(v[0], v[1] if len(v) > 1 else 0) for v in got]
 
+    @property
+    def split_shown(self) -> bool:
+        """The result's rows already give a count per group, so a split among the matched values is on the page. A
+        count with no grouping column (``count_only``) shows one number: "How many TCGA patients are Hispanic?" counted
+        8,892, of which 8,491 are "not hispanic or latino", and said nothing (operator ruling 2026-09-25)."""
+        return self.grouped and not self.count_only
+
     def result_n(self):
         inp = self.inp
         if inp.count == 0:
@@ -523,8 +530,10 @@ def _split_suggestion(t: _Turn, term: str, pairs: list[tuple[str, int]], reason:
     if not keep:
         return None
     value, n = max(keep, key=lambda p: p[1])
-    sug = {"kind": "value_split", "label": _clip(f"Only {value}", LABEL_MAX),
-           "query": _rewrite_with_value(t.q, term, str(value)), "reason": reason}
+    query = _rewrite_with_value(t.q, term, str(value))
+    if " ".join(query.lower().split()) == " ".join(t.q.lower().split()):
+        return None     # the question already names that value ("...sequenced at UNC?"): the chip would resend it
+    sug = {"kind": "value_split", "label": _clip(f"Only {value}", LABEL_MAX), "query": query, "reason": reason}
     total = t.inp.total if t.inp.total is not None else t.inp.count
     if from_rows and total is not None and len(t.rows) >= total:
         sug["expected_count"] = n
@@ -546,7 +555,7 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
         counter = None
         if alias and t.rows and any(alias in r for r in t.rows):
             counter = Counter(r.get(alias) for r in t.rows if r.get(alias) is not None)
-        told = t.grouped or (counter is not None and _reply_states_split(t.inp.reply_draft, counter))
+        told = t.split_shown or (counter is not None and _reply_states_split(t.inp.reply_draft, counter))
 
         # a matched stored value carries a negation right before the term (Non-converter for 'convert')
         if not told and "negated_value" not in out:
@@ -558,7 +567,7 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                 out["negated_value"] = _Finding(f"{attr} CONTAINS '{term}' also matches '{neg[0]}'", fact,
                                                 _split_suggestion(t, term, pairs, fact, counter is not None))
         # the matched column came back with values that are not spellings of one another
-        if counter is not None and not t.grouped:
+        if counter is not None and not t.split_shown:
             # a column where no value repeats is a list of distinct records, not a split into categories
             if (len(counter) >= 2 and max(counter.values()) >= 2 and _distinct_meanings(list(counter), term)
                     and not told
@@ -568,7 +577,7 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                     f"{alias}: " + ", ".join(f"{v} {n}" for v, n in counter.most_common()), fact,
                     _split_suggestion(t, term, counter.most_common(), fact, True))
         elif (len({v.lower() for v, _n in matched}) >= 2 and _distinct_meanings([v for v, _ in matched], term)
-              and not t.grouped and "value_split_catalog" not in out):
+              and not t.split_shown and "value_split_catalog" not in out):
             fact = f"The search term matches several stored values: {_quoted([v for v, _ in matched[:4]])}."
             out["value_split_catalog"] = _Finding(f"{attr} CONTAINS '{term}' matches {[v for v, _ in matched]}",
                                                   fact, _split_suggestion(t, term, matched, fact, False))

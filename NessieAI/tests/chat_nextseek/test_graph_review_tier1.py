@@ -424,3 +424,62 @@ def test_a_spent_budget_stops_the_reads_and_says_so(monkeypatch):
     calls = provider.lookups()["calls"]
     assert {"kind": "values", "key": "T_A_ALN.DataType", "outcome": "budget", "ms": 0} in calls
     assert provider.lookups()["counts"]["budget"] >= 1
+
+
+# ------------------------------------------------------------------ a count with no grouping column ---------------
+# Operator ruling 2026-09-25: one number shows no split, so it no longer counts as already stating one. A count per
+# value (the UNC spellings breakdown) still does. Dev values, 2026-09-25.
+ETHNICITY = {"T_PAT.Ethnicity": [["not hispanic or latino", 8491], ["hispanic or latino", 401], ["Unknown", 241]],
+             "T_PAT.@name": [["Patient", 12108]], "T_PAT.*": [["Ethnicity", 8]]}
+ALIGNER = {"T_A_ALN.Aligner": [["BWA with Mark Duplicates and BQSR", 46574], ["STAR 2-Pass Genome", 11505],
+                               ["BWA-aln", 11082], ["STAR 2-Pass Chimeric", 10861],
+                               ["STAR 2-Pass Transcriptome", 10861], ["BWA", 359]],
+           "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]], "T_A_ALN.*": [["Aligner", 6]]}
+CENTER = {"T_A_ALN.SequencingCenter": [["BI", 33357], ["UNC", 28242], ["BCGSC", 14418], ["unc.edu", 1049],
+                                       ["UNC-LCCC", 104]],
+          "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]], "T_A_ALN.*": [["SequencingCenter", 8]]}
+
+
+def _count_review(question, cypher, rows, catalog):
+    inp = ReviewInput(question=question, cypher=cypher, parameters={}, keyword_fields={}, rows=rows, count=len(rows),
+                      total=len(rows), ok=True, error=None)
+    return review_tier1(inp, DictCatalog(catalog))
+
+
+def test_a_count_whose_term_also_matches_its_negation_fires():
+    rv = _count_review("How many TCGA patients are Hispanic?",
+                       "MATCH (p:T_PAT) WHERE toLower(p.Ethnicity) CONTAINS 'hispanic' RETURN count(p) AS n",
+                       [{"n": 8892}], ETHNICITY)
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+    assert rv.disclosure == "The search term also matches 'not hispanic or latino'."
+    assert rv.suggestion["label"] == "Only hispanic or latino"
+    assert rv.suggestion["query"] == "How many TCGA patients are hispanic or latino?"
+    assert "expected_count" not in rv.suggestion
+
+
+def test_a_count_whose_term_matches_several_values_fires():
+    rv = _count_review("How many TCGA alignments were made with STAR?",
+                       "MATCH (a:T_A_ALN) WHERE toLower(a.Aligner) CONTAINS 'star' RETURN count(a) AS n",
+                       [{"n": 33227}], ALIGNER)
+    assert [c.name for c in rv.checks if c.fired] == ["value_split_catalog"]
+    assert rv.disclosure == ("The search term matches several stored values: 'STAR 2-Pass Genome', "
+                             "'STAR 2-Pass Chimeric' and 'STAR 2-Pass Transcriptome'.")
+    assert rv.suggestion["label"] == "Only STAR 2-Pass Genome"
+    assert rv.suggestion["query"] == "How many TCGA alignments were made with STAR 2-Pass Genome?"
+
+
+def test_a_chip_that_would_resend_the_question_is_dropped_and_the_facts_stay():
+    rv = _count_review("How many TCGA alignments were sequenced at UNC?",
+                       "MATCH (a:T_A_ALN) WHERE toLower(a.SequencingCenter) CONTAINS 'unc' RETURN count(a) AS n",
+                       [{"n": 29395}], CENTER)
+    assert rv.verdict == "suggest" and rv.suggestion is None
+    assert rv.disclosure == "The search term matches several stored values: 'UNC', 'unc.edu' and 'UNC-LCCC'."
+
+
+def test_a_count_per_value_still_states_the_split():
+    rv = _count_review("How many alignments carry each UNC spelling of the sequencing center?",
+                       "MATCH (a:T_A_ALN) WHERE toLower(a.SequencingCenter) CONTAINS 'unc' "
+                       "RETURN a.SequencingCenter AS center, count(*) AS n",
+                       [{"center": "UNC", "n": 28242}, {"center": "unc.edu", "n": 1049},
+                        {"center": "UNC-LCCC", "n": 104}], CENTER)
+    assert rv.verdict == "ok", [c for c in rv.checks if c.fired]
