@@ -599,7 +599,9 @@ def test_an_unavailable_model_is_classed_like_an_exhausted_ns_fallback_chain():
 @pytest.mark.parametrize("detail, klass", [
     ("API Error: Request timed out", "timeout"),
     (_REFUSAL, "usage_policy"),
-    ("API Error: 500 internal", "unclassified"),
+    # A detail that classifies as nothing leaves the error text to decide, and the CC
+    # unavailability sentence is itself an outage marker (outage.py).
+    ("API Error: 500 internal", "provider_outage"),
 ])
 def test_without_a_known_reason_the_detail_is_matched_before_the_error(detail, klass):
     assert export.classify_error(_MODEL_DOWN, detail=detail) == klass
