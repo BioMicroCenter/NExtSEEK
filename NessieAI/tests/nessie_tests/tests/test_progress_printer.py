@@ -84,6 +84,16 @@ def test_a_partial_case_is_marked_and_still_counted():
     assert "run >=$0.42" in line
 
 
+def test_a_router_only_cost_is_printed_to_the_same_precision_as_the_summary():
+    """A route-tier gate's router price is a fraction of a cent. At two places it
+    printed an unmarked `$0.00`, the very zero the summary refuses to show."""
+    cmd, on_case = _printer()
+    on_case(1, 1, _Entry("gate.cc", "passed", cost=0.003, cost_partial=True))
+    (line,) = _lines(cmd)
+    assert "case ~$0.0030" in line and "run >=$0.0030" in line
+    assert "$0.00 " not in line
+
+
 def test_once_a_floor_always_a_floor():
     """A later fully priced case does not make the running total whole again."""
     cmd, on_case = _printer()
@@ -204,17 +214,23 @@ def test_the_summary_names_how_many_turns_fell_back_and_where(tmp_path):
 
 def test_each_arm_says_how_many_turns_fell_back(tmp_path):
     from NessieAI.tests.nessie_tests import runner
-    from NessieAI.tests.nessie_tests.manifest import NessieManifest
+    from NessieAI.tests.nessie_tests.manifest import NessieManifest, TurnMeta
 
     m = NessieManifest(started_at="a", ended_at="b", tier="full", scope="arm:graph",
                        entries=[_entry("q.one", turns=[_fell_back_turn()])])
     cmd = Command()
     cmd.stdout = type(cmd.stdout)(io.StringIO())
 
-    cmd._summarize_arms({"progress": {"state": "complete", "turns_driven": 1},
-                         "run_meta": {}, "manifests": {"graph": m},
+    silent = NessieManifest(started_at="a", ended_at="b", tier="full", scope="arm:api",
+                            entries=[_entry("q.one", turns=[TurnMeta(turn="t0", cost=0.1)])])
+    cmd._summarize_arms({"progress": {"state": "complete", "turns_driven": 2},
+                         "run_meta": {}, "manifests": {"graph": m, "api": silent},
                          "arms_file": str(tmp_path / "arms.json")}, str(tmp_path), runner)
 
-    line = next(ln for ln in cmd.stdout._out.getvalue().splitlines()
-                if ln.strip().startswith("arm graph"))
-    assert "fallback 1 turn(s)" in line
+    lines = cmd.stdout._out.getvalue().splitlines()
+    graph = next(ln for ln in lines if ln.strip().startswith("arm graph"))
+    api = next(ln for ln in lines if ln.strip().startswith("arm api"))
+    assert "fallback: 1 of 1 turn(s) fell back" in graph
+    assert "fallback: 0 of 1 turn(s) fell back" in api
+    assert "1 turn(s) did not report whether they fell back" in api, (
+        "a turn that said nothing must not read as no fallback")
