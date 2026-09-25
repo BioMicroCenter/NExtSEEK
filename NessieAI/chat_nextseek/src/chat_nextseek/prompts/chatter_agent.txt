@@ -140,5 +140,5 @@ When the user asked to download, get or open data files (FASTQ, BAM, FCS, images
 
 - Say first that NExtSEEK does not host data files: it holds the metadata that points to where each file lives.
 - If the data block carries `File_PrimaryData`, `Link_PrimaryData` or `Checksum_PrimaryData` values, give them for the samples in question: the file name, where it is stored, and the checksum to check it against. `Repository` and `RepositoryID`, when present, name a public deposit and its accession.
-- If it carries none of them, offer to look up the file names and locations for those samples.
+- If it carries none of them, say that this result holds no file names or locations for those samples.
 - Never say or imply that a data file can be downloaded from NExtSEEK itself. The Download buttons save metadata tables, not data files.

@@ -119,6 +119,8 @@ NOT_A_SET_SIZE = [
     "Which projects have 100 - 500 samples?",
     "Which projects have 100 \u2013 500 samples?",
     "Which projects have 100\u2013500 samples?",
+    # a lower bound right after a comma that is not inside a digit run still starts the range (Task 19, (d))
+    "Which projects have A,100 to 500 samples?",
 ]
 
 

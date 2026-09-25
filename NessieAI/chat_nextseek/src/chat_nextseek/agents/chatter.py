@@ -193,10 +193,12 @@ def _one_line(text: Any) -> str:
 
 
 # F-d: the reply's only offer is the chip's (``OFFERED_STEP_LINE``). Without one, the model's closing stock offer is
-# dropped from its reply; a closing sentence holding a digit says something about the data and stays.
+# dropped from its reply; a closing sentence holding a digit says something about the data and stays. The closer
+# starts the reply, follows a sentence end, or starts a line (after a list or a table); "you'd" may be typeset.
 _STOCK_CLOSER = re.compile(
-    r"(?:^|(?<=[.!?])\s+)((?:If you(?:'d| would) like|Let me know|Feel free|Would you like|Should you (?:need|want)"
-    r"|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?]*[.!?]?)\s*$",
+    r"(?:^|(?<=[.!?])\s+|(?<=\n))((?:If you(?:['\u2019]d| would) like|Let me know|Feel free|Would you like"
+    r"|Should you (?:need|want)|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?]*"
+    r"[.!?]?)\s*$",
     re.IGNORECASE)
 
 

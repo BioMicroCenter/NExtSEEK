@@ -170,6 +170,11 @@ def test_the_new_prompt_text_has_no_em_dash():
     ("There are 617 patients. Would you like the list?", "There are 617 patients."),
     ("There are 617 patients. Do you want the list", "There are 617 patients."),
     ("There are 617 patients! Should you need their identifiers, just ask.", "There are 617 patients!"),
+    # a closer on a line of its own after a list or a table, and a typographic apostrophe
+    ("- A\n- B\nIf you would like more detail, let me know.", "- A\n- B"),
+    ("| a | n |\n|---|---|\n| A | 3 |\n\nLet me know if you want the identifiers.", "| a | n |\n|---|---|\n| A | 3 |"),
+    ("There are 617 patients. If you\u2019d like, I can list them.", "There are 617 patients."),
+    ("- A\n- B\n\nIf you\u2019d like the identifiers, let me know.", "- A\n- B"),
 ])
 def test_a_final_stock_offer_is_dropped(reply, kept):
     assert chatter_mod._drop_stock_closer(reply) == kept
@@ -182,6 +187,8 @@ def test_a_final_stock_offer_is_dropped(reply, kept):
     "There are 617 patients. Most come from one site.",
     "Let me know if you want the list.",   # the whole reply: never emptied
     "",
+    "- A\n- B\nLet me know if the 12 without a diagnosis should count.",   # a digit, on a line of its own
+    "- A\n- I can list them",   # a list item is no closer
 ])
 def test_anything_else_is_left_as_written(reply):
     assert chatter_mod._drop_stock_closer(reply) == reply
@@ -208,6 +215,11 @@ def test_the_closer_goes_and_the_premise_still_comes_first(monkeypatch):
     body = _answer(monkeypatch, "Of the 4,095 patients, 617 are in the GBM study. Let me know if you want the list.",
                    query_notes=[note])
     assert body == f"{fact} Of the 4,095 patients, 617 are in the GBM study."
+
+
+def test_a_closer_after_a_list_is_dropped_end_to_end(monkeypatch):
+    reply = "617 patients match:\n- 600 primary\n- 17 recurrent\nIf you\u2019d like their identifiers, let me know."
+    assert _answer(monkeypatch, reply) == "617 patients match:\n- 600 primary\n- 17 recurrent"
 
 
 def test_with_an_offered_step_the_models_closer_is_not_touched(monkeypatch):

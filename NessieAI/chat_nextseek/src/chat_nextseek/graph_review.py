@@ -183,11 +183,11 @@ _SUBSET_OF = re.compile(r"\b(?:(?:a|an)\s+(?:[\w-]+\s+)?|random\s+)(?:subset|sub
 #: A threshold, or the upper bound of a range, right before the number: "more than 100 samples", "at least 500
 #: samples", "> 100 samples", the 500 of "between 100 and 500 samples", "from 100 to 500 samples", "100 to 500 samples"
 #: and "100 - 500 samples" (a spaced hyphen, or an en dash spaced or not). "100-500 samples" is never read at all:
-#: ``NUMBER`` does not match beside a hyphen. The lower bound starts only where a number starts, never after a comma:
-#: from inside a long comma-joined digit run it would re-read the rest of the run at every digit.
+#: ``NUMBER`` does not match beside a hyphen. The lower bound never starts after a digit and a comma: from inside a
+#: long comma-joined digit run it would re-read the rest of the run at every digit ("A,100 to 500" is still a range).
 _THRESHOLD = re.compile(r"(?:\b(?:more|less|fewer|greater|higher|lower)\s+than|\bat\s+(?:least|most)|\bup\s+to"
                         r"|\b(?:over|under|above|below|exceeding|between)|[<>\u2264\u2265]=?"
-                        r"|\bbetween\s+[\d,]+\s+and|(?<![\w./,-])\d[\d,]*(?:\s+to|\s*[-\u2013]))\s*$", re.I)
+                        r"|\bbetween\s+[\d,]+\s+and|(?<![\w./-])(?<!\d,)\d[\d,]*(?:\s+to|\s*[-\u2013]))\s*$", re.I)
 #: A threshold, or the lower bound of a range, right after the number or after its count word: "500 or more
 #: samples", "1,000 samples or more", "200 or fewer samples", "500+ samples", "1,000 samples and up", the 100 of "100 to
 #: 500 samples".
