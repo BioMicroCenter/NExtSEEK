@@ -328,3 +328,25 @@ def test_the_tool_loop_is_unavailable_when_both_models_are_unusable():
     assert excinfo.value.model_fallback == [
         {"agent": "followup", "from": OPUS, "to": SONNET, "reason": "model_unusable"},
     ]
+
+
+@pytest.mark.parametrize("message", [
+    # A request problem about something else, reported after a colon or in a later sentence:
+    # the model id worked, so the call must not move (review of F1).
+    "Model ID us.anthropic.claude-opus-4-7: temperature is not supported when thinking is enabled",
+    "Invocation of model ID us.anthropic.claude-opus-4-7 failed: image format webp is not supported",
+    "Model ID us.anthropic.claude-opus-4-7: cachePoint is not supported",
+    "Invocation of model ID us.anthropic.claude-opus-4-7 was accepted. The field top_k is not supported.",
+])
+def test_a_request_problem_named_after_the_model_id_is_not_a_model_rejection(message):
+    assert _is_model_id_rejection(message) is False
+
+
+@pytest.mark.parametrize("message", [
+    "The model ID anthropic.claude-sonnet-4-5-20250929-v1:0 is not supported in this region",
+    "Model ID us.anthropic.claude-opus-5-5 is not enabled",
+    "The provided model identifier is invalid.",
+    "Invocation of model ID us.anthropic.claude-opus-5-5 with on-demand throughput isn't supported.",
+])
+def test_a_model_id_rejection_still_matches_including_ids_with_a_version_colon(message):
+    assert _is_model_id_rejection(message) is True

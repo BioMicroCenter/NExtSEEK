@@ -582,7 +582,11 @@ _MODEL_ID_REJECTION = re.compile(
     r"model identifier"
     r"|on-demand throughput"
     r"|does(?:n't| not) support the model"
-    r"|model id\b.{0,160}?\b(?:invalid|(?:is )?not (?:supported|enabled|found|available)"
+    # Between "model id" and its predicate: no sentence end and no colon, except the one
+    # inside an id's version (``...-v1:0``). A colon or a new sentence starts another
+    # subject ("Model ID X: temperature is not supported"), and that request error must not
+    # move the call.
+    r"|model id\b(?:(?!\.\s)(?:[^:]|:\d)){0,160}?\b(?:invalid|(?:is )?not (?:supported|enabled|found|available)"
     r"|isn't (?:supported|enabled|available)|does(?:n't| not) exist)",
     re.IGNORECASE | re.DOTALL,
 )
