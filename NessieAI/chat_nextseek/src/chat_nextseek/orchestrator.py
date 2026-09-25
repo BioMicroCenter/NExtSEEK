@@ -1122,9 +1122,10 @@ def _review_note(disclosure: str, template: str = REVIEW_NOTE) -> str:
     """``template`` (``REVIEW_NOTE``, or ``BREAKAGE_NOTE`` for a query that broke) holding the review's facts, at
     most ``REVIEW_NOTE_MAX`` characters.
 
-    A disclosure can hold 299 characters (graph_review.DISCLOSURE_MAX) and the template takes 111, so a full one
-    would pass the chatter's 400-character cut. Whole facts are dropped from the end until the note fits; a single
-    fact too long for the room is cut short."""
+    A disclosure can hold 299 characters (graph_review.DISCLOSURE_MAX) and a template up to 111 (``REVIEW_NOTE``;
+    ``BREAKAGE_NOTE`` takes 103), so a full one would pass the chatter's 400-character cut. The room is computed from
+    the template in use. Whole facts are dropped from the end until the note fits; a single fact too long for the
+    room is cut short."""
     facts = " ".join(str(disclosure).split())
     room = REVIEW_NOTE_MAX - len(template.format(facts=""))
     if len(facts) > room:

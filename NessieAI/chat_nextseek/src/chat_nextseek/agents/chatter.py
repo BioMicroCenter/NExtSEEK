@@ -13,6 +13,7 @@ from ..graph_review import PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
+    api_row_count,
     log_prompt,
 )
 from ..helpers.query_scope import describe_query_scope, render_query_scope
@@ -72,6 +73,18 @@ def _is_count_only(rows: Any) -> bool:
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict) or not rows[0]:
         return False
     return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in rows[0].values())
+
+
+def _above_zero(n: Any) -> bool:
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n > 0
+
+
+def _returned_something(rows: Any, total: Any) -> bool:
+    """Rows that are not one all-zero count row (``RETURN count(s) AS n`` over nothing), or, with no rows, a total
+    above zero. The same zero as ``matched_nothing`` (``helpers/tools/neo4j.py``), read without its ``count``."""
+    if isinstance(rows, list) and rows:
+        return not (_is_count_only(rows) and not any(rows[0].values()))
+    return _above_zero(total)
 
 
 def _graph_rows_for_writer(rows: list) -> list:
@@ -193,25 +206,37 @@ def _one_line(text: Any) -> str:
 
 
 # F-d: the reply's only offer is the chip's (``OFFERED_STEP_LINE``). Without one, the model's closing stock offer is
-# dropped from its reply; a closing sentence holding a digit says something about the data and stays. The closer
-# starts the reply, follows a sentence end, or starts a line (after a list or a table); "you'd" may be typeset.
+# dropped from an answered reply; a closing sentence holding a digit says something about the data and stays. The
+# closer starts the reply, follows a sentence end, or starts a line; "you'd" may be typeset. It is one line: a closer
+# that leads into a list or a table ("Feel free to pick one of these:") holds the answer and is never a candidate.
 _STOCK_CLOSER = re.compile(
     r"(?:^|(?<=[.!?])\s+|(?<=\n))((?:If you(?:['\u2019]d| would) like|Let me know|Feel free|Would you like"
-    r"|Should you (?:need|want)|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?]*"
+    r"|Should you (?:need|want)|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?\n]*"
     r"[.!?]?)\s*$",
     re.IGNORECASE)
+#: What a line must end with, or be, for a closer starting the next line to count: a sentence end or a colon (closing
+#: quotes, brackets or emphasis may follow), a list item or a table row. A hard-wrapped sentence ("..., and\nfeel
+#: free to ask") is none of these.
+_ENDS_A_SENTENCE = re.compile(r"[.!?:][\"'\u201d\u2019)\]*_]*$")
+_LIST_OR_TABLE_LINE = re.compile(r"[ \t]*(?:\||[-*+][ \t]|\d+[.)][ \t])")
 
 
 def _drop_stock_closer(reply: str) -> str:
     """The model's last sentence when it is a stock offer no chip backs ("If you would like ... let me know").
 
-    Returns ``reply`` without that sentence; a reply that is nothing but the closer, or whose closer holds a digit,
-    comes back as given."""
+    Returns ``reply`` without that sentence; a reply that is nothing but the closer, whose closer holds a digit, or
+    whose closer starts a line after anything but a sentence end, a colon, a list item or a table row, comes back as
+    given."""
     text = (reply or "").rstrip()
     m = _STOCK_CLOSER.search(text)
     if not m or re.search(r"\d", m.group(1)):
         return reply
-    return text[:m.start(1)].rstrip() or reply
+    head = text[:m.start(1)]
+    if head.endswith("\n"):
+        previous = head.rstrip().rsplit("\n", 1)[-1]
+        if not (_ENDS_A_SENTENCE.search(previous) or _LIST_OR_TABLE_LINE.match(previous)):
+            return reply
+    return head.rstrip() or reply
 
 
 #: A first line that is not prose: a table row, a heading, a quote, a code fence or a list item.
@@ -219,8 +244,10 @@ _NOT_PROSE = re.compile(r"[ \t]*(?:\||#|>|```|~~~|[-*+][ \t]|\d+[.)][ \t])")
 #: A full stop, question or exclamation mark with whitespace or the end after it (closing quotes, brackets or emphasis
 #: may come between). One inside a token has none: "D.SEQ", "T.TIS", "D.SEQ-240910ABC-1", "3.5", "1,306".
 _SENTENCE_END = re.compile(r"[.!?][\"'\u201d\u2019)\]*_]*(?=\s|$)")
-#: A word whose full stop ends no sentence: a common abbreviation, or a single capital (an initial).
-_ABBREVIATION = re.compile(r"(?:^|[\s(\[\"'])(?:(?i:e\.g|i\.e|vs|cf|etc|approx|ca|incl|al)|Dr|Prof|Mrs?|Ms|[A-Z])\.$")
+#: A word whose full stop ends no sentence: a common abbreviation, or a single capital (an initial, or a letter of
+#: "U.S."). "St. Jude", "No. 5", "Illumina Inc. Sequencing", "Mt. Sinai" never split.
+_ABBREVIATION = re.compile(r"(?:^|[\s(\[\"'.])(?:(?i:e\.g|i\.e|vs|cf|etc|approx|ca|incl|al)"
+                           r"|Dr|Prof|Mrs?|Ms|St|No|Inc|Co|Ltd|Fig|Jr|Sr|Mt|[A-Z])\.$")
 
 
 def _first_sentence_end(line: str) -> int | None:
@@ -374,7 +401,8 @@ def chatter_agent_answer(
     (``OFFERED_STEP_LINE``), after the notes block and outside it, and the reply gets the facts and the
     offer where it lacks them (``_with_review_backstop``): the model's reply after its first sentence, the
     fallback first. With neither, nothing changes. With no offered step, a stock offer closing the model's
-    reply is dropped (``_drop_stock_closer``): the chip is the reply's only offer.
+    reply to an answered result (rows, or a count or total above zero) is dropped (``_drop_stock_closer``):
+    the chip is the reply's only offer.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -625,6 +653,20 @@ def chatter_agent_answer(
     # at all (12 of the 13 named nothing), because every rule about naming them is written
     # for rows ("from the preview", "when you were given all the rows") and none can fire.
     count_only = is_graph and _is_count_only((graph_result or {}).get("data") or [])
+    # F-d's closer drop is for an answered result only: rows, or a count or total above zero. On a zero, a failed
+    # query or an error, a question that asks the user to choose (which project, the closest spelling of a
+    # misspelled lab) is the answer, not a stock offer.
+    if is_graph:
+        answered = bool((graph_result or {}).get("ok")) and _returned_something(
+            (graph_result or {}).get("data"), total_matches)
+    elif is_reporter:
+        answered = _above_zero(total_matches)
+    else:
+        api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
+        rest_rows = api_row_count(api_result_full)
+        answered = (not error_context and api_source.get("ok") is not False
+                    and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
+                         or _above_zero(total_matches)))
 
     examples_block = ""
     if example_ids:
@@ -826,10 +868,10 @@ def chatter_agent_answer(
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
-    # F-d: with no chip to offer, the model's closing stock offer goes. On the model's answer
-    # only, before the backstops below, so the offer Task 9 appends is never a candidate; after
-    # the URL cleanup, so a closer is judged as the user would read it.
-    if not offered_step:
+    # F-d: with no chip to offer, an answered result's closing stock offer goes. On the model's
+    # answer only, before the backstops below, so the offer Task 9 appends is never a candidate;
+    # after the URL cleanup, so a closer is judged as the user would read it.
+    if answered and not offered_step:
         answer_no_links = _drop_stock_closer(answer_no_links)
     # The reviewer's facts after the answer's first sentence and its offered step last, where the
     # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a

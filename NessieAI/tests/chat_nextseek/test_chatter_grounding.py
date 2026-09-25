@@ -136,9 +136,10 @@ def test_the_count_only_rule_says_it_is_a_count_and_makes_no_offer():
 
 def test_no_closing_offer_names_the_offered_step_line_not_a_note():
     """Task 9 made the offered step a line of its own ("It is not a note"), so the rule names the line."""
-    rule = _section("NO CLOSING OFFER", 700)
+    rule = _section("NO CLOSING OFFER", 900)
     rule = rule[:rule.index("\n")]
-    assert "`Offered next step`" in rule and "note" not in rule.lower()
+    assert "When the message includes the `Offered next step` line" in rule
+    assert "notes carry" not in rule and "Offered next step` note" not in rule
     for closer in ('"If you would like ..."', '"Let me know if ..."', '"Feel free to ..."', '"I can retrieve ..."'):
         assert closer in rule
 
@@ -162,7 +163,7 @@ def test_the_new_prompt_text_has_no_em_dash():
 # _drop_stock_closer, pure
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("reply,kept", [
+DROPPED = [
     ("There are 617 patients. If you'd like, I can list them.", "There are 617 patients."),
     ("There are 617 patients.\n\nLet me know if you need the identifiers.", "There are 617 patients."),
     ("There are 617 patients. Feel free to ask for a breakdown by project.", "There are 617 patients."),
@@ -175,7 +176,10 @@ def test_the_new_prompt_text_has_no_em_dash():
     ("| a | n |\n|---|---|\n| A | 3 |\n\nLet me know if you want the identifiers.", "| a | n |\n|---|---|\n| A | 3 |"),
     ("There are 617 patients. If you\u2019d like, I can list them.", "There are 617 patients."),
     ("- A\n- B\n\nIf you\u2019d like the identifiers, let me know.", "- A\n- B"),
-])
+]
+
+
+@pytest.mark.parametrize("reply,kept", DROPPED)
 def test_a_final_stock_offer_is_dropped(reply, kept):
     assert chatter_mod._drop_stock_closer(reply) == kept
 
@@ -189,6 +193,11 @@ def test_a_final_stock_offer_is_dropped(reply, kept):
     "",
     "- A\n- B\nLet me know if the 12 without a diagnosis should count.",   # a digit, on a line of its own
     "- A\n- I can list them",   # a list item is no closer
+    # a closer leading into a list or a table holds the answer: it is one line, and never takes the list with it
+    "There are 3 projects. Feel free to pick one of these:\n- Impact\n- MetNet\n- IMPAcTb",
+    "Three projects match. I can show the samples for any of them:\n\n| Project |\n|---|\n| Impact |\n| MetNet |",
+    # a line-start closer counts only after a sentence end, a colon, a list line or a table line
+    "The samples all come from one site, and\nfeel free to ask for more.",
 ])
 def test_anything_else_is_left_as_written(reply):
     assert chatter_mod._drop_stock_closer(reply) == reply
@@ -250,3 +259,96 @@ def test_the_rest_reply_loses_its_closer_too(monkeypatch):
         api_result_slim={"ok": True, "data": {"total": 140}},
         api_result_full={"ok": True, "data": {"total": 140, "samples": []}}, log_dir="")
     assert out.split("**Debug info**")[0].strip() == "140 RNA samples match."
+
+
+# --------------------------------------------------------------------------- #
+# Only an answered result loses its closer: on a zero, a failed query or an error, the question is the answer
+# --------------------------------------------------------------------------- #
+
+def _graph_turn(monkeypatch, reply, graph_result, notes=None):
+    monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), "How many samples does the Qwerty lab have?", EntityAgentOutput().model_dump(),
+        ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.search_text CONTAINS $t RETURN count(s) AS n",
+                    "parameters": {"t": "qwerty"}},
+        graph_result=graph_result, query_notes=notes, log_dir="")
+    return out.split("**Debug info**")[0].strip()
+
+
+def _rest_turn(monkeypatch, reply, *, total, error_context=None):
+    monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), "How many RNA samples are there?", EntityAgentOutput().model_dump(),
+        ParserPlan(mode="new_search", intent_summary="RNA samples").model_dump(),
+        api_result_slim={"ok": error_context is None, "data": {"total": total}},
+        api_result_full={"ok": error_context is None, "data": {"total": total, "samples": []}},
+        error_context=error_context, log_dir="")
+    return out.split("**Debug info**")[0].strip()
+
+
+def _report_turn(monkeypatch, reply, total_rows):
+    monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), "Summarise the Impact project", EntityAgentOutput().model_dump(),
+        ParserPlan(mode="reporter").model_dump(), reporter_summary={"project": "Impact", "total_rows": total_rows},
+        log_dir="")
+    return out.split("**Debug info**")[0].strip()
+
+
+@pytest.mark.parametrize("reply,kept", DROPPED)
+def test_every_drop_case_still_drops_on_an_answered_turn(monkeypatch, reply, kept):
+    assert _answer(monkeypatch, reply) == kept
+
+
+NEAR_MISS_REPLY = ("There are no samples for the Qwerty lab. Would you like me to search the Qwertz lab (QWZ), the "
+                   "closest on record?")
+
+
+@pytest.mark.parametrize("data", [[{"n": 0}], []], ids=["count-zero", "no-rows"])
+def test_a_lab_near_miss_offer_on_a_zero_is_kept(monkeypatch, data):
+    """The misspelled lab's closest spelling is the answer to a zero (the 2026-09-22 fix): its question stays."""
+    from chat_nextseek.helpers.lab_code import lab_near_miss_notes
+    notes = lab_near_miss_notes([{"text": "Qwerty", "code": "QWZ", "name": "Qwertz"}])
+    body = _graph_turn(monkeypatch, NEAR_MISS_REPLY, {"ok": True, "count": len(data), "total": len(data),
+                                                      "data": data}, notes)
+    assert body == NEAR_MISS_REPLY
+
+
+def test_a_failed_graph_query_keeps_its_question(monkeypatch):
+    """A failed query, even one whose result still carries a total from its count probe."""
+    reply = "The query could not run. Do you want me to try it on the Impact project alone?"
+    assert _graph_turn(monkeypatch, reply, {"ok": False, "count": 0, "total": 12, "data": [],
+                                            "error": "timeout"}) == reply
+
+
+CLARIFY = "The search needs a project to scope it. Do you want the Impact or the MetNet project?"
+
+
+def test_a_clarifying_question_on_an_error_turn_is_kept(monkeypatch):
+    """An error turn, even one whose envelope still carries a total from somewhere."""
+    assert _rest_turn(monkeypatch, CLARIFY, total=5,
+                      error_context={"status_code": 400, "error": "a project is required"}) == CLARIFY
+
+
+def test_a_clarifying_question_on_a_zero_turn_is_kept(monkeypatch):
+    assert _rest_turn(monkeypatch, CLARIFY, total=0) == CLARIFY
+
+
+def test_a_rest_closer_on_an_answered_turn_still_goes(monkeypatch):
+    assert _rest_turn(monkeypatch, f"140 RNA samples match. {CLARIFY.split('. ')[1]}", total=140) == (
+        "140 RNA samples match.")
+
+
+def test_a_report_closer_goes_only_when_the_report_has_rows(monkeypatch):
+    reply = "The Impact report has {n} rows. Let me know if you want it by lab."
+    assert _report_turn(monkeypatch, reply.format(n=12), 12) == "The Impact report has 12 rows."
+    assert _report_turn(monkeypatch, reply.format(n=0), 0) == reply.format(n=0)
+
+
+def test_no_closing_offer_says_it_applies_to_an_answered_result():
+    rule = _section("NO CLOSING OFFER", 900)
+    rule = rule[:rule.index("\n")]
+    assert "This applies to an answered result." in rule
+    assert ("When the result is empty or the query failed, a question that asks the user to choose, or a note's "
+            "closest spelling, is part of the answer.") in rule
