@@ -325,3 +325,5 @@ def test_a_failed_loop_gets_the_fixed_reply_not_a_stored_answer(tmp_path):
     assert payload["reply"].startswith(FOLLOWUP_UNAVAILABLE_REPLY)
     assert payload["bundle_id"] == 1
     assert "memory_coder_artifact" not in payload["debug"]
+    assert payload["debug"]["followup"] == {"failed": True, "error": "RuntimeError"}, \
+        "the failure is recorded by its type only, never its message"

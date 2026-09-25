@@ -615,13 +615,16 @@ def _followup_scope_note(seed_mode: str, *, uids_available: int, uids_applied: i
     return None
 
 
-def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir) -> dict | None:
+def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_dir,
+                        failure: dict | None = None) -> dict | None:
     """Run the follow-up tool loop, and never let it be the reason a turn fails.
 
     Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
     a follow-up runs the same engine as a fresh question; the difference is only that
     it is scoped to the previous result. Returns None on any failure, and the caller then
-    answers with ``FOLLOWUP_UNAVAILABLE_REPLY`` (``resolve_followup_outcome``).
+    answers with ``FOLLOWUP_UNAVAILABLE_REPLY`` (``resolve_followup_outcome``). ``failure``,
+    when given, receives the exception's type name as ``error`` so the turn's debug can say
+    why; only the type, since a message can carry provider or internal detail.
 
     How a query is scoped is its ``seed_mode``, on every payload:
 
@@ -881,6 +884,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         return outcome
     except Exception as exc:
         print(f"[DEBUG][FOLLOWUP] agent failed, the turn gets the fixed reply: {exc!r}")
+        if failure is not None:
+            failure["error"] = type(exc).__name__
         return None
 
 
@@ -1906,14 +1911,19 @@ def run_query(
             # the only path: when it fails, the profile has no tool-capable model, or it
             # ends with nothing, the turn says so (FOLLOWUP_UNAVAILABLE_REPLY) rather than
             # answering from the stored snapshot (n0914-1175).
+            followup_failure: dict[str, Any] = {}
             followup_outcome = _run_followup_agent(
                 config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
+                failure=followup_failure,
             )
             # Written whatever happened: on turn 1147 the loop ran six times, queried the
             # graph three times and produced no reply, and because this block sat inside
             # `if answer:` the turn's debug carried no `followup` key at all, which is why
-            # the failure read as "the memory agent is wrong" for a day.
-            if followup_outcome is not None:
+            # the failure read as "the memory agent is wrong" for a day. A loop that raised
+            # is recorded by its exception type only (None when it returned nothing).
+            if followup_outcome is None:
+                debug_payload["followup"] = {"failed": True, "error": followup_failure.get("error")}
+            else:
                 debug_payload["followup"] = {
                     "tool_calls": followup_outcome.get("tool_calls"),
                     "queries": [
