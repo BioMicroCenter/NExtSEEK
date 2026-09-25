@@ -38,6 +38,7 @@ from chat_nextseek.config import ChatConfig
 from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
+from chat_nextseek import turn_spend
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,9 @@ def _report_fatal(fatal: LLMFatalError, send_event, error_state, session_id) -> 
     if error_state["sent"]:
         return
     _, data = fatal_query_error(fatal, agent=getattr(fatal, "agent", None) or "unknown")
-    send_event("query_error", {**data, "session_id": session_id})
+    # What the turn spent before it failed, carried out on the fatal by the entry point
+    # (turn_spend.collects_turn): this event is the turn's last, so it holds the cost.
+    send_event("query_error", {**data, **turn_spend.cost_fields(fatal), "session_id": session_id})
 
 
 def _scope_kwargs(graph_scope) -> dict:

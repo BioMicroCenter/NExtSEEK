@@ -35,7 +35,7 @@ from typing import Any, Callable, Iterator, TypeVar
 from . import model_prices
 from .llm_clients import LLMAPIConnectionError, LLMTimeoutError
 
-__all__ = ["TurnSpend", "current", "record_call", "collecting", "collects_turn", "turn_record"]
+__all__ = ["TurnSpend", "current", "record_call", "collecting", "collects_turn", "turn_record", "cost_fields"]
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -200,12 +200,36 @@ def collecting() -> Iterator[TurnSpend]:
 
 
 def collects_turn(fn: _F) -> _F:
-    """Decorate an NS turn entry point so its model calls are collected."""
+    """Decorate an NS turn entry point so its model calls are collected.
+
+    An exception that escapes the turn (``run_pipeline_launch`` does not guard the
+    pipeline agent, so a tool loop's ``LLMFatalError`` escapes it) takes the turn's
+    record with it as ``turn_record``: the collector is gone by the time the pipeline
+    body reports it, and ``cost_fields`` reads it back.
+    """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with collecting():
-            return fn(*args, **kwargs)
+        with collecting() as spend:
+            try:
+                return fn(*args, **kwargs)
+            except BaseException as exc:
+                if getattr(exc, "turn_record", None) is None:
+                    try:
+                        exc.turn_record = spend.summary()
+                    except Exception:  # pragma: no cover - bookkeeping must never mask the error
+                        pass
+                raise
     return wrapper  # type: ignore[return-value]
+
+
+def cost_fields(exc: BaseException) -> dict[str, Any]:
+    """The turn-record fields of a turn that ended in ``exc`` (see ``collects_turn``),
+    for the ``query_error`` that reports it; empty when it carries none."""
+    record = getattr(exc, "turn_record", None)
+    if not isinstance(record, dict):
+        return {}
+    return {key: record[key] for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback")
+            if key in record}
 
 
 def turn_record() -> dict[str, Any] | None:

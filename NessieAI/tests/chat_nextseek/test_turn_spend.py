@@ -365,3 +365,22 @@ def test_every_ns_entry_point_collects_its_turn(monkeypatch, entry_point):
     assert payload["total_cost_usd"] == pytest.approx(_price(FLASH, GEMINI_USAGE), abs=1e-6)
     assert payload["models_used"] == [FLASH]
     assert turn_spend.current() is None
+
+
+def test_a_turn_that_escapes_its_entry_point_takes_its_record_with_it():
+    """run_pipeline_launch does not guard the pipeline agent, so a fatal from a tool loop
+    escapes it and the pipeline body reports it (NessieAI/ns/turn.py _report_fatal).
+    The collector is gone by then, so the record rides on the exception."""
+    @turn_spend.collects_turn
+    def launch():
+        turn_spend.record_call(_entry(OPUS, agent="pipeline_agent", provider="bedrock"),
+                               resp=_resp(BEDROCK_USAGE, OPUS, "bedrock"))
+        raise LLMFatalError("both models failed", agent="pipeline_agent", unavailable=True)
+
+    with pytest.raises(LLMFatalError) as caught:
+        launch()
+    fields = turn_spend.cost_fields(caught.value)
+    assert fields["total_cost_usd"] == pytest.approx(_price(OPUS, BEDROCK_USAGE), abs=1e-6)
+    assert fields["cost_partial"] is False
+    assert set(fields) == {"total_cost_usd", "cost_partial", "models_used", "model_fallback"}
+    assert turn_spend.cost_fields(RuntimeError("no record")) == {}
