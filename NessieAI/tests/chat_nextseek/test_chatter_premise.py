@@ -109,11 +109,21 @@ def test_the_fallback_opens_with_the_correction_when_the_disclosure_holds_anothe
 
 
 def test_the_correction_is_moved_first_when_the_backstop_put_it_second(monkeypatch):
-    """A reply without the question's number gets Task 9's whole disclosure first, the other fact leading."""
+    """A reply without the question's number gets Task 9's disclosure after its first sentence, the other fact
+    leading; the premise sentence is moved to the front and the other fact stays where it was put."""
     disclosure = f"{OTHER} {FACT}"
     body = _answer(monkeypatch, _says("962 D.SEQ files have 'ABC' in their UID."),
                    [f"What the result matched: {disclosure} State this plainly."], review_disclosure=disclosure)
     assert body.startswith(FACT) and OTHER in body and "962" in body and body.count(FACT) == 1
+    assert body == f"{FACT} 962 D.SEQ files have 'ABC' in their UID. {OTHER}"
+
+
+def test_a_table_led_reply_keeps_its_table_when_the_correction_comes_first(monkeypatch):
+    """Task 9's backstop puts the facts after a leading table as a paragraph; the premise sentence is moved before the
+    table as a paragraph of its own, never onto the table's first row."""
+    table = "| Project | n |\n|---|---|\n| A | 900 |\n| B | 62 |"
+    body = _answer(monkeypatch, _says(f"{table}\n\nThese are the matches."), [NOTE], review_disclosure=FACT)
+    assert body == f"{FACT}\n\n{table}\n\nThese are the matches."
 
 
 def test_a_reply_that_quotes_the_fact_later_gets_it_moved_first(monkeypatch):
@@ -201,6 +211,12 @@ def test_a_top_n_aggregate_gets_no_correction_end_to_end(monkeypatch, q):
     ([NOTE], f"962 match:\n\n  - D.SEQ-A   12\n  - D.SEQ-B   3\n\n{FACT}",
      f"{FACT} 962 match:\n\n  - D.SEQ-A   12\n  - D.SEQ-B   3"),
     ([NOTE], "", FACT),
+    # before a table, a heading or a list the sentence is a paragraph of its own, so the block stays intact
+    ([NOTE], "| t | n |\n|---|---|\n| A | 962 |", f"{FACT}\n\n| t | n |\n|---|---|\n| A | 962 |"),
+    ([NOTE], f"| t | n |\n|---|---|\n| A | 962 |\n\n{FACT}\n\n962 match.",
+     f"{FACT}\n\n| t | n |\n|---|---|\n| A | 962 |\n\n962 match."),
+    ([NOTE], "## Matches\n\n962 match.", f"{FACT}\n\n## Matches\n\n962 match."),
+    ([NOTE], "- A 900\n- B 62", f"{FACT}\n\n- A 900\n- B 62"),
 ])
 def test_premise_first_is_pure(notes, reply, expected):
     assert chatter_mod._premise_first(reply, notes) == expected

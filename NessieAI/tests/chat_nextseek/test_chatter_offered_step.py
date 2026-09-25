@@ -8,11 +8,13 @@ chip's label). The chatter:
 * adds the line ``Offered next step: <label>`` to its input, beside the query notes rather than among them (a note
   is the query author's words, which the prompt says never to quote back; the step is to be offered in exactly those
   words), so the prompt rule for it can fire;
-* after the model reply, prepends the disclosure when it carries numbers and the reply is missing any of them
-  (compared without thousands separators, so "1,306" matches "1306"); a disclosure without numbers gets no backstop;
+* after the model reply, adds the disclosure when it carries numbers and the reply is missing any of them
+  (compared without thousands separators, so "1,306" matches "1306"); a disclosure without numbers gets no backstop.
+  It goes right after the reply's first sentence, so the answer still leads (a reply that opens with a table, a
+  heading, a list or a code block gets it as a paragraph after that first block);
 * appends ``Would you like me to run: <label>?`` when the reply does not already name the step (case-insensitive)
   and does not already end with a question, which is the model's reworded offer;
-* does the same on the fallback reply it writes when the model call raises.
+* does the same on the fallback reply it writes when the model call raises, where the disclosure goes first.
 
 With no offered step and a reply that already holds the facts, the reply is exactly the model's.
 
@@ -33,6 +35,7 @@ from chat_nextseek.agents import chatter as chatter_mod
 from chat_nextseek.llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.router import ParserPlan
+from chat_nextseek.graph_review import PREMISE_FACT
 from chat_nextseek.graph_scope import SCOPE_ATTR
 from NessieAI.tests.chat_nextseek.test_graph_review_wiring import (
     CONVERTER_CYPHER,
@@ -111,15 +114,14 @@ def _body(reply: str) -> str:
 # The brief's three
 # --------------------------------------------------------------------------- #
 
-def test_a_reply_missing_the_numbers_gets_the_facts_first_and_the_offer_last(model):
-    """(a) The model dropped 57 and never offered the step: the disclosure opens the reply, the offer closes it."""
+def test_a_reply_missing_the_numbers_gets_the_facts_after_its_answer_and_the_offer_last(model):
+    """(a) The model dropped 57 and never offered the step: the disclosure follows the reply's answer sentence, the
+    offer closes it."""
     model["reply"] = "There are 98 samples for subjects who convert to Mtb infection positive."
 
     body = _body(_graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP))
 
-    assert body.startswith(DISCLOSURE)
-    assert body.endswith(OFFER)
-    assert model["reply"] in body
+    assert body == f"{model['reply']} {DISCLOSURE}\n\n{OFFER}"
 
 
 def test_with_no_offered_step_the_reply_is_exactly_the_models(model):
@@ -174,12 +176,13 @@ def test_a_reply_that_states_every_number_is_not_prefixed(model):
     assert _body(_graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP)) == model["reply"]
 
 
-def test_one_missing_number_is_enough_to_prefix_the_facts(model):
+def test_one_missing_number_is_enough_to_add_the_facts(model):
     model["reply"] = "98 samples matched, 57 of them Non-converter. Would you like me to run: Only Converter?"
 
     body = _body(_graph_answer(review_disclosure=DISCLOSURE, offered_step=STEP))
 
-    assert body == f"{DISCLOSURE}\n\n{model['reply']}"
+    assert body == ("98 samples matched, 57 of them Non-converter. "
+                    f"{DISCLOSURE} Would you like me to run: Only Converter?")
 
 
 def test_thousands_separators_do_not_count_as_a_difference(model):
@@ -197,11 +200,11 @@ def test_thousands_separators_do_not_count_as_a_difference(model):
 def test_a_number_inside_another_number_or_a_code_does_not_count(model):
     """"57" inside "1,570" is not the 57 of the facts, and the "14" in the code "T14" is not the count 14."""
     model["reply"] = "1,570 samples, 32 Converter and 9 Reverter."
-    assert _body(_graph_answer(review_disclosure=DISCLOSURE)).startswith(DISCLOSURE)
+    assert _body(_graph_answer(review_disclosure=DISCLOSURE)) == f"{model['reply']} {DISCLOSURE}"
 
     facts = "The matched values were: T14 15, T13 14."
     model["reply"] = "T14 has 15 samples and T13 has 12."
-    assert _body(_graph_answer(review_disclosure=facts)) == f"{facts}\n\n{model['reply']}"
+    assert _body(_graph_answer(review_disclosure=facts)) == f"{model['reply']} {facts}"
 
     model["reply"] = "T14 has 15 samples and T13 has 14."
     assert _body(_graph_answer(review_disclosure=facts)) == model["reply"]
@@ -217,13 +220,99 @@ def test_a_disclosure_with_no_numbers_gets_no_backstop(model):
 
 
 def test_the_facts_backstop_needs_no_offered_step(model):
-    """The facts come first whether or not a chip was offered, and no offer is invented without one."""
+    """The facts are added whether or not a chip was offered, and no offer is invented without one."""
     model["reply"] = "There are 98 matching samples."
 
     body = _body(_graph_answer(review_disclosure=DISCLOSURE))
 
-    assert body == f"{DISCLOSURE}\n\n{model['reply']}"
+    assert body == f"{model['reply']} {DISCLOSURE}"
     assert "Would you like me to run" not in body
+
+
+# --------------------------------------------------------------------------- #
+# Where the facts go in a model's reply: after its first sentence, so the answer still leads
+# --------------------------------------------------------------------------- #
+
+def test_the_facts_go_between_the_first_sentence_and_the_rest(model):
+    model["reply"] = "There are 98 matching samples. Most come from one project."
+
+    body = _body(_graph_answer(review_disclosure=DISCLOSURE))
+
+    assert body == f"There are 98 matching samples. {DISCLOSURE} Most come from one project."
+
+
+def test_codes_numbers_and_abbreviations_do_not_end_the_first_sentence(model):
+    """No split inside "D.SEQ", "T.TIS", a UID, "1,306" or "3.5", or after "e.g.", "i.e." or "vs."."""
+    facts = "Every spelling of 'seq' gives 1,412."
+    first = ("There are 1,306 D.SEQ files (e.g. D.SEQ-240910ABC-1), i.e. runs with a mean RIN of 3.5 vs. 7.2 for "
+             "T.TIS samples.")
+    model["reply"] = f"{first} Most were uploaded last year."
+
+    body = _body(_graph_answer(review_disclosure=facts))
+
+    # the UID is linked to its sample page last, as in every reply
+    assert body == chatter_mod.link_sample_uids(f"{first} {facts} Most were uploaded last year.")
+
+
+def test_a_one_sentence_reply_gets_the_facts_after_it(model):
+    model["reply"] = "There are 98 matching samples."
+
+    assert _body(_graph_answer(review_disclosure=DISCLOSURE)) == f"There are 98 matching samples. {DISCLOSURE}"
+
+
+def test_a_reply_opening_with_a_table_gets_the_facts_after_the_table(model):
+    table = "| Classification | n |\n|---|---|\n| Converter | 32 |\n| Reverter | 9 |"
+    model["reply"] = f"{table}\n\nMost of these are Converter."
+
+    body = _body(_graph_answer(review_disclosure=DISCLOSURE))
+
+    assert body == f"{table}\n\n{DISCLOSURE}\n\nMost of these are Converter."
+
+
+def test_the_premise_fact_still_comes_first(model):
+    """F-b: the premise sentence opens the reply; the other facts stay after the first sentence."""
+    premise = PREMISE_FACT.format(n="4,095")
+    model["reply"] = "There are 98 matching samples. Most come from one project."
+
+    body = _body(_graph_answer(review_disclosure=f"{DISCLOSURE} {premise}"))
+
+    assert body == f"{premise} There are 98 matching samples. {DISCLOSURE} Most come from one project."
+
+
+F = "FACTS 57."
+
+
+@pytest.mark.parametrize("reply,expected", [
+    ("One. Two.", f"One. {F} Two."),
+    ("One.", f"One. {F}"),
+    ("One?  Two.", f"One? {F}  Two."),
+    ("One.\n\nTwo.", f"One. {F}\n\nTwo."),
+    ("One.\nTwo.", f"One. {F}\nTwo."),
+    ("The first match is D.SEQ-240910ABC-1. It has 3 files.",
+     f"The first match is D.SEQ-240910ABC-1. {F} It has 3 files."),
+    ("The mean is 3.5. Two.", f"The mean is 3.5. {F} Two."),
+    ("About 98 matched, approx. half of them converters. Two.",
+     f"About 98 matched, approx. half of them converters. {F} Two."),
+    ("98 matched, etc. and more. Two.", f"98 matched, etc. and more. {F} Two."),
+    ("57 and 32 matched resp. the rest had 9. Two.", f"57 and 32 matched resp. the rest had 9. {F} Two."),
+    ("**98 samples matched.** Two.", f"**98 samples matched.** {F} Two."),
+    ('It is "Converter." Two.', f'It is "Converter." {F} Two.'),
+    ("The code is D.SEQ and T.TIS. Two.", f"The code is D.SEQ and T.TIS. {F} Two."),
+    # no sentence end on the first line: the facts follow the first block as a paragraph of their own
+    ("98 samples matched:\n- Converter 32\n- Reverter 9", f"98 samples matched:\n- Converter 32\n- Reverter 9\n\n{F}"),
+    ("98 samples matched, by class", f"98 samples matched, by class\n\n{F}"),
+    # a first block that is not prose: a table, a heading, a list, a numbered list, a quote or a code block
+    ("| a | n |\n|---|---|\n| A | 3 |\n\nTwo.", f"| a | n |\n|---|---|\n| A | 3 |\n\n{F}\n\nTwo."),
+    ("## Converter samples\n\n98 samples matched.", f"## Converter samples\n\n{F}\n\n98 samples matched."),
+    ("- Converter 32\n- Reverter 9\n\nTwo.", f"- Converter 32\n- Reverter 9\n\n{F}\n\nTwo."),
+    ("1. Converter 32\n2. Reverter 9", f"1. Converter 32\n2. Reverter 9\n\n{F}"),
+    ("> Converter 32. Reverter 9.\n\nTwo.", f"> Converter 32. Reverter 9.\n\n{F}\n\nTwo."),
+    ("```\nA 32\n\nB 9\n```\nMost are A.", f"```\nA 32\n\nB 9\n```\n\n{F}\n\nMost are A."),
+    ("```\nA 32\n\nB 9", f"```\nA 32\n\nB 9\n\n{F}"),
+    ("", F),
+])
+def test_after_first_sentence_is_pure(reply, expected):
+    assert chatter_mod._after_first_sentence(reply, F) == expected
 
 
 # --------------------------------------------------------------------------- #
@@ -311,15 +400,16 @@ def test_no_offered_step_means_no_line_and_the_same_prompt(model):
     assert "Offered next step" not in model["user_content"]
 
 
-def test_an_offered_step_on_a_count_turn_replaces_the_count_rules_offer(model):
-    """The count-only instruction asks for an offer of its own; with a chip, the chip is the only offer."""
-    count_only_offer = "offer that as the one next step"
+def test_a_count_turn_makes_no_offer_of_its_own_and_an_offered_step_is_the_only_one(model):
+    """The count-only instruction makes no offer (F-d, Task 19); with a chip, the chip is the only offer."""
+    no_offer = "make no offer of your own"
 
     _graph_answer(rows=[{"n": 98}])
-    assert count_only_offer in model["user_content"], "unchanged without an offered step"
+    assert no_offer in model["user_content"], "without an offered step the reply ends on the answer"
+    assert "Offered next step" not in model["user_content"]
 
     _graph_answer(rows=[{"n": 98}], review_disclosure=DISCLOSURE, offered_step=STEP)
-    assert count_only_offer not in model["user_content"]
+    assert no_offer not in model["user_content"]
     assert "Offered next step" in model["user_content"]
     assert "make no other offer" in model["user_content"]
 

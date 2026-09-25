@@ -192,23 +192,93 @@ def _one_line(text: Any) -> str:
     return " ".join(str(text or "").split())
 
 
+# F-d: the reply's only offer is the chip's (``OFFERED_STEP_LINE``). Without one, the model's closing stock offer is
+# dropped from its reply; a closing sentence holding a digit says something about the data and stays.
+_STOCK_CLOSER = re.compile(
+    r"(?:^|(?<=[.!?])\s+)((?:If you(?:'d| would) like|Let me know|Feel free|Would you like|Should you (?:need|want)"
+    r"|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?]*[.!?]?)\s*$",
+    re.IGNORECASE)
+
+
+def _drop_stock_closer(reply: str) -> str:
+    """The model's last sentence when it is a stock offer no chip backs ("If you would like ... let me know").
+
+    Returns ``reply`` without that sentence; a reply that is nothing but the closer, or whose closer holds a digit,
+    comes back as given."""
+    text = (reply or "").rstrip()
+    m = _STOCK_CLOSER.search(text)
+    if not m or re.search(r"\d", m.group(1)):
+        return reply
+    return text[:m.start(1)].rstrip() or reply
+
+
+#: A first line that is not prose: a table row, a heading, a quote, a code fence or a list item.
+_NOT_PROSE = re.compile(r"[ \t]*(?:\||#|>|```|~~~|[-*+][ \t]|\d+[.)][ \t])")
+#: A full stop, question or exclamation mark with whitespace or the end after it (closing quotes, brackets or emphasis
+#: may come between). One inside a token has none: "D.SEQ", "T.TIS", "D.SEQ-240910ABC-1", "3.5", "1,306".
+_SENTENCE_END = re.compile(r"[.!?][\"'\u201d\u2019)\]*_]*(?=\s|$)")
+#: A word whose full stop ends no sentence: a common abbreviation, or a single capital (an initial).
+_ABBREVIATION = re.compile(r"(?:^|[\s(\[\"'])(?:(?i:e\.g|i\.e|vs|cf|etc|approx|ca|incl|al)|Dr|Prof|Mrs?|Ms|[A-Z])\.$")
+
+
+def _first_sentence_end(line: str) -> int | None:
+    """Where the first sentence of ``line`` ends, or None. Not after an abbreviation, and not before a lower-case
+    word: when unsure it reads on, which puts what follows later, never inside a sentence."""
+    for m in _SENTENCE_END.finditer(line):
+        if line[m.start()] == "." and _ABBREVIATION.search(line[max(0, m.start() - 15):m.start() + 1]):
+            continue
+        if line[m.end():].lstrip()[:1].islower():
+            continue
+        return m.end()
+    return None
+
+
+def _after_first_sentence(reply: str, facts: str) -> str:
+    """``reply`` with ``facts`` right after its first sentence, so the answer still leads.
+
+    When the reply's first line is prose and holds a sentence end (``_first_sentence_end``), the facts follow it on
+    that line, after a space. Otherwise (a table row, a heading, a quote, a list item or a code fence, or a first line
+    with no sentence end) they are a paragraph of their own after the first block: the lines up to the first blank
+    line, or up to a code block's closing fence."""
+    if not reply:
+        return facts
+    lines = reply.split("\n")
+    if not _NOT_PROSE.match(lines[0]):
+        end = _first_sentence_end(lines[0])
+        if end is not None:
+            return reply[:end] + " " + facts + reply[end:]
+    fence = re.match(r"[ \t]*(```|~~~)", lines[0])
+    if fence:
+        close = next((i for i in range(1, len(lines)) if lines[i].lstrip().startswith(fence.group(1))),
+                     len(lines) - 1)
+        block, rest = "\n".join(lines[:close + 1]), "\n".join(lines[close + 1:])
+    else:
+        gap = re.search(r"\n[ \t]*\n", reply)
+        block, rest = (reply[:gap.start()], reply[gap.end():]) if gap else (reply, "")
+    rest = rest.lstrip("\n")
+    return block + "\n\n" + facts + ("\n\n" + rest if rest.strip() else "")
+
+
 def _with_review_backstop(reply: str, review_disclosure: str | None, offered_step: str | None, *,
                           always_disclose: bool = False) -> str:
-    """``reply`` with the reviewer's facts first and its offered step last, where the reply lacks them.
+    """``reply`` with the reviewer's facts after its first sentence and its offered step last, where it lacks them.
 
-    The facts are prepended when they hold a number the reply does not; facts without a number (a failed query, a
-    value the query did not apply) are left to the model, which has them as a note. ``always_disclose`` prepends
-    them regardless, for the fallback reply, which no model wrote. The offer is appended when the reply does not
-    name the step, compared case-insensitively, and does not end with a question: a closing question is the model's
-    offer in its own words, and a second one would double it. Both are judged on the reply as given, before either
-    is added."""
+    The facts are added when they hold a number the reply does not; facts without a number (a failed query, a value
+    the query did not apply) are left to the model, which has them as a note. In a model's reply they go right after
+    the first sentence (``_after_first_sentence``), so the answer still leads; the premise sentence is put first
+    later, by ``_premise_first``. ``always_disclose`` adds them regardless, first, for the fallback reply, which no
+    model wrote. The offer is appended when the reply does not name the step, compared case-insensitively, and does
+    not end with a question: a closing question is the model's offer in its own words, and a second one would double
+    it. Both are judged on the reply as given, before either is added."""
     facts = _one_line(review_disclosure)
     step = _one_line(offered_step)
     add_facts = bool(facts) and (always_disclose or not _numbers(facts) <= _numbers(reply))
     add_offer = (bool(step) and step.casefold() not in _one_line(reply).casefold()
                  and not _ENDS_WITH_QUESTION.search(reply or ""))
-    parts = ([facts] if add_facts else []) + ([reply] if reply else []) + (
-        [OFFER_SENTENCE.format(step=step)] if add_offer else [])
+    body = reply or ""
+    if add_facts:
+        body = "\n\n".join(p for p in (facts, body) if p) if always_disclose else _after_first_sentence(body, facts)
+    parts = ([body] if body else []) + ([OFFER_SENTENCE.format(step=step)] if add_offer else [])
     return "\n\n".join(parts)
 
 
@@ -236,9 +306,11 @@ def _premise_first(reply: str, notes: list[str] | None) -> str:
     The sentence is ``graph_review.PREMISE_FACT`` ("The question says 4,095; this search did not reproduce that
     number."), found in ``notes`` by ``PREMISE_FACT_RE``; nothing else triggers this, and a number in the question
     alone never does. A reply that already opens with it is left as written. A reply that holds it later (Task 9's
-    backstop put the whole disclosure first, another fact leading, or the model quoted it) has it moved to the front.
-    A reply that corrects the number in its own words (``_CORRECTED``) is left as written. Otherwise the sentence is
-    put first: an echo ("Of the 4,095 D.SEQ files, 962 ...") holds the fact's number, so Task 9's backstop passed it."""
+    backstop put the disclosure after the first sentence or first block, or the fallback's disclosure has another
+    fact leading, or the model quoted it) has it moved to the front. A reply that corrects the number in its own words
+    (``_CORRECTED``) is left as written. Otherwise the sentence is put first: an echo ("Of the 4,095 D.SEQ files, 962
+    ...") holds the fact's number, so Task 9's backstop passed it. Before a reply that opens with a table, a heading, a
+    quote, a code fence or a list, the sentence is a paragraph of its own, so that block stays intact."""
     facts: list[str] = []
     for note in notes or []:
         for m in PREMISE_FACT_RE.finditer(str(note or "")):
@@ -254,10 +326,16 @@ def _premise_first(reply: str, notes: list[str] | None) -> str:
         rest = text
         for fact in facts:
             rest = _drop_fact(rest, fact)
-        return (lead + " " + rest).strip()
+        return _lead_with(lead, rest)
     if _CORRECTED.search(text):
         return reply
-    return (lead + " " + text.lstrip()).strip()
+    return _lead_with(lead, text.lstrip())
+
+
+def _lead_with(lead: str, rest: str) -> str:
+    """``lead`` then ``rest``: on one line after a space, or as a paragraph of its own before a first line that is not
+    prose (``_NOT_PROSE``), which a space would break."""
+    return (lead + ("\n\n" if _NOT_PROSE.match(rest) else " ") + rest).strip()
 
 
 def chatter_agent_answer(
@@ -291,9 +369,10 @@ def chatter_agent_answer(
 
     ``review_disclosure`` is the graph reviewer's facts (already in ``query_notes`` as its note) and
     ``offered_step`` the label of the chip the turn offers. The step is its own input line
-    (``OFFERED_STEP_LINE``), after the notes block and outside it, and the reply, the model's or the
-    fallback, gets the facts first and the offer last where it lacks them (``_with_review_backstop``).
-    With neither, nothing changes.
+    (``OFFERED_STEP_LINE``), after the notes block and outside it, and the reply gets the facts and the
+    offer where it lacks them (``_with_review_backstop``): the model's reply after its first sentence, the
+    fallback first. With neither, nothing changes. With no offered step, a stock offer closing the model's
+    reply is dropped (``_drop_stock_closer``): the chip is the reply's only offer.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -583,13 +662,14 @@ def chatter_agent_answer(
         + (
             "- MUST mention all example identifiers listed above verbatim — they are pre-extracted for you.\n"
             if example_ids else
-            # An offered step is the reply's only offer, so the count rule's own offer gives way to it.
+            # With an offered step the count line says nothing about offers: the line below asks for
+            # exactly that one. Without one, the count line forbids an offer of the model's own (F-d).
             "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
             "the number and what it counts, and never write as though you had seen the records.\n"
             if count_only and offered_step else
             "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
-            "the number and what it counts, never write as though you had seen the records, and when naming "
-            "them would answer the question better than the number does, offer that as the one next step.\n"
+            "the number and what it counts, never write as though you had seen the records, and make no offer "
+            "of your own: the reply ends on the answer.\n"
             if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
@@ -744,8 +824,14 @@ def chatter_agent_answer(
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
-    # The reviewer's facts first and its offered step last, where the model's reply dropped
-    # them. Before the UIDs are linked, so a link's digits never count as a stated number.
+    # F-d: with no chip to offer, the model's closing stock offer goes. On the model's answer
+    # only, before the backstops below, so the offer Task 9 appends is never a candidate; after
+    # the URL cleanup, so a closer is judged as the user would read it.
+    if not offered_step:
+        answer_no_links = _drop_stock_closer(answer_no_links)
+    # The reviewer's facts after the answer's first sentence and its offered step last, where the
+    # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a
+    # stated number.
     answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step)
     # A number the question states and the result did not reproduce is corrected in the first sentence (F-b): the
     # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
