@@ -160,3 +160,22 @@ def test_other_transport_failures_are_unchanged(monkeypatch, socket):
     with pytest.raises(sc.SidecarCallError) as exc:
         _graph()
     assert exc.value.message == "sidecar I/O failed: ConnectionResetError"
+
+
+def test_a_slow_service_early_in_the_turn_is_not_blamed_on_the_turn(monkeypatch, socket):
+    """Review S4: with a 180 s turn every wait is under the 300 s ceiling, so "deadline-bound"
+    alone is every timeout. An op that started with most of the turn left and still got no
+    answer is a slow service: say so, and that the turn has no time left for another try."""
+    err = _late_graph(monkeypatch, socket, 175)
+    assert socket.timeouts == [175 - HEADROOM]
+    msg = err.message
+    assert err.code == "TRANSPORT_ERROR"
+    assert "nearly out of time" not in msg and "did not report an error" not in msg
+    assert f"did not answer within {175 - HEADROOM:.0f} s" in msg
+    assert "no time left" in msg and "Do not retry" in msg
+    assert "offer to run it in the next turn" in msg
+
+
+def test_late_means_under_twice_the_headroom(monkeypatch, socket):
+    assert "nearly out of time" in _late_graph(monkeypatch, socket, 2 * HEADROOM - 1).message
+    assert "nearly out of time" not in _late_graph(monkeypatch, socket, 2 * HEADROOM + 1).message

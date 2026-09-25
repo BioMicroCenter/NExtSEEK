@@ -8,7 +8,8 @@ import time
 import uuid
 
 # Sibling imports (same dir on PATH inside the image; sys.path patched by the runner)
-from _turn_deadline import out_of_turn_message, seconds_left, wait_s
+from _turn_deadline import (TURN_DEADLINE_HEADROOM_S, no_time_to_retry_message, out_of_turn_message,
+                            seconds_left, wait_s)
 from _ws_contract import ERROR_EXIT, SIDECAR_OPS
 
 # The longest a call waits for the sidecar's answer, and the wait when the turn's deadline is
@@ -45,12 +46,16 @@ def recv_timeout_s(now: float | None = None) -> float:
 
 
 def _timeout_message(now: float, timeout_s: float) -> str:
-    """What a wait that ran out says. When the turn's deadline set the wait (below the ceiling),
-    the turn ran out, not the service: say so, and that retrying in this turn cannot help."""
+    """What a wait that ran out says. The turn's deadline set the wait whenever it is below the
+    ceiling, and then the turn has only the headroom left, so no retry fits in it. An op that
+    started late (under twice the headroom left, as r5-682's 10 s wait did) ran out of turn, not
+    service: say so. One that started with most of the turn left met a slow service: say that."""
     left = seconds_left(now)
-    if left is not None and timeout_s < _RECV_CEILING_S:
+    if left is None or timeout_s >= _RECV_CEILING_S:
+        return f"the sidecar did not answer within {timeout_s:.0f} s"
+    if left < 2 * TURN_DEADLINE_HEADROOM_S:
         return out_of_turn_message(left, timeout_s)
-    return f"the sidecar did not answer within {timeout_s:.0f} s"
+    return no_time_to_retry_message(timeout_s)
 
 
 def call_op(op: str, args: dict, *, ns_login: tuple[str, str], sidecar_url: str,

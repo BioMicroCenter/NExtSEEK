@@ -46,6 +46,15 @@ def out_of_turn_message(left_s: float, waited_s: float) -> str:
             "time, and offer to run it in the next turn.")
 
 
+def no_time_to_retry_message(waited_s: float) -> str:
+    """The error text for a wait that started with most of the turn left and still got no answer:
+    the service was slow, and the turn has no time left for another try."""
+    return (f"the sidecar did not answer within {waited_s:.0f} s, and this turn has no time left for "
+            "another try. Do not retry this op in this turn: answer now with what you already have, "
+            "say this step did not finish because the service was slow, and offer to run it in the "
+            "next turn.")
+
+
 def wait_s(now: float, *, fallback_s: float, ceiling_s: float = math.inf,
            headroom_s: float = TURN_DEADLINE_HEADROOM_S, floor_s: float = MIN_WAIT_S) -> float:
     """Seconds a client may wait at ``now`` (Unix seconds): the time left in this turn less
