@@ -22,7 +22,10 @@ agent) does not repeat the mistakes:
 * **Caching on by default.** A tool loop re-sends its whole head on every iteration,
   so the tools plus the system prompt are the clearest possible case for a cache
   point. This is the opposite of a one-shot call, where the win depends on whether
-  traffic clusters inside the TTL and so stays opt-in.
+  traffic clusters inside the TTL and so stays opt-in. The call after a provider move
+  goes out without one: the fallback model has never been sent a cache point on a
+  production path, a rejection would be a bare ValidationException that does not
+  move, and one call's cache is worth nothing.
 * **A ledger entry per call**, including cache hits, so a loop's cost is measurable.
   The first call after a move also names it (``fallback_from``, ``fallback_reason``).
 """
@@ -50,12 +53,13 @@ from .schemas.schema_helper import (
     _run_with_wall_clock,
 )
 
-# The wall clock on one tool-loop call. Both loops run without extended thinking and
-# are capped at the client's max_tokens (4096), so a call that answers at all answers
-# well inside 120 s; the retry goes to the fallback model on a fresh socket and gets 60 s,
-# the parser's retry window. Worst case per iteration: 120 + 60 s.
+# The wall clock on one tool-loop call. The local ledger's Opus 4.7 calls for these two
+# agents (41 followup, 19 pipeline_agent, 2026-09-25) have a p95 of 4-6 s and a maximum
+# of 10 s, so 120 s is ample for the first try. The retry gets the same 120 s, not less:
+# after a move the fallback model regenerates the whole output, and a pipeline
+# write_samplesheet call can be several thousand tokens. Worst case per call: 240 s.
 TOOL_CALL_TIMEOUT_SECONDS = 120
-TOOL_CALL_TIMEOUT_RETRY_SECONDS = 60
+TOOL_CALL_TIMEOUT_RETRY_SECONDS = 120
 
 
 def _tool_capable(client) -> bool:
@@ -174,6 +178,8 @@ def call_tools(
         t0 = time.perf_counter()
         try:
             call_client, call_model, call_budget = target_client, target_model, target_budget
+            # No cache point once the call has moved (see the module docstring).
+            call_cache = cache_prompt and not switches
             result = _run_with_wall_clock(
                 lambda: call_client.chat_with_tools(
                     messages=messages,
@@ -183,7 +189,7 @@ def call_tools(
                     max_tokens=max_tokens,
                     temperature=temperature,
                     tool_choice=tool_choice,
-                    cache_prompt=cache_prompt,
+                    cache_prompt=call_cache,
                     thinking_budget=call_budget,
                 ),
                 _timeout,

@@ -675,7 +675,9 @@ def test_the_tool_loop_wall_clock_defaults():
 
     params = inspect.signature(tool_loop.call_tools).parameters
     assert params["timeout_seconds"].default == 120
-    assert params["timeout_retry_seconds"].default == 60
+    # A move regenerates the whole output (a write_samplesheet call can be thousands of
+    # tokens), so the retry gets the same window, not a shorter one.
+    assert params["timeout_retry_seconds"].default == 120
     assert params["timeout_retries"].default == 1
 
 
@@ -747,3 +749,66 @@ def test_the_tool_loop_ledger_names_the_move(tmp_path):
     assert "fallback_from" not in entries[0]
     assert entries[1]["fallback_from"] == OPUS and entries[1]["fallback_reason"] == "unavailable"
     assert entries[1]["timeout_seconds"] == 120
+
+
+class _CacheRecordingToolClient(_SlowToolClient):
+    def __init__(self, provider, outcomes):
+        super().__init__(provider, outcomes)
+        self.cache: list[bool] = []
+
+    def chat_with_tools(self, *, model, cache_prompt=False, **kw):
+        self.cache.append(cache_prompt)
+        return super().chat_with_tools(model=model, **kw)
+
+
+@pytest.mark.parametrize("first", [LLMServiceUnavailableError("503"), LLMTimeoutError("t"),
+                                   LLMRateLimitError("429"), LLMAPIConnectionError("reset")],
+                         ids=["503", "timeout", "429", "connection"])
+def test_the_moved_call_goes_out_without_prompt_caching(first, no_sleep):
+    """Sonnet 4.6 with a one-hour cachePoint has never been sent on a production path; a
+    rejection would be a bare ValidationException that does not move, so every
+    fallback would fail. One call's cache is worth nothing."""
+    bedrock = _CacheRecordingToolClient("bedrock", [first, "ok"])
+    _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert bedrock.calls == [OPUS, SONNET]
+    assert bedrock.cache == [True, False]
+
+
+def test_a_same_provider_retry_keeps_its_cache():
+    """No move, no change: a timeout with nowhere to move retries as it was sent."""
+    bedrock = _CacheRecordingToolClient("bedrock", [LLMTimeoutError("t"), "ok"])
+    _loop(_Config(bedrock, agent="followup"), bedrock)
+    assert bedrock.cache == [True, True]
+
+
+def test_the_moved_bedrock_request_carries_no_cache_point():
+    """At the wire: the fallback's Converse request has no cachePoint in tools or system."""
+    from types import SimpleNamespace
+
+    from botocore.exceptions import ClientError
+
+    from chat_nextseek.llm_clients import BedrockClient
+
+    requests: list[dict] = []
+
+    def converse(**kwargs):
+        requests.append(kwargs)
+        if len(requests) == 1:
+            raise ClientError({"Error": {"Code": "ServiceUnavailableException", "Message": "busy"}}, "Converse")
+        return {"stopReason": "end_turn", "output": {"message": {"content": [{"text": "ok"}]}}}
+
+    bedrock = BedrockClient.__new__(BedrockClient)
+    bedrock.max_output_tokens = 4096
+    bedrock.client = SimpleNamespace(converse=converse, close=lambda: None)
+    tools = [{"name": "answer", "description": "d", "input_schema": {"type": "object", "properties": {}}}]
+    from chat_nextseek.tool_loop import call_tools
+
+    call_tools(_bedrock_loop_config(bedrock), messages=[{"role": "user", "content": "q"}], tools=tools,
+               system="s", model_name=OPUS, client=bedrock, agent_label="followup")
+
+    first, moved = requests
+    assert (first["modelId"], moved["modelId"]) == (OPUS, SONNET)
+    assert any("cachePoint" in t for t in first["toolConfig"]["tools"])
+    assert any("cachePoint" in b for b in first["system"])
+    assert not any("cachePoint" in t for t in moved["toolConfig"]["tools"])
+    assert not any("cachePoint" in b for b in moved["system"])
