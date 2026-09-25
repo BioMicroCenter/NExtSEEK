@@ -1,11 +1,14 @@
 {
   "_name": "probe-2026-09-25-reviewer-live - the graph reviewer fires live on the shapes it was built for, and stays quiet on the rest",
-  "_why": "On the 2026-09-25 dev run the graph reviewer ran on 25 of 25 graph turns and fired on none: the live catalog read two uncached value lists per turn, so unapplied_value never reached T_A_ALN.DataType (fix/reviewer-live-values). This probe asserts the reviewer's own output on the debug payload: debug.graph_review.verdict, debug.graph_review.fired (a list of check names, added by that branch; absent before it, so every should-fire criterion is red on an older build, which is the point) and debug.suggestions (the chips; absent when there are none, so `eq null` means no chip). Five should-fire shapes on dev data (unapplied_value twice, negated_value, value_split, premise_count) and four quiet controls (a grouped spellings count, a plain count, an applied equality, and the 'Only RNA-Seq' chip's own text, which must resolve to 10,517 and stay quiet). Every should-fire case depends on the graph agent writing the shape the reviewer checks: if it applies the filter itself (DataType = 'RNA-Seq', Ethnicity = 'hispanic or latino'), the reviewer is right to stay quiet and the case reads as drift, not a reviewer defect. For agent C: rev.unapplied_rnaseq_alignment repeats corpus case tcga.patients_with_rnaseq and rev.quiet_unc_spellings repeats tcga.unc_center_spellings; fold these criteria into those cases rather than asking twice, and pick one of the two unapplied_value cases if the seed must not near-repeat. rev.quiet_chip_text_resolves is the chip's click text; keep it only if a near-repeat of the RNA-Seq case is acceptable.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json --out /app/runs/reviewer-live-<date>\nPAID: 9 cases, 9 NS turns, no Container-CC. Needs the operator's approval for the run. Dev only: every case is TCGA data, which production does not hold.",
+  "_why": "On the 2026-09-25 dev run the graph reviewer ran on 25 of 25 graph turns and fired on none: the live catalog read two uncached value lists per turn, so unapplied_value never reached T_A_ALN.DataType (fix/reviewer-live-values). This probe asserts the reviewer's own output on the debug payload: debug.graph_review.verdict, debug.graph_review.fired (a list of check names, added by that branch; absent before it, so every should-fire criterion is red on an older build, which is the point) and debug.suggestions (the chips; absent when there are none, so `eq null` means no chip). Five should-fire shapes on dev data (unapplied_value twice, one with the chip clicked as turn 2, negated_value and value_split as plain counts, premise_count) and four quiet controls (a grouped spellings count, a plain count, an applied equality, and the 'Only RNA-Seq' chip's own text, which must resolve to 10,517 and stay quiet). Every should-fire case depends on the graph agent writing the shape the reviewer checks: if it applies the filter itself (DataType = 'RNA-Seq', Ethnicity = 'hispanic or latino'), the reviewer is right to stay quiet and the case reads as drift, not a reviewer defect. For agent C: rev.unapplied_rnaseq_alignment repeats corpus case tcga.patients_with_rnaseq and rev.quiet_unc_spellings repeats tcga.unc_center_spellings; fold these criteria into those cases rather than asking twice, and pick one of the two unapplied_value cases if the seed must not near-repeat. rev.quiet_chip_text_resolves is the chip's click text; keep it only if a near-repeat of the RNA-Seq case is acceptable.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json --out /app/runs/reviewer-live-<date>\nPAID: 9 cases, 10 NS turns, no Container-CC. Needs the operator's approval for the run. Dev only: every case is TCGA data, which production does not hold.",
   "_instance_warning": "EVERY NUMBER HERE WAS MEASURED ON fairdata-dev ON 2026-09-25 (read-only, admin; scoped to project 1 the TCGA numbers are the same). Re-pin before a run on another graph:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>\n  python ... pin_probe_truths.py --pin <this file> --from measured.json",
   "_observability": "graph_review.fired, graph_review.verdict and suggestions are read from query_complete.debug by dotted path (NessieAI/tests/e2e/criteria.py resolve_field: dicts only, so the fired list, not the checks list). A `matches_re` on suggestions reads the chips' Python repr: 'Only RNA-Seq' and 'expected_count': 10517. graph_review.lookups (what the live catalog read, what the budget stopped) is informational: no criterion reads it, the triage does.",
   "_measure": {
     "rev.unapplied_rnaseq_alignment": {
-      "locals": [10761, 10517],
+      "locals": [
+        10761,
+        10517
+      ],
       "mode": "any",
       "cypher": [
         "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = 'TCGA' AND EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n",
@@ -13,7 +16,10 @@
       ]
     },
     "rev.unapplied_wgs_alignment": {
-      "locals": [11171, 9447],
+      "locals": [
+        11171,
+        9447
+      ],
       "mode": "any",
       "cypher": [
         "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = 'TCGA' AND EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(p) } RETURN count(DISTINCT p) AS n",
@@ -21,24 +27,39 @@
       ]
     },
     "rev.premise_wrong_patient_total": {
-      "locals": [5817],
+      "locals": [
+        5817
+      ],
       "mode": "each",
       "cypher": [
         "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = 'TCGA' AND p.Sex = 'female' RETURN count(DISTINCT p) AS n"
       ]
     },
     "rev.quiet_female_patients": {
-      "locals": [5817],
+      "locals": [
+        5817
+      ],
       "mode": "each",
       "cypher": [
         "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = 'TCGA' AND p.Sex = 'female' RETURN count(DISTINCT p) AS n"
       ]
     },
     "rev.quiet_chip_text_resolves": {
-      "locals": [10517],
+      "locals": [
+        10517
+      ],
       "mode": "each",
       "cypher": [
         "MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) WHERE inv.title = 'TCGA' AND EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p) WHERE aln.DataType = 'RNA-Seq' } RETURN count(DISTINCT p) AS n"
+      ]
+    },
+    "rev.value_split_star_aligner": {
+      "locals": [
+        33227
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (a:T_A_ALN) WHERE toLower(a.Aligner) CONTAINS 'star' RETURN count(a) AS n"
       ]
     }
   },
@@ -49,22 +70,80 @@
         {
           "family": "reviewer_live",
           "id": "rev.unapplied_rnaseq_alignment",
-          "name": "unapplied_value: RNA-Seq alignments counted with miRNA-Seq, the mix named and 'Only RNA-Seq' offered",
-          "_why": "The dev 1276 shape. Operator ruling 2026-09-25: 10,761 is an acceptable answer, but the reply must say it mixes RNA-Seq and miRNA-Seq and offer 'Only RNA-Seq' (expected 10,517). Dev: patients split by alignment DataType miRNA-Seq 10,561, RNA-Seq 10,517, WXS 3.",
-          "tags": ["nessie", "probe", "full"],
+          "name": "unapplied_value: RNA-Seq alignments counted with miRNA-Seq, the mix named, and a click on 'Only RNA-Seq' reruns the reviewer's statement",
+          "_why": "The dev 1276 shape. Operator ruling 2026-09-25: 10,761 is an acceptable answer, but the reply must say it mixes RNA-Seq and miRNA-Seq and offer 'Only RNA-Seq' (expected 10,517). Dev: patients split by alignment DataType miRNA-Seq 10,561, RNA-Seq 10,517, WXS 3. Turn 2 clicks the chip: the harness sends the chip's exact text on the very next turn, which is how the chat panel sends a click, so the server reruns the reviewer's own statement (debug.chip_rerun.mode 'direct') with no entity agent, parser or graph agent, and offers no chip back. If turn 1 offered no chip (the graph agent applied DataType itself), turn 2 is an ordinary question and its click criteria are red, correctly.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "How many TCGA patients have at least one RNA-Seq alignment derived from their samples?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "nonempty", "value": null},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])(10,?761|10,?517)(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.fired", "op": "contains", "value": "unapplied_value"},
-                {"field": "last_reply", "op": "matches_re", "value": "miRNA"},
-                {"field": "suggestions", "op": "matches_re", "value": "'label': 'Only RNA-Seq'"},
-                {"field": "suggestions", "op": "matches_re", "value": "'expected_count': 10517"}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(10,?761|10,?517)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.fired",
+                  "op": "contains",
+                  "value": "unapplied_value"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "miRNA"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "matches_re",
+                  "value": "'label': 'Only RNA-Seq'"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "matches_re",
+                  "value": "'expected_count': 10517"
+                }
+              ]
+            },
+            {
+              "label": "click",
+              "query": "How many TCGA patients have at least one RNA-Seq alignment derived from their samples? Count only Sequence Alignment Analysis records whose DataType is RNA-Seq.",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])10,?517(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "suggestion_accepted.kind",
+                  "op": "eq",
+                  "value": "narrow_value"
+                },
+                {
+                  "field": "chip_rerun.mode",
+                  "op": "eq",
+                  "value": "direct"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
@@ -74,39 +153,82 @@
           "id": "rev.unapplied_wgs_alignment",
           "name": "unapplied_value: a WGS alignment question the query answers for every alignment type",
           "_why": "The same omission on another value. Dev: TCGA patients with any alignment derived from their samples 11,171, with a WGS one 9,447 (by DataType: WXS 10,610, miRNA-Seq 10,561, RNA-Seq 10,517, WGS 9,447, ATAC-Seq 404). The chip's expected count depends on the Cypher shape (set when the alignment is bound only inside an EXISTS), so only the chip label is asserted.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "How many TCGA patients have at least one WGS alignment derived from their samples?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "nonempty", "value": null},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])(11,?171|9,?447)(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.fired", "op": "contains", "value": "unapplied_value"},
-                {"field": "suggestions", "op": "matches_re", "value": "'label': 'Only WGS'"}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])(11,?171|9,?447)(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.fired",
+                  "op": "contains",
+                  "value": "unapplied_value"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "matches_re",
+                  "value": "'label': 'Only WGS'"
+                }
               ]
             }
           ]
         },
         {
           "family": "reviewer_live",
-          "id": "rev.negated_hispanic_list",
-          "name": "negated_value: 'Hispanic' also matches 'not hispanic or latino'",
-          "_why": "Dev T_PAT.Ethnicity: 'not hispanic or latino' 8,491, 'hispanic or latino' 401, so CONTAINS 'hispanic' returns 8,892. A row question on purpose: on a count-only query Tier 1 treats the aggregate as already stating the split and stays quiet (a known gap, see B-REPORT.md).",
-          "tags": ["nessie", "probe", "full"],
+          "id": "rev.negated_hispanic_count",
+          "name": "negated_value: a count of 'Hispanic' also counts 'not hispanic or latino'",
+          "_why": "Dev T_PAT.Ethnicity: 'not hispanic or latino' 8,491, 'hispanic or latino' 401, so CONTAINS 'hispanic' counts 8,892. A count with no grouping column fires since 3422cb1c (before it, a count counted as already stating the split). The chip 'Only hispanic or latino' carries no expected count (no Tier 2 count for this check); a click on it goes to the graph agent with the turn's statement and the one change.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
-              "query": "Show me the TCGA patients who are Hispanic.",
+              "query": "How many TCGA patients are Hispanic?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "nonempty", "value": null},
-                {"field": "graph_review.fired", "op": "contains", "value": "negated_value"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?i)not hispanic"},
-                {"field": "suggestions", "op": "matches_re", "value": "'label': 'Only hispanic or latino'"}
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "graph_review.fired",
+                  "op": "contains",
+                  "value": "negated_value"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)not hispanic"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "matches_re",
+                  "value": "'label': 'Only hispanic or latino'"
+                }
               ]
             }
           ]
@@ -114,21 +236,39 @@
         {
           "family": "reviewer_live",
           "id": "rev.value_split_star_aligner",
-          "name": "value_split: 'STAR' matches three different aligner modes",
-          "_why": "Dev T_A_ALN.Aligner: STAR 2-Pass Genome 11,505, STAR 2-Pass Chimeric 10,861, STAR 2-Pass Transcriptome 10,861 (33,227 in all). A row question on purpose, for the same reason as the Hispanic case. The split fires as value_split_rows when the Aligner column comes back, value_split_catalog when it does not.",
-          "tags": ["nessie", "probe", "full"],
+          "name": "value_split: a count of 'STAR' alignments counts three aligner modes",
+          "_why": "Dev T_A_ALN.Aligner: STAR 2-Pass Genome 11,505, STAR 2-Pass Chimeric 10,861, STAR 2-Pass Transcriptome 10,861 (33,227 in all). A count with no grouping column fires value_split_catalog since 3422cb1c.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
-              "query": "Show me the TCGA alignments that were made with the STAR aligner.",
+              "query": "How many TCGA alignments were made with the STAR aligner?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "nonempty", "value": null},
-                {"field": "graph_review.verdict", "op": "eq", "value": "suggest"},
-                {"field": "graph_review.fired", "op": "matches_re", "value": "value_split_(rows|catalog)"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?i)chimeric|transcriptome"},
-                {"field": "suggestions", "op": "matches_re", "value": "'label': 'Only STAR 2-Pass"}
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])33,?227(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.fired",
+                  "op": "contains",
+                  "value": "value_split_catalog"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?i)chimeric|transcriptome"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "matches_re",
+                  "value": "'label': 'Only STAR 2-Pass"
+                }
               ]
             }
           ]
@@ -138,18 +278,42 @@
           "id": "rev.premise_wrong_patient_total",
           "name": "premise_count: the user states a set size the graph does not hold",
           "_why": "The dev graph holds 11,428 TCGA patients, 5,817 of them female. The question states 12,000: the reviewer discloses that the search did not reproduce that number, with no chip.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "Of the 12,000 TCGA patients, how many are female?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])5,?817(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.fired", "op": "contains", "value": "premise_count"},
-                {"field": "last_reply", "op": "matches_re", "value": "12,?000"},
-                {"field": "suggestions", "op": "eq", "value": null}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])5,?817(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.fired",
+                  "op": "contains",
+                  "value": "premise_count"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "12,?000"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
@@ -159,17 +323,37 @@
           "id": "rev.quiet_unc_spellings",
           "name": "quiet: a grouped count already states every spelling",
           "_why": "The dev 1273 control: 'UNC' 28,242, 'unc.edu' 1,049, 'UNC-LCCC' 104 alignments. The rows are the split, so no value check may fire.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "Which spellings of the UNC (University of North Carolina) sequencing center are used on TCGA alignment samples, and how many alignments carry each spelling?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])28,?242(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.verdict", "op": "eq", "value": "ok"},
-                {"field": "suggestions", "op": "eq", "value": null}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])28,?242(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
@@ -179,17 +363,37 @@
           "id": "rev.quiet_gbm_patients",
           "name": "quiet: a plain count of a study's patients",
           "_why": "The dev 1274 control: 617 patients in the TCGA glioblastoma study.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "How many patients are in the TCGA glioblastoma (GBM) study?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])617(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.verdict", "op": "eq", "value": "ok"},
-                {"field": "suggestions", "op": "eq", "value": null}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])617(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
@@ -199,17 +403,37 @@
           "id": "rev.quiet_female_patients",
           "name": "quiet: the value the question names is applied",
           "_why": "5,817 female TCGA patients on dev. 'female' is also a STOP_VALUES word, so unapplied_value never reads it; the control is that nothing else fires.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "How many TCGA patients are female?",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])5,?817(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_review.verdict", "op": "eq", "value": "ok"},
-                {"field": "suggestions", "op": "eq", "value": null}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])5,?817(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
@@ -219,18 +443,42 @@
           "id": "rev.quiet_chip_text_resolves",
           "name": "quiet: the 'Only RNA-Seq' chip's own text gets the narrowed count and no chip of its own",
           "_why": "What one click on rev.unapplied_rnaseq_alignment's chip sends (NARROW_QUERY in graph_review.py). The filter is spelled out, so the graph agent applies DataType and the reviewer stays quiet: 10,517, and chips never chain.",
-          "tags": ["nessie", "probe", "full"],
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
           "requires_env": [],
           "turns": [
             {
               "label": "main",
               "query": "How many TCGA patients have at least one RNA-Seq alignment derived from their samples? Count only Sequence Alignment Analysis records whose DataType is RNA-Seq.",
               "pass_criteria": [
-                {"field": "route", "op": "eq", "value": "nextseek_query"},
-                {"field": "last_reply", "op": "matches_re", "value": "(?<![\\w.,/-])10,?517(?![\\w]|[.,]\\d|[-/]\\d)"},
-                {"field": "graph_cypher", "op": "matches_re", "value": "DataType"},
-                {"field": "graph_review.verdict", "op": "eq", "value": "ok"},
-                {"field": "suggestions", "op": "eq", "value": null}
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])10,?517(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "DataType"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
+                }
               ]
             }
           ]
