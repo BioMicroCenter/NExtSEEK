@@ -384,3 +384,13 @@ def test_a_turn_that_escapes_its_entry_point_takes_its_record_with_it():
     assert fields["cost_partial"] is False
     assert set(fields) == {"total_cost_usd", "cost_partial", "models_used", "model_fallback"}
     assert turn_spend.cost_fields(RuntimeError("no record")) == {}
+
+
+def test_inside_a_turn_the_cost_fields_are_the_running_turns():
+    """run_query's own crash handler reads the turn it is still inside."""
+    assert turn_spend.cost_fields() == {}
+    with turn_spend.collecting():
+        turn_spend.record_call(_entry(), resp=_resp(GEMINI_USAGE))
+        fields = turn_spend.cost_fields()
+    assert fields["total_cost_usd"] == pytest.approx(_price(FLASH, GEMINI_USAGE), abs=1e-6)
+    assert fields["models_used"] == [FLASH]

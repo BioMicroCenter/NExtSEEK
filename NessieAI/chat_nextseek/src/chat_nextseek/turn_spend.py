@@ -222,10 +222,13 @@ def collects_turn(fn: _F) -> _F:
     return wrapper  # type: ignore[return-value]
 
 
-def cost_fields(exc: BaseException) -> dict[str, Any]:
-    """The turn-record fields of a turn that ended in ``exc`` (see ``collects_turn``),
-    for the ``query_error`` that reports it; empty when it carries none."""
-    record = getattr(exc, "turn_record", None)
+def cost_fields(exc: BaseException | None = None) -> dict[str, Any]:
+    """The turn-record fields for a ``query_error`` that ends a turn: those of the turn
+    that ended in ``exc`` (see ``collects_turn``), else those of the turn still running
+    in this context; empty when there are none."""
+    record = getattr(exc, "turn_record", None) if exc is not None else None
+    if record is None:
+        record = turn_record()
     if not isinstance(record, dict):
         return {}
     return {key: record[key] for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback")

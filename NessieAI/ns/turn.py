@@ -242,12 +242,14 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except LLMFatalError as fatal:
         _report_fatal(fatal, send_event, error_state, resolved_session_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("Unhandled pipeline error")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:
@@ -277,12 +279,14 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except LLMFatalError as fatal:
         _report_fatal(fatal, send_event, error_state, resolved_session_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("Unhandled pipeline error (async)")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:

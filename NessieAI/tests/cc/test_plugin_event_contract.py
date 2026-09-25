@@ -15,7 +15,9 @@ server code that sends it: ``_emit_query_complete`` inside a collected turn, the
 handlers of ``run_query`` and ``run_query_plan``, and the pipeline body's
 ``_report_fatal``. Each is stored the way the async endpoint stores it (the DB callback
 adds ``session_id``; the progress list is JSON) and validated against the plugin models,
-directly and through the real ``AssistantClient.run_query``.
+directly and through the real ``AssistantClient.run_query``. The server's OpenAPI event
+models (``nextseek_api.assistant.models_api``) are held to the same payloads, so the
+documented schema cannot go stale either.
 
 Hermetic: no model, no network, no database (the event store is a list).
 """
@@ -81,9 +83,14 @@ def _spend_a_call():
 
 
 def _validate(plugin, name, data):
+    """The plugin's mirror (what the ops enforce) and the server's own OpenAPI models
+    (``nextseek_api.assistant.models_api``, which document the event) both accept it."""
+    from nextseek_api.assistant import models_api
+
     models, _ = plugin
-    model = models.QueryCompleteEvent if name == "query_complete" else models.QueryErrorEvent
-    model(**data)
+    for source in (models, models_api):
+        model = source.QueryCompleteEvent if name == "query_complete" else source.QueryErrorEvent
+        model(**data)
 
 
 def _through_the_client(plugin, name, data):
@@ -189,6 +196,45 @@ def test_a_fatal_that_escaped_the_pipeline_launch_is_reported_in_a_shape_the_plu
     assert error["total_cost_usd"] is not None and error["model_fallback"] == [MOVE]
     _validate(plugin, "query_error", error)
     assert _through_the_client(plugin, "query_error", error)["__error__"] == error["error"]
+
+
+# ---------------------------------------------------------------------------- a crash
+
+def test_a_turn_that_crashed_in_run_query_reports_its_cost_in_a_shape_the_plugin_accepts(
+        plugin, monkeypatch, tmp_path):
+    """run_query answers any other exception with its own query_error, then re-raises;
+    that event is the turn's last and now carries what the turn spent."""
+    _stub_turn(monkeypatch, tmp_path)
+    monkeypatch.setattr(orchestrator, "_handle_pipeline_agent_turn", _raise_after_a_call(RuntimeError("boom")))
+    store = _Store()
+    with pytest.raises(RuntimeError):
+        orchestrator.run_query({}, object(), "how many mice", store)
+    error = store.terminal("query_error")
+    assert error["error"] == "boom" and error["total_cost_usd"] is not None
+    assert error["model_fallback"] == [MOVE]
+    _validate(plugin, "query_error", error)
+
+
+def test_a_crash_that_escaped_the_pipeline_launch_reports_its_cost_in_a_shape_the_plugin_accepts(
+        plugin, monkeypatch, tmp_path):
+    """The pipeline body's generic query_error, for an exception run_pipeline_launch did
+    not answer itself, carries the cost the turn record took out on the exception."""
+    from NessieAI.ns import turn as ns_turn
+
+    _stub_turn(monkeypatch, tmp_path)
+    monkeypatch.setattr(orchestrator.pipeline_agent, "start", _raise_after_a_call(RuntimeError("boom")))
+    monkeypatch.setattr(ns_turn, "_save_session_or_report", lambda *a, **k: None)
+    store = _Store()
+
+    class _Req:
+        mode = "pipeline"
+        query = "launch rnaseq on those samples"
+
+    ns_turn.run_async_pipeline(adapter={}, chat_config=object(), req=_Req(), send_event=store,
+                               api_user="u", api_pass="p", chat_session=object(), resolved_session_id=SID)
+    error = store.terminal("query_error")
+    assert error["error"] == "Internal pipeline error" and error["total_cost_usd"] is not None
+    _validate(plugin, "query_error", error)
 
 
 # ---------------------------------------------------------------------------- the guard itself

@@ -2650,7 +2650,9 @@ def run_query(
 
     except Exception as exc:
         if send_event:
-            send_event("query_error", {"error": str(exc), "agent": current_agent})
+            # The turn's last event: it carries what the turn spent before it failed.
+            send_event("query_error", {"error": str(exc), "agent": current_agent,
+                                       **turn_spend.cost_fields()})
         raise
 
 
