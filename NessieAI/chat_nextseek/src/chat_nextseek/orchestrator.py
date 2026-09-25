@@ -88,6 +88,7 @@ from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .session import SessionState
 from .tee import Tee
+from . import turn_spend
 from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -393,12 +394,27 @@ def _emit_query_complete(
     artifacts: list[dict[str, Any]] | None = None,
     files: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the final query payload and emit a `query_complete` event when requested."""
+    """Assemble the final query payload and emit a `query_complete` event when requested.
+
+    Inside an NS turn (the entry points collect it, ``turn_spend``) the payload also
+    carries the turn record: ``total_cost_usd`` (the priced calls summed; None when no
+    call could be priced), ``cost_partial`` (some call's usage was unseen or its model had
+    no price), ``models_used``, ``model_fallback``, and the breakdown in
+    ``debug["cost"]``. The caller's ``debug`` dict, often ``session["last_debug"]``, is
+    copied rather than changed.
+    """
     payload: dict[str, Any] = {
         "reply": reply,
         "debug": debug,
         "bundle_id": bundle_id,
     }
+    record = turn_spend.turn_record()
+    if record is not None:
+        for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback"):
+            if key in record:
+                payload[key] = record[key]
+        if isinstance(debug, dict):
+            payload["debug"] = {**debug, "cost": record.get("cost")}
     if artifacts:
         payload["artifacts"] = artifacts
     if files:
@@ -408,6 +424,7 @@ def _emit_query_complete(
     return payload
 
 
+@turn_spend.collects_turn
 def run_pipeline_launch(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -1747,6 +1764,7 @@ def unsupported_reply(plan) -> str:
     return UNSUPPORTED_REPLY
 
 
+@turn_spend.collects_turn
 def run_query(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -2677,6 +2695,7 @@ def _plan_graph_result(step_result: dict) -> dict:
     }
 
 
+@turn_spend.collects_turn
 def run_query_plan(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,

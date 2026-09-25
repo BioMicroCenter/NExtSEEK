@@ -7,6 +7,7 @@ from typing import Any, Callable, Type
 
 from pydantic import BaseModel, ValidationError
 
+from .. import turn_spend
 from ..config import ChatConfig
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
@@ -633,12 +634,18 @@ def _call_with_recovery(
         return True
 
     def _log(outcome: str, t0: float, **kw) -> None:
-        """One ledger record for this attempt; the first one after a move names the move."""
+        """One ledger record for this attempt; the first one after a move names the move.
+
+        The record, with the response or error behind it, also goes to this turn's cost
+        collector (``turn_spend``), which prices the usage and counts what it cannot see.
+        """
         nonlocal pending_move
         move, pending_move = pending_move, {}
-        log_llm_call(config.LOG_DIR, _ledger_entry(
+        entry = _ledger_entry(
             agent_label, target_model_name, target_client, attempt, outcome, t0, **kw, **move,
-        ))
+        )
+        log_llm_call(config.LOG_DIR, entry)
+        turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
     while attempt + 1 < max_attempts:
         attempt += 1
