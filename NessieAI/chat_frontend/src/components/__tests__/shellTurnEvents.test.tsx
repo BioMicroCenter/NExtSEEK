@@ -83,7 +83,8 @@ describe.each(SHELLS)("%s during a turn whose progress socket dropped", (_name, 
 const TIMED_OUT: ProgressEvent = {
   event: "query_error",
   data: {
-    error: "Container-CC turn exceeded the 180s limit and was stopped.",
+    error:
+      "This took longer than the 3-minute limit, so I stopped. Say continue and I will carry on from where I got to.",
     reason: "exec_timeout",
     agent: "container_cc",
     cc_session_id: "cc-1",
@@ -105,7 +106,9 @@ describe.each(SHELLS)("%s after a Container-CC turn that timed out", (_name, mak
     act(() => t.onProgress(TIMED_OUT));
 
     expect(
-      await screen.findByText("Error: Container-CC turn exceeded the 180s limit and was stopped."),
+      await screen.findByText(
+        "Error: This took longer than the 3-minute limit, so I stopped. Say continue and I will carry on from where I got to.",
+      ),
     ).toBeInTheDocument();
     const link = await screen.findByTestId("artifact-download");
     expect(link).toHaveTextContent("report.csv");
@@ -124,7 +127,7 @@ describe.each(SHELLS)("%s after a Container-CC turn that timed out", (_name, mak
       }),
     );
 
-    expect(await screen.findByText(/^Error: Container-CC turn exceeded/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Error: This took longer than the 3-minute limit/)).toBeInTheDocument();
     expect(screen.queryByTestId("artifact-download")).toBeNull();
   });
 });
