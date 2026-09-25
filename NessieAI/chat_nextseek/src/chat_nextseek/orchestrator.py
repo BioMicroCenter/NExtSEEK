@@ -2341,6 +2341,24 @@ def handle_query(session: SessionState | SessionStateProxy, config: ChatConfig, 
     return run_query(session, config, user_text)["reply"]
 
 
+def _plan_graph_result(step_result: dict) -> dict:
+    """A planner graph step's result as the plan bundle stores it.
+
+    ``total`` and ``truncated`` are kept as the step has them from ``tool_neo4j_query``:
+    ``count`` is only the number of rows returned, so without them a step that hit its
+    LIMIT was stored as 1,000 of 1,000 and a follow-up read the capped rows as the set.
+    """
+    output = step_result.get("output") or {}
+    return {
+        "ok": step_result.get("ok"),
+        "data": output.get("data") or [],
+        "count": output.get("count", 0),
+        "total": output.get("total"),
+        "truncated": bool(output.get("truncated")),
+        "error": step_result.get("error"),
+    }
+
+
 def run_query_plan(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -2724,12 +2742,7 @@ def run_query_plan(
                 }
             elif tool == "graph_query" and canonical_graph_plan is None:
                 canonical_graph_plan = output.get("graph_plan")
-                canonical_graph_result = {
-                    "ok": sr.get("ok"),
-                    "data": output.get("data") or [],
-                    "count": output.get("count", 0),
-                    "error": sr.get("error"),
-                }
+                canonical_graph_result = _plan_graph_result(sr)
                 if canonical_memory_payload is None:
                     canonical_memory_payload = canonical_graph_result
             elif tool in {"reporter", "report_generation"}:

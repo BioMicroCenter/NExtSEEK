@@ -20,10 +20,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
 from chat_nextseek import orchestrator as orch
+from chat_nextseek.agents import followup as followup_mod
+from chat_nextseek.agents.planner import tools as planner_tools
 from chat_nextseek.agents.followup import (
     FOLLOWUP_AGENT_KEY,
     FOLLOWUP_ROWS_CHARS,
@@ -33,6 +37,8 @@ from chat_nextseek.agents.followup import (
     preview_rows,
     run_followup,
 )
+from chat_nextseek.artifacts import build_metadata_bundle
+from chat_nextseek.schemas.graph import GraphAgentPlan
 
 STORED_CYPHER = ("MATCH (s:Sample) WHERE s.type = $type "
                  "RETURN s.uuid AS uid, s.lab AS lab, s.type AS type LIMIT 5000")
@@ -60,6 +66,64 @@ def _rest_bundle(rows, *, total):
         "api_result_slim": {"data": {"total": total}},
         "memory_payload": {"data": rows},
     }
+
+
+def _plan_search_bundle(rows, total, *, total_in_memory=True):
+    """A plan-mode search step's bundle as ``run_query_plan`` builds it: the rows and the
+    search's total in memory_payload and api_result_full, and no api_result_slim."""
+    memory_data = {"rows": rows, "total": total} if total_in_memory else rows
+    return build_metadata_bundle(
+        bundle_id=11, mode="plan", user_query="tissue samples",
+        api_result_full={"ok": True, "data": {"rows": rows, "total": total}, "error": None},
+        memory_payload={"data": memory_data, "api_plan": None,
+                        "endpoint": "/nextseek_api/samples/advanced_search/", "tool": "new_search"},
+    )
+
+
+def _plan_graph_bundle(rows, *, total, truncated):
+    """A plan-mode graph step's bundle, through the plan bundle's own copy of the step."""
+    step = {"ok": True, "tool": "graph_query", "error": None,
+            "output": {"data": rows, "count": len(rows), "total": total, "truncated": truncated,
+                       "graph_plan": {"cypher": STORED_CYPHER, "parameters": {"type": "TIS"}}}}
+    return build_metadata_bundle(bundle_id=12, mode="plan", user_query="tissue samples",
+                                 graph_plan=step["output"]["graph_plan"],
+                                 graph_result=orch._plan_graph_result(step))
+
+
+def _plan_filter_bundle():
+    """A plan-mode filter step: its 30 rows and their total in memory_payload, beside the
+    2,057-row search it filtered, whose first 1,000 rows are in the full API result."""
+    return build_metadata_bundle(
+        bundle_id=16, mode="plan", user_query="tissue samples from LAB-A",
+        api_result_full={"ok": True, "data": {"rows": _records(1_000), "total": 2_057}, "error": None},
+        memory_payload={"data": {"rows": _records(30), "total": 30}, "tool": "coding_filter"},
+    )
+
+
+def _drf_bundle(results, *, count, next_url):
+    """A REST result whose body is a DRF page: {count, next, previous, results}."""
+    page = {"next": next_url, "previous": None, "results": results}
+    if count is not None:
+        page["count"] = count
+    return {"id": 13, "mode": "new_search", "user_query": "tissue samples",
+            "api_plan": {"endpoint": "/nextseek_api/samples/", "requestBody": {}},
+            "api_result_full": {"ok": True, "data": page}, "memory_payload": {"data": page}}
+
+
+def _limit_one_bundle():
+    """One UID-less all-scalar row that hit LIMIT 1 of 500: looks like an aggregate, is not."""
+    return {"id": 14, "mode": "graph_query", "user_query": "one lab",
+            "graph_plan": {"cypher": "MATCH (s:Sample) RETURN s.lab AS lab, 42 AS n LIMIT 1",
+                           "parameters": {}},
+            "graph_result": {"ok": True, "count": 1, "total": 500, "truncated": True, "limit": 1,
+                             "data": [{"lab": "LAB-A", "n": 42}]}}
+
+
+def _no_total_bundle(rows):
+    """A REST result that stored its rows and no total anywhere."""
+    return {"id": 15, "mode": "new_search", "user_query": "tissue samples",
+            "api_plan": {"endpoint": "/nextseek_api/samples/", "requestBody": {}},
+            "memory_payload": {"data": rows}}
 
 
 def _compact(value):
@@ -142,8 +206,8 @@ def test_a_larger_complete_result_returns_a_column_summary_over_every_row():
 
     assert "rows" not in described, "no rows once there are more than 50"
     assert set(summary) == {"uid", "lab", "type"}
-    assert summary["type"] == {"distinct": 1, "top": [["TIS", 160]]}
-    assert summary["lab"] == {"distinct": 2, "top": [["LAB-A", 100], ["LAB-B", 60]]}
+    assert summary["type"] == {"distinct": 1, "nulls": 0, "top": [["TIS", 160]]}
+    assert summary["lab"] == {"distinct": 2, "nulls": 0, "top": [["LAB-A", 100], ["LAB-B", 60]]}
     assert summary["uid"]["distinct"] == 160
     assert len(summary["uid"]["top"]) == 5
     assert described["columns_omitted"] == 0
@@ -167,7 +231,7 @@ def test_top_lists_five_values_most_common_first_with_ties_ordered_by_value():
     summary = describe_stored_result(_graph_bundle(rows))["column_summary"]
 
     assert summary["lab"] == {
-        "distinct": 7,
+        "distinct": 7, "nulls": 0,
         "top": [["LAB-F", 30], ["LAB-A", 20], ["LAB-C", 20], ["LAB-E", 20], ["LAB-B", 5]],
     }
 
@@ -192,14 +256,14 @@ def test_lists_and_dicts_are_counted_by_a_stable_serialisation():
         })
     summary = describe_stored_result(_graph_bundle(rows))["column_summary"]
 
-    assert summary["meta"] == {"distinct": 1, "top": [['{"a":2,"b":1}', 60]]}
-    assert summary["tags"] == {"distinct": 2, "top": [['["a","b"]', 40], ['["b","a"]', 20]]}
+    assert summary["meta"] == {"distinct": 1, "nulls": 0, "top": [['{"a":2,"b":1}', 60]]}
+    assert summary["tags"] == {"distinct": 2, "nulls": 0, "top": [['["a","b"]', 40], ['["b","a"]', 20]]}
 
 
 def test_a_column_of_mixed_types_is_counted_without_merging_or_crashing():
-    """Neo4j returns null for a missing property and a property can be a number on one node
-    and text on another. null counts as a value, so every column accounts for every row, a
-    key missing from a row counts as null, and True, 1 and "1" stay three values."""
+    """A property can be a number on one node and text on another: True, 1 and "1" stay
+    three values, and the order does not depend on the rows'. Null and a missing key are
+    counted apart, in nulls."""
     values = [None, True, 1, "1", "LAB-A", 2.5]
     rows = [{"uid": f"TIS-{i:04d}", "lab": values[i % 6]} for i in range(60)]
     for row in rows[:10]:
@@ -208,17 +272,32 @@ def test_a_column_of_mixed_types_is_counted_without_merging_or_crashing():
     forward = describe_stored_result(_graph_bundle(rows))["column_summary"]["lab"]
     backward = describe_stored_result(_graph_bundle(list(reversed(rows))))["column_summary"]["lab"]
 
-    assert forward["distinct"] == 6
-    assert [count for _, count in forward["top"]] == [10] * 5
-    assert [None, 10] in forward["top"], "a missing key counts as null"
+    assert forward == {"distinct": 5, "nulls": 10,
+                       "top": [[True, 10], [1, 10], [2.5, 10], ["1", 10], ["LAB-A", 10]]}
     assert _compact(forward) == _compact(backward)
+
+
+def test_nulls_are_counted_apart_from_the_distinct_values():
+    """10 labs over 99 rows and one row with no lab is 10 labs, not 11."""
+    rows = [{"uid": f"TIS-{i:04d}", "lab": f"LAB-{i % 10}"} for i in range(99)]
+    rows.append({"uid": "TIS-0099"})
+    summary = describe_stored_result(_graph_bundle(rows))["column_summary"]
+
+    assert summary["lab"]["distinct"] == 10
+    assert summary["lab"]["nulls"] == 1
+    assert all(value is not None for value, _ in summary["lab"]["top"])
+    assert summary["uid"]["nulls"] == 0
+
+    rows.append({"uid": "TIS-0100", "lab": None})
+    lab = describe_stored_result(_graph_bundle(rows))["column_summary"]["lab"]
+    assert (lab["distinct"], lab["nulls"]) == (10, 2), "an explicit null counts the same as a missing key"
 
 
 def test_an_integer_too_large_for_a_float_is_still_counted():
     """JSON integers have no size limit; turning one into a float to test it overflows."""
     rows = [{"uid": f"TIS-{i:04d}", "n": 10 ** 400 if i < 40 else 7} for i in range(60)]
     summary = describe_stored_result(_graph_bundle(rows))["column_summary"]
-    assert summary["n"] == {"distinct": 2, "top": [[10 ** 400, 40], [7, 20]]}
+    assert summary["n"] == {"distinct": 2, "nulls": 0, "top": [[10 ** 400, 40], [7, 20]]}
 
 
 def test_the_summary_is_bounded_and_says_how_many_columns_it_left_out():
@@ -241,7 +320,8 @@ def test_a_column_too_wide_to_fit_does_not_crowd_out_the_ones_after_it():
     described = describe_stored_result(_graph_bundle(rows))
 
     assert "notes" not in described["column_summary"]
-    assert described["column_summary"]["lab"] == {"distinct": 2, "top": [["LAB-A", 30], ["LAB-B", 30]]}
+    assert described["column_summary"]["lab"] == {"distinct": 2, "nulls": 0,
+                                                   "top": [["LAB-A", 30], ["LAB-B", 30]]}
     assert described["columns_omitted"] == 1
 
 
@@ -249,34 +329,168 @@ def test_a_column_too_wide_to_fit_does_not_crowd_out_the_ones_after_it():
 # A capped copy gets neither: complete and capped are the note's rule, not a new one
 # --------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize("bundle", [
-    _graph_bundle(_records(20), total=250),
-    _graph_bundle(_records(120), total=5_000),
-    _graph_bundle(_records(30), total=30, truncated=True),
-    _rest_bundle(_records(20), total=250),
-], ids=["graph-few-of-many", "graph-many-of-more", "truncated-flag", "rest"])
-def test_a_capped_copy_returns_neither_rows_nor_a_summary(bundle):
-    described = describe_stored_result(bundle)
+#: Every shape a stored copy can be capped in, built lazily (some go through production code).
+CAPPED = {
+    "graph-few-of-many": lambda: _graph_bundle(_records(20), total=250),
+    "graph-many-of-more": lambda: _graph_bundle(_records(120), total=5_000),
+    "truncated-flag": lambda: _graph_bundle(_records(30), total=30, truncated=True),
+    "rest": lambda: _rest_bundle(_records(20), total=250),
+    # A plan-mode search keeps its total only in memory_payload and api_result_full.
+    "plan-search-page": lambda: _plan_search_bundle(_records(1_000), 2_057),
+    "plan-search-total-in-api-result-only": lambda: _plan_search_bundle(
+        _records(1_000), 2_057, total_in_memory=False),
+    # A plan-mode graph step that hit its LIMIT, with the total probed and with the probe failed.
+    "plan-graph-limit-hit": lambda: _plan_graph_bundle(_records(1_000), total=2_057, truncated=True),
+    "plan-graph-limit-hit-no-total": lambda: _plan_graph_bundle(_records(1_000), total=None,
+                                                               truncated=True),
+    "drf-count": lambda: _drf_bundle(_records(100), count=2_057, next_url=None),
+    "drf-next": lambda: _drf_bundle(_records(100), count=None, next_url="/nextseek_api/samples/?page=2"),
+    "limit-1-aggregate": _limit_one_bundle,
+}
+NOT_CAPPED = {
+    "small": lambda: _graph_bundle(_records(20)),
+    "large": lambda: _graph_bundle(_records(120)),
+    "rest-complete": lambda: _rest_bundle(_records(20), total=20),
+    "plan-search-complete": lambda: _plan_search_bundle(_records(80), 80),
+    "plan-graph-complete": lambda: _plan_graph_bundle(_records(80), total=80, truncated=False),
+    "drf-last-and-only-page": lambda: _drf_bundle(_records(100), count=100, next_url=None),
+    "no-total-anywhere": lambda: _no_total_bundle(_records(20)),
+    "plan-filter-step": _plan_filter_bundle,
+}
+
+
+def _capped_notes():
+    return (followup_mod.CAPPED_NOTE + followup_mod.CAPPED_NOTE_SCOPING, followup_mod.CAPPED_NOTE_SEEDED)
+
+
+@pytest.mark.parametrize("build", list(CAPPED.values()), ids=list(CAPPED))
+def test_a_capped_copy_returns_neither_rows_nor_a_summary(build):
+    described = describe_stored_result(build())
 
     assert described["capped"] is True
     assert "rows" not in described
     assert "column_summary" not in described
+    assert described["note"] in _capped_notes()
 
 
-@pytest.mark.parametrize("bundle", [
-    _graph_bundle(_records(20)),
-    _graph_bundle(_records(20), total=250),
-    _graph_bundle(_records(120)),
-    _graph_bundle(_records(120), total=5_000),
-    _graph_bundle(_records(30), truncated=True),
-    _rest_bundle(_records(20), total=20),
-    _rest_bundle(_records(20), total=250),
-], ids=["small", "small-capped", "large", "large-capped", "truncated", "rest", "rest-capped"])
-def test_the_stored_rows_are_shown_exactly_when_the_copy_is_not_capped(bundle):
+@pytest.mark.parametrize("build", list(CAPPED.values()) + list(NOT_CAPPED.values()),
+                         ids=list(CAPPED) + list(NOT_CAPPED))
+def test_the_stored_rows_are_shown_exactly_when_the_copy_is_not_capped(build):
     """R1: one definition. Whatever the note calls capped shows nothing; the rest shows."""
-    described = describe_stored_result(bundle)
+    described = describe_stored_result(build())
     shows = "rows" in described or "column_summary" in described
     assert shows is (not described["capped"])
+    assert shows is (described["note"] not in _capped_notes())
+
+
+def test_a_plan_mode_search_page_reads_the_total_the_bundle_holds():
+    """1,000 rows of a 2,057-row search: the total was in the bundle, only not read."""
+    described = describe_stored_result(_plan_search_bundle(_records(1_000), 2_057))
+    assert described["total"] == 2_057
+    assert described["capped"] is True
+
+
+def test_the_total_stored_with_the_rows_wins_over_another_payload_s():
+    """A filter step's 30 rows are complete; the 2,057 is the search it filtered."""
+    described = describe_stored_result(_plan_filter_bundle())
+    assert (described["total"], described["capped"], described["rows_stored"]) == (30, False, 30)
+    assert len(described["rows"]) == 30
+
+
+def test_a_drf_page_reads_its_count():
+    described = describe_stored_result(_drf_bundle(_records(100), count=2_057, next_url=None))
+    assert described["total"] == 2_057
+
+
+def test_the_aggregate_reading_never_clears_a_truncated_flag():
+    assert describe_stored_result(_limit_one_bundle())["capped"] is True
+
+
+def test_a_count_that_was_not_cut_is_still_complete():
+    """The aggregate rule itself is unchanged: a count's one row is the whole answer."""
+    bundle = {"id": 2, "mode": "graph_query", "user_query": "how many mouse samples",
+              "graph_result": {"ok": True, "count": 1, "total": 1, "truncated": False,
+                               "data": [{"n": 705}]}}
+    described = describe_stored_result(bundle)
+    assert (described["total"], described["capped"], described["rows"]) == (705, False, [{"n": 705}])
+
+
+def _planner_graph_step(monkeypatch, tool_result):
+    monkeypatch.setattr(planner_tools, "graph_agent",
+                        lambda *a, **k: GraphAgentPlan(cypher=STORED_CYPHER, context_mode="catalog"))
+    monkeypatch.setattr(planner_tools, "tool_neo4j_query", lambda *a, **k: tool_result)
+    step = SimpleNamespace(execution=SimpleNamespace(tool_query="tissue samples", metadata={},
+                                                     target_endpoint=None, filters={}), notes="")
+    return planner_tools._plan_tool_graph_query(MagicMock(), {}, step, "tissue samples", {}, None, {})
+
+
+def _bundle_of_planner_step(step):
+    return build_metadata_bundle(bundle_id=12, mode="plan", user_query="tissue samples",
+                                 graph_plan=step["output"]["graph_plan"],
+                                 graph_result=orch._plan_graph_result(step))
+
+
+@pytest.mark.parametrize("total", [2_057, None], ids=["probed", "probe-failed"])
+def test_a_planner_graph_step_keeps_the_total_and_truncated_flag(monkeypatch, total):
+    """It kept only count = len(records), so a LIMIT 1000 hit was stored as 1,000 of 1,000."""
+    step = _planner_graph_step(monkeypatch, {
+        "ok": True, "data": _records(1_000), "count": 1_000, "total": total, "truncated": True,
+        "limit": 1_000})
+
+    assert step["output"]["total"] == total
+    assert step["output"]["truncated"] is True
+    assert step["output"]["count"] == 1_000, "unchanged for the planner's other readers"
+
+    described = describe_stored_result(_bundle_of_planner_step(step))
+    assert described["capped"] is True
+    assert "column_summary" not in described
+    assert described["note"] != "The stored copy holds every row of this result."
+
+
+def test_a_planner_graph_step_that_was_not_cut_is_complete(monkeypatch):
+    step = _planner_graph_step(monkeypatch, {
+        "ok": True, "data": _records(80), "count": 80, "total": 80, "truncated": False, "limit": None})
+    described = describe_stored_result(_bundle_of_planner_step(step))
+
+    assert (described["total"], described["capped"]) == (80, False)
+    assert described["column_summary"]["lab"]["distinct"] == 3
+
+
+# --------------------------------------------------------------------------- #
+# No total anywhere: the rows are shown, and the model is told they may not be all
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("n,shown", [(20, "rows"), (80, "column_summary")])
+def test_an_unknown_total_still_shows_the_rows_and_says_it_is_unknown(n, shown):
+    described = describe_stored_result(_no_total_bundle(_records(n)))
+
+    assert described["total"] is None
+    assert described["capped"] is False
+    assert shown in described
+    assert described["total_known"] is False
+    assert f"{n} stored rows" in described["note"]
+    assert "not the whole set" in described["note"]
+    assert "\u2014" not in described["note"]
+
+
+def test_a_cut_result_whose_total_probe_failed_has_no_known_total():
+    """``count`` is the number of rows returned. Once the LIMIT was hit it is not a total,
+    so it is not reported as one."""
+    bundle = _graph_bundle(_records(1_000))
+    bundle["graph_result"].update(total=None, truncated=True)
+    described = describe_stored_result(bundle)
+
+    assert (described["total"], described["total_known"], described["capped"]) == (None, False, True)
+    assert "column_summary" not in described
+
+
+@pytest.mark.parametrize("build", [lambda: _graph_bundle(_records(20)),
+                                   lambda: _graph_bundle(_records(20), total=250),
+                                   lambda: _rest_bundle(_records(20), total=20),
+                                   lambda: _plan_search_bundle(_records(80), 80)],
+                         ids=["graph", "graph-capped", "rest", "plan-search"])
+def test_a_known_total_says_so(build):
+    assert describe_stored_result(build())["total_known"] is True
 
 
 def test_the_stored_query_fields_are_unchanged_alongside_the_rows():
@@ -352,7 +566,7 @@ def test_the_loop_serves_a_small_result_s_rows():
 def test_the_loop_serves_a_larger_result_s_summary():
     served = _served(_graph_bundle(_records(90)))
     assert served["column_summary"]["lab"] == {
-        "distinct": 3, "top": [["LAB-A", 30], ["LAB-B", 30], ["LAB-C", 30]]}
+        "distinct": 3, "nulls": 0, "top": [["LAB-A", 30], ["LAB-B", 30], ["LAB-C", 30]]}
     assert "rows" not in served
 
 
@@ -370,7 +584,15 @@ def test_the_tool_description_says_the_rows_and_summary_answer_without_a_new_que
     assert "rows_truncated" in description
     assert "neither" in description and "capped" in description, "a capped copy has neither"
     assert "5 most common" in description and "distinct" in description
-    assert "—" not in description
+    assert "\u2014" not in description
+
+
+def test_the_tool_description_explains_nulls_and_an_unknown_total():
+    description = _read_description()
+
+    assert "nulls" in description and "non-null" in description
+    assert "total_known" in description
+    assert "stored rows, not the whole set" in description
 
 
 def test_the_tool_description_keeps_the_stored_query_fields():
@@ -385,4 +607,4 @@ def test_the_prompt_says_a_complete_copy_can_answer_from_its_rows():
     assert sentences, "the prompt names the summary"
     assert any("without a new query" in s for s in sentences)
     assert any("capped" in s for s in sentences)
-    assert all("—" not in s for s in sentences)
+    assert all("\u2014" not in s for s in sentences)

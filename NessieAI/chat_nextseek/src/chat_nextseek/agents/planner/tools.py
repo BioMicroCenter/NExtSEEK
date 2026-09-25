@@ -92,6 +92,10 @@ def _plan_tool_graph_query(
         "output": {
             "data": result.get("data", []),
             "count": result.get("count", 0),
+            # As tool_neo4j_query returns them: count is len(records), so a step that hit
+            # its LIMIT is told apart from the whole set only by these two.
+            "total": result.get("total"),
+            "truncated": bool(result.get("truncated")),
             "graph_plan": graph_plan.model_dump(),
         },
         "error": error,

@@ -113,15 +113,13 @@ def preview_rows(rows: Any) -> list:
 
 
 def _summary_value(value: Any) -> tuple[tuple, Any]:
-    """``(key, value shown)`` for one cell of ``column_summary``.
+    """``(key, value shown)`` for one non-null cell of ``column_summary``.
 
-    The key counts and orders: ranked by kind first, so a column mixing null, numbers and
-    text still sorts, and so True, 1 and "1" stay three values. A list or dict is counted
-    and shown by its serialisation with sorted keys, so key order does not make two values
+    The key counts and orders: ranked by kind first, so a column mixing numbers and text
+    still sorts, and so True, 1 and "1" stay three values. A list or dict is counted and
+    shown by its serialisation with sorted keys, so key order does not make two values
     different.
     """
-    if value is None:
-        return (0, 0), None
     if isinstance(value, bool):
         return (1, int(value)), value
     if isinstance(value, int) or (isinstance(value, float) and math.isfinite(value)):
@@ -134,12 +132,14 @@ def _summary_value(value: Any) -> tuple[tuple, Any]:
 
 
 def _column_summary(rows: list) -> tuple[dict[str, dict], int]:
-    """``({column: {distinct, top}}, columns left out)`` over every row of ``rows``.
+    """``({column: {distinct, nulls, top}}, columns left out)`` over every row of ``rows``.
 
-    ``top`` is the ``COLUMN_TOP`` most common values as ``[value, count]``, ties ordered by
-    value. A key missing from a row counts as null, so every column accounts for every row.
-    Columns go in the order they first appear; one that does not fit in
-    ``COLUMN_SUMMARY_CHARS`` is left out whole rather than cut, and counted.
+    ``distinct`` and ``top`` are over non-null values only: ``top`` is the ``COLUMN_TOP``
+    most common as ``[value, count]``, ties ordered by value. ``nulls`` counts the rows where
+    the column is null or missing, so "10 labs, and one row with no lab" reads as 10 labs,
+    not 11, and every column still accounts for every row. Columns go in the order they
+    first appear; one that does not fit in ``COLUMN_SUMMARY_CHARS`` is left out whole rather
+    than cut, and counted.
     """
     records = [row for row in rows if isinstance(row, dict)]
     columns = list(dict.fromkeys(key for row in records for key in row))
@@ -149,12 +149,18 @@ def _column_summary(rows: list) -> tuple[dict[str, dict], int]:
     for column in columns:
         counts: dict[tuple, int] = {}
         shown: dict[tuple, Any] = {}
+        nulls = 0
         for row in records:
-            key, value = _summary_value(row.get(column))
+            cell = row.get(column)
+            if cell is None:
+                nulls += 1
+                continue
+            key, value = _summary_value(cell)
             counts[key] = counts.get(key, 0) + 1
             shown.setdefault(key, value)
         ranked = sorted(counts, key=lambda k: (-counts[k], k))[:COLUMN_TOP]
-        entry = {"distinct": len(counts), "top": [[shown[k], counts[k]] for k in ranked]}
+        entry = {"distinct": len(counts), "nulls": nulls,
+                 "top": [[shown[k], counts[k]] for k in ranked]}
         cost = len(json.dumps({column: entry}, separators=(",", ":"), default=str))
         if size + cost > COLUMN_SUMMARY_CHARS:
             omitted += 1
@@ -265,10 +271,13 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                 "(stored_query_rebuildable). When the stored copy is complete (capped "
                 "is false), it also returns what the copy holds: the rows themselves "
                 f"(rows) when there are {FOLLOWUP_ROWS_MAX} or fewer, or else "
-                "column_summary, which gives each column's number of distinct values "
-                f"(distinct) and its {COLUMN_TOP} most common values with their "
-                "counts (top), over every stored row. Answer from rows or column_summary "
-                "without a new query when they hold the answer. If rows_truncated is "
+                "column_summary, which gives each column's number of distinct non-null "
+                "values (distinct), how many rows have it null or missing (nulls), and "
+                f"its {COLUMN_TOP} most common non-null values with their counts (top), "
+                "over every stored row. Answer from rows or column_summary without a new "
+                "query when they hold the answer. When total_known is false, no total was "
+                "stored, so such an answer covers the rows_stored stored rows, not the "
+                "whole set, and must say so. If rows_truncated is "
                 "true, only rows_shown of the rows fit; if a column's distinct is larger "
                 "than its top list, its other values are not shown; columns_omitted "
                 "counts columns left out for length. When the copy is capped, neither "
@@ -378,15 +387,20 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     api_slim = bundle.get("api_result_slim") or {}
     api_data = api_slim.get("data") if isinstance(api_slim.get("data"), dict) else {}
 
-    total = (
-        graph_result.get("total")
-        if graph_result.get("total") is not None
-        else graph_result.get("count")
-    )
+    rows, payload_total, more_pages = _stored_rows_and_extent(bundle)
+
+    # Every total the bundle holds, first found: the graph result's own, the slim API
+    # result's, then the one stored beside the rows (memory_payload, then the full API
+    # result, which is all a plan-mode search step keeps). A graph result's count is the
+    # number of rows returned: once its LIMIT was hit that is not a total.
+    total = graph_result.get("total")
+    if total is None and not graph_result.get("truncated"):
+        total = graph_result.get("count")
     if total is None:
         total = (api_data or {}).get("total")
+    if total is None:
+        total = payload_total
 
-    rows = _stored_rows(bundle)
     uids = _uids_from_rows(rows)
     rows_stored = len(rows)
     stored_query = _stored_query(bundle)
@@ -401,19 +415,24 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
     capped = False
     if isinstance(total, int) and rows_stored and total > rows_stored:
         capped = True
-    if graph_result.get("truncated"):
-        capped = True
     if aggregate:
         # An aggregate stores one row holding the whole answer. It is complete, not capped:
         # total is now the value it computed, and comparing that to a row count of 1 would
         # tell the agent to re-query for a number it already has.
         capped = False
+    if graph_result.get("truncated") or more_pages:
+        # After the aggregate reading, never before it: one UID-less row that hit LIMIT 1
+        # looks like an aggregate and is a record cut short. A DRF page with a next page
+        # is cut short whatever its count says.
+        capped = True
+    total_known = total is not None
 
     described = {
         "bundle_id": bundle.get("id"),
         "user_query": bundle.get("user_query"),
         "mode": bundle.get("mode"),
         "total": total,
+        "total_known": total_known,
         "aggregate_values": aggregate,
         "previous_reply": _without_debug_block(bundle.get("terminal_reply")),
         "rows_stored": rows_stored,
@@ -439,6 +458,10 @@ def describe_stored_result(bundle: dict) -> dict[str, Any]:
             "This result kept no rows (a count-only query), so anything about "
             "individual samples needs a new query."
             if not rows_stored else
+            f"No total was stored for this result, so it is not known whether these "
+            f"{rows_stored} stored rows are all of it. An answer from them covers the "
+            f"{rows_stored} stored rows, not the whole set: say so."
+            if not total_known else
             "The stored copy holds the rows listed above."
         ),
     }
@@ -510,22 +533,75 @@ def _aggregate_values(rows: list, uid_count: int) -> dict[str, Any] | None:
 
 def _stored_rows(bundle: dict) -> list:
     """Rows from wherever this bundle put them, without loading a payload twice."""
+    return _stored_rows_and_extent(bundle)[0]
+
+
+def _rows_in(data: Any) -> list | None:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("rows", "samples", "results", "nodes"):
+            if isinstance(data.get(key), list):
+                return data[key]
+    return None
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _payload_extent(data: Any) -> tuple[int | None, bool]:
+    """``(total, a further page follows)`` as a stored result body states them.
+
+    ``{"rows", "total"}`` is a search, and a plan-mode step's copy of one. A DRF page is
+    ``{count, next, previous, results}``: ``count`` is its total, and a ``next`` that is not
+    null means a page follows, with or without a count.
+    """
+    if not isinstance(data, Mapping):
+        return None, False
+    total = data["total"] if _is_count(data.get("total")) else None
+    page = isinstance(data.get("results"), list)
+    if total is None and page and _is_count(data.get("count")):
+        total = data["count"]
+    return total, page and data.get("next") is not None
+
+
+def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
+    """``(rows, total stored beside them, a further page follows)``.
+
+    A graph result's rows come with its own total, which ``describe_stored_result`` reads.
+    Any other result's rows and total come from memory_payload, then the full API result,
+    the first total found winning: a plan-mode filter step keeps its own rows and total in
+    memory_payload, and the larger total of the search it filtered, in the full API result,
+    is not theirs. A memory payload that was just read back from the full API result is not
+    loaded a second time.
+    """
     graph_result = bundle.get("graph_result") or {}
     if isinstance(graph_result.get("data"), list):
-        return graph_result["data"]
+        return graph_result["data"], None, False
 
-    memory_payload = load_memory_payload(bundle) or {}
-    for candidate in (memory_payload, load_api_result_full(bundle)):
+    def sources():
+        yield load_memory_payload(bundle)
+        kept = bundle.get("memory_payload")
+        if not (isinstance(kept, dict) and kept and "data" not in kept):
+            yield load_api_result_full(bundle)
+
+    rows: list | None = None
+    total: int | None = None
+    more = False
+    for candidate in sources():
         if not isinstance(candidate, dict):
             continue
         data = candidate.get("data")
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for key in ("rows", "samples", "results", "nodes"):
-                if isinstance(data.get(key), list):
-                    return data[key]
-    return []
+        if rows is None:
+            rows = _rows_in(data)
+        stated, follows = _payload_extent(data)
+        if total is None:
+            total = stated
+        more = more or follows
+        if rows is not None and total is not None:
+            break
+    return rows or [], total, more
 
 
 def _uids_from_rows(rows: list) -> list[str]:
