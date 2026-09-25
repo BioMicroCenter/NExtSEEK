@@ -135,6 +135,14 @@ that package is `NessieAI/tests/nessie_tests/output_skill/`: the forms a reviewe
 reviewer's notes), each a schema, a validator and a deterministic writer, the way the
 session handoff skill works.
 
+**Before a paid run.** `NessieAI/tests/nessie_tests/case_file_check.py` checks a `--cases` file
+in one pass (`python -m NessieAI.tests.nessie_tests.case_file_check <file> [--instance prod]
+[--diverse]`): the harness loader, then the keys the loader silently ignores, unique ids,
+`include_ids` that resolve, criteria that can be observed over HTTP, a `_measure` block that
+matches its criteria, no writing family on production, and with `--diverse` no repeated question
+and no family outside the corpus. `scripts/pin_probe_truths.py --parse-output` turns the pin
+batch's cypher-shell output into the answers file the re-pin reads.
+
 **As one-off tooling.** `NessieAI/tests/nessie_tests/scripts/` is a group of corpus-maintenance
 programs, not a public API: they author and apply question sets
 (`NessieAI/tests/nessie_tests/scripts/build_qset.py:1`, `NessieAI/tests/nessie_tests/scripts/apply_qset.py:1`,
