@@ -336,7 +336,11 @@ def fallback_summary(entries) -> dict:
     cases = [e for e in entries if getattr(e, "fallback_turns", 0)]
     n_fb = sum(getattr(e, "fallback_turns", 0) for e in entries)
     n_unrep = sum(1 for t in turns if not t.fallback_reported)
-    if not turns:
+    if not turns and n_fb:
+        # A manifest rebuilt by a tool that kept the count and dropped the turns.
+        display = (f"{n_fb} turn(s) fell back to another model, in {len(cases)} case(s); "
+                   "the per-turn records were not kept")
+    elif not turns:
         display = "no turn recorded a model record"
     else:
         display = (f"{n_fb} of {len(turns)} turn(s) fell back to another model, "

@@ -152,7 +152,10 @@ def turn_defs(entry, variants, cgroups):
 # answer next to the call that produced it is what lets a reviewer judge a case the
 # corpus scored wrongly in either direction.
 CARRY = ("route", "src", "why", "mode", "aplan", "ameta", "gplan", "gmeta",
-         "rplan", "model", "cost", "status", "reply")
+         "rplan", "model", "cost", "status", "reply",
+         # The turn's router plus engine cost, summed by fetch_run.py with the
+         # harness's rule, and whether any of its models fell back.
+         "turn_cost", "turn_cost_partial", "fell_back")
 
 
 def align(flat_turns, tasks):
@@ -241,6 +244,11 @@ def main():
             # With `cost`, or a rebuilt manifest presents a floor as the whole spend.
             "cost_partial": e.get("cost_partial", False),
             "fallback_turns": e.get("fallback_turns", 0),
+            # The per-turn records `fallback_turns` counts, so a rebuilt manifest's
+            # fallback line and its count agree, and the sent-turn count the pull
+            # needs to spot a turn with no task id.
+            "turns_meta": e.get("turns_meta", []),
+            "turns_sent": e.get("turns_sent", 0),
             "route_source": e.get("route_source"),
             "route_sources": e.get("route_sources", []),
             "reason": e.get("reason", ""),

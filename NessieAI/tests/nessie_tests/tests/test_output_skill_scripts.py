@@ -318,6 +318,41 @@ def test_a_partial_cost_and_the_fallback_count_survive_the_round_trip(tmp_path):
     assert "PARTIAL" in M.cost_summary(rebuilt.entries)["cost_display"]
 
 
+def test_the_turn_records_survive_the_round_trip(tmp_path):
+    """Without `turns_meta` a rebuilt manifest keeps `fallback_turns` and loses the
+    turns it counts, and the fallback line then contradicts itself."""
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    entries = _entries()
+    t = M.TurnMeta(turn="main", engine_cost=0.2, router_cost=0.01, cost=0.21,
+                   model_fallback=[fb], fallback_reported=True).model_dump()
+    next(e for e in entries if e["id"] == "cc.outage").update(
+        turns_meta=[t], turns_sent=2, fallback_turns=1, cost_partial=True)
+    original = [M.NessieManifestEntry(**e) for e in entries]
+
+    rebuilt = _round_trip(tmp_path, _build(tmp_path, entries=entries))
+
+    o = next(e for e in rebuilt.entries if e.id == "cc.outage")
+    assert o.turns_meta[0].model_fallback == [fb] and o.turns_sent == 2
+    assert (M.fallback_summary(rebuilt.entries)["fallback_display"]
+            == M.fallback_summary(original)["fallback_display"])
+
+
+def test_a_pulled_turn_brings_its_summed_cost_into_the_report():
+    turns = [{"query": "How many mice?"}]
+    tasks = [{"q": "How many mice?", "id": 5, "cost": 0.5, "turn_cost": 0.51,
+              "turn_cost_partial": True, "fell_back": False}]
+
+    assert build_report.align(turns, tasks) == 1
+    assert turns[0]["turn_cost"] == 0.51 and turns[0]["turn_cost_partial"] is True
+    assert turns[0]["fell_back"] is False
+
+
+def test_the_turn_chip_marks_a_partial_cost():
+    tpl = (SCRIPTS.parent / "templates" / "report.html.tpl").read_text(encoding="utf-8")
+    assert "function costChip(t)" in tpl
+    assert "t.turn_cost_partial" in tpl and '"~$"' in tpl
+
+
 def test_the_entry_field_map_is_actually_used(tmp_path):
     """The constant was declared and then never referenced, which is how it came
     to disagree with the code beside it. Naming a field it does not carry must

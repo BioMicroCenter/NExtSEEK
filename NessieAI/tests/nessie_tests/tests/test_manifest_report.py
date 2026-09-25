@@ -533,6 +533,19 @@ def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():
     assert M.fallback_summary([_e(0)])["fallback_display"] == "no turn recorded a model record"
 
 
+def test_a_manifest_that_kept_the_count_but_not_the_turns_does_not_contradict_itself():
+    """A manifest rebuilt by a tool that dropped `turns_meta` still says how many
+    turns fell back, rather than claiming no turn was recorded."""
+    e = _e(0)
+    e.fallback_turns = 2
+
+    s = M.fallback_summary([e])
+
+    assert s["fallback_turns"] == 2
+    assert s["fallback_display"] == ("2 turn(s) fell back to another model, in 1 case(s); "
+                                     "the per-turn records were not kept")
+
+
 def test_the_report_states_partial_cost_and_the_fallback_turns(tmp_path):
     fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
     e = _e(0, 0.2, partial=True, turns=[_turn(fb)])
