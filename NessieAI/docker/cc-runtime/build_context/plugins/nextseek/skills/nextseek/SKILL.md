@@ -101,8 +101,10 @@ nextseek-graph --query "Which NHP samples have both CT scan data and sequencing 
 
 **Counts and breakdowns — `nextseek-aggregate`.** "How many", "break down by", tallies, histograms,
 "which values does this attribute hold, and how often", and duplicate or variant spellings all go
-here, not to `nextseek-graph`. Never count by pulling records and tallying them yourself: a page of
-records is not the population. Ask the whole question; when it needs more than one independent number
+here, not to `nextseek-graph`, except over a previous turn's result: that is tallied from its staged
+files, or its stored Cypher is re-run with a new RETURN (see "Refinement and follow-ups" above). Never
+count by pulling records and tallying them yourself: a page of records is not the population. Ask the
+whole question; when it needs more than one independent number
 or breakdown, also pass `--parts`, one plain-language sub-question per number, each complete on its
 own (restate the project, sample type and filters in every part):
 
@@ -296,9 +298,9 @@ Compose the user-facing answer from each op's JSON output.
 
 ## Write safety — 3 layers
 
-For non-GET operations (`nextseek-api-write`, write-class endpoints). Today no write reaches NExtSEEK
-from this chat: the server refuses every create, update and delete, so these layers guard a path that
-ends in a refusal.
+For non-GET operations (`nextseek-api-write`, write-class endpoints), three layers apply. Today no
+write reaches NExtSEEK from this chat: the server refuses every create, update and delete, so these
+layers guard a path that ends in a refusal.
 
 - **Layer 1 (mechanical, deployment-dependent)**: a Claude Code permission allowlist / deny rule that gates `nextseek-api-write`. **In the dmac-assistant bridge POC, the `container_cc` route runs under `--permission-mode auto` (per the host bridge's launch command), NOT `--dangerously-skip-permissions`.** Under auto mode, blanket `Bash(*)` allow rules are dropped and every tool call — including `nextseek-api-write` — is screened by the auto-mode classifier, which blocks escalation/exfiltration. That classifier is a behavioral gate, not a hard guarantee, and no explicit `Bash(nextseek-api-write:*)` deny rule is shipped here. Treat L1 as defense-in-depth, not as a guarantee — the load-bearing layers are L2 and L3.
 - **Layer 2 (mechanical, always on — enforced server-side)**: an `api-write` op is refused unless write confirmation is explicit. The `nextseek-api-write` shim requires `--confirmed-write`, and the authoritative gate now runs **outside** the agent container: the sidecar's write gate (`sidecar/app/write_gate.py`) refuses the op unless `confirmed_write` is exactly `True`, and NExtSEEK enforces its own server-side write gate behind that. Because neither gate runs in a process the in-container agent controls, the agent cannot bypass L2.
@@ -346,9 +348,10 @@ The runner emits a one-line JSON error to stderr with a code (exit code in paren
 - `CONFIG_ERROR` (6): a plugin/config file is missing server-side. Deploy-side issue; surface as
   "plugin misconfiguration, please rebuild image."
 - `TRANSPORT_ERROR` (7): sidecar/viewset unreachable, or an op that ran out of turn time. When
-  the message says this turn was nearly out of time, do not retry the op in this turn: answer
-  with what you already have, say that step did not finish in time, and offer to run it in the
-  next turn. Otherwise surface it as a deploy-side issue.
+  the message says this turn was nearly out of time, or has no time left for another try, do not
+  retry the op in this turn: answer with what you already have, say that step did not finish (and
+  whether the service was slow), and offer to run it in the next turn. Otherwise surface it as a
+  deploy-side issue.
 - `AUTH_FAILED` (8): NExtSEEK rejected the login. Tell the user to check credentials.
 - `STAGING_ERROR` (9): artifact staging failed server-side. Surface the message.
 

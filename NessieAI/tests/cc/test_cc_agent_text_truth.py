@@ -67,3 +67,10 @@ def test_the_schema_op_is_described_as_it_is():
         assert "their stored values" not in text and "and stored values" not in text
         assert "never returns stored values" in text
         assert "numeric and date bounds" in text
+
+
+def test_the_manifest_row_does_not_promise_values_in_its_when_column():
+    """Review N6."""
+    row = next(line for line in MANIFEST_MD.read_text(encoding="utf-8").splitlines()
+               if "not a file: run `nextseek-graph-schema`" in line)
+    assert "or the values it holds" not in row

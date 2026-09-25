@@ -521,7 +521,7 @@ def _render_manifest(turns: list[dict]) -> str:
         "every stored property of the samples they name is in `samples.csv` where one is listed, and",
         "the stored cypher is in `search_details.json` (to change the search, hand it to",
         "`nextseek-graph --query` with the one change asked for). Your own earlier Container-CC",
-        "turns are here too: their answer and every file they wrote, to read instead of redoing.",
+        "turns are here too: their answer and the files they published, to read instead of redoing.",
         "",
     ]
     for t in turns:

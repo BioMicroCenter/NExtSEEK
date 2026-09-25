@@ -83,3 +83,38 @@ def test_the_skill_sends_refinements_to_the_same_order():
     assert "keep every MATCH and WHERE" in skill
     stop = _flat(_section(SKILL_MD.read_text(encoding="utf-8"), "## Stop-after-2 rule (load-bearing)"))
     assert "when `nextseek-aggregate` fails or is not available on a follow-up" in stop
+
+
+def test_a_capped_result_is_checked_before_the_files():
+    """Review S5: samples.csv of a capped turn holds only the capped rows, so "stop at the first
+    file that has the field" would count a subset. The cap is checked first."""
+    follow = _follow_ups()
+    order = follow.split("When the question needs a field the rows do not show", 1)[1]
+    assert order.index("First look at `truncated`") < order.index("1. `rows.json`")
+
+
+def test_a_failed_retry_stops():
+    follow = _follow_ups()
+    assert "If that fails too, stop" in follow
+
+
+def test_the_skill_counts_section_leaves_a_previous_turn_to_its_files():
+    """Review S6: "never count by pulling records" must not forbid tallying a previous turn's
+    staged files."""
+    counts = _flat(SKILL_MD.read_text(encoding="utf-8").split("**Counts and breakdowns", 1)[1]
+                   .split("**Catalog lists", 1)[0])
+    assert "except over a previous turn's result" in counts
+
+
+def test_every_transport_timeout_text_is_covered():
+    skill = _flat(SKILL_MD.read_text(encoding="utf-8"))
+    claude = _flat(CLAUDE_MD.read_text(encoding="utf-8"))
+    for text in (skill, claude):
+        assert "nearly out of time" in text and "no time left for another try" in text
+
+
+def test_staged_files_are_described_as_published_not_every_file_written():
+    """Review N2: raw/ files and files over 64 MB are not staged."""
+    claude = _flat(CLAUDE_MD.read_text(encoding="utf-8"))
+    assert "every file it wrote to `/data/scratch/`" not in claude
+    assert "`/data/scratch/raw/`" in claude
