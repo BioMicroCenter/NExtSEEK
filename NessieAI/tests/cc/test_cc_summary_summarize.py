@@ -142,3 +142,31 @@ def test_a_stalled_summarizer_is_cut_at_its_limit_and_the_actions_summary_is_use
     assert summ.writer == "fallback_actions" and summ.summary_model == "none"
     assert summ.chat_session_id == "S1"
     assert "summarizer timed out after 0.2 s" in caplog.text
+
+
+def test_the_sweep_gets_a_longer_limit_than_the_turn(monkeypatch):
+    """The in-turn summary is cut at 10 s (F7); the Celery sweep, where no user waits and a
+    stored fallback sticks until the transcript changes, gets its own longer limit."""
+    seen = {}
+
+    def fake_default(summarize_input, *, limit_s=None):
+        seen["limit_s"] = limit_s
+        return "ok"
+
+    monkeypatch.setattr(cc_summary, "_default_summarize_fn", fake_default)
+    assert cc_summary.sweep_summarize_fn(object()) == "ok"
+    assert seen["limit_s"] == cc_summary.SWEEP_SUMMARIZE_LIMIT_S == 60
+    assert cc_summary.SWEEP_SUMMARIZE_LIMIT_S > cc_summary.SUMMARIZE_LIMIT_S
+
+
+def test_a_sweep_timeout_logs_the_sweep_limit(monkeypatch, caplog):
+    def stalled(summarize_input):
+        raise TimeoutError
+
+    stalled.limit_s = 60
+    cfg = CCMemoryConfig.from_env(source={})
+    with caplog.at_level(logging.WARNING, logger=cc_summary.__name__):
+        summ = cc_summary.summarize_transcript(_raw(), _prov(), cfg, summarize_fn=stalled)
+
+    assert summ.writer == "fallback_actions"
+    assert "summarizer timed out after 60 s" in caplog.text

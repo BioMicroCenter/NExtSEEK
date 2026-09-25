@@ -273,17 +273,32 @@ def build_fallback_summary(parsed: ParsedTranscript, provenance: SummaryProvenan
 # gets this many seconds; a stall past it takes the actions-only summary, as an error does.
 # No collector prices this call, so a cut-off call leaves no cost record to correct.
 SUMMARIZE_LIMIT_S = 10
+# The Celery sweep (nextseek_api/cc_assistant/cc_sweep.py) summarizes idle chats with no user
+# waiting, and a fallback summary it stores is kept until the chat's transcript changes. So a
+# slow but successful call there must not be cut at the in-turn limit: it gets this many.
+SWEEP_SUMMARIZE_LIMIT_S = 60
 
 
-def _default_summarize_fn(summarize_input):
-    """Guarded BAML b.Summarize via asyncio.run under SUMMARIZE_LIMIT_S (mirrors router._ask)."""
+def _default_summarize_fn(summarize_input, *, limit_s=None):
+    """Guarded BAML b.Summarize via asyncio.run under SUMMARIZE_LIMIT_S, or ``limit_s``
+    (mirrors router._ask)."""
     import asyncio
     from dmac_assistant.router.baml_client import b
 
+    limit = SUMMARIZE_LIMIT_S if limit_s is None else limit_s
+
     async def _within_limit():
-        return await asyncio.wait_for(b.Summarize(input=summarize_input), timeout=SUMMARIZE_LIMIT_S)
+        return await asyncio.wait_for(b.Summarize(input=summarize_input), timeout=limit)
 
     return asyncio.run(_within_limit())
+
+
+def sweep_summarize_fn(summarize_input):
+    """The Celery sweep's summarizer: the same call under SWEEP_SUMMARIZE_LIMIT_S."""
+    return _default_summarize_fn(summarize_input, limit_s=SWEEP_SUMMARIZE_LIMIT_S)
+
+
+sweep_summarize_fn.limit_s = SWEEP_SUMMARIZE_LIMIT_S
 
 
 def summarize_transcript(raw: bytes, provenance: SummaryProvenance, cfg,
@@ -317,7 +332,7 @@ def summarize_transcript(raw: bytes, provenance: SummaryProvenance, cfg,
         return apply_grounding(summary, parsed)
     except TimeoutError:
         logger.warning("cc-1c: summarizer timed out after %s s; using actions fallback",
-                       SUMMARIZE_LIMIT_S)
+                       getattr(fn, "limit_s", SUMMARIZE_LIMIT_S))
         return build_fallback_summary(parsed, provenance, cfg)
     except Exception as exc:  # noqa: BLE001
         logger.warning("cc-1c: summarizer failed (%s); using actions fallback",
