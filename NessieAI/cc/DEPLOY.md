@@ -23,7 +23,7 @@ Topology (preserves the OI-3 agent isolation):
   dmac-bedrock-proxy   nextseek_nginx   nextseek-sidecar   <per-turn CC agent>
   (holds AWS bearer    (dual-homed,     (no credentials;   (uid 1001, ZERO aws
    token; allowlist     also on the      _staging-subpath    creds; Bedrock only
-   opus-4-8 only)       default stack    writes only)        via the proxy,
+   3 CC models)         default stack    writes only)        via the proxy,
                         network)                             NExtSEEK only via
                                                              nginx as the user)
 ```
@@ -77,7 +77,7 @@ docker exec nextseek uv run --no-sync python -c "from NessieAI.cc import cc_engi
 ```
 
 Proxy contract, from a container ON dmac-cc-net (unsigned, exactly like the
-agent). The healthz and sonnet probes are free; the **opus invoke is a real,
+agent). The healthz and haiku probes are free; the **opus invoke is a real,
 PAID one-token Bedrock call** — it needs the same per-run owner approval as
 any live spend, and on a token-less install it returns 500 ("proxy
 misconfigured: no bearer token"), which is expected there:
@@ -86,7 +86,7 @@ misconfigured: no bearer token"), which is expected there:
 docker run --rm --network dmac-cc-net --entrypoint sh dmac-assistant:poc -c '
   B=http://bedrock-proxy:8080
   curl -s -o /dev/null -w "healthz=%{http_code}\n" $B/healthz                       # 200 (free)
-  curl -s -o /dev/null -w "sonnet=%{http_code}\n" -X POST $B/model/us.anthropic.claude-sonnet-4-6/invoke -d "{}"  # 403 (free; allowlist rejects pre-Bedrock)
+  curl -s -o /dev/null -w "haiku=%{http_code}\n" -X POST $B/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke -d "{}"  # 403 (free; allowlist rejects pre-Bedrock)
   # PAID (approval-gated; 500 expected when the proxy token is empty):
   curl -s -o /dev/null -w "opus=%{http_code}\n"   -X POST $B/model/us.anthropic.claude-opus-4-8/invoke \
        -H content-type:application/json -d "{\"anthropic_version\":\"bedrock-2023-05-31\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"   # 200

@@ -35,8 +35,10 @@ Rules that span units (the box env, the one BAML tree both images build from) ar
   else.** Each of the three enum members must have a value matching the
   `us.anthropic.` pattern or the loader raises before returning
   (`NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:44-57`), and the bedrock
-  proxy's default allowlist is a one-element tuple holding the exact Opus id
-  (`NessieAI/docker/bedrock-proxy/app/config.py:17-18`), so a model literal written anywhere
+  proxy's default allowlist holds exactly the ids a Container-CC turn names: the `opus`
+  entry first, then `opus_fallback` (its `--fallback-model`) and `sonnet` (its auto-mode
+  classifier) (`NessieAI/docker/bedrock-proxy/app/config.py:17-24`, guard
+  `NessieAI/tests/cc/test_cc_proxy_allow_list.py`), so a model literal written anywhere
   else in the tree surfaces as a proxy rejection mid-turn rather than as a config
   error at load.
 - **No non-test module outside this directory may import it at module scope.** Every

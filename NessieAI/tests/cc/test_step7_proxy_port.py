@@ -67,7 +67,10 @@ REAL_SECRET_FILENAME = "proxy-secret.env"
 PINNED_SOURCE_SHA256 = {
     "__init__.py": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069",
     "app/__init__.py": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd",
-    "app/config.py": "eb464c910f288964f7d80753c5fe9ef7abdf9abc7900abde7f19579cb4c826cb",
+    # Deliberately changed after the port on 2026-09-25: the allow list gained the
+    # Container-CC fallback model and the classifier's Sonnet (PORT-EVIDENCE.json
+    # "post_port_changes"). Every other digest is still the pinned source's.
+    "app/config.py": "ed831ec3740dbddbf2e81523c775480cc94652b4f5fbf7a1f031bda729c675bd",
     "app/proxy.py": "e890f99a690b6dd3e03b454f95200c3261186f5df90cdf5f001a0b957f3b6859",
     "proxy-secret.env.example": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16",
 }
