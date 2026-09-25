@@ -10,8 +10,10 @@ The turn record every engine and the router write (the turn-record contract):
 - `route_decided`: `router_cost_usd`, `router_cost_partial`, `router_model`,
   `router_fallback` (null, or `{from, to, reason}` where `to` may be `heuristic`).
 - the turn's terminal event, `query_complete` or else `query_error`: `total_cost_usd`,
-  `cost_partial` (NS), `models_used`, `model_fallback` (a list, empty when nothing fell
-  back).
+  `cost_partial`, `models_used`, `model_fallback` (a list, empty when nothing fell
+  back). `cost_partial` is read off either engine: NS sets it when a call's usage was
+  unseen or its model unpriced, CC when the turn ran an op whose NS agents bill outside
+  Claude Code's cost (`NS_AGENT_OPS` in `NessieAI/cc/translate.py`).
 
 A turn bills in two parts, the router's model call and the engine's turn. A turn's cost
 is the sum of the parts that were observed. A part that did not run is not a part:

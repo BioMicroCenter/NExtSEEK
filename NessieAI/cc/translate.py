@@ -48,6 +48,28 @@ _MODEL_UNAVAILABLE_TEXT = re.compile(
 )
 
 
+# The Container-CC ops that answer on the server by running NS agents (the entity,
+# parser, graph and API agents, the report writer, or a whole NS turn). Their model
+# calls go to the NS providers and are in neither Claude Code's total_cost_usd nor
+# cost_by_price_table_usd, so a CC turn that ran one reports cost_partial. Pinned against
+# the op registry and the granular handlers by NessieAI/tests/cc/test_cc_cost_partial.py.
+NS_AGENT_OPS = frozenset({
+    "nextseek-query", "nextseek-plan", "nextseek-pipeline",
+    "nextseek-entity-extract", "nextseek-parse", "nextseek-graph", "nextseek-aggregate",
+    "nextseek-api-read", "nextseek-api-write", "nextseek-generate-submission",
+})
+_NS_AGENT_OP_RE = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(op) for op in sorted(NS_AGENT_OPS, key=len, reverse=True)) + r")(?![\w-])"
+)
+
+
+def _ns_agent_ops_in(command: Any) -> list[str]:
+    """The NS-agent ops a Bash command runs, in order, each once."""
+    if not isinstance(command, str):
+        return []
+    return list(dict.fromkeys(_NS_AGENT_OP_RE.findall(command)))
+
+
 def _cost_by_price_table(model_usage: Any, usage: Any) -> float | None:
     """What a Container-CC turn cost on this repo's price table, or None.
 
@@ -167,6 +189,8 @@ class CCStreamTranslator:
     api_retries: int = 0
     _init_model: str | None = None
     _fallbacks: tuple[dict[str, Any], ...] | list[dict[str, Any]] = ()
+    # NS-agent ops this turn's Bash calls ran, in first-run order (see NS_AGENT_OPS).
+    _ns_agent_ops: tuple[str, ...] | list[str] = ()
     # (type, system subtype) of the last frame handled, and the last api_retry frame.
     _last_frame: tuple[Any, Any] | None = None
     _last_api_retry: dict[str, Any] | None = None
@@ -183,6 +207,7 @@ class CCStreamTranslator:
         self.model_id = model_id
         # Each ``system/model_fallback`` frame, in the turn-record contract's shape.
         self._fallbacks = []
+        self._ns_agent_ops = []
         # ``system/api_retry`` frames seen: Claude Code retrying a failed model call.
         self.api_retries = 0
         # Claude Code's OWN in-container session UUID (from system.init/result).
@@ -325,6 +350,10 @@ class CCStreamTranslator:
                 tool_id = block.get("id")
                 if isinstance(tool_id, str):
                     self._open_tools[tool_id] = name
+                if name == "Bash" and isinstance(block.get("input"), dict):
+                    for op in _ns_agent_ops_in(block["input"].get("command")):
+                        if op not in self._ns_agent_ops:
+                            self._ns_agent_ops = [*self._ns_agent_ops, op]
                 data: dict[str, Any] = {"source": name}
                 detail = _format_tool_detail(name, block.get("input"))
                 if detail:
@@ -400,6 +429,9 @@ class CCStreamTranslator:
              # The same turn on the NS price table, so the engines compare (fix 6a).
              "cost_by_price_table_usd": _cost_by_price_table(
                  payload.get("modelUsage"), payload.get("usage")),
+             # Both numbers leave out the NS model calls of the ops that run NS agents on
+             # the server, so a turn that ran one is partial, and says which.
+             **self._cost_partial_fields(),
              "num_turns": payload.get("num_turns"),
              "duration_ms": payload.get("duration_ms"),
              # The turn record: which models answered, and what fell back.
@@ -408,6 +440,14 @@ class CCStreamTranslator:
         )]
 
     # ------------------------------------------------------------------ helpers
+    def _cost_partial_fields(self) -> dict[str, Any]:
+        ops = list(self._ns_agent_ops)
+        if not ops:
+            return {"cost_partial": False}
+        return {"cost_partial": True,
+                "cost_partial_reason": (f"ran {', '.join(ops)}, whose NS model calls on the server "
+                                        "are not in Claude Code's cost")}
+
     def _models_used(self, model_usage: Any) -> list[str]:
         """The model ids that answered this turn.
 
