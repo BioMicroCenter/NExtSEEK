@@ -84,6 +84,19 @@ Breaking one is a regression, not a refactor.
   `--source-tree` deploy is not failed by edits sitting in the runtime checkout. An absent
   image is a warning here, not a second failure, because the first-party images check
   already fails for it.
+- **Four stack-health checks compare what runs with the tree it was built from**
+  (`startup/steps/deploy_checks.py`, through `validate.deployed_checks`): the running
+  app container's tracked code (`app image code`), the cc-agent image's node, Claude Code
+  and `container` extra (`cc-agent runtime`), the running bedrock-proxy's allow list
+  (`bedrock-proxy allow list`), and the models and fallback env the running app would
+  start a CC turn with (`CC fallback wiring`). Every expected value is read from the
+  checkout (the cc-runtime Dockerfile and pyproject, the proxy's `app/config.py`, the
+  model map), never restated in startup, so a pin bump needs no edit there; every failure
+  names the value it expected and the rebuild that fixes it. All four are advisory, and
+  none makes a model call. `cc-agent runtime` is the one check that starts a container:
+  it replaces the entrypoint with the image's `python`, so the agent never runs, with
+  `--network none`, no mounts and `--rm`. Do not drop `--entrypoint`: the image's own
+  entrypoint starts an agent. Tests: `startup/tests/test_deploy_checks.py`.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app

@@ -753,7 +753,8 @@ def test_check_app_runtimes_reports_a_daemon_outage(monkeypatch):
     assert "daemon unreachable" in result.detail
 
 
-def _stub_checks(monkeypatch, *, runtimes=True, images=True, cc=True, context=True):
+def _stub_checks(monkeypatch, *, runtimes=True, images=True, cc=True, context=True,
+                 deployed=True):
     """Answer every stack-health check without docker; return the context check's calls."""
     monkeypatch.setattr(validate, "check_app_runtimes", lambda repo_root, env:
                         validate.HealthResult("app + front door", runtimes, "d"))
@@ -766,6 +767,9 @@ def _stub_checks(monkeypatch, *, runtimes=True, images=True, cc=True, context=Tr
                         lambda checkout, compose_project_name:
                         asked.append((checkout, compose_project_name))
                         or validate.HealthResult("cc-agent context", context, "d"))
+    monkeypatch.setattr(validate, "deployed_checks",
+                        lambda repo_root, env, compose_project_name, checkout: (
+                            validate.HealthResult("app image code", deployed, "d"),))
     return asked
 
 
@@ -798,8 +802,35 @@ def test_stack_health_reports_every_check_blocking_first(monkeypatch):
 
     assert [r.name for r in health.results] == [
         "app + front door", "first-party images", "cc services", "cc-agent context",
+        "app image code",
     ]
     assert health.ok is True and health.testable is True
+
+
+def test_stack_health_lets_ci_run_when_the_running_code_is_not_the_checkout(monkeypatch):
+    """An app, cc-agent or proxy that is not what the checkout builds changes
+    nothing the smoke suite requests: advisory, so the rebuild exits on it at the
+    end and the suite's result still stands."""
+    _stub_checks(monkeypatch, deployed=False)
+
+    health = validate.stack_health(Path("/repo"), {}, "nextseek")
+
+    assert health.testable is True
+    assert health.ok is False
+
+
+def test_stack_health_compares_what_runs_with_the_tree_it_is_given(monkeypatch):
+    _stub_checks(monkeypatch)
+    asked: list[tuple] = []
+    monkeypatch.setattr(validate, "deployed_checks",
+                        lambda repo_root, env, name, checkout: asked.append(
+                            (repo_root, name, checkout)) or ())
+
+    validate.stack_health(Path("/repo"), {}, "nextseek-v2", checkout=Path("/clean"))
+    validate.stack_health(Path("/repo"), {}, "nextseek")
+
+    assert asked == [(Path("/repo"), "nextseek-v2", Path("/clean")),
+                     (Path("/repo"), "nextseek", Path("/repo"))]
 
 
 def test_stack_health_lets_ci_run_when_the_cc_agent_context_is_stale(monkeypatch):
