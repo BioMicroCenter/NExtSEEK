@@ -121,6 +121,13 @@ NOT_A_SET_SIZE = [
     "Which projects have 100\u2013500 samples?",
     # a lower bound right after a comma that is not inside a digit run still starts the range (Task 19, (d))
     "Which projects have A,100 to 500 samples?",
+    # the other range shapes: neither bound is a set size (Task 19 final wave)
+    "Which projects have 100 through 500 samples?",
+    "Which projects have 100 samples to 500 samples?",
+    "Which projects have 100 samples through 500 samples?",
+    "Which projects have between 100 samples and 500 samples?",
+    "Which projects have 1,000 up to 5,000 samples?",
+    "Which projects have 1,000 samples up to 5,000 samples?",
 ]
 
 
@@ -231,3 +238,42 @@ def test_a_long_comma_joined_digit_run_is_read_quickly(tail, n):
     counts = gr.stated_counts(text)
     assert time.perf_counter() - t0 < 0.5
     assert counts == ([n] if n else [])
+
+
+
+# "N of M" is one claim, the part and the whole: either one in the result answers it (Task 19 final wave)
+OF_CLAIM = "Show me the 962 of 4,095 D.SEQ files that are paired"
+
+
+def _premise_on(question, n):
+    inp = ReviewInput(question=question, cypher="MATCH (s:T_D_SEQ) WHERE s.paired = true RETURN s.uuid AS uuid",
+                      parameters={}, keyword_fields={}, rows=[{"uuid": f"D.SEQ-X-{i}"} for i in range(3)],
+                      count=n, total=n, ok=True, error=None)
+    rv = review_tier1(inp, DictCatalog(None))
+    return next(c for c in rv.checks if c.name == "premise_count"), rv
+
+
+@pytest.mark.parametrize("n", [962, 4095])
+def test_either_number_of_an_n_of_m_claim_in_the_result_is_quiet(n):
+    assert gr.stated_counts(OF_CLAIM) == [962, 4095]
+    check, _ = _premise_on(OF_CLAIM, n)
+    assert not check.fired
+
+
+def test_an_n_of_m_claim_the_result_misses_fires_once_on_its_first_number():
+    check, rv = _premise_on(OF_CLAIM, 500)
+    assert check.fired and check.detail == "question states 962, result is 500"
+    assert rv.disclosure.count("The question says") == 1
+    assert gr.PREMISE_FACT.format(n="962") in rv.disclosure
+
+
+@pytest.mark.parametrize("q", [OF_CLAIM, "Show me the 327 of the 892 samples that are female",
+                               "Of the 962 of 4,095 D.SEQ files, how many are paired?"])
+def test_the_follow_up_premise_reads_an_n_of_m_claim_the_same_way(q):
+    """check_premise read only the part ("the 962", its SET_COUNT consumes "of 4,095 D.SEQ"), so a stored result of
+    the whole fired "the earlier result had 4,095, not 962" at a user who had just said 4,095."""
+    part, whole = (962, 4095) if "962" in q else (327, 892)
+    assert not _fired(gr.check_premise(q, stored_total=part))
+    assert not _fired(gr.check_premise(q, stored_total=whole))
+    check = gr.check_premise(q, stored_total=500)
+    assert check.fired and check.detail == f"the earlier result had 500, not {part:,}"

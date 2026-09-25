@@ -182,17 +182,23 @@ _SUBSET_OF = re.compile(r"\b(?:(?:a|an)\s+(?:[\w-]+\s+)?|random\s+)(?:subset|sub
                         re.I)
 #: A threshold, or the upper bound of a range, right before the number: "more than 100 samples", "at least 500
 #: samples", "> 100 samples", the 500 of "between 100 and 500 samples", "from 100 to 500 samples", "100 to 500 samples"
-#: and "100 - 500 samples" (a spaced hyphen, or an en dash spaced or not). "100-500 samples" is never read at all:
+#: and "100 - 500 samples" (a spaced hyphen, or an en dash spaced or not); with its count word, "through" or "up to" as
+#: well: "between 100 samples and 500 samples", "100 samples to 500 samples", "100 through 500 samples", "1,000 up to
+#: 5,000 samples". "100-500 samples" is never read at all:
 #: ``NUMBER`` does not match beside a hyphen. The lower bound never starts after a digit and a comma: from inside a
 #: long comma-joined digit run it would re-read the rest of the run at every digit ("A,100 to 500" is still a range).
+#: A range bound's unit: up to three words ending in a count word ("samples", "D.SEQ files"), as in ``COUNT_WORD``.
+_UNIT = r"\s+(?:\S+\s+){0,3}?(?:samples?|files?|records?|mice|patients|datasets?|rows|D\.[A-Z]+|sequencing|data)\b"
 _THRESHOLD = re.compile(r"(?:\b(?:more|less|fewer|greater|higher|lower)\s+than|\bat\s+(?:least|most)|\bup\s+to"
                         r"|\b(?:over|under|above|below|exceeding|between)|[<>\u2264\u2265]=?"
-                        r"|\bbetween\s+[\d,]+\s+and|(?<![\w./-])(?<!\d,)\d[\d,]*(?:\s+to|\s*[-\u2013]))\s*$", re.I)
+                        r"|\bbetween\s+[\d,]+(?:" + _UNIT + r")?\s+and"
+                        r"|(?<![\w./-])(?<!\d,)\d[\d,]*(?:(?:" + _UNIT + r")?\s+(?:to|through)|\s*[-\u2013]))\s*$",
+                        re.I)
 #: A threshold, or the lower bound of a range, right after the number or after its count word: "500 or more
 #: samples", "1,000 samples or more", "200 or fewer samples", "500+ samples", "1,000 samples and up", the 100 of "100 to
-#: 500 samples".
+#: 500 samples", "100 samples to 500 samples", "100 through 500 samples" and the 1,000 of "1,000 up to 5,000 samples".
 _BOUND_AFTER = re.compile(r"^(?:\s*\+|\s+or\s+(?:more|fewer|less|greater|higher|lower|above|below|over|under)\b"
-                          r"|\s+and\s+(?:up|above)\b|\s+to\s+\d[\d,]*(?![\w./-]))", re.I)
+                          r"|\s+and\s+(?:up|above)\b|\s+(?:to|through|up\s+to)\s+\d[\d,]*(?![\w./-]))", re.I)
 #: The lower bound of a dashed range, right after the number only: the 100 of "100 - 500 samples" and of the same
 #: with an en dash. After the count word a spaced dash is more often an aside ("the 745 samples - 300 of them female").
 _DASH_RANGE_AFTER = re.compile(r"^\s*[-\u2013]\s*\d[\d,]*(?![\w./-])")
@@ -238,6 +244,22 @@ def _set_sizes(pattern: re.Pattern, text: str) -> list[int]:
         n = int(m.group(1).replace(",", ""))
         if n not in out:
             out.append(n)
+    return out
+
+
+#: "N of M", one claim about a part and its whole: "the 962 of 4,095 D.SEQ files", "327 of the 892 samples". Either
+#: number in the result answers it. Bounded, so a long digit run is neither re-read nor turned into a huge int.
+_OF_CLAIM = re.compile(r"(?<![\w./-])(?<!\d,)(\d{1,3}(?:,\d{3}){1,5}|\d{1,15})\s+of\s+(?:(?:the|these|those|all)\s+)?"
+                       r"(\d{1,3}(?:,\d{3}){1,5}|\d{1,15})(?![\w./-]|,\d)", re.I)
+
+
+def _of_partners(text: str) -> dict[int, set[int]]:
+    """Each number of an "N of M" phrase in ``text``, mapped to both numbers of its phrase."""
+    out: dict[int, set[int]] = {}
+    for m in _OF_CLAIM.finditer(text or ""):
+        pair = {int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))}
+        for n in pair:
+            out.setdefault(n, set()).update(pair)
     return out
 
 
@@ -584,8 +606,9 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
 
 def _premise_count(t: _Turn) -> _Finding | None:
     got = {t.result_n(), t.inp.total, t.inp.count}
+    partners = _of_partners(t.q)
     for x in stated_counts(t.q):
-        if x >= 50 and x not in got:
+        if x >= 50 and x not in got and not partners.get(x, set()) & got:
             return _Finding(f"question states {x}, result is {t.result_n()}", PREMISE_FACT.format(n=f"{x:,}"))
     return None
 
@@ -730,14 +753,16 @@ def check_premise(user_text: str, *, stored_total) -> Check:
     """``premise``: the user states the earlier set's size, and the stored result says otherwise.
 
     "how many of these 1,206 mouse sample records ..." about a result that held 745 fires with the detail "the
-    earlier result had 745, not 1,206". Quiet when any stated size matches ``stored_total``, when the user states no
-    size, and when no total is known (``stored_total`` None or not a count). A year, a rank, a sample size or a
-    threshold is no stated size (``_not_a_stated_count``, shared with ``premise_count``)."""
+    earlier result had 745, not 1,206". Quiet when any stated size matches ``stored_total``, or is the part or the
+    whole of an "N of M" phrase whose other number does ("the 962 of 4,095 D.SEQ files" about a result of 4,095),
+    when the user states no size, and when no total is known (``stored_total`` None or not a count). A year, a rank,
+    a sample size or a threshold is no stated size (``_not_a_stated_count``, shared with ``premise_count``)."""
     if not _is_count(stored_total):
         return Check(PREMISE, False, "skipped: no stored total")
     text = user_text if isinstance(user_text, str) else ""
     stated = _set_sizes(SET_COUNT, text)
-    if not stated or stored_total in stated:
+    partners = _of_partners(text)
+    if not stated or stored_total in stated or any(stored_total in partners.get(n, ()) for n in stated):
         return Check(PREMISE, False, "")
     return Check(PREMISE, True, f"the earlier result had {stored_total:,}, not {stated[0]:,}")
 
