@@ -109,7 +109,7 @@ def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
 def _type_histogram_block(all_rows: list, shown: int) -> str:
     """How the sample types are distributed across the WHOLE result, not the preview.
 
-    B8 (wesselr 437): a query returned a heterogeneous result and the writer was shown its
+    B8 (task 437): a query returned a heterogeneous result and the writer was shown its
     first twenty rows, which happened to be one type. It named the whole result after that
     type. The rows are all in memory, so the distribution costs a pass over a list.
 

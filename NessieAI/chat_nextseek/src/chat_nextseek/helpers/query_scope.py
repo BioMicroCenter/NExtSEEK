@@ -10,12 +10,12 @@ with retrieval mechanics.
 The cost of it is three production failures out of 84 turns, all the same shape: the
 reply described a result as if it answered a question the query never asked.
 
-* **B7** (wesselr 462) "list all the human patient samples (PAT) associated with
+* **B7** (task 462) "list all the human patient samples (PAT) associated with
   MDL-250912LAU-1" fetched the whole lineage of the model and never filtered to PAT.
   The reply reported 1,904 matching records; none of the nine it showed were PAT.
-* **B8** (wesselr 437) searched ``D.FLOW`` and ``D.CYTOF`` and the reply named
+* **B8** (task 437) searched ``D.FLOW`` and ``D.CYTOF`` and the reply named
   ``D.FCS``. The review's fix is "name types in the reply from the query that ran".
-* **B13** (mplaster 501/502) counted every mouse with transcriptomic descendants.
+* **B13** (tasks 501/502) counted every mouse with transcriptomic descendants.
   The plan's own note said the ``CC`` keyword filter could not be applied in the
   graph, and the reply still called the 731 a subset of the CC mice.
 

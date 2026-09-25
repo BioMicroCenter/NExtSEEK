@@ -6,14 +6,14 @@ graph. So a follow-up that needed data the stored result could not contain was a
 from the stored result anyway. The production review calls this the second largest
 cause of bad answers, 10 of 53:
 
-* wesselr 439/440 — after 129 IMPACT patients: "do any of those also have RNA
+* tasks 439/440 — after 129 IMPACT patients: "do any of those also have RNA
   sequencing data?" got "it is not possible to determine", and "what other types of
   data are available?" got "No other data types are available". Twenty minutes later
   the same user asked it as a fresh question and got nine downstream data types. 440
   told the user something false.
-* mchao 117/118/119 — the stored result held 20 rows of 250, so the follow-up answered
+* tasks 117/118/119 — the stored result held 20 rows of 250, so the follow-up answered
   from 20, explained the 20 as paging, and exported 20.
-* wesselr 427/428 — "which labs are those mouse samples from?" after a count-only
+* tasks 427/428 — "which labs are those mouse samples from?" after a count-only
   query, which kept no rows at all.
 
 Nothing was forgotten in any of those. The UIDs were on disk. What was missing was the
@@ -370,9 +370,9 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
 def describe_stored_result(bundle: dict) -> dict[str, Any]:
     """What the stored bundle holds, and what it cannot hold.
 
-    ``rows_stored`` against ``total`` is the whole point: mchao 118 was told that a
-    20-row answer to a 250-row question was normal paging, because nothing in the
-    stored bundle said otherwise.
+    ``rows_stored`` against ``total`` is the whole point: in task 118 the user was told
+    that a 20-row answer to a 250-row question was normal paging, because nothing in
+    the stored bundle said otherwise.
 
     ``stored_query`` is the query that produced the result (``_stored_query``). A capped
     copy used to be answered by seeding a new query with the UIDs it held, which scoped

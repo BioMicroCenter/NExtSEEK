@@ -1075,7 +1075,7 @@ def _execute_graph_turn(
 
     # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
     # This was one retry and only on a Cypher error, so a query that ran perfectly well
-    # and matched nothing was final. That is B11 (juanita, a guessed assay name returned
+    # and matched nothing was final. That is case B11 (a guessed assay name returned
     # zero and the zero was reported as the answer). A zero-row result now gets exactly
     # one more go, and if the second query also finds nothing the FIRST result stands:
     # reporting a different query's number would be worse than reporting zero.
@@ -1645,8 +1645,8 @@ def run_query(
             # The follow-up agent first. This branch used to end here: it read one
             # stored bundle and answered from it, with no path back to the graph, so a
             # question the stored result could not answer was answered from it anyway
-            # (wesselr 440 was told "No other data types are available" about a result
-            # that could not have held them). The agent can look at what the bundle
+            # (in task 440 the user was told "No other data types are available" about
+            # a result that could not have held them). The agent can look at what the bundle
             # holds and run a new query seeded with its UIDs. When the profile has no
             # tool-capable model, or the agent produces nothing, the old path still
             # runs: worse, but never worse than before.
