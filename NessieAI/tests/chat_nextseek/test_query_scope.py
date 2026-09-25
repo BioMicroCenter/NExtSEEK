@@ -884,3 +884,70 @@ def test_a_narrowing_term_is_not_applied_by_its_whole_type(keyword, label):
         user_query=f"How many {keyword} samples are there?",
     )
     assert any(keyword in item for item in scope.not_applied)
+
+
+# --- the Phase F routes never add a gap: what the review of the first version found ---
+
+@pytest.mark.parametrize("code,name,keyword", [("AB", "Antibody", "antibody"), ("PAT", "Patient", "patient")])
+def test_a_keyword_naming_a_type_an_every_sample_question_skips_is_applied_by_its_label(code, name, keyword):
+    """The every-sample route skips the type; the keyword that names it still reaches the type's label."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code=code, name=name)], keywords=[keyword]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": f"MATCH (s:T_{code}) RETURN count(s) AS n"},
+        user_query=f"Find me all samples associated with {keyword}",
+    )
+    assert scope.not_applied == []
+
+
+@pytest.mark.parametrize("project,where,params", [
+    # a different study under the same investigation
+    ("TCGA GBM", "st.title = $study_title AND inv.title = $investigation_title",
+     {"study_title": "LUAD", "investigation_title": "TCGA"}),
+    # the parent investigation alone
+    ("TCGA LUAD", "inv.title = $investigation_title", {"investigation_title": "TCGA"}),
+])
+def test_an_investigation_title_inside_the_asked_name_does_not_apply_it(project, where, params):
+    """'TCGA' sits inside every TCGA study's name; only a Project or Study title may sit inside the asked name."""
+    scope = describe_query_scope(
+        entity_result=_entity(projects=[project], sampletypes=[EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              f"WHERE {where} RETURN count(DISTINCT s) AS n",
+                    "parameters": params},
+        user_query=f"How many patients are in the {project} study?",
+    )
+    assert f"project {project}" in scope.not_applied
+
+
+@pytest.mark.parametrize("code,name,question", [
+    ("MUS", "Mouse", "Find all samples associated with NDMA from mice"),
+    ("PAT", "Patient", "How many samples associated with tuberculosis are from patients?"),
+    ("MUS", "Mouse", "Find all samples associated with NDMA in mouse samples"),
+])
+def test_a_type_named_after_the_topic_with_a_cue_is_still_checked(code, name, question):
+    """"from <type>" and "<type> samples" keep the type asked for. "in <type>" is not a cue (R7-711's paper title
+    holds "in mice and humans"), so "... associated with NDMA in mouse liver" still drops MUS: an under-report, the
+    direction this module allows."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code=code, name=name)], keywords=["NDMA"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS $t RETURN count(s) AS n",
+                    "parameters": {"t": "ndma"}},
+        user_query=question,
+    )
+    assert any(code in item for item in scope.not_applied)
+
+
+def test_a_short_keyword_inside_a_word_of_a_matched_title_keeps_its_gap():
+    """B13's CC: the title part route matches whole words of three or more characters, never "cc" in "Vaccine"."""
+    title = "Vaccine-induced T cell responses protect mice"
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=[title, "CC"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS toLower($t) "
+                              "RETURN count(s) AS n",
+                    "parameters": {"t": title.lower()}},
+        user_query=f"How many CC samples are in the study {title}?",
+    )
+    assert 'keyword "CC"' in scope.not_applied

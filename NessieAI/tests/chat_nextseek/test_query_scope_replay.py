@@ -57,7 +57,6 @@ def test_out_of_scope_caveats_are_left_alone(r):
     assert _scope(r).not_applied == r["baseline_not_applied"]
 
 
-
 @pytest.mark.parametrize("r", [r for r in FIX if r["id"] in {"r3-602", "r7-709"}], ids=lambda r: r["id"])
 def test_declared_converter_keywords_are_applied(r):
     """Operator ruling Q1, accepted offline: the same recorded plan, with Mtb, infection and positive declared in
