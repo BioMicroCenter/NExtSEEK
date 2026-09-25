@@ -418,7 +418,7 @@
      "family": "cc_followup_reruns",
      "id": "ccfu.newest_turn_after_ns_cc_ns",
      "name": "Fix 3: NS, CC, NS, CC in a row, the last CC turn works on the newest turn",
-     "_why": "The r1-581 and r4-608 shape: a resumed CC turn skipped MANIFEST.md and answered about an older turn. Now the hook names the newest staged turn every turn, so the fourth turn reads the manifest and the HeLa turn's files (turn 3), not the NHP turn's (turn 1), and makes no server call. 4 HeLa samples, measured 2026-09-23.",
+     "_why": "The r1-581 and r4-608 shape: a resumed CC turn skipped MANIFEST.md and answered about an older turn. Now the hook names the newest staged turn every turn, so the fourth turn reads the HeLa turn's files (turn 3), not the NHP turn's (turn 1), and makes no server call. 4 HeLa samples, measured 2026-09-23. The operator ruled on 2026-09-25 that this resumed turn need not read MANIFEST.md (the 09-25 dev run bound correctly from the hook note alone), so that criterion was dropped; the turn-03 and not-turn-01 criteria carry the case.",
      "tags": [
       "nessie",
       "probe",
@@ -507,11 +507,6 @@
          "field": "route_source",
          "op": "matches_re",
          "value": "^(baml|followup|sticky)$"
-        },
-        {
-         "field": "cc_trace_text",
-         "op": "matches_re",
-         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "last_reply",
