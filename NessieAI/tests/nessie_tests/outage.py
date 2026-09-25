@@ -23,6 +23,15 @@ three reviewers then spent time triaging.
 is an em dash at the source and arrives as U+FFFD in the stored evidence, so
 anchoring on anything but the phrase is a trap. The phrase itself is stable and
 appears nowhere else in the product's vocabulary.
+
+**Since 2026-09-25 (fix 5)** the reply no longer carries that phrase. An NS turn
+the AI models could not answer (a 503, an empty body, a 429, a timeout or a
+connection error, on the second model too when there was one) replies with the
+operator's plain text, and its ``query_error`` event carries
+``reason: "model_unavailable"`` with the raw message in ``detail``; the
+Container-CC route uses the same reason. Both are detected here: the plain text in
+a reply, and the reason in any event data handed in. The old phrase still counts,
+for stored runs and for the raw message wherever it surfaces.
 """
 from __future__ import annotations
 
@@ -34,19 +43,53 @@ from __future__ import annotations
 # fails loudly if the product ever rewords the message.
 PROVIDER_OUTAGE_MARKER = "All provider fallbacks exhausted"
 
+# The ``query_error`` data ``reason`` of a turn the AI models could not answer, NS or CC.
+# A copy of chat_nextseek.failure_replies.MODEL_UNAVAILABLE_REASON (this module imports
+# nothing from the product); tests/test_outage_model_unavailable.py pins the two equal.
+MODEL_UNAVAILABLE_REASON = "model_unavailable"
+
+# The stable opening of the NS reply for that turn, both variants (with and without
+# "(we tried a second one as well)"). The planner's own failure replies ("The AI model
+# that plans the search ...") are an unsupported plan, not an outage, and do not match.
+MODEL_UNAVAILABLE_REPLY_MARKER = "The AI models we use were unavailable"
+
 # Recorded as the manifest entry's `reason`, so a reader of report.html or of the
 # printed summary sees why the case was exempted rather than just an `error`.
 OUTAGE_REASON = (
-    f"provider outage: the reply carries {PROVIDER_OUTAGE_MARKER!r}; every "
-    "provider in the fallback chain returned 503, so no product behaviour ran"
+    f"provider outage: the reply carries {PROVIDER_OUTAGE_MARKER!r} or the turn ended "
+    f"with reason {MODEL_UNAVAILABLE_REASON!r}; the AI models did not answer, on the "
+    "fallback provider either, so no product behaviour ran"
 )
 
+# Where event data carries its text.
+_TEXT_KEYS = ("error", "detail", "reply")
 
-def is_provider_outage(*texts: object) -> bool:
-    """True if ANY of ``texts`` is a reply produced by an exhausted fallback chain.
 
-    Non-strings (None, an int, a dict left over from a partial payload) are simply
-    not outages — a resolver that returns something unexpected must not make the
-    detector raise inside the run loop.
+def _text_is_outage(text: str) -> bool:
+    return PROVIDER_OUTAGE_MARKER in text or MODEL_UNAVAILABLE_REPLY_MARKER in text
+
+
+def _data_is_outage(data: dict) -> bool:
+    if data.get("reason") == MODEL_UNAVAILABLE_REASON:
+        return True
+    if any(isinstance(data.get(k), str) and _text_is_outage(data[k]) for k in _TEXT_KEYS):
+        return True
+    nested = data.get("data")  # a progress event: {"event": "query_error", "data": {...}}
+    return isinstance(nested, dict) and nested is not data and _data_is_outage(nested)
+
+
+def is_provider_outage(*items: object) -> bool:
+    """True if ANY of ``items`` shows a turn the AI models could not answer.
+
+    A string is a reply (or an error text) carrying the old exhausted-chain phrase or
+    the NS plain text. A dict is event data (a ``query_error`` payload, or a progress
+    event wrapping one) whose ``reason`` is ``model_unavailable`` or whose text carries
+    either. Anything else (None, an int) is simply not an outage: a resolver that
+    returns something unexpected must not make the detector raise inside the run loop.
     """
-    return any(PROVIDER_OUTAGE_MARKER in t for t in texts if isinstance(t, str))
+    for item in items:
+        if isinstance(item, str) and _text_is_outage(item):
+            return True
+        if isinstance(item, dict) and _data_is_outage(item):
+            return True
+    return False
