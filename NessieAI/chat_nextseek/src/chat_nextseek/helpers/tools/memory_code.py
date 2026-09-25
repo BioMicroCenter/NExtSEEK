@@ -5,6 +5,7 @@ import ast
 import json
 import re
 import signal
+from types import SimpleNamespace
 from typing import Any
 
 
@@ -315,6 +316,7 @@ _MEMORY_ALLOWED_METHODS = {
 }
 
 _MEMORY_ALLOWED_RE_METHODS = {"search", "match", "fullmatch", "findall", "sub"}
+_MEMORY_ALLOWED_RE_FLAGS = {"I", "IGNORECASE", "M", "MULTILINE", "S", "DOTALL"}
 _MEMORY_ALLOWED_JSON_METHODS = {"loads", "dumps"}
 _MEMORY_ALLOWED_RUNTIME_HELPERS = {"strip_html"}
 _MEMORY_BLOCKED_NAMES = {"eval", "exec", "compile", "open", "__import__", "globals", "locals", "vars", "dir", "help", "input"}
@@ -349,8 +351,21 @@ def _validate_memory_code(tree: ast.AST) -> None:
         if isinstance(node, ast.Name) and node.id in _MEMORY_BLOCKED_NAMES:
             raise MemoryCodeSafetyError(f"Disallowed name: {node.id}")
         if isinstance(node, ast.Attribute):
-            if node.attr.startswith("__"):
-                raise MemoryCodeSafetyError("Dunder attribute access is not allowed")
+            # Every attribute, whether it is read, called or assigned, must be on an allow-list: the
+            # re functions and flags on `re`, the json functions on `json`, and the listed methods on
+            # anything else. No name starting with an underscore.
+            attr = node.attr
+            value = node.value
+            if attr.startswith("_"):
+                allowed = False
+            elif isinstance(value, ast.Name) and value.id == "re":
+                allowed = attr in _MEMORY_ALLOWED_RE_METHODS | _MEMORY_ALLOWED_RE_FLAGS
+            elif isinstance(value, ast.Name) and value.id == "json":
+                allowed = attr in _MEMORY_ALLOWED_JSON_METHODS
+            else:
+                allowed = attr in _MEMORY_ALLOWED_METHODS
+            if not allowed:
+                raise MemoryCodeSafetyError(f"Disallowed attribute access: {attr}")
         if isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name):
@@ -380,6 +395,9 @@ def execute_memory_code(code: str, data: Any, *, timeout_seconds: int = 3) -> di
     """
     Execute LLM-generated memory extraction code against local JSON with a narrow Python subset.
     The code must assign JSON-serializable output to `result`.
+
+    This runs the code in the calling process. The chat engine's callers run it through
+    ``row_compute.run_code_isolated``, which calls this function in a separate, limited process.
     """
     tree = ast.parse(code, mode="exec")
     _validate_memory_code(tree)
@@ -414,8 +432,10 @@ def execute_memory_code(code: str, data: Any, *, timeout_seconds: int = 3) -> di
         "__builtins__": _MEMORY_ALLOWED_BUILTINS,
         "data": data,
         "rows": rows,
-        "re": re,
-        "json": json,
+        # Namespaces holding only what the validator allows on them, not the modules themselves.
+        "re": SimpleNamespace(**{name: getattr(re, name)
+                                 for name in sorted(_MEMORY_ALLOWED_RE_METHODS | _MEMORY_ALLOWED_RE_FLAGS)}),
+        "json": SimpleNamespace(loads=json.loads, dumps=json.dumps),
         "strip_html": _strip_html_helper,
         "result": {},
     }

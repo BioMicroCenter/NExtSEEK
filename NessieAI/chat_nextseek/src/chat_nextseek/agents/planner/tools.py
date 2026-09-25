@@ -11,10 +11,10 @@ from ...session import SessionState
 from ...config import ChatConfig
 from ...artifacts import ArtifactStore
 from ...helpers.tools.neo4j import is_scope_refusal
+from ...helpers.tools.row_compute import run_code_isolated
 from ...helpers import (
     _retry_advanced_search_if_empty,
     build_memory_data_profile,
-    execute_memory_code,
     fix_sample_endpoint,
     generate_report_outputs,
     normalize_report_type,
@@ -592,7 +592,11 @@ def _plan_tool_coding_filter(
         data_profile=profile,
         log_dir=log_dir,
     )
-    computed_result = execute_memory_code(coder_output.extraction_code, data_for_code)
+    # The code runs in a separate, limited process; the step fails on an error, as it did before.
+    run = run_code_isolated(coder_output.extraction_code, data_for_code)
+    if not run["ok"]:
+        raise RuntimeError(run["error"])
+    computed_result = run["result"]
     filtered_rows = (
         computed_result.get("filtered_rows")
         or computed_result.get("rows")
