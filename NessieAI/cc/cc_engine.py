@@ -1463,18 +1463,15 @@ def run_cc_turn(
                 partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
-            message = (
-                f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped. "
-                "A comprehensive request can take several turns; say continue to carry on "
-                "from here."
-            )
             send_event("query_error", {
-                "error": message,
+                "error": _time_limit_message(turn_timeout),
                 "reason": "exec_timeout", "agent": "container_cc",
                 "cc_session_id": translator.session_id,
                 "partial_reply": partial or None,
                 "artifacts": result["artifacts"] or None,
                 "cc_raw_files": result["raw"],
+                # The turn record: a fallback model can still be what ran out the clock.
+                "model_fallback": translator.model_fallback,
             })
             return
 
@@ -1730,6 +1727,20 @@ def run_cc_turn(
                         total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
+
+
+def _time_limit_phrase(seconds: float) -> str:
+    """A turn's time limit as the user reads it: whole minutes as "N-minute", else "N-second"."""
+    value = float(seconds)
+    if value > 0 and value % 60 == 0:
+        return f"{int(value // 60)}-minute"
+    return f"{value:g}-second"
+
+
+def _time_limit_message(seconds: float) -> str:
+    """Operator-approved (2026-09-25): what a turn stopped at its time limit tells the user."""
+    return (f"This took longer than the {_time_limit_phrase(seconds)} limit, so I stopped. "
+            "Say continue and I will carry on from where I got to.")
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
