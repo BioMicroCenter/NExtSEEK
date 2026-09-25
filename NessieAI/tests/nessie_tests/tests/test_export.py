@@ -572,6 +572,79 @@ def test_the_error_class_vocabulary(text, klass):
     assert klass in export.ERROR_CLASSES
 
 
+# After the plain-text failure messages, a CC time limit and an unavailable model
+# arrive with approved plain text in `error`, the raw text in `detail`, and the
+# kind in `reason`. The plain text carries no marker, so the kind is read first.
+_CC_TIME_LIMIT = ("This took longer than the 3-minute limit, so I stopped. Say continue "
+                  "and I will carry on from where I got to.")
+_MODEL_DOWN = ("The AI model was unavailable during this turn, so I could not finish. "
+               "Please ask again in a few minutes.")
+
+
+def test_the_reason_is_read_before_any_text():
+    assert export.classify_error(_CC_TIME_LIMIT) == export.ERROR_UNCLASSIFIED, (
+        "the plain text alone says nothing a marker can match")
+    assert export.classify_error(_CC_TIME_LIMIT, reason="exec_timeout") == export.ERROR_TIMEOUT
+    # `detail` says "timed out", and the reason still wins: the model was unavailable.
+    assert export.classify_error(_MODEL_DOWN, reason="model_unavailable",
+                                 detail="API Error: Request timed out") == export.ERROR_OUTAGE
+
+
+def test_an_unavailable_model_is_classed_like_an_exhausted_ns_fallback_chain():
+    ns_today = export.classify_error(
+        f"{outage.PROVIDER_OUTAGE_MARKER}: agent 'graph': 503")
+    assert export.classify_error(_MODEL_DOWN, reason="model_unavailable") == ns_today
+
+
+@pytest.mark.parametrize("detail, klass", [
+    ("API Error: Request timed out", "timeout"),
+    (_REFUSAL, "usage_policy"),
+    ("API Error: 500 internal", "unclassified"),
+])
+def test_without_a_known_reason_the_detail_is_matched_before_the_error(detail, klass):
+    assert export.classify_error(_MODEL_DOWN, detail=detail) == klass
+    assert export.classify_error(_MODEL_DOWN, reason="something_new", detail=detail) == klass
+
+
+def test_the_error_text_is_still_matched_when_the_detail_says_nothing():
+    assert export.classify_error("the socket timed out", detail="n/a") == export.ERROR_TIMEOUT
+    assert export.classify_error("", reason="", detail="") == export.ERROR_NONE
+
+
+@pytest.mark.parametrize("record, klass", [
+    ({"error": _CC_TIME_LIMIT, "reason": "exec_timeout",
+      "detail": "container exec exceeded 180 s"}, "timeout"),
+    ({"error": _MODEL_DOWN, "reason": "model_unavailable",
+      "detail": "API Error: 529 overloaded"}, "provider_outage"),
+])
+def test_an_arm_is_classified_by_the_reason_its_turn_recorded(tmp_path, record, klass):
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(json.dumps(
+        {"status": "error", "result": {**record, "agent": "container_cc"},
+         "progress": [{"event": "query_error", "data": record}]}), encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry(status="failed"))])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    row = _rows(tmp_path / "arm_diagnostics.csv")[0]
+    assert row["error_class"] == klass
+    assert row["error_text"] == record["error"]
+
+
+def test_the_reason_is_recovered_from_query_error_when_the_result_never_landed(tmp_path):
+    art = tmp_path / "artifacts"
+    (_arm_dir(art, "a.one", "cc") / "task.json").write_text(json.dumps(
+        {"status": "error", "result": None, "progress": [
+            {"event": "query_error", "data": {"error": _CC_TIME_LIMIT,
+                                              "reason": "exec_timeout"}}]}),
+        encoding="utf-8")
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", cc=_entry())])
+
+    export.export(m, tmp_path, artifacts_dir=art)
+
+    assert _rows(tmp_path / "arm_diagnostics.csv")[0]["error_class"] == export.ERROR_TIMEOUT
+
+
 def test_an_errored_arm_with_no_message_is_no_text_and_never_none(tmp_path):
     """`error_class` must not contradict `is_error`.
 

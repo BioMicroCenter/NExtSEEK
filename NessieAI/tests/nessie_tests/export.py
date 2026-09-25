@@ -447,25 +447,57 @@ def final_answer(rows) -> str:
 # for this arm". Recovering it costs one read of a file the collector already
 # wrote.
 
-def error_of(row) -> str:
-    """The error ONE collected turn recorded, or `""`.
+_ERROR_FIELDS = ("error", "reason", "detail")
 
-    `result.error` first, for the same reason `reply_of` reads `result.reply`
-    first: it is the endpoint's own final field. The `query_error` event is the
-    fallback for a row whose result never landed -- and it is a real fallback,
-    not a theoretical one, because `translate.py` emits the event and the result
-    dict is written separately.
+
+def error_record_of(row) -> dict:
+    """`{"error", "reason", "detail"}` as ONE collected turn recorded them, each
+    `""` when absent.
+
+    `error` is the text the user was shown. Since the plain failure messages it is
+    approved plain text for a time limit or an unavailable model, with the raw
+    technical text in `detail` and the kind in `reason` (`exec_timeout`,
+    `model_unavailable`); older rows carry `error` alone.
+
+    `result` first, for the same reason `reply_of` reads `result.reply` first: it
+    is the endpoint's own final field. The `query_error` event is the fallback for
+    a row whose result never landed -- and it is a real fallback, not a
+    theoretical one, because `translate.py` emits the event and the result dict is
+    written separately. All three fields come from the one record, never mixed.
     """
+    source = None
     result = row.get("result")
     if isinstance(result, dict) and result.get("error"):
-        return str(result["error"])
-    for ev in reversed(row.get("progress") or []):
-        if ev.get("event") != "query_error":
-            continue
-        data = ev.get("data") or {}
-        if isinstance(data, dict) and data.get("error"):
-            return str(data["error"])
-    return ""
+        source = result
+    else:
+        for ev in reversed(row.get("progress") or []):
+            if ev.get("event") != "query_error":
+                continue
+            data = ev.get("data") or {}
+            if isinstance(data, dict) and (data.get("error") or data.get("reason")):
+                source = data
+                break
+    if source is None:
+        return {k: "" for k in _ERROR_FIELDS}
+    return {k: str(source.get(k) or "") for k in _ERROR_FIELDS}
+
+
+def error_of(row) -> str:
+    """The error text ONE collected turn recorded, or `""` (`error_record_of`)."""
+    return error_record_of(row)["error"]
+
+
+def final_error_record(rows) -> dict:
+    """The LAST error record any of this arm's turns carried, all `""` when none.
+
+    The last rather than the first, so a multi-turn arm reports the failure that
+    ended it, exactly as `final_error` does for the text alone.
+    """
+    for row in reversed(list(rows)):
+        record = error_record_of(row)
+        if any(record.values()):
+            return record
+    return {k: "" for k in _ERROR_FIELDS}
 
 
 def final_error(rows) -> str:
@@ -527,9 +559,23 @@ _USAGE_POLICY_MARKERS = ("usage policy", "/legal/aup")
 
 _TIMEOUT_MARKERS = ("timeout", "timed out")
 
+# The failure `reason` a turn records beside its plain `error` text. The plain text
+# was written for the user and carries no marker, so the reason decides first.
+# `model_unavailable` takes the class an NS "all provider fallbacks exhausted" error
+# gets, because it is the same fact: no model would answer.
+_REASON_CLASSES = {
+    "exec_timeout": ERROR_TIMEOUT,
+    "model_unavailable": ERROR_OUTAGE,
+}
 
-def classify_error(text: str) -> str:
-    """Classify one error TEXT. `""` -> `ERROR_NONE`.
+
+def classify_error(text: str, *, reason: str = "", detail: str = "") -> str:
+    """Classify one turn's error: its `reason`, then its `detail`, then its `text`.
+
+    A known `reason` decides outright. Otherwise the raw `detail` is matched, then
+    the `text` (`error`), and the first that matches a rule wins; `unclassified`
+    when something was recorded and nothing matched, `ERROR_NONE` when nothing was
+    recorded at all.
 
     A pure function of the string, and therefore NOT the whole story: the absence
     of a message is not the absence of an error, so the arm-level decision
@@ -543,8 +589,18 @@ def classify_error(text: str) -> str:
     detector the rest of the harness already trusts, and a 503 chain that reports
     itself with the word "timeout" in it is still an outage.
     """
-    if not text:
-        return ERROR_NONE
+    if reason in _REASON_CLASSES:
+        return _REASON_CLASSES[reason]
+    for candidate in (detail, text):
+        if candidate:
+            klass = _classify_text(candidate)
+            if klass != ERROR_UNCLASSIFIED:
+                return klass
+    return ERROR_UNCLASSIFIED if (text or detail or reason) else ERROR_NONE
+
+
+def _classify_text(text: str) -> str:
+    """The marker rules, for one non-empty text."""
     if outage.is_provider_outage(text):
         return ERROR_OUTAGE
     low = text.lower()
@@ -660,14 +716,17 @@ def arm_diagnostic(entry, artifacts_dir, variant_id: str, arm: str, rows) -> dic
     and is not contradicted by a flag derived from the manifest entry.
     """
     value, status = stop_reason(artifacts_dir, variant_id, arm)
-    text = final_error(rows)
+    record = final_error_record(rows)
+    # The text the user was shown, or the raw detail when a turn recorded only that.
+    text = record["error"] or record["detail"]
     _answer, is_error, _timed_out = runtime_flags(entry, rows)
     if not rows:
         # With no collected row there was nothing to look in, and "this arm had
         # no error" would be a claim.
         klass = ERROR_UNOBSERVED
-    elif text:
-        klass = classify_error(text)
+    elif any(record.values()):
+        klass = classify_error(record["error"], reason=record["reason"],
+                               detail=record["detail"])
     else:
         klass = ERROR_NO_TEXT if is_error else ERROR_NONE
     return {
