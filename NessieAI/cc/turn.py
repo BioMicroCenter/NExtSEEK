@@ -42,7 +42,7 @@ from NessieAI.router.policy import (
     _fallback_when_cc_unavailable,
     _record_ledger_row,
 )
-from NessieAI.ns.turn import _auto_title_if_unset, _select_chat_config
+from NessieAI.ns.turn import _auto_title_if_unset, _error_tracking_send_event, _select_chat_config
 from NessieAI.cc import cc_engine
 from NessieAI.cc import cc_config
 from NessieAI.cc import cc_session
@@ -403,6 +403,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
     terminal_seen = cc_turn_complete.new_terminal_tracker()
     send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
+    # Whether a query_error already went out, so the catch-all in _run never sends a
+    # second one over the real error (F13): the NS endpoints' guard.
+    send_event, error_state = _error_tracking_send_event(send_event)
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 
@@ -680,14 +683,19 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 )
         except Exception as exc:
             logger.exception("cc-assistant pipeline error")
-            send_event("query_error", {
-                "error": "Internal pipeline error", "agent": "unknown",
-                # This is the turn's last event, and the harness reads a turn's cost off
-                # the last query_error: an NS turn that crashed carries what it spent,
-                # taken out on the exception (turn_spend.collects_turn). Empty otherwise.
-                **turn_spend.cost_fields(exc),
-                "session_id": resolved_session_id,
-            })
+            # run_query sends its own query_error (the real message, with the turn's cost)
+            # before it re-raises, and the task keeps the last one: a second, generic one
+            # here would replace the real error the user needs to see (F13).
+            if not error_state["sent"]:
+                send_event("query_error", {
+                    "error": "Internal pipeline error", "agent": "unknown",
+                    # This is then the turn's last event, and the harness reads a turn's
+                    # cost off the last query_error: a turn that crashed carries what it
+                    # spent, taken out on the exception (turn_spend.collects_turn). Empty
+                    # otherwise.
+                    **turn_spend.cost_fields(exc),
+                    "session_id": resolved_session_id,
+                })
         finally:
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
             if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
