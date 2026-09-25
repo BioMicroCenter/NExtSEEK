@@ -978,6 +978,10 @@ def call_llm_text(
     5xx or an empty reply that survives the one provider move raises ``LLMFatalError``,
     and a timeout that survives it raises ``LLMTimeoutError``, exactly as for the
     structured agents; the caller decides what the user sees.
+
+    ``agent_label`` is the catalog key the provider chain is looked up by. ``log_label``,
+    when given, is the name the ledger and the response log record instead (the memory
+    coder's reply runs on the chatter's model and is ledgered as its own step).
     """
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
@@ -998,7 +1002,8 @@ def call_llm_text(
         timeout_retry_seconds=timeout_retry_seconds,
         timeout_retries=timeout_retries,
         rate_limit_sleep=rate_limit_sleep,
-        agent_label=agent_label,
+        agent_label=log_label or agent_label,
+        chain_key=agent_label,
         label=agent_label,
         usage_label=usage_label,
         on_response=_on_response,
