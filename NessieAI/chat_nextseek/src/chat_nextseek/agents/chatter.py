@@ -221,6 +221,18 @@ _ENDS_A_SENTENCE = re.compile(r"[.!?:][\"'\u201d\u2019)\]*_]*$")
 _LIST_OR_TABLE_LINE = re.compile(r"[ \t]*(?:\||[-*+][ \t]|\d+[.)][ \t])")
 
 
+#: The opening words of every lab near-miss note (``helpers.lab_code.lab_near_miss_notes``: 'No lab is recorded as
+#: "X". The closest on record is ..., so say so and offer that spelling.'). Its offer is the closest spelling of a
+#: misspelled lab, which the reply keeps whatever the result. A test builds the note with that function, so a change
+#: to its wording fails there.
+_LAB_NEAR_MISS_LEAD = 'No lab is recorded as "'
+
+
+def _has_lab_near_miss(notes: list[str] | None) -> bool:
+    """Whether the turn's notes carry a lab near-miss note."""
+    return any(_LAB_NEAR_MISS_LEAD in str(note or "") for note in notes or [])
+
+
 def _drop_stock_closer(reply: str) -> str:
     """The model's last sentence when it is a stock offer no chip backs ("If you would like ... let me know").
 
@@ -402,7 +414,7 @@ def chatter_agent_answer(
     offer where it lacks them (``_with_review_backstop``): the model's reply after its first sentence, the
     fallback first. With neither, nothing changes. With no offered step, a stock offer closing the model's
     reply to an answered result (rows, or a count or total above zero) is dropped (``_drop_stock_closer``):
-    the chip is the reply's only offer.
+    the chip is the reply's only offer. A lab near-miss note keeps it (``_has_lab_near_miss``).
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -868,10 +880,11 @@ def chatter_agent_answer(
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
-    # F-d: with no chip to offer, an answered result's closing stock offer goes. On the model's
+    # F-d: with no chip to offer, an answered result's closing stock offer goes, unless a note names
+    # a misspelled lab's closest spelling, which the reply offers on any result. On the model's
     # answer only, before the backstops below, so the offer Task 9 appends is never a candidate;
     # after the URL cleanup, so a closer is judged as the user would read it.
-    if answered and not offered_step:
+    if answered and not offered_step and not _has_lab_near_miss(query_notes):
         answer_no_links = _drop_stock_closer(answer_no_links)
     # The reviewer's facts after the answer's first sentence and its offered step last, where the
     # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a

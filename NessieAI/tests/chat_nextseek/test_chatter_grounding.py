@@ -352,3 +352,42 @@ def test_no_closing_offer_says_it_applies_to_an_answered_result():
     assert "This applies to an answered result." in rule
     assert ("When the result is empty or the query failed, a question that asks the user to choose, or a note's "
             "closest spelling, is part of the answer.") in rule
+
+
+# --------------------------------------------------------------------------- #
+# A lab near-miss note keeps the offer on any turn: the closest spelling is the answer's point
+# --------------------------------------------------------------------------- #
+
+def _near_miss_note():
+    from chat_nextseek.helpers.lab_code import lab_near_miss_notes
+    return lab_near_miss_notes([{"text": "Qwerty", "code": "QWZ", "name": "Qwertz"}])[0]
+
+
+def test_the_near_miss_note_is_recognised_in_the_words_lab_code_writes():
+    """Built with lab_code's own function, so a change to its wording fails here, not silently in a reply."""
+    note = _near_miss_note()
+    assert chatter_mod._has_lab_near_miss([note])
+    assert chatter_mod._has_lab_near_miss(["What the result matched: 42 samples.", note])
+    assert not chatter_mod._has_lab_near_miss(["What the result matched: 42 samples.", "What went wrong: x."])
+    assert not chatter_mod._has_lab_near_miss(None) and not chatter_mod._has_lab_near_miss([])
+
+
+ANSWERED_NEAR_MISS = ("There are 42 samples, not restricted to a lab: no lab is recorded as Qwerty. Would you like me "
+                      "to search the Qwertz lab (QWZ) instead?")
+
+
+def test_an_answered_turn_with_a_near_miss_note_keeps_its_offer(monkeypatch):
+    body = _graph_turn(monkeypatch, ANSWERED_NEAR_MISS, {"ok": True, "count": 1, "total": 1, "data": [{"n": 42}]},
+                       [_near_miss_note()])
+    assert body == ANSWERED_NEAR_MISS and "Qwertz lab (QWZ)" in body
+
+
+def test_the_same_answered_turn_without_the_note_drops_its_closer(monkeypatch):
+    body = _graph_turn(monkeypatch, ANSWERED_NEAR_MISS, {"ok": True, "count": 1, "total": 1, "data": [{"n": 42}]})
+    assert body == "There are 42 samples, not restricted to a lab: no lab is recorded as Qwerty."
+
+
+def test_no_closing_offer_keeps_a_notes_closest_spelling_on_any_result():
+    rule = _section("NO CLOSING OFFER", 1000)
+    rule = rule[:rule.index("\n")]
+    assert "A note's closest spelling is part of the answer whatever the result." in rule
