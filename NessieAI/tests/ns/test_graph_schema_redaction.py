@@ -1,4 +1,4 @@
-"""The graph-schema op for a caller who is not a superuser: the live schema without counts, values or ranges.
+"""The graph-schema op for a caller who is not a superuser: the live schema without counts or ranges.
 
 Spec: ``docs/superpowers/specs/2026-09-18-graph-cypher-scope.md`` sections 8 and 11.3. The op serves
 ``graph_schema_snapshot``, which reads the catalog through ``graph_catalog.get_snapshot`` and ``get_type_details``
@@ -34,7 +34,7 @@ ROWS = {
         "clade": "Source", "sample_count": 72614, "curated_parents": None, "curated_children": None,
         "attributes": [
             {"title": "Organ", "value_type": "string", "declared": True, "needs_backticks": False,
-             "sample_count": 8093, "top_values": ["marker-organ-value"], "top_counts": [6158]},
+             "sample_count": 8093},
             {"title": "Weight", "value_type": "number", "declared": True, "needs_backticks": False,
              "sample_count": 2471, "num_min": 0.125, "num_max": 804.5},
         ],
@@ -54,8 +54,11 @@ ROWS = {
 }
 STATEMENTS = {getattr(gc, name): name for name in ROWS if isinstance(getattr(gc, name, None), str)}
 FOREIGN_TITLES = ("Investigation of another project", "Another project")
-ADMIN_ONLY_TEXT = ("72,614", "8,093", "6,158", "2,471", "0.125", "804.5", "marker-organ-value")
-COLUMN_TOKENS = ("n=", "values:", "range")
+# 6,158 and marker-organ-value were the Organ attribute's example top value. No Attribute node ever carried one
+# (no writer), so 889abe89 removed the reader, the renderer and the "values:" column; there is no value left for
+# the redaction to strip. The counts and ranges it strips are real.
+ADMIN_ONLY_TEXT = ("72,614", "8,093", "2,471", "0.125", "804.5")
+COLUMN_TOKENS = ("n=", "range")
 LEGEND_PREFIX = "## Resolved sample types:"  # names the columns for every caller (graph_context._assemble)
 
 
@@ -89,7 +92,7 @@ def _schema(config) -> dict:
     return out
 
 
-def test_an_admin_schema_carries_counts_values_and_ranges():
+def test_an_admin_schema_carries_counts_and_ranges():
     # The control: what the non-admin test looks for is really there for an admin.
     text = _schema(with_scope(_base(), GraphScope.admin("test")))["schema"]
 
@@ -114,7 +117,7 @@ def test_an_admin_schema_carries_every_projects_vocabulary():
     _base,
     _magicmock,
 ], ids=["non_admin", "no_projects", "scope_none", "no_scope_attribute", "magicmock_config"])
-def test_a_non_admin_schema_has_no_counts_values_or_ranges(make_config):
+def test_a_non_admin_schema_has_no_counts_or_ranges(make_config):
     out = _schema(make_config())
     text = out["schema"]
 
