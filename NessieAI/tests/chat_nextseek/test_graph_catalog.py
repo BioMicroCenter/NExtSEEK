@@ -29,6 +29,9 @@ STATEMENT_NAMES = (
     "META", "INDEX", "GUARD", "TYPES_ADMIN",
     "VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES",
 )
+# What a caller limited to a set of projects reads instead of the VOCAB_* statements; the fake answers each with its
+# unscoped twin's rows.
+SCOPED_VOCAB_NAMES = tuple(name + "_SCOPED" for name in STATEMENT_NAMES if name.startswith("VOCAB_"))
 
 
 class FakeServiceUnavailable(Exception):
@@ -123,7 +126,7 @@ class FakeGraph:
             return [dict(r) for r in self.guard]
         if name == "TYPES_ADMIN":
             return [self.types[t] for t in params.get("types", []) if t in self.types]
-        return [dict(r) for r in self.vocab[name]]
+        return [dict(r) for r in self.vocab[name.removesuffix("_SCOPED")]]
 
 
 class FakeTx:
@@ -131,7 +134,7 @@ class FakeTx:
         self.graph, self.session, self.timeout = graph, session, timeout
 
     def run(self, text, parameters=None, **kwargs):
-        by_text = {getattr(gc, n): n for n in STATEMENT_NAMES}
+        by_text = {getattr(gc, n): n for n in STATEMENT_NAMES + SCOPED_VOCAB_NAMES}
         assert text in by_text, f"unexpected statement: {text!r}"
         name = by_text[text]
         params = dict(parameters or {}, **kwargs)
@@ -686,11 +689,62 @@ def test_every_statement_runs_in_a_read_transaction_with_a_timeout(harness, cloc
     assert set(graph.names()) == set(STATEMENT_NAMES)
     for call in graph.calls:
         assert call["via"] == "execute_read"
-        assert call["timeout"] == gc.QUERY_TIMEOUT_S
+        vocabulary = call["name"].startswith("VOCAB_")
+        assert call["timeout"] == (gc.VOCAB_QUERY_TIMEOUT_S if vocabulary else gc.QUERY_TIMEOUT_S), call["name"]
         assert call["mode"] == "READ"
         assert call["database"] == "neo4j"
     assert all(s.get("default_access_mode") == "READ" for s in graph.sessions)
     assert graph.violations == []
+
+
+# --- the vocabulary's longer timeout --------------------------------------------------------------------------------
+# dev's graph measured the assay vocabulary statements at 11-14 s (VOCAB_EDGES 13.1 s cold, 11.3 s warm;
+# VOCAB_EDGES_SCOPED 14.1 s), so under the 10 s catalog timeout they never finished. They are cached an hour.
+
+
+def test_the_vocabulary_reads_get_thirty_seconds_and_every_other_read_keeps_ten():
+    assert (gc.VOCAB_QUERY_TIMEOUT_S, gc.QUERY_TIMEOUT_S) == (30, 10)
+
+
+@pytest.mark.parametrize("scope", [GraphScope.admin("test"), GraphScope.for_projects([1, 3], source="test")],
+                         ids=["admin", "scoped"])
+def test_every_vocabulary_statement_runs_with_the_vocabulary_timeout(harness, scope):
+    vocab = gc.get_vocabulary(with_scope(cfg(), scope))
+
+    unscoped = tuple(name for name in STATEMENT_NAMES if name.startswith("VOCAB_"))
+    expected = unscoped if scope.is_admin else SCOPED_VOCAB_NAMES
+    vocabulary = [call for call in harness.graph.calls if call["name"].startswith("VOCAB_")]
+    assert [call["name"] for call in vocabulary] == list(expected)
+    assert {call["timeout"] for call in vocabulary} == {gc.VOCAB_QUERY_TIMEOUT_S}
+    # the snapshot reads the same call makes first keep the catalog timeout
+    others = [call for call in harness.graph.calls if not call["name"].startswith("VOCAB_")]
+    assert others and {call["timeout"] for call in others} == {gc.QUERY_TIMEOUT_S}
+    assert vocab.assay_titles == ("Flow Cytometry", "Short Read Sequencing")
+
+
+def test_the_snapshot_and_the_type_details_keep_the_catalog_timeout(harness, clock):
+    gc.get_snapshot(cfg())
+    gc.get_type_details(cfg(), ["TIS", "D.SEQ"])
+    clock[0] += gc.HASH_RECHECK_S
+    gc.get_snapshot(cfg())
+
+    assert set(harness.graph.names()) == {"META", "INDEX", "GUARD", "TYPES_ADMIN"}
+    assert {call["timeout"] for call in harness.graph.calls} == {gc.QUERY_TIMEOUT_S}
+
+
+def test_the_driver_keeps_the_catalog_timeout(monkeypatch):
+    import neo4j
+
+    seen = {}
+
+    def driver(uri, **kwargs):
+        seen.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(neo4j.GraphDatabase, "driver", driver)
+    gc._make_driver(cfg())
+
+    assert seen["connection_timeout"] == seen["connection_acquisition_timeout"] == gc.QUERY_TIMEOUT_S
 
 
 # --- cache_state ----------------------------------------------------------------------------------------------------

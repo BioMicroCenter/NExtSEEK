@@ -124,7 +124,7 @@ class StubReader:
     def vocabulary_reads(self) -> list[tuple[str, dict]]:
         return [(name, params) for name, params in self.calls if name.startswith("VOCAB_")]
 
-    def __call__(self, driver, database, statement, params=None):
+    def __call__(self, driver, database, statement, params=None, *, timeout_s=None):
         name = STATEMENTS[statement]
         self.names.append(name)
         self.calls.append((name, dict(params or {})))

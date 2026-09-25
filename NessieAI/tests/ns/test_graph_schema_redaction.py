@@ -67,7 +67,7 @@ def stub_reader(monkeypatch):
     gc.reset_cache()
     monkeypatch.setattr(gc, "_now", lambda: 1000.0)
     monkeypatch.setattr(gc, "_make_driver", lambda config: object())
-    monkeypatch.setattr(gc, "_read", lambda driver, database, statement, params=None: [
+    monkeypatch.setattr(gc, "_read", lambda driver, database, statement, params=None, *, timeout_s=None: [
         dict(row) for row in ROWS[STATEMENTS[statement]]])
     yield
     gc.reset_cache()

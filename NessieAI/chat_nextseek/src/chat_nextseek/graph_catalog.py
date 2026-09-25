@@ -7,8 +7,8 @@ This module reads it for the graph agent: the type index and the per-label prope
 (``get_vocabulary``). ``graph_context.py`` renders them; ``agents/graph.py`` checks Cypher against them.
 
 Lazy and read-only: nothing runs at ``ChatConfig`` construction, nothing is written to disk, and every statement runs
-as ``session.execute_read`` with ``QUERY_TIMEOUT_S``. The cache is keyed by ``(NEO4J_URI, NEO4J_DATABASE)``, with
-one driver per key:
+as ``session.execute_read`` with ``QUERY_TIMEOUT_S`` (the vocabulary statements with ``VOCAB_QUERY_TIMEOUT_S``).
+The cache is keyed by ``(NEO4J_URI, NEO4J_DATABASE)``, with one driver per key:
 
 - the snapshot re-reads ``GraphMeta`` at most every ``HASH_RECHECK_S``, and the index and the guard only when
   ``catalog_hash`` has changed (a new hash also drops the cached type details);
@@ -56,6 +56,8 @@ log = logging.getLogger(__name__)
 # adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
 SCHEMA_VERSION = "1.1"
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
+# The VOCAB_* statements only: dev's graph measured them at 11-14 s, and their result is cached for VOCAB_TTL_S.
+VOCAB_QUERY_TIMEOUT_S = 30
 # How many callers' project sets keep a scoped vocabulary at once; the oldest read is dropped first.
 SCOPED_VOCAB_MAX = 256
 # How long a caller's scoped vocabulary lives. A sample-level sync stamps nothing the cache could watch (only a full
@@ -353,11 +355,13 @@ def _row(record) -> dict:
     return data() if callable(data) else dict(record)
 
 
-def _read(driver, database: str, statement: str, params: dict | None = None) -> list[dict]:
-    """Run one statement in a managed READ transaction with the catalog timeout; the rows as dicts."""
+def _read(driver, database: str, statement: str, params: dict | None = None, *,
+          timeout_s: float = QUERY_TIMEOUT_S) -> list[dict]:
+    """Run one statement in a managed READ transaction with ``timeout_s`` (the catalog timeout unless the caller
+    says otherwise); the rows as dicts."""
     from neo4j import READ_ACCESS, unit_of_work  # noqa: PLC0415
 
-    @unit_of_work(timeout=QUERY_TIMEOUT_S)
+    @unit_of_work(timeout=timeout_s)
     def work(tx):
         return [_row(record) for record in tx.run(statement, params or {})]
 
@@ -569,12 +573,13 @@ def get_vocabulary(config) -> Vocabulary:
 
 
 def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tuple[Vocabulary, list[str]]:
-    """One read per source; a source whose read fails is empty and named in the returned list."""
+    """One read per source, each with ``VOCAB_QUERY_TIMEOUT_S``; a source whose read fails is empty and named in the
+    returned list."""
     failed: list[str] = []
 
     def read(name: str, statement: str) -> list[dict]:
         try:
-            return _read(driver, database, statement, params)
+            return _read(driver, database, statement, params, timeout_s=VOCAB_QUERY_TIMEOUT_S)
         except Exception as exc:  # noqa: BLE001 (one source failing leaves the others usable)
             failed.append(name)
             log.warning("graph catalog vocabulary %s unavailable: %s", name, _read_failed(exc)[:300])
