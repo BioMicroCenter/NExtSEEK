@@ -615,6 +615,11 @@ BINDING = "binding"
 FOLLOWUP_TIER1_SKIP = {"premise_count": "skipped: a follow-up's result is part of the earlier set; "
                                         "the user's number is checked against the stored total (premise)"}
 
+#: A loop query bound to the earlier result's UIDs ($uids) holds every filter that result had: "How many of the
+#: 1,641 NDMA-treated mice are female?" rightly filters on sex alone, so unapplied_value would call NDMA dropped.
+FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the earlier result's UIDs, "
+                                            "which carry that result's filters"}
+
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
 #: Sequencing Data (D.SEQ) files". It must follow a word that points at a set, so a threshold ("more than 100
 #: samples") is not read as one; NUMBER and COUNT_WORD are premise_count's own.

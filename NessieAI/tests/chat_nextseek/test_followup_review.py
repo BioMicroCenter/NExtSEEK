@@ -375,6 +375,89 @@ def test_the_turn_debug_records_each_loop_querys_review(tmp_path):
     assert query["review_verdict"] == "suggest", "the user's 1,206 against the stored 745"
 
 
+# --------------------------------------------------------------------------- #
+# Fix round 1: the premise reads a set size, and a seeded query inherits its filters
+# --------------------------------------------------------------------------- #
+
+def _premise_of(seen):
+    review = seen.payloads[0]["review"]
+    return next(c for c in review["checks"] if c["name"] == "premise"), review
+
+
+def _stored(rows, bundle_id=1):
+    return {"id": bundle_id, "mode": "graph_query", "user_query": "earlier question",
+            "graph_plan": {"cypher": "MATCH (s:T_MUS) RETURN s.Treatment AS type, count(s) AS n", "parameters": {}},
+            "graph_result": {"ok": True, "count": len(rows), "total": len(rows), "data": rows}}
+
+
+#: 23 rows, one per downstream type, with no UIDs: the stored total is 23 groups, not a number of records.
+BREAKDOWN = [{"type": f"T{i}", "n": 100 + i} for i in range(23)]
+
+
+@pytest.mark.parametrize("stored_rows", [BREAKDOWN, [{"mice": 1641, "samples": 5000}]],
+                         ids=["breakdown", "two-number-aggregate"])
+def test_a_total_that_is_not_a_set_size_is_no_premise(seam, stored_rows):
+    """A breakdown's total counts its groups (23) and a one-row aggregate of two numbers has a total of 1:
+    'Of these 1,641 mice' is not contradicted by either."""
+    seen = seam([_plan(PLAIN_CYPHER)], [_ok(PLAIN_CYPHER, {}, [{"n": 800}])], calls=_one(seed=[]),
+                user_text="Of these 1,641 mice, how many are female?", bundle=_stored(stored_rows))
+    premise, review = _premise_of(seen)
+    assert premise["fired"] is False
+    assert review["verdict"] == "ok" and not review["disclosure"]
+
+
+def test_a_record_set_of_745_still_contradicts_1206(seam):
+    seen = seam([_plan(SEEDED_CYPHER)], [_ok(SEEDED_CYPHER, {}, [{"type": "RNA", "n": 402}])], calls=_one(),
+                user_text=PREMISE_Q, bundle=_bundle(uids=MICE))
+    premise, _ = _premise_of(seen)
+    assert premise["fired"] is True and premise["detail"] == "the earlier result had 745, not 1,206"
+
+
+def test_a_single_number_aggregate_that_differs_is_a_premise(seam):
+    seen = seam([_plan(PLAIN_CYPHER)], [_ok(PLAIN_CYPHER, {}, [{"n": 402}])], calls=_one(seed=[]),
+                user_text=PREMISE_Q, bundle=_stored([{"n": 745}]))
+    premise, review = _premise_of(seen)
+    assert premise["fired"] is True and premise["detail"] == "the earlier result had 745, not 1,206"
+    assert review["verdict"] == "suggest"
+
+
+NDMA_MICE = [f"MUS-200901ENG-{i}" for i in range(1641)]
+MUS_CATALOG = {
+    "T_MUS.Treatment": [["NDMA", 1641], ["Vehicle", 300]],
+    "T_MUS.Sex": [["female", 900], ["male", 1041]],
+    "T_MUS.*": [["Treatment", 2], ["Sex", 2]],
+    "T_MUS.@name": [["Mouse", 1941]],
+}
+NDMA_Q = "How many of the 1,641 NDMA-treated mice are female?"
+
+
+def _unapplied(seen):
+    review = seen.payloads[0]["review"]
+    return next(c for c in review["checks"] if c["name"] == "unapplied_value"), review
+
+
+def test_a_seeded_query_inherits_the_earlier_filters(seam):
+    """Scoped to the 1,641 NDMA mice by their UIDs, the query rightly filters on sex alone."""
+    cypher = "MATCH (m:T_MUS) WHERE m.uuid IN $uids AND m.Sex = 'female' RETURN count(m) AS n"
+    seen = seam([_plan(cypher)], [_ok(cypher, {"uids": NDMA_MICE}, [{"n": 800}])],
+                calls=_one(question=NDMA_Q, seed=NDMA_MICE), user_text="Of those, how many are female?",
+                bundle=_bundle(uids=NDMA_MICE), catalog=MUS_CATALOG)
+    assert seen.payloads[0]["uids_applied"] == 1641
+    unapplied, review = _unapplied(seen)
+    assert unapplied["fired"] is False and unapplied["detail"].startswith("skipped")
+    assert review["verdict"] == "ok"
+
+
+def test_an_unseeded_query_that_drops_a_named_value_is_still_flagged(seam):
+    cypher = "MATCH (m:T_MUS) WHERE m.Sex = 'female' RETURN count(m) AS n"
+    seen = seam([_plan(cypher)], [_ok(cypher, {}, [{"n": 900}])], calls=_one(question=NDMA_Q, seed=[]),
+                user_text="Of those, how many are female?", bundle=_bundle(uids=NDMA_MICE), catalog=MUS_CATALOG)
+    assert seen.payloads[0]["uids_applied"] is None
+    unapplied, review = _unapplied(seen)
+    assert unapplied["fired"] is True
+    assert review["verdict"] == "suggest" and "NDMA" in review["disclosure"]
+
+
 def test_one_catalog_provider_serves_the_whole_loop_turn(seam):
     def two(run_query):
         return [run_query(question="first", seed_uids=list(MICE)),

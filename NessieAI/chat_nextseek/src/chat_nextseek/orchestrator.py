@@ -56,8 +56,8 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
-from .graph_review import (FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug, check_binding, check_premise,
-                           review_tier1, with_checks)
+from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
+                           check_binding, check_premise, review_tier1, with_checks)
 from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
@@ -666,14 +666,16 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         return provider["value"]
 
     def _stored_extent() -> tuple[Any, bool]:
-        """The previous result's total and whether its stored copy was capped, read once."""
+        """The previous result's total and whether its stored copy was capped, read once; its size as a
+        set (``_stored_set_size``) is kept beside them as ``extent["set_size"]``."""
         if not extent:
             try:
                 described = describe_stored_result(bundle)
             except Exception as exc:  # unknown extent: treat the seed as complete, as before
                 print(f"[DEBUG][FOLLOWUP] could not describe the stored result: {exc!r}")
                 described = {}
-            extent.update(total=described.get("total"), capped=bool(described.get("capped")))
+            extent.update(total=described.get("total"), capped=bool(described.get("capped")),
+                          set_size=_stored_set_size(described))
         return extent["total"], extent["capped"]
 
     def _run_query(*, question: str, seed_uids: list[str], stored_query: dict | None = None,
@@ -736,9 +738,10 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         shown = preview_rows(rows)
         # The reviewer reads the loop's question (the one the statement answers) for Tier 1,
         # and the user's own words against the stored result for premise and binding.
+        _stored_extent()
         review = _review_followup_query(
             _catalog, question=question, user_text=user_text, graph_plan=graph_plan, graph_result=result,
-            elapsed_ms=run.elapsed_ms, stored_total=_stored_extent()[0],
+            elapsed_ms=run.elapsed_ms, stored_total=extent["set_size"], seeded=applied is not None,
             target_bundle_id=bundle.get("id"), newest_bundle_id=newest_bundle_id,
         )
         payload = {
@@ -775,6 +778,22 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     except Exception as exc:
         print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
         return None
+
+
+def _stored_set_size(described: dict) -> Any:
+    """How many records the stored result is a set of, for ``check_premise``; None when its total is not that.
+
+    A record set (it holds UIDs) has its total, and a single-number aggregate has that number
+    (``describe_stored_result`` makes it the total). Any other total is no set size: a breakdown's counts its
+    groups (23 downstream types of 1,641 mice), and a one-row aggregate of two numbers has a total of 1."""
+    if described.get("uid_count"):
+        return described.get("total")
+    aggregate = described.get("aggregate_values")
+    if isinstance(aggregate, Mapping):
+        numbers = [v for v in aggregate.values() if isinstance(v, (int, float))]
+        if len(numbers) == 1:
+            return described.get("total")
+    return None
 
 
 def _newest_bundle_id(session) -> int | None:
@@ -1027,21 +1046,25 @@ def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int
 
 def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, user_text: str, graph_plan,
                            graph_result: dict, elapsed_ms: int | None, stored_total, target_bundle_id,
-                           newest_bundle_id) -> GraphReview:
+                           newest_bundle_id, seeded: bool = False) -> GraphReview:
     """The graph reviewer over one follow-up loop query (loop gap L4), for the tool payload's ``review``.
 
     Tier 1 (``review_tier1``) reads the loop's own ``question``, the one the statement answers, without
-    ``premise_count`` (``FOLLOWUP_TIER1_SKIP``); then ``check_premise`` and ``check_binding`` read the user's words
-    against the stored result the loop is about (``with_checks`` discloses them first). ``get_catalog`` returns
-    the loop turn's one catalog provider, or raises why it could not be built. No Tier 2: the loop's model can
-    run a relaxed query itself, and a count per loop query would stack the reviewer's time budget.
+    ``premise_count`` (``FOLLOWUP_TIER1_SKIP``), and without ``unapplied_value`` when the statement is bound to
+    the earlier result's UIDs (``seeded``, ``FOLLOWUP_SEEDED_SKIP``); then ``check_premise`` and
+    ``check_binding`` read the user's words against the stored result the loop is about (``with_checks``
+    discloses them first). ``stored_total`` is that result's size as a set (``_stored_set_size``), or None.
+    ``get_catalog`` returns the loop turn's one catalog provider, or raises why it could not be built. No Tier 2:
+    the loop's model can run a relaxed query itself, and a count per loop query would stack the reviewer's time
+    budget.
 
     Never raises. Anything escaping becomes an ``ok`` review that records the error, so the loop goes on as it
     would without a reviewer."""
     t0 = time.perf_counter()
     try:
         inp = _review_input(question, graph_plan, graph_result, elapsed_ms)
-        review = review_tier1(inp, get_catalog(), skip=FOLLOWUP_TIER1_SKIP)
+        skip = {**FOLLOWUP_TIER1_SKIP, **(FOLLOWUP_SEEDED_SKIP if seeded else {})}
+        review = review_tier1(inp, get_catalog(), skip=skip)
         return with_checks(review, [
             check_premise(user_text, stored_total=stored_total),
             check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id, user_text=user_text),
