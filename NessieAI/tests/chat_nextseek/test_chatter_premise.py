@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from chat_nextseek.agents import chatter as chatter_mod
-from chat_nextseek.graph_review import PREMISE_FACT
+from chat_nextseek.graph_review import PREMISE_FACT, PREMISE_FACT_RE
 from chat_nextseek.llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from chat_nextseek.schemas.entity import EntityAgentOutput, EntityItem
 from chat_nextseek.schemas.router import ParserPlan
@@ -161,6 +161,33 @@ def test_a_threshold_question_gets_no_correction_end_to_end(monkeypatch):
         graph_result={"ok": True, "count": 2, "total": 2, "data": inp.rows},
         query_notes=[_review_note(disclosure)] if disclosure else [], review_disclosure=disclosure, log_dir="")
     assert out.split("**Debug info**")[0].strip() == reply
+
+
+TOP_N = "MATCH (s:T_D_SEQ) WITH s ORDER BY s.reads DESC LIMIT 500 WHERE s.paired = true RETURN count(s) AS n"
+
+
+@pytest.mark.parametrize("q", ["Of the 500 D.SEQ files with the most reads, how many are paired?",
+                               "Of the 500 top-ranked D.SEQ files, how many are paired?",
+                               "Of the 500 D.SEQ files with the highest read count, how many are paired?"])
+def test_a_top_n_aggregate_gets_no_correction_end_to_end(monkeypatch, q):
+    """Fix round 2: an aggregate over the top 500 returns its aggregate (312), not 500, so the 500 must not be read
+    as a stated count; otherwise the reply would open "The question says 500; ..." over a correct answer."""
+    from chat_nextseek.graph_review import DictCatalog, ReviewInput, review_tier1
+    from chat_nextseek.orchestrator import _review_note
+    inp = ReviewInput(question=q, cypher=TOP_N, parameters={}, keyword_fields={}, rows=[{"n": 312}], count=1,
+                      total=1, ok=True, error=None)
+    rv = review_tier1(inp, DictCatalog(None))
+    assert not next(c for c in rv.checks if c.name == "premise_count").fired
+    disclosure = rv.disclosure if rv.verdict in ("note", "suggest") else None
+    reply = "312 of the top 500 D.SEQ files by reads are paired."
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _says(reply))
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), q, EntityAgentOutput().model_dump(), ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": TOP_N, "parameters": {}},
+        graph_result={"ok": True, "count": 1, "total": 1, "data": inp.rows},
+        query_notes=[_review_note(disclosure)] if disclosure else [], review_disclosure=disclosure, log_dir="")
+    body = out.split("**Debug info**")[0].strip()
+    assert not PREMISE_FACT_RE.search(body) and body.endswith(reply)
 
 
 @pytest.mark.parametrize("notes,reply,expected", [
