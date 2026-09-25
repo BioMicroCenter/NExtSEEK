@@ -121,6 +121,34 @@ def test_the_cli_still_prints_a_cost_it_did_observe(monkeypatch, tmp_path, capsy
     assert "unmeasured" not in out
 
 
+def test_the_cli_says_when_a_case_cost_is_only_part_of_the_spend(monkeypatch, tmp_path, capsys):
+    from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry
+    _manifest_with(monkeypatch, NessieManifestEntry(id="ns.q", family="f", tier="full",
+                                                    status="passed", cost=0.2,
+                                                    cost_partial=True))
+
+    cli.main(["--base-url", "http://h:8000", "--tier", "full", "--out", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert "$0.2000" in out and "PARTIAL" in out
+    assert "1 case(s) measured only in part" in out
+
+
+def test_the_cli_names_how_many_turns_fell_back(monkeypatch, tmp_path, capsys):
+    from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry, TurnMeta, case_money
+    t = TurnMeta(turn="m", engine_cost=0.3, router_cost=0.01, cost=0.31,
+                 fallback_reported=True,
+                 router_fallback={"from": "a", "to": "heuristic", "reason": "timeout"})
+    _manifest_with(monkeypatch, NessieManifestEntry(id="cc.q", family="f", tier="full",
+                                                    status="passed",
+                                                    **case_money([t], turns_sent=1)))
+
+    cli.main(["--base-url", "http://h:8000", "--tier", "full", "--out", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert "fallback: 1 of 1 turn(s) fell back to another model, in 1 case(s)" in out
+
+
 # --- --bayesian -------------------------------------------------------------
 
 

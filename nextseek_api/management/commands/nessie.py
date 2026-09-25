@@ -252,9 +252,16 @@ class Command(BaseCommand):
 
         Deliberately one line, not a progress bar: this output is routinely piped to
         a file or read back out of a container log, where a redrawing bar is noise.
+
+        Money is two cells. `case` is this case's own cost: `$0.42` when every turn
+        was priced, `~$0.42` when it is a floor (`cost_partial`), `$?` when nothing
+        was observed, `-` when no turn was sent. `run` is the running sum of the
+        observed costs, marked `>=` from the first case that was partial or
+        unmeasured on, because from then on it is a floor too. An unmeasured case
+        used to add nothing and say nothing, so the total read as the whole spend.
         """
         w, style = self.stdout.write, self.style
-        state = {"cost": 0.0, "t0": time.monotonic()}
+        state = {"cost": 0.0, "floor": False, "t0": time.monotonic()}
 
         def paint(status: str, text: str) -> str:
             if status in ("failed", "error", "xpass", "no_assertions"):
@@ -264,8 +271,20 @@ class Command(BaseCommand):
             return style.SUCCESS(text)
 
         def on_case(done: int, total: int, entry) -> None:
-            if entry.cost:
-                state["cost"] += entry.cost
+            cost = entry.cost
+            if entry.status == "skipped":
+                case_cell = "-"
+            elif cost is None:
+                case_cell, state["floor"] = "$?", True
+            elif getattr(entry, "cost_partial", False):
+                case_cell, state["floor"] = f"~${cost:.2f}", True
+            else:
+                case_cell = f"${cost:.2f}"
+            if cost is not None:
+                state["cost"] += cost
+            run_cell = f"{'>=' if state['floor'] else ''}${state['cost']:.2f}"
+            fallback = getattr(entry, "fallback_turns", 0)
+            fell = f"  fallback {fallback}" if fallback else ""
             mark = self._STATUS_MARK.get(entry.status, entry.status.upper())
             # A known_fail that failed as expected is not a red: say so, so the
             # running tally cannot look worse than the summary that follows it.
@@ -282,8 +301,8 @@ class Command(BaseCommand):
             ran = time.monotonic() - state["t0"]
             w(paint(entry.status,
                     f"[{done:>3}/{total}] {mark:<6} {entry.id:<46} {route:<16} "
-                    f"{entry.elapsed_s:>6.1f}s  ${state['cost']:.2f}  "
-                    f"{int(ran) // 60}m{int(ran) % 60:02d}s{why}"))
+                    f"{entry.elapsed_s:>6.1f}s  case {case_cell:<7} run {run_cell:<9} "
+                    f"{int(ran) // 60}m{int(ran) % 60:02d}s{fell}{why}"))
             self.stdout.flush()
 
         return on_case
@@ -302,7 +321,8 @@ class Command(BaseCommand):
             w(f"  arm {arm}: {summary['total']} questions  passed {count['passed']}  "
               f"failed {count['failed']}  error {count['error']} "
               f"({len(summary['outage'])} provider outage, rerun with --resume)  "
-              f"no-assert {count['no_assertions']}  cost {summary['cost_display']}")
+              f"no-assert {count['no_assertions']}  fallback {summary['fallback_turns']} "
+              f"turn(s)  cost {summary['cost_display']}")
             w(f"    report: {Path(out) / arm / 'report.html'}")
         w(f"  arms file: {result['arms_file']}")
         w("  A wrong answer is the measurement here, not a gate failure: score the arms "
@@ -332,6 +352,12 @@ class Command(BaseCommand):
         # a route-tier turn never emits `query_complete`, so its cost is unobservable
         # rather than zero — and interpolating it prints the literal "$None".
         w(f"  cost    : {summary['cost_display']}")
+        # From the same summary as the CLI and report.html. Each case below is one to
+        # open: its `turns_meta` in the manifest names the agent, the two models and
+        # the reason for every turn that fell back.
+        w(f"  fallback: {summary['fallback_display']}")
+        for e in summary["fallback_cases"]:
+            w(f"    - {e.family}/{e.id}  ({e.fallback_turns} turn(s))")
         if summary["outage"]:
             w("")
             w(self.style.WARNING(
