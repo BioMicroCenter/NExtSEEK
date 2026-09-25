@@ -1,7 +1,12 @@
 """Report-code sandbox: executes LLM-generated report-building Python with a
 restricted-but-function-capable AST subset. Sibling of memory_code.py; the key
 difference is that helper `def`s are allowed (report row-mapping benefits from
-small helpers), while import/exec/open/dunder access remain hard-blocked."""
+small helpers), while import/exec/open/dunder access remain hard-blocked.
+
+``execute_report_code`` checks the code here and runs it in a separate, limited
+process (``row_compute.run_in_child``), which holds its time limit from any thread.
+Report code imports nothing (the checker refuses an import), and this module and
+``memory_code`` use only the standard library, which is all that process has."""
 from __future__ import annotations
 
 import ast
@@ -16,6 +21,13 @@ from .memory_code import (
     _MEMORY_ALLOWED_RE_METHODS,
     _MEMORY_ALLOWED_JSON_METHODS,
 )
+from .row_compute import TIME_LIMIT, run_in_child
+
+#: The report coder's process limits. A report reads a whole submission's metadata, so it gets more memory and
+#: a larger input than a follow-up computation, and time on top of its own limit to hand the data over and back.
+REPORT_MEM_MB = 4096
+REPORT_INPUT_MAX_BYTES = 512 << 20
+REPORT_TRANSFER_S = 30
 
 
 class ReportCodeSafetyError(ValueError):
@@ -24,6 +36,10 @@ class ReportCodeSafetyError(ValueError):
 
 class ReportCodeTimeoutError(TimeoutError):
     """Raised when generated report code exceeds the execution timeout."""
+
+
+class ReportCodeError(RuntimeError):
+    """Raised when generated report code fails for any other reason (an error in the code, the memory limit)."""
 
 
 _REPORT_ALLOWED_BUILTINS = {
@@ -121,8 +137,28 @@ def _validate_report_code(tree: ast.AST) -> None:
 
 
 def execute_report_code(code: str, data: Any, *, timeout_seconds: int = 15) -> dict[str, Any]:
-    """Execute LLM-generated report-building code. Code must assign a
-    JSON-serializable report body dict to `result`."""
+    """Execute LLM-generated report-building code in a separate, limited process. Code must
+    assign a JSON-serializable report body dict to `result`.
+
+    Raises ``ReportCodeSafetyError`` for code outside the allowed subset (before any process
+    starts), ``ReportCodeTimeoutError`` when it runs past ``timeout_seconds``, and
+    ``ReportCodeError`` for any other failure. The caller's ``data`` is never changed: the
+    process gets a JSON copy."""
+    tree = ast.parse(code, mode="exec")
+    _validate_report_code(tree)
+    run = run_in_child("report", code, data, cpu_s=timeout_seconds, mem_mb=REPORT_MEM_MB,
+                       wall_s=timeout_seconds + REPORT_TRANSFER_S, input_max=REPORT_INPUT_MAX_BYTES)
+    if run["ok"]:
+        result = run["result"]
+        return result if isinstance(result, dict) else {"value": result}
+    if run["error"] == TIME_LIMIT:
+        raise ReportCodeTimeoutError(f"Report code exceeded {timeout_seconds}s timeout")
+    raise ReportCodeError(run["error"])
+
+
+def run_report_code_here(code: str, data: Any, *, timeout_seconds: int = 15) -> dict[str, Any]:
+    """Run report-building code in the calling process: the body of ``execute_report_code``,
+    called inside its separate process (``row_compute_child.py``)."""
     tree = ast.parse(code, mode="exec")
     _validate_report_code(tree)
 

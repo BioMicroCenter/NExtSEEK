@@ -1,5 +1,9 @@
+import threading
+import time
+
 import pytest
 
+from chat_nextseek.helpers.tools import row_compute
 from chat_nextseek.helpers.tools.report_code import (
     execute_report_code,
     ReportCodeSafetyError,
@@ -132,3 +136,49 @@ def test_rejects_helper_shadowing_builtin():
 def test_blocks_builtins_name_reference():
     with pytest.raises(ReportCodeSafetyError):
         execute_report_code("__builtins__.pop('len', None)\nresult = {}", SAMPLE_DATA)
+
+
+def test_a_runaway_loop_stops_off_the_main_thread():
+    """Report code can run off the main thread; its time limit holds there too."""
+    box: dict = {}
+
+    def run():
+        try:
+            execute_report_code("while True:\n    pass\nresult = {}", SAMPLE_DATA, timeout_seconds=1)
+        except Exception as exc:  # the assertion below reads what was raised
+            box["exc"] = exc
+
+    t0 = time.monotonic()
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(30)
+    assert isinstance(box.get("exc"), ReportCodeTimeoutError)
+    assert time.monotonic() - t0 < 10
+
+
+def test_report_code_runs_in_a_separate_limited_process(monkeypatch):
+    monkeypatch.setenv("REPORT_CODE_CANARY", "x")
+    seen: dict = {}
+    real = row_compute.subprocess.run
+
+    def spy(cmd, **kw):
+        seen["cmd"], seen["env"] = cmd, kw.get("env")
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(row_compute.subprocess, "run", spy)
+    out = execute_report_code("result = {'n': len(data['data']['data'][0]['samples'])}", SAMPLE_DATA)
+    assert out == {"n": 2}
+    assert seen["env"] == {"LANG": "C.UTF-8"}
+    assert "-I" in seen["cmd"]
+
+
+def test_the_callers_metadata_is_not_changed():
+    data = {"data": {"data": [{"sample_type": "D.SEQ", "samples": []}]}}
+    execute_report_code("data['data']['data'].append({'x': 1})\nresult = {}", data)
+    assert data == {"data": {"data": [{"sample_type": "D.SEQ", "samples": []}]}}
+
+
+def test_a_report_that_uses_too_much_memory_is_an_error():
+    with pytest.raises(Exception) as err:
+        execute_report_code("x = 'x' * (8 * 10**9)\nresult = {'n': len(x)}", SAMPLE_DATA)
+    assert "memory" in str(err.value).lower()

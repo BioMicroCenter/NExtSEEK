@@ -5,6 +5,9 @@ in a fresh interpreter (``row_compute_child.py``) started with ``-I -S -B``, no 
 directory. The child gets the code and a JSON copy of the data, nothing else, and sets limits on its own CPU time,
 memory, file size and open files; this process ends it at a wall-clock limit, which works from any thread. The
 reply comes back as JSON. It never raises: every failure is ``ok`` false with a short error.
+
+``run_in_child`` is the shared step, which the report coder's executor (``report_code.execute_report_code``) uses
+with its own checks and limits.
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ INPUT_MAX_BYTES = 16 << 20
 TIME_LIMIT = "the computation hit its time limit"
 NO_RESULT = "the computation stopped without a result (it may have run out of memory)"
 #: Errors the executors raise inside the child when their own timer fires.
-_TIMEOUT_ERRORS = ("MemoryCodeTimeoutError",)
+_TIMEOUT_ERRORS = ("MemoryCodeTimeoutError", "ReportCodeTimeoutError")
 _KILLED = (-signal.SIGXCPU, -signal.SIGKILL)
 
 
@@ -55,7 +58,7 @@ def run_code_isolated(code: str, data: Any, *, cpu_s: int = 3, mem_mb: int = 512
 
 def run_in_child(kind: str, code: str, data: Any, *, cpu_s: int, mem_mb: int, wall_s: float, input_max: int,
                  t0: float | None = None) -> dict:
-    """Run already checked ``code`` of ``kind`` (an entry of the child's ``EXECUTORS``) in the child. Never raises."""
+    """Run already checked ``code`` of ``kind`` ("memory" or "report") in the child. Never raises."""
     t0 = time.monotonic() if t0 is None else t0
     try:
         request = json.dumps({"kind": kind, "code": code, "data": data, "cpu_s": int(cpu_s), "mem_mb": int(mem_mb)},

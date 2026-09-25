@@ -16,6 +16,7 @@ from pathlib import Path
 #: The executor each kind runs, as (module beside this file, function). Each takes (code, data, timeout_seconds=).
 EXECUTORS = {
     "memory": ("memory_code", "execute_memory_code"),
+    "report": ("report_code", "run_report_code_here"),
 }
 #: The name the executor modules are loaded under, so that one module's relative import finds the other.
 PACKAGE = "_row_compute_code"
