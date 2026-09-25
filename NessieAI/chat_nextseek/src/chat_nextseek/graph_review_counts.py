@@ -522,14 +522,58 @@ def _base_variant(cy: str, params: dict, detail: str) -> _Variant | None:
     return _Variant("zero_unproven_base", f"zero_unproven_base: keep {' AND '.join(kept)}", new, dict(params), fact)
 
 
+def _without_braces(text: str) -> str:
+    """``text`` with the inside of every ``{...}`` blanked (same length; quotes respected), so a name bound in an
+    EXISTS, COUNT or CALL subquery, or written in a property map, is not read as bound by the clause around it."""
+    buf, depth, quote = list(text), 0, None
+    for i, ch in enumerate(text):
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "'\"`":
+            quote = ch
+        elif ch == "{":
+            depth += 1
+            continue
+        elif ch == "}":
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            buf[i] = " "
+    return "".join(buf)
+
+
+def _vars_at_return(cy: str, mask: str) -> dict[str, str]:
+    """variable -> T_ label for the names bound at the final RETURN: bound in a top-level MATCH or OPTIONAL MATCH
+    (never only inside a subquery, whose names end with it) and carried by name through every top-level WITH after
+    it (``WITH *`` carries all)."""
+    bound: dict[str, str] = {}
+    for c in _clauses(cy, mask):
+        if c.kw in ("MATCH", "OPTIONAL MATCH"):
+            bound.update(_var_labels(_without_braces(cy[c.body:c.end])))
+        elif c.kw == "WITH":
+            text = re.sub(r"^\s*DISTINCT\b", "", cy[c.body:c.end], flags=re.I)
+            tmask = re.sub(r"^\s*DISTINCT\b", "", mask[c.body:c.end], flags=re.I)
+            items = _split_top(text, tmask, r",")
+            if "*" not in items:
+                kept = {m.group(1) for m in (re.fullmatch(r"([A-Za-z_]\w*)(?:\s+AS\s+\1)?", i, re.I) for i in items)
+                        if m}
+                bound = {v: lab for v, lab in bound.items() if v in kept}
+    return bound
+
+
 def _breakdown_variant(cy: str, params: dict, detail: str) -> _Variant | None:
-    """The matched set grouped by the attribute the question named: one row per distinct stored value."""
+    """The matched set grouped by the attribute the question named: one row per distinct stored value.
+
+    Only a variable bound at the final RETURN is grouped (``_vars_at_return``). r6-1225 bound its T_A_ALN variable
+    only inside ``EXISTS {}``: grouping by it was refused by the prover for a member ("the name aln is not bound
+    here") and is invalid Cypher on an admin's path, which skips the prover. With no such variable there is no
+    variant."""
     m = re.match(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher never applies it\s*$", detail, re.S)
     if not m or not _ATTR_RE.fullmatch(m.group(2)):
         return None
     label, attr, value = m.groups()
-    var = next((v for v, lab in _var_labels(cy).items() if lab == label), None)
     mask = _mask(cy)
+    var = next((v for v, lab in _vars_at_return(cy, mask).items() if lab == label), None)
     ret = _final_return(cy, mask)
     if var is None or ret is None or _with_aggregates(cy, mask):
         return None

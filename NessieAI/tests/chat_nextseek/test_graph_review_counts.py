@@ -625,6 +625,56 @@ def test_unapplied_value_groups_the_matched_set_by_the_named_attribute():
                            "WITH s WHERE s.DataType IS NOT NULL\nRETURN DISTINCT s.DataType AS value")
 
 
+R6_1225 = ("MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+           "  WHERE inv.title = $investigation\n}\nAND EXISTS {\n"
+           "  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(r:T_RNA)-[:DERIVED_FROM*1..12]->(s)\n}\nRETURN count(s) AS n")
+ALN_DETAIL = "question names T_A_ALN.DataType='RNA-Seq', Cypher never applies it"
+SEQ_DETAIL = "question names T_D_SEQ.DataType='RNA-Seq', Cypher never applies it"
+
+
+def _breakdowns(cy, params=None, detail=ALN_DETAIL):
+    return [(c, p) for e, c, p in g2.relaxed_variants(_inp(cy, params or {}), _review(("unapplied_value", detail)))
+            if e.startswith("unapplied_value")]
+
+
+def test_a_variable_bound_only_inside_exists_gets_no_breakdown():
+    """r6-1225: aln is bound only inside EXISTS {}, so grouping by it after the subquery is invalid Cypher. The
+    prover refuses it for a member ("the name aln is not bound here"); an admin's path skips the prover and would
+    send it to Neo4j."""
+    assert _breakdowns(R6_1225, {"investigation": "TCGA"}) == []
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:T_PAT) WHERE COUNT { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) } > 0 RETURN count(s) AS n",
+    "MATCH (s:T_PAT) CALL { WITH s MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) RETURN count(aln) AS k } "
+    "WITH s, k WHERE k > 0 RETURN count(s) AS n",
+    "MATCH (s:T_PAT WHERE EXISTS { MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s) }) RETURN count(s) AS n",
+], ids=["count-subquery", "call-subquery", "inline-node-where"])
+def test_a_variable_bound_only_inside_any_subquery_gets_no_breakdown(cypher):
+    assert _breakdowns(cypher) == []
+
+
+def test_a_variable_bound_in_a_top_level_match_still_gets_its_breakdown():
+    """The same question with aln bound by a top-level MATCH: the variant is built as before and is proven."""
+    cy = ("MATCH (s:T_PAT)\nMATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(r:T_RNA)-[:DERIVED_FROM*1..12]->(s)\n"
+          "WHERE EXISTS { MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+          "WHERE inv.title = $investigation }\nRETURN count(DISTINCT s) AS n")
+    ((variant, params),) = _breakdowns(cy, {"investigation": "TCGA"})
+    assert variant == (cy.rsplit("\nRETURN", 1)[0] + "\nWITH aln WHERE aln.DataType IS NOT NULL\n"
+                       "RETURN DISTINCT aln.DataType AS value")
+    assert isinstance(scope_cypher(variant, params, MEMBER), Scoped)
+
+
+def test_a_variable_a_later_with_leaves_behind_gets_no_breakdown():
+    """A top-level WITH ends every name it does not carry, so d is not bound at the RETURN of the first statement."""
+    dropped = "MATCH (d:T_D_SEQ)-[:DERIVED_FROM*1..6]->(p:T_PAT) WITH DISTINCT p RETURN count(p) AS n"
+    assert _breakdowns(dropped, detail=SEQ_DETAIL) == []
+    carried = "MATCH (d:T_D_SEQ)-[:DERIVED_FROM*1..6]->(p:T_PAT) WITH DISTINCT d, p RETURN count(p) AS n"
+    ((variant, params),) = _breakdowns(carried, detail=SEQ_DETAIL)
+    assert "\nWITH d WHERE d.DataType IS NOT NULL\nRETURN DISTINCT d.DataType AS value" in variant
+    assert isinstance(scope_cypher(variant, params, MEMBER), Scoped)
+
+
 def test_variants_come_in_the_fixed_order_one_per_fired_check():
     cy = ("MATCH (s:T_D_IMG) WHERE toLower(s.DataType) CONTAINS $t AND s.Size IS NOT NULL "
           "RETURN s.id AS id")
