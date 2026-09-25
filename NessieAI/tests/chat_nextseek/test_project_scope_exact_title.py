@@ -161,9 +161,12 @@ def _scope(project_titles, parameters=None):
     )
 
 
-def test_without_the_title_map_an_exact_title_scope_reads_as_dropped():
-    """What the reply would have been told: IMPAcTb is not the word Impact."""
-    assert "project Impact" in _scope(None).not_applied
+def test_without_the_title_map_an_exact_title_scope_is_applied_from_the_query():
+    """r7-708, SPEC-F route 3 (container title): the query compared p.title to 'IMPAcTb', so Impact is applied."""
+    scope = _scope(None)
+
+    assert not scope.not_applied, scope.not_applied
+    assert "project Impact" in scope.applied and 'keyword "Impact"' in scope.applied
 
 
 def test_a_query_on_the_stored_title_applies_the_project_and_its_keyword():

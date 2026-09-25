@@ -662,3 +662,225 @@ def test_keywords_declared_for_a_field_the_query_does_not_filter_stay_not_applie
     scope = _converter_scope(cypher)
 
     assert scope.not_applied == [f'keyword "{keyword}"' for keyword in _CONVERTER_KEYWORDS]
+
+
+# --------------------------------------------------------------------------
+# Phase F (D2): the false caveats of the 2026-09-23 runs, one route each, and
+# the gaps each route must leave alone.
+# --------------------------------------------------------------------------
+
+def test_a_samples_question_about_a_topic_asks_for_no_type():
+    """R5-678: "all samples associated with CD8 Antibodies" is a text search over every sample."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="AB", name="Antibody")], keywords=["CD8"]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "AB", "keywords": ["CD8"]}),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS $a "
+                              "AND toLower(s.search_text) CONTAINS $b RETURN s.id AS id",
+                    "parameters": {"a": "cd8", "b": "antibod"}},
+        user_query="Find me all samples associated with CD8 Antibodies",
+    )
+    assert scope.not_applied == []
+
+
+def test_samples_processed_via_an_assay_ask_for_no_data_type():
+    """R5-646: the entity step read D.MSP and A.MSP out of "mass spectrometry"."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Mass Spectrometry", name="Mass Spectrometry")],
+                              sampletypes=[EntityItem(code="D.MSP", name="Mass Spectrometry Data"),
+                                           EntityItem(code="A.MSP", name="Mass Spectrometry Analysis")]),
+        parser_plan=_plan(mode="graph_query", filters={"assay_codes": ["Mass Spectrometry"]}),
+        graph_plan={"cypher": "MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) WHERE r.internal_assay_title IN $assays "
+                              "RETURN DISTINCT p.id AS id",
+                    "parameters": {"assays": ["Mass Spectrometry", "Mass Spectrometry Proteomics"]}},
+        user_query="Show me samples processed via mass spectrometry",
+    )
+    assert scope.not_applied == []
+
+
+@pytest.mark.parametrize("question", [
+    "Show me samples from mice treated with NDMA",
+    "Which mouse samples have sequencing data?",
+    "Find samples associated with NDMA of type MUS",
+])
+def test_a_type_the_question_itself_asks_for_is_still_checked(question):
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="MUS", name="Mouse")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS $t RETURN s.id AS id",
+                    "parameters": {"t": "ndma"}},
+        user_query=question,
+    )
+    assert any("MUS" in item for item in scope.not_applied)
+
+
+def test_an_assay_whose_data_type_the_query_reached_by_name_is_applied():
+    """R5-653: "Imaging" is the title of the assay whose data type is D.IMG "Imaging Data"."""
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code="Imaging", name="Imaging")], keywords=["fibrin"],
+                              sampletypes=[EntityItem(code="D.IMG", name="Imaging Data")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_IMG) WHERE toLower(s.search_text) CONTAINS toLower($keyword) "
+                              "RETURN s.id AS id",
+                    "parameters": {"keyword": "fibrin"}},
+        user_query="Find me fibrin imaging data",
+    )
+    assert scope.not_applied == []
+
+
+@pytest.mark.parametrize("assay", ["CometChip Assay", "Imaging Mass Cytometry"])
+def test_a_narrower_assay_is_not_applied_by_its_broader_data_type(assay):
+    scope = describe_query_scope(
+        entity_result=_entity(assays=[EntityItem(code=assay, name=assay)],
+                              sampletypes=[EntityItem(code="D.IMG", name="Imaging Data")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_IMG) RETURN count(s) AS n"},
+        user_query=f"How many {assay} imaging datasets are there?",
+    )
+    assert any(assay in item for item in scope.not_applied)
+
+
+def test_a_project_scoped_by_its_stored_title_is_applied():
+    """R7-708: "Impact" is stored as 'IMPAcTb', and the plan's project_titles came back empty."""
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["Impact"], keywords=["Impact", "species"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $project_title "
+                              "UNWIND keys(s) AS key WITH s, key WHERE toLower(key) CONTAINS 'species' "
+                              "RETURN key AS attribute, s[key] AS value, count(*) AS n",
+                    "parameters": {"project_title": "IMPAcTb"}, "project_titles": {}},
+        user_query="What species are the samples in the IMPACT project?",
+    )
+    assert scope.not_applied == []
+
+
+_STUDY_CYPHER = ("MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                 "WHERE toLower(st.title) = toLower($study_title) AND toLower(inv.title) = toLower($inv_title) "
+                 "RETURN count(DISTINCT s) AS n")
+
+
+def test_a_study_scoped_by_its_title_is_applied():
+    """R6-1221: the entity step filed the whole phrase as a project."""
+    project = "TCGA glioblastoma (GBM) study"
+    scope = describe_query_scope(
+        entity_result=_entity(projects=[project], keywords=[project],
+                              sampletypes=[EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "PAT"}),
+        graph_plan={"cypher": _STUDY_CYPHER, "parameters": {"study_title": "gbm", "inv_title": "tcga"}},
+        user_query=f"How many patients are in the {project}?",
+    )
+    assert scope.not_applied == []
+
+
+def test_a_gloss_of_an_applied_study_is_applied():
+    """R6-1227: "LUAD (lung adenocarcinoma)"."""
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["TCGA LUAD"], keywords=["TCGA LUAD", "lung adenocarcinoma"],
+                              sampletypes=[EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "PAT"}),
+        graph_plan={"cypher": _STUDY_CYPHER, "parameters": {"study_title": "LUAD", "inv_title": "TCGA"}},
+        user_query="Find the patients in the TCGA LUAD (lung adenocarcinoma) study.",
+    )
+    assert scope.not_applied == []
+
+
+def test_a_gloss_of_a_term_the_query_did_not_apply_stays_a_gap():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["lung adenocarcinoma"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.title = $t RETURN count(s) AS n",
+                    "parameters": {"t": "LUSC"}},
+        user_query="How many patients are in TCGA LUAD (lung adenocarcinoma)?",
+    )
+    assert any("lung adenocarcinoma" in item for item in scope.not_applied)
+
+
+@pytest.mark.parametrize("project,cypher,params", [
+    ("MetNet", "MATCH (s)-[:IN_STUDY]->(st:Study) WHERE st.title CONTAINS $t RETURN count(s) AS n",
+     {"t": "impact of fibrinogen"}),
+    ("Impact", "MATCH (s)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'MIT_SRP' RETURN count(s) AS n", {}),
+    ("Impact", "MATCH (s:Sample) WHERE s.title CONTAINS 'impactb' RETURN count(s) AS n", {}),
+])
+def test_a_different_title_or_a_sample_title_does_not_apply_a_project(project, cypher, params):
+    scope = describe_query_scope(
+        entity_result=_entity(projects=[project]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": cypher, "parameters": params},
+        user_query=f"How many samples are in the {project} project?",
+    )
+    assert any(project in item for item in scope.not_applied)
+
+
+def test_a_word_of_a_matched_paper_title_is_applied_with_it():
+    """R7-711: the query matched the title without its first word, which is stored hyphenated."""
+    title = "Noncanonical T cell responses are associated with protection from tuberculosis in mice and humans"
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["T cell", "tuberculosis", "Noncanonical", "protection"],
+                              sampletypes=[EntityItem(code="CEL", name="Cell"), EntityItem(code="MUS", name="Mouse"),
+                                           EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query", filters={"keywords": [title]}),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_STUDY]->(st:Study) "
+                              "WHERE toLower(st.title) CONTAINS toLower($title_part) RETURN s.id AS id",
+                    "parameters": {"title_part": title.split(" ", 1)[1].lower()}},
+        user_query=f"What are the samples associated with this paper: {title}.",
+    )
+    assert scope.not_applied == []
+
+
+def test_a_rest_list_named_in_the_plural_applies_the_keyword():
+    """R5-667: "SOP" was never found in /nextseek_api/sops/, because the "s" is an identifier character."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["SOP"]),
+        parser_plan=_plan(mode="new_search"),
+        api_plan={"endpoint": "/nextseek_api/sops/", "method": "GET", "requestBody": {}, "queryParameters": {}},
+        user_query="What SOPs are on file?",
+    )
+    assert scope.not_applied == []
+
+
+def test_a_stem_and_a_plural_apply_a_keyword():
+    """R5-631: the query searched the Attribute catalog for 'vocab'."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["controlled vocabulary", "sample attributes"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (a:Attribute) WHERE toLower(toString(a.value_type)) CONTAINS 'vocab' "
+                              "RETURN a.title AS attribute"},
+        user_query="Which sample attributes use a controlled vocabulary?",
+    )
+    assert scope.not_applied == []
+
+
+def test_a_short_stem_widens_nothing():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["positive"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_PAT) WHERE s.QFT CONTAINS 'pos' RETURN count(s) AS n"},
+        user_query="Which patients are positive?",
+    )
+    assert any("positive" in item for item in scope.not_applied)
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (nhp:T_NHP) WHERE EXISTS { MATCH (nhp)<-[:DERIVED_FROM*1..12]-(:T_D_SEQ) } RETURN nhp.id AS id",
+    "MATCH (s:T_D_SEQ) WHERE EXISTS { (s)-[:DERIVED_FROM*1..12]->(:T_NHP) } RETURN s.id AS id",
+])
+def test_monkey_is_applied_by_the_nhp_label(cypher):
+    """R5-650 and R5-670: the entity step kept "monkey" as a keyword; the query used T_NHP."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["monkey"], sampletypes=[EntityItem(code="D.SEQ", name="Sequencing Data")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": cypher},
+        user_query="Which monkeys have sequencing data?",
+    )
+    assert scope.not_applied == []
+
+
+@pytest.mark.parametrize("keyword,label", [("CC", "T_MUS"), ("rhesus macaque", "T_NHP")])
+def test_a_narrowing_term_is_not_applied_by_its_whole_type(keyword, label):
+    """The catalog Tags list CC under MUS and rhesus macaque under NHP; neither is the whole type (B13)."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=[keyword]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": f"MATCH (s:{label}) RETURN count(s) AS n"},
+        user_query=f"How many {keyword} samples are there?",
+    )
+    assert any(keyword in item for item in scope.not_applied)

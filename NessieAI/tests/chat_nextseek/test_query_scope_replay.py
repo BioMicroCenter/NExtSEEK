@@ -21,6 +21,7 @@ KEYS = {"id", "label", "question", "entity_result", "parser_plan", "graph_plan",
 FALSE_CAVEATS = {"r5-631", "r5-646", "r5-650", "r5-653", "r5-667", "r5-670", "r5-678",
                  "r6-1221", "r6-1227", "r7-708", "r7-711"}
 OUT_OF_SCOPE = {"r3-602", "r4-619", "r5-659", "r5-660", "r5-662", "r7-709"}
+CONVERTER_WORDS = {"mtb", "infection", "positive"}
 
 
 def _scope(r):
@@ -56,8 +57,6 @@ def test_out_of_scope_caveats_are_left_alone(r):
     assert _scope(r).not_applied == r["baseline_not_applied"]
 
 
-CONVERTER_WORDS = {"mtb", "infection", "positive"}
-
 
 @pytest.mark.parametrize("r", [r for r in FIX if r["id"] in {"r3-602", "r7-709"}], ids=lambda r: r["id"])
 def test_declared_converter_keywords_are_applied(r):
@@ -67,5 +66,11 @@ def test_declared_converter_keywords_are_applied(r):
     items = {i for i in r["baseline_not_applied"] if any(f'"{w}"' in i for w in words)}
     assert len(words) == 3 and len(items) == 3, (words, r["baseline_not_applied"])
     declared = dict(r["graph_plan"]["keyword_fields"] or {}, **{w: ["Classification"] for w in words})
-    left = set(_scope(dict(r, graph_plan=dict(r["graph_plan"], keyword_fields=declared))).not_applied)
-    assert not items & left, sorted(left)
+    after = _scope(dict(r, graph_plan=dict(r["graph_plan"], keyword_fields=declared))).not_applied
+    assert after == [i for i in r["baseline_not_applied"] if i not in items] == [], after
+
+
+@pytest.mark.parametrize("r", [r for r in FIX if r["label"] == "false_caveat"], ids=lambda r: r["id"])
+def test_a_false_caveat_from_the_09_23_runs_is_gone(r):
+    left = set(_scope(r).not_applied)
+    assert not left & set(r["clears"]), sorted(left)
