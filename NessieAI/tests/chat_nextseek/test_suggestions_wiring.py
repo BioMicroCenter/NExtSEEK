@@ -185,7 +185,15 @@ def test_the_offer_is_kept_for_the_turn_the_graph_turn_is_stored_under(ns_turn, 
     [chip] = first.debug["suggestions"]
     [entry] = [e for e in session.get(chat_memory.CHAT_LOG_KEY) if e.get("bundle_id") == first.payload["bundle_id"]]
     assert entry["turn_id"] == 8     # append_turn numbers by the largest id, not the last entry's
-    assert _pending(session) == {"for_turn": entry["turn_id"], "items": [chip]}
+    pending = _pending(session)
+    assert pending["for_turn"] == entry["turn_id"]
+    [stored] = pending["items"]
+    # the session keeps what a click runs; the client's copy does not carry it (sg.public_chip)
+    assert sg.public_chip(stored) == chip and "rerun" not in chip
+    assert stored["rerun"]["mode"] == "graph_agent" and stored["rerun"]["base_cypher"] == CONVERTER_CYPHER
+    assert stored["rerun"]["change"] == ("match Classification exactly 'Converter' instead of every value "
+                                         "containing 'convert'.")
+    assert stored["rerun"]["parser_plan"]["intent_summary"] == CONVERTER_Q and "entity" in stored["rerun"]
 
 
 def _assert_took_the_path(turn, mode, *, refines_bundle):
@@ -201,17 +209,20 @@ def _assert_took_the_path(turn, mode, *, refines_bundle):
 @pytest.mark.parametrize("make_session", SESSIONS, ids=SESSION_IDS)
 @pytest.mark.parametrize("mode", ["graph_query", "refine_last_search"])
 def test_a_click_is_recorded_and_offers_no_new_chip(ns_turn, make_session, mode):
-    """The parser may read a click (it narrows the previous graph result) as a new graph question or as a refine
-    of that result; either way the click is recorded and offers no chip."""
+    """A click on a value chip reruns from the offering turn (operator ruling 2026-09-25): no entity agent and no
+    parser, whatever the parser would have read it as, and the graph agent starts from the turn's statement with the
+    one change (test_chip_click). The click is recorded and offers no chip."""
     session = make_session()
     first = ns_turn(session, CONVERTER_Q)
     [chip] = first.debug["suggestions"]
     assert chip["query"] == CHIP_QUERY
+    [stored] = _pending(session)["items"]
 
     second = ns_turn(session, CHIP_QUERY, mode=mode)
-    _assert_took_the_path(second, mode, refines_bundle=first.payload["bundle_id"])
-    assert second.accept_calls == [{"for_turn": 1, "last_turn_id": 1, "accepted": chip}]
+    assert "refine_target" not in second.debug                   # the parser never ran
+    assert second.accept_calls == [{"for_turn": 1, "last_turn_id": 1, "accepted": stored}]
     assert second.debug["suggestion_accepted"] == {"id": chip["id"], "source": "reviewer", "kind": "value_split"}
+    assert second.debug["chip_rerun"] == {"mode": "graph_agent", "suggestion_id": chip["id"]}
     # the reviewer still reads the result and the chatter still gets its note, but no chip chains off a click
     assert second.debug["graph_review"]["verdict"] == "suggest"
     assert "suggestions" not in second.debug
@@ -220,13 +231,13 @@ def test_a_click_is_recorded_and_offers_no_new_chip(ns_turn, make_session, mode)
     assert set(event) <= QUERY_COMPLETE_KEYS
     assert event["debug"]["suggestion_accepted"] == second.debug["suggestion_accepted"]
 
-    # the same text again, with nothing pending, is an ordinary turn: not a click, and it offers the chip afresh
+    # the same text again, with nothing pending, is an ordinary turn: not a click. Its own chip would send this very
+    # question again ("... classified as Converter"), so none is offered (operator ruling 2026-09-25).
     third = ns_turn(session, CHIP_QUERY, mode=mode)
     _assert_took_the_path(third, mode, refines_bundle=second.payload["bundle_id"])
     assert third.accept_calls == [{"for_turn": None, "last_turn_id": 2, "accepted": None}]
-    assert "suggestion_accepted" not in third.debug
-    assert [s["query"] for s in third.debug["suggestions"]] == [CHIP_QUERY]
-    assert _pending(session)["for_turn"] == 3
+    assert "suggestion_accepted" not in third.debug and "chip_rerun" not in third.debug
+    assert "suggestions" not in third.debug and not _pending(session)
 
 
 @pytest.mark.parametrize("make_session", SESSIONS, ids=SESSION_IDS)
@@ -243,8 +254,9 @@ def test_a_cc_turn_in_between_cancels_the_offer(ns_turn, make_session):
     assert later.accept_calls == [{"for_turn": 1, "last_turn_id": 2, "accepted": None}]
     assert "suggestion_accepted" not in later.debug
     assert first.debug["suggestions"][0]["query"] == CHIP_QUERY
-    # not a click, so this turn makes its own offer, for its own turn
-    assert _pending(session)["for_turn"] == 3
+    assert "chip_rerun" not in later.debug                       # not a click: the whole pipeline ran
+    # its own chip would send this very question again, so it offers none (operator ruling 2026-09-25)
+    assert not _pending(session)
 
 
 @pytest.mark.parametrize("make_session", SESSIONS, ids=SESSION_IDS)

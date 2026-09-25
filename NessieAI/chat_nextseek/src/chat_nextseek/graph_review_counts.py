@@ -550,6 +550,9 @@ class _Variant:
     sets_expected: bool = True
     #: Run instead when this variant fails (a timeout, a refusal, no rows); it counts against the cap too.
     fallback: "_Variant | None" = None
+    #: The same edit on the statement as the model wrote it, before ``_row_level``: what a click on the chip runs
+    #: (``rerun_statement``). None when the chip has no statement of its own.
+    readable: tuple[str, dict] | None = None
 
 
 def _differs(n: int, original: int | None) -> bool:
@@ -604,10 +607,10 @@ def _stem_variant(cy: str, params: dict, detail: str) -> _Variant | None:
         ci = ci or _case_insensitive(cy, m.start())
     if term is None:
         return None
-    new = cy
+    readable = cy
     for start, end, text in reversed(literal_edits):
-        new = new[:start] + text + new[end:]
-    new = _row_level(new)
+        readable = readable[:start] + text + readable[end:]
+    new = _row_level(readable)
     if new is None:
         return None
 
@@ -616,7 +619,8 @@ def _stem_variant(cy: str, params: dict, detail: str) -> _Variant | None:
             return None
         return (f"Every spelling of '{stem}' gives {n:,}." if ci
                 else f"Searching for '{stem}' instead of '{term}' gives {n:,}.")
-    return _Variant("stem_miss", f"stem_miss: '{term}' -> '{stem}'", new, new_params, fact)
+    return _Variant("stem_miss", f"stem_miss: '{term}' -> '{stem}'", new, new_params, fact,
+                    readable=(readable, dict(new_params)))
 
 
 def _unwrap(s: str) -> str:
@@ -655,9 +659,9 @@ def _narrowed_variant(cy: str, params: dict, detail: str) -> _Variant | None:
             continue
         dropped = parts[hit]
         keep = [p for i, p in enumerate(parts) if i != hit]
-        new = (cy[:clause.start].rstrip() + "\n" + (f"WHERE {' AND '.join(keep)}\n" if keep else "")
-               + cy[clause.end:].lstrip())
-        new = _row_level(new)
+        readable = (cy[:clause.start].rstrip() + "\n" + (f"WHERE {' AND '.join(keep)}\n" if keep else "")
+                    + cy[clause.end:].lstrip())
+        new = _row_level(readable)
         if new is None:
             return None
         sample_count = kind == "sample_count" or (kind is None and "sample_count" in dropped)
@@ -667,7 +671,8 @@ def _narrowed_variant(cy: str, params: dict, detail: str) -> _Variant | None:
                 return None
             return (f"Counting every defined type, including those with no samples, gives {n:,}." if sample_count
                     else f"Including records with no value for that property gives {n:,}.")
-        return _Variant("all_question_narrowed", f"all_question_narrowed: drop {dropped}", new, dict(params), fact)
+        return _Variant("all_question_narrowed", f"all_question_narrowed: drop {dropped}", new, dict(params), fact,
+                        readable=(readable, dict(params)))
     return None
 
 
@@ -890,13 +895,15 @@ def _exists_variants(cy: str, params: dict, detail: str) -> _Variant | None:
                       inner[:where.body] + f" ({inner[where.body:where.end].strip()}) AND {filt} " + inner[where.end:])
     narrowed_parts = list(parts)
     narrowed_parts[index] = "EXISTS {" + narrowed_inner + "}"
-    narrowed = _row_level(cy[:clause.body] + " " + " AND ".join(narrowed_parts) + "\n" + cy[clause.end:].lstrip())
+    narrowed_readable = cy[:clause.body] + " " + " AND ".join(narrowed_parts) + "\n" + cy[clause.end:].lstrip()
+    narrowed = _row_level(narrowed_readable)
     shown = value if len(value) <= 40 else value[:39].rstrip() + "…"
 
     def narrowed_fact(n, original):
         return NARROWED_FACT.format(attribute=attr, value=shown, n=n) if _differs(n, original) else None
     fallback = (_Variant("unapplied_value", f"unapplied_value: only {attr} '{shown}'", narrowed,
-                         {**params, param: value}, narrowed_fact) if narrowed else None)
+                         {**params, param: value}, narrowed_fact,
+                         readable=(narrowed_readable, {**params, param: value})) if narrowed else None)
 
     breakdown = None
     if all(c.kw in ("MATCH", "WHERE") for c in inner_clauses):
@@ -963,6 +970,31 @@ def relaxed_variants(inp: ReviewInput, review: GraphReview) -> list[tuple[str, s
         return [(v.edit, v.cypher, v.parameters) for v in _variants(inp, review)]
     except Exception:
         return []
+
+
+def rerun_statement(inp: ReviewInput, review: GraphReview) -> tuple[str, dict] | None:
+    """What a click on the review's chip runs directly, ``(cypher, parameters)``, or None when it has no statement.
+
+    The chip's own check's edit on the statement as the model wrote it, never the row-counting form Tier 2 counts
+    with: "Include all spellings" searches the stem, "Count every defined type" drops the narrowing filter, "Only
+    <value>" applies the named value inside the EXISTS that binds it (for a variable bound at the RETURN there is no
+    such statement). A value-split chip has none: its click goes to the graph agent (``graph_review.SPLIT_CHANGE``).
+    The statement is the model's, unscoped: it is proven and scoped again for whoever clicks. Never raises."""
+    try:
+        owner = _suggestion_owner(review)
+        cy = inp.cypher if isinstance(inp.cypher, str) else ""
+        if owner is None or not cy.strip() or _has_union(cy, _mask(cy)):
+            return None
+        check = next((c for c in review.checks if c.fired and c.name == owner), None)
+        build = dict(_BUILDERS).get(owner)
+        if check is None or build is None:
+            return None
+        variant = build(cy, dict(inp.parameters or {}), check.detail or "")
+        if variant is not None and variant.rows is not None:
+            variant = variant.fallback
+        return variant.readable if variant is not None else None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------- run_tier2 ----------------------------------------

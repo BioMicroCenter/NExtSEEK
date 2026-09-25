@@ -525,7 +525,15 @@ def _rewrite_with_value(question: str, term: str, value: str) -> str:
     return _clip(question[: m.start()] + value + question[m.end():], QUERY_MAX)
 
 
-def _split_suggestion(t: _Turn, term: str, pairs: list[tuple[str, int]], reason: str, from_rows: bool) -> dict | None:
+#: What a click on a value chip asks the graph agent to change in the statement that answered (``rerun``, operator
+#: ruling 2026-09-25): the agent starts from that statement and changes only this.
+SPLIT_CHANGE = "match {attribute} exactly '{value}' instead of every value containing '{term}'."
+NARROW_CHANGE = "keep only {type_name} records whose {attribute} is '{value}'."
+NARROW_CHANGE_NO_TYPE = "keep only records whose {attribute} is '{value}'."
+
+
+def _split_suggestion(t: _Turn, term: str, pairs: list[tuple[str, int]], reason: str, from_rows: bool,
+                      attr: str) -> dict | None:
     keep = [(v, n) for v, n in pairs if not _negated(str(v), term)]
     if not keep:
         return None
@@ -533,7 +541,8 @@ def _split_suggestion(t: _Turn, term: str, pairs: list[tuple[str, int]], reason:
     query = _rewrite_with_value(t.q, term, str(value))
     if " ".join(query.lower().split()) == " ".join(t.q.lower().split()):
         return None     # the question already names that value ("...sequenced at UNC?"): the chip would resend it
-    sug = {"kind": "value_split", "label": _clip(f"Only {value}", LABEL_MAX), "query": query, "reason": reason}
+    sug = {"kind": "value_split", "label": _clip(f"Only {value}", LABEL_MAX), "query": query, "reason": reason,
+           "rerun": {"change": SPLIT_CHANGE.format(attribute=attr, value=_clip(str(value), 100), term=term)}}
     total = t.inp.total if t.inp.total is not None else t.inp.count
     if from_rows and total is not None and len(t.rows) >= total:
         sug["expected_count"] = n
@@ -565,7 +574,7 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                 fact = (f"The matched values were: {_list_values(counter.most_common())}." if counter
                         else f"The search term also matches {_quoted(neg[:3])}.")
                 out["negated_value"] = _Finding(f"{attr} CONTAINS '{term}' also matches '{neg[0]}'", fact,
-                                                _split_suggestion(t, term, pairs, fact, counter is not None))
+                                                _split_suggestion(t, term, pairs, fact, counter is not None, attr))
         # the matched column came back with values that are not spellings of one another
         if counter is not None and not t.split_shown:
             # a column where no value repeats is a list of distinct records, not a split into categories
@@ -575,12 +584,12 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
                 fact = f"The matched values were: {_list_values(counter.most_common())}."
                 out["value_split_rows"] = _Finding(
                     f"{alias}: " + ", ".join(f"{v} {n}" for v, n in counter.most_common()), fact,
-                    _split_suggestion(t, term, counter.most_common(), fact, True))
+                    _split_suggestion(t, term, counter.most_common(), fact, True, attr))
         elif (len({v.lower() for v, _n in matched}) >= 2 and _distinct_meanings([v for v, _ in matched], term)
               and not t.split_shown and "value_split_catalog" not in out):
             fact = f"The search term matches several stored values: {_quoted([v for v, _ in matched[:4]])}."
             out["value_split_catalog"] = _Finding(f"{attr} CONTAINS '{term}' matches {[v for v, _ in matched]}",
-                                                  fact, _split_suggestion(t, term, matched, fact, False))
+                                                  fact, _split_suggestion(t, term, matched, fact, False, attr))
         # a stored value is a shorter stem of the term (tif for tiff), so CONTAINS misses it
         stems = [v for v in names if 3 <= len(v.strip(".").lower()) < len(term)
                  and term.startswith(v.strip(".").lower()) and term not in v.lower()]
@@ -705,15 +714,18 @@ NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {valu
 
 
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
-    """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``."""
+    """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``;
+    ``rerun`` holds the change a click asks the graph agent for when no statement of its own can be built."""
     question = t.q.strip()
     if question and question[-1] not in ".?!":
         question += "."
     type_name = t.catalog.type_name(lab)
     template = NARROW_QUERY if type_name else NARROW_QUERY_NO_TYPE
     query = template.format(question=question, type_name=type_name, attribute=attr, value=value)
+    change = (NARROW_CHANGE if type_name else NARROW_CHANGE_NO_TYPE).format(type_name=type_name, attribute=attr,
+                                                                           value=_clip(value, 100))
     return {"kind": "narrow_value", "label": _clip(f"Only {value}", LABEL_MAX), "query": _clip(query, QUERY_MAX),
-            "reason": fact}
+            "reason": fact, "rerun": {"change": change}}
 
 
 def _unapplied_value(t: _Turn) -> _Finding | None:

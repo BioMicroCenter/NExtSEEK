@@ -182,7 +182,8 @@ def test_an_unapplied_value_offers_the_narrowed_search():
         "kind": "narrow_value", "label": "Only RNA-Seq",
         "query": "How many TCGA patients have at least one RNA-Seq alignment derived from their samples? Count only "
                  "Sequence Alignment Analysis records whose DataType is RNA-Seq.",
-        "reason": "The question names 'RNA-Seq', but the search did not filter on it."}
+        "reason": "The question names 'RNA-Seq', but the search did not filter on it.",
+        "rerun": {"change": "keep only Sequence Alignment Analysis records whose DataType is 'RNA-Seq'."}}
     from chat_nextseek.helpers.suggestions import check_suggestion
     assert check_suggestion(rv.suggestion) is None                    # it passes every chip guardrail
 
