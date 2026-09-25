@@ -18,7 +18,7 @@ Rebuild verbs: `./startup.sh rebuild --component cc-agent | bedrock-proxy | next
 
 ### cc-runtime: the agent image
 
-- A pinned Claude Code CLI on node 20, a uv-managed CPython, and an unprivileged `user` account.
+- A pinned Claude Code CLI on node 22 (checked at build time with `claude --version`), a uv-managed CPython, and an unprivileged `user` account.
 - The baked `nextseek` plugin under `cc-runtime/build_context/plugins/nextseek/`: `plugin.json` (identity only), two skills, the `/nextseek` command, a `UserPromptSubmit` hook, the `nextseek-*` shims in `bin/`, and a `context/` catalog directory.
 - The in-container agent instructions, `cc-runtime/container/CLAUDE.md`.
 - The ingested NExtSEEK docs, `cc-runtime/docs/nextseek/` (generated; do not hand-edit).
