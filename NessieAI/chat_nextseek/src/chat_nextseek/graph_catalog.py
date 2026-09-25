@@ -79,7 +79,8 @@ def schema_version_supported(value) -> bool:
     version = _version_tuple(value)
     return version is not None and version >= _version_tuple(SCHEMA_VERSION)
 
-# The catalog keeps at most ten top values per attribute; TYPES_ADMIN never reads more.
+# The catalog holds no attribute values: graph_sync writes none, and the reader of the old top_values was removed
+# (889abe89). Stored values are read per caller, through the graph tool, by the graph reviewer (graph_review_counts).
 
 # The clock; tests patch this name.
 _now = time.monotonic
@@ -129,6 +130,14 @@ RETURN t.title AS title, t.label AS label, t.name AS name, t.summary AS summary,
          WHERE coalesce(z.sample_count, 0) = 0 AND coalesce(z.declared, true)
        } AS never_filled
 ORDER BY title
+""".strip()
+
+# The range indexes graph_sync builds (writer.ensure_index_budget): one per (type label, attribute) that qualifies.
+# Schema, the same for every caller, like the guard map: the graph reviewer seeks a value by it (get_seekable).
+SEEKABLE = """
+SHOW INDEXES YIELD labelsOrTypes, properties, type, state, entityType
+WHERE type = 'RANGE' AND entityType = 'NODE' AND state = 'ONLINE'
+RETURN labelsOrTypes, properties
 """.strip()
 
 VOCAB_INVESTIGATIONS = """
@@ -324,6 +333,8 @@ class _Entry:
     vocab_ttl: float = VOCAB_TTL_S
     vocab_failed: tuple[str, ...] = ()
     scoped_vocab: dict = field(default_factory=dict)  # project ids -> (read_at, ttl, Vocabulary)
+    seekable: tuple | None = None  # (catalog_hash, read_at, Mapping[label, frozenset[attribute]])
+    seekable_failed_at: float | None = None
 
 
 _ENTRIES: dict[tuple[str, str], _Entry] = {}
@@ -525,6 +536,48 @@ def get_type_details(config, titles: Iterable[str]) -> list[TypeDetail]:
         found = (entry.details.get(t) for t in wanted)
         details = [cached[2] for cached in found if cached is not None and cached[0] == snapshot.catalog_hash]
     return details if graph_scope.sees_all(config) else [_redacted_detail(detail) for detail in details]
+
+
+def get_seekable(config) -> Mapping[str, frozenset[str]] | None:
+    """Each T_ label's attributes that carry an online single-property RANGE index, so an equality on them is an index
+    seek; None when that cannot be read.
+
+    graph_sync indexes a string attribute only once it is on 1,000 samples or more, and every numeric or date one that
+    holds a value (``writer.ensure_index_budget``). The graph reviewer reads this to decide which attributes it may
+    look a value up in cheaply (``graph_review_counts``): on the dev graph an unindexed attribute of a large type costs
+    about 2 microseconds a node, an indexed one a seek. Index names, labels and properties are schema, the same for
+    every caller, as the guard map is, so the map is not redacted.
+
+    Cached per catalog hash for ``DETAIL_TTL_S``. A failed read is remembered for ``FAILURE_MEMORY_S`` and returns
+    None; it never marks the catalog unavailable or closes the driver, since nothing else depends on it. An
+    unavailable catalog is None too."""
+    key = _key(config)
+    entry = _entry_for(key)
+    with entry.lock:
+        try:
+            snapshot = _snapshot_locked(entry, key, config)
+        except CatalogUnavailable:
+            return None
+        now = _now()
+        cached = entry.seekable
+        if cached is not None and cached[0] == snapshot.catalog_hash and now - cached[1] < DETAIL_TTL_S:
+            return cached[2]
+        if entry.seekable_failed_at is not None and now - entry.seekable_failed_at < FAILURE_MEMORY_S:
+            return None
+        try:
+            rows = _read(_driver_locked(entry, config), key[1], SEEKABLE)
+        except Exception as exc:  # noqa: BLE001 (schema metadata only: the caller reads every attribute instead)
+            entry.seekable_failed_at = now
+            log.warning("graph index list unavailable for %ss: %s", FAILURE_MEMORY_S, _read_failed(exc)[:300])
+            return None
+        found: dict[str, set[str]] = {}
+        for row in rows:
+            labels, props = row.get("labelsOrTypes") or [], row.get("properties") or []
+            if len(labels) == 1 and len(props) == 1 and str(labels[0]).startswith("T_"):
+                found.setdefault(str(labels[0]), set()).add(str(props[0]))
+        seekable = MappingProxyType({label: frozenset(props) for label, props in found.items()})
+        entry.seekable, entry.seekable_failed_at = (snapshot.catalog_hash, now, seekable), None
+        return seekable
 
 
 #: What a caller who sees no project is given: nothing, and no statement runs for it.
