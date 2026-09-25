@@ -73,7 +73,10 @@ def test_relationship_types_are_the_v11_relationships():
 
 
 def test_derived_from_keeps_its_v10_properties_and_member_of_its_v11_ones():
-    row = next(line for line in V10_DOC.splitlines() if "[:DERIVED_FROM]" in line and line.startswith("| `("))
+    # The v1.0 relationship table's row: the one that lists the properties (the measured-counts table above it has
+    # a DERIVED_FROM row too, with only a count).
+    row = next(line for line in V10_DOC.splitlines()
+               if "[:DERIVED_FROM]" in line and line.startswith("| `(") and "Properties" in line)
     assert V11_RELATIONSHIP_PROPERTIES["DERIVED_FROM"] == frozenset(
         re.findall(r"`([a-z_]+)`", row.split("Properties", 1)[1]))
     member = re.search(r"MEMBER_OF \{([^}]*)\}", V11_DOC).group(1)
