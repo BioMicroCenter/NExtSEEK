@@ -20,7 +20,7 @@ stays in `nextseek_api/`.
 
 `decide()` tries three strategies in order, and the first that answers wins:
 
-1. **Posterior selector**, only when `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` is on (off by default). A returned selection skips BAML entirely.
+1. **Posterior selector**, only when `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` is on (off by default). A returned selection skips BAML entirely. Its family call, `ClassifyQuery`, runs under `ROUTER_PRIMARY_LIMIT_S` too, and a timeout is handled as an error: the BAML router below decides.
 2. **BAML router**: `RouteQuery` from `NessieAI/dmac_assistant/`, fed by a classifier that assigns a task family, not a route. It runs on the client the function declares (`GCPReasoner`) under `ROUTER_PRIMARY_LIMIT_S`, BAML's retries included; on a timeout, an error or `<router_unavailable>` it gets one try on `GCPFlash` under `ROUTER_FALLBACK_LIMIT_S`, through a per-call `ClientRegistry` (no `.baml` edit).
 3. **Keyword heuristic**, when BAML is unreachable, or both of those calls fail.
 

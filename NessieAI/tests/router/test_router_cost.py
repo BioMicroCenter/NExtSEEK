@@ -252,6 +252,27 @@ def test_the_classifier_call_is_counted_when_posterior_routing_asks_it(monkeypat
     assert fields["router_cost_usd"] == pytest.approx(_price(PRO, 500, 10, thoughts=450), abs=1e-9)
 
 
+def test_a_classifier_call_cut_off_by_the_time_limit_makes_the_cost_partial(monkeypatch):
+    """F7: ClassifyQuery gets RouteQuery's limit, and a cut-off attempt is noted as one:
+    the 503 BAML logged before the stall is not billed, and the cut-off retry may be."""
+    class _B:
+        async def ClassifyQuery(self, input, baml_options=None):
+            baml_options["collector"].logs.append(SimpleNamespace(calls=[unavailable("GCPReasoner")]))
+            await asyncio.sleep(5.0)
+
+    monkeypatch.setattr(cc_router, "ROUTER_PRIMARY_LIMIT_S", 0.1)
+    monkeypatch.setattr(cc_router, "_new_collector", _Collector)
+    monkeypatch.setattr(cc_router, "_load_router_deps", lambda: (object, object, SimpleNamespace(), _B()))
+    monkeypatch.setattr(cc_router, "runtime_type_builder", lambda _snap: object())
+    monkeypatch.setattr(cc_router, "type_builder", lambda _snap: {"members": []})
+    with cc_router._collecting_router_spend() as spend:
+        family, _, _ = cc_router._classify_query("how many mice")
+    fields = spend.fields()
+    assert family is None
+    assert fields["router_cost_usd"] == 0.0
+    assert fields["router_cost_partial"] is True
+
+
 # ---------------------------------------------------------------------------- the event and the policy
 
 ROUTED = cc_router.RouteDecision(
