@@ -951,3 +951,64 @@ def test_a_short_keyword_inside_a_word_of_a_matched_title_keeps_its_gap():
         user_query=f"How many CC samples are in the study {title}?",
     )
     assert 'keyword "CC"' in scope.not_applied
+
+
+# --- Task 24 (the independent validator): two routes that still applied a name the query did not scope on ---
+
+_TCGA_GBM = "How many patients are in TCGA GBM?"
+
+
+def _tcga_gbm_scope(cypher, params=None):
+    return describe_query_scope(
+        entity_result=_entity(projects=["TCGA GBM"], keywords=["TCGA GBM"],
+                              sampletypes=[EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "PAT"}),
+        graph_plan={"cypher": cypher, "parameters": params or {}},
+        user_query=_TCGA_GBM,
+    )
+
+
+@pytest.mark.parametrize("cypher,params", [
+    # every TCGA patient, scoped by the Project title alone
+    ("MATCH (s:T_PAT)-[:IN_PROJECT]->(p:Project) WHERE p.title = $p RETURN count(DISTINCT s) AS n", {"p": "TCGA"}),
+    # a different study under the TCGA project
+    ("MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study), (s)-[:IN_PROJECT]->(p:Project) "
+     "WHERE st.title = 'LUAD' AND p.title = 'TCGA' RETURN count(DISTINCT s) AS n", {}),
+], ids=["project-title-alone", "other-study-under-the-project"])
+def test_a_project_title_inside_the_asked_name_does_not_apply_it(cypher, params):
+    """'TCGA' is a Project title in the 1.2 graph and sits inside every TCGA study's name, so a Project title held
+    by the asked name applies nothing: only a Study title may. The other direction, the asked name inside the title
+    ("Impact" in 'IMPAcTb', r7-708), still holds for every container."""
+    assert "project TCGA GBM" in _tcga_gbm_scope(cypher, params).not_applied
+
+
+def test_the_asked_study_under_its_investigation_is_still_applied():
+    """The right study keeps clearing, as r6-1221 and r6-1227 do."""
+    scope = _tcga_gbm_scope("MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                            "WHERE st.title = 'GBM' AND inv.title = 'TCGA' RETURN count(DISTINCT s) AS n")
+    assert scope.not_applied == []
+
+
+_NHP_GLOSS = "How many NHP (rhesus macaque) samples are there?"
+
+
+@pytest.mark.parametrize("keyword,code,name,question,query", [
+    ("rhesus macaque", "NHP", "Non Human Primate", _NHP_GLOSS,
+     {"api_plan": {"endpoint": "/nextseek_api/samples/", "method": "GET", "requestBody": {},
+                   "queryParameters": {"sampletype": "NHP"}}}),
+    ("rhesus macaque", "NHP", "Non Human Primate", _NHP_GLOSS,
+     {"graph_plan": {"cypher": "MATCH (s:Sample) WHERE s.type = 'NHP' RETURN count(s) AS n"}}),
+    ("CC", "MUS", "Mouse", "How many CC (MUS) samples?",
+     {"graph_plan": {"cypher": "MATCH (s:Sample) WHERE s.type = 'MUS' RETURN count(s) AS n"}}),
+], ids=["rest-sampletype", "graph-type-property", "graph-type-reversed"])
+def test_a_gloss_of_a_sample_type_keeps_the_narrowing_terms_gap(keyword, code, name, question, query):
+    """A gloss counts only when its applied side is a container title the query compared ('LUAD', r6-1227). A sample
+    type's code is never one: "NHP (rhesus macaque)" and "CC (MUS)" ask for part of a type the query counted whole
+    (B13's shape), whether the type was applied as a REST parameter, a property or a label."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code=code, name=name)], keywords=[keyword]),
+        parser_plan=_plan(mode="graph_query" if "graph_plan" in query else "new_search"),
+        user_query=question,
+        **query,
+    )
+    assert f'keyword "{keyword}"' in scope.not_applied

@@ -47,10 +47,10 @@ NOT APPLIED line over a correct query, and each now read from the query that ran
 a question that asks for samples with no type before a topic asks for no sample type
 (R5-646, R5-678, R7-711); an assay counts when the query constrained a data type whose
 name holds its title, "Imaging" and D.IMG "Imaging Data" (R5-653); a project or keyword
-counts when the query compared a Project, Study or Investigation title that holds it or
-that it holds, "Impact" and 'IMPAcTb' (R7-708, R6-1221, R6-1227); a word of a long
-keyword matched that way is covered with it (R7-711); a keyword glossed by an applied
-term, or glossing one, counts (R6-1227); a keyword word counts in its singular or
+counts when the query compared a Project, Study or Investigation title that holds it, or a
+Study title that it holds, "Impact" and 'IMPAcTb' (R7-708, R6-1221, R6-1227); a word of a
+long keyword matched that way is covered with it (R7-711); a keyword glossed by a container
+title the query compared, or glossing one, counts (R6-1227); a keyword word counts in its singular or
 plural, or begun by a literal of four or more characters the query compared (R5-667,
 R5-631); and a whole-type everyday name ("monkey") counts when that type's label is in
 the query (R5-650, R5-670). Each of the seven only moves an item out of NOT APPLIED, or
@@ -610,9 +610,10 @@ _CONTAINER_VAR = re.compile(r"\(\s*(\w+)\s*:\s*`?(Project|Study|Investigation)`?
 _CONTAINER_MAP = re.compile(
     r"\(\s*\w*\s*:\s*`?(Project|Study|Investigation)`?\s*\{[^}]*\btitle\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")")
 _CONTAINERS = ("Project", "Study", "Investigation")
-#: The containers whose title may sit inside the asked name ("TCGA LUAD" holds the Study 'LUAD'). Not an
-#: Investigation: 'TCGA' sits inside every TCGA study's name, so it would apply one whatever study the query chose.
-_NAME_MAY_HOLD = ("Project", "Study")
+#: The containers whose title may sit inside the asked name ("TCGA LUAD" holds the Study 'LUAD'). Only a Study:
+#: 'TCGA' is an Investigation title and, in the 1.2 graph, a Project title, and it sits inside every TCGA study's
+#: name, so either would apply "TCGA GBM" whatever study the query chose (or none).
+_NAME_MAY_HOLD = ("Study",)
 _TITLE_COMPARED = re.compile(
     r"(?:toLower\(\s*)?(\w+)\.title\s*\)?\s*(?:=|IN|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*(?:toLower\(\s*)?"
     r"(\$\w+|'[^']*'|\"[^\"]*\"|\[[^\]]*\])", re.IGNORECASE)
@@ -643,20 +644,26 @@ def _container_titles(graph_plan: dict | None, labels: tuple[str, ...] = _CONTAI
 
 def _container_title_is_applied(value: str, titles: list[str], held: list[str]) -> bool:
     """The query scoped a project, study or investigation by a title that holds the asked name ("Impact" and
-    'IMPAcTb', R7-708), or a project or study by one the asked name holds (``held``, from ``_NAME_MAY_HOLD``):
-    "TCGA LUAD" and 'LUAD' (R6-1227, R6-1221)."""
+    'IMPAcTb', R7-708), or a study by one the asked name holds (``held``, from ``_NAME_MAY_HOLD``): "TCGA LUAD"
+    and 'LUAD' (R6-1227, R6-1221)."""
     key = _squash(value)
     return len(key) >= 3 and (any(key in _squash(t) for t in titles) or any(_squash(t) in key for t in held))
 
 
-def _glossed_by_applied(keyword: str, question: str | None, haystack: str) -> bool:
-    """A keyword the question writes as the gloss of an applied term, or glosses with one: "LUAD (lung
-    adenocarcinoma)" (R6-1227)."""
+def _glossed_by_applied(keyword: str, question: str | None, titles: list[str]) -> bool:
+    """A keyword the question writes as the gloss of a container title the query compared, or glosses one with:
+    "LUAD (lung adenocarcinoma)" over st.title = 'LUAD' (R6-1227).
+
+    The applied side must be one of ``titles`` (a Project, Study or Investigation title the executed query
+    compared), never a sample type's code or name: "NHP (rhesus macaque)" over ``sampletype=NHP`` or
+    ``s.type = 'NHP'``, and "CC (MUS)" over ``s.type = 'MUS'``, ask for part of a type the query counted whole,
+    B13's shape, so the narrowing term keeps its gap."""
     key = _squash(keyword)
+    compared = {_squash(t) for t in titles}
     for m in re.finditer(r"([A-Za-z0-9][\w.\-]*)\s*\(\s*([^()]{2,80}?)\s*\)", question or ""):
         outer, inner = m.group(1), m.group(2)
-        if (key == _squash(inner) and _is_applied(outer, haystack)) or (
-                key == _squash(outer) and _is_applied(inner, haystack)):
+        if (key == _squash(inner) and _squash(outer) in compared) or (
+                key == _squash(outer) and _squash(inner) in compared):
             return True
     return False
 
@@ -758,7 +765,7 @@ def describe_query_scope(
             if not applied:
                 applied = _container_title_is_applied(value, titles, held)
             if not applied:
-                applied = _glossed_by_applied(value, user_query, haystack)
+                applied = _glossed_by_applied(value, user_query, titles)
             if not applied:
                 words = _folded(value)
                 applied = len(_squash(value)) >= 3 and any(words in phrase and words != phrase
