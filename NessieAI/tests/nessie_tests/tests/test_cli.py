@@ -121,6 +121,15 @@ def test_the_cli_still_prints_a_cost_it_did_observe(monkeypatch, tmp_path, capsy
     assert "unmeasured" not in out
 
 
+def test_the_budget_help_says_what_counts_toward_the_ceiling():
+    """It said only container_cc reports cost; every turn's router and engine cost
+    counts now, and an unobserved turn still adds nothing."""
+    text = " ".join(cli.build_parser().format_help().split())
+    assert "Only container_cc reports cost" not in text
+    assert "router and engine cost" in text
+    assert "not observed adds nothing" in text
+
+
 def test_the_cli_says_when_a_case_cost_is_only_part_of_the_spend(monkeypatch, tmp_path, capsys):
     from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry
     _manifest_with(monkeypatch, NessieManifestEntry(id="ns.q", family="f", tier="full",

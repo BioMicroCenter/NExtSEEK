@@ -127,8 +127,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-usd", type=float, default=None,
                    help="--bayesian only. Run-level USD ceiling, cumulative across resumes. "
                         "Aborts cleanly before the arm that would breach it, keeping every "
-                        "completed arm; exit 3. Only container_cc reports cost, so NS spend "
-                        "is invisible to this ceiling and the real total is higher.")
+                        "completed arm; exit 3. Every turn's router and engine cost, NS and "
+                        "CC, counts toward it; a turn whose cost was not observed adds "
+                        "nothing, so the real spend can pass the ceiling.")
     p.add_argument("--resume", action="store_true", default=False,
                    help="--bayesian only. Continue the paired run in --out: every (variant, arm) "
                         "already recorded there is skipped rather than repaid.")
