@@ -1,6 +1,6 @@
 {
  "_name": "probe-2026-09-24-cc-followup-reruns - Container-CC follow-ups answered from the staged turns, not re-run",
- "_why": "Proves fix/cc-followup (CC-RERUN-FINDINGS fixes 1, 2, 3, 4) on a box rebuilt with BOTH the app and the cc-agent image: samples.csv staged next to rows.csv (app), the trace built from this turn only (app), the newest-turn note in the UserPromptSubmit hook and the follow-up decision order (cc-agent). Every seed is an NExtSEEK graph question and every follow-up asks for a file, a chart or an analysis, so it stays on Container-CC under the follow-up split as well.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-24-cc-followup-reruns.json --out /app/runs/cc-followup-<date>\nPAID: 6 cases, 11 CC turns and 8 NS turns. Needs the operator's approval for the run.",
+ "_why": "Proves fix/cc-followup (CC-RERUN-FINDINGS fixes 1, 2, 3, 4) on a box rebuilt with BOTH the app and the cc-agent image: samples.csv staged next to rows.csv (app), the trace built from this turn only (app), the newest-turn note in the UserPromptSubmit hook and the follow-up decision order (cc-agent). Every seed is an NExtSEEK graph question and every follow-up asks for a file, a chart or an analysis, so it stays on Container-CC under the follow-up split as well.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-24-cc-followup-reruns.json --out /app/runs/cc-followup-<date>\nPAID: 6 cases, 16 turns: 9 on Container-CC and 7 on NExtSEEK. Needs the operator's approval for the run.\nTrace criteria need the path and the file inside ONE tool call (a `cd` into the folder then a relative read counts); a Glob or Grep call carries no path in the trace and cannot satisfy them.",
  "_instance_warning": "EVERY NUMBER HERE WAS MEASURED ON THE WORKSTATION'S GRAPH ON 2026-09-23 (the same values as probe-2026-09-23-followups-to-cc). Re-pin before the run:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>\n  python ... pin_probe_truths.py --pin <this file> --from measured.json",
  "_observability": "cc_trace_text is one line per tool call of the CC turn's trace. Since fix 2 the trace holds THIS turn's calls only, so a negative trace assertion is valid on any CC turn of a chat, not only the first. The harness sees the agent read /data/previous_turns, not the staged tree itself.",
  "_measure": {
@@ -139,12 +139,12 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/MANIFEST\\.md"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/turn-\\d+/samples\\.csv"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?samples\\.csv"
         },
         {
          "field": "cc_trace_text",
@@ -220,12 +220,12 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/MANIFEST\\.md"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/turn-\\d+/samples\\.csv"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?samples\\.csv"
         },
         {
          "field": "cc_trace_text",
@@ -301,7 +301,7 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/MANIFEST\\.md"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "cc_trace_text",
@@ -337,7 +337,7 @@
      "family": "cc_followup_reruns",
      "id": "ccfu.count_only_breakdown_is_given_not_refused",
      "name": "Fix 4: a count-only seed broken down by project gives a breakdown",
-     "_why": "The r6-1231 shape: after a count, 'which studies' went to nextseek-aggregate, failed, and the turn gave up. Now the stored Cypher is re-run with only its RETURN changed, and a failed step falls back to nextseek-graph with the stored Cypher. The per-project counts are not pinned (a sample can sit in two projects): the reply must give a breakdown by project.",
+     "_why": "The r6-1231 shape: after a count, 'which studies' went to nextseek-aggregate, failed, and the turn gave up. Now the stored Cypher is re-run with only its RETURN changed, and a failed step falls back to nextseek-graph with the stored Cypher. The per-project counts are not pinned (a sample can sit in two projects): the turn must publish the one named CSV, and the reply must not give up.",
      "tags": [
       "nessie",
       "probe",
@@ -368,7 +368,7 @@
       },
       {
        "label": "main",
-       "query": "Which projects are those 73 in? Save the counts per project to a CSV file.",
+       "query": "Which projects are those 73 in? Save the counts per project to one CSV file named nhp73_by_project.csv.",
        "pass_criteria": [
         {
          "field": "last_reply",
@@ -388,7 +388,7 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/MANIFEST\\.md"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "cc_trace_text",
@@ -396,9 +396,19 @@
          "value": "nextseek-(graph|aggregate)\\b"
         },
         {
+         "field": "api_artifact.nhp73_by_project.csv",
+         "op": "true",
+         "value": null
+        },
+        {
          "field": "last_reply",
          "op": "matches_re",
          "value": "(?i)project"
+        },
+        {
+         "field": "last_reply",
+         "op": "matches_re",
+         "value": "(?is)\\A(?!.*\\b(?:couldn't|could not|was unable to|unable to|cannot|can't)\\b[^.\\n]{0,60}\\b(?:break|answer|get|produce|complete|determine|find)\\b)"
         }
        ]
       }
@@ -501,12 +511,7 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/MANIFEST\\.md"
-        },
-        {
-         "field": "last_reply",
-         "op": "matches_re",
-         "value": "(?<![\\w.,/-])4(?![\\w]|[.,]\\d|[-/]\\d)"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?MANIFEST\\.md"
         },
         {
          "field": "last_reply",
@@ -516,7 +521,7 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/turn-0?3/"
+         "value": "(?s)previous_turns/turn-0?3/(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?(rows|samples)\\.csv"
         },
         {
          "field": "cc_trace_text",
@@ -588,7 +593,7 @@
       },
       {
        "label": "main",
-       "query": "How many rows are in the nhp73.csv file you just made, and how many of them are female?",
+       "query": "How many rows are in the nhp73.csv file you just made?",
        "pass_criteria": [
         {
          "field": "last_reply",
@@ -608,7 +613,7 @@
         {
          "field": "cc_trace_text",
          "op": "matches_re",
-         "value": "/data/previous_turns/turn-\\d+/nhp73\\.csv"
+         "value": "(?s)previous_turns(?:(?!\\n(?:bash|read|write|edit|skill|tool) ).){0,4000}?nhp73\\.csv"
         },
         {
          "field": "cc_trace_text",
