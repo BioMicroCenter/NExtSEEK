@@ -173,6 +173,62 @@ def path_mappings_for(*, output_mnt: str, run_scratch_mnt: str | None) -> dict[s
     if run_scratch_mnt:
         mappings["scratch"] = {"container_root": _CONTAINER_SCRATCH, "logical_root": run_scratch_mnt}
     return mappings
+
+
+# D7 (2026-09-25 dev run): the template the agent's instructions show for each root, which
+# one reply printed literally instead of filling in. The run id placeholder is matched with
+# or without its space.
+_PATH_TEMPLATES = {
+    "scratch": r"/dmac/users/<project>/<user>/scratch/<run[ _-]?id>",
+    "output": r"/dmac/users/<project>/<user>/output",
+}
+# A root is matched only as a whole path segment run: never inside a longer path
+# (``/mnt/data/scratch``) and never as the start of a longer name (``/data/scratchpad``,
+# ``/data/scratch.bak``). A dot followed by a space or the end is sentence punctuation.
+_ROOT_BEFORE = r"(?<![\w.~/-])"
+_ROOT_AFTER = r"(?![\w-]|\.[\w-])"
+
+
+def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) -> Any:
+    """D7: put this turn's real paths where a reply names a container path.
+
+    The agent is told to quote a file it handed over by its user-facing path, and on the
+    2026-09-25 dev run 6 of 12 replies still named ``/data/scratch/...`` and one printed
+    the documented template ``/dmac/users/<project>/<user>/scratch/<run id>/...``. This is
+    the server-side guard: each mapped root (``/data/scratch``, ``/data/output``) and each
+    template becomes that entry's ``logical_root`` from ``path_mappings_for``, the same
+    mapping the agent was given, and the rest of the path is kept.
+
+    A root with no usable entry (a turn with no run id has no ``scratch`` entry) is left
+    as it is, and so is every other ``/data/`` path. One pass over the text, so a
+    replaced path is never rewritten again. Anything that is not a non-empty string is
+    returned unchanged.
+    """
+    if not isinstance(text, str) or not text or not isinstance(path_mappings, Mapping):
+        return text
+    alternatives: list[str] = []
+    roots: dict[str, str] = {}
+    for name, entry in path_mappings.items():
+        if not isinstance(entry, Mapping):
+            continue
+        container_root = entry.get("container_root")
+        logical_root = entry.get("logical_root")
+        if not (isinstance(container_root, str) and container_root
+                and isinstance(logical_root, str) and logical_root):
+            continue
+        patterns = [_ROOT_BEFORE + re.escape(container_root.rstrip("/")) + _ROOT_AFTER]
+        template = _PATH_TEMPLATES.get(name)
+        if template:
+            patterns.append(template + (_ROOT_AFTER if template.endswith("output") else ""))
+        for pattern in patterns:
+            group = f"r{len(roots)}"
+            roots[group] = logical_root.rstrip("/")
+            alternatives.append(f"(?P<{group}>{pattern})")
+    if not alternatives:
+        return text
+    return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
+
+
 _CONTAINER_INPUT = "/data/input"
 _CONTAINER_SHARED = "/data/shared"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
@@ -1330,7 +1386,7 @@ def run_cc_turn(
             # far it got, with the agent's own words left only in the transcript row.
             partial = ""
             try:
-                partial = translator.partial_reply()
+                partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
             message = (
@@ -1355,6 +1411,9 @@ def run_cc_turn(
         if event == "query_complete":
             data = dict(data)
             data["mode"] = "cc"
+            # D7: the reply names this turn's real paths, never the container's, and it
+            # is rewritten here, before on_turn_complete persists it.
+            data["reply"] = rewrite_container_paths(data.get("reply"), path_mappings)
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
         if event == "query_complete" and on_turn_complete and chat_session is not None:
