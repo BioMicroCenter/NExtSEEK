@@ -311,4 +311,3 @@ def test_a_criterion_or_a_request_is_no_graph_premise(q):
     assert gr.claimed_counts(q) == []
     check, rv = _premise(q)
     assert not check.fired and not gr.PREMISE_FACT_RE.search(rv.disclosure or "")
-
