@@ -128,7 +128,13 @@ def classify_request(method: str, url: str) -> str:
 
 
 class ChatBudget:
-    """At most MAX_CHAT_POSTS chat POSTs, and the reported spend against the ceiling."""
+    """At most MAX_CHAT_POSTS chat POSTs, and the reported spend against the ceiling.
+
+    The ceiling counts what it always has: Claude Code's own total_cost_usd, on the CC
+    turn (ceiling_cost). Since fix 6a the NS turns and the router report a cost too; the
+    whole of it, engine plus router on every turn, is kept beside as all_turns_usd, for
+    information only, and all_turns_partial says some of it went unseen.
+    """
 
     def __init__(self, max_posts: int = MAX_CHAT_POSTS,
                  ceiling_usd: float = SPEND_CEILING_USD) -> None:
@@ -137,6 +143,8 @@ class ChatBudget:
         self.posts = 0
         self.refused = 0
         self.spent_usd = 0.0
+        self.all_turns_usd = 0.0
+        self.all_turns_partial = False
 
     def admit_post(self) -> bool:
         if self.posts >= self.max_posts:
@@ -148,6 +156,12 @@ class ChatBudget:
     def add_cost(self, usd: float | None) -> None:
         if usd is not None:
             self.spent_usd += float(usd)
+
+    def add_turn_total(self, usd: float | None, *, partial: bool) -> None:
+        """One turn's whole cost (turn_total), never counted toward the ceiling."""
+        if usd is not None:
+            self.all_turns_usd += float(usd)
+        self.all_turns_partial = self.all_turns_partial or partial or usd is None
 
     @property
     def over_ceiling(self) -> bool:
@@ -182,11 +196,51 @@ def is_terminal(status: str | None) -> bool:
     return status in ("completed", "error")
 
 
+def _usd(value) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
 def reported_cost(result: dict | None) -> float | None:
+    """The turn's engine cost as its terminal event reports it, CC or NS."""
     if not isinstance(result, dict):
         return None
-    value = result.get("total_cost_usd")
-    return float(value) if isinstance(value, (int, float)) else None
+    return _usd(result.get("total_cost_usd"))
+
+
+def ceiling_cost(route: str | None, result: dict | None) -> float | None:
+    """What the ceiling counts for one turn: Claude Code's own total_cost_usd, on a CC
+    turn only. An NS turn reports a cost too since fix 6a (about $0.20 for a graph
+    turn), and counting it would change what the $1.00 ceiling means."""
+    return reported_cost(result) if route == "container_cc" else None
+
+
+def router_cost(progress: list) -> float | None:
+    """The router's cost as route_decided reports it (fix 6a)."""
+    return _usd((first_event(progress, "route_decided") or {}).get("router_cost_usd"))
+
+
+def turn_total(progress: list, result: dict | None) -> tuple[float | None, bool]:
+    """(engine plus router cost, partial) for one turn, for information.
+
+    A part that did not run is not missing: a forced turn made no router call and an
+    unrelated turn ran no engine. Any other unreported part, or one that says its figure
+    is a floor, makes the total partial; a turn with no part seen has no total.
+    """
+    decided = first_event(progress, "route_decided") or {}
+    end = result if isinstance(result, dict) else {}
+    parts: list[float] = []
+    partial = bool(end.get("cost_partial") is True or decided.get("router_cost_partial") is True)
+    if decided.get("source") != "forced":
+        if router_cost(progress) is None:
+            partial = True
+        else:
+            parts.append(router_cost(progress))
+    if decided.get("route") != "unrelated":
+        if reported_cost(end) is None:
+            partial = True
+        else:
+            parts.append(reported_cost(end))
+    return (round(sum(parts), 6) if parts else None), partial
 
 
 def bundle_path(mode: str | None) -> str:
@@ -258,7 +312,8 @@ class TurnRecord:
     source: str | None = None
     path: str | None = None        # system | api | graph | cc, as observed (CI record)
     model_id: str | None = None
-    cost_usd: float | None = None
+    cost_usd: float | None = None          # the engine's total_cost_usd, CC or NS
+    router_cost_usd: float | None = None   # route_decided's router_cost_usd
     seconds: float | None = None
     error: str | None = None
     debug_agents: list = field(default_factory=list)     # Debug panel entries after the turn
@@ -267,7 +322,7 @@ class TurnRecord:
 
 
 _SUMMARY_FIELDS = ("key", "text", "expected_route", "route", "source", "path", "task_id",
-                   "session_id", "status", "seconds", "cost_usd", "error")
+                   "session_id", "status", "seconds", "cost_usd", "router_cost_usd", "error")
 
 
 def summary_payload(records: list, budget: ChatBudget, kept_session: dict | None,
@@ -280,6 +335,9 @@ def summary_payload(records: list, budget: ChatBudget, kept_session: dict | None
         "refused_posts": budget.refused,
         "spent_usd": round(budget.spent_usd, 4),
         "ceiling_usd": budget.ceiling_usd,
+        # Every turn's engine plus router cost, for information: not what the ceiling counts.
+        "all_turns_usd": round(budget.all_turns_usd, 4),
+        "all_turns_partial": budget.all_turns_partial,
         "kept_session": kept_session,
         "evidence_dir": evidence_dir,
         "cleanup_error": cleanup_error,
@@ -751,7 +809,10 @@ def _ask(page, q: Question, rec: TurnRecord, index: int, *, api, base_url: str,
         rec.reply = rec.result.get("reply") or ""
         rec.bundle_id = rec.result.get("bundle_id")
     rec.cost_usd = reported_cost(rec.result)
-    budget.add_cost(rec.cost_usd)
+    rec.router_cost_usd = router_cost(rec.progress)
+    budget.add_cost(ceiling_cost(rec.route, rec.result))
+    total, partial = turn_total(rec.progress, rec.result)
+    budget.add_turn_total(total, partial=partial)
     if rec.error or rec.status != "completed":
         return            # no reply to render; the per-question test names the cause
     rec.path = observed_path(rec.route, rec.bundle_id)
@@ -1099,6 +1160,11 @@ def test_the_reopened_chat_shows_every_turn(chat_run, nessie_page):
 
 @turn
 def test_spend_stayed_under_the_ceiling(chat_run, nessie_budget):
+    all_turns = (f"all turns with NS and router: {'at least ' if nessie_budget.all_turns_partial else ''}"
+                 f"${nessie_budget.all_turns_usd:.2f}")
+    # For information, beside the ceiling (shown with -s or -rP; the CI record has it too).
+    print(f"Nessie lane spend: ${nessie_budget.spent_usd:.2f} reported by Claude Code on the CC turn, "
+          f"ceiling ${SPEND_CEILING_USD:.2f}; {all_turns}")
     assert nessie_budget.refused == 0, "the page tried to send more chat POSTs than questions"
     assert not nessie_budget.over_ceiling, (
-        f"reported spend ${nessie_budget.spent_usd:.2f} is over ${SPEND_CEILING_USD:.2f}")
+        f"reported spend ${nessie_budget.spent_usd:.2f} is over ${SPEND_CEILING_USD:.2f} ({all_turns})")

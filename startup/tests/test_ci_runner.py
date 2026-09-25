@@ -278,6 +278,19 @@ def test_render_nessie_section():
     assert "\u2014" not in text
 
 
+def test_render_nessie_section_puts_the_all_turns_total_beside_the_ceiling():
+    """The ceiling counts Claude Code's own cost on CC turns; the NS and router cost,
+    measured since fix 6a, is shown beside it for information."""
+    text = "\n".join(runner.render_nessie_section(dict(SUMMARY, all_turns_usd=0.6612, all_turns_partial=False)))
+    assert "$0.24 of $1.00" in text
+    assert "all turns with NS and router: $0.66" in text
+    assert "unmeasured" not in text.split("Reported spend")[1].splitlines()[0]
+    partial = "\n".join(runner.render_nessie_section(dict(SUMMARY, all_turns_usd=0.6612, all_turns_partial=True)))
+    assert "all turns with NS and router: at least $0.66" in partial
+    # A summary from before the lane measured NS turns keeps its old wording.
+    assert "NS turns are unmeasured" in "\n".join(runner.render_nessie_section(SUMMARY))
+
+
 def test_render_nessie_section_names_each_question_s_path():
     """Spec 3.4: route, source, path, task_id, duration and cost per question."""
     text = "\n".join(runner.render_nessie_section(SUMMARY))

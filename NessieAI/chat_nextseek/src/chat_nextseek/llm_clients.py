@@ -366,6 +366,11 @@ class GeminiClient(BaseLLMClient):
                     "prompt_tokens": prompt,
                     "completion_tokens": completion,
                     "total_tokens": total if total is not None else None,
+                    # Priced by chat_nextseek.model_prices: thinking is billed as output
+                    # and is NOT inside candidates_token_count; the cached part of the
+                    # prompt is inside prompt_token_count and billed at the cache rate.
+                    "thoughts_tokens": getattr(meta, "thoughts_token_count", None),
+                    "cached_tokens": getattr(meta, "cached_content_token_count", None),
                 }
         except Exception:
             pass
@@ -551,13 +556,17 @@ def _is_schema_rejection(message: str) -> bool:
     )
 
 
-def _converse_usage(resp: dict) -> dict | None:
-    """Token counts from a Converse response, including the two cache fields.
+def _converse_usage(resp: dict, cache_ttl: str | None = None) -> dict | None:
+    """Token counts from a Converse response, including the cache fields.
 
     `inputTokens` counts only tokens that were NEITHER read from nor written to the
     cache, so a caller that ignores the cache fields under-reports the real prompt by
     exactly the cached part. Total input is
     `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`.
+
+    A cache write is billed at the rate of its TTL. `cacheDetails`, when Bedrock sends
+    it, splits the writes by TTL; `cache_ttl` is the TTL the request's cache points
+    asked for, recorded so a write Bedrock does not split can still be priced.
     """
     try:
         u = resp.get("usage") or {}
@@ -570,6 +579,15 @@ def _converse_usage(resp: dict) -> dict | None:
             usage["cache_read_tokens"] = u.get("cacheReadInputTokens")
         if u.get("cacheWriteInputTokens") is not None:
             usage["cache_write_tokens"] = u.get("cacheWriteInputTokens")
+        details = u.get("cacheDetails")
+        if isinstance(details, list) and details:
+            for ttl in ("5m", "1h"):
+                usage[f"cache_write_{ttl}_tokens"] = sum(
+                    int(d.get("inputTokens") or 0)
+                    for d in details if isinstance(d, dict) and d.get("ttl") == ttl
+                )
+        if cache_ttl:
+            usage["cache_ttl"] = cache_ttl
         return usage
     except Exception:
         return None
@@ -1070,7 +1088,7 @@ class BedrockClient(BaseLLMClient):
         return {
             "stop_reason": stop_reason,
             "content": normalized,
-            "usage": _converse_usage(resp),
+            "usage": _converse_usage(resp, cache_ttl=cache_ttl if cache_prompt else None),
             "metadata": _converse_metadata(resp),
         }
 

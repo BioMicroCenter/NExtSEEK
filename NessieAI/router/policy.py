@@ -166,9 +166,9 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             route=cc_router.ROUTE_NS, model_class=None, model_id=None,
             reasoning=f"pipeline_active; router said ns ({decision.reasoning})",
             source="pipeline",
-            # The router still decided first: which model answered it, and any fallback.
-            router_model=decision.router_model,
-            router_fallback=decision.router_fallback,
+            # The router still decided first: which model answered it, any fallback,
+            # and what its calls cost.
+            **cc_router.router_record(decision),
         )
     # Follow-ups and sticky CC (2026-09-23 rulings: "have all follow ups go to
     # container_cc", and once a chat is on container_cc a turn that refers back stays
@@ -224,8 +224,7 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             generation_hash=decision.generation_hash,
             attempted_route=decision.route,
             attempted_source=decision.source,
-            router_model=decision.router_model,
-            router_fallback=decision.router_fallback,
+            **cc_router.router_record(decision),
         )
     return decision
 
@@ -268,6 +267,5 @@ def _fallback_when_cc_unavailable(decision: cc_router.RouteDecision,
         generation_hash=decision.generation_hash,
         attempted_route=cc_router.ROUTE_CC,
         attempted_source=decision.source,
-        router_model=decision.router_model,
-        router_fallback=decision.router_fallback,
+        **cc_router.router_record(decision),
     )

@@ -96,3 +96,16 @@ def test_the_agent_defaults_when_the_fatal_names_none(monkeypatch):
     events, _, _ = _run(monkeypatch, "async", "pipeline", LLMFatalError(RAW, unavailable=True))
     (error,) = [d for e, d in events if e == "query_error"]
     assert error["agent"] == "unknown"
+
+
+def test_a_fatal_that_escaped_a_collected_turn_reports_what_the_turn_spent(monkeypatch):
+    """The entry point's cost collector rides out on the exception (turn_spend.collects_turn),
+    so the query_error that ends the turn carries its cost like a query_complete would."""
+    fatal = LLMFatalError(RAW, agent="pipeline_agent", unavailable=True, model_fallback=[MOVE])
+    fatal.turn_record = {"total_cost_usd": 0.0123, "cost_partial": True, "models_used": [],
+                         "model_fallback": [MOVE], "cost": {"calls": []}}
+    events, _, _ = _run(monkeypatch, "async", "pipeline", fatal)
+    (error,) = [d for e, d in events if e == "query_error"]
+    assert error["total_cost_usd"] == 0.0123 and error["cost_partial"] is True
+    assert error["models_used"] == [] and error["model_fallback"] == [MOVE]
+    assert "cost" not in error, "the breakdown belongs in a debug payload, which a query_error has not"

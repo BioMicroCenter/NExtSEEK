@@ -84,9 +84,17 @@ def render_nessie_section(summary: dict) -> list[str]:
                      f"| {q.get('path') or '-'} "
                      f"| {q.get('seconds') if q.get('seconds') is not None else '-'} "
                      f"| {cost} | {status} | {task} |")
-    lines += ["",
-              f"- **Reported spend:** ${summary.get('spent_usd', 0):.2f} of "
-              f"${summary.get('ceiling_usd', 1):.2f}; NS turns are unmeasured"]
+    spend = (f"- **Reported spend:** ${summary.get('spent_usd', 0):.2f} of "
+             f"${summary.get('ceiling_usd', 1):.2f}")
+    if summary.get("all_turns_usd") is None:
+        spend += "; NS turns are unmeasured"          # a summary from before fix 6a
+    else:
+        # The ceiling counts Claude Code's own cost on the CC turn; every turn's engine
+        # and router cost is shown beside it, for information.
+        at_least = "at least " if summary.get("all_turns_partial") else ""
+        spend += (f" (Claude Code's own cost on the CC turn); all turns with NS and router: "
+                  f"{at_least}${summary['all_turns_usd']:.2f}")
+    lines += ["", spend]
     kept = summary.get("kept_session")
     if kept:
         lines.append(f"- **Kept session:** `{kept['session_id']}`; debug: {kept['debug_url']}")

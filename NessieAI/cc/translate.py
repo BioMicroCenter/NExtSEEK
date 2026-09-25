@@ -13,7 +13,8 @@ assistant text is accumulated, and the terminal ``result`` becomes one
 ``query_complete``.
 
 Pure stdlib (no Django, no docker, no dmac imports) so it is unit-testable in
-isolation. Claude stream-json event shapes are documented in
+isolation; the one exception, ``chat_nextseek.model_prices`` (itself stdlib only), is
+imported lazily to price a turn on the NS table. Claude stream-json event shapes are documented in
 dmac_assistant/src/dmac_assistant/streamjson.py and ws.py.
 """
 from __future__ import annotations
@@ -45,6 +46,84 @@ MODEL_UNAVAILABLE_REASON = "model_unavailable"
 _MODEL_UNAVAILABLE_TEXT = re.compile(
     r"API Error: (?:5\d\d\b|Repeated 529\b|Request rejected \(429\))|^\s*Request timed out\b"
 )
+
+
+# The Container-CC ops that answer on the server by running NS agents (the entity,
+# parser, graph and API agents, the report writer, or a whole NS turn). Their model
+# calls go to the NS providers and are in neither Claude Code's total_cost_usd nor
+# cost_by_price_table_usd, so a CC turn that ran one reports cost_partial. Pinned against
+# the op registry and the granular handlers by NessieAI/tests/cc/test_cc_cost_partial.py.
+NS_AGENT_OPS = frozenset({
+    "nextseek-query", "nextseek-plan", "nextseek-pipeline",
+    "nextseek-entity-extract", "nextseek-parse", "nextseek-graph", "nextseek-aggregate",
+    "nextseek-api-read", "nextseek-api-write", "nextseek-generate-submission",
+})
+_NS_AGENT_OP_RE = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(op) for op in sorted(NS_AGENT_OPS, key=len, reverse=True)) + r")(?![\w-])"
+)
+
+
+def _ns_agent_ops_in(command: Any) -> list[str]:
+    """The NS-agent ops a Bash command runs, in order, each once."""
+    if not isinstance(command, str):
+        return []
+    return list(dict.fromkeys(_NS_AGENT_OP_RE.findall(command)))
+
+
+def _cost_by_price_table(model_usage: Any, usage: Any) -> float | None:
+    """What a Container-CC turn cost on this repo's price table, or None.
+
+    Claude Code prices Bedrock on its own table: ``modelUsage`` says ``costBasis:
+    "list"``, the first-party list price, with no US-geo premium, so its
+    ``total_cost_usd`` does not compare with an NS turn's. This prices the same
+    ``modelUsage`` on ``NessieAI/chat_nextseek/model_prices.json``, the table every NS
+    turn and the router are priced on (``chat_nextseek.model_prices.call_cost``), per
+    model: ``outputTokens`` already holds the thinking (``thinkingTokens`` is a part of
+    it). Cache writes are not split by TTL per model; they are priced at the 5-minute
+    and 1-hour rates in the proportion the frame's ``usage.cache_creation`` gives, else
+    at 5 minutes.
+
+    The auto-mode classifier's calls are NOT in ``modelUsage`` (a local 2.1.282 run;
+    not yet confirmed live), so this number, like Claude Code's own, leaves them out.
+    None when there is no ``modelUsage`` or any model in it that billed tokens has no
+    price: a number that covers only some of the turn's models would not compare.
+    """
+    if not isinstance(model_usage, dict) or not model_usage:
+        return None
+    try:
+        from chat_nextseek import model_prices
+    except ImportError:
+        return None
+    creation = (usage or {}).get("cache_creation") if isinstance(usage, dict) else None
+    one_hour = five_min = 0
+    if isinstance(creation, dict):
+        one_hour = int(creation.get("ephemeral_1h_input_tokens") or 0)
+        five_min = int(creation.get("ephemeral_5m_input_tokens") or 0)
+    share_1h = one_hour / (one_hour + five_min) if one_hour + five_min else 0.0
+    total = 0.0
+    try:
+        for model, counts in model_usage.items():
+            if not isinstance(counts, dict):
+                return None
+            # A model Claude Code lists but billed no token of costs nothing, priced or not.
+            if not any(int(counts.get(key) or 0) for key in (
+                    "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")):
+                continue
+            written = int(counts.get("cacheCreationInputTokens") or 0)
+            written_1h = round(written * share_1h)
+            cost = model_prices.call_cost(str(model), {
+                "prompt_tokens": counts.get("inputTokens"),
+                "completion_tokens": counts.get("outputTokens"),
+                "cache_read_tokens": counts.get("cacheReadInputTokens"),
+                "cache_write_5m_tokens": written - written_1h,
+                "cache_write_1h_tokens": written_1h,
+            }).cost_usd
+            if cost is None:
+                return None
+            total += cost
+    except Exception:  # a missing or malformed price table: no comparable number
+        return None
+    return round(total, 10)
 
 
 def _model_unavailable(payload: dict[str, Any], text: str) -> bool:
@@ -110,6 +189,8 @@ class CCStreamTranslator:
     api_retries: int = 0
     _init_model: str | None = None
     _fallbacks: tuple[dict[str, Any], ...] | list[dict[str, Any]] = ()
+    # NS-agent ops this turn's Bash calls ran, in first-run order (see NS_AGENT_OPS).
+    _ns_agent_ops: tuple[str, ...] | list[str] = ()
     # (type, system subtype) of the last frame handled, and the last api_retry frame.
     _last_frame: tuple[Any, Any] | None = None
     _last_api_retry: dict[str, Any] | None = None
@@ -126,6 +207,7 @@ class CCStreamTranslator:
         self.model_id = model_id
         # Each ``system/model_fallback`` frame, in the turn-record contract's shape.
         self._fallbacks = []
+        self._ns_agent_ops = []
         # ``system/api_retry`` frames seen: Claude Code retrying a failed model call.
         self.api_retries = 0
         # Claude Code's OWN in-container session UUID (from system.init/result).
@@ -268,6 +350,10 @@ class CCStreamTranslator:
                 tool_id = block.get("id")
                 if isinstance(tool_id, str):
                     self._open_tools[tool_id] = name
+                if name == "Bash" and isinstance(block.get("input"), dict):
+                    for op in _ns_agent_ops_in(block["input"].get("command")):
+                        if op not in self._ns_agent_ops:
+                            self._ns_agent_ops = [*self._ns_agent_ops, op]
                 data: dict[str, Any] = {"source": name}
                 detail = _format_tool_detail(name, block.get("input"))
                 if detail:
@@ -340,6 +426,12 @@ class CCStreamTranslator:
              # Surface Claude Code's own accrued spend so the caller can ledger it
              # (the per-turn cost lives only on the terminal `result` frame).
              "total_cost_usd": payload.get("total_cost_usd"),
+             # The same turn on the NS price table, so the engines compare (fix 6a).
+             "cost_by_price_table_usd": _cost_by_price_table(
+                 payload.get("modelUsage"), payload.get("usage")),
+             # Both numbers leave out the NS model calls of the ops that run NS agents on
+             # the server, so a turn that ran one is partial, and says which.
+             **self._cost_partial_fields(),
              "num_turns": payload.get("num_turns"),
              "duration_ms": payload.get("duration_ms"),
              # The turn record: which models answered, and what fell back.
@@ -348,6 +440,14 @@ class CCStreamTranslator:
         )]
 
     # ------------------------------------------------------------------ helpers
+    def _cost_partial_fields(self) -> dict[str, Any]:
+        ops = list(self._ns_agent_ops)
+        if not ops:
+            return {"cost_partial": False}
+        return {"cost_partial": True,
+                "cost_partial_reason": (f"ran {', '.join(ops)}, whose NS model calls on the server "
+                                        "are not in Claude Code's cost")}
+
     def _models_used(self, model_usage: Any) -> list[str]:
         """The model ids that answered this turn.
 

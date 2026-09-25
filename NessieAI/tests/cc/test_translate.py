@@ -51,6 +51,10 @@ def test_result_success_emits_query_complete_with_result_text():
                        "result": "Final answer.", "session_id": "s1", "is_error": False})
     assert frames == [("query_complete", {"reply": "Final answer.", "bundle_id": None,
                                           "cc_session_id": "s1", "total_cost_usd": None,
+                                          # No modelUsage: nothing to price on the NS table.
+                                          "cost_by_price_table_usd": None,
+                                          # No op ran NS agents: the cost is whole.
+                                          "cost_partial": False,
                                           "num_turns": None, "duration_ms": None,
                                           # The turn record: no model known, nothing fell back.
                                           "models_used": [], "model_fallback": []})]

@@ -7,6 +7,7 @@ from typing import Any, Callable, Type
 
 from pydantic import BaseModel, ValidationError
 
+from .. import turn_spend
 from ..config import ChatConfig
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
@@ -365,6 +366,15 @@ def _reasoning_present(resp) -> bool | None:
     return None
 
 
+# Token fields the ledger keeps beside prompt/completion, for pricing a call from the
+# ledger alone: Gemini's thinking and cached-prompt counts, Bedrock's cache reads and
+# writes (per TTL when Bedrock splits them) and the TTL the call's cache points asked for.
+_LEDGER_PRICE_FIELDS = (
+    "thoughts_tokens", "cached_tokens", "cache_read_tokens", "cache_write_tokens",
+    "cache_write_5m_tokens", "cache_write_1h_tokens", "cache_ttl",
+)
+
+
 def _ledger_entry(
     agent,
     model_name,
@@ -413,6 +423,11 @@ def _ledger_entry(
             usage = getattr(resp, "usage", None) or {}
             entry["prompt_tokens"] = usage.get("prompt_tokens")
             entry["completion_tokens"] = usage.get("completion_tokens")
+            # The fields a price needs beyond those two (chat_nextseek.model_prices),
+            # written only when the client reported them.
+            for key in _LEDGER_PRICE_FIELDS:
+                if usage.get(key) is not None:
+                    entry[key] = usage[key]
             meta = getattr(resp, "metadata", None) or {}
             entry["retry_attempts"] = meta.get("retry_attempts")
             entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
@@ -619,12 +634,18 @@ def _call_with_recovery(
         return True
 
     def _log(outcome: str, t0: float, **kw) -> None:
-        """One ledger record for this attempt; the first one after a move names the move."""
+        """One ledger record for this attempt; the first one after a move names the move.
+
+        The record, with the response or error behind it, also goes to this turn's cost
+        collector (``turn_spend``), which prices the usage and counts what it cannot see.
+        """
         nonlocal pending_move
         move, pending_move = pending_move, {}
-        log_llm_call(config.LOG_DIR, _ledger_entry(
+        entry = _ledger_entry(
             agent_label, target_model_name, target_client, attempt, outcome, t0, **kw, **move,
-        ))
+        )
+        log_llm_call(config.LOG_DIR, entry)
+        turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
     while attempt + 1 < max_attempts:
         attempt += 1

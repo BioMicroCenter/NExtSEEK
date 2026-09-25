@@ -99,6 +99,24 @@ gitignored in the context directory, excluded from the app build context by the 
 `.dockerignore`, and absent from `CANONICAL_CONTEXT_FILES`: no image bakes it and no commit
 carries it. The CC route gets lab resolution through the entity op, which runs in the app.
 
+### 4. Model prices, and what a turn cost
+
+Prices live in one file, `NessieAI/chat_nextseek/model_prices.json`, beside
+`agent_model_catalog.json`: USD per 1M tokens per model id, each price with its source URL,
+the day it was checked and whether it was confirmed or derived (and how). Date bounds carry
+a scheduled price change and `max_prompt_tokens` a prompt-length tier. Output prices include
+thinking tokens: a Gemini call's `thoughts_tokens` are billed as output, and on Bedrock the
+thinking is already inside `completion_tokens`. `model_prices.py` loads the file and prices
+one call's usage; the NS turn collector (`turn_spend.py`), the router
+(`NessieAI/router/router.py`) and the Container-CC translator (`NessieAI/cc/translate.py`,
+`cost_by_price_table_usd`) all price through it, so every engine and every run is costed on
+one table. An NS turn's `query_complete` carries `total_cost_usd`, `cost_partial`,
+`models_used`, `model_fallback` and a per-call breakdown in `debug["cost"]`; a model missing
+from the table is named there and makes the turn partial, and a guard test
+(`NessieAI/tests/chat_nextseek/test_model_prices.py`) fails when a model the shipped config
+can reach has no price. The file is baked into the app image like the rest of this
+directory, so a price change is an edit to the JSON plus an app rebuild.
+
 ## Running and testing
 
 The package's suite is `NessieAI/tests/chat_nextseek/`, including `evaluator/`. Its

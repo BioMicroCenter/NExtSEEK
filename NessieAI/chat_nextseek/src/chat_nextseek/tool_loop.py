@@ -34,6 +34,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from . import turn_spend
 from .helpers import log_llm_call
 from .llm_clients import (
     LLMAPIConnectionError,
@@ -160,10 +161,13 @@ def call_tools(
     def _log(outcome: str, t0: float, **kw) -> None:
         nonlocal pending_move
         move, pending_move = pending_move, {}
-        _ledger(config, _ledger_entry(
+        entry = _ledger_entry(
             agent_label, target_model, target_client, attempt, outcome, t0,
             timeout_seconds=_timeout, thinking_budget=target_budget, **kw, **move,
-        ))
+        )
+        _ledger(config, entry)
+        # This turn's cost collector prices the usage, or counts an abandoned attempt.
+        turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
     def _unavailable(what: str, cause: BaseException) -> LLMFatalError:
         return LLMFatalError(

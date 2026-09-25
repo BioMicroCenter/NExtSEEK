@@ -38,6 +38,7 @@ from chat_nextseek.config import ChatConfig
 from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
+from chat_nextseek import turn_spend
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,9 @@ def _report_fatal(fatal: LLMFatalError, send_event, error_state, session_id) -> 
     if error_state["sent"]:
         return
     _, data = fatal_query_error(fatal, agent=getattr(fatal, "agent", None) or "unknown")
-    send_event("query_error", {**data, "session_id": session_id})
+    # What the turn spent before it failed, carried out on the fatal by the entry point
+    # (turn_spend.collects_turn): this event is the turn's last, so it holds the cost.
+    send_event("query_error", {**data, **turn_spend.cost_fields(fatal), "session_id": session_id})
 
 
 def _scope_kwargs(graph_scope) -> dict:
@@ -239,12 +242,14 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except LLMFatalError as fatal:
         _report_fatal(fatal, send_event, error_state, resolved_session_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("Unhandled pipeline error")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:
@@ -274,12 +279,14 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 run_query(adapter, chat_config, req.query, tracked_send_event, credentials={"api_user": api_user, "api_pass": api_pass}, **scope_kw)
     except LLMFatalError as fatal:
         _report_fatal(fatal, send_event, error_state, resolved_session_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("Unhandled pipeline error (async)")
         if not error_state["sent"]:
             send_event("query_error", {
                 "error": "Internal pipeline error",
                 "agent": "unknown",
+                # What the turn spent, taken out on the exception (turn_spend.collects_turn).
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
     finally:
