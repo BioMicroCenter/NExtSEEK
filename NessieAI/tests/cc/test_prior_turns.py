@@ -268,6 +268,38 @@ def test_one_failed_read_stops_the_others_in_the_same_staging(tmp_path, outputs)
         assert {s["file"]: s["reason"] for s in turn["skipped"]}["samples.csv"] == "graph_error"
 
 
+def test_the_cache_is_per_scope_as_well_as_per_uid_set(tmp_path, outputs):
+    """A cached samples.csv is reused only for the same UIDs read under the same scope and
+    graph: a changed membership (or the prod toggle) reads again."""
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    member_of_2 = _Graph()
+    member_of_2.cache_key = "projects=[2]"
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_2)
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_2)
+    assert len(member_of_2.calls) == 1
+    member_of_3 = _Graph()
+    member_of_3.cache_key = "projects=[3]"
+    _stage(tmp_path, outputs, log, history, graph_query=member_of_3)
+    assert len(member_of_3.calls) == 1
+
+
+def test_uids_found_only_in_part_say_how_many(tmp_path, outputs):
+    rows = THIN_ROWS + [{"id": 99, "uuid": "MUS-GONE"}]
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)],
+                            graph_query=_Graph())
+    (samples,) = [f for f in manifest["turns"][0]["files"] if f["file"] == "samples.csv"]
+    assert "3 of the 4 UIDs were found" in samples["holds"]
+
+
+def test_no_matching_samples_is_remembered_too(tmp_path, outputs):
+    empty = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
+    log, history = [_ns_entry()], [_thin_bundle(outputs)]
+    _stage(tmp_path, outputs, log, history, graph_query=empty)
+    dest, manifest = _stage(tmp_path, outputs, log, history, graph_query=empty)
+    assert len(empty.calls) == 1
+    assert {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}["samples.csv"] == "no_matching_samples"
+
+
 def test_uids_the_graph_no_longer_holds_give_no_empty_file(tmp_path, outputs):
     graph = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
     dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=graph)

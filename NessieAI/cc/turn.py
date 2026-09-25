@@ -344,24 +344,36 @@ def _scoped_graph_query(chat_config, graph_scope):
     ``tool_neo4j_query`` with its default arguments, on a per-request copy of the NS config that
     carries this caller's scope, so the write check and the scope prover apply exactly as they
     do on the caller's own graph turns. ``graph_scope`` is the ViewSet's plain data; anything
-    that is not a well-formed scope becomes None, which refuses every statement.
+    that is not a well-formed scope becomes None, which refuses every statement. The reader's
+    ``cache_key`` names the scope and the graph, so a samples.csv read under one is never reused
+    under another. None when the reader cannot be built: staging must never fail the turn.
     """
-    from collections.abc import Mapping
+    try:
+        import json as _json
+        from collections.abc import Mapping
 
-    from chat_nextseek import helpers
-    from chat_nextseek.graph_scope import GraphScope, with_scope
+        from chat_nextseek import helpers
+        from chat_nextseek.graph_scope import GraphScope, with_scope
 
-    scope = graph_scope if isinstance(graph_scope, GraphScope) else None
-    if scope is None and isinstance(graph_scope, Mapping):
-        try:
-            scope = GraphScope.from_plain(graph_scope)
-        except ValueError:
-            logger.warning("cc: malformed graph scope; the previous turns get no samples.csv")
-    scoped = with_scope(chat_config, scope)
+        scope = graph_scope if isinstance(graph_scope, GraphScope) else None
+        if scope is None and isinstance(graph_scope, Mapping):
+            try:
+                scope = GraphScope.from_plain(graph_scope)
+            except ValueError:
+                logger.warning("cc: malformed graph scope; the previous turns get no samples.csv")
+        scoped = with_scope(chat_config, scope)
 
-    def query(cypher: str, parameters: dict) -> dict:
-        return helpers.tool_neo4j_query(scoped, cypher, parameters)
-    return query
+        def query(cypher: str, parameters: dict) -> dict:
+            return helpers.tool_neo4j_query(scoped, cypher, parameters)
+        query.cache_key = _json.dumps({
+            "admin": None if scope is None else scope.is_admin,
+            "projects": None if scope is None else list(scope.project_ids),
+            "graph": str(getattr(chat_config, "NEO4J_URI", "") or ""),
+        }, sort_keys=True)
+        return query
+    except Exception:  # noqa: BLE001 - the turn runs without samples.csv
+        logger.warning("cc: could not build the samples.csv reader", exc_info=True)
+        return None
 
 
 def _eval_config(chat_config, user, req):

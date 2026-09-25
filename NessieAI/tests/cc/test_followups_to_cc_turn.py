@@ -216,3 +216,25 @@ def test_the_follow_up_gets_every_property_of_the_previous_turns_samples(
     staged = cc_root / "1-testproj" / "fu-user" / "_memory" / str(session.session_id) / "previous_turns"
     text = (staged / "turn-01" / "samples.csv").read_text()
     assert "Sex" in text.splitlines()[0] and "female" in text and "male" in text
+
+
+def test_building_the_samples_reader_never_fails_the_turn():
+    """Staging never fails a turn; that includes building its graph reader."""
+    from NessieAI.cc import turn
+
+    class Unscopable:
+        def __copy__(self):
+            raise RuntimeError("cannot copy")
+
+    assert turn._scoped_graph_query(Unscopable(), {"is_admin": False, "project_ids": [2]}) is None
+
+
+def test_the_samples_reader_names_its_scope_and_graph_for_the_cache():
+    from NessieAI.cc import turn
+
+    cfg = type("Cfg", (), {"NEO4J_URI": "bolt://neo4j:7687"})()
+    a = turn._scoped_graph_query(cfg, {"is_admin": False, "project_ids": [3, 2]})
+    b = turn._scoped_graph_query(cfg, {"is_admin": False, "project_ids": [2]})
+    admin = turn._scoped_graph_query(cfg, {"is_admin": True})
+    assert len({a.cache_key, b.cache_key, admin.cache_key}) == 3
+    assert "bolt://neo4j:7687" in a.cache_key

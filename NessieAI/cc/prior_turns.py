@@ -318,8 +318,16 @@ def sample_uids(rows: list) -> list[str]:
     return list(seen)
 
 
-def _uids_key(uids: list[str]) -> str:
-    return hashlib.sha256("\n".join(sorted(uids)).encode("utf-8")).hexdigest()
+#: Part of every samples.csv cache key: bump it when what the file holds changes.
+SAMPLES_CACHE_VERSION = "samples/v1"
+
+
+def _uids_key(uids: list[str], scope_key: str = "") -> str:
+    """The samples.csv cache key: the UIDs, the reader's scope and graph, what is dropped, and the
+    format version. A change to any of them reads the samples again."""
+    parts = [SAMPLES_CACHE_VERSION, ",".join(sorted(_DROPPED_SAMPLE_PROPERTIES)), scope_key,
+             "\n".join(sorted(uids))]
+    return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
 
 def _sample_rows(result: Any) -> list[dict]:
@@ -339,12 +347,18 @@ def _sample_columns(rows: list[dict]) -> list[str]:
 
 
 def _stage_samples(uids: list[str], turn_dir: Path, graph_query: GraphQuery,
-                   previous: dict, files: list[dict], skipped: list[dict]) -> dict:
-    """Write ``samples.csv`` for ``uids`` (once per turn: kept while the UID set is the same)."""
+                   previous: dict, files: list[dict], skipped: list[dict], *,
+                   scope_key: str = "") -> dict:
+    """Write ``samples.csv`` for ``uids``, once: a later staging keeps the file (or the finding
+    that no sample matched) while the key is the same."""
     wanted = uids[:MAX_SAMPLE_UIDS]
-    key = _uids_key(wanted)
+    key = _uids_key(wanted, scope_key)
     dst = turn_dir / SAMPLES_CSV
-    if previous.get("samples_key") == key and dst.is_file() and not dst.is_symlink():
+    cached = previous.get("samples_key") == key
+    if cached and previous.get("samples_count") == 0:
+        skipped.append({"file": SAMPLES_CSV, "reason": "no_matching_samples"})
+        return {"samples_key": key, "samples_count": 0}
+    if cached and dst.is_file() and not dst.is_symlink():
         count = _int(previous.get("samples_count")) or 0
     else:
         try:
@@ -363,12 +377,13 @@ def _stage_samples(uids: list[str], turn_dir: Path, graph_query: GraphQuery,
         rows = _sample_rows(result)
         if not rows:
             skipped.append({"file": SAMPLES_CSV, "reason": "no_matching_samples"})
-            return {}
+            return {"samples_key": key, "samples_count": 0}
         count = len({str(r.get("uuid")) for r in rows if r.get("uuid")})
         _write_text(dst, rows_csv(rows, _sample_columns(rows)))
     capped = f" (the first {len(wanted)} of {len(uids)} UIDs)" if len(wanted) < len(uids) else ""
+    found = f" ({count} of the {len(wanted)} UIDs were found)" if count < len(wanted) else ""
     files.append({"file": SAMPLES_CSV,
-                  "holds": f"every stored property of the {count} samples these rows name{capped}, "
+                  "holds": f"every stored property of the {count} samples these rows name{capped}{found}, "
                            "one row per sample (uuid, id, type, title, project_ids, then each "
                            "metadata attribute): answer a follow-up about their sex, species, "
                            "genotype, dates or any other attribute from this file"})
@@ -376,7 +391,8 @@ def _stage_samples(uids: list[str], turn_dir: Path, graph_query: GraphQuery,
 
 
 def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: SafePath,
-                   graph_query: GraphQuery | None = None, previous: dict | None = None) -> dict:
+                   graph_query: GraphQuery | None = None, previous: dict | None = None,
+                   scope_key: str = "") -> dict:
     files: list[dict] = []
     skipped: list[dict] = []
     details = search_details(entry, bundle, safe_ns_path=safe_ns_path)
@@ -421,7 +437,8 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
     uids = sample_uids(rows)
     samples: dict = {}
     if uids and graph_query is not None:
-        samples = _stage_samples(uids, turn_dir, graph_query, previous or {}, files, skipped)
+        samples = _stage_samples(uids, turn_dir, graph_query, previous or {}, files, skipped,
+                                 scope_key=scope_key)
 
     for stored, display, label in _ns_files(bundle):
         name = _file_name(display, "download")
@@ -615,6 +632,7 @@ def stage_prior_turns(*, chat_log: list, results_history: list, dest_dir: Path,
             return None
         dest_dir.mkdir(parents=True, exist_ok=True)
         previous = _previous_entries(dest_dir)
+        scope_key = str(getattr(graph_query, "cache_key", "") or "")
         if graph_query is not None:
             graph_query = _one_failure_stops(graph_query)
         keep: set[str] = set()
@@ -630,7 +648,7 @@ def stage_prior_turns(*, chat_log: list, results_history: list, dest_dir: Path,
                 else:
                     staged = _stage_ns_turn(entry, bundle, turn_dir, safe_ns_path=safe_ns_path,
                                             graph_query=graph_query,
-                                            previous=previous.get(folder))
+                                            previous=previous.get(folder), scope_key=scope_key)
             except Exception as exc:  # noqa: BLE001 - one odd turn must not lose the rest
                 logger.warning("prior turns: turn %s not staged", entry.get("turn_id"), exc_info=True)
                 staged = {"route": entry.get("router_choice") or "unknown", "mode": entry.get("mode"),
