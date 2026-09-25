@@ -112,4 +112,4 @@ def test_the_texts_are_the_approved_ones():
     assert failure_replies.MODEL_UNAVAILABLE_REASON == "model_unavailable"
     for text in (TRIED_TWO, NO_SECOND, failure_replies.PLANNER_TIMEOUT_REPLY,
                  failure_replies.PLANNER_UNUSABLE_REPLY):
-        assert "—" not in text
+        assert "\u2014" not in text, "the approved texts carry no em dash"
