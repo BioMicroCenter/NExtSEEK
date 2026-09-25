@@ -189,6 +189,15 @@ def test_the_grade_key_is_the_stage_b_key_form(tmp_path):
                 == export.stage_b_query_id(MANIFEST["pairs"][0]["id"], arm))
 
 
+def test_the_grade_record_fields_are_the_ones_merge_grades_accepts(tmp_path):
+    """`merge_grades.check_grade_records` refuses any key outside its GRADE_FIELDS, so a
+    field the page starts writing must be added there in the same change."""
+    from NessieAI.tests.nessie_tests.output_skill_bayesian import merge_grades
+    c = _literal(_build(tmp_path, MANIFEST), "GRADE_CONTRACT")
+
+    assert c["fields"] == list(merge_grades.GRADE_FIELDS)
+
+
 def test_the_grade_vocabulary_is_exactly_pass_and_fail(tmp_path):
     """`merge_grades` treats anything outside `("pass", "fail")` as UNGRADED and
     raises. A third value written by the page would abort the whole merge."""
