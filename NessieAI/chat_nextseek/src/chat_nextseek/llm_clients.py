@@ -7,6 +7,7 @@ without changing prompts or core logic.
 
 import dataclasses
 import inspect
+import re
 from typing import Any, List
 
 __all__ = [
@@ -15,6 +16,7 @@ __all__ = [
     "LLMAPIConnectionError",
     "LLMTimeoutError",
     "LLMServiceUnavailableError",
+    "LLMModelUnusableError",
     "LLMStructuredUnsupportedError",
     "LLMFatalError",
     "LLMResponse",
@@ -49,10 +51,26 @@ class LLMFatalError(BaseException):
     Inherits from BaseException (not Exception) so it bypasses all bare 'except Exception'
     handlers in agent code and propagates straight to the orchestrator.
     Set by: rate limits (429) after all retries, and unclassified bare LLMError.
+
+    ``unavailable`` is True when the call ended because the models did not answer (a 5xx,
+    an empty body, a 429, a timeout or a connection error, on the one provider move as
+    well when there was one), and False for anything else (a bare 400). The orchestrator
+    tells the user a different thing for each. ``model_fallback`` lists the provider
+    move the call made before it gave up, as ``{"agent", "from", "to", "reason"}``
+    items; it is empty when no second model was tried.
     """
-    def __init__(self, message: str, *, agent: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        agent: str | None = None,
+        unavailable: bool = False,
+        model_fallback: list[dict] | None = None,
+    ):
         super().__init__(message)
         self.agent = agent
+        self.unavailable = bool(unavailable)
+        self.model_fallback = list(model_fallback or [])
 
 
 class LLMStructuredUnsupportedError(LLMError):
@@ -69,6 +87,19 @@ class LLMServiceUnavailableError(LLMError):
     """Raised on 5xx / service temporarily unavailable or overloaded — triggers provider fallback.
     Covers: 500 Internal Server Error, 502 Bad Gateway, 503 Unavailable, 504 Gateway Timeout,
     and provider-specific equivalents (ModelNotReadyException, InternalServerException, etc.)
+    """
+
+
+class LLMModelUnusableError(LLMServiceUnavailableError):
+    """The provider refused the model itself, so the request never ran.
+
+    Bedrock's ``ResourceNotFoundException`` (a retired model), ``AccessDeniedException``
+    (a model this account may not use) and a ``ValidationException`` about the model id
+    (invalid, not supported, not enabled). Another model may well answer the same request,
+    so the recovery ladder moves on it once, like a 5xx, and records the reason
+    ``model_unusable`` (operator ruling 2026-09-25, F1). Before, the forced tool call let
+    these leave the ladder as a raw ``ClientError`` and the plain call made them a bare
+    ``LLMError``: neither moved.
     """
 
 
@@ -181,6 +212,61 @@ class OpenAIClient(BaseLLMClient):
         )
 
 
+def _is_gemini_rate_limit(exc: BaseException, msg: str) -> bool:
+    """A 429 from google-genai: ``APIError.code`` when the SDK set one, else the status text."""
+    if getattr(exc, "code", None) == 429:
+        return True
+    head = msg.lstrip()
+    return head.startswith("429") or "RESOURCE_EXHAUSTED" in msg.upper()
+
+
+def _gemini_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for an httpx transport failure under google-genai, or None.
+
+    google-genai re-raises httpx's own exceptions (its retry policy reraises), and they
+    used to fall through to a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400: a Gemini stall or a dropped connection ended the turn without a
+    move. A timeout (``httpx.TimeoutException`` and its subclasses) is a timeout; a
+    network error or a server that hung up without a response is a connection error.
+    An HTTP error response is never an httpx transport error, so a real 4xx is left to
+    the handling below.
+    """
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - google-genai depends on httpx
+        return None
+    if isinstance(exc, httpx.TimeoutException):
+        return LLMTimeoutError(f"Gemini {type(exc).__name__}: {exc}")
+    if isinstance(exc, (httpx.NetworkError, httpx.RemoteProtocolError)):
+        return LLMAPIConnectionError(f"Gemini {type(exc).__name__}: {exc}")
+    return None
+
+
+def _bedrock_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for a botocore transport failure, or None when it is not one.
+
+    boto3 raises these outside ``ClientError`` (no HTTP response ever came back), so
+    before, ``chat`` wrapped them into a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400, and ``chat_with_tools`` let them escape untyped. A read or
+    connect timeout is a timeout and a closed or refused connection is a connection
+    error, both of which move to the next provider (operator ruling 2026-09-25).
+    """
+    try:
+        from botocore.exceptions import (
+            ConnectionError as BotoConnectionError,
+            ConnectTimeoutError,
+            HTTPClientError,
+            ReadTimeoutError,
+        )
+    except ImportError:  # pragma: no cover - boto3 is a dependency of this client
+        return None
+    if isinstance(exc, (ReadTimeoutError, ConnectTimeoutError)):
+        return LLMTimeoutError(f"Bedrock {type(exc).__name__}: {exc}")
+    if isinstance(exc, (BotoConnectionError, HTTPClientError)):
+        return LLMAPIConnectionError(f"Bedrock {type(exc).__name__}: {exc}")
+    return None
+
+
 class GeminiClient(BaseLLMClient):
     provider = "gcp"
 
@@ -253,8 +339,19 @@ class GeminiClient(BaseLLMClient):
                 config = generation_config
             )
         except Exception as e:
+            # A transport failure first: no HTTP response came back, so nothing below
+            # (a status code, a 4xx) applies, and a timeout's text can hold "504".
+            transport = _gemini_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             etype = type(e).__name__
+            # A 429 that reaches here has survived the SDK's own retries (HttpRetryOptions
+            # above), and used to fall through to a bare LLMError that ended the turn. It
+            # is checked first, by its code: a quota message can quote a limit such as
+            # 500, which the status-code scan below would read as a 5xx.
+            if _is_gemini_rate_limit(e, msg):
+                raise LLMRateLimitError(msg) from e
             # Typed exceptions from google-api-core / google-genai
             _GCP_TRANSIENT = ("ServiceUnavailable", "InternalServerError", "BadGateway", "GatewayTimeout", "DeadlineExceeded")
             if any(t in etype for t in _GCP_TRANSIENT):
@@ -284,6 +381,11 @@ class GeminiClient(BaseLLMClient):
                     "prompt_tokens": prompt,
                     "completion_tokens": completion,
                     "total_tokens": total if total is not None else None,
+                    # Priced by chat_nextseek.model_prices: thinking is billed as output
+                    # and is NOT inside candidates_token_count; the cached part of the
+                    # prompt is inside prompt_token_count and billed at the cache rate.
+                    "thoughts_tokens": getattr(meta, "thoughts_token_count", None),
+                    "cached_tokens": getattr(meta, "cached_content_token_count", None),
                 }
         except Exception:
             pass
@@ -469,13 +571,59 @@ def _is_schema_rejection(message: str) -> bool:
     )
 
 
-def _converse_usage(resp: dict) -> dict | None:
-    """Token counts from a Converse response, including the two cache fields.
+# The Bedrock error codes that refuse the model itself rather than the request.
+_MODEL_UNUSABLE_CODES = ("ResourceNotFoundException", "AccessDeniedException")
+
+# What a ValidationException says when the model id is the problem: "The provided model
+# identifier is invalid.", "Invocation of model ID ... with on-demand throughput isn't
+# supported.", "This action doesn't support the model that you provided.", or a model id
+# that is not supported, enabled or found.
+_MODEL_ID_REJECTION = re.compile(
+    r"model identifier"
+    r"|on-demand throughput"
+    r"|does(?:n't| not) support the model"
+    # Between "model id" and its predicate: no sentence end and no colon, except the one
+    # inside an id's version (``...-v1:0``). A colon or a new sentence starts another
+    # subject ("Model ID X: temperature is not supported"), and that request error must not
+    # move the call.
+    r"|model id\b(?:(?!\.\s)(?:[^:]|:\d)){0,160}?\b(?:invalid|(?:is )?not (?:supported|enabled|found|available)"
+    r"|isn't (?:supported|enabled|available)|does(?:n't| not) exist)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_model_id_rejection(message: str) -> bool:
+    """True when a Bedrock ValidationException is about the model id, not the request.
+
+    Bedrock uses one ValidationException code for a bad model id, a schema it will not
+    take (``_is_schema_rejection``, checked first) and a malformed request, so the text
+    tells them apart. "The model returned the following errors" is the model's own
+    validation of the request: the model id worked, so it never counts.
+    """
+    text = (message or "").replace("’", "'")
+    if "the model returned the following errors" in text.lower():
+        return False
+    return bool(_MODEL_ID_REJECTION.search(text))
+
+
+def _bedrock_model_unusable(code: str, message: str) -> bool:
+    """True when a Bedrock ClientError refused the model itself (``LLMModelUnusableError``)."""
+    if code in _MODEL_UNUSABLE_CODES:
+        return True
+    return code == "ValidationException" and _is_model_id_rejection(message)
+
+
+def _converse_usage(resp: dict, cache_ttl: str | None = None) -> dict | None:
+    """Token counts from a Converse response, including the cache fields.
 
     `inputTokens` counts only tokens that were NEITHER read from nor written to the
     cache, so a caller that ignores the cache fields under-reports the real prompt by
     exactly the cached part. Total input is
     `inputTokens + cacheReadInputTokens + cacheWriteInputTokens`.
+
+    A cache write is billed at the rate of its TTL. `cacheDetails`, when Bedrock sends
+    it, splits the writes by TTL; `cache_ttl` is the TTL the request's cache points
+    asked for, recorded so a write Bedrock does not split can still be priced.
     """
     try:
         u = resp.get("usage") or {}
@@ -488,6 +636,15 @@ def _converse_usage(resp: dict) -> dict | None:
             usage["cache_read_tokens"] = u.get("cacheReadInputTokens")
         if u.get("cacheWriteInputTokens") is not None:
             usage["cache_write_tokens"] = u.get("cacheWriteInputTokens")
+        details = u.get("cacheDetails")
+        if isinstance(details, list) and details:
+            for ttl in ("5m", "1h"):
+                usage[f"cache_write_{ttl}_tokens"] = sum(
+                    int(d.get("inputTokens") or 0)
+                    for d in details if isinstance(d, dict) and d.get("ttl") == ttl
+                )
+        if cache_ttl:
+            usage["cache_ttl"] = cache_ttl
         return usage
     except Exception:
         return None
@@ -732,8 +889,13 @@ class BedrockClient(BaseLLMClient):
                 "ModelErrorException",
             ):
                 raise LLMServiceUnavailableError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                raise LLMModelUnusableError(str(e)) from e
             raise LLMError(str(e)) from e
         except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             if any(code in msg for code in ("500", "502", "503", "504")) or "service unavailable" in msg.lower():
                 raise LLMServiceUnavailableError(msg) from e
@@ -954,7 +1116,16 @@ class BedrockClient(BaseLLMClient):
                 # without one. Distinct from a 503 on purpose: failing over to another
                 # provider would be the wrong move, and so would killing the turn.
                 raise LLMStructuredUnsupportedError(str(e)) from e
+            if _bedrock_model_unusable(code, str(e)):
+                # The model id is refused (unknown, retired, or not enabled for this
+                # account): another model may answer, so the ladder moves on it.
+                raise LLMModelUnusableError(str(e)) from e
             raise   # unknown ClientError propagates
+        except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
+            raise
 
         # Normalize the Converse response to anthropic-style content blocks.
         stop_reason = resp.get("stopReason", "end_turn")
@@ -980,7 +1151,7 @@ class BedrockClient(BaseLLMClient):
         return {
             "stop_reason": stop_reason,
             "content": normalized,
-            "usage": _converse_usage(resp),
+            "usage": _converse_usage(resp, cache_ttl=cache_ttl if cache_prompt else None),
             "metadata": _converse_metadata(resp),
         }
 

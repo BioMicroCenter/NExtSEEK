@@ -140,6 +140,7 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
             messages=messages,
             model_name=api_model,
             temperature=0,
+            agent_label="api",
             log_label="api_agent",
             log_payload_extra={"parser_plan": plan_dict},
             usage_label="API_AGENT",

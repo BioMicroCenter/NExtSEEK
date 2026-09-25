@@ -75,7 +75,8 @@ def _run_sweep():
                     transcript_path=tgt.transcript_path,
                     chat_model=cc_router._resolve_cc_model_id() or "",
                     generated_at=timezone.now().isoformat())
-                summary = cc_summary.summarize_transcript(raw, prov, mem_cfg)
+                summary = cc_summary.summarize_transcript(
+                    raw, prov, mem_cfg, summarize_fn=cc_summary.sweep_summarize_fn)
                 _persist_summary_standalone(user, tgt.session_id, summary.model_dump(),
                                             cc_summary.fingerprint(raw))
                 count += 1

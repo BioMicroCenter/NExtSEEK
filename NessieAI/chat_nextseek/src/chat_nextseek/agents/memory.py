@@ -18,7 +18,7 @@ from ..helpers import (
     strip_html_recursive,
 )
 from ..helpers.tools.row_compute import run_code_isolated
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, call_llm_text
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..schemas import (
     MemoryCoderOutput,
@@ -213,14 +213,21 @@ def _format_memory_coder_answer(
     ]
 
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
-    resp = chatter_client.chat(
-        model=chatter_model,
-        temperature=0,
+    # Through the recovery ladder on the chatter's chain, with the chatter's wall clock
+    # (300 s, then 180 s): it used to call the SDK directly and never moved.
+    answer = call_llm_text(
+        config,
         messages=messages,
+        model_name=chatter_model,
+        client=chatter_client,
+        agent_label="chatter",
+        log_label="memory_coder_chatter",
+        temperature=0,
         thinking_budget=chatter_budget,
+        timeout_seconds=300,
+        timeout_retry_seconds=180,
+        usage_label="MEMORY_CODER_CHATTER",
     )
-    log_usage(resp, "MEMORY_CODER_CHATTER")
-    answer = resp.content
     log_prompt(
         log_dir or config.LOG_DIR,
         "memory_coder_chatter",
@@ -281,14 +288,20 @@ def _legacy_memory_agent_answer(config: ChatConfig, user_query: str, result_bund
     ]
 
     try:
-        resp = memory_client.chat(
-            model=memory_model,
-            temperature=0,
+        # Through the recovery ladder on the memory agent's chain. It used to call the
+        # SDK directly, with no wall clock; it now has the chatter's (300 s, then 180 s).
+        answer = call_llm_text(
+            config,
             messages=messages,
+            model_name=memory_model,
+            client=memory_client,
+            agent_label="memory",
+            temperature=0,
             thinking_budget=memory_budget,
+            timeout_seconds=300,
+            timeout_retry_seconds=180,
+            usage_label="MEMORY",
         )
-        log_usage(resp, "MEMORY")
-        answer = resp.content
         print("[DEBUG][MEMORY][MEMORY] Answer:", answer)
         log_prompt(
             log_dir or config.LOG_DIR,

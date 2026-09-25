@@ -89,6 +89,7 @@ from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutpu
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .tee import Tee
+from . import turn_spend
 from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -394,12 +395,27 @@ def _emit_query_complete(
     artifacts: list[dict[str, Any]] | None = None,
     files: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Assemble the final query payload and emit a `query_complete` event when requested."""
+    """Assemble the final query payload and emit a `query_complete` event when requested.
+
+    Inside an NS turn (the entry points collect it, ``turn_spend``) the payload also
+    carries the turn record: ``total_cost_usd`` (the priced calls summed; None when no
+    call could be priced), ``cost_partial`` (some call's usage was unseen or its model had
+    no price), ``models_used``, ``model_fallback``, and the breakdown in
+    ``debug["cost"]``. The caller's ``debug`` dict, often ``session["last_debug"]``, is
+    copied rather than changed.
+    """
     payload: dict[str, Any] = {
         "reply": reply,
         "debug": debug,
         "bundle_id": bundle_id,
     }
+    record = turn_spend.turn_record()
+    if record is not None:
+        for key in ("total_cost_usd", "cost_partial", "models_used", "model_fallback"):
+            if key in record:
+                payload[key] = record[key]
+        if isinstance(debug, dict):
+            payload["debug"] = {**debug, "cost": record.get("cost")}
     if artifacts:
         payload["artifacts"] = artifacts
     if files:
@@ -409,6 +425,7 @@ def _emit_query_complete(
     return payload
 
 
+@turn_spend.collects_turn
 def run_pipeline_launch(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -1871,13 +1888,22 @@ def unsupported_reply(plan) -> str:
     "We could not run this" and "this request is not supported" are different answers and only
     one of them is worth retrying, so an infrastructure fault is never reported as a limitation
     of the user's question. Neither shows the parser's notes, which are internal.
+
+    A planning fault says which of the two it was (operator-approved text, 2026-09-25): the
+    planning model did not answer in time (``transport_timeout``), or it answered with
+    something unusable (``parse_error`` or anything else).
     """
-    if (plan.metadata or {}).get("failure"):
-        return ("Something went wrong on our side while planning that query, so I haven't run it. "
-                "Please try again in a moment.")
+    from .failure_replies import PLANNER_TIMEOUT_REPLY, PLANNER_UNUSABLE_REPLY
+
+    failure = (plan.metadata or {}).get("failure")
+    if failure == "transport_timeout":
+        return PLANNER_TIMEOUT_REPLY
+    if failure:
+        return PLANNER_UNUSABLE_REPLY
     return UNSUPPORTED_REPLY
 
 
+@turn_spend.collects_turn
 def run_query(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -2745,12 +2771,17 @@ def run_query(
         return _emit_query_complete(send_event, reply, debug_payload, None)
 
     except LLMFatalError as fatal:
+        from .failure_replies import fatal_query_error
+
         agent = getattr(fatal, "agent", None) or current_agent
         msg = str(fatal)
         print(f"[FATAL][{(agent or 'unknown').upper()}] Run killed: {msg}")
+        # The models did not answer: the user gets the approved plain text, and the raw
+        # message stays in the event's detail, the debug payload and the chat log's error.
+        unavailable_reply, error_data = fatal_query_error(fatal, agent=agent)
         if send_event:
-            send_event("query_error", {"error": msg, "agent": agent, "fatal": True})
-        reply = f"**The request could not be completed.**\n\n{msg}"
+            send_event("query_error", error_data)
+        reply = unavailable_reply or f"**The request could not be completed.**\n\n{msg}"
         # Persist a chat_log turn so subsequent parser/chatter turns know this
         # query was attempted and failed (otherwise the next turn sees a "hole"
         # in conversational history). Mark mode='error_<agent>' for grep-ability.
@@ -2771,7 +2802,9 @@ def run_query(
 
     except Exception as exc:
         if send_event:
-            send_event("query_error", {"error": str(exc), "agent": current_agent})
+            # The turn's last event: it carries what the turn spent before it failed.
+            send_event("query_error", {"error": str(exc), "agent": current_agent,
+                                       **turn_spend.cost_fields()})
         raise
 
 
@@ -2816,6 +2849,7 @@ def _plan_graph_result(step_result: dict) -> dict:
     }
 
 
+@turn_spend.collects_turn
 def run_query_plan(
     session: SessionState | SessionStateProxy,
     config: ChatConfig,
@@ -3266,12 +3300,16 @@ def run_query_plan(
         )
 
     except LLMFatalError as fatal:
+        from .failure_replies import fatal_query_error
+
         agent = getattr(fatal, "agent", None) or "unknown"
         msg = str(fatal)
         print(f"[FATAL][PLAN][{agent.upper()}] Run killed: {msg}")
+        # Same split as run_query: plain text for unavailability, the old reply otherwise.
+        unavailable_reply, error_data = fatal_query_error(fatal, agent=agent)
         if send_event:
-            send_event("query_error", {"error": msg, "agent": agent, "fatal": True})
-        reply = f"**The planner pipeline was stopped.**\n\n{msg}"
+            send_event("query_error", error_data)
+        reply = unavailable_reply or f"**The planner pipeline was stopped.**\n\n{msg}"
         try:
             append_turn(
                 session,

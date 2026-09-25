@@ -37,6 +37,7 @@ Writes into <out>:
     turns.json           one record per turn (always)
     pull.json            what was pulled, from where, and the instance's clock offset
     manifest.json        only when the harness manifest exists on the instance
+    case_costs.json      with the manifest: each case's cost, summed over its turns
     tasks/<id>.json      --raw: the full task row, progress event stream + result
     outputs/<run_root>/  --outputs: every run root a turn wrote to, copied verbatim
     outputs_index.json   --outputs: task id -> the files it wrote, matched by mtime
@@ -51,6 +52,16 @@ timeout); the final `result.error` is usually the generic "Internal pipeline err
 Result rows are stripped from `graph_result` (`$.data`) so the payload stays small;
 only the counts and the query are kept. `--raw` keeps everything.
 
+Money and models, per turn: `cost` is the engine's `total_cost_usd` and `router_cost`
+the router's `router_cost_usd` off the `route_decided` event, with their partial flags,
+`models_used`, `model_fallback`, `router_model` and `router_fallback`. `turn_cost` and
+`turn_cost_partial` are those summed by the harness's own rule (`turn_cost.py`, found
+beside this script or in its checkout), and `fell_back` says whether any model of the
+turn fell back. When the manifest is on the instance, `case_costs.json` sums each case
+over its turns the same way the harness does, so a grade and the run report the same
+number. A copy of this script run on its own, without `turn_cost.py`, still pulls
+everything and leaves those three fields None.
+
 Timestamps (`created`/`updated`, run-root folder names, file-name stamps) are the
 app container's clock, UTC on dev and prod. Its offset is recorded in pull.json and
 is what `outputs_index.json` uses to match file mtimes to turns.
@@ -62,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import importlib.util
 import json
 import pathlib
 import re
@@ -70,6 +82,41 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
+
+def _load_turn_cost():
+    """The harness's own summing rule, by path, or None.
+
+    One rule, not a copy: a pull that summed a case differently from the run would
+    grade it against a number the run never reported. The module is standard library
+    only, so this script still needs nothing but python3.
+
+    Looked for beside this script first, then in the checkout this script sits in.
+    The operator's launch skill copies this file ALONE into a scratch directory, so
+    neither may exist: then the pull still runs, with its priced fields left None,
+    and one line on stderr says why. It never raises, `--help` included.
+    """
+    here = pathlib.Path(__file__).resolve()
+    candidates = [here.parent / "turn_cost.py"]
+    if len(here.parents) > 2:
+        candidates.append(here.parents[2] / "turn_cost.py")
+    for path in candidates:
+        if not path.is_file():
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location("_nessie_turn_cost", path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        except Exception as exc:  # noqa: BLE001 - a pull without prices beats no pull
+            print(f"fetch_run: could not load {path} ({type(exc).__name__}: {exc}); "
+                  f"turns are pulled but not priced", file=sys.stderr)
+            return None
+    print("fetch_run: turn_cost.py not found beside this script or in its checkout; "
+          "turns are pulled but not priced", file=sys.stderr)
+    return None
+
+
+turn_cost = _load_turn_cost()
 
 INSTANCES = {
     "local": {"host": "", "user": ""},
@@ -120,7 +167,14 @@ q -e "SELECT JSON_OBJECT(
         'reply',   COALESCE(
                      JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.reply'),'\$[0]')),
                      JSON_UNQUOTE(JSON_EXTRACT(result,'\$.reply'))),
-        'cost',    JSON_EXTRACT(result,'\$.total_cost_usd')
+        'cost',    JSON_EXTRACT(result,'\$.total_cost_usd'),
+        'cost_partial',   JSON_EXTRACT(result,'\$.cost_partial'),
+        'models_used',    JSON_EXTRACT(result,'\$.models_used'),
+        'model_fallback', JSON_EXTRACT(result,'\$.model_fallback'),
+        'router_cost',         JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_usd'),'\$[0]'),
+        'router_cost_partial', JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_partial'),'\$[0]'),
+        'router_model',        JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_model'),'\$[0]'),
+        'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]')
       ) FROM assistant_query_task t WHERE {where} ORDER BY t.id;"
 """
 
@@ -288,6 +342,56 @@ def index_outputs(turns: list[dict], outputs_root: pathlib.Path, offset_min: int
     return index
 
 
+def price_turns(turns: list[dict]) -> list[dict]:
+    """Add `turn_cost`, `turn_cost_partial` and `fell_back` to each pulled turn.
+
+    The router fields are read raw (no JSON_UNQUOTE, which turns a JSON null into the
+    string "null"), so a missing value arrives as None and is unobserved, not zero.
+    Without the summing rule (`_load_turn_cost`) all three are None.
+    """
+    for t in turns:
+        if turn_cost is None:
+            t["turn_cost"] = t["turn_cost_partial"] = t["fell_back"] = None
+            continue
+        t["turn_cost"], t["turn_cost_partial"] = turn_cost.turn_total(
+            engine_cost=turn_cost.usd(t.get("cost")),
+            router_cost=turn_cost.usd(t.get("router_cost")),
+            route=t.get("route"), source=t.get("src"),
+            cost_partial=t.get("cost_partial") is True,
+            router_cost_partial=t.get("router_cost_partial") is True)
+        t["fell_back"] = turn_cost.fell_back(t)
+    return turns
+
+
+def case_costs(manifest: dict, turns: list[dict]) -> dict:
+    """Each manifest case's cost, summed over its pulled turns by the harness's rule.
+
+    A case is joined by its task ids: the entry's `task_ids`, or for a consistency
+    group, which records them per query, its `turns_meta`. A turn is missing when the
+    pull did not return its task (outside the window), or when the run sent it and
+    its driver raised, leaving no task id at all: the entry's `turns_sent` counts
+    those. A missing turn makes a number partial, and so does the run's own
+    `cost_partial` for the case. A case that sent no turn is left out.
+    """
+    by_task = {t.get("task_uuid"): t for t in turns if t.get("task_uuid")}
+    out = {}
+    for e in manifest.get("entries") or []:
+        ids = list(e.get("task_ids") or []) or [
+            m.get("task_id") for m in (e.get("turns_meta") or []) if m.get("task_id")]
+        sent = max(len(ids), e.get("turns_sent") or 0)
+        if not sent:
+            continue
+        rows = [by_task[i] for i in ids if i in by_task]
+        missing = max(0, sent - len(rows))
+        cost, partial = turn_cost.case_total(
+            [(r["turn_cost"], r["turn_cost_partial"]) for r in rows], missing_turns=missing)
+        out[e["id"]] = {"cost": cost,
+                        "cost_partial": bool(cost is not None and (partial or e.get("cost_partial"))),
+                        "turns": len(rows), "missing_turns": missing,
+                        "fallback_turns": sum(1 for r in rows if r["fell_back"])}
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--instance", choices=sorted(INSTANCES), default="dev",
@@ -343,14 +447,17 @@ def main() -> None:
     manifest_txt = head.split("@@@MANIFEST@@@", 1)[1].strip()
     offset = tz_offset_minutes(tz_txt)
 
+    manifest = None
     if manifest_txt and manifest_txt != "MISSING":
         (out / "manifest.json").write_text(manifest_txt, encoding="utf-8")
-        n = len(json.loads(manifest_txt).get("entries", []))
+        manifest = json.loads(manifest_txt)
+        n = len(manifest.get("entries", []))
         print(f"manifest.json  {n} entries")
     else:
         print(f"no manifest at {args.manifest} (expected when reviewing real users' turns)")
 
-    turns = [json.loads(ln) for ln in tail.splitlines() if ln.strip().startswith("{")]
+    turns = price_turns([json.loads(ln) for ln in tail.splitlines()
+                         if ln.strip().startswith("{")])
     (out / "turns.json").write_text(json.dumps(turns, indent=1), encoding="utf-8")
 
     routes = Counter(t.get("route") for t in turns)
@@ -364,6 +471,20 @@ def main() -> None:
     print(f"  graph calls {sum(1 for t in turns if t.get('gplan'))}   "
           f"rest calls {sum(1 for t in turns if t.get('aplan'))}   "
           f"reporter {sum(1 for t in turns if t.get('rplan'))}")
+    if turn_cost is None:
+        print("  cost    not priced: turn_cost.py was not found, see the warning above")
+    else:
+        priced = [t for t in turns if t["turn_cost"] is not None]
+        print(f"  cost    ${sum(t['turn_cost'] for t in priced):.4f} on {len(priced)} of "
+              f"{len(turns)} turns, {sum(1 for t in priced if t['turn_cost_partial'])} of "
+              f"them partial; fell back {sum(1 for t in turns if t['fell_back'])}")
+    if manifest is not None and turn_cost is not None:
+        cases = case_costs(manifest, turns)
+        (out / "case_costs.json").write_text(json.dumps(cases, indent=1), encoding="utf-8")
+        known = [c for c in cases.values() if c["cost"] is not None]
+        print(f"case_costs.json {len(cases)} cases, ${sum(c['cost'] for c in known):.4f} on "
+              f"{len(known)}, {sum(1 for c in known if c['cost_partial'])} partial, "
+              f"{len(cases) - len(known)} unmeasured")
 
     pull = {"instance": args.instance, "host": host, "where": where,
             "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

@@ -1,0 +1,182 @@
+{
+  "_comment": "USD per 1M tokens for every model a turn can reach: the NS agents of the default profile and their first fallbacks, the router's BAML clients, and the Container-CC ids in router_model_class_map.json. Read by chat_nextseek/model_prices.py, which prices each model call on the day it ran. An entry's prices are tried in order and the first whose date bounds (from, until: inclusive) and prompt size (max_prompt_tokens, inclusive) fit is used. Every price names its source, the day it was checked, and whether it was read off the source (confirmed) or computed from it (derived, with how). Output prices include thinking tokens. Gemini bills cached prompt tokens at cache_read; Bedrock bills a cache write at the rate of the TTL it was asked for. A model missing here makes a turn's cost partial and is named in the turn's debug cost. A price change is an edit here plus an app rebuild.",
+  "version": "2026-09-25",
+  "currency": "USD",
+  "per_tokens": 1000000,
+  "models": {
+    "gemini-3.8-flash": {
+      "provider": "gcp",
+      "prices": [
+        {
+          "until": "2026-12-31",
+          "input": 0.75,
+          "output": 3.75,
+          "cache_read": 0.075,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        },
+        {
+          "from": "2027-01-01",
+          "input": 1.50,
+          "output": 7.50,
+          "cache_read": 0.15,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "gemini-3.5-flash": {
+      "provider": "gcp",
+      "prices": [
+        {
+          "input": 1.50,
+          "output": 9.00,
+          "cache_read": 0.15,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "gemini-3.1-pro-preview": {
+      "provider": "gcp",
+      "prices": [
+        {
+          "max_prompt_tokens": 200000,
+          "input": 2.00,
+          "output": 12.00,
+          "cache_read": 0.20,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        },
+        {
+          "input": 4.00,
+          "output": 18.00,
+          "cache_read": 0.40,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "gemini-2.5-flash": {
+      "provider": "gcp",
+      "prices": [
+        {
+          "input": 0.30,
+          "output": 2.50,
+          "cache_read": 0.03,
+          "status": "confirmed",
+          "note": "The text input price. Reachable only as a fallback on a box without a Bedrock token.",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "gemini-2.5-pro": {
+      "provider": "gcp",
+      "prices": [
+        {
+          "max_prompt_tokens": 200000,
+          "input": 1.25,
+          "output": 10.00,
+          "cache_read": 0.125,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        },
+        {
+          "input": 2.50,
+          "output": 15.00,
+          "cache_read": 0.25,
+          "status": "confirmed",
+          "source": "https://ai.google.dev/gemini-api/docs/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "us.anthropic.claude-opus-4-7": {
+      "provider": "bedrock",
+      "prices": [
+        {
+          "input": 5.50,
+          "output": 27.50,
+          "cache_write_5m": 6.875,
+          "cache_write_1h": 11.00,
+          "cache_read": 0.55,
+          "status": "derived",
+          "derivation": "Anthropic first-party list price (input 5, output 25, 5-minute cache write 6.25, 1-hour cache write 10, cache read 0.50) times 1.1: the source says regional and multi-region endpoints include a 10% premium over global endpoints for Claude 4.5 and later on Bedrock, and a us.anthropic. id is a multi-region (US geo) endpoint. Not read off the AWS pricing page, which did not render its Claude rows.",
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "us.anthropic.claude-opus-4-8": {
+      "provider": "bedrock",
+      "prices": [
+        {
+          "input": 5.50,
+          "output": 27.50,
+          "cache_write_5m": 6.875,
+          "cache_write_1h": 11.00,
+          "cache_read": 0.55,
+          "status": "derived",
+          "derivation": "Anthropic first-party list price (input 5, output 25, 5-minute cache write 6.25, 1-hour cache write 10, cache read 0.50) times 1.1: the source says regional and multi-region endpoints include a 10% premium over global endpoints for Claude 4.5 and later on Bedrock, and a us.anthropic. id is a multi-region (US geo) endpoint. Not read off the AWS pricing page, which did not render its Claude rows.",
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "us.anthropic.claude-opus-5-5": {
+      "provider": "bedrock",
+      "prices": [
+        {
+          "input": 4.40,
+          "output": 22.00,
+          "cache_write_5m": 5.50,
+          "cache_write_1h": 8.80,
+          "cache_read": 0.22,
+          "status": "derived",
+          "derivation": "Anthropic first-party list price (input 4, output 20, 5-minute cache write 5, 1-hour cache write 8, cache read 0.20, which is 0.05 times input for this model) times 1.1: the source says regional and multi-region endpoints include a 10% premium over global endpoints for Claude 4.5 and later on Bedrock, and a us.anthropic. id is a multi-region (US geo) endpoint. Not read off the AWS pricing page, which did not render its Claude rows.",
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "us.anthropic.claude-sonnet-4-6": {
+      "provider": "bedrock",
+      "prices": [
+        {
+          "input": 3.30,
+          "output": 16.50,
+          "cache_write_5m": 4.125,
+          "cache_write_1h": 6.60,
+          "cache_read": 0.33,
+          "status": "derived",
+          "derivation": "Anthropic first-party list price (input 3, output 15, 5-minute cache write 3.75, 1-hour cache write 6, cache read 0.30) times 1.1: the source says regional and multi-region endpoints include a 10% premium over global endpoints for Claude 4.5 and later on Bedrock, and a us.anthropic. id is a multi-region (US geo) endpoint. Not read off the AWS pricing page, which did not render its Claude rows.",
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    },
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0": {
+      "provider": "bedrock",
+      "prices": [
+        {
+          "input": 1.10,
+          "output": 5.50,
+          "cache_write_5m": 1.375,
+          "cache_write_1h": 2.20,
+          "cache_read": 0.11,
+          "status": "derived",
+          "derivation": "Anthropic first-party list price (input 1, output 5, 5-minute cache write 1.25, 1-hour cache write 2, cache read 0.10) times 1.1: the source says regional and multi-region endpoints include a 10% premium over global endpoints for Claude 4.5 and later on Bedrock, and a us.anthropic. id is a multi-region (US geo) endpoint. The map's haiku entry is not on the Bedrock proxy's allow list, so no turn reaches it today; it is priced so the map stays covered.",
+          "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "checked": "2026-09-25"
+        }
+      ]
+    }
+  }
+}

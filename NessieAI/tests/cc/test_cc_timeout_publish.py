@@ -32,9 +32,10 @@ USER = "alice"
 API_USER = "alice-login"
 PROJECT = "proj"
 TIMEOUT_S = 0.3
+# The operator-approved message (2026-09-25), with the limit rendered from turn_timeout.
 TIMEOUT_TEXT = (
-    f"Container-CC turn exceeded the {TIMEOUT_S}s limit and was stopped. "
-    "A comprehensive request can take several turns; say continue to carry on from here."
+    f"This took longer than the {TIMEOUT_S}-second limit, so I stopped. "
+    "Say continue and I will carry on from where I got to."
 )
 
 
@@ -275,5 +276,4 @@ def test_an_overrun_turn_with_nothing_said_carries_no_partial(tmp_path, monkeypa
 
 def test_the_limit_message_says_how_to_carry_on():
     """D5 keeps the limit where it is, so the message has to do the work."""
-    assert "say continue to carry on" in TIMEOUT_TEXT
-    assert "can take several turns" in TIMEOUT_TEXT
+    assert "Say continue and I will carry on from where I got to." in TIMEOUT_TEXT

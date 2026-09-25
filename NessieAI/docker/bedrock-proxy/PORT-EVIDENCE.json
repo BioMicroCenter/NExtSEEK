@@ -7,7 +7,6 @@
   "byte_identical_files": [
     "__init__.py",
     "app/__init__.py",
-    "app/config.py",
     "app/proxy.py",
     "proxy-secret.env.example"
   ],
@@ -30,7 +29,7 @@
   "file_inventory": [
     {"path": "__init__.py", "size_bytes": 145, "sha256": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069"},
     {"path": "app/__init__.py", "size_bytes": 46, "sha256": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd"},
-    {"path": "app/config.py", "size_bytes": 3062, "sha256": "eb464c910f288964f7d80753c5fe9ef7abdf9abc7900abde7f19579cb4c826cb"},
+    {"path": "app/config.py", "size_bytes": 3336, "sha256": "ed831ec3740dbddbf2e81523c775480cc94652b4f5fbf7a1f031bda729c675bd"},
     {"path": "app/proxy.py", "size_bytes": 13794, "sha256": "e890f99a690b6dd3e03b454f95200c3261186f5df90cdf5f001a0b957f3b6859"},
     {"path": "proxy-secret.env.example", "size_bytes": 821, "sha256": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16"},
     {"path": "Dockerfile", "size_bytes": 2398, "sha256": "8449007570f2dfb9227c028d04ae2edf39fed879ed141c0a6668105af35f2a83"},
@@ -39,12 +38,24 @@
   "mapping_table": [
     {"dest": "docker/bedrock-proxy/__init__.py", "source": "bedrock-proxy/__init__.py", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/app/__init__.py", "source": "bedrock-proxy/app/__init__.py", "status": "byte-identical"},
-    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical at the port; changed on 2026-09-25, see post_port_changes"},
     {"dest": "docker/bedrock-proxy/app/proxy.py", "source": "bedrock-proxy/app/proxy.py", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/proxy-secret.env.example", "source": "bedrock-proxy/proxy-secret.env.example", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/Dockerfile", "source": "bedrock-proxy/Dockerfile", "status": "adapted (COPY path only, see adapted_files)"},
     {"dest": "docker/bedrock-proxy/.dockerignore", "source": "none (new)", "status": "new file, adapted from docker/cc-runtime/.dockerignore pattern"},
     {"dest": "N/A", "source": "bedrock-proxy/docker-compose.yml", "status": "not ported -- Task 5 scope, see not_ported"},
     {"dest": "N/A", "source": "bedrock-proxy/proxy-secret.env", "status": "NEVER ported -- real secret file, gitignored and dockerignored"}
+  ],
+  "post_port_changes": [
+    {
+      "date": "2026-09-25",
+      "path": "app/config.py",
+      "change": "_DEFAULT_ALLOWED_MODELS went from the one Opus id to three: us.anthropic.claude-opus-4-8 (still first), us.anthropic.claude-opus-4-7 and us.anthropic.claude-sonnet-4-6. Only that assignment and the comment above it changed.",
+      "why": "The Container-CC 503 fallback: a CC turn now names its --fallback-model (the model map's opus_fallback entry) and points its auto-mode classifier at the map's sonnet entry. The proxy refuses any other id with a 403, on which Claude Code never falls back.",
+      "guards": [
+        "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
+        "NessieAI/tests/cc/test_step7_proxy_port.py"
+      ]
+    }
   ]
 }

@@ -15,7 +15,7 @@ from ..helpers import (
     safe_parse_json,
 )
 from ..helpers.lab_code import resolve_labs
-from ..schemas.schema_helper import StructuredOutputError, call_llm_structured, empty_output_problem
+from ..schemas.schema_helper import StructuredOutputError, call_llm_structured, call_llm_text, empty_output_problem
 from ..schemas import (
     EntityAgentOutput,
 )
@@ -164,40 +164,25 @@ def entity_agent(
                 print("[DEBUG][ENTITY] Retry after timeout failed:", repr(e_retry))
                 result = EntityAgentOutput()
         else:
-            # Fallback: raw call without forced response_format (guarded by timeout)
+            # Fallback: raw call without forced response_format. Through the recovery
+            # ladder, so a timeout, a 503 or an empty body moves to the entity's next
+            # provider; it used to call the SDK directly and never moved. The first
+            # attempt keeps the 180 s this call always had, and the retry (usually on
+            # the fallback model) gets 60 s, so the worst case stays near the old 180 s.
             try:
-                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-
-                def _do_fallback_call():
-                    return entity_client.chat(
-                        model=entity_model,
-                        temperature=0,
-                        messages=messages,
-                        thinking_budget=entity_budget,
-                    )
-
-                executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(_do_fallback_call)
-                try:
-                    resp = future.result(timeout=180)
-                except FuturesTimeoutError as te:
-                    try:
-                        future.cancel()
-                    except Exception:
-                        pass
-                    try:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                    except Exception:
-                        pass
-                    raise LLMTimeoutError("Raw fallback timed out after 180 seconds") from te
-                finally:
-                    try:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                    except Exception:
-                        pass
-
-                log_usage(resp, "ENTITY_FALLBACK")
-                raw_content = resp.content or ""
+                raw_content = call_llm_text(
+                    config,
+                    messages=messages,
+                    model_name=entity_model,
+                    client=entity_client,
+                    agent_label="entity",
+                    log_label="entity_raw",
+                    temperature=0,
+                    thinking_budget=entity_budget,
+                    timeout_seconds=180,
+                    timeout_retry_seconds=60,
+                    usage_label="ENTITY_FALLBACK",
+                )
                 parsed = safe_parse_json(raw_content)
                 if isinstance(parsed, list):
                     parsed = {"sampletypes": parsed, "assays": [], "keywords": []}

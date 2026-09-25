@@ -65,10 +65,10 @@ class CorpusChanged(RuntimeError):
 def _spent(costs) -> float:
     """Sum observed costs, skipping unobserved ones.
 
-    `None` is NOT zero. Only container_cc emits `total_cost_usd` at all, so an NS
-    arm always contributes `None`; treating that as 0.0 would be an accounting
-    claim the harness cannot support, and `manifest.cost_summary` already refuses
-    to make it.
+    `None` is NOT zero. Each cost is an arm's case sum (`manifest.case_money`), and
+    an arm from a server that prices neither the router nor the NS engine
+    contributes `None`; treating that as 0.0 would be an accounting claim the
+    harness cannot support, and `manifest.cost_summary` already refuses to make it.
     """
     return sum(c for c in costs if c is not None)
 

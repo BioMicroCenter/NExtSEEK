@@ -120,9 +120,16 @@ class Attempt:
 
     @property
     def outage(self) -> bool:
+        """The entry says so, or a payload's reply or its `query_error` data does.
+
+        `query_error` is read for a turn that ended with no reply (a Container-CC
+        turn whose model was unavailable); payloads stored before the runner kept
+        it have no such key and are read off the reply alone.
+        """
         if self.entry.get("outage"):
             return True
-        return any(is_provider_outage((p.get("query_complete") or {}).get("reply"))
+        return any(is_provider_outage((p.get("query_complete") or {}).get("reply"),
+                                      p.get("query_error"))
                    for p in self.payloads.values())
 
 

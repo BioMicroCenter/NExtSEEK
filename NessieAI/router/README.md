@@ -20,9 +20,19 @@ stays in `nextseek_api/`.
 
 `decide()` tries three strategies in order, and the first that answers wins:
 
-1. **Posterior selector**, only when `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` is on (off by default). A returned selection skips BAML entirely.
-2. **BAML router**: `RouteQuery` from `NessieAI/dmac_assistant/`, fed by a classifier that assigns a task family, not a route.
-3. **Keyword heuristic**, when BAML is unreachable, raises, or returns `<router_unavailable>`.
+1. **Posterior selector**, only when `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` is on (off by default). A returned selection skips BAML entirely. Its family call, `ClassifyQuery`, runs under `ROUTER_PRIMARY_LIMIT_S` too, and a timeout is handled as an error: the BAML router below decides.
+2. **BAML router**: `RouteQuery` from `NessieAI/dmac_assistant/`, fed by a classifier that assigns a task family, not a route. It runs on the client the function declares (`GCPReasoner`) under `ROUTER_PRIMARY_LIMIT_S`, BAML's retries included; on a timeout, an error or `<router_unavailable>` it gets one try on `GCPFlash` under `ROUTER_FALLBACK_LIMIT_S`, through a per-call `ClientRegistry` (no `.baml` edit).
+3. **Keyword heuristic**, when BAML is unreachable, or both of those calls fail.
+
+The decision records `router_model` (the model that answered; none for the heuristic or a forced
+turn) and `router_fallback` (`from`, `to`, `reason`), and the CC turn puts both on `route_decided`.
+`decide()` also attaches a `baml_py.Collector` to each BAML call it makes and prices every attempt
+in it, BAML's retries included, with `NessieAI/chat_nextseek/model_prices.json`: `router_cost_usd`,
+`router_usage` (per call: client, model, status, tokens, thinking read from the response body)
+and `router_cost_partial` (a call cut off by the time limit, a call nothing was logged for, an
+unpriced model or unreadable thinking). The policy carries all five fields through every decision
+it rebuilds (`router_record`), and `route_decided` gets the three cost fields on every routed turn,
+`unrelated` included; a forced turn made no router call and gets none (`router_cost_fields`).
 
 Routing degrades; it never raises. A missing corpus, a missing build context or a BAML failure
 drops a turn to the heuristic and logs, so a wrong route is the only symptom. The route decision

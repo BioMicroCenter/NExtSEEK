@@ -34,10 +34,17 @@ from NessieAI.tests.nessie_tests.outage import (  # noqa: E402,F401
 )
 
 
-def classify_turn_status(passed: bool, last_reply: str | None) -> str:
+def classify_turn_status(passed: bool, last_reply: str | None,
+                         query_error: dict | None = None) -> str:
     """Map one turn's criterion outcome to a manifest status.
 
-    An outaged turn is ``error`` no matter what its criteria did.
+    An outaged turn is ``error`` no matter what its criteria did. Outage is read
+    from the reply and from ``query_error``, the data of the turn's last
+    ``query_error`` event (``last_query_error``): its ``reason`` first, then its
+    texts. A Container-CC turn whose model was unavailable sends no
+    ``query_complete`` at all, so its reply is None and only that event says why;
+    reading the reply alone scored such a turn as a product red. An NS outage still
+    ends in a ``query_complete`` whose reply is the plain text, so either is enough.
 
     * Not ``failed``, because nothing was tested: the provider chain gave up
       before the parser ran, so the reply is an infrastructure message and
@@ -54,7 +61,7 @@ def classify_turn_status(passed: bool, last_reply: str | None) -> str:
     ``outage`` flag the runner sets alongside it, which is what exempts the entry
     from the gate. A non-outage error stays gate-failing.
     """
-    if is_provider_outage(last_reply):
+    if is_provider_outage(last_reply, query_error):
         return "error"
     return "passed" if passed else "failed"
 
@@ -65,6 +72,15 @@ def _last(payload, name):
         if ev.get("event") == name:
             data = ev.get("data") or {}
     return data
+
+
+def last_query_error(payload: dict) -> dict | None:
+    """The data of the turn's last ``query_error`` event, or None when it sent none.
+
+    The event is what a turn that ended on a failure carries its ``reason``,
+    ``error`` and ``detail`` in (``classify_turn_status``).
+    """
+    return _last(payload or {}, "query_error")
 
 
 def build_observed_debug(payload: dict) -> dict:

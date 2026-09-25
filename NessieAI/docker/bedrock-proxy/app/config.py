@@ -14,8 +14,14 @@ from dataclasses import dataclass
 
 import httpx
 
-# Allowed model ids. Per the vetted plan: exactly this one.
-_DEFAULT_ALLOWED_MODELS: tuple[str, ...] = ("us.anthropic.claude-opus-4-8",)
+# Allowed model ids: the Container-CC model, first, then the two a CC turn may also
+# name (2026-09-25): its --fallback-model and its auto-mode classifier's Sonnet. Each
+# is an entry of NessieAI/dmac_assistant/build_context/router_model_class_map.json.
+_DEFAULT_ALLOWED_MODELS: tuple[str, ...] = (
+    "us.anthropic.claude-opus-4-8",
+    "us.anthropic.claude-opus-4-7",
+    "us.anthropic.claude-sonnet-4-6",
+)
 
 # Default request-body cap: 10 MiB. Bedrock Anthropic payloads are well under
 # this; anything larger is rejected with 413 before being read into memory.

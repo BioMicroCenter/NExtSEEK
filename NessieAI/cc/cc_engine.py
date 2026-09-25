@@ -37,7 +37,7 @@ from urllib.parse import quote, quote_plus
 import docker
 
 from .attach import BridgeAttachSocket
-from .translate import CCStreamTranslator
+from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
 from NessieAI.cc import cc_session
@@ -84,6 +84,32 @@ _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+# The CC 503 fallback (2026-09-25 operator ruling). Claude Code's own default is 11
+# attempts over about 175 s, so a Bedrock outage used to spend the whole turn before it
+# gave up. Three retries end such a turn in seconds, and ``--fallback-model`` (see
+# _build_command) switches model on the first 5xx other than 529. ``API_TIMEOUT_MS``
+# bounds one request, which matters only when the upstream hangs. Each is overridable
+# from the Django env, like the caps above; a value that is not a whole number keeps
+# the default.
+_CC_MAX_RETRIES_ENV = "NEXTSEEK_CC_MAX_RETRIES"
+_DEFAULT_CC_MAX_RETRIES = "3"
+_CC_API_TIMEOUT_MS_ENV = "NEXTSEEK_CC_API_TIMEOUT_MS"
+_DEFAULT_CC_API_TIMEOUT_MS = "60000"
+# Below a second every model call would time out at once, so a smaller override (zero
+# included) keeps the default.
+_MIN_CC_API_TIMEOUT_MS = 1000
+# A turn the watchdog stops while its last frame is an api_retry was still waiting on the
+# retried request only within the retry's delay plus API_TIMEOUT_MS (which bounds the wait
+# for response headers) plus this much slack. Later, the request must be streaming an
+# answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
+_RETRY_WINDOW_SLACK_S = 5.0
+# The engine's monotonic clock, one name so tests can stand in for it.
+_monotonic = time.monotonic
+# Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
+# and names its own default Sonnet id (one the Bedrock proxy refuses) unless
+# ANTHROPIC_DEFAULT_SONNET_MODEL is set. The id comes from the model map's ``sonnet``
+# entry; this variable overrides it, and must pass the map's own id check.
+_CC_SONNET_MODEL_ENV = "NEXTSEEK_CC_DEFAULT_SONNET_MODEL"
 # 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
 # will have been stopped, so the plugin's nextseek-query stops polling while the
 # agent can still report back, instead of being killed along with the turn. The
@@ -173,6 +199,62 @@ def path_mappings_for(*, output_mnt: str, run_scratch_mnt: str | None) -> dict[s
     if run_scratch_mnt:
         mappings["scratch"] = {"container_root": _CONTAINER_SCRATCH, "logical_root": run_scratch_mnt}
     return mappings
+
+
+# D7 (2026-09-25 dev run): the template the agent's instructions show for each root, which
+# one reply printed literally instead of filling in. The run id placeholder is matched with
+# or without its space.
+_PATH_TEMPLATES = {
+    "scratch": r"/dmac/users/<project>/<user>/scratch/<run[ _-]?id>",
+    "output": r"/dmac/users/<project>/<user>/output",
+}
+# A root is matched only as a whole path segment run: never inside a longer path
+# (``/mnt/data/scratch``) and never as the start of a longer name (``/data/scratchpad``,
+# ``/data/scratch.bak``). A dot followed by a space or the end is sentence punctuation.
+_ROOT_BEFORE = r"(?<![\w.~/-])"
+_ROOT_AFTER = r"(?![\w-]|\.[\w-])"
+
+
+def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) -> Any:
+    """D7: put this turn's real paths where a reply names a container path.
+
+    The agent is told to quote a file it handed over by its user-facing path, and on the
+    2026-09-25 dev run 6 of 12 replies still named ``/data/scratch/...`` and one printed
+    the documented template ``/dmac/users/<project>/<user>/scratch/<run id>/...``. This is
+    the server-side guard: each mapped root (``/data/scratch``, ``/data/output``) and each
+    template becomes that entry's ``logical_root`` from ``path_mappings_for``, the same
+    mapping the agent was given, and the rest of the path is kept.
+
+    A root with no usable entry (a turn with no run id has no ``scratch`` entry) is left
+    as it is, and so is every other ``/data/`` path. One pass over the text, so a
+    replaced path is never rewritten again. Anything that is not a non-empty string is
+    returned unchanged.
+    """
+    if not isinstance(text, str) or not text or not isinstance(path_mappings, Mapping):
+        return text
+    alternatives: list[str] = []
+    roots: dict[str, str] = {}
+    for name, entry in path_mappings.items():
+        if not isinstance(entry, Mapping):
+            continue
+        container_root = entry.get("container_root")
+        logical_root = entry.get("logical_root")
+        if not (isinstance(container_root, str) and container_root
+                and isinstance(logical_root, str) and logical_root):
+            continue
+        patterns = [_ROOT_BEFORE + re.escape(container_root.rstrip("/")) + _ROOT_AFTER]
+        template = _PATH_TEMPLATES.get(name)
+        if template:
+            patterns.append(template + (_ROOT_AFTER if template.endswith("output") else ""))
+        for pattern in patterns:
+            group = f"r{len(roots)}"
+            roots[group] = logical_root.rstrip("/")
+            alternatives.append(f"(?P<{group}>{pattern})")
+    if not alternatives:
+        return text
+    return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
+
+
 _CONTAINER_INPUT = "/data/input"
 _CONTAINER_SHARED = "/data/shared"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
@@ -377,7 +459,72 @@ def build_agent_environment(
     # 13b.2: rounded down, so the agent never believes it has longer than it does.
     if turn_deadline is not None:
         env[_TURN_DEADLINE_ENV] = str(int(turn_deadline))
+    # The CC 503 fallback: bounded retries and request time, and a classifier model the
+    # proxy allows. None of these is a credential.
+    env["CLAUDE_CODE_MAX_RETRIES"] = _whole_number(
+        src.get(_CC_MAX_RETRIES_ENV), _DEFAULT_CC_MAX_RETRIES, name=_CC_MAX_RETRIES_ENV)
+    env["API_TIMEOUT_MS"] = _whole_number(
+        src.get(_CC_API_TIMEOUT_MS_ENV), _DEFAULT_CC_API_TIMEOUT_MS,
+        name=_CC_API_TIMEOUT_MS_ENV, minimum=_MIN_CC_API_TIMEOUT_MS)
+    sonnet = _cc_classifier_model_id((src.get(_CC_SONNET_MODEL_ENV) or "").strip())
+    if sonnet:
+        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet
     return env
+
+
+def _whole_number(value: Any, default: str, *, name: str, minimum: int = 0) -> str:
+    """``value`` when it is a whole number in ASCII digits and at least ``minimum``.
+
+    Unset or blank means ``default``, silently. Anything else that is not usable (not a
+    whole number, or under ``minimum``) also means ``default``, with a warning naming
+    the variable.
+    """
+    text = value.strip() if isinstance(value, str) else ""
+    if not text:
+        return default
+    if not re.fullmatch(r"[0-9]+", text) or int(text) < minimum:
+        logger.warning("cc: ignoring %s=%r (a whole number of at least %d is needed); "
+                       "using %s", name, text, minimum, default)
+        return default
+    return text
+
+
+def _cc_fallback_model_id() -> str | None:
+    """The model map's ``opus_fallback`` id, or None when it is absent or unusable.
+
+    Never raises: a turn with no fallback is what a resolution failure costs, not the
+    turn itself. Imported here, not at module scope (``NessieAI/dmac_assistant/CLAUDE.md``).
+    """
+    try:
+        from dmac_assistant.router.models import resolve_cc_fallback_model
+
+        return resolve_cc_fallback_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: fallback model id resolution failed (%s); the turn runs "
+                       "with no fallback model", type(exc).__name__)
+        return None
+
+
+def _cc_classifier_model_id(override: str = "") -> str | None:
+    """The auto-mode classifier's model id, or None. Never raises.
+
+    ``override`` (``NEXTSEEK_CC_DEFAULT_SONNET_MODEL``) wins when it passes the model
+    map's own ``us.anthropic.`` id check; otherwise, with a warning when it was set but
+    malformed, the map's ``sonnet`` id.
+    """
+    try:
+        from dmac_assistant.router.models import is_bedrock_model_id, resolve_cc_classifier_model
+
+        if override:
+            if is_bedrock_model_id(override):
+                return override
+            logger.warning("cc: ignoring %s=%r (not a Bedrock-qualified us.anthropic. id); "
+                           "using the model map's sonnet id", _CC_SONNET_MODEL_ENV, override)
+        return resolve_cc_classifier_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: classifier model id resolution failed (%s); Claude Code "
+                       "keeps its own default", type(exc).__name__)
+        return None
 
 
 def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
@@ -833,18 +980,31 @@ def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str
     return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
+_FROM_MODEL_MAP: Any = object()
+
+
 def _build_command(
     *,
     model_id: str | None,
     session_id: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     source: Mapping[str, str] | None = None,
+    fallback_model_id: str | None = _FROM_MODEL_MAP,
 ) -> list[str]:
-    """Build the in-container ``claude`` command: auto-mode base + model + per-turn
-    caps + the ``$defaults``-first trusted-infra allowlist (OI-5)."""
+    """Build the in-container ``claude`` command: auto-mode base + model + fallback
+    model + per-turn caps + the ``$defaults``-first trusted-infra allowlist (OI-5).
+
+    ``--fallback-model`` is the CC 503 fallback: Claude Code switches to it on the first
+    5xx other than 529 (after three 529s), and it serves the rest of the turn. It is
+    added only when an id resolves and differs from ``--model``; by default the id is
+    the model map's ``opus_fallback`` entry, and a failure to resolve it means no flag.
+    """
     cmd = list(_BASE_CMD)
     if model_id:
         cmd += ["--model", model_id]
+    fallback = _cc_fallback_model_id() if fallback_model_id is _FROM_MODEL_MAP else fallback_model_id
+    if fallback and fallback != model_id:
+        cmd += ["--fallback-model", fallback]
     cmd += _cc_limit_args(max_budget_usd)
     cmd += _automode_settings_args(source)
     if session_id:
@@ -1200,7 +1360,9 @@ def run_cc_turn(
     # UnboundLocalError and mask the real failure.
     transcript_persisted = False
 
-    translator = CCStreamTranslator()
+    # The --model id, so the turn record can name the model that answered even when the
+    # result frame carries no modelUsage.
+    translator = CCStreamTranslator(model_id=model_id, clock=lambda: _monotonic())
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
     client = docker.from_env()
@@ -1217,9 +1379,11 @@ def run_cc_turn(
         # stream so the read loop below exits.
         _done = threading.Event()
         _timed_out = threading.Event()
+        _stopped_at: list[float] = []  # when the watchdog fired, on the engine's clock
 
         def _watchdog() -> None:
             if not _done.wait(turn_timeout):
+                _stopped_at.append(_monotonic())
                 _timed_out.set()
                 for _op in (lambda: container.stop(timeout=2),
                             lambda: container.remove(force=True)):
@@ -1320,8 +1484,9 @@ def run_cc_turn(
             result = {"artifacts": [], "raw": []}
 
         if timed_out:
-            # Still a query_error with the same text, never a query_complete: the
-            # user is told the turn timed out, and on_turn_complete is not called
+            # Always a query_error, never a query_complete: the user is told the turn
+            # was stopped (at its time limit, or while the model it was waiting on was
+            # being retried; see below), and on_turn_complete is not called
             # (it writes a "completed" chat_log entry, which the sticky-CC rule
             # reads). The transcript row and raw/ copy come from the #68 fallback
             # in the finally, as for every turn that did not complete.
@@ -1330,21 +1495,33 @@ def run_cc_turn(
             # far it got, with the agent's own words left only in the transcript row.
             partial = ""
             try:
-                partial = translator.partial_reply()
+                partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
             except Exception:  # pragma: no cover - never lose the timeout to a salvage
                 logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
-            message = (
-                f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped. "
-                "A comprehensive request can take several turns; say continue to carry on "
-                "from here."
-            )
+            # Review M2: stopped while Claude Code was still retrying a model call, the
+            # model was the problem, not the size of the task. With the approved retry
+            # bound and request timeout a hung upstream needs about 244 s to give up, so
+            # this watchdog fires first, and "say continue" would only stall again.
+            # Only while the retried request can still be waiting for its headers: a stop
+            # after that window is a healthy but slow answer (see _stopped_waiting_on_retry).
+            retry = translator.retrying_model
+            if retry is not None and _stopped_waiting_on_retry(
+                    retry, retry_at=translator.last_api_retry_at,
+                    stopped_at=_stopped_at[0] if _stopped_at else _monotonic(),
+                    api_timeout_ms=environment.get("API_TIMEOUT_MS")):
+                stopped = {"error": translator.model_unavailable_error(),
+                           "reason": MODEL_UNAVAILABLE_REASON,
+                           "detail": _retry_stop_detail(turn_timeout, retry)}
+            else:
+                stopped = {"error": _time_limit_message(turn_timeout), "reason": "exec_timeout"}
             send_event("query_error", {
-                "error": message,
-                "reason": "exec_timeout", "agent": "container_cc",
+                **stopped, "agent": "container_cc",
                 "cc_session_id": translator.session_id,
                 "partial_reply": partial or None,
                 "artifacts": result["artifacts"] or None,
                 "cc_raw_files": result["raw"],
+                # The turn record: a fallback model can still be what ran out the clock.
+                "model_fallback": translator.model_fallback,
             })
             return
 
@@ -1355,6 +1532,9 @@ def run_cc_turn(
         if event == "query_complete":
             data = dict(data)
             data["mode"] = "cc"
+            # D7: the reply names this turn's real paths, never the container's, and it
+            # is rewritten here, before on_turn_complete persists it.
+            data["reply"] = rewrite_container_paths(data.get("reply"), path_mappings)
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
         if event == "query_complete" and on_turn_complete and chat_session is not None:
@@ -1392,7 +1572,9 @@ def run_cc_turn(
                 files_modified=result["files_modified"],
                 result_meta={"num_turns": data.get("num_turns"),
                              "duration_ms": data.get("duration_ms"),
-                             "cost_usd": data.get("total_cost_usd")},
+                             "cost_usd": data.get("total_cost_usd"),
+                             "models_used": data.get("models_used"),
+                             "model_fallback": data.get("model_fallback")},
             ) if parsed else None
             from django.conf import settings
             strict = getattr(settings, "CC_PERSIST_STRICT", False)
@@ -1595,6 +1777,52 @@ def run_cc_turn(
                         total_skipped, total_files, run_id)
         except Exception:  # noqa: BLE001
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
+
+
+def _time_limit_phrase(seconds: float) -> str:
+    """A turn's time limit as the user reads it: whole minutes as "N-minute", else "N-second"."""
+    value = float(seconds)
+    if value > 0 and value % 60 == 0:
+        return f"{int(value // 60)}-minute"
+    return f"{value:g}-second"
+
+
+def _stopped_waiting_on_retry(retry: Mapping[str, Any], *, retry_at: float | None,
+                              stopped_at: float | None, api_timeout_ms: Any) -> bool:
+    """Whether a stop at ``stopped_at`` can still have been waiting on the retried request.
+
+    True within the retry frame's ``retry_delay_ms`` plus ``api_timeout_ms`` (the value
+    the agent's env was given; it bounds only the wait for response headers) plus
+    ``_RETRY_WINDOW_SLACK_S`` of the frame's arrival at ``retry_at``. Later than that the
+    retried request must be streaming. An unknown arrival time is never "waiting".
+    """
+    if retry_at is None or stopped_at is None:
+        return False
+    delay = retry.get("retry_delay_ms")
+    delay_s = (delay / 1000 if isinstance(delay, (int, float)) and not isinstance(delay, bool)
+               and delay > 0 else 0.0)
+    try:
+        timeout_s = int(api_timeout_ms) / 1000
+    except (TypeError, ValueError):
+        timeout_s = int(_DEFAULT_CC_API_TIMEOUT_MS) / 1000
+    return stopped_at - retry_at <= delay_s + timeout_s + _RETRY_WINDOW_SLACK_S
+
+
+def _retry_stop_detail(seconds: float, retry: Mapping[str, Any]) -> str:
+    """The technical fact behind a turn stopped while a model call was being retried."""
+    error = retry.get("error") or "unknown error"
+    status = retry.get("error_status")
+    what = f"{error} ({status})" if status not in (None, "") else str(error)
+    attempt, most = retry.get("attempt"), retry.get("max_retries")
+    tail = f", attempt {attempt} of {most}" if attempt is not None and most is not None else ""
+    return (f"stopped at the {float(seconds):g} s limit while retrying the model: "
+            f"{what}{tail}")
+
+
+def _time_limit_message(seconds: float) -> str:
+    """Operator-approved (2026-09-25): what a turn stopped at its time limit tells the user."""
+    return (f"This took longer than the {_time_limit_phrase(seconds)} limit, so I stopped. "
+            "Say continue and I will carry on from where I got to.")
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:

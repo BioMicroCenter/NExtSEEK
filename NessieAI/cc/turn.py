@@ -33,6 +33,7 @@ from chat_nextseek import prompt_variants
 from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
 from chat_nextseek.chat_memory import next_turn_id
 from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek import turn_spend
 
 from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
@@ -41,7 +42,7 @@ from NessieAI.router.policy import (
     _fallback_when_cc_unavailable,
     _record_ledger_row,
 )
-from NessieAI.ns.turn import _auto_title_if_unset, _select_chat_config
+from NessieAI.ns.turn import _auto_title_if_unset, _error_tracking_send_event, _select_chat_config
 from NessieAI.cc import cc_engine
 from NessieAI.cc import cc_config
 from NessieAI.cc import cc_session
@@ -402,6 +403,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
     terminal_seen = cc_turn_complete.new_terminal_tracker()
     send_event = cc_turn_complete.wrap_send_event(send_event, terminal_seen)
+    # Whether a query_error already went out, so the catch-all in _run never sends a
+    # second one over the real error (F13): the NS endpoints' guard.
+    send_event, error_state = _error_tracking_send_event(send_event)
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 
@@ -455,6 +459,14 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             send_event("route_decided", {
                 "route": decision.route, "model_class": decision.model_class,
                 "source": decision.source, "reasoning": decision.reasoning,
+                # Which router model answered, and whether it fell back (fix 5): None
+                # when the keyword rules decided or the turn was forced.
+                "router_model": getattr(decision, "router_model", None),
+                "router_fallback": getattr(decision, "router_fallback", None),
+                # What the router's model calls cost (fix 6a): router_cost_usd,
+                # router_cost_partial and router_usage. Absent on a forced turn, which made
+                # no router call; present on every routed one, unrelated included.
+                **cc_router.router_cost_fields(decision),
             })
             _record_ledger_row(chat_session, decision, query_task=query_task)
 
@@ -669,12 +681,21 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     turn_timeout=resolved_turn_timeout,
                     chat_session_id=cc_state_key,
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception("cc-assistant pipeline error")
-            send_event("query_error", {
-                "error": "Internal pipeline error", "agent": "unknown",
-                "session_id": resolved_session_id,
-            })
+            # run_query sends its own query_error (the real message, with the turn's cost)
+            # before it re-raises, and the task keeps the last one: a second, generic one
+            # here would replace the real error the user needs to see (F13).
+            if not error_state["sent"]:
+                send_event("query_error", {
+                    "error": "Internal pipeline error", "agent": "unknown",
+                    # This is then the turn's last event, and the harness reads a turn's
+                    # cost off the last query_error: a turn that crashed carries what it
+                    # spent, taken out on the exception (turn_spend.collects_turn). Empty
+                    # otherwise.
+                    **turn_spend.cost_fields(exc),
+                    "session_id": resolved_session_id,
+                })
         finally:
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
             if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):

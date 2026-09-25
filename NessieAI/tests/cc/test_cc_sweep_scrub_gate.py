@@ -59,6 +59,7 @@ def sweep(tmp_path, monkeypatch):
 
     def fake_summarize(raw, provenance, cfg, **kw):
         seen["summarized"].append(raw)
+        seen.setdefault("kw", []).append(kw)
         return _Summary()
 
     def fake_persist(user, session_id, summary_dict, fp):
@@ -100,6 +101,18 @@ def test_the_fixture_actually_reaches_the_summarizer(tmp_path, sweep):
 
     assert count == 1
     assert seen["summarized"] and seen["persisted"] == ["sess-b"]
+
+
+def test_the_sweep_summarizes_under_its_own_longer_limit(tmp_path, sweep):
+    """The sweep has no user waiting, and a fallback it stores is kept until the chat's
+    transcript changes, so it must not use the in-turn 10 s limit (F7 follow-up)."""
+    f = _plant(tmp_path)
+    cc_engine.scrub_transcript_store(f.parents[2], ENV)
+
+    count, seen = sweep(f)
+
+    assert count == 1
+    assert seen["kw"][-1].get("summarize_fn") is cc_summary.sweep_summarize_fn
 
 
 def test_an_unscrubbed_transcript_is_never_summarized(tmp_path, sweep):

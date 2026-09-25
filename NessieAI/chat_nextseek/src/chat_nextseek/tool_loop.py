@@ -8,23 +8,39 @@ One 503 anywhere in a build ended it, and the tokens the loop spent were invisib
 This module is that call done once, properly, so a second tool loop (the follow-up
 agent) does not repeat the mistakes:
 
-* **Recovery.** A 503 or a transport timeout moves once to the next provider in the
-  same ``_FALLBACK_CHAINS`` the structured path uses, skipping any fallback client that
-  cannot take tools (a timeout with nowhere to move recycles the socket pool and
-  retries); a 429 backs off.
+* **Recovery.** A timeout, an empty turn, a 503, a 429, a connection error and a model
+  the provider refused (``model_unusable``) move once to the next provider, the same
+  trigger ``_call_with_recovery`` uses, skipping
+  any fallback client that cannot take tools and any that is the model that just
+  failed. For the follow-up and pipeline agents the catalog's ``_fallback`` block
+  names that provider (Sonnet 4.6, operator ruling 2026-09-25): their profile chains
+  lead back to the same Opus. When the provider it moved to fails too, the call ends
+  in ``LLMFatalError`` with ``unavailable`` set, so the user is told the models were
+  unavailable. A timeout with nowhere to move recycles the socket pool and retries once.
+* **A wall clock.** Every call runs under ``timeout_seconds`` (the retry under
+  ``timeout_retry_seconds``). boto3 alone waits out a 600 s read timeout and retries it,
+  so a stalled Bedrock used to hold the turn for as long as the request watchdog let it.
 * **Caching on by default.** A tool loop re-sends its whole head on every iteration,
   so the tools plus the system prompt are the clearest possible case for a cache
   point. This is the opposite of a one-shot call, where the win depends on whether
-  traffic clusters inside the TTL and so stays opt-in.
+  traffic clusters inside the TTL and so stays opt-in. The call after a provider move
+  goes out without one: the fallback model has never been sent a cache point on a
+  production path, a rejection would be a bare ValidationException that does not
+  move, and one call's cache is worth nothing.
 * **A ledger entry per call**, including cache hits, so a loop's cost is measurable.
+  The first call after a move also names it (``fallback_from``, ``fallback_reason``).
+  A call that ended in an exception nothing above types (a raw ``ClientError``) still
+  gets its entry, and still propagates unchanged.
 """
 from __future__ import annotations
 
 import time
 from typing import Any
 
+from . import turn_spend
 from .helpers import log_llm_call
 from .llm_clients import (
+    LLMAPIConnectionError,
     LLMError,
     LLMFatalError,
     LLMRateLimitError,
@@ -34,14 +50,38 @@ from .llm_clients import (
 from .schemas.schema_helper import (
     MAX_PROVIDER_SWITCHES,
     _catalog_provider,
+    _EmptyCompletion,
     _get_fallback_agent_configs,
     _ledger_entry,
     _recycle_client_connections,
+    _run_with_wall_clock,
+    _unavailable_kind,
 )
+
+# The wall clock on one tool-loop call. The local ledger's Opus 4.7 calls for these two
+# agents (41 followup, 19 pipeline_agent, 2026-09-25) have a p95 of 4-6 s and a maximum
+# of 10 s, so 120 s is ample for the first try. The retry gets the same 120 s, not less:
+# after a move the fallback model regenerates the whole output, and a pipeline
+# write_samplesheet call can be several thousand tokens. Worst case per call: 240 s.
+TOOL_CALL_TIMEOUT_SECONDS = 120
+TOOL_CALL_TIMEOUT_RETRY_SECONDS = 120
 
 
 def _tool_capable(client) -> bool:
     return callable(getattr(client, "chat_with_tools", None))
+
+
+def _is_empty_turn(result: Any) -> bool:
+    """A tool turn with no tool call and no text in it: the provider gave no answer."""
+    content = (result or {}).get("content") if isinstance(result, dict) else None
+    for block in content or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "tool_use":
+            return False
+        if block.get("type") == "text" and (block.get("text") or "").strip():
+            return False
+    return True
 
 
 def _ledger(config, entry: dict) -> None:
@@ -75,28 +115,37 @@ def call_tools(
     cache_prompt: bool = True,
     retries: int = 2,
     rate_limit_sleep: float = 1.0,
+    timeout_seconds: float = TOOL_CALL_TIMEOUT_SECONDS,
+    timeout_retry_seconds: float | None = TOOL_CALL_TIMEOUT_RETRY_SECONDS,
+    timeout_retries: int = 1,
 ) -> dict:
     """Run one tool-enabled turn and return the normalized Converse result.
 
     Returns ``{"stop_reason", "content", "usage", "metadata"}``. Raises
-    ``LLMFatalError`` when every provider that can take tools has refused, so the
-    caller reports one honest failure rather than looping on a dead provider.
+    ``LLMFatalError`` (``unavailable=True``) when the provider it moved to failed too,
+    or when there was nowhere to move, so the caller reports one honest failure rather
+    than looping on a dead provider. A bare ``LLMError`` propagates unchanged.
     """
     target_client = client
     target_model = model_name
     target_budget = thinking_budget
     fallbacks: list[tuple] | None = None
     switches = 0
+    moves: list[dict] = []
+    pending_move: dict = {}
+    attempt_recorded = False  # whether this attempt has its ledger record yet
+    timeout_attempts = 0
+    _timeout = timeout_seconds
 
-    def _switch(reason: str) -> bool:
+    def _switch(reason: str, why: str) -> bool:
         """The one provider move a call gets (``MAX_PROVIDER_SWITCHES``). Never raises."""
-        nonlocal fallbacks, switches, target_client, target_model, target_budget
+        nonlocal fallbacks, switches, target_client, target_model, target_budget, pending_move
         if switches >= MAX_PROVIDER_SWITCHES:
             return False
         if fallbacks is None:
             fallbacks = [
                 fb for fb in _get_fallback_agent_configs(
-                    config, agent_label, _catalog_provider(target_client)
+                    config, agent_label, _catalog_provider(target_client), failed_model=target_model,
                 )
                 # A tool loop cannot fail over to a client with no tool surface:
                 # the conversation so far is tool_use and tool_result blocks.
@@ -104,92 +153,135 @@ def call_tools(
             ]
         if not fallbacks:
             return False
+        moves.append({"agent": agent_label, "from": target_model, "to": fallbacks[0][1], "reason": reason})
+        pending_move = {"fallback_from": target_model, "fallback_reason": reason}
         target_client, target_model, target_budget = fallbacks.pop(0)
         switches += 1
         print(
-            f"[TOOL_LOOP][{agent_label}] {reason}: switching to fallback "
+            f"[TOOL_LOOP][{agent_label}] {why}: switching to fallback "
             f"provider='{getattr(target_client, 'provider', '?')}' model='{target_model}'"
         )
         return True
+
+    def _log(outcome: str, t0: float, **kw) -> None:
+        nonlocal pending_move, attempt_recorded
+        move, pending_move = pending_move, {}
+        attempt_recorded = True
+        entry = _ledger_entry(
+            agent_label, target_model, target_client, attempt, outcome, t0,
+            timeout_seconds=_timeout, thinking_budget=target_budget, **kw, **move,
+        )
+        _ledger(config, entry)
+        # This turn's cost collector prices the usage, or counts an abandoned attempt.
+        turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
+
+    def _unavailable(what: str, cause: BaseException) -> LLMFatalError:
+        return LLMFatalError(
+            f"All tool-capable providers exhausted: agent '{agent_label}': {what}: {cause}",
+            agent=agent_label, unavailable=True, model_fallback=moves,
+        )
 
     max_attempts = retries + 1
     attempt = -1
     while attempt + 1 < max_attempts:
         attempt += 1
         t0 = time.perf_counter()
+        attempt_recorded = False
         try:
-            result = target_client.chat_with_tools(
-                messages=messages,
-                tools=tools,
-                system=system,
-                model=target_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                tool_choice=tool_choice,
-                cache_prompt=cache_prompt,
-                thinking_budget=target_budget,
+            call_client, call_model, call_budget = target_client, target_model, target_budget
+            # No cache point once the call has moved (see the module docstring).
+            call_cache = cache_prompt and not switches
+            result = _run_with_wall_clock(
+                lambda: call_client.chat_with_tools(
+                    messages=messages,
+                    tools=tools,
+                    system=system,
+                    model=call_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tool_choice=tool_choice,
+                    cache_prompt=call_cache,
+                    thinking_budget=call_budget,
+                ),
+                _timeout,
             )
+            if _is_empty_turn(result):
+                _log("empty_completion", t0, resp=_LedgerView(result))
+                raise _EmptyCompletion(
+                    f"empty tool turn from provider='{getattr(target_client, 'provider', None)}' "
+                    f"model='{target_model}' stop_reason={(result or {}).get('stop_reason')!r}"
+                )
         except LLMServiceUnavailableError as sue:
+            outcome, reason, why = _unavailable_kind(sue)
+            why = "empty turn" if isinstance(sue, _EmptyCompletion) else why
+            status_word = "model refused" if reason == "model_unusable" else "503"
             print(
-                f"[TOOL_LOOP][{agent_label}] 503 from "
+                f"[TOOL_LOOP][{agent_label}] {status_word} from "
                 f"provider='{getattr(target_client, 'provider', None)}' model='{target_model}' "
                 f"attempt {attempt + 1}/{max_attempts}: {sue}"
             )
-            _ledger(config, _ledger_entry(
-                agent_label, target_model, target_client, attempt,
-                "service_unavailable", t0, thinking_budget=target_budget, err=sue,
-            ))
-            if _switch("provider unavailable"):
+            _log(outcome, t0, err=sue)
+            if _switch(reason, why):
                 max_attempts += 1
                 continue
-            raise LLMFatalError(
-                f"All tool-capable providers exhausted — agent '{agent_label}': {sue}",
-                agent=agent_label,
-            ) from sue
+            raise _unavailable(why, sue) from sue
         except LLMTimeoutError as te:
-            _ledger(config, _ledger_entry(
-                agent_label, target_model, target_client, attempt,
-                "timeout", t0, thinking_budget=target_budget, err=te,
-            ))
+            timeout_attempts += 1
+            _log("timeout", t0, err=te)
             _recycle_client_connections(target_client, agent_label)
+            if timeout_attempts > timeout_retries:
+                raise _unavailable("timeout", te) from te
+            if timeout_retry_seconds:
+                _timeout = timeout_retry_seconds
             # Same trigger as the structured path: a timeout moves to the next
             # tool-capable provider, once. With nowhere to move, the old
             # same-provider retry on a fresh socket stands.
-            if _switch("transport timeout"):
+            if _switch("timeout", "transport timeout"):
+                max_attempts += 1
+                continue
+            if switches:
+                raise _unavailable("timeout", te) from te
+            continue
+        except LLMRateLimitError as rle:
+            _log("throttle", t0, err=rle)
+            if _switch("rate_limited", "rate limited"):
                 max_attempts += 1
                 continue
             if switches or attempt + 1 >= max_attempts:
-                raise
-            continue
-        except LLMRateLimitError as rle:
-            _ledger(config, _ledger_entry(
-                agent_label, target_model, target_client, attempt,
-                "throttle", t0, thinking_budget=target_budget, err=rle,
-            ))
-            if attempt + 1 >= max_attempts:
                 raise LLMFatalError(
-                    f"Rate limited (429) — agent '{agent_label}', model '{target_model}': {rle}",
-                    agent=agent_label,
+                    f"Rate limited (429): agent '{agent_label}', model '{target_model}': {rle}",
+                    agent=agent_label, unavailable=True, model_fallback=moves,
                 ) from rle
             try:
                 time.sleep(rate_limit_sleep)
             except Exception:
                 pass
             continue
+        except LLMAPIConnectionError as ce:
+            _log("error", t0, err=ce)
+            _recycle_client_connections(target_client, agent_label)
+            if _switch("connection", "connection error"):
+                max_attempts += 1
+                continue
+            raise _unavailable("connection error", ce) from ce
         except LLMError as le:
-            _ledger(config, _ledger_entry(
-                agent_label, target_model, target_client, attempt,
-                "error", t0, thinking_budget=target_budget, err=le,
-            ))
+            _log("error", t0, err=le)
+            raise
+        except BaseException as unrecorded:
+            # Anything else (a raw ClientError the client did not type, a bug in a client)
+            # propagates unchanged and never moves, but the attempt still gets its one
+            # ledger record, and the turn's cost collector counts it as unobserved (F1).
+            if not attempt_recorded:
+                _log("error", t0, err=unrecorded)
             raise
 
-        _ledger(config, _ledger_entry(
-            agent_label, target_model, target_client, attempt, "ok", t0,
-            thinking_budget=target_budget, resp=_LedgerView(result),
-        ))
+        _log("ok", t0, resp=_LedgerView(result))
         return result
 
-    raise LLMFatalError(f"Tool call exhausted its attempts — agent '{agent_label}'", agent=agent_label)
+    raise LLMFatalError(
+        f"Tool call exhausted its attempts: agent '{agent_label}'",
+        agent=agent_label, unavailable=True, model_fallback=moves,
+    )
 
 
 class _LedgerView:
@@ -204,5 +296,6 @@ class _LedgerView:
     __slots__ = ("usage", "metadata")
 
     def __init__(self, result: dict[str, Any]):
+        result = result if isinstance(result, dict) else {}
         self.usage = result.get("usage") or {}
         self.metadata = result.get("metadata") or {}

@@ -60,6 +60,7 @@ from typing import Any
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..config import ChatConfig
 from ..graph_scope import RESERVED_PREFIX
+from ..llm_clients import LLMFatalError
 from ..tool_loop import call_tools
 
 FOLLOWUP_AGENT_KEY = "followup"
@@ -863,6 +864,10 @@ def run_followup(
 
     ``compute(source, where, group_by, code)``, when given, runs ``compute_over_rows`` and
     offers it to the model; each call is kept in ``computes`` with its result.
+
+    When the model and its fallback both fail (``LLMFatalError``) after the loop has run a
+    query or a computation, it returns what it has with ``reply`` None and
+    ``model_unavailable`` set; before that, the fatal propagates.
     """
     client, model_name, thinking_budget = config.get_agent_model(FOLLOWUP_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
@@ -899,16 +904,29 @@ def run_followup(
                 "results you already have, and put anything you could not establish in "
                 "`caveats`. Nothing else can run."
             )})
-        resp = call_tools(
-            config,
-            messages=messages,
-            tools=build_followup_tool_schemas(final=terminal, compute=compute is not None),
-            system=system_prompt,
-            model_name=model_name,
-            client=client,
-            agent_label=FOLLOWUP_AGENT_KEY,
-            thinking_budget=thinking_budget,
-        )
+        try:
+            resp = call_tools(
+                config,
+                messages=messages,
+                tools=build_followup_tool_schemas(final=terminal, compute=compute is not None),
+                system=system_prompt,
+                model_name=model_name,
+                client=client,
+                agent_label=FOLLOWUP_AGENT_KEY,
+                thinking_budget=thinking_budget,
+            )
+        except LLMFatalError as fatal:
+            # The model and its fallback both failed. A loop that already ran a query or
+            # a computation keeps what it found: the caller answers from it
+            # (resolve_followup_outcome), as for a loop that ran out of turns, rather than
+            # the turn ending and those results being dropped. One that ran nothing lets
+            # the fatal through, and the user is told the models were unavailable.
+            if not (queries or computes):
+                raise
+            print(f"[DEBUG][FOLLOWUP] model failure after {len(queries)} query(ies), "
+                  f"{len(computes)} computation(s); answering from them: {fatal}")
+            return {"reply": None, "caveats": [], "queries": queries, "computes": computes,
+                    "tool_calls": tool_calls, "model_unavailable": bool(getattr(fatal, "unavailable", False))}
         content = resp.get("content") or []
         tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
 

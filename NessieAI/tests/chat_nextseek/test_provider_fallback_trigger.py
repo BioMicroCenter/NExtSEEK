@@ -433,3 +433,382 @@ def test_the_tool_loop_moves_once():
     with pytest.raises(LLMFatalError):
         _call_tools(_tool_config(primary, fallback), primary)
     assert fallback.calls == ["fallback-1"]
+
+
+# --------------------------------------------------------------------------
+# Operator ruling 2026-09-25: a 429 that survived the SDK's own retries and a
+# connection error move like a 503, and a failure that ends the call says whether
+# the models were unavailable and which move was made.
+# --------------------------------------------------------------------------
+
+from chat_nextseek.llm_clients import LLMAPIConnectionError, LLMRateLimitError  # noqa: E402
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr(schema_helper.time, "sleep", lambda s: slept.append(s))
+    return slept
+
+
+def test_a_429_moves_to_the_next_provider_without_backing_off(no_sleep):
+    primary = _Client("gcp", [LLMRateLimitError("429 RESOURCE_EXHAUSTED"), '{"mode": "same"}'])
+    fallback = _Client("bedrock", ['{"mode": "graph_query"}'])
+    config = _Config(primary, agent="parser")
+    config.LLM_CLIENTS = {"gcp": primary, "anth": fallback}
+    config.AGENT_MODEL_CATALOG = {
+        "anth:current": {"parser": {"provider": "anth", "model": "fallback-1", "thinking_level": None}},
+    }
+    assert _structured(config, primary).mode == "graph_query"
+    assert primary.calls == ["primary-model"]
+    assert fallback.calls == ["fallback-1"]
+    assert no_sleep == [], "a move is not a backoff"
+
+
+def test_a_429_on_the_provider_it_moved_to_is_fatal_and_says_unavailable(no_sleep):
+    primary = _Client("bedrock", [LLMRateLimitError("ThrottlingException")])
+    fallback = _Client("gcp", [LLMRateLimitError("429"), '{"mode": "graph_query"}'])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert fallback.calls == ["fallback-1"]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": "rate_limited"},
+    ]
+
+
+def test_a_429_with_no_chain_keeps_the_same_provider_backoff(no_sleep):
+    primary = _Client("bedrock", [LLMRateLimitError("429"), '{"mode": "graph_query"}'])
+    assert _structured(_Config(primary), primary).mode == "graph_query"
+    assert primary.calls == ["primary-model", "primary-model"]
+    assert no_sleep == [1.0]
+
+    primary = _Client("bedrock", [LLMRateLimitError("429")] * 3)
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [], "no second model was tried"
+
+
+def test_a_connection_error_moves_to_the_next_provider():
+    primary = _Client("bedrock", [LLMAPIConnectionError("EndpointConnectionError")])
+    fallback = _Client("gcp", ['{"mode": "graph_query"}'])
+    assert _structured(_Config(primary, fallback), primary).mode == "graph_query"
+    assert fallback.calls == ["fallback-1"]
+
+
+def test_a_connection_error_after_the_move_is_fatal_and_says_unavailable():
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    fallback = _Client("gcp", [LLMAPIConnectionError("connection reset"), '{"mode": "graph_query"}'])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": "unavailable"},
+    ]
+
+
+def test_a_connection_error_with_no_chain_propagates_unchanged():
+    """The callers that degrade on it (the chatter, the legacy memory agent) still see it."""
+    primary = _Client("bedrock", [LLMAPIConnectionError("connection reset")])
+    with pytest.raises(LLMAPIConnectionError):
+        _structured(_Config(primary), primary)
+
+
+@pytest.mark.parametrize("first, reason", [
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    ("", "empty"),
+    (LLMTimeoutError("t"), "timeout"),
+    (LLMRateLimitError("429"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_503_and_friends_after_the_move_record_the_first_reason(first, reason, no_sleep):
+    primary = _Client("bedrock", [first])
+    fallback = _Client("gcp", [LLMServiceUnavailableError("503 again")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": reason},
+    ]
+
+
+def test_a_failure_with_no_chain_is_unavailable_with_no_move():
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == []
+
+
+def test_a_400_is_fatal_but_not_unavailable():
+    primary = _Client("bedrock", [LLMError("ValidationException: 400 malformed request")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is False
+    assert excinfo.value.model_fallback == []
+
+
+def test_an_llm_fatal_error_built_the_old_way_is_not_unavailable():
+    err = LLMFatalError("boom", agent="x")
+    assert err.unavailable is False and err.model_fallback == [] and err.agent == "x"
+
+
+# --------------------------------------------------------------------------
+# The ledger names the move on the attempt that follows it (for the pricing unit).
+# --------------------------------------------------------------------------
+
+def _ledger(tmp_path):
+    import json
+
+    return [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+
+
+@pytest.mark.parametrize("first, reason", [
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    ("", "empty"),
+    (LLMTimeoutError("t"), "timeout"),
+    (LLMRateLimitError("429"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_the_attempt_after_a_move_names_the_model_and_the_reason(tmp_path, first, reason, no_sleep):
+    primary = _Client("bedrock", [first])
+    fallback = _Client("gcp", ['{"mode": "graph_query"}'])
+    config = _Config(primary, fallback)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+
+    entries = _ledger(tmp_path)
+    moved = [e for e in entries if e["model"] == "fallback-1"]
+    assert len(moved) == 1 and moved[0]["outcome"] == "ok"
+    assert moved[0]["fallback_from"] == "primary-model"
+    assert moved[0]["fallback_reason"] == reason
+    assert all("fallback_from" not in e for e in entries if e["model"] == "primary-model")
+
+
+def test_only_the_first_attempt_after_the_move_carries_it(tmp_path):
+    """A repair turn on the fallback model is the same move, not a second one."""
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    fallback = _Client("gcp", ["not json", '{"mode": "graph_query"}'])
+    config = _Config(primary, fallback)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+
+    moved = [e for e in _ledger(tmp_path) if e["model"] == "fallback-1"]
+    assert len(moved) == 2
+    assert [e.get("fallback_reason") for e in moved] == ["unavailable", None]
+
+
+def test_a_call_that_never_moved_has_no_fallback_fields(tmp_path):
+    primary = _Client("bedrock", ['{"mode": "graph_query"}'])
+    config = _Config(primary)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+    (entry,) = _ledger(tmp_path)
+    assert "fallback_from" not in entry and "fallback_reason" not in entry
+
+
+# --------------------------------------------------------------------------
+# The tool loops (follow-up, pipeline): a wall clock, an empty-body check, and a
+# move to Sonnet 4.6 rather than to the same Opus (operator ruling 2026-09-25).
+# --------------------------------------------------------------------------
+
+OPUS = "us.anthropic.claude-opus-4-7"
+SONNET = "us.anthropic.claude-sonnet-4-6"
+
+
+class _SlowToolClient(_ToolClient):
+    """An outcome may be a float: sleep that long, then answer "late"."""
+
+    def chat_with_tools(self, *, model, **kw):
+        self.calls.append(model)
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, float):
+            time.sleep(outcome)
+            outcome = "late"
+        if isinstance(outcome, dict):
+            return outcome
+        return {"stop_reason": "end_turn", "content": [{"type": "text", "text": outcome}],
+                "usage": {}, "metadata": {}}
+
+
+def _bedrock_loop_config(bedrock, agent="followup"):
+    """The shipped shape: one Bedrock client, the profile chain's entry is the same Opus,
+    and the catalog's _fallback block names Sonnet 4.6."""
+    config = _Config(bedrock, agent=agent)
+    config.LLM_CLIENTS = {"anth": bedrock}
+    config.AGENT_MODEL_CATALOG = {
+        "_fallback": {agent: {"provider": "anth", "model": SONNET, "thinking_level": None}},
+        "gcp:current": {agent: {"provider": "anth", "model": OPUS, "thinking_level": None}},
+    }
+    return config
+
+
+def _loop(config, client, agent="followup", **kw):
+    from chat_nextseek.tool_loop import call_tools
+
+    return call_tools(config, messages=[], tools=[], system="s", model_name=OPUS, client=client,
+                      agent_label=agent, **kw)
+
+
+@pytest.mark.parametrize("agent", ["followup", "pipeline_agent"])
+def test_a_tool_loop_moves_to_sonnet_not_the_same_opus(agent):
+    bedrock = _SlowToolClient("bedrock", [LLMServiceUnavailableError("503"), "ok"])
+    result = _loop(_bedrock_loop_config(bedrock, agent), bedrock, agent=agent)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+
+
+def test_the_tool_loop_has_a_wall_clock_and_its_retry_gets_the_retry_window():
+    bedrock = _SlowToolClient("bedrock", [2.0, "ok"])
+    t0 = time.perf_counter()
+    result = _loop(_bedrock_loop_config(bedrock), bedrock, timeout_seconds=0.2, timeout_retry_seconds=0.5)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+    assert time.perf_counter() - t0 < 1.5, "the move must not wait out the stalled call"
+
+
+def test_the_tool_loop_wall_clock_defaults():
+    from chat_nextseek import tool_loop
+
+    params = inspect.signature(tool_loop.call_tools).parameters
+    assert params["timeout_seconds"].default == 120
+    # A move regenerates the whole output (a write_samplesheet call can be thousands of
+    # tokens), so the retry gets the same window, not a shorter one.
+    assert params["timeout_retry_seconds"].default == 120
+    assert params["timeout_retries"].default == 1
+
+
+@pytest.mark.parametrize("empty", [
+    {"stop_reason": "end_turn", "content": [], "usage": {}, "metadata": {}},
+    {"stop_reason": "end_turn", "content": [{"type": "text", "text": "  \n"}], "usage": {}, "metadata": {}},
+], ids=["no-blocks", "blank-text"])
+def test_an_empty_tool_turn_moves(empty):
+    bedrock = _SlowToolClient("bedrock", [empty, "ok"])
+    result = _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+
+
+def test_a_tool_use_block_with_no_text_is_not_empty():
+    turn = {"stop_reason": "tool_use", "usage": {}, "metadata": {},
+            "content": [{"type": "tool_use", "id": "t1", "name": "answer", "input": {}}]}
+    bedrock = _SlowToolClient("bedrock", [turn])
+    assert _loop(_bedrock_loop_config(bedrock), bedrock) is turn
+    assert bedrock.calls == [OPUS]
+
+
+@pytest.mark.parametrize("second, reason", [
+    (LLMTimeoutError("t2"), "timeout"),
+    ({"stop_reason": "end_turn", "content": [], "usage": {}, "metadata": {}}, "empty"),
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    (LLMRateLimitError("ThrottlingException"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_a_tool_loop_failure_after_the_move_is_fatal_and_unavailable(second, reason, no_sleep):
+    first = second if not isinstance(second, dict) else dict(second)
+    bedrock = _SlowToolClient("bedrock", [first, second, "never"])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert bedrock.calls == [OPUS, SONNET]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "followup", "from": OPUS, "to": SONNET, "reason": reason},
+    ]
+
+
+def test_a_tool_loop_timeout_with_nowhere_to_move_retries_once_then_is_unavailable():
+    bedrock = _SlowToolClient("bedrock", [LLMTimeoutError("t1"), LLMTimeoutError("t2"), "never"])
+    config = _Config(bedrock, agent="followup")
+    with pytest.raises(LLMFatalError) as excinfo:
+        _loop(config, bedrock)
+    assert bedrock.calls == [OPUS, OPUS]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == []
+
+
+def test_a_bare_error_in_a_tool_loop_still_propagates_unchanged():
+    bedrock = _SlowToolClient("bedrock", [LLMError("ValidationException"), "ok"])
+    with pytest.raises(LLMError) as excinfo:
+        _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert type(excinfo.value) is LLMError
+    assert bedrock.calls == [OPUS]
+
+
+def test_the_tool_loop_ledger_names_the_move(tmp_path):
+    import json
+
+    bedrock = _SlowToolClient("bedrock", [LLMServiceUnavailableError("503"), "ok"])
+    config = _bedrock_loop_config(bedrock)
+    config.LOG_DIR = str(tmp_path)
+    _loop(config, bedrock)
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    assert [(e["model"], e["outcome"]) for e in entries] == [(OPUS, "service_unavailable"), (SONNET, "ok")]
+    assert "fallback_from" not in entries[0]
+    assert entries[1]["fallback_from"] == OPUS and entries[1]["fallback_reason"] == "unavailable"
+    assert entries[1]["timeout_seconds"] == 120
+
+
+class _CacheRecordingToolClient(_SlowToolClient):
+    def __init__(self, provider, outcomes):
+        super().__init__(provider, outcomes)
+        self.cache: list[bool] = []
+
+    def chat_with_tools(self, *, model, cache_prompt=False, **kw):
+        self.cache.append(cache_prompt)
+        return super().chat_with_tools(model=model, **kw)
+
+
+@pytest.mark.parametrize("first", [LLMServiceUnavailableError("503"), LLMTimeoutError("t"),
+                                   LLMRateLimitError("429"), LLMAPIConnectionError("reset")],
+                         ids=["503", "timeout", "429", "connection"])
+def test_the_moved_call_goes_out_without_prompt_caching(first, no_sleep):
+    """Sonnet 4.6 with a one-hour cachePoint has never been sent on a production path; a
+    rejection would be a bare ValidationException that does not move, so every
+    fallback would fail. One call's cache is worth nothing."""
+    bedrock = _CacheRecordingToolClient("bedrock", [first, "ok"])
+    _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert bedrock.calls == [OPUS, SONNET]
+    assert bedrock.cache == [True, False]
+
+
+def test_a_same_provider_retry_keeps_its_cache():
+    """No move, no change: a timeout with nowhere to move retries as it was sent."""
+    bedrock = _CacheRecordingToolClient("bedrock", [LLMTimeoutError("t"), "ok"])
+    _loop(_Config(bedrock, agent="followup"), bedrock)
+    assert bedrock.cache == [True, True]
+
+
+def test_the_moved_bedrock_request_carries_no_cache_point():
+    """At the wire: the fallback's Converse request has no cachePoint in tools or system."""
+    from types import SimpleNamespace
+
+    from botocore.exceptions import ClientError
+
+    from chat_nextseek.llm_clients import BedrockClient
+
+    requests: list[dict] = []
+
+    def converse(**kwargs):
+        requests.append(kwargs)
+        if len(requests) == 1:
+            raise ClientError({"Error": {"Code": "ServiceUnavailableException", "Message": "busy"}}, "Converse")
+        return {"stopReason": "end_turn", "output": {"message": {"content": [{"text": "ok"}]}}}
+
+    bedrock = BedrockClient.__new__(BedrockClient)
+    bedrock.max_output_tokens = 4096
+    bedrock.client = SimpleNamespace(converse=converse, close=lambda: None)
+    tools = [{"name": "answer", "description": "d", "input_schema": {"type": "object", "properties": {}}}]
+    from chat_nextseek.tool_loop import call_tools
+
+    call_tools(_bedrock_loop_config(bedrock), messages=[{"role": "user", "content": "q"}], tools=tools,
+               system="s", model_name=OPUS, client=bedrock, agent_label="followup")
+
+    first, moved = requests
+    assert (first["modelId"], moved["modelId"]) == (OPUS, SONNET)
+    assert any("cachePoint" in t for t in first["toolConfig"]["tools"])
+    assert any("cachePoint" in b for b in first["system"])
+    assert not any("cachePoint" in t for t in moved["toolConfig"]["tools"])
+    assert not any("cachePoint" in b for b in moved["system"])

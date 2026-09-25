@@ -54,12 +54,22 @@ describe("AboutDialog", () => {
     render(<AboutDialog open onOpenChange={vi.fn()} />);
     const text = section("How long an answer takes").textContent ?? "";
     expect(text).toContain("three minutes");
-    // The words a user sees when the stop fires, so they can recognise it.
-    expect(text).toContain("exceeded the 180s limit");
+    // The words a user sees when the stop fires, so they can recognise it, and what to do.
+    expect(text).toContain("took longer than the 3-minute limit");
+    expect(text).toContain("Say continue and it carries on from where it got to.");
+    expect(text).not.toContain("exceeded the 180s limit");
     // Operator decision D2: the ceiling stays, so the copy must not promise
     // an unbounded run.
     expect(text).not.toMatch(/claude code/i);
     expect(text).not.toMatch(/can take a while/i);
+  });
+
+  it("says what happens when the AI model is unavailable", () => {
+    render(<AboutDialog open onOpenChange={vi.fn()} />);
+    const text = section("How long an answer takes").textContent ?? "";
+    expect(text).toContain(
+      "If the AI model is unavailable, Nessie tries a second one. If that fails too, the chat says so; ask again in a few minutes.",
+    );
   });
 
   it("does not promise that every search ends within a minute", () => {
