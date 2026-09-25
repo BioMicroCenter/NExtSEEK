@@ -198,3 +198,53 @@ def test_the_parsers_forced_tool_call_moves_on_a_bedrock_transport_failure(exc):
 
     assert plan.mode == "new_search"
     assert gcp.calls == ["gemini-3.1-pro-preview"]
+
+
+# ---------------------------------------------------------------------------- Gemini transport
+
+import httpx  # noqa: E402
+
+_REQ = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/models/x:generateContent")
+
+
+@pytest.mark.parametrize("exc", [
+    httpx.ReadTimeout("The read operation timed out", request=_REQ),
+    httpx.ConnectTimeout("timed out", request=_REQ),
+    httpx.WriteTimeout("timed out", request=_REQ),
+    httpx.PoolTimeout("timed out", request=_REQ),
+], ids=["read", "connect", "write", "pool"])
+def test_a_gemini_httpx_timeout_is_a_timeout(exc):
+    """google-genai re-raises httpx transport errors (tenacity reraise=True); they used to
+    fall through to a bare LLMError, which ends the turn without a move."""
+    with pytest.raises(LLMTimeoutError) as excinfo:
+        _gemini_chat(_gemini(exc))
+    assert excinfo.value.__cause__ is exc
+
+
+@pytest.mark.parametrize("exc", [
+    httpx.ConnectError("[Errno -3] Temporary failure in name resolution", request=_REQ),
+    httpx.ReadError("connection reset by peer", request=_REQ),
+    httpx.RemoteProtocolError("Server disconnected without sending a response.", request=_REQ),
+], ids=["connect", "read", "server-disconnected"])
+def test_a_gemini_network_failure_is_a_connection_error(exc):
+    with pytest.raises(LLMAPIConnectionError) as excinfo:
+        _gemini_chat(_gemini(exc))
+    assert excinfo.value.__cause__ is exc
+
+
+def test_a_gemini_timeout_whose_text_holds_a_5xx_number_is_still_a_timeout():
+    """Checked before the status-code text scan: a URL or port can carry 500-504."""
+    with pytest.raises(LLMTimeoutError):
+        _gemini_chat(_gemini(httpx.ReadTimeout("timed out after 504 ms", request=_REQ)))
+
+
+def test_a_real_gemini_4xx_is_never_taken_for_a_transport_failure():
+    from google.genai import errors
+
+    with pytest.raises(LLMError) as excinfo:
+        _gemini_chat(_gemini(errors.ClientError(400, {"error": {"code": 400, "message": "bad request",
+                                                                  "status": "INVALID_ARGUMENT"}})))
+    assert type(excinfo.value) is LLMError
+    with pytest.raises(LLMRateLimitError):
+        _gemini_chat(_gemini(errors.ClientError(429, {"error": {"code": 429, "message": "slow down",
+                                                                  "status": "RESOURCE_EXHAUSTED"}})))

@@ -205,6 +205,28 @@ def _is_gemini_rate_limit(exc: BaseException, msg: str) -> bool:
     return head.startswith("429") or "RESOURCE_EXHAUSTED" in msg.upper()
 
 
+def _gemini_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for an httpx transport failure under google-genai, or None.
+
+    google-genai re-raises httpx's own exceptions (its retry policy reraises), and they
+    used to fall through to a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400: a Gemini stall or a dropped connection ended the turn without a
+    move. A timeout (``httpx.TimeoutException`` and its subclasses) is a timeout; a
+    network error or a server that hung up without a response is a connection error.
+    An HTTP error response is never an httpx transport error, so a real 4xx is left to
+    the handling below.
+    """
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover - google-genai depends on httpx
+        return None
+    if isinstance(exc, httpx.TimeoutException):
+        return LLMTimeoutError(f"Gemini {type(exc).__name__}: {exc}")
+    if isinstance(exc, (httpx.NetworkError, httpx.RemoteProtocolError)):
+        return LLMAPIConnectionError(f"Gemini {type(exc).__name__}: {exc}")
+    return None
+
+
 def _bedrock_transport_error(exc: BaseException) -> LLMError | None:
     """The typed error for a botocore transport failure, or None when it is not one.
 
@@ -302,6 +324,11 @@ class GeminiClient(BaseLLMClient):
                 config = generation_config
             )
         except Exception as e:
+            # A transport failure first: no HTTP response came back, so nothing below
+            # (a status code, a 4xx) applies, and a timeout's text can hold "504".
+            transport = _gemini_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             etype = type(e).__name__
             # A 429 that reaches here has survived the SDK's own retries (HttpRetryOptions
