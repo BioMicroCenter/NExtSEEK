@@ -153,6 +153,69 @@ COUNT_WORD = r"\s+(?:\S+\s+){0,3}?(samples?|files?|records?|mice|patients|datase
 NUMBER = r"(?<![\w./-])(\d{1,3}(?:,\d{3})+|\d{3,})(?![\w./-])"  # not inside a UID, DOI or PMID
 TERM = r"(?:toLower\(\s*)?(?:trim\(\s*)?(\$\w+|'[^']*')"
 
+#: The premise fact, shared with the chatter's backstop (agents/chatter.py ``_premise_first``).
+PREMISE_FACT = "The question says {n}; this search did not reproduce that number."
+PREMISE_FACT_RE = re.compile(r"The question says [\d,]+; this search did not reproduce that number\.")
+
+#: A number before a count word, the count word read ahead without being consumed, so a number dropped as no count
+#: (a year) does not take the words up to the count word with it: "In 2023 we uploaded 4,095 D.SEQ files" reads 4,095.
+#: Group 1 is the number, group 2 the count word.
+STATED_COUNT = re.compile(NUMBER + "(?=" + COUNT_WORD + ")", re.I)
+
+# What makes a number before a count word something other than the size of a set the user states. Each is read
+# around the number only: right before it, between it and its count word, or right after the count word.
+_SUPERLATIVE = (r"most|least|highest|lowest|largest|smallest|biggest|greatest|best|worst|top|latest|newest|oldest"
+                r"|earliest|longest|shortest")
+#: A rank or pick right before the number: "the first 200 samples", "the top 500", "the latest 300", "a random 200".
+_RANK_BEFORE = re.compile(r"\b(?:first|last|top|bottom|next|latest|newest|oldest|earliest"
+                          r"|random(?:ly)?(?:\s+(?:chosen|selected|picked))?)\s+$", re.I)
+#: A sample size: "a random subset of 200 samples", "a sample of 300 mice".
+_SUBSET_OF = re.compile(r"\b(?:subset|subsample|sample|selection)\s+of\s+$", re.I)
+#: A threshold: "more than 100 samples", "at least 500 samples", "> 100 samples".
+_THRESHOLD = re.compile(r"(?:\b(?:more|less|fewer|greater|higher|lower)\s+than|\bat\s+(?:least|most)|\bup\s+to"
+                        r"|\b(?:over|under|above|below|exceeding)|[<>\u2264\u2265]=?)\s*$", re.I)
+#: A rank word between the number and its count word: "the 100 most recent samples", "the 200 random samples".
+_RANK_BETWEEN = re.compile(r"\b(?:" + _SUPERLATIVE + r"|random|randomly|first|last)\b", re.I)
+#: A ranking after the count word, within two more words: "the 500 samples with the highest RIN", "the 500 D.SEQ
+#: files with the most reads", "the 200 samples ranked by RIN", "500 samples at random". "with most of their
+#: metadata" is no ranking: a superlative counts only after "the".
+_RANK_AFTER = re.compile(r"^(?:\s+[\w.()-]+){0,2}?\s*,?\s+(?:(?:with|having|by)\s+the\s+(?:" + _SUPERLATIVE
+                         + r")\b|ranked\s+by\b|at\s+random\b|randomly\b)", re.I)
+
+
+def _not_a_stated_count(text: str, m: re.Match) -> bool:
+    """True when the number at group 1 of ``m`` (a ``STATED_COUNT`` or ``SET_COUNT`` match, count word at group 2)
+    is no claim about the size of a set: a year (a 4-digit number from 1900 to 2100 written without a comma: "in
+    2023", "the 2024 samples"), a rank or sample size ("the 100 most recent samples", "the first 200 samples", "a
+    random subset of 200 samples", "a sample of 300 mice", "the 500 samples with the highest RIN") or a threshold
+    ("more than 100 samples"). The one rule for ``premise_count`` (``stated_counts``) and ``check_premise``."""
+    raw = m.group(1)
+    if "," not in raw and len(raw) == 4 and 1900 <= int(raw) <= 2100:
+        return True
+    before = text[:m.start(1)]
+    if _RANK_BEFORE.search(before) or _SUBSET_OF.search(before) or _THRESHOLD.search(before):
+        return True
+    return bool(_RANK_BETWEEN.search(text[m.end(1):m.start(2)]) or _RANK_AFTER.match(text[m.end(2):]))
+
+
+def _set_sizes(pattern: re.Pattern, text: str) -> list[int]:
+    """The numbers ``pattern`` reads in ``text`` that are set sizes (``_not_a_stated_count``), in order, once each."""
+    out: list[int] = []
+    for m in pattern.finditer(text or ""):
+        if _not_a_stated_count(text, m):
+            continue
+        n = int(m.group(1).replace(",", ""))
+        if n not in out:
+            out.append(n)
+    return out
+
+
+def stated_counts(text: str) -> list[int]:
+    """Counts the question states ("the 4,095 D.SEQ files"). A 4-digit number from 1900 to 2100 written without a
+    comma is a year ("in 2023 samples"), not a count; a rank, a sample size or a threshold is not one either
+    (``_not_a_stated_count``)."""
+    return _set_sizes(STATED_COUNT, text)
+
 
 # ---------------------------------------------------------------- Cypher reading -----------------------------------
 def _var_labels(cy: str) -> dict[str, str]:
@@ -489,12 +552,10 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
 
 
 def _premise_count(t: _Turn) -> _Finding | None:
-    nums = [int(m.group(1).replace(",", "")) for m in re.finditer(NUMBER + COUNT_WORD, t.q, re.I)]
     got = {t.result_n(), t.inp.total, t.inp.count}
-    for x in nums:
+    for x in stated_counts(t.q):
         if x >= 50 and x not in got:
-            return _Finding(f"question states {x}, result is {t.result_n()}",
-                            f"The question says {x:,}; this search did not reproduce that number.")
+            return _Finding(f"question states {x}, result is {t.result_n()}", PREMISE_FACT.format(n=f"{x:,}"))
     return None
 
 
@@ -622,7 +683,9 @@ FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the 
 
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
 #: Sequencing Data (D.SEQ) files". It must follow a word that points at a set, so a threshold ("more than 100
-#: samples") is not read as one; NUMBER and COUNT_WORD are premise_count's own.
+#: samples") is not read as one; NUMBER and COUNT_WORD are premise_count's own. A year, a rank or a sample size
+#: after such a word ("Of the 2024 samples", "the 100 most recent samples", "a random subset of 200 samples") is
+#: dropped by premise_count's own rule (``_not_a_stated_count``).
 SET_COUNT = re.compile(r"\b(?:these|those|the|all|of|your)\s+" + NUMBER + COUNT_WORD, re.I)
 
 
@@ -635,11 +698,12 @@ def check_premise(user_text: str, *, stored_total) -> Check:
 
     "how many of these 1,206 mouse sample records ..." about a result that held 745 fires with the detail "the
     earlier result had 745, not 1,206". Quiet when any stated size matches ``stored_total``, when the user states no
-    size, and when no total is known (``stored_total`` None or not a count)."""
+    size, and when no total is known (``stored_total`` None or not a count). A year, a rank, a sample size or a
+    threshold is no stated size (``_not_a_stated_count``, shared with ``premise_count``)."""
     if not _is_count(stored_total):
         return Check(PREMISE, False, "skipped: no stored total")
     text = user_text if isinstance(user_text, str) else ""
-    stated = [int(m.group(1).replace(",", "")) for m in SET_COUNT.finditer(text)]
+    stated = _set_sizes(SET_COUNT, text)
     if not stated or stored_total in stated:
         return Check(PREMISE, False, "")
     return Check(PREMISE, True, f"the earlier result had {stored_total:,}, not {stated[0]:,}")

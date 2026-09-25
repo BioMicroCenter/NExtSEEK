@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
+from ..graph_review import PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
@@ -209,6 +210,54 @@ def _with_review_backstop(reply: str, review_disclosure: str | None, offered_ste
     parts = ([facts] if add_facts else []) + ([reply] if reply else []) + (
         [OFFER_SENTENCE.format(step=step)] if add_offer else [])
     return "\n\n".join(parts)
+
+
+#: A reply that corrects the question's number in its own words: the premise backstop leaves it as written.
+_CORRECTED = re.compile(r"did not reproduce|could not confirm|not confirmed|not reproduced", re.IGNORECASE)
+
+
+def _drop_fact(text: str, fact: str) -> str:
+    """``text`` without ``fact`` (one line), touching only the lines that held it: the spaces around it closed up, a
+    line it filled left blank, and the blank lines that leaves folded into one paragraph break, as the reply's own
+    cleanup does. Every other line, its indentation and inner spacing included, is kept as written."""
+    lines = []
+    for line in text.split("\n"):
+        if fact in line:
+            indent = line[:len(line) - len(line.lstrip())]
+            rest = re.sub(r"[ \t]*" + re.escape(fact) + r"[ \t]*", " ", line.strip()).strip()
+            line = indent + rest if rest else ""
+        lines.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _premise_first(reply: str, notes: list[str] | None) -> str:
+    """The reviewer's premise sentence first, when the reply does not already correct the question's number.
+
+    The sentence is ``graph_review.PREMISE_FACT`` ("The question says 4,095; this search did not reproduce that
+    number."), found in ``notes`` by ``PREMISE_FACT_RE``; nothing else triggers this, and a number in the question
+    alone never does. A reply that already opens with it is left as written. A reply that holds it later (Task 9's
+    backstop put the whole disclosure first, another fact leading, or the model quoted it) has it moved to the front.
+    A reply that corrects the number in its own words (``_CORRECTED``) is left as written. Otherwise the sentence is
+    put first: an echo ("Of the 4,095 D.SEQ files, 962 ...") holds the fact's number, so Task 9's backstop passed it."""
+    facts: list[str] = []
+    for note in notes or []:
+        for m in PREMISE_FACT_RE.finditer(str(note or "")):
+            if m.group(0) not in facts:
+                facts.append(m.group(0))
+    text = reply or ""
+    if not facts:
+        return reply
+    lead = " ".join(facts)
+    if text.lstrip().startswith(lead):
+        return reply
+    if any(fact in text for fact in facts):
+        rest = text
+        for fact in facts:
+            rest = _drop_fact(rest, fact)
+        return (lead + " " + rest).strip()
+    if _CORRECTED.search(text):
+        return reply
+    return (lead + " " + text.lstrip()).strip()
 
 
 def chatter_agent_answer(
@@ -602,6 +651,11 @@ def chatter_agent_answer(
         # a number, and the offered step.
         return _with_review_backstop(text, review_disclosure, offered_step, always_disclose=True)
 
+    # Where the premise backstop looks for the reviewer's premise sentence: the notes, and the disclosure itself,
+    # which keeps the sentence when a long note was cut (the note keeps whole facts from the front, and the premise
+    # fact is disclosed last).
+    premise_notes = [*(query_notes or []), review_disclosure or ""]
+
     try:
         answer = call_llm_text(
             config,
@@ -630,8 +684,8 @@ def chatter_agent_answer(
             return _fallback("Reporter completed, but had a connection issue summarizing the results.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return _fallback(f"Graph query returned {count} record(s), but had a connection issue summarizing the "
-                             "results.")
+            return _premise_first(_fallback(f"Graph query returned {count} record(s), but had a connection issue "
+                                            "summarizing the results."), premise_notes)
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
         return _fallback(
@@ -648,8 +702,8 @@ def chatter_agent_answer(
             return _fallback("Reporter completed, but the summarization call hit the model's token/throughput limit.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return _fallback(f"Graph query returned {count} record(s), but hit the rate limit while summarizing. "
-                             "Try again shortly.")
+            return _premise_first(_fallback(f"Graph query returned {count} record(s), but hit the rate limit while "
+                                            "summarizing. Try again shortly."), premise_notes)
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
         return _fallback(
@@ -677,7 +731,7 @@ def chatter_agent_answer(
             return _fallback(f"{busy}\n\nThe report step completed.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return _fallback(f"{busy}\n\nThe graph query returned {count} record(s).")
+            return _premise_first(_fallback(f"{busy}\n\nThe graph query returned {count} record(s)."), premise_notes)
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
         return _fallback(
@@ -693,6 +747,10 @@ def chatter_agent_answer(
     # The reviewer's facts first and its offered step last, where the model's reply dropped
     # them. Before the UIDs are linked, so a link's digits never count as a stated number.
     answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step)
+    # A number the question states and the result did not reproduce is corrected in the first sentence (F-b): the
+    # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
+    # disclosure above holds it behind another fact.
+    answer_no_links = _premise_first(answer_no_links, premise_notes)
     # Every sample UID the reply names links to its sample page. Before the debug
     # block is appended, so that block is never a candidate.
     answer_no_links = link_sample_uids(answer_no_links)
