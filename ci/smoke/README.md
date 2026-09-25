@@ -97,7 +97,7 @@ It works in three stages, all in that one file:
    Metadata and CC artifact downloads work. The session detail and
    `nessie/sessions/<id>/debug/` count four turns, with the replies and the route
    ledger the page showed. After a reload the chat reopens with every turn. The
-   reported spend stayed under the ceiling.
+   spend Claude Code reported for the CC turn stayed under the ceiling.
 
 The chat is kept whether the lane passed or failed, and the CI record names it as
 the kept session. On a failure it is kept as it is, so that it can be read: any
@@ -128,11 +128,14 @@ and in pytest's warnings summary on a direct run.
   as their own flag and pass it through; a direct `pytest ci/smoke/` run takes it
   as a suite option; the GitHub dispatch workflow has a `nessie` input, default
   on.
-- It costs about $0.30 a run. The CC turn's observed mean is $0.24; it may
-  report up to $0.50 for each minute it ran (never less than $0.50), and the
-  three NS turns cost a few cents that
-  nothing measures yet. At most four chat POSTs leave the page; the browser
-  aborts a fifth and the lane fails. Reported spend above $1.00 fails the run.
+- The CC turn's observed mean is $0.24; it may report up to $0.50 for each
+  minute it ran (never less than $0.50). The $1.00 ceiling counts that number,
+  Claude Code's own cost on the CC turn, and spend above it fails the run. The
+  NS turns and the router report their cost too (`total_cost_usd` and
+  `router_cost_usd`); the record shows every turn's engine and router cost
+  beside the ceiling, for information, and the ceiling does not count it. At
+  most four chat POSTs leave the page; the browser aborts a fifth and the lane
+  fails.
 - It adds about 4 to 5 minutes to a rebuild's CI. Each NS turn may take 300 s,
   the CC turn 240 s, and the lane stops asking questions at 720 s.
 
@@ -188,7 +191,8 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests --with pl
 
 - **The CI record.** `./startup.sh rebuild` and `./startup.sh ci` write a record
   under `startup/ci-reports/`. Its Nessie section has one row per question
-  (route, source, path, seconds, cost, status, task id) and the reported spend,
+  (route, source, path, seconds, cost, status, task id), the spend the ceiling
+  counts with the all-turns total beside it,
   and on a failure the kept chat's session id, its `/debug/` URL and the evidence
   folder. A section reading "No summary" means the lane stopped before its first
   question or in its own cleanup; the record's Failures and Errors sections name
