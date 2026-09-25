@@ -111,6 +111,13 @@ NOT_A_SET_SIZE = [
     "Of the 500 top-ranked D.SEQ files, how many are paired?",
     "the 200 highest-RIN samples",
     "Of the 500 most-recent samples, how many are female?",
+    # fix round 3: a bare range reads neither bound, also after "these"
+    "Which projects have 100 to 500 samples?",
+    "Show projects with 100 to 500 samples",
+    "Of these 100 to 500 samples, how many are mice?",
+    "Which projects have 100 - 500 samples?",
+    "Which projects have 100 \u2013 500 samples?",
+    "Which projects have 100\u2013500 samples?",
 ]
 
 
@@ -161,6 +168,7 @@ def test_a_set_size_near_a_rank_word_is_still_read(q, n):
     ("Are most of 1,206 samples female?", 1206),
     ("Can you provide a table of these 807 samples sorted by date?", 807),
     ("Show those 1,206 mice ordered by age", 1206),
+    ("Of the 745 samples - 300 of them female - how many are mice?", 745),
 ])
 def test_a_known_set_is_still_read_by_both_scans(q, n):
     """A set named with "the" or "this" before "subset of", a set described after its count word ("uploaded by the

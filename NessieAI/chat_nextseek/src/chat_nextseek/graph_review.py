@@ -180,16 +180,21 @@ _RANK_BEFORE = re.compile(r"\b(?:first|last|bottom|next|random(?:ly)?(?:\s+(?:ch
 #: sample of 300 mice". "the subset of 1,206 CC mice" and "this subset of 1,206 mice" name a set of known size.
 _SUBSET_OF = re.compile(r"\b(?:(?:a|an)\s+(?:[\w-]+\s+)?|random\s+)(?:subset|subsample|sample|selection)\s+of\s+$",
                         re.I)
-#: A threshold or a range right before the number: "more than 100 samples", "at least 500 samples", "> 100 samples",
-#: "between 100 and 500 samples" (both numbers), "from 100 to 500 samples" (the second; the first is read by
-#: ``_BOUND_AFTER``).
+#: A threshold, or the upper bound of a range, right before the number: "more than 100 samples", "at least 500
+#: samples", "> 100 samples", the 500 of "between 100 and 500 samples", "from 100 to 500 samples", "100 to 500 samples"
+#: and "100 - 500 samples" (a spaced hyphen, or an en dash spaced or not). "100-500 samples" is never read at all:
+#: ``NUMBER`` does not match beside a hyphen.
 _THRESHOLD = re.compile(r"(?:\b(?:more|less|fewer|greater|higher|lower)\s+than|\bat\s+(?:least|most)|\bup\s+to"
-                        r"|\b(?:over|under|above|below|exceeding|between)|[<>≤≥]=?"
-                        r"|\bbetween\s+[\d,]+\s+and|\bfrom\s+[\d,]+\s+to)\s*$", re.I)
-#: A threshold or a range right after the number or after its count word: "500 or more samples", "1,000 samples or
-#: more", "200 or fewer samples", "500+ samples", "1,000 samples and up", "100 to 500 samples".
+                        r"|\b(?:over|under|above|below|exceeding|between)|[<>\u2264\u2265]=?"
+                        r"|\bbetween\s+[\d,]+\s+and|(?<![\w./-])\d[\d,]*(?:\s+to|\s*[-\u2013]))\s*$", re.I)
+#: A threshold, or the lower bound of a range, right after the number or after its count word: "500 or more
+#: samples", "1,000 samples or more", "200 or fewer samples", "500+ samples", "1,000 samples and up", the 100 of "100 to
+#: 500 samples".
 _BOUND_AFTER = re.compile(r"^(?:\s*\+|\s+or\s+(?:more|fewer|less|greater|higher|lower|above|below|over|under)\b"
-                          r"|\s+and\s+(?:up|above)\b|\s+to\s+[\d,]+(?![\w./-]))", re.I)
+                          r"|\s+and\s+(?:up|above)\b|\s+to\s+\d[\d,]*(?![\w./-]))", re.I)
+#: The lower bound of a dashed range, right after the number only: the 100 of "100 - 500 samples" and of the same
+#: with an en dash. After the count word a spaced dash is more often an aside ("the 745 samples - 300 of them female").
+_DASH_RANGE_AFTER = re.compile(r"^\s*[-\u2013]\s*\d[\d,]*(?![\w./-])")
 #: A rank word between the number and its count word, alone or in a hyphenated word: "the 100 most recent samples",
 #: "the 200 random samples", "the 500 top-ranked D.SEQ files", "the 200 highest-RIN samples".
 _RANK_BETWEEN = re.compile(r"\b(?:" + _SUPERLATIVE + r"|random|randomly|first|last)\b", re.I)
@@ -204,15 +209,18 @@ _RANK_AFTER = re.compile(r"^(?:\s+[\w.()-]+){0,2}?\s*,?\s+(?:(?:with|having)\s+t
 def _not_a_stated_count(text: str, m: re.Match) -> bool:
     """True when the number at group 1 of ``m`` (a ``STATED_COUNT`` or ``SET_COUNT`` match, count word at group 2)
     is no claim about the size of a set: a year (a 4-digit number from 1900 to 2100 written without a comma: "in
-    2023", "the 2024 samples"), a threshold or range ("more than 100 samples", "500 or more samples", "between 100
-    and 500 samples"), or, unless "these" or "those" comes right before it, a rank or sample size ("the 100 most
-    recent samples", "the first 200 samples", "a random subset of 200 samples", "a sample of 300 mice", "the 500
-    samples with the highest RIN"). The one rule for ``premise_count`` (``stated_counts``) and ``check_premise``."""
+    2023", "the 2024 samples"), a threshold ("more than 100 samples", "500 or more samples"), either number of a range
+    ("between 100 and 500 samples", "100 to 500 samples"), or, unless "these" or "those" comes right before it, a rank
+    or sample size ("the 100 most recent samples", "the first 200 samples", "a random subset of 200 samples", "a
+    sample of 300 mice", "the 500 samples with the highest RIN"). The one rule for ``premise_count``
+    (``stated_counts``) and ``check_premise``."""
     raw = m.group(1)
     if "," not in raw and len(raw) == 4 and 1900 <= int(raw) <= 2100:
         return True
     before, after_count = text[:m.start(1)], text[m.end(2):]
-    if _THRESHOLD.search(before) or _BOUND_AFTER.match(text[m.end(1):]) or _BOUND_AFTER.match(after_count):
+    after_number = text[m.end(1):]
+    if (_THRESHOLD.search(before) or _BOUND_AFTER.match(after_number) or _DASH_RANGE_AFTER.match(after_number)
+            or _BOUND_AFTER.match(after_count)):
         return True
     if _BACK_REFERENCE.search(before):
         return False
