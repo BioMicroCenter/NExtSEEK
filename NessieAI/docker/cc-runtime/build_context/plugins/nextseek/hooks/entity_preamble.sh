@@ -28,11 +28,16 @@ PREV=""
 if [ -r "$PREV_DIR/manifest.json" ]; then
   PREV="$(jq -r '
     (.container_path // "/data/previous_turns") as $root
-    | (if (.turns | type) == "array" then .turns[0] else null end) as $t
+    | (if (.turns | type) == "array" then .turns else [] end) as $turns
+    | ($turns[0]) as $t
+    | ([$turns[] | select(type == "object" and .route == "nextseek_query")][0]) as $search
     | if ($t | type) != "object" then empty else
         "Newest staged turn of this chat: turn \($t.turn_id) (\($t.route)), which asked \($t.user_query | tojson)."
         + (if $t.route == "container_cc" then
-             " It was your own earlier turn: its answer and every file it wrote are staged, so read them instead of redoing that work."
+             " It was your own earlier turn: its answer and the files it published are staged, so read them instead of redoing that work."
+             + (if $search != null then
+                  " The newest NExtSEEK search is turn \($search.turn_id): \($root)/\($search.folder)/."
+                else "" end)
            else
              (if $t.count != null then
                 " It returned \($t.count) rows"
@@ -41,14 +46,15 @@ if [ -r "$PREV_DIR/manifest.json" ]; then
               else "" end)
              + (if ($t.sample_uids // 0) > 0 then
                   " Sample UIDs: \($t.sample_uids)."
-                elif $t.count != null and $t.count > 0 then
+                elif $t.count != null and $t.count > 0 and $t.has_cypher == true then
                   " It has no sample UIDs (a count or grouped result): the Cypher in search_details.json defines its samples, so to list or break them down change only its RETURN and keep every MATCH and WHERE."
                 else "" end)
            end)
         + (if (($t.files // []) | length) > 0
            then " Files in \($root)/\($t.folder)/: \([$t.files[] | .file] | join(", "))."
            else "" end)
-        + " A follow-up is about this turn unless the user names another. Read \($root)/MANIFEST.md first, then work from these files; never re-run its search as it was."
+        + " A follow-up is about this turn unless the user names another. Read \($root)/MANIFEST.md first, then work from these files"
+        + (if $t.route == "nextseek_query" then "; never re-run its search as it was." else "." end)
       end
   ' "$PREV_DIR/manifest.json" 2>/dev/null || true)"
 fi

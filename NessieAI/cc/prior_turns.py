@@ -100,8 +100,9 @@ _HIDDEN = frozenset({"parent_titles", "parent_title_hashes"})
 _DROPPED_SAMPLE_PROPERTIES = _HIDDEN | {"search_text", "source_hash"}
 #: The first columns of samples.csv; the rest follow in name order.
 _SAMPLE_LEAD_COLUMNS = ("uuid", "id", "type", "title", "project_ids")
-#: Where a row names its sample: the graph's ``uuid``, a REST row's ``uid``, the metadata ``UID``.
-_UID_KEYS = ("uuid", "uid", "UID")
+#: A column that names a sample: ``uuid`` (the graph), ``uid`` / ``UID`` (REST, metadata), or any
+#: name ending in ``_uuid`` / ``_uid`` (``parent_uuid``, ``child_uuid`` in a lineage row), any case.
+_UID_KEY = re.compile(r"(?i)(?:.*_)?u?uid")
 
 
 # --------------------------------------------------------------------------- reading
@@ -299,21 +300,24 @@ def _ns_files(bundle: dict) -> list[tuple[str, str, str]]:
     return out
 
 
-def _row_uid(row: Any) -> str | None:
-    flat = _flatten(row)
-    for key in _UID_KEYS:
-        value = flat.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-    return None
+def _row_uids(row: Any) -> list[str]:
+    """The sample UIDs one row names: its UID columns, and those of a whole node it holds."""
+    out: list[str] = []
+    for key, value in _flatten(row).items():
+        if isinstance(value, str) and value.strip() and _UID_KEY.fullmatch(str(key)):
+            out.append(value.strip())
+        elif isinstance(value, dict):
+            node = value.get("uuid")
+            if isinstance(node, str) and node.strip():
+                out.append(node.strip())
+    return out
 
 
 def sample_uids(rows: list) -> list[str]:
     """The sample UIDs the rows name, in row order, each once. [] for a count or grouped result."""
     seen: dict[str, None] = {}
     for row in rows:
-        uid = _row_uid(row)
-        if uid is not None:
+        for uid in _row_uids(row):
             seen.setdefault(uid, None)
     return list(seen)
 
@@ -456,7 +460,7 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
         "route": "nextseek_query", "mode": details.get("mode"),
         "count": neo4j.get("count") if neo4j else len(rows) or None,
         "total": neo4j.get("total"), "truncated": neo4j.get("truncated"),
-        "sample_uids": len(uids), **samples,
+        "sample_uids": len(uids), "has_cypher": bool(details.get("graph")), **samples,
         "files": files, "skipped": skipped,
     }
 
@@ -536,7 +540,7 @@ def _render_manifest(turns: list[dict]) -> str:
         if t.get("route") == "nextseek_query" and "sample_uids" in t:
             if t["sample_uids"]:
                 lines.append(f"- sample UIDs: {t['sample_uids']}, in `rows.csv`")
-            elif t.get("count"):
+            elif t.get("count") and t.get("has_cypher"):
                 lines.append("- no sample UIDs: this turn returned a count or grouped rows. The cypher in "
                              "`search_details.json` is the whole definition of its samples: to list them or "
                              "break them down, change only its RETURN and keep every MATCH and WHERE.")
@@ -557,7 +561,7 @@ def memory_pointer(manifest: dict | None) -> str:
     if not turns:
         return ""
     newest = turns[0]
-    return "\n".join([
+    lines = [
         MEMORY_HEADER,
         "",
         f"Every answered turn of this chat is staged read-only under `{CONTAINER_PATH}/`. "
@@ -565,12 +569,22 @@ def memory_pointer(manifest: dict | None) -> str:
         "which file holds what.",
         f"The newest is turn {newest['turn_id']} ({newest['route']}): "
         f"`{CONTAINER_PATH}/{newest['folder']}/`.",
-        "For a follow-up, start from that turn: `rows.json` / `rows.csv` hold every row it "
-        "returned (analyse them directly; do not re-run a search for rows you already have), "
-        "`samples.csv` holds every stored property of those samples, "
-        "and `search_details.json` holds the cypher it ran (to change the search, hand that "
-        "cypher to `nextseek-graph --query` with the one change asked for).",
-    ])
+    ]
+    search = next((t for t in turns if t.get("route") == "nextseek_query"), None)
+    if newest.get("route") == "container_cc":
+        lines.append("It was your own earlier turn: its `answer.md` and the files it published are "
+                     "there, to read instead of redoing that work.")
+        if search is not None:
+            lines.append(f"The newest NExtSEEK search is turn {search['turn_id']}: "
+                         f"`{CONTAINER_PATH}/{search['folder']}/`.")
+    if search is not None:
+        lines.append("For a follow-up on a search, start from its folder: `rows.json` / `rows.csv` "
+                     "hold every row it returned (analyse them directly; do not re-run a search for "
+                     "rows you already have), `samples.csv` (when listed) holds every stored property "
+                     "of those samples, and `search_details.json` holds the cypher it ran (to change "
+                     "the search, hand that cypher to `nextseek-graph --query` with the one change "
+                     "asked for).")
+    return "\n".join(lines)
 
 
 class _GraphError(Exception):

@@ -300,6 +300,44 @@ def test_no_matching_samples_is_remembered_too(tmp_path, outputs):
     assert {s["file"]: s["reason"] for s in manifest["turns"][0]["skipped"]}["samples.csv"] == "no_matching_samples"
 
 
+def test_lineage_rows_name_both_samples(tmp_path, outputs):
+    graph = _Graph()
+    rows = [{"parent_uuid": "MUS-1", "child_uuid": "MUS-2"}, {"s": {"uuid": "MUS-3", "id": 13}}]
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)],
+                            graph_query=graph)
+    assert graph.calls[0][1] == {"uids": ["MUS-1", "MUS-2", "MUS-3"]}
+    assert manifest["turns"][0]["sample_uids"] == 3
+
+
+def test_a_rest_list_is_not_called_a_count_with_a_cypher(tmp_path, outputs):
+    """A REST list (projects, people) has no sample UIDs and no Cypher: say nothing about either."""
+    raw = outputs / "api_result_bundle_6.json"
+    raw.write_text(json.dumps({"ok": True, "data": {"total": 2, "rows": [
+        {"id": 2, "title": "MetNet"}, {"id": 3, "title": "IMPAcTb"}]}}))
+    bundle = {"id": 6, "user_query": "list projects", "mode": "new_search",
+              "api_plan": {"endpoint": "/nextseek_api/projects/", "method": "GET"},
+              "raw_result_path": str(raw)}
+    dest, manifest = _stage(tmp_path, outputs, [_ns_entry(turn_id=6, bundle_id=6, mode="new_search")],
+                            [bundle], graph_query=_Graph())
+    assert manifest["turns"][0]["has_cypher"] is False
+    md = (dest / "MANIFEST.md").read_text()
+    assert "no sample UIDs" not in md and "change only its RETURN" not in md
+
+
+def test_the_memory_pointer_follows_the_newest_turns_route(tmp_path, outputs):
+    art = tmp_path / "art" / "run-1"
+    art.mkdir(parents=True)
+    (art / "chart.png").write_bytes(b"png")
+    cc = {"turn_id": 2, "user_query": "plot", "mode": "cc", "router_choice": "container_cc",
+          "status": "completed", "assistant_reply": "done", "cc_run_id": "run-1"}
+    _, manifest = _stage(tmp_path, outputs, [_ns_entry(), cc], [_graph_bundle(outputs)],
+                         cc_artifacts_root=tmp_path / "art")
+    text = " ".join(prior_turns.memory_pointer(manifest).split())
+    assert "turn 2 (container_cc)" in text
+    assert "your own earlier turn" in text and "answer.md" in text
+    assert "The newest NExtSEEK search is turn 1" in text and "/data/previous_turns/turn-01/" in text
+
+
 def test_uids_the_graph_no_longer_holds_give_no_empty_file(tmp_path, outputs):
     graph = _Graph({"ok": True, "data": [], "count": 0, "total": 0, "truncated": False})
     dest, manifest = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs)], graph_query=graph)

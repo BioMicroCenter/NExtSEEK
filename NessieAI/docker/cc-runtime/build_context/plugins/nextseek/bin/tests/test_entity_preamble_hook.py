@@ -40,7 +40,13 @@ CC_TURN = {
 COUNT_TURN = {
     "turn_id": 5, "folder": "turn-05", "user_query": "How many MSI-high samples?",
     "route": "nextseek_query", "mode": "graph_query", "count": 1, "total": 1, "truncated": False,
-    "sample_uids": 0, "files": [{"file": "search_details.json", "holds": "..."}], "skipped": [],
+    "sample_uids": 0, "has_cypher": True, "files": [{"file": "search_details.json", "holds": "..."}],
+    "skipped": [],
+}
+REST_TURN = {
+    "turn_id": 6, "folder": "turn-06", "user_query": "List the projects", "route": "nextseek_query",
+    "mode": "new_search", "count": 12, "sample_uids": 0, "has_cypher": False,
+    "files": [{"file": "rows.csv", "holds": "..."}], "skipped": [],
 }
 
 
@@ -137,3 +143,14 @@ def test_a_turn_that_could_not_be_staged_lists_no_empty_file_list(tmp_path):
     ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, odd)))
     assert "turn 4" in ctx and "Files in" not in ctx
     assert "Read /data/previous_turns/MANIFEST.md first" in ctx
+
+
+def test_a_rest_list_gets_no_cypher_advice(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, REST_TURN)))
+    assert "12 rows" in ctx and "RETURN" not in ctx and "no sample UIDs" not in ctx
+
+
+def test_a_cc_newest_turn_points_at_the_newest_search_and_not_at_rerunning_one(tmp_path):
+    ctx = _context(_run(tmp_path, staged=_manifest(tmp_path, CC_TURN, NS_TURN)))
+    assert "never re-run its search" not in ctx
+    assert "The newest NExtSEEK search is turn 3" in ctx and "/data/previous_turns/turn-03/" in ctx
