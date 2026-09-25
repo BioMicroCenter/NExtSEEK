@@ -57,8 +57,14 @@ def test_a_three_minute_limit_reads_as_the_approved_sentence():
         "Say continue and I will carry on from where I got to.")
 
 
-def _stopped_turn(tmp_path, monkeypatch, frames, *, write=None):
-    """Feed ``frames``, then idle until the watchdog stops the turn; return its terminal."""
+def _stopped_turn(tmp_path, monkeypatch, frames, *, write=None, clock=None):
+    """Feed ``frames``, then idle until the watchdog stops the turn; return its terminal.
+
+    ``clock``, when given, stands in for the engine's monotonic clock: the retry frame's
+    arrival and the watchdog's stop are the only two readings it takes.
+    """
+    if clock is not None:
+        monkeypatch.setattr(cc_engine, "_monotonic", clock)
     lines = [json.dumps(frame) for frame in frames]
     scratch = tmp_path / "proj" / "alice" / "scratch" / "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
@@ -167,3 +173,63 @@ def test_a_turn_with_no_retry_keeps_the_time_limit_text(tmp_path, monkeypatch):
     data = _stopped_turn(tmp_path, monkeypatch, [INIT, SAID])
     assert data["error"] == cc_engine._time_limit_message(0.3)
     assert data["reason"] == "exec_timeout"
+
+
+# --- review L: a stop long after the retry is a slow answer, not a missing model ------
+# Claude Code prints no frame while a response streams, so after a retry that worked the
+# last frame stays the api_retry until the answer is complete. API_TIMEOUT_MS bounds only
+# the wait for response headers, so past the retry's delay plus that timeout plus 5 s,
+# the retried request must be streaming: the turn simply ran out of time.
+
+class _Clock:
+    """The retry frame arrives at 0 s; the watchdog stops the turn at ``stop`` s."""
+
+    def __init__(self, stop: float):
+        self._readings = [0.0, stop]
+
+    def __call__(self) -> float:
+        return self._readings.pop(0) if len(self._readings) > 1 else self._readings[0]
+
+
+RETRY_1_503 = dict(RETRY_503, attempt=1, retry_delay_ms=591)
+
+
+def test_a_stop_inside_the_retry_window_says_the_model_was_unavailable(tmp_path, monkeypatch):
+    # 0.591 s delay + 60 s default request timeout + 5 s = 65.591 s.
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, RETRY_1_503], clock=_Clock(65.5))
+    assert data["reason"] == "model_unavailable"
+    assert data["error"] == MODEL_UNAVAILABLE
+
+
+def test_a_stop_after_the_retry_window_is_a_slow_answer_and_keeps_the_time_limit_text(
+        tmp_path, monkeypatch):
+    """The reviewer's reproduction: one transient 503, then a healthy but slow stream."""
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, RETRY_1_503], clock=_Clock(65.7))
+    assert data["reason"] == "exec_timeout"
+    assert data["error"] == cc_engine._time_limit_message(0.3)
+    assert "detail" not in data
+
+
+@pytest.mark.parametrize("stop, reason", [(7.5, "model_unavailable"), (7.7, "exec_timeout")])
+def test_the_window_uses_the_request_timeout_the_agent_was_given(
+        tmp_path, monkeypatch, stop, reason):
+    """NEXTSEEK_CC_API_TIMEOUT_MS=2000: 0.591 + 2 + 5 = 7.591 s."""
+    monkeypatch.setenv("NEXTSEEK_CC_API_TIMEOUT_MS", "2000")
+    data = _stopped_turn(tmp_path, monkeypatch, [INIT, RETRY_1_503], clock=_Clock(stop))
+    assert data["reason"] == reason
+
+
+@pytest.mark.parametrize("retry, retry_at, stopped_at, api_timeout_ms, expected", [
+    ({"retry_delay_ms": 591}, 10.0, 75.5, "60000", True),
+    ({"retry_delay_ms": 591}, 10.0, 75.7, "60000", False),
+    ({"retry_delay_ms": 0}, 0.0, 6.0, "1000", True),
+    ({"retry_delay_ms": 0}, 0.0, 6.1, "1000", False),
+    ({}, 0.0, 64.9, "60000", True),                        # no delay recorded: 0
+    ({"retry_delay_ms": "junk"}, 0.0, 65.1, "60000", False),
+    ({"retry_delay_ms": 591}, 0.0, 65.0, "not a number", True),  # falls back to 60000
+    ({"retry_delay_ms": 591}, None, 1.0, "60000", False),  # arrival never recorded
+])
+def test_the_retry_window(retry, retry_at, stopped_at, api_timeout_ms, expected):
+    assert cc_engine._stopped_waiting_on_retry(
+        retry, retry_at=retry_at, stopped_at=stopped_at,
+        api_timeout_ms=api_timeout_ms) is expected

@@ -19,7 +19,8 @@ dmac_assistant/src/dmac_assistant/streamjson.py and ws.py.
 from __future__ import annotations
 
 import re
-from typing import Any
+import time
+from typing import Any, Callable
 
 Frame = tuple[str, dict[str, Any]]
 
@@ -112,8 +113,14 @@ class CCStreamTranslator:
     # (type, system subtype) of the last frame handled, and the last api_retry frame.
     _last_frame: tuple[Any, Any] | None = None
     _last_api_retry: dict[str, Any] | None = None
+    # Monotonic time the last api_retry frame arrived (see ``last_api_retry_at``).
+    _last_api_retry_at: float | None = None
 
-    def __init__(self, model_id: str | None = None) -> None:
+    def __init__(self, model_id: str | None = None,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        # Read once per api_retry frame, so the engine can tell a turn still waiting on
+        # the retried request from one whose retried request is streaming its answer.
+        self._clock = clock
         # The ``--model`` id this turn was started with: what ``models_used`` names when
         # the result frame carries no ``modelUsage``.
         self.model_id = model_id
@@ -185,6 +192,16 @@ class CCStreamTranslator:
             return self._last_api_retry
         return None
 
+    @property
+    def last_api_retry_at(self) -> float | None:
+        """When (on the translator's clock) the last ``system/api_retry`` frame arrived.
+
+        Claude Code prints no frame while a response streams, so a retry that worked
+        stays the last frame until the answer is complete: ``retrying_model`` alone
+        cannot tell waiting from streaming. The time can.
+        """
+        return self._last_api_retry_at
+
     def model_unavailable_error(self) -> str:
         """The approved text for a turn the model's unavailability ended: the "second
         model" wording only when a fallback was recorded this turn."""
@@ -216,6 +233,7 @@ class CCStreamTranslator:
         elif subtype == "api_retry":
             self.api_retries += 1
             self._last_api_retry = payload
+            self._last_api_retry_at = self._clock()
         # "informational", "permission_denied" and any other notice: nothing to do.
         return []
 

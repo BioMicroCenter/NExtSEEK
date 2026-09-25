@@ -252,3 +252,15 @@ def test_a_turn_with_no_retry_is_not_waiting_on_the_model():
     t, _ = _run([INIT, _answer(MAIN)])
     assert t.retrying_model is None
     assert CCStreamTranslator().retrying_model is None
+
+
+def test_the_translator_notes_when_each_retry_frame_arrived():
+    readings = iter([12.5, 40.0])
+    t = CCStreamTranslator(model_id=MAIN, clock=lambda: next(readings))
+    assert t.last_api_retry_at is None
+    t.handle(INIT)
+    t.handle(_answer(MAIN))  # no reading for a frame that is not a retry
+    t.handle(RETRY_503)
+    assert t.last_api_retry_at == 12.5
+    t.handle(RETRY_503)
+    assert t.last_api_retry_at == 40.0

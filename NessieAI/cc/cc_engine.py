@@ -98,6 +98,13 @@ _DEFAULT_CC_API_TIMEOUT_MS = "60000"
 # Below a second every model call would time out at once, so a smaller override (zero
 # included) keeps the default.
 _MIN_CC_API_TIMEOUT_MS = 1000
+# A turn the watchdog stops while its last frame is an api_retry was still waiting on the
+# retried request only within the retry's delay plus API_TIMEOUT_MS (which bounds the wait
+# for response headers) plus this much slack. Later, the request must be streaming an
+# answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
+_RETRY_WINDOW_SLACK_S = 5.0
+# The engine's monotonic clock, one name so tests can stand in for it.
+_monotonic = time.monotonic
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
 # and names its own default Sonnet id (one the Bedrock proxy refuses) unless
 # ANTHROPIC_DEFAULT_SONNET_MODEL is set. The id comes from the model map's ``sonnet``
@@ -1355,7 +1362,7 @@ def run_cc_turn(
 
     # The --model id, so the turn record can name the model that answered even when the
     # result frame carries no modelUsage.
-    translator = CCStreamTranslator(model_id=model_id)
+    translator = CCStreamTranslator(model_id=model_id, clock=lambda: _monotonic())
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
     client = docker.from_env()
@@ -1372,9 +1379,11 @@ def run_cc_turn(
         # stream so the read loop below exits.
         _done = threading.Event()
         _timed_out = threading.Event()
+        _stopped_at: list[float] = []  # when the watchdog fired, on the engine's clock
 
         def _watchdog() -> None:
             if not _done.wait(turn_timeout):
+                _stopped_at.append(_monotonic())
                 _timed_out.set()
                 for _op in (lambda: container.stop(timeout=2),
                             lambda: container.remove(force=True)):
@@ -1493,8 +1502,13 @@ def run_cc_turn(
             # model was the problem, not the size of the task. With the approved retry
             # bound and request timeout a hung upstream needs about 244 s to give up, so
             # this watchdog fires first, and "say continue" would only stall again.
+            # Only while the retried request can still be waiting for its headers: a stop
+            # after that window is a healthy but slow answer (see _stopped_waiting_on_retry).
             retry = translator.retrying_model
-            if retry is not None:
+            if retry is not None and _stopped_waiting_on_retry(
+                    retry, retry_at=translator.last_api_retry_at,
+                    stopped_at=_stopped_at[0] if _stopped_at else _monotonic(),
+                    api_timeout_ms=environment.get("API_TIMEOUT_MS")):
                 stopped = {"error": translator.model_unavailable_error(),
                            "reason": MODEL_UNAVAILABLE_REASON,
                            "detail": _retry_stop_detail(turn_timeout, retry)}
@@ -1771,6 +1785,27 @@ def _time_limit_phrase(seconds: float) -> str:
     if value > 0 and value % 60 == 0:
         return f"{int(value // 60)}-minute"
     return f"{value:g}-second"
+
+
+def _stopped_waiting_on_retry(retry: Mapping[str, Any], *, retry_at: float | None,
+                              stopped_at: float | None, api_timeout_ms: Any) -> bool:
+    """Whether a stop at ``stopped_at`` can still have been waiting on the retried request.
+
+    True within the retry frame's ``retry_delay_ms`` plus ``api_timeout_ms`` (the value
+    the agent's env was given; it bounds only the wait for response headers) plus
+    ``_RETRY_WINDOW_SLACK_S`` of the frame's arrival at ``retry_at``. Later than that the
+    retried request must be streaming. An unknown arrival time is never "waiting".
+    """
+    if retry_at is None or stopped_at is None:
+        return False
+    delay = retry.get("retry_delay_ms")
+    delay_s = (delay / 1000 if isinstance(delay, (int, float)) and not isinstance(delay, bool)
+               and delay > 0 else 0.0)
+    try:
+        timeout_s = int(api_timeout_ms) / 1000
+    except (TypeError, ValueError):
+        timeout_s = int(_DEFAULT_CC_API_TIMEOUT_MS) / 1000
+    return stopped_at - retry_at <= delay_s + timeout_s + _RETRY_WINDOW_SLACK_S
 
 
 def _retry_stop_detail(seconds: float, retry: Mapping[str, Any]) -> str:
