@@ -80,3 +80,32 @@ def test_the_outage_reason_still_names_the_old_marker_and_the_new_reason():
     assert outage.PROVIDER_OUTAGE_MARKER in outage.OUTAGE_REASON
     assert outage.MODEL_UNAVAILABLE_REASON in outage.OUTAGE_REASON
     assert outage.OUTAGE_REASON.startswith("provider outage")
+
+
+CC_REPLIES = [
+    "The AI model was unavailable during this turn, so I could not finish your question. Please ask again.",
+    "The AI model was unavailable during this turn (it stopped part way). Please ask again in a few minutes.",
+]
+
+
+@pytest.mark.parametrize("reply", CC_REPLIES, ids=["cc-a", "cc-b"])
+def test_the_cc_unavailability_text_is_an_outage(reply):
+    """Both CC variants share this prefix; text-only callers classify it with no event data."""
+    from NessieAI.tests.nessie_tests import export
+
+    assert outage.is_provider_outage(reply) is True
+    assert evaluate.classify_turn_status(False, reply) == "error"
+    assert export.classify_error(reply) == export.ERROR_OUTAGE
+
+
+def test_the_ns_text_is_an_outage_to_classify_error_too():
+    from NessieAI.tests.nessie_tests import export
+
+    assert export.classify_error(NS_NO_SECOND) == export.ERROR_OUTAGE
+
+
+def test_the_markers_are_the_two_engines_prefixes():
+    assert set(outage.MODEL_UNAVAILABLE_REPLY_MARKERS) == {
+        "The AI models we use were unavailable",
+        "The AI model was unavailable during this turn",
+    }

@@ -29,8 +29,9 @@ the AI models could not answer (a 503, an empty body, a 429, a timeout or a
 connection error, on the second model too when there was one) replies with the
 operator's plain text, and its ``query_error`` event carries
 ``reason: "model_unavailable"`` with the raw message in ``detail``; the
-Container-CC route uses the same reason. Both are detected here: the plain text in
-a reply, and the reason in any event data handed in. The old phrase still counts,
+Container-CC route uses the same reason and its own plain text. All of it is
+detected here: either engine's plain text in a reply, and the reason in any event
+data handed in. The old phrase still counts,
 for stored runs and for the raw message wherever it surfaces.
 """
 from __future__ import annotations
@@ -48,10 +49,15 @@ PROVIDER_OUTAGE_MARKER = "All provider fallbacks exhausted"
 # nothing from the product); tests/test_outage_model_unavailable.py pins the two equal.
 MODEL_UNAVAILABLE_REASON = "model_unavailable"
 
-# The stable opening of the NS reply for that turn, both variants (with and without
-# "(we tried a second one as well)"). The planner's own failure replies ("The AI model
-# that plans the search ...") are an unsupported plan, not an outage, and do not match.
-MODEL_UNAVAILABLE_REPLY_MARKER = "The AI models we use were unavailable"
+# The stable opening of each engine's reply for that turn: NS (both variants, with and
+# without "(we tried a second one as well)") and Container-CC (both of its variants share
+# this prefix). Text-only callers, such as export.classify_error and the runner's reply
+# checks, classify a turn from these alone. The planner's own failure replies ("The AI
+# model that plans the search ...") are an unsupported plan, not an outage, and do not match.
+MODEL_UNAVAILABLE_REPLY_MARKERS = (
+    "The AI models we use were unavailable",
+    "The AI model was unavailable during this turn",
+)
 
 # Recorded as the manifest entry's `reason`, so a reader of report.html or of the
 # printed summary sees why the case was exempted rather than just an `error`.
@@ -66,7 +72,7 @@ _TEXT_KEYS = ("error", "detail", "reply")
 
 
 def _text_is_outage(text: str) -> bool:
-    return PROVIDER_OUTAGE_MARKER in text or MODEL_UNAVAILABLE_REPLY_MARKER in text
+    return PROVIDER_OUTAGE_MARKER in text or any(m in text for m in MODEL_UNAVAILABLE_REPLY_MARKERS)
 
 
 def _data_is_outage(data: dict) -> bool:
@@ -82,7 +88,7 @@ def is_provider_outage(*items: object) -> bool:
     """True if ANY of ``items`` shows a turn the AI models could not answer.
 
     A string is a reply (or an error text) carrying the old exhausted-chain phrase or
-    the NS plain text. A dict is event data (a ``query_error`` payload, or a progress
+    either engine's plain text. A dict is event data (a ``query_error`` payload, or a progress
     event wrapping one) whose ``reason`` is ``model_unavailable`` or whose text carries
     either. Anything else (None, an int) is simply not an outage: a resolver that
     returns something unexpected must not make the detector raise inside the run loop.
