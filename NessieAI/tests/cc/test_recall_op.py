@@ -120,3 +120,19 @@ def test_recall_keeps_a_plan_bundles_rest_rows(monkeypatch, tmp_path):
     _install(monkeypatch, tmp_path, client)
     manifest = runner._dispatch_recall(_args(4))
     assert manifest["row_count"] == 2 and manifest["total"] == 2
+
+
+def test_recall_never_writes_the_hidden_parent_lists(monkeypatch, tmp_path):
+    rows = [{"uuid": "A-1", "parent_titles": ["x"], "s": {"uuid": "A-1", "parent_title_hashes": ["h"]}}]
+    client = FakeClient(turns=[{"turn_id": 1, "bundle_id": 1}],
+                        bundles={1: {"id": 1, "graph_result": {"ok": True, "data": rows}}})
+    _install(monkeypatch, tmp_path, client)
+    runner._dispatch_recall(_args(1))
+    assert json.loads((tmp_path / "recall" / "turn-1.json").read_bytes()) == [{"uuid": "A-1", "s": {"uuid": "A-1"}}]
+
+
+def test_the_runner_hides_what_graph_scope_hides():
+    """The container has no chat_nextseek, so the runner carries its own copy of the set."""
+    from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= set(runner._HIDDEN_SAMPLE_PROPERTIES)

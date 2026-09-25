@@ -127,6 +127,20 @@ def _total_and_rows(api_result_full: dict) -> tuple[int | None, int, list]:
     return None, 0, []
 
 
+#: chat_nextseek graph_scope.HIDDEN_SAMPLE_PROPERTIES (this container has no chat_nextseek; a
+#: test pins the copy): never written to a recall file, at any depth.
+_HIDDEN_SAMPLE_PROPERTIES = frozenset({"parent_titles", "parent_title_hashes"})
+
+
+def _without_hidden(value):
+    if isinstance(value, dict):
+        return {k: _without_hidden(v) for k, v in value.items()
+                if str(k).lower() not in _HIDDEN_SAMPLE_PROPERTIES}
+    if isinstance(value, list):
+        return [_without_hidden(v) for v in value]
+    return value
+
+
 def _bundle_rows(bundle: dict) -> tuple[int | None, int, list]:
     """(total, row_count, rows) of a downloaded bundle: a graph turn's ``graph_result.data``, else
     the REST result. A graph turn has no API result, so reading only that returned no rows."""
@@ -449,6 +463,7 @@ def _dispatch_recall(args):
         raise
 
     total, row_count, rows = _bundle_rows(bundle)
+    rows = _without_hidden(rows)
     first = rows[0] if rows and isinstance(rows[0], dict) else {}
     columns = [str(k) for k in first.keys()]
 

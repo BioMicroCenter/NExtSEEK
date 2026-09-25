@@ -325,6 +325,18 @@ def test_a_plan_bundle_whose_graph_step_found_nothing_stages_its_rest_rows(tmp_p
     assert json.loads((dest / "turn-05" / "rows.json").read_text())["rows"] == rest_rows
 
 
+def test_staged_rows_never_carry_the_hidden_parent_lists(tmp_path, outputs):
+    """Whatever a turn's rows hold, the properties graph_scope keeps hidden (at any depth, as in a
+    whole node) are not written to rows.json or rows.csv."""
+    rows = [{"uuid": "MUS-1", "parent_titles": ["x"], "s": {"uuid": "MUS-1", "Sex": "F",
+                                                              "parent_title_hashes": ["h"]}}]
+    dest, _ = _stage(tmp_path, outputs, [_ns_entry()], [_thin_bundle(outputs, rows=rows)])
+    staged = (dest / "turn-01" / "rows.json").read_text() + (dest / "turn-01" / "rows.csv").read_text()
+    assert "parent_title" not in staged
+    assert json.loads((dest / "turn-01" / "rows.json").read_text())["rows"] == [
+        {"uuid": "MUS-1", "s": {"uuid": "MUS-1", "Sex": "F"}}]
+
+
 # ---------------------------------------------------------------- scope guards
 def test_a_file_outside_the_artifact_roots_is_never_copied(tmp_path, outputs):
     secret = tmp_path / "elsewhere" / "local_settings.py"
@@ -521,3 +533,10 @@ def test_the_agent_reads_the_manifest_on_every_turn_and_finds_its_own_files_ther
     md = (dest / "MANIFEST.md").read_text()
     assert "Your own earlier Container-CC turns are here too" in " ".join(md.split())
     assert "- `full.json`: a file this turn wrote" in md
+
+
+def test_staging_hides_at_least_what_graph_scope_hides():
+    from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= prior_turns._HIDDEN
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= prior_turns._DROPPED_SAMPLE_PROPERTIES

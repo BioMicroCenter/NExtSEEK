@@ -91,12 +91,13 @@ MAX_SAMPLE_UIDS = 5000
 #: not ``s{.*}``: the scope prover refuses a map of every property for a non-admin.
 SAMPLES_CYPHER = ("MATCH (s:Sample) WHERE s.uuid IN $uids "
                   "RETURN s AS sample ORDER BY s.uuid, s.id LIMIT 5000")
-#: Never written to samples.csv. ``parent_titles`` and ``parent_title_hashes`` are
-#: ``graph_scope.HIDDEN_SAMPLE_PROPERTIES``, which a non-admin may not read: staging drops them
-#: itself rather than rely on any other layer. ``search_text`` repeats every other value;
-#: ``source_hash`` is the sync's bookkeeping.
-_DROPPED_SAMPLE_PROPERTIES = frozenset({"parent_titles", "parent_title_hashes", "search_text",
-                                        "source_hash"})
+#: ``graph_scope.HIDDEN_SAMPLE_PROPERTIES``, which a non-admin may not read. Staging drops them
+#: from everything it writes (rows.json, rows.csv, samples.csv), at any depth, rather than rely
+#: on any other layer; a test pins this copy to graph_scope's set.
+_HIDDEN = frozenset({"parent_titles", "parent_title_hashes"})
+#: Never written to samples.csv: the hidden properties, ``search_text`` (it repeats every other
+#: value) and ``source_hash`` (the sync's bookkeeping).
+_DROPPED_SAMPLE_PROPERTIES = _HIDDEN | {"search_text", "source_hash"}
 #: The first columns of samples.csv; the rest follow in name order.
 _SAMPLE_LEAD_COLUMNS = ("uuid", "id", "type", "title", "project_ids")
 #: Where a row names its sample: the graph's ``uuid``, a REST row's ``uid``, the metadata ``UID``.
@@ -136,6 +137,15 @@ def _rows_of(payload: Any) -> list:
                 if isinstance(container.get(key), list):
                     return container[key]
     return []
+
+
+def _without_hidden(value: Any) -> Any:
+    """``value`` with every key in ``_HIDDEN`` removed, at any depth (a row can hold a whole node)."""
+    if isinstance(value, dict):
+        return {k: _without_hidden(v) for k, v in value.items() if str(k).lower() not in _HIDDEN}
+    if isinstance(value, list):
+        return [_without_hidden(v) for v in value]
+    return value
 
 
 def _flatten(row: Any) -> dict:
@@ -396,6 +406,9 @@ def _stage_ns_turn(entry: dict, bundle: dict, turn_dir: Path, *, safe_ns_path: S
         rows = _rows_of(full)
         total = _as_dict(_as_dict(full).get("data")).get("total") if isinstance(full, dict) else None
         payload = {"api": details.get("api"), "total": total, "rows": rows}
+    rows = _without_hidden(rows)
+    if isinstance(payload.get("rows"), list):
+        payload["rows"] = rows
     if rows:
         _write_text(turn_dir / "rows.json",
                     json.dumps(payload, indent=1, default=str, ensure_ascii=False) + "\n")
