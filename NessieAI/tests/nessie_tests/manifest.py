@@ -52,7 +52,10 @@ class TurnMeta(BaseModel):
     model_fallback: list[dict] = Field(default_factory=list)
     router_model: str | None = None
     router_fallback: dict | None = None
-    # False when neither event carried its fallback key: silence, not "none".
+    # Whether each part that ran said if it fell back (`turn_cost.read_turn`), and
+    # both together. False is silence, not "none".
+    router_fallback_reported: bool = False
+    engine_fallback_reported: bool = False
     fallback_reported: bool = False
     # Derived once by `turn_cost.turn_total` and stored, so a reader of the
     # manifest never re-derives them differently.

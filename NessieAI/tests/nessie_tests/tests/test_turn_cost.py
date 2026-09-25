@@ -72,6 +72,38 @@ def test_the_last_terminal_event_wins_and_query_complete_beats_query_error():
     assert tc.read_turn(payload)["engine_cost"] == 0.3
 
 
+def test_fallback_is_reported_only_when_every_part_that_ran_reported():
+    """A deploy where only one side writes its fallback field must not read as
+    "no fallback": the silent side may have fallen back."""
+    router_only = tc.read_turn({"progress": [_rd(router_fallback=None),
+                                             _qc(total_cost_usd=0.1)]})
+    assert router_only["router_fallback_reported"] is True
+    assert router_only["engine_fallback_reported"] is False
+    assert router_only["fallback_reported"] is False
+
+    engine_only = tc.read_turn({"progress": [_rd(), _qc(model_fallback=[])]})
+    assert engine_only["router_fallback_reported"] is False
+    assert engine_only["engine_fallback_reported"] is True
+    assert engine_only["fallback_reported"] is False
+
+    both = tc.read_turn({"progress": [_rd(router_fallback=None), _qc(model_fallback=[])]})
+    assert both["fallback_reported"] is True
+
+
+def test_a_part_that_did_not_run_needs_no_fallback_report():
+    forced = tc.read_turn({"progress": [_rd(source="forced"), _qc(model_fallback=[])]})
+    assert forced["fallback_reported"] is True
+    unrelated = tc.read_turn({"progress": [_rd(route="unrelated", router_fallback=None)]})
+    assert unrelated["fallback_reported"] is True
+
+
+def test_a_route_tier_turn_cannot_report_the_engine_side():
+    """The client stops at `route_decided`; whether the engine fell back is unknown."""
+    t = tc.read_turn({"progress": [_rd(router_fallback=None)]})
+    assert t["router_fallback_reported"] is True
+    assert t["fallback_reported"] is False
+
+
 def test_an_empty_payload_reads_as_nothing_observed():
     t = tc.read_turn({})
     assert t["route"] is None and t["source"] is None

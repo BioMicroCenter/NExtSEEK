@@ -82,9 +82,16 @@ def read_turn(payload: dict) -> dict:
         end = _last_data(payload, "query_error") or {}
     router_model = rd.get("router_model")
     router_fallback = rd.get("router_fallback")
+    route, source = rd.get("route"), rd.get("source")
+    # Per part, because a deploy where only one side writes its field must not read
+    # as "no fallback". A part that did not run needs no report: a forced turn made
+    # no router call and an `unrelated` turn ran no engine. A route-tier turn never
+    # sees the engine's terminal event, so its engine side is unreported.
+    router_reported = source == SOURCE_FORCED or "router_fallback" in rd
+    engine_reported = route == ROUTE_UNRELATED or "model_fallback" in end
     return {
-        "route": rd.get("route"),
-        "source": rd.get("source"),
+        "route": route,
+        "source": source,
         "router_cost": usd(rd.get("router_cost_usd")),
         "router_cost_partial": rd.get("router_cost_partial") is True,
         "router_model": router_model if isinstance(router_model, str) else None,
@@ -93,10 +100,12 @@ def read_turn(payload: dict) -> dict:
         "cost_partial": end.get("cost_partial") is True,
         "models_used": [m for m in _list(end.get("models_used")) if isinstance(m, str)],
         "model_fallback": [f for f in _list(end.get("model_fallback")) if isinstance(f, dict)],
-        # Whether this turn said anything about fallback at all. A server older than
-        # the contract writes neither key, and "no fallback" must not be read off
-        # silence.
-        "fallback_reported": "model_fallback" in end or "router_fallback" in rd,
+        # Whether this turn said, for every part that ran, whether it fell back. A
+        # server older than the contract writes neither key, and "no fallback" must
+        # not be read off silence.
+        "router_fallback_reported": router_reported,
+        "engine_fallback_reported": engine_reported,
+        "fallback_reported": router_reported and engine_reported,
     }
 
 
