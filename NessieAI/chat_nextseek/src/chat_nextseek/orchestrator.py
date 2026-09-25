@@ -45,7 +45,6 @@ from .agents import (
     chatter_agent_plan,
     entity_agent,
     graph_agent,
-    memory_agent_answer,
     multi_parser_agent,
     parser_agent,
     plan_evaluator_agent,
@@ -621,8 +620,8 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
 
     Its ``run_new_query`` seam re-uses the graph agent the ordinary graph turn uses, so
     a follow-up runs the same engine as a fresh question; the difference is only that
-    it is scoped to the previous result. Returns None on any failure, which sends the
-    caller to the pre-existing stored-result path.
+    it is scoped to the previous result. Returns None on any failure, and the caller then
+    answers with ``FOLLOWUP_UNAVAILABLE_REPLY`` (``resolve_followup_outcome``).
 
     How a query is scoped is its ``seed_mode``, on every payload:
 
@@ -881,7 +880,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             outcome["compute_runs"] = compute_runs
         return outcome
     except Exception as exc:
-        print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
+        print(f"[DEBUG][FOLLOWUP] agent failed, the turn gets the fixed reply: {exc!r}")
         return None
 
 
@@ -1903,9 +1902,10 @@ def run_query(
             # question the stored result could not answer was answered from it anyway
             # (in task 440 the user was told "No other data types are available" about
             # a result that could not have held them). The agent can look at what the bundle
-            # holds and run a new query seeded with its UIDs. When the profile has no
-            # tool-capable model, or the agent produces nothing, the old path still
-            # runs: worse, but never worse than before.
+            # holds, compute over its rows, and run a new query seeded with its UIDs. It is
+            # the only path: when it fails, the profile has no tool-capable model, or it
+            # ends with nothing, the turn says so (FOLLOWUP_UNAVAILABLE_REPLY) rather than
+            # answering from the stored snapshot (n0914-1175).
             followup_outcome = _run_followup_agent(
                 config, session=session, user_text=user_text, bundle=bundle, log_dir=log_dir,
             )
@@ -1932,16 +1932,10 @@ def run_query(
             # `if reply:` could not tell an exhausted loop from a profile with no tool
             # surface, so a lineage question was answered from a five-column bundle which
             # then reported the absence of what the loop had already found.
-            answer, may_use_stored = resolve_followup_outcome(followup_outcome)
-            if may_use_stored:
-                answer = memory_agent_answer(config, user_text, bundle, log_dir=log_dir)
-            elif not answer:
-                answer = ("I could not finish this follow-up. Ask it as a fresh question and "
-                          "I will run it properly.")
-            answer = link_sample_uids(answer)
+            answer = link_sample_uids(resolve_followup_outcome(followup_outcome))
             print(f"[TIMING][MEMORY] {time.perf_counter() - _t0:.2f}s")
             own_bundle = None
-            if not may_use_stored:
+            if followup_outcome is not None:
                 try:
                     own_bundle = _followup_result_bundle(
                         session, artifact_store, outcome=followup_outcome, user_text=user_text,
@@ -1976,7 +1970,6 @@ def run_query(
                 "source_mode": bundle.get("mode"),
             }
             debug_payload["api_result_slim"] = bundle.get("api_result_slim")
-            debug_payload["memory_coder_artifact"] = bundle.get("memory_coder_artifact")
             session["last_debug"] = debug_payload
             send_event("agent_complete", {"agent": "memory", "summary": None})
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")

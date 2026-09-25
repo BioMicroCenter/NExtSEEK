@@ -262,7 +262,7 @@ def test_the_loop_is_bounded():
 
 
 def test_a_profile_without_a_tool_capable_model_degrades_instead_of_failing():
-    """The old stored-result path still runs: worse, but never worse than before."""
+    """It says it has no tool surface, and the turn gets the fixed reply rather than an error."""
 
     class _NoTools:
         provider = "gcp"
@@ -334,7 +334,7 @@ def test_the_followup_agent_is_registered_in_every_profile():
 # never sees it.
 # --------------------------------------------------------------------------
 
-from chat_nextseek.agents.followup import resolve_followup_outcome  # noqa: E402
+from chat_nextseek.agents.followup import FOLLOWUP_UNAVAILABLE_REPLY, resolve_followup_outcome  # noqa: E402
 
 
 def test_the_working_iterations_keep_the_whole_tool_surface():
@@ -362,32 +362,30 @@ def test_an_exhausted_loop_that_ran_a_query_answers_from_what_it_found():
                                                "uids_available": 1549, "uids_applied": 1549})
 
     assert out["exhausted"] is True
-    reply, may_fall_back = resolve_followup_outcome(out)
-    assert may_fall_back is False, "the stored bundle must not answer over three completed queries"
+    reply = resolve_followup_outcome(out)
     assert reply and "23" in reply
     assert "TIS" in reply
 
 
-def test_an_exhausted_loop_that_only_read_the_bundle_leaves_the_stored_path_alone():
-    """Nothing was queried, so the old path is the only one that can answer."""
+def test_an_exhausted_loop_that_only_read_the_bundle_gets_the_fixed_reply():
+    """Nothing was queried or computed, so there is nothing to report."""
     client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 2))
     out = run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
 
-    assert resolve_followup_outcome(out) == (None, True)
+    assert resolve_followup_outcome(out) == FOLLOWUP_UNAVAILABLE_REPLY
 
 
-def test_a_profile_with_no_tool_surface_leaves_the_stored_path_alone():
+def test_a_profile_with_no_tool_surface_gets_the_fixed_reply():
     out = {"reply": None, "caveats": [], "queries": [], "tool_calls": [], "unsupported": True}
-    assert resolve_followup_outcome(out) == (None, True)
-    assert resolve_followup_outcome(None) == (None, True)
+    assert resolve_followup_outcome(out) == FOLLOWUP_UNAVAILABLE_REPLY
+    assert resolve_followup_outcome(None) == FOLLOWUP_UNAVAILABLE_REPLY
 
 
-def test_a_finished_answer_carries_its_caveats_and_blocks_the_stored_path():
+def test_a_finished_answer_carries_its_caveats():
     out = {"reply": "23 downstream types.", "caveats": ["Only the first 200 UIDs were applied."],
            "queries": [{"question": "x", "result": {"ok": True, "count": 23}}], "tool_calls": ["answer"]}
-    reply, may_fall_back = resolve_followup_outcome(out)
+    reply = resolve_followup_outcome(out)
 
-    assert may_fall_back is False
     assert reply.startswith("23 downstream types.")
     assert "Only the first 200 UIDs were applied." in reply
 
@@ -395,9 +393,8 @@ def test_a_finished_answer_carries_its_caveats_and_blocks_the_stored_path():
 def test_a_query_that_failed_is_not_reported_as_a_finding():
     out = {"reply": None, "queries": [{"question": "x", "result": {"ok": False, "error": "boom"}}],
            "caveats": [], "tool_calls": ["run_new_query"], "exhausted": True}
-    reply, may_fall_back = resolve_followup_outcome(out)
+    reply = resolve_followup_outcome(out)
 
-    assert may_fall_back is False, "a query ran, so the stored bundle still may not claim absence"
     assert reply and "could not" in reply.lower()
     assert "boom" not in reply, "no raw error text in a user-facing reply"
 
@@ -460,14 +457,14 @@ def test_an_exhausted_loop_gets_one_terminal_turn_to_answer():
 
 
 def test_the_terminal_turn_is_only_for_a_loop_that_actually_queried():
-    """A loop that only read the bundle has nothing to report, so the old path still runs."""
+    """A loop that only read the bundle has nothing to report, so the turn gets the fixed reply."""
     client = _ScriptedClient([_tool_use("read_stored_result", {})] * (MAX_ITER + 3))
     out = run_followup(_Cfg(client), user_text="q", bundle=_bundle(), run_query=lambda **kw: {})
 
     assert out["exhausted"] is True
     assert out["reply"] is None
     assert len(client.turns) == MAX_ITER, "no extra call when there is nothing to answer from"
-    assert resolve_followup_outcome(out) == (None, True)
+    assert resolve_followup_outcome(out) == FOLLOWUP_UNAVAILABLE_REPLY
 
 
 def test_a_terminal_turn_that_still_will_not_answer_falls_back_to_the_queries():
@@ -477,8 +474,8 @@ def test_a_terminal_turn_that_still_will_not_answer_falls_back_to_the_queries():
                        run_query=lambda **kw: {"ok": True, "count": 23, "examples": ["TIS"]})
 
     assert out["reply"] is None and out["exhausted"] is True
-    reply, may_fall_back = resolve_followup_outcome(out)
-    assert may_fall_back is False and "23" in reply
+    reply = resolve_followup_outcome(out)
+    assert "23" in reply
 
 
 def test_a_tool_the_terminal_turn_did_not_offer_is_refused_not_run():

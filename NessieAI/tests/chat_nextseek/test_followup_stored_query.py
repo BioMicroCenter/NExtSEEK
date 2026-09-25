@@ -668,7 +668,6 @@ def test_the_turn_debug_records_each_loop_query_s_seed_mode(tmp_path):
                          lambda *a, **k: GraphAgentPlan(cypher=REBUILT_CYPHER, context_mode="catalog")), \
             patch.object(orch, "tool_neo4j_query", neo4j), \
             patch.object(orch, "run_followup", fake_followup), \
-            patch.object(orch, "memory_agent_answer", return_value="from the stored result"), \
             patch.object(orch, "append_turn"), \
             patch.object(orch, "_artifacts_for", MagicMock(return_value=None)):
         payload = orch.run_query(session, SimpleNamespace(MODEL_MODE="test", MIN_SAMPLETYPES=[], MIN_ASSAYS=[]),

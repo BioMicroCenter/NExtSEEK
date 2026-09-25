@@ -365,7 +365,6 @@ def test_the_turn_debug_records_each_loop_querys_review(tmp_path):
                          lambda config, cy, params=None: _ok(cy, params, [{"type": "RNA", "n": 402}])), \
             patch.object(orch, "live_values", lambda config, **k: DictCatalog(CATALOG)), \
             patch.object(orch, "run_followup", fake_followup), \
-            patch.object(orch, "memory_agent_answer", return_value="from the stored result"), \
             patch.object(orch, "append_turn"), \
             patch.object(orch, "_artifacts_for", MagicMock(return_value=None)):
         payload = orch.run_query(session, SimpleNamespace(MODEL_MODE="test", MIN_SAMPLETYPES=[], MIN_ASSAYS=[]),

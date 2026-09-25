@@ -255,10 +255,10 @@ def test_the_answer_only_pass_runs_after_computes_with_no_query():
 
 
 def test_a_loop_that_computed_but_did_not_answer_keeps_what_it_found():
-    reply, may_use_stored = resolve_followup_outcome(
+    reply = resolve_followup_outcome(
         {"reply": None, "queries": [], "tool_calls": ["compute_over_rows"],
          "computes": [{"source": "stored", "result": {"ok": True, "count": 626}}]})
-    assert may_use_stored is False and "626" in reply
+    assert "626" in reply
 
 
 # ---------------------------------------------------------------- the orchestrator seam
@@ -393,10 +393,10 @@ def test_a_plan_steps_count_is_the_total_of_its_rows():
 
 
 def test_the_loop_answers_from_its_last_computation_when_it_runs_out():
-    reply, _ = resolve_followup_outcome({"reply": None, "queries": [], "computes": [
+    reply = resolve_followup_outcome({"reply": None, "queries": [], "computes": [
         {"source": "stored", "result": {"ok": True, "count": 0}}]})
     assert "does not mean that none exist" in reply
-    reply, _ = resolve_followup_outcome({"reply": None, "queries": [], "computes": [
+    reply = resolve_followup_outcome({"reply": None, "queries": [], "computes": [
         {"source": "stored", "result": {"ok": False, "error": "x"}}]})
     assert "did not succeed" in reply
 

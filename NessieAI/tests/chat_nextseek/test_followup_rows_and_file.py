@@ -30,7 +30,7 @@ from unittest.mock import MagicMock, patch
 
 from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import followup as followup_mod
-from chat_nextseek.agents.followup import FOLLOWUP_AGENT_KEY, MAX_ITER
+from chat_nextseek.agents.followup import FOLLOWUP_AGENT_KEY, FOLLOWUP_UNAVAILABLE_REPLY, MAX_ITER
 from chat_nextseek.schemas import EntityAgentOutput
 from chat_nextseek.schemas.graph import GraphAgentPlan
 from chat_nextseek.schemas.router import ParserPlan
@@ -215,7 +215,6 @@ def _run_followup_turn(tmp_path, fake_followup, rows=TYPE_ROWS, results=None):
                          lambda *a, **k: GraphAgentPlan(cypher=SEEDED_CYPHER, context_mode="catalog")), \
             patch.object(orch, "tool_neo4j_query", neo4j), \
             patch.object(orch, "run_followup", fake_followup), \
-            patch.object(orch, "memory_agent_answer", return_value="from the stored result"), \
             patch.object(orch, "append_turn"), \
             patch.object(orch, "_artifacts_for", artifacts_for):
         payload = orch.run_query(session, SimpleNamespace(MODEL_MODE="test", MIN_SAMPLETYPES=[], MIN_ASSAYS=[]),
@@ -316,3 +315,13 @@ def test_a_follow_up_whose_queries_all_returned_nothing_attaches_nothing_new(tmp
 
     assert [b["id"] for b in session["results_history"]] == [1]
     assert not list(Path(tmp_path).rglob("graph_result_bundle_*.json"))
+
+
+def test_a_failed_loop_gets_the_fixed_reply_not_a_stored_answer(tmp_path):
+    def fake_followup(config, **_):
+        raise RuntimeError("loop down")
+
+    payload, _session, _ = _run_followup_turn(tmp_path, fake_followup)
+    assert payload["reply"].startswith(FOLLOWUP_UNAVAILABLE_REPLY)
+    assert payload["bundle_id"] == 1
+    assert "memory_coder_artifact" not in payload["debug"]

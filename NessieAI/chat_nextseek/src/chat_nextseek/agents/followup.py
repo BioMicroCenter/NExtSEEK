@@ -210,6 +210,10 @@ def _without_debug_block(reply: Any) -> str | None:
     return (reply[:at] if at > 0 else reply).strip()
 
 
+#: The reply when the loop failed, had no tool surface, or ended with nothing to say.
+FOLLOWUP_UNAVAILABLE_REPLY = ("I could not finish this follow-up. Ask it as a fresh question "
+                              "and I will run it properly.")
+
 #: The end of a reply made from what the loop found when it ran out of turns.
 _PARTIAL = ("I ran out of steps before I could finish, so treat this as partial: "
             "ask it again and I will answer it properly.")
@@ -233,8 +237,8 @@ def _reply_from_computes(computes) -> str | None:
 def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
     """What the loop established, when it ran out of turns before saying it.
 
-    Worse than an answer the model composed, and far better than the stored-result path,
-    which cannot see what these queries returned and on turn 1147 reported its absence.
+    Worse than an answer the model composed. The stored-result answer this branch used
+    before could not see what these queries returned, and on turn 1147 reported its absence.
     A query that found something comes first; failing that, the last computation over rows
     in hand that succeeded.
     """
@@ -262,26 +266,30 @@ def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
     return " ".join(parts)
 
 
-def resolve_followup_outcome(outcome: dict | None) -> tuple[str | None, bool]:
-    """``(reply, the stored-result path may answer instead)``.
+def resolve_followup_outcome(outcome: dict | None) -> str:
+    """The follow-up turn's reply: the loop's own, what its work established, or the fixed sentence.
 
     The whole of turn 1147's defect is that the caller had only ``if reply:`` to tell
     three completed graph queries from a profile with no tool surface, so it answered a
     lineage question from a five-column bundle and asserted the absence of what the
-    queries had found. The rule: the stored path answers only when nothing queried the
-    graph or computed over rows on this turn.
+    queries had found. Nothing answers from the stored snapshot any more (n0914-1175): a
+    reply keeps its caveats; queries or computations without a reply give what they
+    established; a failed loop (``None``), a profile with no tool surface
+    (``unsupported``) and a loop that ended with nothing give
+    ``FOLLOWUP_UNAVAILABLE_REPLY``.
     """
     if not outcome or outcome.get("unsupported"):
-        return None, True
+        return FOLLOWUP_UNAVAILABLE_REPLY
     reply = outcome.get("reply")
     if reply:
         caveats = [str(c) for c in (outcome.get("caveats") or []) if str(c).strip()]
         if caveats:
             reply = reply + "\n\n" + "\n".join(f"- {c}" for c in caveats)
-        return reply, False
+        return reply
     if outcome.get("queries") or outcome.get("computes"):
-        return _reply_from_queries(outcome.get("queries") or [], computes=outcome.get("computes") or ()), False
-    return None, True
+        return (_reply_from_queries(outcome.get("queries") or [], computes=outcome.get("computes") or ())
+                or FOLLOWUP_UNAVAILABLE_REPLY)
+    return FOLLOWUP_UNAVAILABLE_REPLY
 
 
 def build_followup_tool_schemas(*, final: bool = False, compute: bool = False) -> list[dict]:
@@ -858,8 +866,8 @@ def run_followup(
     """
     client, model_name, thinking_budget = config.get_agent_model(FOLLOWUP_AGENT_KEY)
     if not callable(getattr(client, "chat_with_tools", None)):
-        # No tool surface on this profile. The caller falls back to the old
-        # read-the-stored-result path, which is worse but is what shipped before.
+        # No tool surface on this profile. The caller answers with
+        # FOLLOWUP_UNAVAILABLE_REPLY; nothing answers from the stored snapshot.
         return {"reply": None, "caveats": [], "queries": [], "computes": [], "tool_calls": [],
                 "unsupported": True}
 
@@ -879,8 +887,8 @@ def run_followup(
     read_already = False
 
     # MAX_ITER working iterations, then one pass that can only answer -- taken only when
-    # something was queried or computed, because a loop that just read the bundle has
-    # nothing to report and the stored-result path is then the only thing that can speak.
+    # something was queried or computed. A loop that just read the bundle has nothing to
+    # report, and the caller then answers with FOLLOWUP_UNAVAILABLE_REPLY.
     for iteration in range(MAX_ITER + 1):
         terminal = iteration == MAX_ITER
         if terminal:

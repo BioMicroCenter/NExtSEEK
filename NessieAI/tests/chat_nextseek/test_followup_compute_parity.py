@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 
-from chat_nextseek.agents.followup import _stored_rows, resolve_followup_outcome
+from chat_nextseek.agents.followup import FOLLOWUP_UNAVAILABLE_REPLY, _stored_rows, resolve_followup_outcome
 from chat_nextseek.agents.followup_compute import compute_over_rows
 from chat_nextseek.graph_review import review_compute
 
@@ -178,5 +178,5 @@ def test_p11_a_planner_bundles_rows_are_reachable():
     assert _stored_rows(bundle) == [{"uid": "A"}, {"uid": "B"}]
 
 
-def test_p12_until_task_21_an_unsupported_loop_still_reaches_the_stored_path():
-    assert resolve_followup_outcome({"unsupported": True}) == (None, True)
+def test_p12_an_unsupported_loop_gets_the_fixed_reply():
+    assert resolve_followup_outcome({"unsupported": True}) == FOLLOWUP_UNAVAILABLE_REPLY
