@@ -255,3 +255,46 @@ def test_a_criterion_or_a_request_gets_no_correction_end_to_end(monkeypatch, q, 
         query_notes=[_review_note(disclosure)] if disclosure else [], review_disclosure=disclosure, log_dir="")
     body = out.split("**Debug info**")[0].strip()
     assert not PREMISE_FACT_RE.search(body) and body == reply
+
+
+MATCHED = "The matched values were: Non-converter 57, Converter 32, Reverter 9."
+BOTH = f"{MATCHED} {FACT}"
+
+
+@pytest.mark.parametrize("reply,disclosure,expected", [
+    # the validator's case: another fact whose numbers the reply lacks
+    ("98 samples match; this search did not reproduce the 4,095 in the question.", BOTH,
+     f"98 samples match; this search did not reproduce the 4,095 in the question. {MATCHED}"),
+    ("98 samples match; I could not confirm the 4,095 in the question.", BOTH,
+     f"98 samples match; I could not confirm the 4,095 in the question. {MATCHED}"),
+    # the premise sentence alone, and a correction that does not repeat the number
+    ("98 samples match; the number in the question was not confirmed.", FACT,
+     "98 samples match; the number in the question was not confirmed."),
+], ids=["other-fact", "other-fact-could-not-confirm", "number-not-repeated"])
+def test_a_reply_that_corrects_it_gets_no_second_correction(monkeypatch, reply, disclosure, expected):
+    """M4: whether the reply corrects the number is judged on the model's reply, before the facts backstop adds
+    anything. The backstop put the whole disclosure after the first sentence, premise sentence included, and
+    _premise_first then found that sentence and moved it to the front: two corrections in one reply."""
+    body = _answer(monkeypatch, _says(reply), [f"What the result matched: {disclosure} State this plainly."],
+                   review_disclosure=disclosure)
+    assert body == expected
+    assert not PREMISE_FACT_RE.search(body)
+
+
+def test_the_backstop_leaves_the_premise_sentence_out_of_a_reply_that_corrects_it():
+    reply = "98 samples match; this search did not reproduce the 4,095 in the question."
+    assert chatter_mod._with_review_backstop(reply, BOTH, None, corrected=True) == f"{reply} {MATCHED}"
+    assert chatter_mod._with_review_backstop("98 samples match.", FACT, None, corrected=True) == "98 samples match."
+    assert chatter_mod._with_review_backstop("98 samples match.", BOTH, None) == f"98 samples match. {BOTH}"
+
+
+@pytest.mark.parametrize("reply,corrected,expected", [
+    ("962 match; I could not confirm the 4,095.", True, "962 match; I could not confirm the 4,095."),
+    (f"962 match; I could not confirm the 4,095. {FACT}", True, "962 match; I could not confirm the 4,095."),
+    ("Of the 4,095 files, 962 match.", False, f"{FACT} Of the 4,095 files, 962 match."),
+    (f"Of the 4,095 files, 962 match. {FACT}", False, f"{FACT} Of the 4,095 files, 962 match."),
+])
+def test_premise_first_follows_the_models_own_correction(reply, corrected, expected):
+    """With ``corrected`` carried from the model's reply: a reply that corrects the number keeps one correction, its
+    own; any other gets the premise sentence first, once."""
+    assert chatter_mod._premise_first(reply, [NOTE], corrected=corrected) == expected

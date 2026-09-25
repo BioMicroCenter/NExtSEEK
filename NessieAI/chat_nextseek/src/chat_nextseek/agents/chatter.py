@@ -358,17 +358,19 @@ def _after_first_sentence(reply: str, facts: str) -> str:
 
 
 def _with_review_backstop(reply: str, review_disclosure: str | None, offered_step: str | None, *,
-                          always_disclose: bool = False) -> str:
+                          always_disclose: bool = False, corrected: bool = False) -> str:
     """``reply`` with the reviewer's facts after its first sentence and its offered step last, where it lacks them.
 
     The facts are added when they hold a number the reply does not; facts without a number (a failed query, a value
     the query did not apply) are left to the model, which has them as a note. In a model's reply they go right after
     the first sentence (``_after_first_sentence``), so the answer still leads; the premise sentence is put first
-    later, by ``_premise_first``. ``always_disclose`` adds them regardless, first, for the fallback reply, which no
+    later, by ``_premise_first``. ``corrected`` (``_corrects_premise`` on the model's reply) says the reply already
+    corrects the question's number in its own words: the premise sentence is then left out of the facts, so the
+    reply is not corrected twice. ``always_disclose`` adds them regardless, first, for the fallback reply, which no
     model wrote. The offer is appended when the reply does not name the step, compared case-insensitively, and does
     not end with a question: a closing question is the model's offer in its own words, and a second one would double
     it. Both are judged on the reply as given, before either is added."""
-    facts = _one_line(review_disclosure)
+    facts = _one_line(PREMISE_FACT_RE.sub(" ", review_disclosure or "") if corrected else review_disclosure)
     step = _one_line(offered_step)
     add_facts = bool(facts) and (always_disclose or not _numbers(facts) <= _numbers(reply))
     add_offer = (bool(step) and step.casefold() not in _one_line(reply).casefold()
@@ -382,6 +384,15 @@ def _with_review_backstop(reply: str, review_disclosure: str | None, offered_ste
 
 #: A reply that corrects the question's number in its own words: the premise backstop leaves it as written.
 _CORRECTED = re.compile(r"did not reproduce|could not confirm|not confirmed|not reproduced", re.IGNORECASE)
+
+
+def _corrects_premise(reply: str | None) -> bool:
+    """Whether ``reply`` corrects the question's number in its own words (``_CORRECTED``). The premise sentence
+    itself is taken out first: a reply that only quotes it has not corrected anything of its own, and
+    ``_premise_first`` moves the quote to the front. Judged on the model's reply before any backstop adds text, and
+    carried into both backstops (Task 24: judged after, the disclosure the facts backstop inserted brought the premise
+    sentence with it, and the reply was corrected twice)."""
+    return bool(_CORRECTED.search(PREMISE_FACT_RE.sub(" ", reply or "")))
 
 
 def _drop_fact(text: str, fact: str) -> str:
@@ -398,7 +409,7 @@ def _drop_fact(text: str, fact: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
-def _premise_first(reply: str, notes: list[str] | None) -> str:
+def _premise_first(reply: str, notes: list[str] | None, *, corrected: bool | None = None) -> str:
     """The reviewer's premise sentence first, when the reply does not already correct the question's number.
 
     The sentence is ``graph_review.PREMISE_FACT`` ("The question says 4,095; this search did not reproduce that
@@ -408,7 +419,11 @@ def _premise_first(reply: str, notes: list[str] | None) -> str:
     fact leading, or the model quoted it) has it moved to the front. A reply that corrects the number in its own words
     (``_CORRECTED``) is left as written. Otherwise the sentence is put first: an echo ("Of the 4,095 D.SEQ files, 962
     ...") holds the fact's number, so Task 9's backstop passed it. Before a reply that opens with a table, a heading, a
-    quote, a code fence or a list, the sentence is a paragraph of its own, so that block stays intact."""
+    quote, a code fence or a list, the sentence is a paragraph of its own, so that block stays intact.
+
+    ``corrected``, when given, is ``_corrects_premise`` of the model's reply, judged before the facts backstop added
+    anything: True leaves the reply with its own correction only (a copy of the premise sentence is taken out), False
+    puts the sentence first. Left None (a fallback reply, which no model wrote) the reply is judged as it stands."""
     facts: list[str] = []
     for note in notes or []:
         for m in PREMISE_FACT_RE.finditer(str(note or "")):
@@ -417,6 +432,13 @@ def _premise_first(reply: str, notes: list[str] | None) -> str:
     text = reply or ""
     if not facts:
         return reply
+    if corrected:
+        if not any(fact in text for fact in facts):
+            return reply
+        rest = text
+        for fact in facts:
+            rest = _drop_fact(rest, fact)
+        return rest
     lead = " ".join(facts)
     if text.lstrip().startswith(lead):
         return reply
@@ -425,7 +447,7 @@ def _premise_first(reply: str, notes: list[str] | None) -> str:
         for fact in facts:
             rest = _drop_fact(rest, fact)
         return _lead_with(lead, rest)
-    if _CORRECTED.search(text):
+    if corrected is None and _CORRECTED.search(text):
         return reply
     return _lead_with(lead, text.lstrip())
 
@@ -950,11 +972,14 @@ def chatter_agent_answer(
     # The reviewer's facts after the answer's first sentence and its offered step last, where the
     # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a
     # stated number.
-    answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step)
+    # Whether the model already corrected the question's number is judged here, on its reply alone, and carried
+    # into both backstops: judged after, the premise sentence the disclosure brought in read as a second correction.
+    corrected = _corrects_premise(answer_no_links)
+    answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step, corrected=corrected)
     # A number the question states and the result did not reproduce is corrected in the first sentence (F-b): the
     # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
     # disclosure above holds it behind another fact.
-    answer_no_links = _premise_first(answer_no_links, premise_notes)
+    answer_no_links = _premise_first(answer_no_links, premise_notes, corrected=corrected)
     # Every sample UID the reply names links to its sample page. Before the debug
     # block is appended, so that block is never a candidate.
     answer_no_links = link_sample_uids(answer_no_links)
