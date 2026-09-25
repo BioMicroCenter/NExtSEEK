@@ -262,6 +262,20 @@ def test_the_page_renders_without_a_failed_variable_lookup(caplog):
     assert failed == []
 
 
+def test_a_failed_variable_lookup_formats_no_traceback(caplog):
+    """dmac/settings.py LOGGING runs django.template at INFO. The django logger above it runs at
+    DEBUG, and at DEBUG Django formats a full traceback for every variable a template cannot
+    resolve, on any page, before a handler can drop the record: that is how one loop cost this
+    page 8 s. At INFO the record is never built."""
+    from django.conf import settings
+    from django.template import Context, Template
+
+    assert settings.LOGGING["loggers"].get("django.template", {}).get("level") == "INFO"
+    assert not logging.getLogger("django.template.base").isEnabledFor(logging.DEBUG)
+    Template("{% for c in s %}{{ c.id }}{% endfor %}").render(Context({"s": "abc"}))
+    assert not [r for r in caplog.records if r.getMessage().startswith(RESOLVE_FAILED)]
+
+
 # ---- the separate Graph Search page is retired: Sample Search is the one search page ----
 
 def test_the_graph_search_page_is_gone():

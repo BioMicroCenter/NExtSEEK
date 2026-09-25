@@ -359,6 +359,11 @@ LOGGING = {
         'django.utils.autoreload': {
           'level': 'INFO'  
         },
+        # A template variable that does not resolve is logged at DEBUG with a formatted traceback, and the record is
+        # built before any handler can drop it: one {% for %} over a JSON string cost /seek/search/ about 8 s a load.
+        'django.template': {
+            'level': 'INFO',
+        },
         'seek': {
             'handlers':['seekfile'],
             'propagate': True,
