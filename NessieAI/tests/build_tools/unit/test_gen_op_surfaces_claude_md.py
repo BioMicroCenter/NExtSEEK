@@ -56,7 +56,10 @@ CLAUDE_MD = REPO_ROOT / CLAUDE_MD_REL
 CONTENT_HASH = REPO_ROOT / CONTENT_HASH_REL
 
 REQUIRED_PROSE = (
-    "Confirm every write with the user conversationally before executing it.",
+    # Writes are refused (no CC write path, 2026-09-24 ruling), and the user is told where the
+    # change is made.
+    "No write reaches NExtSEEK from this chat: the server refuses every create, update and delete",
+    "tell the user the change is made in NExtSEEK itself",
     "It builds and validates the payload for the user to inspect and never uploads.",
     "Reingest exception (also load-bearing)",
     "NOT `nextseek-batch-upload`",
