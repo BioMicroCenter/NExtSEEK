@@ -28,7 +28,10 @@ tools and lets it choose:
 * ``run_new_query`` — re-run against the graph seeded with those UIDs.
   When the stored copy is capped or kept no UIDs, the set is rebuilt from
   ``stored_query`` if there is one it can be rebuilt from; when there is not, the
-  query covers every matching sample and its ``scope_note`` says so.
+  query covers every matching sample and its ``scope_note`` says so. The query is
+  retried as a graph turn's is, and its result carries the graph reviewer's
+  ``review``, with two checks of the user's words against the stored result
+  (``premise`` and ``binding``).
 * ``answer`` — finish, with any caveats as a required field rather than an instruction.
 
 ``read_stored_result`` returns counts and a handful of examples, and the stored rows only
@@ -307,7 +310,10 @@ def build_followup_tool_schemas(*, final: bool = False) -> list[dict]:
                 "selected, or anything about rows beyond the stored ones. Answer from "
                 "the rows: when they are a breakdown, name each value and its count. "
                 "The result's seed_mode says how it was scoped, and scope_note, when "
-                "present, says what that means for the answer."
+                "present, says what that means for the answer. Its review checks the "
+                "result the way a graph answer is checked: when the review's verdict is "
+                "not ok, its disclosure says what the result matched, or that the user's "
+                "number or referent differs from the stored result. Say it in the answer."
             ),
             "input_schema": {
                 "type": "object",

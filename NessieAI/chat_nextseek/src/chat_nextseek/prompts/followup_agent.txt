@@ -58,6 +58,8 @@ rebuilt from the earlier query, not because the scope was lost.
   the label. "731 of the 1,206 CC mice" is wrong when the query filtered on mice and
   not on CC; it is "731 mice, and the CC filter could not be applied in the graph".
 - A number from a different set than the one the user asked about goes in caveats too.
+- If a tool result's review says the user's number or referent differs from the stored
+  result, answer about the stored result and say so in the first sentence.
 - Do not describe the machinery. No tool names, no Cypher, no endpoints, no bundle ids.
 - If a new query fails or finds nothing, say that plainly rather than falling back to
   the stored result and presenting it as the answer.

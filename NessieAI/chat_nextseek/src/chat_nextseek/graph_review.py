@@ -507,14 +507,22 @@ def _breakage(inp: ReviewInput) -> _Finding | None:
 
 
 # ---------------------------------------------------------------- review -------------------------------------------
-def review_tier1(inp: ReviewInput, catalog: CatalogProvider) -> GraphReview:
-    """Tier 1: deterministic, no Neo4j. Never raises; a check that fails is recorded as not fired."""
+def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, str] | None = None) -> GraphReview:
+    """Tier 1: deterministic, no Neo4j. Never raises; a check that fails is recorded as not fired.
+
+    ``skip`` maps a check that runs on its own (``all_question_narrowed``, ``zero_unproven_base``,
+    ``unapplied_value``, ``premise_count``) to why this caller leaves it out; it is recorded as not fired with
+    that reason and never runs. The follow-up loop leaves out ``premise_count`` (``FOLLOWUP_TIER1_SKIP``)."""
     t0 = time.monotonic()
     findings: dict[str, _Finding] = {}
     checks: list[Check] = []
     error = None
+    skip = dict(skip or {})
 
     def run(name, fn):
+        if name in skip:
+            checks.append(Check(name, False, skip[name]))
+            return
         try:
             f = fn()
         except Exception as exc:  # a reviewer bug must never cost the user their answer
@@ -590,3 +598,99 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider) -> GraphReview:
 def as_debug(review: GraphReview) -> dict:
     """The whole review, for ``debug.graph_review``."""
     return dataclasses.asdict(review)
+
+
+# ---------------------------------------------------------------- the follow-up loop's checks ----------------------
+# A follow-up loop query runs Tier 1 like a graph turn, minus premise_count, plus two checks that read the user's
+# words against the stored result the loop is about: premise (the user's count of the earlier set) and binding (the
+# user refers back, and the loop is about an older result than the newest). No Tier 2: the loop's model can run a
+# relaxed query itself, and a count per loop query would stack the reviewer's time budget.
+
+PREMISE = "premise"
+BINDING = "binding"
+
+#: Tier 1's premise_count compares a number in the question with this query's result. A loop query's result is part
+#: of the earlier set by design ("Of the 745 CC mice, how many are female?" answers 300), so that comparison would
+#: fire on every question that names the set's size. The loop checks the user's number against the stored total.
+FOLLOWUP_TIER1_SKIP = {"premise_count": "skipped: a follow-up's result is part of the earlier set; "
+                                        "the user's number is checked against the stored total (premise)"}
+
+#: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
+#: Sequencing Data (D.SEQ) files". It must follow a word that points at a set, so a threshold ("more than 100
+#: samples") is not read as one; NUMBER and COUNT_WORD are premise_count's own.
+SET_COUNT = re.compile(r"\b(?:these|those|the|all|of|your)\s+" + NUMBER + COUNT_WORD, re.I)
+
+
+def _is_count(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def check_premise(user_text: str, *, stored_total) -> Check:
+    """``premise``: the user states the earlier set's size, and the stored result says otherwise.
+
+    "how many of these 1,206 mouse sample records ..." about a result that held 745 fires with the detail "the
+    earlier result had 745, not 1,206". Quiet when any stated size matches ``stored_total``, when the user states no
+    size, and when no total is known (``stored_total`` None or not a count)."""
+    if not _is_count(stored_total):
+        return Check(PREMISE, False, "skipped: no stored total")
+    text = user_text if isinstance(user_text, str) else ""
+    stated = [int(m.group(1).replace(",", "")) for m in SET_COUNT.finditer(text)]
+    if not stated or stored_total in stated:
+        return Check(PREMISE, False, "")
+    return Check(PREMISE, True, f"the earlier result had {stored_total:,}, not {stated[0]:,}")
+
+
+def _router_followup_cue():
+    """The router's follow-up cue check, or None when it cannot be loaded (``helpers/suggestions.py`` loads it the
+    same way)."""
+    try:
+        from NessieAI.router import followup
+        return followup.followup_cue
+    except Exception:
+        return None
+
+
+def check_binding(*, target_bundle_id, newest_bundle_id, user_text: str) -> Check:
+    """``binding``: the user refers back ("of those", "these samples"), and the follow-up is about a stored result
+    that is not the newest one, so "those" may not be what the loop is answering about.
+
+    The back-reference is the router's own ``followup_cue``. When that check cannot be loaded or raises, the text
+    counts as referring back: fail closed, as the suggestion chips do. Quiet when the result is the newest, and when
+    either id is unknown."""
+    if not (_is_count(target_bundle_id) and _is_count(newest_bundle_id)):
+        return Check(BINDING, False, "skipped: which stored result is the newest is not known")
+    if target_bundle_id == newest_bundle_id:
+        return Check(BINDING, False, "")
+    cue = _router_followup_cue()
+    try:
+        refers_back = True if cue is None else bool(cue(user_text))
+    except Exception:
+        refers_back = True
+    if not refers_back:
+        return Check(BINDING, False, "")
+    return Check(BINDING, True, f"this follow-up is about an earlier result (result {target_bundle_id}), "
+                                f"not the newest one (result {newest_bundle_id})")
+
+
+def _sentence(detail: str) -> str:
+    s = " ".join(str(detail).split())
+    s = s[:1].upper() + s[1:]
+    return s if s.endswith(".") else s + "."
+
+
+def with_checks(review: GraphReview, extra: list[Check]) -> GraphReview:
+    """``review`` with ``extra`` recorded after its own checks.
+
+    A fired check's detail, as a sentence, is disclosed BEFORE the review's own facts (the reply must say it
+    first), and the facts that follow are kept whole while they fit in ``DISCLOSURE_MAX``. A fired check turns an
+    ``ok`` verdict into ``suggest``; a ``note`` stays a note. The suggestion is the review's own."""
+    fired = [c for c in extra if c.fired]
+    checks = list(review.checks) + list(extra)
+    if not fired:
+        return dataclasses.replace(review, checks=checks)
+    facts: list[str] = []
+    for fact in [_sentence(c.detail) for c in fired] + re.split(r"(?<=\.)\s+", review.disclosure or ""):
+        if fact and fact not in facts and len(" ".join(facts + [fact])) <= DISCLOSURE_MAX:
+            facts.append(fact)
+    verdict = "note" if review.verdict == "note" else "suggest"
+    return dataclasses.replace(review, verdict=verdict, checks=checks, disclosure=" ".join(facts) or None)

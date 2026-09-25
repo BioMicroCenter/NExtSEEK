@@ -267,8 +267,11 @@ def test_the_attached_file_is_the_last_successful_query_not_a_failed_one_after_i
                 "queries": [{"question": "q", "seeded": True, "result": r} for r in results],
                 "tool_calls": ["run_new_query"] * 3 + ["answer"]}
 
+    # A loop query that errors is retried as a graph turn's is, so the failed query is asked
+    # GRAPH_MAX_TRIES times and fails every time.
     payload, session, _ = _run_followup_turn(
-        tmp_path, fake_followup, results=[_neo4j_result(broad), _neo4j_result(TYPE_ROWS), failed])
+        tmp_path, fake_followup,
+        results=[_neo4j_result(broad), _neo4j_result(TYPE_ROWS)] + [failed] * orch.GRAPH_MAX_TRIES)
     written = json.loads(Path(payload["files"][0]["path"]).read_text())
     assert written["rows"] == TYPE_ROWS
     assert session["results_history"][-1]["graph_result"]["data"] == TYPE_ROWS

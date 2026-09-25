@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 if TYPE_CHECKING:
     from streamlit.runtime.state.session_state_proxy import SessionStateProxy
@@ -56,7 +56,8 @@ from .agents import (
 )
 from .agents.reporter import report_coder_agent
 from .config import ChatConfig
-from .graph_review import GraphReview, ReviewInput, as_debug, review_tier1
+from .graph_review import (FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug, check_binding, check_premise,
+                           review_tier1, with_checks)
 from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
@@ -639,9 +640,30 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     Every query that ran and returned rows is also kept, in full, on the outcome as
     ``graph_runs`` (plan, result): the turn attaches the last one's rows as a file the way
     a graph turn does. They stay out of the conversation, which sees ``preview_rows``.
+
+    Each query runs through the graph turn's own retries (``_run_graph_with_retries``: a
+    Cypher error, a zero-row result) and its payload carries ``review``
+    (``_review_followup_query``), read against one catalog provider for the whole loop turn.
+    A zero-row retry that found something adds ``retry_note``, the graph turn's note for a
+    number found by a changed filter.
     """
     graph_runs: list[dict] = []
     extent: dict[str, Any] = {}
+    provider: dict[str, Any] = {}
+    newest_bundle_id = _newest_bundle_id(session)
+
+    def _catalog():
+        """The loop turn's one catalog provider (``live_values``, default cold budget), built on first use, so
+        its cap on uncached value reads covers every query of the turn. A failure to build it is kept and
+        raised to each review, which records it."""
+        if "value" not in provider:
+            try:
+                provider["value"] = live_values(config)
+            except Exception as exc:
+                provider["value"] = exc
+        if isinstance(provider["value"], Exception):
+            raise provider["value"]
+        return provider["value"]
 
     def _stored_extent() -> tuple[Any, bool]:
         """The previous result's total and whether its stored copy was capped, read once."""
@@ -685,22 +707,23 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             )
         else:
             seed_mode = "none"
-        graph_plan = graph_agent(
-            config, question, EntityAgentOutput(),
-            ParserPlan(mode="graph_query", intent_summary=question),
-            refine_context=refine,
-        )
+        entity = EntityAgentOutput()
+        parser_plan = ParserPlan(mode="graph_query", intent_summary=question)
+        graph_plan = graph_agent(config, question, entity, parser_plan, refine_context=refine)
         if not graph_plan.cypher:
             return {"ok": False, "error": "no query could be generated for that question",
                     "seed_mode": seed_mode}
-        parameters = dict(graph_plan.parameters or {})
-        applied = None
         # Only a "uids" seed is bound: a rebuilt query holds the whole set through the
-        # stored filters, and binding the capped UIDs would cut it back to them.
-        if seed_mode == "uids" and "$uids" in graph_plan.cypher:
-            parameters["uids"] = list(seed_uids)  # every one of them, not the ten shown
-            applied = len(seed_uids)
-        result = tool_neo4j_query(config, graph_plan.cypher, parameters)
+        # stored filters, and binding the capped UIDs would cut it back to them. It is bound
+        # into every attempt that names $uids, every one of them, not the ten shown.
+        seed = {"uids": list(seed_uids)} if seed_mode == "uids" else None
+        # The graph turn's safeguards (loop gap L4): one more try on a Cypher error, one on a
+        # result that matched nothing, and the first result stands when a retry is no better.
+        run = _run_graph_with_retries(config, question, entity, parser_plan, refine, seed,
+                                      graph_plan=graph_plan)
+        graph_plan, result = run.graph_plan, run.graph_result
+        parameters = dict(run.parameters or {})
+        applied = len(seed_uids) if seed is not None and "$uids" in (graph_plan.cypher or "") else None
         rows = result.get("data") or []
         if result.get("ok") and rows:
             graph_runs.append({"graph_plan": graph_plan, "parameters": parameters,
@@ -711,7 +734,14 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         # as {"type": "TIS", "n": 25936} reached the model as "count: 23" and nothing it
         # could name (production acceptance run 2026-09-22, task 0006a373).
         shown = preview_rows(rows)
-        return {
+        # The reviewer reads the loop's question (the one the statement answers) for Tier 1,
+        # and the user's own words against the stored result for premise and binding.
+        review = _review_followup_query(
+            _catalog, question=question, user_text=user_text, graph_plan=graph_plan, graph_result=result,
+            elapsed_ms=run.elapsed_ms, stored_total=_stored_extent()[0],
+            target_bundle_id=bundle.get("id"), newest_bundle_id=newest_bundle_id,
+        )
+        payload = {
             "ok": bool(result.get("ok")),
             "count": result.get("total") if result.get("total") is not None else result.get("count"),
             "rows_returned": len(rows),
@@ -729,7 +759,11 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             "scope_note": _followup_scope_note(seed_mode, uids_available=len(seed_uids),
                                                uids_applied=applied, total=total, partial=partial,
                                                scoped=scoped),
+            "review": as_debug(review),
         }
+        if run.changed_answer:
+            payload["retry_note"] = RETRY_CHANGED_ANSWER_NOTE
+        return payload
 
     try:
         outcome = run_followup(
@@ -741,6 +775,22 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
     except Exception as exc:
         print(f"[DEBUG][FOLLOWUP] agent failed, falling back to the stored result: {exc!r}")
         return None
+
+
+def _newest_bundle_id(session) -> int | None:
+    """The id of the newest stored result in ``results_history``, or None when there is none."""
+    try:
+        ids = [b.get("id") for b in (session.get("results_history") or []) if isinstance(b, dict)]
+    except Exception:
+        return None
+    ids = [i for i in ids if isinstance(i, int) and not isinstance(i, bool)]
+    return max(ids) if ids else None
+
+
+def _review_verdict(result: Any) -> str | None:
+    """A loop query payload's review verdict, for ``debug.followup``."""
+    review = result.get("review") if isinstance(result, dict) else None
+    return review.get("verdict") if isinstance(review, dict) else None
 
 
 def _followup_examples(rows: list, limit: int = 3) -> list[str]:
@@ -823,6 +873,105 @@ def _ms_since(t0: float) -> int:
     return int((time.perf_counter() - t0) * 1000)
 
 
+class GraphRun(NamedTuple):
+    """What ``_run_graph_with_retries`` settled on."""
+    graph_plan: Any       # the GraphAgentPlan whose result was kept
+    graph_result: dict    # the kept result
+    attempts: list        # every generate-execute round, for debug.graph_attempts
+    elapsed_ms: int       # the Neo4j time of the kept result, never a discarded retry's
+    parameters: Any       # what the kept statement ran with
+    changed_answer: bool  # the first query matched nothing and a retry found something
+
+
+def _bind_parameters(graph_plan, parameters_extra: dict | None):
+    """The parameters ``graph_plan`` runs with: its own, plus each of ``parameters_extra`` that its Cypher names as
+    ``$name`` (over any value the model wrote for it). Its own, untouched, when none of them applies."""
+    named = {k: v for k, v in (parameters_extra or {}).items() if f"${k}" in (graph_plan.cypher or "")}
+    return {**dict(graph_plan.parameters or {}), **named} if named else graph_plan.parameters
+
+
+def _run_graph_with_retries(config, question: str, entity, plan, refine: str | None,
+                            parameters_extra: dict | None = None, *, graph_plan) -> GraphRun:
+    """Execute ``graph_plan``, read the outcome, and regenerate, up to ``GRAPH_MAX_TRIES`` statements in all.
+
+    The one execution path of the graph turn (``_execute_graph_turn``) and of the follow-up loop's queries
+    (``_run_followup_agent``), so the two retry the same way. ``graph_plan`` is the first statement, which the caller
+    has already had the graph agent write; a retry asks the agent again with ``question``, ``entity``, ``plan`` and
+    ``refine`` (the refine context) plus the failure. ``parameters_extra`` holds parameters the caller binds itself
+    (the follow-up's ``$uids``), bound into every attempt whose Cypher names them.
+
+    Each attempt is timed around ``tool_neo4j_query`` alone, and ``elapsed_ms`` is the kept attempt's, so the
+    reviewer times the statement the caller keeps, never a retry it threw away. A scope refusal is final at once:
+    another statement would be refused the same way, and the graph turn falls back to graph_search.
+    """
+    parameters = _bind_parameters(graph_plan, parameters_extra)
+    t_query = time.perf_counter()
+    graph_result = tool_neo4j_query(config, graph_plan.cypher, parameters)
+    kept_ms = _ms_since(t_query)  # the Neo4j time of graph_result, the result the caller keeps
+
+    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
+    # This was one retry and only on a Cypher error, so a query that ran perfectly well
+    # and matched nothing was final. That is case B11 (a guessed assay name returned
+    # zero and the zero was reported as the answer). A zero-row result now gets exactly
+    # one more go, and if the second query also finds nothing the FIRST result stands:
+    # reporting a different query's number would be worse than reporting zero.
+    attempts: list[dict[str, Any]] = [
+        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
+    first_ok_empty = matched_nothing(graph_result)
+    zero_row_retry_used = False
+
+    for _ in range(GRAPH_MAX_TRIES - 1):
+        if is_scope_refusal(graph_result):
+            # Final: another model call can only write another query the prover cannot
+            # prove. The graph turn falls back to graph_search.
+            break
+        if not graph_result.get("ok"):
+            neo4j_error = graph_result.get("error", "Unknown error")
+            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
+            retry_ctx = (
+                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
+                "Revisit the schema carefully - check property types, relationship directions, "
+                "and graph_topology - then generate a corrected query."
+            )
+            reason = "cypher_error"
+        elif matched_nothing(graph_result) and not zero_row_retry_used:
+            zero_row_retry_used = True
+            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
+            # The wording, and why it no longer says "use the closest value", is in
+            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
+            retry_ctx = zero_row_retry_context(graph_plan.cypher)
+            reason = "zero_rows"
+        else:
+            break
+
+        graph_plan_retry = graph_agent(
+            config, question, entity, plan,
+            retry_context=retry_ctx, refine_context=refine,
+        )
+        if not graph_plan_retry.cypher:
+            break
+        retry_parameters = _bind_parameters(graph_plan_retry, parameters_extra)
+        t_query = time.perf_counter()
+        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, retry_parameters)
+        retry_ms = _ms_since(t_query)
+        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
+        # Keep the retry only when it is an improvement. A retry that errors, or that
+        # also finds nothing after a zero-row first attempt, leaves the original alone.
+        if not retry_result.get("ok"):
+            if graph_result.get("ok"):
+                break
+        elif reason == "zero_rows" and matched_nothing(retry_result):
+            break
+        graph_plan = graph_plan_retry
+        graph_result = retry_result
+        parameters = retry_parameters
+        kept_ms = retry_ms
+
+    return GraphRun(graph_plan=graph_plan, graph_result=graph_result, attempts=attempts, elapsed_ms=kept_ms,
+                    parameters=parameters,
+                    changed_answer=first_ok_empty and not matched_nothing(graph_result))
+
+
 #: The chatter's note for a graph result the reviewer flagged (graph_review.py): the review's facts, to be stated
 #: without narrating how they were found.
 REVIEW_NOTE = ("What the result matched: {facts} State this plainly in the first sentences. "
@@ -851,6 +1000,56 @@ def _review_note(disclosure: str) -> str:
     return REVIEW_NOTE.format(facts=facts)
 
 
+def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int | None) -> ReviewInput:
+    """The reviewer's input for one kept result: the question the statement answers, the statement as the model
+    wrote it, its parameters, the rows and counts, and ``elapsed_ms`` (the kept statement's Neo4j time).
+
+    The server's scope parameter is left out of the parameters: every count goes back through
+    ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it."""
+    raw = graph_result.get("parameters")
+    if not isinstance(raw, Mapping):
+        raw = graph_plan.parameters or {}
+    parameters = {k: v for k, v in raw.items()
+                  if not (isinstance(k, str) and k.lower().startswith(RESERVED_PREFIX))}
+    return ReviewInput(
+        question=question,
+        cypher=graph_plan.cypher,
+        parameters=parameters,
+        keyword_fields=dict(graph_plan.keyword_fields or {}),
+        rows=list(graph_result.get("data") or []),
+        count=graph_result.get("count"),
+        total=graph_result.get("total"),
+        ok=bool(graph_result.get("ok")),
+        error=graph_result.get("error"),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, user_text: str, graph_plan,
+                           graph_result: dict, elapsed_ms: int | None, stored_total, target_bundle_id,
+                           newest_bundle_id) -> GraphReview:
+    """The graph reviewer over one follow-up loop query (loop gap L4), for the tool payload's ``review``.
+
+    Tier 1 (``review_tier1``) reads the loop's own ``question``, the one the statement answers, without
+    ``premise_count`` (``FOLLOWUP_TIER1_SKIP``); then ``check_premise`` and ``check_binding`` read the user's words
+    against the stored result the loop is about (``with_checks`` discloses them first). ``get_catalog`` returns
+    the loop turn's one catalog provider, or raises why it could not be built. No Tier 2: the loop's model can
+    run a relaxed query itself, and a count per loop query would stack the reviewer's time budget.
+
+    Never raises. Anything escaping becomes an ``ok`` review that records the error, so the loop goes on as it
+    would without a reviewer."""
+    t0 = time.perf_counter()
+    try:
+        inp = _review_input(question, graph_plan, graph_result, elapsed_ms)
+        review = review_tier1(inp, get_catalog(), skip=FOLLOWUP_TIER1_SKIP)
+        return with_checks(review, [
+            check_premise(user_text, stored_total=stored_total),
+            check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id, user_text=user_text),
+        ])
+    except Exception as exc:  # a reviewer bug must never cost the user their answer
+        return GraphReview("ok", [], None, None, [], int((time.perf_counter() - t0) * 1000), error=repr(exc))
+
+
 def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *, elapsed_ms: int | None,
                        t_turn_start: float) -> GraphReview:
     """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
@@ -872,23 +1071,7 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
     """
     t0 = time.perf_counter()
     try:
-        raw = graph_result.get("parameters")
-        if not isinstance(raw, Mapping):
-            raw = graph_plan.parameters or {}
-        parameters = {k: v for k, v in raw.items()
-                      if not (isinstance(k, str) and k.lower().startswith(RESERVED_PREFIX))}
-        inp = ReviewInput(
-            question=user_text,
-            cypher=graph_plan.cypher,
-            parameters=parameters,
-            keyword_fields=dict(graph_plan.keyword_fields or {}),
-            rows=list(graph_result.get("data") or []),
-            count=graph_result.get("count"),
-            total=graph_result.get("total"),
-            ok=bool(graph_result.get("ok")),
-            error=graph_result.get("error"),
-            elapsed_ms=elapsed_ms,
-        )
+        inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
         slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
         late = t0 - t_turn_start > REVIEW_LATE_TURN_S
         catalog = live_values(config, max_cold=0) if slow or late else live_values(config)
@@ -1069,65 +1252,10 @@ def _execute_graph_turn(
     send_event("agent_complete", {"agent": "graph", "summary": summary})
 
     send_event("search_started", {"source": "neo4j", "cypher": graph_plan.cypher})
-    t_query = time.perf_counter()
-    graph_result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    kept_ms = _ms_since(t_query)  # the Neo4j time of graph_result, the result the turn keeps
-
-    # Generate -> execute -> read the outcome -> regenerate, up to GRAPH_MAX_TRIES.
-    # This was one retry and only on a Cypher error, so a query that ran perfectly well
-    # and matched nothing was final. That is case B11 (a guessed assay name returned
-    # zero and the zero was reported as the answer). A zero-row result now gets exactly
-    # one more go, and if the second query also finds nothing the FIRST result stands:
-    # reporting a different query's number would be worse than reporting zero.
-    attempts: list[dict[str, Any]] = [
-        _graph_attempt(graph_plan.cypher, graph_result, "initial", elapsed_ms=kept_ms)]
-    first_ok_empty = matched_nothing(graph_result)
-    zero_row_retry_used = False
-
-    for _ in range(GRAPH_MAX_TRIES - 1):
-        if is_scope_refusal(graph_result):
-            # Final for the turn: another model call can only write another query the
-            # prover cannot prove. The turn falls back to graph_search below.
-            break
-        if not graph_result.get("ok"):
-            neo4j_error = graph_result.get("error", "Unknown error")
-            print(f"[GRAPH] Cypher failed, retrying: {neo4j_error}")
-            retry_ctx = (
-                f"Your previous Cypher query failed with this error:\n{neo4j_error}\n\n"
-                "Revisit the schema carefully - check property types, relationship directions, "
-                "and graph_topology - then generate a corrected query."
-            )
-            reason = "cypher_error"
-        elif matched_nothing(graph_result) and not zero_row_retry_used:
-            zero_row_retry_used = True
-            print("[GRAPH] Query ran but matched nothing, retrying once with that context")
-            # The wording, and why it no longer says "use the closest value", is in
-            # graph_retry.py: the CC aggregate op retries a zero part in the same words.
-            retry_ctx = zero_row_retry_context(graph_plan.cypher)
-            reason = "zero_rows"
-        else:
-            break
-
-        graph_plan_retry = graph_agent(
-            config, user_text, entity_result, plan,
-            retry_context=retry_ctx, refine_context=agent_context,
-        )
-        if not graph_plan_retry.cypher:
-            break
-        t_query = time.perf_counter()
-        retry_result = tool_neo4j_query(config, graph_plan_retry.cypher, graph_plan_retry.parameters)
-        retry_ms = _ms_since(t_query)
-        attempts.append(_graph_attempt(graph_plan_retry.cypher, retry_result, reason, elapsed_ms=retry_ms))
-        # Keep the retry only when it is an improvement. A retry that errors, or that
-        # also finds nothing after a zero-row first attempt, leaves the original alone.
-        if not retry_result.get("ok"):
-            if graph_result.get("ok"):
-                break
-        elif reason == "zero_rows" and matched_nothing(retry_result):
-            break
-        graph_plan = graph_plan_retry
-        graph_result = retry_result
-        kept_ms = retry_ms
+    # The retry loop (a Cypher error, a zero-row result) is shared with the follow-up loop's queries.
+    run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
+                                  graph_plan=graph_plan)
+    graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
 
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
@@ -1137,7 +1265,7 @@ def _execute_graph_turn(
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
     # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
     # note or suggest to the chatter as one note.
-    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=kept_ms,
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=run.elapsed_ms,
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
@@ -1146,7 +1274,7 @@ def _execute_graph_turn(
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
     query_notes: list[str] = list(uid_reply_notes)
-    if first_ok_empty and not matched_nothing(graph_result):
+    if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(RETRY_CHANGED_ANSWER_NOTE)
     # A lab the question misspells resolves to no code, by design, and used to leave the
@@ -1664,7 +1792,8 @@ def run_query(
                         {"question": q.get("question"), "seeded": q.get("seeded"),
                          "count": (q.get("result") or {}).get("count"),
                          "uids_applied": (q.get("result") or {}).get("uids_applied"),
-                         "seed_mode": (q.get("result") or {}).get("seed_mode")}
+                         "seed_mode": (q.get("result") or {}).get("seed_mode"),
+                         "review_verdict": _review_verdict(q.get("result"))}
                         for q in followup_outcome.get("queries") or []
                     ],
                     "caveats": followup_outcome.get("caveats"),
