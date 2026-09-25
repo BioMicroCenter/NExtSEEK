@@ -625,7 +625,8 @@ def test_unapplied_value_groups_the_matched_set_by_the_named_attribute():
                            "WITH s WHERE s.DataType IS NOT NULL\nRETURN DISTINCT s.DataType AS value")
 
 
-R6_1225 = ("MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+R6_1225 = ("MATCH (s:T_PAT)\nWHERE EXISTS {\n"
+           "  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
            "  WHERE inv.title = $investigation\n}\nAND EXISTS {\n"
            "  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(r:T_RNA)-[:DERIVED_FROM*1..12]->(s)\n}\nRETURN count(s) AS n")
 ALN_DETAIL = "question names T_A_ALN.DataType='RNA-Seq', Cypher never applies it"
