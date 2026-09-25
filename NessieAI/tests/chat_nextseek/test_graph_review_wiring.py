@@ -55,6 +55,9 @@ NHP_CYPHER = "MATCH (s:T_NHP) RETURN count(s) AS n"
 
 THE_NOTE = ("What the result matched: {facts} State this plainly in the first sentences. "
             "Do not mention a review or a second query.")
+#: A failed query matched nothing, so its note has its own lead-in.
+BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sentences. "
+                 "Do not mention a review or a second query.")
 QUERY_COMPLETE_KEYS = {"reply", "debug", "bundle_id", "artifacts", "files"}
 OK_REVIEW = GraphReview("ok", [], None, None, [], 0)
 REAL_TOOL = object()
@@ -365,13 +368,36 @@ def test_a_failed_query_gets_the_breakage_note(graph_turn_harness):
     out = graph_turn_harness(question="How many NHP samples are there?", cypher=NHP_CYPHER, rows=[], ok=False)
     review = out.debug["graph_review"]
     assert review["verdict"] == "note"
-    assert out.query_notes == [THE_NOTE.format(facts="The database query failed on its final attempt.")]
+    assert out.query_notes == [BREAKAGE_NOTE.format(facts="The database query failed.")]
     assert out.count_calls == []
 
 
 def test_the_review_note_is_the_template():
     assert orch.REVIEW_NOTE == THE_NOTE
     assert "\u2014" not in orch.REVIEW_NOTE and "\u2013" not in orch.REVIEW_NOTE
+    assert orch.BREAKAGE_NOTE == BREAKAGE_NOTE
+    assert "\u2014" not in orch.BREAKAGE_NOTE and "\u2013" not in orch.BREAKAGE_NOTE
+
+
+def test_the_breakage_fact_does_not_invite_retry_narration():
+    """"on its final attempt" says there were other attempts, which the reply may never narrate."""
+    from chat_nextseek.graph_review import DictCatalog, ReviewInput, review_tier1
+    failed = ReviewInput(question="How many NHP samples are there?", cypher=NHP_CYPHER, parameters={},
+                         keyword_fields={}, rows=[], count=0, total=0, ok=False, error="boom")
+    assert review_tier1(failed, DictCatalog(None)).disclosure == "The database query failed."
+    no_query = ReviewInput(question="How many NHP samples are there?", cypher=None, parameters={},
+                           keyword_fields={}, rows=[], count=None, total=None, ok=True, error=None)
+    assert review_tier1(no_query, DictCatalog(None)).disclosure == "No database query ran for this question."
+
+
+def test_a_breakage_note_is_bounded_like_the_review_note():
+    note = orch._review_note("x" * 299, orch.BREAKAGE_NOTE)
+    assert len(note) < 400 and _clean_note(note) == note
+    assert len(note) == orch.REVIEW_NOTE_MAX, "the room is the breakage template's own, not the review note's"
+    assert note.startswith("What went wrong: x")
+    assert note.endswith("\u2026 State this plainly in the first sentences. Do not mention a review or a second query.")
+    assert orch._review_note("The database query failed.", orch.BREAKAGE_NOTE) == BREAKAGE_NOTE.format(
+        facts="The database query failed.")
 
 
 def test_a_full_disclosure_still_fits_under_the_chatters_cut():

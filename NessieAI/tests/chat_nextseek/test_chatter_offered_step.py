@@ -149,7 +149,7 @@ def test_the_fallback_reply_carries_the_facts_and_the_offer(model, error):
 def test_the_fallback_carries_facts_that_hold_no_number(model):
     """No model wrote the fallback, so nothing else can state a failed query: its facts go first, number or not."""
     model["reply"] = LLMAPIConnectionError("connection reset")
-    facts = "The database query failed on its final attempt."
+    facts = "The database query failed."
 
     reply = _graph_answer(rows=[], review_disclosure=facts)
 
@@ -211,7 +211,7 @@ def test_a_disclosure_with_no_numbers_gets_no_backstop(model):
     """Breakage, a zero proof or an unapplied value carries no number: the note reaches the model and that is all."""
     model["reply"] = "There are no NHP samples."
 
-    for facts in ("The database query failed on its final attempt.",
+    for facts in ("The database query failed.",
                   "The search term also matches 'Non-converter'."):
         assert _body(_graph_answer(review_disclosure=facts)) == model["reply"]
 
@@ -421,4 +421,4 @@ def test_a_note_turn_hands_over_the_facts_and_no_step(monkeypatch, tmp_path):
 
     assert debug["graph_review"]["verdict"] == "note"
     assert kwargs["offered_step"] is None
-    assert kwargs["review_disclosure"] == "The database query failed on its final attempt."
+    assert kwargs["review_disclosure"] == "The database query failed."

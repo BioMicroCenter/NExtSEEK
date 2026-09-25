@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import time
 
 import pytest
 
@@ -215,3 +216,16 @@ def test_the_replayed_echo_turn_still_fires():
     rv = review_tier1(inp, DictCatalog(r.get("catalog")))
     assert next(c for c in rv.checks if c.name == "premise_count").fired
     assert gr.PREMISE_FACT.format(n="4,095") in rv.disclosure
+
+
+@pytest.mark.parametrize("tail,n", [(" 500 samples", 500), (" and 500 samples", 500), (" to 500 samples", None)])
+def test_a_long_comma_joined_digit_run_is_read_quickly(tail, n):
+    """The range rule in ``_THRESHOLD`` may start only where a number starts, never after a comma inside one: from
+    every digit of a run like 1,1,1 it re-read the rest of the run, 6 to 9 s on 40,000 characters. The readings
+    stay: the 500 after the run is a stated count, and the run followed by "to 500 samples" is a range."""
+    text = ",".join(["1"] * 20000) + tail
+    assert len(text) > 40000
+    t0 = time.perf_counter()
+    counts = gr.stated_counts(text)
+    assert time.perf_counter() - t0 < 0.5
+    assert counts == ([n] if n else [])

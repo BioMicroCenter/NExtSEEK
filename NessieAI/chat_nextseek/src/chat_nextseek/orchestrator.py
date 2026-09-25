@@ -1104,6 +1104,10 @@ def _run_graph_with_retries(config, question: str, entity, plan, refine: str | N
 #: without narrating how they were found.
 REVIEW_NOTE = ("What the result matched: {facts} State this plainly in the first sentences. "
                "Do not mention a review or a second query.")
+#: The same note when the review's facts say the query itself broke (graph_review's ``breakage``: it failed, or none
+#: ran). Such a query matched nothing, so "What the result matched" would be false.
+BREAKAGE_NOTE = ("What went wrong: {facts} State this plainly in the first sentences. "
+                 "Do not mention a review or a second query.")
 #: describe_query_scope cuts a note at 400 characters, which would drop the instruction at this one's end.
 REVIEW_NOTE_MAX = 399
 #: The reviewer's wall clock, both tiers together.
@@ -1114,18 +1118,19 @@ REVIEW_LATE_TURN_S = 45
 REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
 
 
-def _review_note(disclosure: str) -> str:
-    """``REVIEW_NOTE`` holding the review's facts, at most ``REVIEW_NOTE_MAX`` characters.
+def _review_note(disclosure: str, template: str = REVIEW_NOTE) -> str:
+    """``template`` (``REVIEW_NOTE``, or ``BREAKAGE_NOTE`` for a query that broke) holding the review's facts, at
+    most ``REVIEW_NOTE_MAX`` characters.
 
     A disclosure can hold 299 characters (graph_review.DISCLOSURE_MAX) and the template takes 111, so a full one
     would pass the chatter's 400-character cut. Whole facts are dropped from the end until the note fits; a single
     fact too long for the room is cut short."""
     facts = " ".join(str(disclosure).split())
-    room = REVIEW_NOTE_MAX - len(REVIEW_NOTE.format(facts=""))
+    room = REVIEW_NOTE_MAX - len(template.format(facts=""))
     if len(facts) > room:
         end = facts.rfind(". ", 0, room)
         facts = facts[:end + 1] if end > 0 else facts[:room - 1].rstrip() + "…"
-    return REVIEW_NOTE.format(facts=facts)
+    return template.format(facts=facts)
 
 
 def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int | None) -> ReviewInput:
@@ -1419,7 +1424,8 @@ def _execute_graph_turn(
         query_notes.extend(near_miss_notes)
     review_disclosure = review.disclosure if review.verdict in ("note", "suggest") else None
     if review_disclosure:
-        query_notes.append(_review_note(review_disclosure))
+        broke = any(check.name == "breakage" and check.fired for check in review.checks)
+        query_notes.append(_review_note(review_disclosure, BREAKAGE_NOTE if broke else REVIEW_NOTE))
 
     send_event(
         "search_complete",
