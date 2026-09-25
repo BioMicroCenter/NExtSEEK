@@ -1,13 +1,14 @@
-"""On the routed chat path, an NS turn that crashed still reports its cost in its last event.
+"""On the routed chat path, an NS turn that crashed ends on its real error, which carries its cost.
 
 ``cc-assistant/query/async/`` (the chat panel, the harness and the CI lane) runs an NS
 turn inside ``NessieAI/cc/turn.py``'s ``_run``. When ``run_query`` meets an exception it
-does not handle, it sends its own ``query_error`` (with the turn's cost) and re-raises;
-``_run``'s ``except Exception`` then sends a second, "Internal pipeline error". The
-harness reads a turn's engine fields off the LAST ``query_error``
-(``NessieAI/tests/nessie_tests/turn_cost.py``, ``read_turn``), so that second event must
-carry the cost too, or the turn reads as unmeasured. The entry point's collector has
-already closed by then; the record rides on the exception (``turn_spend.collects_turn``).
+does not handle, it sends its own ``query_error`` (the real message, with the turn's
+cost) and re-raises. ``_run``'s ``except Exception`` used to send a second one reading
+"Internal pipeline error", and the task keeps the last, so the user lost the real error
+(F13, operator ruling 2026-09-25). It now sends that only when no ``query_error`` went
+out (``NessieAI.ns.turn._error_tracking_send_event``, the NS endpoints' guard). The
+harness reads a turn's engine fields off the last ``query_error``
+(``NessieAI/tests/nessie_tests/turn_cost.py``, ``read_turn``), which is now the real one.
 
 This drives the real ``start_task`` and the real (collected) ``run_query``: only the
 routing, the host seams and the step that crashes are stubbed. No model, no database.
@@ -53,7 +54,8 @@ def _crash_after_a_call(*_a, **_k):
     raise RuntimeError("boom after a paid call")
 
 
-def test_a_crashed_ns_turn_on_the_routed_path_ends_on_an_event_that_carries_its_cost(monkeypatch, tmp_path):
+def _start(monkeypatch, tmp_path, crash):
+    """Run one routed NS turn whose first step is ``crash``; return the events it sent."""
     decision = cc_router.RouteDecision(
         route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="r", source="baml",
         router_model="gemini-3.1-pro-preview", router_cost_usd=0.004, router_usage={"calls": []},
@@ -65,12 +67,12 @@ def test_a_crashed_ns_turn_on_the_routed_path_ends_on_an_event_that_carries_its_
     monkeypatch.setattr(cc_turn, "_record_ledger_row", lambda *a, **k: None)
     monkeypatch.setattr(cc_turn, "_auto_title_if_unset", lambda *a, **k: None)
     monkeypatch.setattr(cc_turn, "_emit_ns_run_root", lambda *a, **k: None)
-    # The real, collected run_query, crashing in its first step after one paid call.
+    # The real, collected run_query, crashing in its first step.
     monkeypatch.setattr(orchestrator, "_identity_gate", lambda session, config, *a, **k: (config, None))
     monkeypatch.setattr(orchestrator, "_ensure_query_log_dir", lambda session, config: str(tmp_path))
     monkeypatch.setattr(orchestrator, "ArtifactStore", lambda log_dir: None)
     monkeypatch.setattr(orchestrator, "_accepted_suggestion", lambda session, text: None)
-    monkeypatch.setattr(orchestrator, "_handle_pipeline_agent_turn", _crash_after_a_call)
+    monkeypatch.setattr(orchestrator, "_handle_pipeline_agent_turn", crash)
 
     progress: list[dict] = []
     cc_turn.start_task(
@@ -82,17 +84,46 @@ def test_a_crashed_ns_turn_on_the_routed_path_ends_on_an_event_that_carries_its_
         adapter=_Adapter(), api_user="caller", api_pass="caller-pw",
         resolved_session_id="s-1",
     )
+    return progress
+
+
+def test_a_crashed_ns_turn_on_the_routed_path_ends_on_its_real_error_which_carries_its_cost(
+        monkeypatch, tmp_path):
+    progress = _start(monkeypatch, tmp_path, _crash_after_a_call)
 
     errors = [p["data"] for p in progress if p["event"] == "query_error"]
-    assert len(errors) == 2, "run_query's own error, then the CC turn's"
+    assert len(errors) == 1, f"run_query's own error only, not a second generic one: {errors}"
     cost = model_prices.call_cost(FLASH, USAGE).cost_usd
-    last = errors[-1]
-    assert last["error"] == "Internal pipeline error" and last["agent"] == "unknown"
-    assert last["session_id"] == "s-1"
-    assert last["total_cost_usd"] == pytest.approx(cost, abs=1e-6)
-    assert last["cost_partial"] is False and last["models_used"] == [FLASH]
-    assert last["model_fallback"] == [{"agent": "graph_agent", "from": OPUS, "to": FLASH, "reason": "timeout"}]
+    (error,) = errors
+    assert error["error"] == "boom after a paid call"
+    assert error["error"] != "Internal pipeline error"
+    assert error["total_cost_usd"] == pytest.approx(cost, abs=1e-6)
+    assert error["cost_partial"] is False and error["models_used"] == [FLASH]
+    assert error["model_fallback"] == [{"agent": "graph_agent", "from": OPUS, "to": FLASH, "reason": "timeout"}]
 
     turn = read_turn({"progress": progress})
     assert turn["engine_cost"] == pytest.approx(cost, abs=1e-6), "the harness reads the engine cost off it"
     assert turn["router_cost"] == 0.004
+
+
+def test_the_generic_error_still_ends_a_turn_that_crashed_before_any_error_went_out(monkeypatch, tmp_path):
+    """A collected entry point that crashed without sending a query_error: the catch-all
+    still ends the turn, with the cost the turn record took out on the exception
+    (turn_spend.collects_turn)."""
+    @turn_spend.collects_turn
+    def _crash_without_reporting(*_a, **_k):
+        turn_spend.record_call(
+            {"agent": "graph_agent", "provider": "gcp", "model": FLASH, "attempt": 1, "outcome": "ok"},
+            resp=LLMResponse(content="x", raw=None, usage=dict(USAGE), model=FLASH, provider="gcp", metadata={}))
+        raise RuntimeError("died before reporting anything")
+
+    monkeypatch.setattr(cc_turn, "run_query", _crash_without_reporting)
+    progress = _start(monkeypatch, tmp_path, _crash_after_a_call)
+
+    errors = [p["data"] for p in progress if p["event"] == "query_error"]
+    assert len(errors) == 1
+    (error,) = errors
+    assert error["error"] == "Internal pipeline error" and error["agent"] == "unknown"
+    assert error["session_id"] == "s-1"
+    assert error["total_cost_usd"] == pytest.approx(model_prices.call_cost(FLASH, USAGE).cost_usd, abs=1e-6)
+    assert error["cost_partial"] is False and error["models_used"] == [FLASH]

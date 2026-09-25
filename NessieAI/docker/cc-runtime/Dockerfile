@@ -16,7 +16,7 @@
 # Auth + model are injected per-container at run time (CLAUDE_CODE_USE_BEDROCK=1,
 # AWS_BEARER_TOKEN_BEDROCK, AWS_REGION, --model <bedrock-id>), never baked.
 
-FROM --platform=linux/amd64 node:20-bookworm-slim AS base
+FROM --platform=linux/amd64 node:22-bookworm-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       jq \
@@ -27,10 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV UV_INSTALL_DIR=/usr/local/bin
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-# 2.1.282 declares node >= 22 and this image is node:20: npm only warns and the native binary runs, so a later bump should move the base image.
+# 2.1.282 declares node >= 22, so the base is node:22. The RUN claude --version after the install fails the build, not a turn, when the CLI cannot start.
 # OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock. The CC 503 fallback needs >= 2.1.282 (why: NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py).
 RUN npm install -g @anthropic-ai/claude-code@2.1.282
-
+RUN claude --version
 # Pin uv-managed CPython 3.14 BEFORE any downstream dependency-install or run
 # step. Two well-known symlinks make `python` and `python3.14` resolve to the
 # managed interpreter via PATH; $DMAC_PYTHON is exposed for callers that

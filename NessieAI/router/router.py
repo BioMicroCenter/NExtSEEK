@@ -252,17 +252,26 @@ def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tup
         builder = runtime_type_builder(snap)
         request = ClassificationInput(user_query=query, history=_history_to_baml(history, Route))
         options, collector = _with_collector({"tb": builder})
+        cut_off = False
         try:
-            decision = asyncio.run(b.ClassifyQuery(input=request, baml_options=options))
+            # ClassifyQuery declares the same client as RouteQuery, and gets its time limit
+            # (F7, operator ruling 2026-09-25); a timeout is handled as an error is.
+            decision = asyncio.run(_within(b.ClassifyQuery(input=request, baml_options=options),
+                                           ROUTER_PRIMARY_LIMIT_S))
+        except TimeoutError:
+            cut_off = True
+            raise
         finally:
-            # ClassifyQuery declares the same client as RouteQuery.
-            _note_spend(collector, _baml_client_model(ROUTER_PRIMARY_CLIENT), cut_off=False)
+            _note_spend(collector, _baml_client_model(ROUTER_PRIMARY_CLIENT), cut_off=cut_off)
         label = getattr(decision.task_family, "value", decision.task_family) if decision.task_family else None
         if label is None:
             return None, None, decision.reasoning or "unrelated"
         if not validate_member(str(label), allowed):
             return None, None, f"invalid family label {label!r}"
         return str(label), "baml", decision.reasoning or "baml"
+    except TimeoutError:
+        logger.warning("CC router: ClassifyQuery timed out after %ss", ROUTER_PRIMARY_LIMIT_S)
+        return None, None, f"timed out after {ROUTER_PRIMARY_LIMIT_S}s"
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: classification failed (%s)", type(exc).__name__)
         return None, None, str(exc)

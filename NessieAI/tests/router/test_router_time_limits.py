@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -215,6 +216,77 @@ def test_a_failure_recorded_for_another_query_is_not_applied(baml):
 def test_a_heuristic_decision_has_no_router_model():
     d = cc_router._heuristic("write a script")
     assert d.router_model is None and d.router_fallback is None
+
+
+# ---------------------------------------------------------------------------- ClassifyQuery (F7)
+#
+# Posterior routing (off by default) asks ClassifyQuery before RouteQuery. It declares the
+# same client as RouteQuery and had no time limit (F7, operator ruling 2026-09-25): it now
+# gets the router's 30 s, and a timeout is handled as an error is, so RouteQuery decides.
+
+class _ClassifyB(_FakeB):
+    """RouteQuery as above, plus ClassifyQuery, which sleeps ``delay`` s and then answers
+    no family (the error path's shape) or raises."""
+
+    def __init__(self, *outcomes, delay=0.0, raises=None):
+        super().__init__(*outcomes)
+        self.delay = delay
+        self.raises = raises
+        self.classify_calls = 0
+
+    async def ClassifyQuery(self, input, baml_options=None):
+        self.classify_calls += 1
+        await asyncio.sleep(self.delay)
+        if self.raises is not None:
+            raise self.raises
+        return SimpleNamespace(task_family=None, reasoning="unrelated")
+
+
+@pytest.fixture
+def posterior(baml, monkeypatch):
+    """The fake BAML surface with posterior routing on and the corpus builders stubbed."""
+    monkeypatch.setattr(cc_router.posterior_selector, "posterior_routing_enabled", lambda: True)
+    monkeypatch.setattr(cc_router, "runtime_type_builder", lambda _snap: object())
+    monkeypatch.setattr(cc_router, "type_builder", lambda _snap: {"members": []})
+    return baml
+
+
+def test_classify_query_gets_the_route_query_limit(posterior, monkeypatch):
+    monkeypatch.setattr(cc_router, "ROUTER_PRIMARY_LIMIT_S", 0.2)
+    fake, _ = posterior(_ClassifyB(delay=5.0))
+
+    t0 = time.perf_counter()
+    family, source, reason = cc_router._classify_query("how many mice")
+
+    assert time.perf_counter() - t0 < 2.0, "the router waited out the stalled classifier"
+    assert fake.classify_calls == 1
+    assert family is None and source is None
+    assert "timed out" in reason and "unrelated" not in reason.lower()
+
+
+def test_a_stalled_classifier_is_handled_as_an_error_and_route_query_decides(posterior, monkeypatch):
+    monkeypatch.setattr(cc_router, "ROUTER_PRIMARY_LIMIT_S", 0.2)
+    fake, Route = posterior(_ClassifyB(delay=5.0))
+    fake.outcomes = [_Decision(Route.ContainerCC, "pro says cc")]
+
+    t0 = time.perf_counter()
+    d = cc_router.decide("write a script")
+
+    assert time.perf_counter() - t0 < 2.0
+    assert (d.route, d.source) == (cc_router.ROUTE_CC, "baml")
+    assert d.router_model == PRO and d.router_fallback is None
+    assert d.reasoning.startswith("classification failed: ") and d.reasoning.endswith("pro says cc")
+    assert d.task_family is None
+
+
+def test_a_classifier_error_still_takes_the_same_path(posterior):
+    fake, Route = posterior(_ClassifyB(raises=RuntimeError("503 from Gemini")))
+    fake.outcomes = [_Decision(Route.NextseekQuery, "pro says ns")]
+
+    d = cc_router.decide("how many mice")
+
+    assert (d.route, d.source) == (cc_router.ROUTE_NS, "baml")
+    assert d.reasoning == "classification failed: 503 from Gemini; pro says ns"
 
 
 # ---------------------------------------------------------------------------- the event
