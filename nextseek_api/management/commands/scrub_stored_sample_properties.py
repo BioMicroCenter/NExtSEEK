@@ -13,25 +13,37 @@ from what NExtSEEK stored, in every place a user can read a stored result back:
 | ``ns_files`` | the files a chat session names under the outputs roots: everything under its ``extra_state["log_dir"]``, and every path its bundles name; the download endpoints' guard (``NessieAI.ns.artifacts._safe_artifact_path``) decides what is inside |
 | ``cc_previous_turns`` | ``<CC user root>/<project>/<user>/_memory/<session>/previous_turns/`` |
 | ``cc_artifacts`` | ``<CC user root>/<project>/<user>/output/artifacts/`` |
-| ``cc_transcript_files`` | ``<CC user root>/<project>/<user>/cc-state/<session>/projects/`` and ``.../_memory/<session>/transcripts/`` |
+| ``cc_transcript_files`` | ``<CC user root>/<project>/<user>/cc-state/<session>/`` and ``.../_memory/<session>/transcripts/`` |
 
-Files are read when they end in ``.json``, ``.jsonl``, ``.txt``, ``.csv``, ``.tsv`` or ``.zip`` (a zip's members by
-the same rule); an ``.xlsx`` is only checked, never rewritten.
+Files ending in ``.json``, ``.jsonl``, ``.ndjson``, ``.ipynb``, ``.txt``, ``.csv``, ``.tsv`` or ``.zip`` (a zip's
+members by the same rule) are cleaned. Every other file in those trees, an ``.xlsx`` included, is only checked: one
+that names a property is counted as "left in text" and never rewritten.
 
-What counts as one of the properties: a mapping key, an entry of a table's ``columns`` (its cells in positional
-``rows`` go with it), or a CSV header (its column goes with it), equal to one of the two names ignoring case, or
-ending in ``.`` plus one of them (the column name Neo4j gives ``RETURN s.parent_titles``). A string that holds JSON
-is parsed, cleaned and written back in its own layout. In text that is not JSON as a whole (a cut-off tool output),
-every complete ``"name": value`` pair is cut. Whatever still names a property after that (a cut-off value, the text
-of a query) is counted as "left in text" and left as it is.
+What counts as one of the properties: a mapping key, an entry of a table's ``columns`` (its cells in every positional
+sibling, ``rows`` or ``data``, go with it), or a CSV header (its column goes with it), equal to one of the two names
+ignoring case, or ending in ``.`` plus one of them (the column name Neo4j gives ``RETURN s.parent_titles``). A string
+that holds JSON is parsed, cleaned and written back in its own layout. In text that is not JSON as a whole (a
+cut-off tool output), every complete ``"name": value`` pair is cut. A Claude ``thinking`` block is never edited,
+because a resumed turn sends it back under its signature. Whatever still names a property after all that (a cut-off
+value, a thinking block, the text of a query) is counted as "left in text" and left as it is.
 
 Dry run by default: per store, records scanned and affected, keys found, and the first affected ids (never values),
 for non-admin and admin owners both. ``--apply`` needs ``--backup-dir`` and works in two passes. The first writes
 every affected record's original value to a JSON lines file there (mode 0600) and changes nothing. The second reads
 that file back and changes each record: a targeted update of its one field under a row lock, or an atomic rewrite of
-its one file that keeps its mode, owner and times. A record that changed between the passes is left as it is and
-reported; run again. ``--restore <file>`` puts the originals back (dry run unless ``--apply``), for records that
-still hold exactly what the scrub wrote.
+its one file that keeps its mode, owner and times. A record that changed between the passes, or cannot be written,
+is left as it is and reported; run again. ``--restore <file>`` puts the originals back (dry run unless ``--apply``),
+for records that still hold exactly what the scrub wrote.
+
+A CC transcript file written in the last ``--min-transcript-age-minutes`` (15) is left for a later run, as a turn may
+be appending to it. When a transcript under ``cc-state/<session>/projects`` is rewritten, the two records the CC side
+keeps about its exact bytes move with it (``_carry_transcript_marks``): the clean watermark ``cc_sweep`` checks, and
+the summary fingerprint in the session's ``extra_state``. Restore moves them back.
+
+Run every store in one pass, sessions first (the default order): the next CC turn re-stages ``previous_turns`` from
+the session row, so a trial on the files alone is undone by it. A chat turn that is running while the command writes
+can put the keys back in its own session when it saves; the dry run afterwards shows it, and a second apply removes
+them.
 
 Only records owned by non-superusers are changed unless ``--include-admins`` is given; both are always counted.
 A CC file's owner is the user its directory is named after. ``--store`` (repeatable) and ``--limit`` (per store,
@@ -47,7 +59,9 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
+import time
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -56,6 +70,7 @@ from typing import Any, Callable, Iterator
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
@@ -65,9 +80,13 @@ from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession, Q
 NAMES = tuple(sorted(name.lower() for name in HIDDEN_SAMPLE_PROPERTIES))
 BACKUP_PREFIX = "scrub_stored_sample_properties"
 SAMPLE_IDS = 5
-FILE_KINDS = {".json": "text", ".jsonl": "text", ".txt": "text", ".csv": "csv", ".tsv": "tsv",
-              ".zip": "zip", ".xlsx": "xlsx"}
+FILE_KINDS = {".json": "text", ".jsonl": "text", ".ndjson": "text", ".ipynb": "text", ".txt": "text",
+              ".csv": "csv", ".tsv": "tsv", ".zip": "zip", ".xlsx": "xlsx"}
 _REWRITTEN_KINDS = frozenset({"text", "csv", "tsv", "zip"})
+#: Claude blocks the Messages API checks by signature when a resumed turn sends them back: never edited, only counted.
+_SIGNED_BLOCKS = frozenset({"thinking", "redacted_thinking"})
+#: A zip holding a larger member is counted and left whole, so a member is never inflated past this in memory.
+ZIP_MEMBER_MAX_BYTES = 256 * 1024 * 1024
 
 
 # =============================================================================================== the cleaners
@@ -109,22 +128,30 @@ def scrub_value(value: Any, count: Count) -> Any:
     return value
 
 
-def _table_columns_to_drop(mapping: dict, count: Count) -> frozenset[int]:
-    """Positions of the property columns of a ``{"columns": [...], "rows": [[...], ...]}`` table."""
+def _table_positions(mapping: dict) -> tuple[frozenset[int], frozenset[str]]:
+    """For a ``{"columns": [...], "rows": [[...], ...]}`` table: the property columns' positions, and every sibling
+    key holding positional rows (``rows``, or ``data`` in a table written by someone else)."""
     columns = mapping.get("columns")
     if not isinstance(columns, list):
-        return frozenset()
+        return frozenset(), frozenset()
     drop = frozenset(i for i, column in enumerate(columns) if is_property_key(column))
-    rows = mapping.get("rows")
-    if drop and isinstance(rows, list) and any(isinstance(r, list) and len(r) != len(columns) for r in rows):
+    if not drop:
+        return drop, frozenset()
+    positional = frozenset(key for key, value in mapping.items() if key != "columns" and isinstance(value, list)
+                           and any(isinstance(row, list) for row in value))
+    if any(isinstance(row, list) and len(row) != len(columns) for key in positional for row in mapping[key]):
         # The cells do not line up with the header, so removing a header would shift them. The table is left, and
         # its header string is counted as left in text when the walk reaches it.
-        return frozenset()
-    return drop
+        return frozenset(), frozenset()
+    return drop, positional
 
 
 def _scrub_mapping(mapping: dict, count: Count) -> dict:
-    drop = _table_columns_to_drop(mapping, count)
+    if mapping.get("type") in _SIGNED_BLOCKS:
+        if names_a_property(json.dumps(mapping, default=str)):
+            count.left += 1
+        return mapping
+    drop, positional = _table_positions(mapping)
     out: dict = {}
     changed = False
     for key, item in mapping.items():
@@ -138,7 +165,7 @@ def _scrub_mapping(mapping: dict, count: Count) -> dict:
             item = [column for i, column in enumerate(item) if i not in drop]
             count.removed += len(drop)
             changed = True
-        elif drop and key == "rows" and isinstance(item, list):
+        elif key in positional:
             rows = []
             for row in item:
                 if isinstance(row, list):
@@ -171,8 +198,9 @@ def _json_or_not(text: str) -> Any:
         return _NOT_JSON
 
 
-def dump_like(original: str, value: Any) -> str:
-    """``value`` as JSON in ``original``'s layout: its indent or compactness, its escaping, its outer whitespace."""
+def dump_like(original: str, value: Any) -> str | None:
+    """``value`` as JSON in ``original``'s layout: its indent or compactness, its escaping, its line ends, its outer
+    whitespace. None when it cannot be written as strict JSON (a number beyond a double, read back as infinity)."""
     body = original.strip()
     lead = original[: len(original) - len(original.lstrip())]
     trail = original[len(original.rstrip()):]
@@ -187,12 +215,17 @@ def dump_like(original: str, value: Any) -> str:
         spaced = first.group(1) == " " if first else ", " in body
         separators = (", ", ": ") if spaced else (",", ":")
     ascii_only = body.isascii()
-    text = json.dumps(value, indent=indent, separators=separators, ensure_ascii=ascii_only)
-    if not ascii_only:
-        try:
-            text.encode("utf-8")
-        except UnicodeEncodeError:  # a lone surrogate from an escape: keep it escaped
-            text = json.dumps(value, indent=indent, separators=separators, ensure_ascii=True)
+    try:
+        text = json.dumps(value, indent=indent, separators=separators, ensure_ascii=ascii_only, allow_nan=False)
+        if not ascii_only:
+            try:
+                text.encode("utf-8")
+            except UnicodeEncodeError:  # a lone surrogate from an escape: keep it escaped
+                text = json.dumps(value, indent=indent, separators=separators, ensure_ascii=True, allow_nan=False)
+    except ValueError:
+        return None
+    if indent is not None and "\r\n" in body:
+        text = text.replace("\n", "\r\n")  # every newline json.dumps writes is structural; strings escape theirs
     return lead + text + trail
 
 
@@ -234,10 +267,9 @@ def _cut_pairs(text: str, count: Count) -> str:
 
 
 def _is_json_lines(text: str) -> bool:
-    for line in text.split("\n"):
-        if line.strip():
-            return _json_or_not(line) is not _NOT_JSON
-    return False
+    """Two or more lines, each a JSON value, the last excepted (a file cut off mid-line)."""
+    lines = [line for line in text.split("\n") if line.strip()]
+    return len(lines) > 1 and all(_json_or_not(line) is not _NOT_JSON for line in lines[:-1])
 
 
 def _scrub_lines(text: str, count: Count) -> str:
@@ -259,7 +291,14 @@ def scrub_text(text: str, count: Count) -> str:
     if parsed is not _NOT_JSON:
         before = count.removed
         cleaned = scrub_value(parsed, count)
-        return dump_like(text, cleaned) if count.removed > before else text
+        if count.removed == before:
+            return text
+        redone = dump_like(text, cleaned)
+        if redone is not None:
+            return redone
+        count.removed = before
+        count.left += 1
+        return text
     if "\n" in text and _is_json_lines(text):
         return _scrub_lines(text, count)
     cleaned = _cut_pairs(text, count)
@@ -268,10 +307,19 @@ def scrub_text(text: str, count: Count) -> str:
     return cleaned
 
 
+def _lift_csv_field_limit() -> None:
+    """A previous turn's rows.csv holds a whole node as JSON in one cell, past the csv module's 128 KiB default."""
+    try:
+        csv.field_size_limit(sys.maxsize)
+    except OverflowError:  # pragma: no cover - a platform whose C long is 32 bits
+        csv.field_size_limit(2 ** 31 - 1)
+
+
 def scrub_csv(text: str, count: Count, delimiter: str = ",") -> str:
     """CSV without the property columns, every other cell cleaned as text; untouched text comes back as is."""
     if not names_a_property(text):
         return text
+    _lift_csv_field_limit()
     rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
     if not rows:
         return text
@@ -305,6 +353,9 @@ def _scrub_zip(data: bytes, count: Count, *, rewrite: bool) -> bytes:
         return data
     members: list[tuple[zipfile.ZipInfo, bytes, bytes]] = []
     with archive:
+        if any(info.file_size > ZIP_MEMBER_MAX_BYTES for info in archive.infolist()):
+            count.left += 1
+            return data
         comment = archive.comment
         for info in archive.infolist():
             raw = archive.read(info)
@@ -338,12 +389,16 @@ def kind_of(name: str | Path) -> str | None:
     return FILE_KINDS.get(Path(str(name)).suffix.lower())
 
 
-def scrub_bytes(data: bytes, kind: str, count: Count) -> bytes:
+def scrub_bytes(data: bytes, kind: str | None, count: Count) -> bytes:
     """A stored file's bytes without the two properties; the same object when there was nothing to remove."""
     if kind == "zip":
         return _scrub_zip(data, count, rewrite=True)
     if kind == "xlsx":
         return _scrub_zip(data, count, rewrite=False)
+    if kind not in _REWRITTEN_KINDS:  # a file this command does not parse: counted when it names a property
+        if names_a_property(data):
+            count.left += 1
+        return data
     if not names_a_property(data):
         return data
     try:
@@ -424,6 +479,14 @@ class Backup:
         self.path = path
         self._fh = os.fdopen(fd, "w", encoding="utf-8")
         self.write({"kind": "header", **header})
+        try:
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except OSError:
+            pass
 
     def write(self, entry: dict) -> int:
         line = json.dumps(entry, ensure_ascii=True) + "\n"
@@ -442,6 +505,7 @@ class Run:
     limit: int | None
     batch_size: int
     max_file_bytes: int
+    min_transcript_age_s: int
     admin_ids: frozenset
     admin_usernames: frozenset
     backup: Backup | None = None
@@ -672,12 +736,19 @@ def _read_regular(path: Path, max_bytes: int | None = None) -> tuple[os.stat_res
 
 
 class FileStore:
-    """Files on disk; a record is a file, backed up whole and replaced whole."""
+    """Files on disk; a record is a file, backed up whole and replaced whole.
+
+    ``live`` marks a store whose files a running turn appends to: a file written in the last
+    ``--min-transcript-age-minutes`` is left for a later run. ``after_write(path, old, new)`` runs after every
+    rewrite and every restore.
+    """
 
     kind = "file"
 
-    def __init__(self, name: str, label: str, files: Callable[[Run, Tally], Iterator[tuple[Path, bool, str]]]):
+    def __init__(self, name: str, label: str, files: Callable[[Run, Tally], Iterator[tuple[Path, bool, str]]], *,
+                 live: bool = False, after_write: Callable[[Path, bytes, bytes], None] | None = None):
         self.name, self.label, self._files = name, label, files
+        self.live, self.after_write = live, after_write
 
     def scan(self, run: Run, tally: Tally) -> None:
         for path, admin, rid in self._files(run, tally):
@@ -686,6 +757,9 @@ class FileStore:
                 tally.skip(read)
                 continue
             st, data = read
+            if self.live and st.st_mtime > time.time() - run.min_transcript_age_s:
+                tally.skip("recently_modified")
+                continue
             count = Count()
             try:
                 scrub_bytes(data, kind_of(path), count)
@@ -713,6 +787,8 @@ class FileStore:
             return "changed"
         _replace_file(path, cleaned, mode=st.st_mode, uid=st.st_uid, gid=st.st_gid,
                       atime_ns=st.st_atime_ns, mtime_ns=st.st_mtime_ns)
+        if self.after_write:
+            self.after_write(path, data, cleaned)
         return "written"
 
     def restore(self, entry: dict, write: bool) -> str:
@@ -729,16 +805,18 @@ class FileStore:
         if write:
             _replace_file(path, original, mode=entry["mode"], uid=entry["uid"], gid=entry["gid"],
                           atime_ns=entry["atime_ns"], mtime_ns=entry["mtime_ns"])
+            if self.after_write:
+                self.after_write(path, data, original)
         return "restored"
 
 
 def _walk(top: Path) -> Iterator[Path]:
-    """Every regular, non-link file under ``top`` whose kind this command reads, in a stable order."""
+    """Every non-link file under ``top``, in a stable order. Kinds this command does not parse are only checked."""
     for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
         dirnames.sort()
         for name in sorted(filenames):
             path = Path(dirpath) / name
-            if kind_of(path) and not path.is_symlink():
+            if not path.is_symlink():
                 yield path
 
 
@@ -793,10 +871,11 @@ def _ns_files(run: Run, tally: Tally) -> Iterator[tuple[Path, bool, str]]:
                 path = _safe_artifact_path(stored)
                 if path is None:
                     tally.skip("outside_the_artifact_roots")
-                elif kind_of(path) and path.is_file():
+                elif path.is_file():
                     candidates.append(path)
             for path in candidates:
-                if path in done and (done[path] is False or admin):
+                # Read again only for a non-admin owner after an admin one whose files were out of scope.
+                if path in done and (done[path] is False or admin or run.include_admins):
                     continue
                 done[path] = admin
                 yield path, admin, str(path)
@@ -833,6 +912,43 @@ def _cc_files(*tops: Callable[[Path], list[Path]]) -> Callable[[Run, Tally], Ite
     return files
 
 
+def _carry_transcript_marks(path: Path, old: bytes, new: bytes) -> None:
+    """Move the two records the CC side keeps about a transcript's exact bytes from ``old`` to ``new``.
+
+    ``cc_engine.scrub_transcript_store`` records the sha256 of every transcript it cleaned of credentials in
+    ``cc-state/.<session>.scrub.json``; ``cc_sweep`` summarizes only transcripts whose bytes match. The CC turn keeps
+    the fingerprint of the session's newest transcript in ``extra_state["summary_fingerprint"]`` and summarizes the
+    session again when it differs. Each record moves only when it described ``old`` exactly: removing two keys from
+    clean bytes leaves them clean, and anything else is left for the CC side to redo.
+    """
+    from NessieAI.cc.cc_engine import _read_scrub_manifest, _write_scrub_manifest
+    from NessieAI.cc.cc_summary import fingerprint
+
+    store_roots = [p for p in path.parents if p.name == "projects"]  # the outermost one, as the CC side derives it
+    if not store_roots or store_roots[-1].parent.parent.name != "cc-state":
+        return
+    cc_state_dir = store_roots[-1].parent
+    rel = str(path.relative_to(cc_state_dir))
+    files = _read_scrub_manifest(cc_state_dir)
+    if files.get(rel) == sha256(old):
+        manifest = cc_state_dir.parent / f".{cc_state_dir.name}.scrub.json"
+        times = os.stat(manifest)
+        _write_scrub_manifest(cc_state_dir, {**files, rel: sha256(new)})
+        os.utime(manifest, ns=(times.st_atime_ns, times.st_mtime_ns))
+    try:
+        with transaction.atomic():
+            rows = list(ChatSession.objects.select_for_update().filter(pk=cc_state_dir.name).order_by()
+                        .values_list("extra_state", flat=True))
+            if not rows or not isinstance(rows[0], dict):
+                return
+            recorded = rows[0].get("summary_fingerprint")
+            if isinstance(recorded, dict) and recorded == fingerprint(old):
+                ChatSession.objects.filter(pk=cc_state_dir.name).update(
+                    extra_state={**rows[0], "summary_fingerprint": fingerprint(new)})
+    except (ValueError, ValidationError):  # a directory that is not a session id
+        return
+
+
 def _session_dirs(parent: Path, *tail: str) -> list[Path]:
     if not parent.is_dir():
         return []
@@ -851,9 +967,10 @@ STORES = {
         "cc_artifacts", "<CC user root>/<project>/<user>/output/artifacts",
         _cc_files(lambda u: [u / "output" / "artifacts"])),
     "cc_transcript_files": FileStore(
-        "cc_transcript_files", "<CC user root>/<project>/<user>/cc-state/<session>/projects and _memory/<session>/transcripts",
-        _cc_files(lambda u: _session_dirs(u / "cc-state", "projects"),
-                  lambda u: _session_dirs(u / "_memory", "transcripts"))),
+        "cc_transcript_files", "<CC user root>/<project>/<user>/cc-state/<session> and _memory/<session>/transcripts",
+        _cc_files(lambda u: _session_dirs(u / "cc-state"),
+                  lambda u: _session_dirs(u / "_memory", "transcripts")),
+        live=True, after_write=_carry_transcript_marks),
 }
 STORE_ORDER = tuple(STORES)
 
@@ -890,6 +1007,9 @@ class Command(BaseCommand):
         parser.add_argument("--batch-size", type=int, default=10, help="Database rows read per query (default 10).")
         parser.add_argument("--max-file-mb", type=int, default=256,
                             help="Skip, and count, files larger than this (default 256).")
+        parser.add_argument("--min-transcript-age-minutes", type=int, default=15,
+                            help="Leave CC transcript files written more recently than this, as a turn may be "
+                                 "appending to them (default 15).")
         parser.add_argument("--restore", metavar="BACKUP_FILE",
                             help="Put back the originals from a backup file (dry run unless --apply).")
 
@@ -909,6 +1029,7 @@ class Command(BaseCommand):
         users = get_user_model().objects.filter(is_superuser=True)
         run = Run(include_admins=options["include_admins"], limit=options["limit"],
                   batch_size=max(1, options["batch_size"]), max_file_bytes=options["max_file_mb"] * 1024 * 1024,
+                  min_transcript_age_s=max(0, options["min_transcript_age_minutes"]) * 60,
                   admin_ids=frozenset(users.values_list("pk", flat=True)),
                   admin_usernames=frozenset(users.values_list("username", flat=True)))
         if options["verbosity"] >= 2:
@@ -954,14 +1075,19 @@ class Command(BaseCommand):
         write(f"Backup: {run.backup.path}")
         by_name = {store.name: store for store in stores}
         for entry in _backup_entries(run.backup.path):
-            tallies[entry["store"]].outcome(apply_entry(by_name[entry["store"]], entry))
+            try:
+                status = apply_entry(by_name[entry["store"]], entry)
+            except Exception as exc:  # noqa: BLE001 - one record that cannot be written must not stop the rest
+                status = "failed"
+                self.stderr.write(f"{entry['store']} {_entry_id(entry)}: not written: {type(exc).__name__}: {exc}")
+            tallies[entry["store"]].outcome(status)
         write("")
         write("Second pass, one line per store (a value is one column of one row, or one file):")
         for store in stores:
             outcomes = tallies[store.name].outcomes
             write(f"{store.name}: {outcomes.get('written', 0)} written, "
                   f"{outcomes.get('changed', 0)} changed since the scan (left as they are; run again), "
-                  f"{outcomes.get('gone', 0)} gone")
+                  f"{outcomes.get('gone', 0)} gone, {outcomes.get('failed', 0)} failed")
         write("Run the dry run again: it should find 0 records in scope.")
 
     def _report(self, store, tally: Tally, run: Run) -> None:
@@ -1001,7 +1127,11 @@ class Command(BaseCommand):
                           f"{'APPLY' if write else 'DRY RUN, nothing is written (pass --apply to write)'}")
         outcomes: dict[str, dict[str, int]] = {}
         for entry in _backup_entries(path):
-            status = STORES[entry["store"]].restore(entry, write)
+            try:
+                status = STORES[entry["store"]].restore(entry, write)
+            except Exception as exc:  # noqa: BLE001 - one record that cannot be restored must not stop the rest
+                status = "failed"
+                self.stderr.write(f"{entry['store']} {_entry_id(entry)}: not restored: {type(exc).__name__}: {exc}")
             counts = outcomes.setdefault(entry["store"], {})
             counts[status] = counts.get(status, 0) + 1
         for name in STORE_ORDER:
@@ -1010,7 +1140,11 @@ class Command(BaseCommand):
                 self.stdout.write(f"{name}: {c.get('restored', 0)} {'restored' if write else 'would be restored'}, "
                                   f"{c.get('already original', 0)} already original, "
                                   f"{c.get('changed', 0)} changed since the scrub (left as they are), "
-                                  f"{c.get('gone', 0)} gone")
+                                  f"{c.get('gone', 0)} gone, {c.get('failed', 0)} failed")
+
+
+def _entry_id(entry: dict) -> str:
+    return entry.get("path") or f"{entry.get('pk')} [{entry.get('field')}]"
 
 
 def _mb(n: int) -> str:

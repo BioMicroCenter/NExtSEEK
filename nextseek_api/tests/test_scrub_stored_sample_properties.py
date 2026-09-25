@@ -8,6 +8,8 @@ import os
 import re
 import shutil
 import tempfile
+import time
+import uuid
 import zipfile
 from io import StringIO
 from pathlib import Path
@@ -18,6 +20,9 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
 
+from NessieAI.cc.cc_engine import _write_scrub_manifest as write_scrub_manifest
+from NessieAI.cc.cc_engine import transcript_is_verified_scrubbed
+from NessieAI.cc.cc_summary import fingerprint
 from NessieAI.cc.cc_transcript_store import compress, decompress
 from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession, QueryTask
 from nextseek_api.management.commands import scrub_stored_sample_properties as scrub
@@ -153,6 +158,50 @@ def test_a_zip_member_is_cleaned_and_the_other_members_are_kept():
     assert count.removed == 2
 
 
+def test_a_signed_thinking_block_is_never_edited_and_is_counted():
+    block = {"type": "thinking", "thinking": 'row has "parent_titles": ["P"], so', "signature": "sig"}
+    value = {"content": [block, {"type": "text", "text": json.dumps({"parent_titles": ["P"], "uid": "A-1"})}]}
+    cleaned, count = _clean(value)
+    assert cleaned["content"][0] is block
+    assert json.loads(cleaned["content"][1]["text"]) == {"uid": "A-1"}
+    assert (count.removed, count.left) == (1, 1)
+
+
+def test_every_positional_sibling_of_the_header_loses_the_cell():
+    table = {"columns": ["uid", "s.parent_titles"], "data": [["A-1", ["P"]]], "rows": [["A-2", ["Q"]]]}
+    cleaned, count = _clean(table)
+    assert cleaned == {"columns": ["uid"], "data": [["A-1"]], "rows": [["A-2"]]}
+
+
+def test_text_is_read_as_json_lines_only_when_its_lines_are_json():
+    text = '{"step": 1}\n{\n  "a": 1,\n  "parent_titles": ["P"]\n}'
+    count = scrub.Count()
+    cleaned = scrub.scrub_text(text, count)
+    assert cleaned == '{"step": 1}\n{\n  "a": 1\n}'
+    assert count.removed == 1
+
+
+def test_a_csv_cell_longer_than_the_csv_default_limit_is_read():
+    big = json.dumps(dict(NODE, notes="x" * 200_000))
+    text = _csv([["s"], [big]])
+    count = scrub.Count()
+    cleaned = scrub.scrub_bytes(text.encode(), "csv", count).decode()
+    assert json.loads(list(csv.reader(io.StringIO(cleaned, newline="")))[1][0]) == dict(CLEAN_NODE, notes="x" * 200_000)
+
+
+def test_indented_json_with_crlf_keeps_crlf():
+    original = json.dumps({"rows": [ROW]}, indent=2).replace("\n", "\r\n")
+    count = scrub.Count()
+    assert scrub.scrub_text(original, count) == json.dumps({"rows": [CLEAN_ROW]}, indent=2).replace("\n", "\r\n")
+
+
+def test_json_that_cannot_be_written_back_strictly_is_left_and_counted():
+    original = '{"n": 1e400, "parent_titles": ["P"]}'
+    count = scrub.Count()
+    assert scrub.scrub_text(original, count) is original
+    assert (count.removed, count.left) == (0, 1)
+
+
 def test_a_workbook_is_only_checked_even_inside_a_zip():
     workbook = _zip({"xl/sharedStrings.xml": b"<sst><si><t>parent_titles</t></si></sst>"})
     count = scrub.Count()
@@ -218,6 +267,9 @@ class ScrubStoredSampleProperties(TestCase):
                                  progress=[{"event": "query_complete", "data": {"artifacts": [TABLE]}}],
                                  result={"reply": "r", "artifacts": [TABLE]})
         jsonl = _transcript({"data": [ROW]}).encode("utf-8")
+        ChatSession.objects.filter(pk=session.pk).update(
+            extra_state=dict(session.extra_state, summary_fingerprint=fingerprint(jsonl)))
+        session.refresh_from_db()
         CCSessionTranscript.objects.create(chat_session=session, cc_session_id="cc-1", turn_id="t1",
                                            blob=compress(jsonl), uncompressed_size=len(jsonl))
 
@@ -237,6 +289,14 @@ class ScrubStoredSampleProperties(TestCase):
         (project / "cc-1.jsonl").write_bytes(jsonl)
         (project / "cc-1" / "tool-results" / "b1.txt").write_text(json.dumps({"result": {"data": [ROW]}}))
         (user_dir / "cc-state" / str(session.session_id) / "settings.json").write_text('{"model": "x"}')
+        history = user_dir / "cc-state" / str(session.session_id) / "file-history" / "e1"
+        history.mkdir(parents=True)
+        (history / "rows.json").write_text(json.dumps({"rows": [ROW]}))
+        write_scrub_manifest(user_dir / "cc-state" / str(session.session_id),
+                             {"projects/-home-user/cc-1.jsonl": scrub.sha256(jsonl)})
+        an_hour_ago = time.time() - 3600
+        for path in (user_dir / "cc-state").rglob("*"):
+            os.utime(path, (an_hour_ago, an_hour_ago))
         return session
 
     def _snapshot(self):
@@ -281,7 +341,7 @@ class ScrubStoredSampleProperties(TestCase):
         self.assertEqual(self._counts(out, "sessions", "non-admin")[:2], (2, 1))
         self.assertEqual(self._counts(out, "sessions", "admin")[:2], (1, 1))
         for store, affected in (("tasks", 1), ("cc_transcripts", 1), ("ns_files", 1), ("cc_previous_turns", 2),
-                                ("cc_artifacts", 2), ("cc_transcript_files", 2)):
+                                ("cc_artifacts", 2), ("cc_transcript_files", 3)):
             self.assertEqual(self._counts(out, store, "non-admin")[1], affected, store)
             self.assertEqual(self._counts(out, store, "admin")[1], affected, store)
         self.assertIn(str(self.member_session.pk), out)
@@ -306,7 +366,9 @@ class ScrubStoredSampleProperties(TestCase):
         self.assertEqual(session.results_history[0]["files"], self.member_session.results_history[0]["files"])
         self.assertEqual(session.last_debug, {"graph_result": {"count": 1},
                                               "raw": json.dumps({"rows": [CLEAN_ROW]}, indent=2)})
-        self.assertEqual(session.extra_state, self.member_session.extra_state)
+        cleaned_jsonl = _transcript({"data": [CLEAN_ROW]}).encode("utf-8")
+        self.assertEqual(session.extra_state,
+                         dict(self.member_session.extra_state, summary_fingerprint=fingerprint(cleaned_jsonl)))
         self.assertEqual(session.updated_at, before_db[("session", str(session.pk))][3])
 
         task = QueryTask.objects.get(session=self.member_session)
@@ -332,6 +394,9 @@ class ScrubStoredSampleProperties(TestCase):
         state = f"cc/2-proj/member/cc-state/{self.member_session.pk}/projects/-home-user/"
         self.assertEqual(files[state + "cc-1.jsonl"][0].decode(), _transcript({"data": [CLEAN_ROW]}))
         self.assertEqual(json.loads(files[state + "cc-1/tool-results/b1.txt"][0]), {"result": {"data": [CLEAN_ROW]}})
+        self.assertTrue(transcript_is_verified_scrubbed(self.tmp / (state + "cc-1.jsonl"), cleaned_jsonl))
+        history = f"cc/2-proj/member/cc-state/{self.member_session.pk}/file-history/e1/rows.json"
+        self.assertEqual(json.loads(files[history][0]), {"rows": [CLEAN_ROW]})
 
         for name, (data, mtime) in files.items():
             self.assertEqual(mtime, before_files[name][1], f"{name} kept its modification time")
@@ -348,13 +413,21 @@ class ScrubStoredSampleProperties(TestCase):
                 self.assertEqual(db[key], value, f"{key} is untouched")
 
     def test_the_backup_holds_every_original_before_the_first_change(self):
-        with mock.patch.object(scrub, "apply_entry", side_effect=RuntimeError("stopped before any change")):
-            with self.assertRaises(RuntimeError):
-                self._apply()
+        at_first_write = []
+
+        def stop(store, entry):
+            if not at_first_write:
+                [backup] = list(self.backups.iterdir())
+                at_first_write.append((backup, [json.loads(line) for line in backup.read_text().splitlines()]))
+            raise RuntimeError("stopped before any change")
+
+        with mock.patch.object(scrub, "apply_entry", side_effect=stop):
+            out = self._apply()
         self.assertEqual(self._snapshot(), self.before)
-        [backup] = list(self.backups.iterdir())
+        self.assertRegex(out, r"sessions: 0 written, 0 changed since the scan \(left as they are; run again\), "
+                              r"0 gone, 2 failed")
+        backup, entries = at_first_write[0]
         self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
-        entries = [json.loads(line) for line in backup.read_text().splitlines()]
         self.assertEqual(entries[0]["kind"], "header")
         found = sorted((e["store"], e.get("field") or Path(e["path"]).name) for e in entries[1:])
         self.assertEqual(found, sorted([
@@ -363,6 +436,7 @@ class ScrubStoredSampleProperties(TestCase):
             ("cc_previous_turns", "rows.json"), ("cc_previous_turns", "rows.csv"),
             ("cc_artifacts", "result.json"), ("cc_artifacts", "artifacts.zip"),
             ("cc_transcript_files", "cc-1.jsonl"), ("cc_transcript_files", "b1.txt"),
+            ("cc_transcript_files", "rows.json"),
         ]))
         by_field = {(e["store"], e.get("field")): e for e in entries[1:]}
         self.assertEqual(by_field[("sessions", "results_history")]["value"], self.member_session.results_history)
@@ -445,3 +519,55 @@ class ScrubStoredSampleProperties(TestCase):
         self.assertEqual((outside.read_bytes(), linked.read_bytes()), before)
         self.assertIn("outside_the_artifact_roots", out)
         self.assertTrue((self.cc_root / "2-proj/member/output/artifacts/run-1/link.json").is_symlink())
+
+    def test_a_transcript_written_in_the_last_minutes_is_left_for_later(self):
+        live = self.cc_root / f"2-proj/member/cc-state/{self.member_session.pk}/projects/-home-user/cc-1.jsonl"
+        os.utime(live, None)
+        before = live.read_bytes()
+        out = self._apply()
+        self.assertEqual(live.read_bytes(), before)
+        self.assertIn("recently_modified 1", out)
+        out = self._apply("--min-transcript-age-minutes", "0")
+        self.assertFalse(self._names_in(live.read_bytes()))
+
+    def test_one_record_that_cannot_be_written_does_not_stop_the_rest(self):
+        real = scrub._replace_file
+
+        def refuse_one(path, *args, **kwargs):
+            if path.name == "result.json":
+                raise PermissionError("read-only")
+            return real(path, *args, **kwargs)
+
+        with mock.patch.object(scrub, "_replace_file", side_effect=refuse_one):
+            out = self._apply()
+        self.assertRegex(out, r"cc_artifacts: 1 written, 0 changed since the scan \(left as they are; run again\), "
+                              r"0 gone, 1 failed")
+        self.assertTrue(self._names_in((self.cc_root / "2-proj/member/output/artifacts/run-1/result.json").read_bytes()))
+        session = ChatSession.objects.get(pk=self.member_session.pk)
+        self.assertEqual(session.results_history[0]["graph_result"]["data"], [CLEAN_ROW])
+
+    def test_other_files_that_name_a_property_are_counted_and_left(self):
+        notes = self.cc_root / "2-proj/member/output/artifacts/run-1/notes.md"
+        notes.write_text("the rows had parent_titles")
+        out = self._run("--store", "cc_artifacts")
+        self.assertEqual(self._counts(out, "cc_artifacts", "non-admin"), (3, 2, 4, 1))
+        self._apply("--store", "cc_artifacts")
+        self.assertEqual(notes.read_text(), "the rows had parent_titles")
+
+    def test_a_file_two_sessions_name_is_backed_up_and_written_once(self):
+        shared = self.outputs / "260923_120000_shared/files/graph_result/graph_result_bundle_1.json"
+        shared.parent.mkdir(parents=True)
+        shared.write_text(json.dumps({"rows": [ROW]}))
+        bundle = [{"id": 1, "files": [{"key": "graph_result", "path": str(shared)}]}]
+        # Fixed ids: the superuser's session is read first, the member's second.
+        ChatSession.objects.create(session_id=uuid.UUID(int=1), user=self.superuser, results_history=bundle)
+        ChatSession.objects.create(session_id=uuid.UUID(int=2 ** 128 - 1), user=self.member, results_history=bundle)
+        # By default the shared file is out of scope as the superuser's and read again as the member's.
+        self.assertIn("in scope: 2 records", self._run("--store", "ns_files"))
+        self.assertIn("in scope: 3 records", self._run("--store", "ns_files", "--include-admins"))
+        out = self._apply("--store", "ns_files", "--include-admins")
+        self.assertRegex(out, r"ns_files: 3 written, 0 changed since the scan")
+        [backup] = list(self.backups.iterdir())
+        paths = [json.loads(line).get("path") for line in backup.read_text().splitlines()]
+        self.assertEqual(paths.count(str(shared)), 1)
+        self.assertFalse(self._names_in(shared.read_bytes()))
