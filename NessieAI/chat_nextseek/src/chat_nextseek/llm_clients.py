@@ -49,10 +49,26 @@ class LLMFatalError(BaseException):
     Inherits from BaseException (not Exception) so it bypasses all bare 'except Exception'
     handlers in agent code and propagates straight to the orchestrator.
     Set by: rate limits (429) after all retries, and unclassified bare LLMError.
+
+    ``unavailable`` is True when the call ended because the models did not answer (a 5xx,
+    an empty body, a 429, a timeout or a connection error, on the one provider move as
+    well when there was one), and False for anything else (a bare 400). The orchestrator
+    tells the user a different thing for each. ``model_fallback`` lists the provider
+    move the call made before it gave up, as ``{"agent", "from", "to", "reason"}``
+    items; it is empty when no second model was tried.
     """
-    def __init__(self, message: str, *, agent: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        agent: str | None = None,
+        unavailable: bool = False,
+        model_fallback: list[dict] | None = None,
+    ):
         super().__init__(message)
         self.agent = agent
+        self.unavailable = bool(unavailable)
+        self.model_fallback = list(model_fallback or [])
 
 
 class LLMStructuredUnsupportedError(LLMError):

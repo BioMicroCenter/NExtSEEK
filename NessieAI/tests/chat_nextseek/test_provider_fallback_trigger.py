@@ -433,3 +433,176 @@ def test_the_tool_loop_moves_once():
     with pytest.raises(LLMFatalError):
         _call_tools(_tool_config(primary, fallback), primary)
     assert fallback.calls == ["fallback-1"]
+
+
+# --------------------------------------------------------------------------
+# Operator ruling 2026-09-25: a 429 that survived the SDK's own retries and a
+# connection error move like a 503, and a failure that ends the call says whether
+# the models were unavailable and which move was made.
+# --------------------------------------------------------------------------
+
+from chat_nextseek.llm_clients import LLMAPIConnectionError, LLMRateLimitError  # noqa: E402
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    slept: list[float] = []
+    monkeypatch.setattr(schema_helper.time, "sleep", lambda s: slept.append(s))
+    return slept
+
+
+def test_a_429_moves_to_the_next_provider_without_backing_off(no_sleep):
+    primary = _Client("gcp", [LLMRateLimitError("429 RESOURCE_EXHAUSTED"), '{"mode": "same"}'])
+    fallback = _Client("bedrock", ['{"mode": "graph_query"}'])
+    config = _Config(primary, agent="parser")
+    config.LLM_CLIENTS = {"gcp": primary, "anth": fallback}
+    config.AGENT_MODEL_CATALOG = {
+        "anth:current": {"parser": {"provider": "anth", "model": "fallback-1", "thinking_level": None}},
+    }
+    assert _structured(config, primary).mode == "graph_query"
+    assert primary.calls == ["primary-model"]
+    assert fallback.calls == ["fallback-1"]
+    assert no_sleep == [], "a move is not a backoff"
+
+
+def test_a_429_on_the_provider_it_moved_to_is_fatal_and_says_unavailable(no_sleep):
+    primary = _Client("bedrock", [LLMRateLimitError("ThrottlingException")])
+    fallback = _Client("gcp", [LLMRateLimitError("429"), '{"mode": "graph_query"}'])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert fallback.calls == ["fallback-1"]
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": "rate_limited"},
+    ]
+
+
+def test_a_429_with_no_chain_keeps_the_same_provider_backoff(no_sleep):
+    primary = _Client("bedrock", [LLMRateLimitError("429"), '{"mode": "graph_query"}'])
+    assert _structured(_Config(primary), primary).mode == "graph_query"
+    assert primary.calls == ["primary-model", "primary-model"]
+    assert no_sleep == [1.0]
+
+    primary = _Client("bedrock", [LLMRateLimitError("429")] * 3)
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [], "no second model was tried"
+
+
+def test_a_connection_error_moves_to_the_next_provider():
+    primary = _Client("bedrock", [LLMAPIConnectionError("EndpointConnectionError")])
+    fallback = _Client("gcp", ['{"mode": "graph_query"}'])
+    assert _structured(_Config(primary, fallback), primary).mode == "graph_query"
+    assert fallback.calls == ["fallback-1"]
+
+
+def test_a_connection_error_after_the_move_is_fatal_and_says_unavailable():
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    fallback = _Client("gcp", [LLMAPIConnectionError("connection reset"), '{"mode": "graph_query"}'])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": "unavailable"},
+    ]
+
+
+def test_a_connection_error_with_no_chain_propagates_unchanged():
+    """The callers that degrade on it (the chatter, the legacy memory agent) still see it."""
+    primary = _Client("bedrock", [LLMAPIConnectionError("connection reset")])
+    with pytest.raises(LLMAPIConnectionError):
+        _structured(_Config(primary), primary)
+
+
+@pytest.mark.parametrize("first, reason", [
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    ("", "empty"),
+    (LLMTimeoutError("t"), "timeout"),
+    (LLMRateLimitError("429"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_503_and_friends_after_the_move_record_the_first_reason(first, reason, no_sleep):
+    primary = _Client("bedrock", [first])
+    fallback = _Client("gcp", [LLMServiceUnavailableError("503 again")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary, fallback), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": reason},
+    ]
+
+
+def test_a_failure_with_no_chain_is_unavailable_with_no_move():
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is True
+    assert excinfo.value.model_fallback == []
+
+
+def test_a_400_is_fatal_but_not_unavailable():
+    primary = _Client("bedrock", [LLMError("ValidationException: 400 malformed request")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _structured(_Config(primary), primary)
+    assert excinfo.value.unavailable is False
+    assert excinfo.value.model_fallback == []
+
+
+def test_an_llm_fatal_error_built_the_old_way_is_not_unavailable():
+    err = LLMFatalError("boom", agent="x")
+    assert err.unavailable is False and err.model_fallback == [] and err.agent == "x"
+
+
+# --------------------------------------------------------------------------
+# The ledger names the move on the attempt that follows it (for the pricing unit).
+# --------------------------------------------------------------------------
+
+def _ledger(tmp_path):
+    import json
+
+    return [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+
+
+@pytest.mark.parametrize("first, reason", [
+    (LLMServiceUnavailableError("503"), "unavailable"),
+    ("", "empty"),
+    (LLMTimeoutError("t"), "timeout"),
+    (LLMRateLimitError("429"), "rate_limited"),
+    (LLMAPIConnectionError("reset"), "connection"),
+])
+def test_the_attempt_after_a_move_names_the_model_and_the_reason(tmp_path, first, reason, no_sleep):
+    primary = _Client("bedrock", [first])
+    fallback = _Client("gcp", ['{"mode": "graph_query"}'])
+    config = _Config(primary, fallback)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+
+    entries = _ledger(tmp_path)
+    moved = [e for e in entries if e["model"] == "fallback-1"]
+    assert len(moved) == 1 and moved[0]["outcome"] == "ok"
+    assert moved[0]["fallback_from"] == "primary-model"
+    assert moved[0]["fallback_reason"] == reason
+    assert all("fallback_from" not in e for e in entries if e["model"] == "primary-model")
+
+
+def test_only_the_first_attempt_after_the_move_carries_it(tmp_path):
+    """A repair turn on the fallback model is the same move, not a second one."""
+    primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
+    fallback = _Client("gcp", ["not json", '{"mode": "graph_query"}'])
+    config = _Config(primary, fallback)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+
+    moved = [e for e in _ledger(tmp_path) if e["model"] == "fallback-1"]
+    assert len(moved) == 2
+    assert [e.get("fallback_reason") for e in moved] == ["unavailable", None]
+
+
+def test_a_call_that_never_moved_has_no_fallback_fields(tmp_path):
+    primary = _Client("bedrock", ['{"mode": "graph_query"}'])
+    config = _Config(primary)
+    config.LOG_DIR = str(tmp_path)
+    _structured(config, primary)
+    (entry,) = _ledger(tmp_path)
+    assert "fallback_from" not in entry and "fallback_reason" not in entry
