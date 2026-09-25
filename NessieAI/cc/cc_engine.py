@@ -84,6 +84,22 @@ _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+# The CC 503 fallback (2026-09-25 operator ruling). Claude Code's own default is 11
+# attempts over about 175 s, so a Bedrock outage used to spend the whole turn before it
+# gave up. Three retries end such a turn in seconds, and ``--fallback-model`` (see
+# _build_command) switches model on the first 5xx other than 529. ``API_TIMEOUT_MS``
+# bounds one request, which matters only when the upstream hangs. Each is overridable
+# from the Django env, like the caps above; a value that is not a whole number keeps
+# the default.
+_CC_MAX_RETRIES_ENV = "NEXTSEEK_CC_MAX_RETRIES"
+_DEFAULT_CC_MAX_RETRIES = "3"
+_CC_API_TIMEOUT_MS_ENV = "NEXTSEEK_CC_API_TIMEOUT_MS"
+_DEFAULT_CC_API_TIMEOUT_MS = "60000"
+# Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
+# and names its own default Sonnet id (one the Bedrock proxy refuses) unless
+# ANTHROPIC_DEFAULT_SONNET_MODEL is set. The id comes from the model map's ``sonnet``
+# entry; this variable overrides it.
+_CC_SONNET_MODEL_ENV = "NEXTSEEK_CC_DEFAULT_SONNET_MODEL"
 # 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
 # will have been stopped, so the plugin's nextseek-query stops polling while the
 # agent can still report back, instead of being killed along with the turn. The
@@ -433,7 +449,50 @@ def build_agent_environment(
     # 13b.2: rounded down, so the agent never believes it has longer than it does.
     if turn_deadline is not None:
         env[_TURN_DEADLINE_ENV] = str(int(turn_deadline))
+    # The CC 503 fallback: bounded retries and request time, and a classifier model the
+    # proxy allows. None of these is a credential.
+    env["CLAUDE_CODE_MAX_RETRIES"] = _whole_number(
+        src.get(_CC_MAX_RETRIES_ENV), _DEFAULT_CC_MAX_RETRIES)
+    env["API_TIMEOUT_MS"] = _whole_number(
+        src.get(_CC_API_TIMEOUT_MS_ENV), _DEFAULT_CC_API_TIMEOUT_MS)
+    sonnet = (src.get(_CC_SONNET_MODEL_ENV) or "").strip() or _cc_classifier_model_id()
+    if sonnet:
+        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet
     return env
+
+
+def _whole_number(value: Any, default: str) -> str:
+    """``value`` when it is a whole number written in ASCII digits, else ``default``."""
+    text = value.strip() if isinstance(value, str) else ""
+    return text if re.fullmatch(r"[0-9]+", text) else default
+
+
+def _cc_fallback_model_id() -> str | None:
+    """The model map's ``opus_fallback`` id, or None when it is absent or unusable.
+
+    Never raises: a turn with no fallback is what a resolution failure costs, not the
+    turn itself. Imported here, not at module scope (``NessieAI/dmac_assistant/CLAUDE.md``).
+    """
+    try:
+        from dmac_assistant.router.models import resolve_cc_fallback_model
+
+        return resolve_cc_fallback_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: fallback model id resolution failed (%s); the turn runs "
+                       "with no fallback model", type(exc).__name__)
+        return None
+
+
+def _cc_classifier_model_id() -> str | None:
+    """The model map's ``sonnet`` id for the auto-mode classifier, or None. Never raises."""
+    try:
+        from dmac_assistant.router.models import resolve_cc_classifier_model
+
+        return resolve_cc_classifier_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: classifier model id resolution failed (%s); Claude Code "
+                       "keeps its own default", type(exc).__name__)
+        return None
 
 
 def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
@@ -889,18 +948,31 @@ def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str
     return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
+_FROM_MODEL_MAP: Any = object()
+
+
 def _build_command(
     *,
     model_id: str | None,
     session_id: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     source: Mapping[str, str] | None = None,
+    fallback_model_id: str | None = _FROM_MODEL_MAP,
 ) -> list[str]:
-    """Build the in-container ``claude`` command: auto-mode base + model + per-turn
-    caps + the ``$defaults``-first trusted-infra allowlist (OI-5)."""
+    """Build the in-container ``claude`` command: auto-mode base + model + fallback
+    model + per-turn caps + the ``$defaults``-first trusted-infra allowlist (OI-5).
+
+    ``--fallback-model`` is the CC 503 fallback: Claude Code switches to it on the first
+    5xx other than 529 (after three 529s), and it serves the rest of the turn. It is
+    added only when an id resolves and differs from ``--model``; by default the id is
+    the model map's ``opus_fallback`` entry, and a failure to resolve it means no flag.
+    """
     cmd = list(_BASE_CMD)
     if model_id:
         cmd += ["--model", model_id]
+    fallback = _cc_fallback_model_id() if fallback_model_id is _FROM_MODEL_MAP else fallback_model_id
+    if fallback and fallback != model_id:
+        cmd += ["--fallback-model", fallback]
     cmd += _cc_limit_args(max_budget_usd)
     cmd += _automode_settings_args(source)
     if session_id:
