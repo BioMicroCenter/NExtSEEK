@@ -63,8 +63,8 @@ def _cost_by_price_table(model_usage: Any, usage: Any) -> float | None:
 
     The auto-mode classifier's calls are NOT in ``modelUsage`` (a local 2.1.282 run;
     not yet confirmed live), so this number, like Claude Code's own, leaves them out.
-    None when there is no ``modelUsage`` or any model in it has no price: a number
-    that covers only some of the turn's models would not compare.
+    None when there is no ``modelUsage`` or any model in it that billed tokens has no
+    price: a number that covers only some of the turn's models would not compare.
     """
     if not isinstance(model_usage, dict) or not model_usage:
         return None
@@ -83,6 +83,10 @@ def _cost_by_price_table(model_usage: Any, usage: Any) -> float | None:
         for model, counts in model_usage.items():
             if not isinstance(counts, dict):
                 return None
+            # A model Claude Code lists but billed no token of costs nothing, priced or not.
+            if not any(int(counts.get(key) or 0) for key in (
+                    "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens")):
+                continue
             written = int(counts.get("cacheCreationInputTokens") or 0)
             written_1h = round(written * share_1h)
             cost = model_prices.call_cost(str(model), {

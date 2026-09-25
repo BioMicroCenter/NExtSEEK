@@ -78,6 +78,12 @@ def test_a_model_the_table_does_not_price_leaves_no_comparable_number():
     assert data["cost_by_price_table_usd"] is None
 
 
+def test_a_model_that_billed_nothing_does_not_need_a_price():
+    """Claude Code can list a model it asked nothing of; with no tokens it cost nothing."""
+    data = _complete(_result({OPUS_48: _mu(10, 5), "us.anthropic.claude-unknown-9": _mu(0, 0)}))
+    assert data["cost_by_price_table_usd"] == pytest.approx((10 * 5.50 + 5 * 27.50) / 1_000_000)
+
+
 @pytest.mark.parametrize("model_usage", [None, {}])
 def test_no_model_usage_leaves_no_comparable_number(model_usage):
     assert _complete(_result(model_usage))["cost_by_price_table_usd"] is None
