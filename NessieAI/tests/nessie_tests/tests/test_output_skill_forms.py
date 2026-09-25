@@ -235,3 +235,49 @@ def test_fold_rules(folded, item, needle):
     with pytest.raises(FormError) as e:
         N.apply(fold_p, tmp / "grades" / "triage.json", tmp / "t2.json")
     assert needle in str(e.value)
+
+
+def _two_files():
+    g = example()
+    second = copy.deepcopy(g["files"][0])
+    second["file"], second["name"] = "launch-example-cases-2.json", "Second file"
+    second["cases"] = [copy.deepcopy(_case(g, "cons.sequencing_engine"))]
+    for t, tid in zip(second["cases"][0]["turns"], (201, 202)):
+        t["task_id"] = tid
+    g["files"].append(second)
+    return g
+
+
+def test_the_consistency_group_may_appear_in_every_file_but_once_per_file():
+    G.build_grades(_two_files())
+    g = _two_files()
+    g["files"][1]["cases"].append(copy.deepcopy(g["files"][1]["cases"][0]))
+    for t, tid in zip(g["files"][1]["cases"][1]["turns"], (203, 204)):
+        t["task_id"] = tid
+    with pytest.raises(FormError) as e:
+        G.build_grades(g)
+    assert "appears twice" in str(e.value)
+
+
+def test_several_files_get_one_triage_each(tmp_path):
+    form = tmp_path / "g.json"
+    form.write_text(json.dumps(_two_files()))
+    G.write_grades(form, tmp_path / "out", triage_file="*")
+    names = sorted(p.name for p in (tmp_path / "out").iterdir())
+    assert names == ["GRADES.md", "grades.json", "triage-launch-example-cases-1.json",
+                     "triage-launch-example-cases-2.json"]
+
+
+def test_notes_cause_and_harness_numbers_render():
+    g = example()
+    _case(g, "fu.plot_goes_to_cc").update(note="The PNG itself is right.", harness_elapsed_s=83.3,
+                                          harness_cost_usd=0.25)
+    g["defects"][1]["likely_cause_unverified"] = "the reply text is written before the count runs"
+    g["defects"][1]["class"] = "environment"
+    g["meta"]["review_page"] = "review.html"
+    md = G.render_grades_md(G.build_grades(g))
+    assert "- `fu.plot_goes_to_cc`: The PNG itself is right." in md
+    assert "(harness 83.3)" in md and "(harness $0.25)" in md
+    assert "the reply text is written before the count runs" in md and "Review page: review.html." in md
+    sev = {f["title"][:2]: f["severity"] for f in G.to_triage(G.build_grades(g))["findings"]}
+    assert sev == {"D1": "real", "D2": "mute"}

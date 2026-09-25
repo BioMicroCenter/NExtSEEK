@@ -16,7 +16,7 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
 
@@ -42,6 +42,9 @@ class Turn(Strict):
     verdict: Verdict
     evidence: str = Field(min_length=3, description="the reply's key line and how it was checked")
     class_: DefectClass = Field(default="none", alias="class")
+    observed: dict[str, Any] = Field(
+        default_factory=dict,
+        description="debug values read for the verdict (graph_review, suggestions, parser mode ...); kept in grades.json, not rendered")
 
 
 class Case(Strict):
@@ -54,6 +57,8 @@ class Case(Strict):
     head: str = Field(min_length=3)
     extra: bool = Field(default=False, description="ran without being asked (the auto-run consistency group)")
     note: Optional[str] = None
+    harness_elapsed_s: Optional[float] = Field(default=None, ge=0)
+    harness_cost_usd: Optional[float] = Field(default=None, ge=0, description="what the harness printed for the case")
     turns: list[Turn] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -91,6 +96,8 @@ class Defect(Strict):
     summary: str = Field(min_length=5)
     evidence: str = Field(min_length=5)
     expected: str = Field(min_length=1)
+    likely_cause_unverified: Optional[str] = Field(
+        default=None, description="a guess at the cause, kept apart from the evidence")
 
 
 class Feature(Strict):
@@ -108,6 +115,7 @@ class Meta(Strict):
     grader: str
     window_utc: Optional[tuple[str, str]] = None
     basis: str = Field(min_length=10, description="how it was graded: what was read, never the pass rate")
+    review_page: Optional[str] = Field(default=None, description="the review.html or artifact url built from the same verdicts")
 
 
 class Cost(Strict):
@@ -138,10 +146,13 @@ class GradesForm(Strict):
     @model_validator(mode="after")
     def _cross(self):
         problems = []
-        ids = [c.id for f in self.files for c in f.cases]
-        dup = sorted({i for i in ids if ids.count(i) > 1})
-        if dup:
-            problems.append(f"a case appears twice: {dup}")
+        # unique within a file: the auto-run consistency group rightly appears in every file
+        for f in self.files:
+            fids = [c.id for c in f.cases]
+            dup = sorted({i for i in fids if fids.count(i) > 1})
+            if dup:
+                problems.append(f"{f.file}: a case appears twice: {dup}")
+        ids = {c.id for f in self.files for c in f.cases}
         tasks = [t.task_id for f in self.files for c in f.cases for t in c.turns if t.task_id is not None]
         tdup = sorted({t for t in tasks if tasks.count(t) > 1})
         if tdup:
@@ -249,7 +260,8 @@ def render_grades_md(g: dict) -> str:
          f"NS {tot['server_s_median']['ns']} s.", "",
          f"How this was graded: {m['basis']}", "",
          f"Instance {m['instance']} at `{m['sha']}` ({m['build']}); graded {m['graded_at']} by {m['grader']}"
-         + (f"; Nessie window {m['window_utc'][0]} to {m['window_utc'][1]}." if m.get("window_utc") else "."), "",
+         + (f"; Nessie window {m['window_utc'][0]} to {m['window_utc'][1]}." if m.get("window_utc") else ".")
+         + (f" Review page: {m['review_page']}." if m.get("review_page") else ""), "",
          "Verdicts: pass, real (a product defect), masked (the harness passed a wrong reply), drift (the "
          "criterion is wrong, the reply is right), policy (the operator decides), notrun. Class: whose "
          "problem it is (product, probe, environment).", "", "## Tables per file", ""]
@@ -266,21 +278,28 @@ def render_grades_md(g: dict) -> str:
         for c in f["cases"]:
             srv = round(sum(t["server_s"] or 0 for t in c["turns"]), 1)
             cost = [t["cost_usd"] for t in c["turns"] if t["cost_usd"] is not None]
-            L.append(f"| **{md(c['id'])}**{' (extra)' if c['extra'] else ''} | | | {srv} | "
-                     f"{_cost(round(sum(cost), 4)) if cost else 'unpriced'} | **{c['verdict']}** "
+            hs = f" (harness {c['harness_elapsed_s']})" if c.get("harness_elapsed_s") is not None else ""
+            hc = f" (harness ${c['harness_cost_usd']:.2f})" if c.get("harness_cost_usd") is not None else ""
+            L.append(f"| **{md(c['id'])}**{' (extra)' if c['extra'] else ''} | | | {srv}{hs} | "
+                     f"{_cost(round(sum(cost), 4)) if cost else 'unpriced'}{hc} | **{c['verdict']}** "
                      f"(harness: {c['harness_status']}) | {md(c['head'])} | {c['class']} |")
             for t in c["turns"]:
                 L.append(f"| &nbsp;&nbsp;{md(t['label'])} | {t.get('task_id') or ''} | {_route(t)} | "
                          f"{t.get('server_s') if t.get('server_s') is not None else ''} | {_cost(t.get('cost_usd'))} | "
                          f"{t['verdict']} | {md(t['evidence'])} | {t['class']} |")
+        notes = [(c["id"], c["note"]) for c in f["cases"] if c.get("note")]
+        if notes:
+            L += ["", "Notes:", ""] + [f"- `{cid}`: {n}" for cid, n in notes]
         L.append("")
     L += ["## Defects", ""]
     if g["defects"]:
-        L += ["| Id | Severity | Class | Area | Cases | Tasks | Summary | Expected | Evidence |",
-              "|---|---|---|---|---|---|---|---|---|"]
+        L += ["Listed in rank order.", "",
+              "| Id | Severity | Class | Area | Cases | Tasks | Summary | Expected | Evidence | Likely cause (unverified) |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
         for d in g["defects"]:
             L.append(f"| {d['id']} | {d['severity']} | {d['class']} | {md(d['area'])} | {', '.join(d['cases'])} "
-                     f"| {', '.join(map(str, d['tasks']))} | {md(d['summary'])} | {md(d['expected'])} | {md(d['evidence'])} |")
+                     f"| {', '.join(map(str, d['tasks']))} | {md(d['summary'])} | {md(d['expected'])} | {md(d['evidence'])} "
+                     f"| {md(d.get('likely_cause_unverified') or '')} |")
     else:
         L.append("None.")
     L += ["", "## Features the run was meant to show", ""]
@@ -307,7 +326,9 @@ def render_grades_md(g: dict) -> str:
     return "\n".join(L) + "\n"
 
 
-_SEVERITY = {"product": "real", "probe": "drift", "environment": "policy", "none": "mute"}
+# The page styles real, drift and policy; policy means "the operator decides", which an
+# environment defect is not, so it is grey (mute).
+_SEVERITY = {"product": "real", "probe": "drift", "environment": "mute", "none": "mute"}
 _MARK = {"pass": "ok", "real": "fail", "masked": "fail"}
 
 
@@ -355,8 +376,12 @@ def write_grades(form_path, out_dir, *, triage_file=None, force=False) -> dict:
     atomic_write(out / "grades.json", dump(g), force=force)
     atomic_write(out / "GRADES.md", render_grades_md(g), force=force)
     if triage_file is not None:
-        name = "triage.json" if triage_file == "*" else f"triage-{Path(triage_file).stem}.json"
-        atomic_write(out / name, dump(to_triage(g, file=None if triage_file == "*" else triage_file)), force=force)
+        # The page is built per run (build_report checks each verdict against ONE manifest), so a
+        # graded set of several files gets one triage per file.
+        files = [f["file"] for f in g["files"]] if triage_file == "*" else [triage_file]
+        for fname in files:
+            name = "triage.json" if len(g["files"]) == 1 else f"triage-{Path(fname).stem}.json"
+            atomic_write(out / name, dump(to_triage(g, file=fname)), force=force)
     return g
 
 
@@ -365,7 +390,7 @@ def add_cli(sub) -> None:
     p.add_argument("--form", required=True)
     p.add_argument("--out-dir", required=True)
     p.add_argument("--triage", nargs="?", const="*", default=None,
-                   help="also write the review page's triage: all files, or the one named")
+                   help="also write the review page's triage: one per file (triage-<file>.json), or only the file named")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=_cli)
 

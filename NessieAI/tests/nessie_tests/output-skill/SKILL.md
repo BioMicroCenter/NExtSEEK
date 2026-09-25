@@ -186,11 +186,17 @@ uv run scripts/review_forms.py grades --form ./grades-form.json --out-dir ./ --t
 Copy `examples/grades-form.json`. You fill `meta`, `verdict_text` (the lead paragraph), each
 case's `verdict`, `class` (product, probe, environment, none), `head` and turns (label, task id,
 route, server seconds, cost or null for unpriced, verdict, evidence), then `defects`, `features`,
-`harness_issues` and `cost`. The script refuses (exit 2) a harness pass graded `real` (that is
-`masked`), `masked` on a case the harness failed, `notrun` on a case that ran, a `pass` case
-holding a non-pass turn, and any `real` or `masked` case no defect names. It computes every count,
-cost sum and median itself, and writes `grades.json`, `GRADES.md` (the same layout every run) and,
-with `--triage`, the review page's triage for the same verdicts.
+`harness_issues` and `cost`. Optional: a case's `note`, `harness_elapsed_s` and
+`harness_cost_usd`; a turn's `observed` (the debug values you read: graph_review, suggestions,
+parser mode; kept in grades.json, not rendered); a defect's `likely_cause_unverified` (a guess
+stays out of the evidence); `meta.review_page`. List defects in rank order. A case id is unique
+within its file (the auto-run consistency group appears in every file). The script refuses
+(exit 2) a harness pass graded `real` (that is `masked`), `masked` on a case the harness failed,
+`notrun` on a case that ran, a `pass` case holding a non-pass turn, and any `real` or `masked` case
+no defect names. It computes every count, cost sum and median itself, and writes `grades.json`,
+`GRADES.md` (the same layout every run) and, with `--triage`, the review page's triage for the
+same verdicts: `triage.json` for one file, `triage-<file>.json` for each file of several (the page
+is built per run, and `build_report.py` checks each verdict against that run's manifest).
 
 ### 3. Build
 
