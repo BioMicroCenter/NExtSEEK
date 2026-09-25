@@ -469,3 +469,94 @@ def test_the_ledger_can_be_skipped():
     ap.add_argument("--logs-dir", default="/app/logs")
     assert ap.parse_args(["--no-ledger"]).no_ledger is True
     assert ap.parse_args([]).logs_dir == "/app/logs"
+
+
+# --------------------------------------------------------------------------
+# Fix 6a: a grading pull sums a case the way the harness does.
+#
+# The pull read one number per turn, `result.total_cost_usd`: the engine's.
+# The router's call is priced on the `route_decided` progress event, and the
+# harness now sums router plus engine per turn and every turn per case
+# (`turn_cost`). A pull that summed differently would grade a case against a
+# cost the run never reported.
+# --------------------------------------------------------------------------
+
+def _pulled(tid, route="container_cc", src="baml", cost=None, router_cost=None, **kw):
+    return {"id": tid, "task_uuid": tid, "route": route, "src": src, "cost": cost,
+            "router_cost": router_cost, **kw}
+
+
+def test_the_turn_pull_reads_the_router_price_and_the_turn_record_read_only():
+    import re as _re
+
+    for key in ("total_cost_usd", "router_cost_usd", "router_cost_partial", "router_model",
+                "router_fallback", "cost_partial", "models_used", "model_fallback"):
+        assert key in fetch_run.REMOTE, key
+    for sql in (fetch_run.REMOTE, fetch_run.RAW):
+        upper = sql.upper()
+        for verb in ("INSERT", "UPDATE", "DELETE", "REPLACE", "DROP", "ALTER", "CREATE",
+                     "TRUNCATE", "GRANT"):
+            assert not _re.search(rf"\b{verb}\b", upper), f"{verb} in a read-only pull"
+
+
+def test_a_pulled_turn_is_priced_by_the_harness_rule():
+    turns = fetch_run.price_turns([
+        _pulled("a", cost=0.5, router_cost=0.01, cost_partial=None),
+        _pulled("b", route="nextseek_query", cost=None, router_cost=0.01),
+        _pulled("c", route="unrelated", router_cost=0.003),
+        _pulled("d", src="forced", cost=0.4),
+        _pulled("e", route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=True),
+    ])
+
+    got = [(t["turn_cost"], t["turn_cost_partial"]) for t in turns]
+    assert got == [(0.51, False), (0.01, True), (0.003, False), (0.4, False), (0.21, True)]
+
+
+def test_a_pulled_turn_and_the_harness_price_the_same_payload_the_same():
+    """The pull reads SQL columns, the harness reads the progress stream: one rule."""
+    fb = {"agent": "graph", "from": "a", "to": "b", "reason": "timeout"}
+    payload = {"progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml",
+                                            "router_cost_usd": 0.004,
+                                            "router_cost_partial": True}},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                             "model_fallback": [fb]}}]}
+    harness = M.TurnMeta.from_payload(payload)
+    (pulled,) = fetch_run.price_turns([_pulled(
+        "a", route="nextseek_query", cost=0.2, router_cost=0.004, router_cost_partial=True,
+        cost_partial=False, model_fallback=[fb], router_fallback=None)])
+
+    assert (pulled["turn_cost"], pulled["turn_cost_partial"]) == (harness.cost, harness.partial)
+    assert pulled["fell_back"] is harness.fell_back is True
+
+
+def test_a_pulled_case_is_the_sum_of_its_turns():
+    manifest = {"entries": [
+        {"id": "cc.two", "task_ids": ["a", "b"]},
+        {"id": "gone", "task_ids": ["z"]},
+        {"id": "skipped", "task_ids": []},
+        # A consistency group records its task ids per query, not on the entry.
+        {"id": "cons.g", "task_ids": [],
+         "turns_meta": [{"task_id": "c"}, {"task_id": "d"}]},
+    ]}
+    turns = fetch_run.price_turns([
+        _pulled("a", cost=0.5, router_cost=0.01),
+        _pulled("b", route="nextseek_query", router_cost=0.01,
+                model_fallback=[{"agent": "graph", "from": "x", "to": "y",
+                                 "reason": "timeout"}]),
+        _pulled("c", route="nextseek_query", cost=0.1, router_cost=0.01, cost_partial=False),
+        _pulled("d", route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False),
+    ])
+
+    cases = fetch_run.case_costs(manifest, turns)
+
+    assert cases["cc.two"] == {"cost": 0.52, "cost_partial": True, "turns": 2,
+                               "missing_turns": 0, "fallback_turns": 1}
+    assert cases["gone"]["cost"] is None and cases["gone"]["missing_turns"] == 1
+    assert "skipped" not in cases
+    assert cases["cons.g"]["cost"] == 0.32 and cases["cons.g"]["cost_partial"] is False
+
+
+def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
+    assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
+    assert fetch_run.turn_cost.turn_total is not None
