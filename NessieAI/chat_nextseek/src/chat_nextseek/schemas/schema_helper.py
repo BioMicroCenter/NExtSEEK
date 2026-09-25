@@ -365,6 +365,15 @@ def _reasoning_present(resp) -> bool | None:
     return None
 
 
+# Token fields the ledger keeps beside prompt/completion, for pricing a call from the
+# ledger alone: Gemini's thinking and cached-prompt counts, Bedrock's cache reads and
+# writes (per TTL when Bedrock splits them) and the TTL the call's cache points asked for.
+_LEDGER_PRICE_FIELDS = (
+    "thoughts_tokens", "cached_tokens", "cache_read_tokens", "cache_write_tokens",
+    "cache_write_5m_tokens", "cache_write_1h_tokens", "cache_ttl",
+)
+
+
 def _ledger_entry(
     agent,
     model_name,
@@ -413,6 +422,11 @@ def _ledger_entry(
             usage = getattr(resp, "usage", None) or {}
             entry["prompt_tokens"] = usage.get("prompt_tokens")
             entry["completion_tokens"] = usage.get("completion_tokens")
+            # The fields a price needs beyond those two (chat_nextseek.model_prices),
+            # written only when the client reported them.
+            for key in _LEDGER_PRICE_FIELDS:
+                if usage.get(key) is not None:
+                    entry[key] = usage[key]
             meta = getattr(resp, "metadata", None) or {}
             entry["retry_attempts"] = meta.get("retry_attempts")
             entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
