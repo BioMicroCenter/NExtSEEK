@@ -574,7 +574,9 @@ def test_the_error_class_vocabulary(text, klass):
 
 # After the plain-text failure messages, a CC time limit and an unavailable model
 # arrive with approved plain text in `error`, the raw text in `detail`, and the
-# kind in `reason`. The plain text carries no marker, so the kind is read first.
+# kind in `reason`. The time-limit text carries no marker, so the kind is read first.
+# The unavailable-model text does (`outage.MODEL_UNAVAILABLE_REPLY_MARKERS`), and a
+# `detail` that matches a rule still wins over it.
 _CC_TIME_LIMIT = ("This took longer than the 3-minute limit, so I stopped. Say continue "
                   "and I will carry on from where I got to.")
 _MODEL_DOWN = ("The AI model was unavailable during this turn, so I could not finish. "
@@ -599,7 +601,8 @@ def test_an_unavailable_model_is_classed_like_an_exhausted_ns_fallback_chain():
 @pytest.mark.parametrize("detail, klass", [
     ("API Error: Request timed out", "timeout"),
     (_REFUSAL, "usage_policy"),
-    ("API Error: 500 internal", "unclassified"),
+    # A detail no rule matches falls through to the error text, which is an outage.
+    ("API Error: 500 internal", "provider_outage"),
 ])
 def test_without_a_known_reason_the_detail_is_matched_before_the_error(detail, klass):
     assert export.classify_error(_MODEL_DOWN, detail=detail) == klass
