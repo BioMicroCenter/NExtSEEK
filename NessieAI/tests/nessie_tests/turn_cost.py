@@ -41,10 +41,15 @@ def _events(payload: dict) -> list:
     return (payload or {}).get("progress") or []
 
 
+def _data(ev) -> dict:
+    data = ev.get("data")
+    return data if isinstance(data, dict) else {}
+
+
 def _first_data(payload: dict, name: str) -> dict:
     for ev in _events(payload):
         if isinstance(ev, dict) and ev.get("event") == name:
-            return ev.get("data") or {}
+            return _data(ev)
     return {}
 
 
@@ -52,8 +57,12 @@ def _last_data(payload: dict, name: str) -> dict | None:
     found = None
     for ev in _events(payload):
         if isinstance(ev, dict) and ev.get("event") == name:
-            found = ev.get("data") or {}
+            found = _data(ev)
     return found
+
+
+def _list(value) -> list:
+    return value if isinstance(value, list) else []
 
 
 def read_turn(payload: dict) -> dict:
@@ -63,7 +72,9 @@ def read_turn(payload: dict) -> dict:
     `route_observer.observe` reads the route from. The engine fields come from the last
     `query_complete`, or from the last `query_error` when the turn ended on one: that
     event carries `model_fallback` when a model failure ended the turn, which is exactly
-    a turn a reader of fallbacks needs to see.
+    a turn a reader of fallbacks needs to see. A field of the wrong shape reads as
+    absent: the record is read before the turn is scored, and one malformed field
+    must not turn a paid turn into a harness error.
     """
     rd = _first_data(payload, "route_decided")
     end = _last_data(payload, "query_complete")
@@ -80,8 +91,8 @@ def read_turn(payload: dict) -> dict:
         "router_fallback": router_fallback if isinstance(router_fallback, dict) else None,
         "engine_cost": usd(end.get("total_cost_usd")),
         "cost_partial": end.get("cost_partial") is True,
-        "models_used": [m for m in (end.get("models_used") or []) if isinstance(m, str)],
-        "model_fallback": [f for f in (end.get("model_fallback") or []) if isinstance(f, dict)],
+        "models_used": [m for m in _list(end.get("models_used")) if isinstance(m, str)],
+        "model_fallback": [f for f in _list(end.get("model_fallback")) if isinstance(f, dict)],
         # Whether this turn said anything about fallback at all. A server older than
         # the contract writes neither key, and "no fallback" must not be read off
         # silence.

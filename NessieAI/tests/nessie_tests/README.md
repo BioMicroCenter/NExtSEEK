@@ -98,7 +98,7 @@ The surface has three different shapes, so it is described three ways.
 | `NessieAI/tests/nessie_tests/corpus.py:415` | `merged`, the resolved active corpus |
 | `NessieAI/tests/nessie_tests/evaluate.py:662` | `evaluate_turn`, criterion scoring for one turn |
 | `NessieAI/tests/nessie_tests/manifest.py:224` | `cost_summary`, what a run may claim about money |
-| `NessieAI/tests/nessie_tests/turn_cost.py:92-131` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
+| `NessieAI/tests/nessie_tests/turn_cost.py:103-142` | how one turn's and one case's spend are summed; standard library only, so the output skill's pull loads it by path |
 | `NessieAI/tests/nessie_tests/bayesian.py:76` | `run_paired`, the paid dual-route run |
 | `NessieAI/tests/nessie_tests/preflight.py:94-98` | refuses a paid run whose force did not land |
 | `NessieAI/tests/nessie_tests/export.py:961` | paired manifest to the locked HiBayes CSVs |
@@ -464,7 +464,7 @@ the router that decided to skip it.
 A case's cost is the sum of its turns, and a turn's is its router part
 (`router_cost_usd` on `route_decided`) plus its engine part (`total_cost_usd` on the
 turn's terminal event), over the parts observed
-(`NessieAI/tests/nessie_tests/turn_cost.py:92-131`). Each turn's record is kept on
+(`NessieAI/tests/nessie_tests/turn_cost.py:103-142`). Each turn's record is kept on
 the manifest entry as `turns_meta`. Route-tier polling reaches `route_decided` and
 never the terminal event, so a route run sees at most the router's price: it
 reports `PARTIAL`, or `unmeasured` where the server does not price the router, and

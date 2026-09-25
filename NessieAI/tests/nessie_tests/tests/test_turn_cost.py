@@ -93,6 +93,22 @@ def test_an_integer_zero_is_an_observed_zero():
     assert t["engine_cost"] == 0.0 and t["router_cost"] == 0.0
 
 
+def test_a_malformed_record_reads_as_nothing_rather_than_raising():
+    """The record is read before the turn is scored; a server bug in one field must
+    not turn a paid turn into a harness error."""
+    payload = {"progress": [
+        "not an event",
+        {"event": "route_decided", "data": ["not", "a", "dict"]},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.2, "models_used": "opus",
+                                             "model_fallback": {"from": "a"},
+                                             "router_fallback": "x"}},
+    ]}
+    t = tc.read_turn(payload)
+    assert t["route"] is None and t["router_cost"] is None
+    assert t["engine_cost"] == 0.2
+    assert t["models_used"] == [] and t["model_fallback"] == []
+
+
 def test_the_router_partial_flag_is_read():
     """Contract addendum: a router attempt cancelled at its time limit may still bill."""
     t = tc.read_turn({"progress": [_rd(router_cost_usd=0.001, router_cost_partial=True)]})
