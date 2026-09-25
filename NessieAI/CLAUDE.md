@@ -19,7 +19,7 @@ Test commands live only in `NessieAI/tests/README.md`.
 - Importing the router does not load `NessieAI/hibayes/`: `NessieAI/router/posterior_selector.py` imports the generation store only inside `get_active_snapshot` (guard: `NessieAI/tests/router/test_router_import_is_lazy.py`). `NessieAI/router/route_monitoring.py` still imports HiBayes at module scope; nothing on the router's import path imports it.
 - Three engine-to-harness imports are frozen, and no new one may be added:
   - `NessieAI/cc/op_registry/paired_evidence.py` imports the bayes harness
-  - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py` imports the corpus, export and runner
+  - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py` imports the corpus and export
   - `NessieAI/hibayes/human_grade_fit.py` imports `bayes_manifest`, lazily
 - `NessieAI/tests/api/test_nessie_boundaries.py` enforces both lists for `cc`, `router`, `hibayes`, `ns`, `schema_rag` and `build_tools`; chat_nextseek and the tests are not scanned. It fails on a new back-edge, a new import of `NessieAI.tests`, a listed edge that no longer exists (so both lists stay exact), any `sys.path.insert` of the NessieAI directory, and any bare `e2e` or `pathsetup` import.
 
