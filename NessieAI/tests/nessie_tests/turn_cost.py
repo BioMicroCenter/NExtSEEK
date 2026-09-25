@@ -5,7 +5,7 @@ by path so a grading pull sums a case exactly as the harness does, and that scri
 on an operator's host with python3 and nothing else. The runner and the manifest import
 it by package.
 
-The turn record every engine and the router write (the agent-A turn-record contract):
+The turn record every engine and the router write (the turn-record contract):
 
 - `route_decided`: `router_cost_usd`, `router_cost_partial`, `router_model`,
   `router_fallback` (null, or `{from, to, reason}` where `to` may be `heuristic`).

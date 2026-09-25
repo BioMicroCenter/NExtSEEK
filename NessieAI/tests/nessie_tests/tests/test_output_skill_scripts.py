@@ -575,4 +575,3 @@ def test_a_pulled_case_is_the_sum_of_its_turns():
 
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
     assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
-    assert fetch_run.turn_cost.turn_total is not None

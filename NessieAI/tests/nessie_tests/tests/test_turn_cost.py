@@ -54,8 +54,8 @@ def test_the_router_fields_come_from_route_decided_and_the_engine_fields_from_th
 
 def test_a_turn_that_ended_on_query_error_still_reports_what_it_carried():
     """A model failure ends the turn on `query_error`, which carries `model_fallback`
-    when known. Reading only `query_complete` would hide exactly the fallback turns
-    the supervisor asked to see."""
+    when known. Reading only `query_complete` would hide the very turns a reader of
+    fallbacks most needs to see."""
     fb = {"agent": "graph", "from": "gemini-3.5-flash", "to": "us.anthropic.claude-sonnet-4-6",
           "reason": "timeout"}
     payload = {"progress": [_rd(route="nextseek_query", model_class=None),
