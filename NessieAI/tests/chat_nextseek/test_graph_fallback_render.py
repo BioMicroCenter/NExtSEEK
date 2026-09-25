@@ -8,6 +8,11 @@ file's ``vocabulary.sampletype_titles``, and the committed Sample property names
 ``graph_context.BUDGET_BYTES``. Only ``sampletype_titles`` is read from the committed ``vocabulary``, for every caller:
 project and study titles were read over every project and never reach the schema text.
 
+An admin's fallback keeps the committed titles in the live vocabulary shape: ``graph_context.render_vocabulary`` over
+the committed investigation, project, study and internal assay titles (gated by the question exactly as live), then the
+committed protocol and assay-connection blocks, as one message under the live "GRAPH VOCABULARY" heading and as the op's
+``vocabulary``, within ``graph_context.VOCAB_BUDGET_BYTES``. A caller who is not an admin is sent no vocabulary at all.
+
 The fallback guard also knows every relationship property of ``V11_RELATIONSHIP_PROPERTIES``, so a committed file
 captured before ``DERIVED_FROM.internal_assay_titles`` existed does not refuse a query that reads it.
 
@@ -46,10 +51,15 @@ COMMITTED = {
     },
     # no internal_assay_titles: a capture from before the plural list (the guard fold-in below)
     "relationship_properties": {"DERIVED_FROM": ["internal_assay_title", "protocol_title"]},
-    "vocabulary": {"project_titles": ["ProjX"], "study_titles": ["StudyY"], "sampletype_titles": list(CODES)},
+    "vocabulary": {"investigation_titles": ["InvZ"], "project_titles": ["ProjX"], "study_titles": ["StudyY"],
+                   "sampletype_titles": list(CODES), "internal_assay_titles": ["AssayQ"]},
 }
 PROPERTY_BLOCK = PROPERTIES_HEADING + "\nid, uuid, type, Organ, `Analyte_Catalog#`, `2nd_Pass`, `Odd``Name`"
-FOREIGN = ("ProjX", "StudyY")
+FOREIGN = ("ProjX", "StudyY", "InvZ", "AssayQ")
+VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
+# The committed titles as render_vocabulary reads them (internal_assay_titles are the assay titles).
+TITLES = {"investigation_titles": ["InvZ"], "project_titles": ["ProjX"], "study_titles": ["StudyY"],
+          "assay_titles": ["AssayQ"]}
 
 ADMIN = GraphScope.admin("test")
 NOT_ADMIN = {
@@ -98,6 +108,10 @@ class FakeLLM:
 
     def blob(self, call=0):
         return "\n".join(m["content"] for m in self.calls[call]["messages"])
+
+    def vocabulary_messages(self, call=0):
+        return [m["content"] for m in self.calls[call]["messages"]
+                if m["role"] == "system" and m["content"].startswith(VOCABULARY_HEADING)]
 
 
 def _index_lines(text):
@@ -218,6 +232,101 @@ def test_an_admin_schema_text_reads_only_the_type_codes_from_the_vocabulary(monk
             assert value not in text, value
 
 
+# --- an admin's fallback vocabulary --------------------------------------------------------------------------------
+
+
+def test_an_admin_fallback_turn_carries_the_project_and_investigation_titles_always(monkeypatch, down):
+    query = "how many samples are there"
+    _, llm = _turn(monkeypatch, _config(), query=query)
+    [message] = llm.vocabulary_messages()
+    assert message == VOCABULARY_HEADING + gctx.render_vocabulary(TITLES, query), "the live shape and the live gate"
+    assert 'INVESTIGATION TITLES (Investigation.title):\n"InvZ"' in message
+    assert 'PROJECT TITLES (Project.title):\n"ProjX"' in message
+    assert "StudyY" not in message and "AssayQ" not in message, "no study or assay word, so no gated block"
+    assert "Old protocol" not in message and "Old assay" not in message
+
+
+def test_an_admin_fallback_turn_carries_the_study_titles_only_on_a_study_word(monkeypatch, down):
+    _, llm = _turn(monkeypatch, _config(), query="which study holds these samples")
+    [message] = llm.vocabulary_messages()
+    assert 'STUDY TITLES (Study.title):\n"StudyY"' in message
+    assert "ProjX" in message and "InvZ" in message
+
+
+def test_the_committed_titles_join_the_protocol_and_assay_blocks_in_one_message(monkeypatch, down):
+    query = "which protocol and assay made these samples"
+    config = _config()
+    _, llm = _turn(monkeypatch, config, query=query)
+    [message] = llm.vocabulary_messages()
+    titles = gctx.render_vocabulary(TITLES, query)
+    assert message == VOCABULARY_HEADING + "\n\n".join([titles] + graph_mod._fallback_vocabulary(config, query))
+    assert 'ASSAY TITLES (DERIVED_FROM.internal_assay_title values):\n"AssayQ"' in message
+    for once in ("ASSAY TITLES", "PROTOCOL VOCABULARY", "ASSAY-SAMPLE CONNECTIONS", "Old protocol", "Old assay",
+                 '"AssayQ"', '"ProjX"', '"InvZ"'):
+        assert message.count(once) == 1, once
+    assert "PROTOCOL TITLES" not in message, "the protocol titles come from the committed protocol file only"
+    others = [m["content"] for m in llm.calls[0]["messages"][3:] if m["role"] == "system"]
+    assert others == [message], "one vocabulary message, as on a live turn"
+
+
+def test_the_op_fallback_vocabulary_is_the_same_text(monkeypatch, down):
+    query = "which study, protocol and assay made these samples"
+    config = _config()
+    _, llm = _turn(monkeypatch, config, query=query)
+    out = graph_mod.graph_schema_snapshot(config, question=query)
+    assert VOCABULARY_HEADING + out["vocabulary"] == llm.vocabulary_messages()[0]
+    for value in FOREIGN + ("Old protocol", "Old assay"):
+        assert value in out["vocabulary"], value
+
+
+@pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
+def test_a_non_admin_fallback_turn_is_sent_no_vocabulary(monkeypatch, down, scope):
+    query = "which study, protocol and assay made these samples"
+    config = _config(scope)
+    _, llm = _turn(monkeypatch, config, query=query)
+    assert llm.vocabulary_messages() == []
+    assert len(llm.calls[0]["messages"]) == 4, "system prompt, schema, upstream context, the question"
+    assert graph_mod.graph_schema_snapshot(config, question=query)["vocabulary"] == ""
+
+
+def test_an_admin_fallback_with_no_committed_titles_sends_what_is_gated(monkeypatch, down):
+    config = _config(committed={"vocabulary": {"sampletype_titles": ["MUS"]}})
+    _, llm = _turn(monkeypatch, config, query="how many samples are there")
+    assert llm.vocabulary_messages() == [], "nothing to send, so no message (as live)"
+    query = "which protocol made these"
+    _, llm = _turn(monkeypatch, config, query=query)
+    [message] = llm.vocabulary_messages()
+    assert message == VOCABULARY_HEADING + "\n\n".join(graph_mod._fallback_vocabulary(config, query))
+
+
+def test_the_fallback_vocabulary_is_held_to_the_live_budget(monkeypatch, down):
+    protocols = [f"P.{n:05d}_A-long-protocol-document-name-for-the-budget.docx" for n in range(900)]
+    connections = [{"assay": f"Assay number {n}", "parent_type": "RNA", "child_type": f"T{n}"} for n in range(900)]
+    config = _config()
+    config.PROTOCOL_SCHEMA = {"protocol_titles": protocols}
+    config.ASSAY_SAMPLE_CONNECTIONS = {"connections": connections}
+    query = "which protocol and assay made these samples"
+    _, llm = _turn(monkeypatch, config, query=query)
+    [message] = llm.vocabulary_messages()
+    text = message[len(VOCABULARY_HEADING):]
+    assert len(text.encode("utf-8")) <= gctx.VOCAB_BUDGET_BYTES
+    assert text.startswith(gctx.render_vocabulary(TITLES, query)), "the committed titles are kept whole"
+    assert "PROTOCOL VOCABULARY" in text or "ASSAY-SAMPLE CONNECTIONS" in text
+
+
+def test_the_live_vocabulary_message_is_unchanged(monkeypatch):
+    vocab = gcat.Vocabulary(investigation_titles=("LiveInv",), project_titles=("LiveProj",), study_titles=(),
+                            published_studies=(), assay_titles=(), protocol_titles=(), assay_connections=())
+    snapshot = gcat.CatalogSnapshot(catalog_hash="h1", synced_at=None, has_usage=False, index=(), guard={})
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: snapshot)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: vocab)
+    query = "how many samples are there"
+    plan, llm = _turn(monkeypatch, _config(), query=query)
+    assert plan.context_mode == "catalog"
+    assert llm.vocabulary_messages() == [VOCABULARY_HEADING + gctx.render_vocabulary(vocab, query)]
+
+
 # --- a missing or malformed committed file --------------------------------------------------------------------------
 
 MALFORMED = {
@@ -294,7 +403,8 @@ def test_the_structure_and_the_index_are_always_sent():
 
 
 def test_the_fallback_guard_knows_internal_assay_titles_the_capture_lacks(monkeypatch, down):
-    assert "internal_assay_titles" not in json.dumps(COMMITTED)
+    assert "internal_assay_titles" not in json.dumps(COMMITTED["relationship_properties"])
+    assert "internal_assay_titles" not in json.dumps(COMMITTED["node_properties"])
     cypher = ("MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample) "
               "WHERE $assay IN coalesce(r.internal_assay_titles, []) RETURN count(DISTINCT c) AS n")
     plan, llm = _turn(monkeypatch, _config(), cypher=cypher, query="how many samples came from this assay")

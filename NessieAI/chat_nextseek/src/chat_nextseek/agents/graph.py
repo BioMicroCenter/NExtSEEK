@@ -1926,6 +1926,8 @@ def _shape_refusal(shapes: list[_Shape]) -> str:
 # sample type index and the resolved types' sections (none on a fallback), rendered the same way.
 SCHEMA_HEADING = ("GRAPH SCHEMA (v1.2 structure, sample type index and the resolved sample types; this is the "
                   "schema):\n")
+# The vocabulary message heading, on a live turn and on an admin's fallback alike (_committed_vocabulary).
+VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
 
 
 class CatalogContext(NamedTuple):
@@ -2083,8 +2085,6 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
     """The committed ``neo4j_schema.json`` as the answer, rendered as the live schema is (``_render_committed_schema``),
     saying so and saying why (and logging it as a WARNING)."""
     fallback = _catalog_fallback(config, reason, "graph-schema op")
-    vocabulary = (_fallback_vocabulary(config, question or "")
-                  if graph_catalog.shows_committed_vocabulary(config) else [])
     return {
         "source": CONTEXT_FALLBACK,
         "schema_version": None,
@@ -2094,7 +2094,7 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
         "resolved_types": [],
         "unknown_types": list(requested),
         "schema": _render_committed_schema(config),
-        "vocabulary": "\n\n".join(vocabulary),
+        "vocabulary": _committed_vocabulary(config, question),
         "unavailable_reason": reason,
         "fallback_fetched_at": fallback.fallback_fetched_at,
     }
@@ -2129,12 +2129,14 @@ def _render_committed_schema(config) -> str:
 
     Two fields of the file are read. The property names come through ``graph_catalog.committed_schema(config)``, the
     caller's view every reader of the committed file goes through. The type codes come from the raw file
-    (``config.NEO4J_SCHEMA``) for every caller, and nothing else of its ``vocabulary`` is read: sample type codes are
-    catalog-level and the live index shows them to everyone, while ``committed_schema`` drops the whole vocabulary
+    (``config.NEO4J_SCHEMA``) for every caller, and nothing else of its ``vocabulary`` is read here: sample type codes
+    are catalog-level and the live index shows them to everyone, while ``committed_schema`` drops the whole vocabulary
     for a caller who is not an admin because its project, study, investigation and assay titles were read over every
-    project. The text stays within ``graph_context.BUDGET_BYTES``: the structure and the index are always sent, and
-    the names block is cut to fit, ending with how many names it left out. A missing or malformed file renders the
-    structure and an index that says it lists no sample types; it never raises.
+    project. An admin's titles go in the vocabulary message instead (``_committed_vocabulary``), as on a live turn.
+
+    The text stays within ``graph_context.BUDGET_BYTES``: the structure and the index are always sent, and the names
+    block is cut to fit, ending with how many names it left out. A missing or malformed file renders the structure
+    and an index that says it lists no sample types; it never raises.
     """
     structure = _variant_structure(config)
     structure = graph_context.load_structure() if structure is None else structure
@@ -2185,11 +2187,13 @@ def _fit_committed_names(parts: list[str], names: list[str]) -> str:
     return head + (", ".join(kept) + ", " + left_out if kept else left_out)
 
 
-def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
+def _fallback_vocabulary(config: ChatConfig, user_query: str, *,
+                         budget: int = graph_context.VOCAB_BUDGET_BYTES) -> list[str]:
     """The committed protocol and assay-connection blocks, gated and bounded as on the catalog path.
 
     The gate is ``graph_context.mentions`` and the bound ``graph_context.fit_vocabulary``: the blocks together stay
-    within ``VOCAB_BUDGET_BYTES``, and an entry sharing a word with the question is never cut for one that does not.
+    within ``budget`` (``VOCAB_BUDGET_BYTES`` unless ``_committed_vocabulary`` passes what the committed titles
+    leave), and an entry sharing a word with the question is never cut for one that does not.
     """
     blocks = []
     query = user_query or ""
@@ -2206,7 +2210,47 @@ def _fallback_vocabulary(config: ChatConfig, user_query: str) -> list[str]:
                 "ASSAY-SAMPLE CONNECTIONS (assay → parent_type → child_type, use to determine which side a sample "
                 "type sits on for a given assay):", connections))
             print(f"[DEBUG][GRAPH] Including assay-sample connections ({len(connections)} entries)")
-    return graph_context.fit_vocabulary(blocks, query)
+    return graph_context.fit_vocabulary(blocks, query, budget=budget)
+
+
+def _committed_titles(values) -> list[str]:
+    """The distinct non-empty strings of a committed title list, exactly as stored, in the file's order."""
+    if not isinstance(values, list):
+        return []
+    return list(dict.fromkeys(v for v in values if isinstance(v, str) and v))
+
+
+def _committed_vocabulary(config: ChatConfig, question: str) -> str:
+    """An admin's vocabulary on a fallback, in the live shape and gated as live; "" for anyone else (SCH-F13).
+
+    First ``graph_context.render_vocabulary`` over the committed file's titles, the live path's renderer and gate:
+    investigation and project titles always, study titles on a study word, the internal assay titles (as the assay
+    titles) on an assay word. Then the committed protocol and assay-connection blocks (``_fallback_vocabulary``),
+    which are left out of the render_vocabulary call so nothing is sent twice. The whole text stays within
+    ``graph_context.VOCAB_BUDGET_BYTES``, the live bound: the titles are rendered first and the two committed blocks
+    are fitted into what they leave, so the large protocol and connection lists give way before the titles, as the
+    largest blocks do on a live turn.
+
+    The titles come through ``graph_catalog.committed_schema(config)`` and only for an admin
+    (``graph_catalog.shows_committed_vocabulary``): they were read over every project, so a caller who is not an
+    admin is sent no vocabulary at all, as before.
+    """
+    if not graph_catalog.shows_committed_vocabulary(config):
+        return ""
+    query = question or ""
+    shown = graph_catalog.committed_schema(config)
+    committed = shown.get("vocabulary") if isinstance(shown, dict) else None
+    committed = committed if isinstance(committed, dict) else {}
+    titles = graph_context.render_vocabulary({
+        "investigation_titles": _committed_titles(committed.get("investigation_titles")),
+        "project_titles": _committed_titles(committed.get("project_titles")),
+        "study_titles": _committed_titles(committed.get("study_titles")),
+        "assay_titles": _committed_titles(committed.get("internal_assay_titles")),
+    }, query)
+    parts = [titles] if titles else []
+    room = graph_context.VOCAB_BUDGET_BYTES - sum(len((part + "\n\n").encode("utf-8")) for part in parts)
+    parts += _fallback_vocabulary(config, query, budget=max(room, 0))
+    return "\n\n".join(parts)
 
 
 # --------------------------------------------------------------------------- #
@@ -2288,16 +2332,15 @@ def graph_agent(
     context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
         schema_message = SCHEMA_HEADING + catalog.schema
-        vocabulary_messages = (["GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
-                                + catalog.vocabulary] if catalog.vocabulary else [])
+        vocabulary_messages = [VOCABULARY_HEADING + catalog.vocabulary] if catalog.vocabulary else []
     else:
         # The committed schema rendered in the live shape under the live heading (SCH-F13), so the model reads what
         # it reads on a live turn but for freshness. It says nothing to the model about the fallback: that is loud
-        # already in the WARNING and the turn's debug (context_fallback). Only the type codes are read from the
-        # committed vocabulary, for every caller.
+        # already in the WARNING and the turn's debug (context_fallback). The schema text reads only the type codes
+        # from the committed vocabulary; an admin's committed titles are the vocabulary message, as live.
         schema_message = SCHEMA_HEADING + _render_committed_schema(config)
-        vocabulary_messages = (_fallback_vocabulary(config, user_query)
-                               if graph_catalog.shows_committed_vocabulary(config) else [])
+        committed_vocabulary = _committed_vocabulary(config, user_query)
+        vocabulary_messages = [VOCABULARY_HEADING + committed_vocabulary] if committed_vocabulary else []
 
     # Use full parser plan when available (contains resolved entities + routing intent + filters)
     # Fall back to raw entity dict when called without a parser plan

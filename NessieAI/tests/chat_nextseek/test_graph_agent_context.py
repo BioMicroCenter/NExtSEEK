@@ -31,10 +31,12 @@ FALLBACK_SCHEMA = {
     "fetched_at": "2026-08-21T00:00:00Z",
     "node_properties": {"Sample": ["uuid", "type", "id"], "Study": ["title"]},
     "relationship_properties": {"DERIVED_FROM": ["internal_assay_title", "protocol_title"]},
-    "vocabulary": {"investigation_titles": ["FallbackOnly"]},
+    "vocabulary": {"investigation_titles": ["FallbackOnly"], "project_titles": ["FallbackProject"],
+                   "study_titles": ["FallbackStudy"]},
 }
 # The committed Sample property names as the fallback renders them (agents/graph.py, _render_committed_schema).
 FALLBACK_PROPERTIES = "## Sample properties (names only)\nuuid, type, id"
+VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
 
 
 def _label(title):
@@ -85,7 +87,7 @@ NOT_ADMIN = {
     "no_projects": GraphScope.for_projects([], source="test"),
     "no_scope": None,
 }
-COMMITTED_VOCABULARY = ("FallbackOnly", "Old protocol", "Old assay")
+COMMITTED_VOCABULARY = ("FallbackOnly", "FallbackProject", "FallbackStudy", "Old protocol", "Old assay")
 
 
 def _config(scope=ADMIN):
@@ -185,8 +187,12 @@ def test_an_unavailable_catalog_sends_the_committed_schema_rendered_like_the_liv
     blob = llm.blob()
     assert "node_properties" not in blob
     assert "Old protocol" in blob and "Old assay" in blob
-    # Only the sample type codes are read from the committed vocabulary, for every caller (SCH-F13 ruling).
-    assert "FallbackOnly" not in blob
+    # An admin's fallback keeps the committed titles in one live-shaped vocabulary message, gated as live (SCH-F13):
+    # the project and investigation titles always, the study titles only on a study word.
+    vocabulary = [m["content"] for m in llm.calls[0]["messages"] if m["content"].startswith(VOCABULARY_HEADING)]
+    assert len(vocabulary) == 1
+    assert '"FallbackOnly"' in vocabulary[0] and '"FallbackProject"' in vocabulary[0]
+    assert "FallbackStudy" not in blob, "no study word"
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
@@ -478,8 +484,19 @@ def test_the_schema_snapshot_falls_back_loudly_when_the_graph_is_down(down):
     assert out["resolved_types"] == []
     assert out["unknown_types"] == ["TIS"]
     assert "Old protocol" in out["vocabulary"]
-    # Only the sample type codes are read from the committed vocabulary, for every caller (SCH-F13 ruling).
-    assert "FallbackOnly" not in out["schema"]
+    # An admin's fallback keeps the committed titles, gated as live (SCH-F13): the project and investigation titles
+    # always, the study titles only on a study word.
+    assert '"FallbackOnly"' in out["vocabulary"] and '"FallbackProject"' in out["vocabulary"]
+    assert "FallbackStudy" not in out["vocabulary"], "no study word"
+
+
+def test_an_unavailable_catalog_sends_an_admin_the_study_titles_on_a_study_word(monkeypatch, down):
+    question = "which study holds these samples"
+    llm = FakeLLM("MATCH (s:Sample) RETURN count(*) AS n")
+    run(monkeypatch, llm, query=question)
+    assert 'STUDY TITLES (Study.title):\n"FallbackStudy"' in llm.blob()
+    out = graph_mod.graph_schema_snapshot(_config(), question=question)
+    assert 'STUDY TITLES (Study.title):\n"FallbackStudy"' in out["vocabulary"]
 
 
 @pytest.mark.parametrize("scope", list(NOT_ADMIN.values()), ids=list(NOT_ADMIN))
