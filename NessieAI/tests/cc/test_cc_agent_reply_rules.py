@@ -95,3 +95,18 @@ def test_the_chart_rule_names_a_library_the_image_installs():
 def test_the_skill_example_says_each_placeholder_is_a_real_value():
     skill = _flat(SKILL_MD.read_text(encoding="utf-8"))
     assert SKILL_EXAMPLE in skill
+
+
+MODEL_RULE = (
+    "- **The model is chosen for you.** Every turn starts on the same Opus model through the "
+    "Bedrock proxy; the router does not choose it. If that model is unavailable, the turn can "
+    "switch to a second model partway through. Nothing for you to do."
+)
+
+
+def test_how_your_turn_runs_says_the_model_can_switch():
+    """--fallback-model can move a turn to a second model partway through, so "The model
+    is fixed" stopped being true."""
+    section = _section(CLAUDE_MD.read_text(encoding="utf-8"), "How your turn runs")
+    assert MODEL_RULE in section.splitlines()
+    assert "The model is fixed" not in section
