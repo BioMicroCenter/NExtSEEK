@@ -549,12 +549,25 @@ def _stored_query(bundle: dict) -> dict[str, Any] | None:
     it, never the scoped text that ran. None for a REST result (no graph plan) and for a
     plan with no Cypher.
 
+    A plan's rows are its final step's (``_step_rows``), and its ``graph_plan`` is its FIRST
+    graph step's, which may not be the set the user saw: a later filter, intersection, graph
+    step or seeded search changed it. So a plan's stored query is its final rows step's own
+    graph plan, and only when that step is a graph step that derives from no other step
+    (``_step_inputs``); otherwise None, and a follow-up is scoped to the rows it holds.
+
     Parameters named with the reserved scope prefix are dropped. A rebuilt query goes back
     through ``tool_neo4j_query``, whose scope prover refuses any caller-supplied parameter
     with that prefix, so carrying the server's own scope parameter forward would refuse
     every rebuilt query for a caller who is not an admin.
     """
     plan = bundle.get("graph_plan")
+    final = _final_step_key(bundle)
+    if final is not None:
+        step_results = bundle["step_results"]
+        result = step_results[final]
+        output = result.get("output") or {}
+        own = output.get("graph_plan") if result.get("tool") == "graph_query" else None
+        plan = own if not _step_inputs(step_results, final, _plan_steps(bundle)) else None
     if hasattr(plan, "model_dump"):
         plan = plan.model_dump()
     if not isinstance(plan, Mapping):
@@ -688,17 +701,24 @@ def _step_rows(bundle: dict) -> tuple[list | None, int | None, bool]:
     in ``step_results`` whose output holds rows, so "those" after a search and a filter is the filtered set. Its
     total and cap are ``plan_step_extent``'s. ``(None, None, False)`` when no step holds rows.
     """
+    last = _final_step_key(bundle)
+    if last is None:
+        return None, None, False
+    step_results = bundle["step_results"]
+    total, capped = plan_step_extent(step_results, last, plan_steps=_plan_steps(bundle))
+    return _step_rows_of(step_results[last]), total, capped
+
+
+def _final_step_key(bundle: dict) -> Any:
+    """The ``step_results`` key of the LAST successful plan step whose output holds rows, or None."""
     step_results = bundle.get("step_results")
     if not isinstance(step_results, Mapping):
-        return None, None, False
+        return None
     last = None
     for key, result in step_results.items():
         if _step_rows_of(result) is not None:
             last = key
-    if last is None:
-        return None, None, False
-    total, capped = plan_step_extent(step_results, last, plan_steps=_plan_steps(bundle))
-    return _step_rows_of(step_results[last]), total, capped
+    return last
 
 
 def _step_rows_of(result: Any) -> list | None:
@@ -730,17 +750,28 @@ def _find_step(step_results: Mapping, key: Any) -> tuple[Any, Any]:
 
 def _step_inputs(step_results: Mapping, key: Any, plan_steps: list) -> list:
     """The earlier steps a plan step's rows derive from: a filter's ``source_step_id``; for the intersection, the
-    steps the plan marks ``intersect``, or every other step when the plan's steps are not known."""
+    steps the plan marks ``intersect``, or every other step when the plan's steps are not known; and for any step,
+    the ``depends_on`` and ``input_mapping`` sources the plan records for it (a search seeded with an earlier step's
+    UIDs)."""
     result = step_results.get(key)
     output = result.get("output") if isinstance(result, Mapping) else None
     output = output if isinstance(output, Mapping) else {}
+    inputs: list = []
     if result.get("tool") == "coding_filter" or "source_step_id" in output:
-        source = output.get("source_step_id")
-        return [] if source is None else [source]
+        if output.get("source_step_id") is not None:
+            inputs.append(output["source_step_id"])
     if result.get("tool") == "intersection" or str(key) == "intersection":
         marked = [_field(s, "step_id") for s in plan_steps if _field(s, "combine_mode") == "intersect"]
-        return marked if plan_steps else [k for k in step_results if str(k) != str(key)]
-    return []
+        inputs.extend(marked if plan_steps else [k for k in step_results if str(k) != str(key)])
+    step = next((s for s in plan_steps if str(_field(s, "step_id")) == str(key)), None)
+    if step is not None:
+        if _field(step, "depends_on") is not None:
+            inputs.append(_field(step, "depends_on"))
+        mapping = _field(step, "input_mapping")
+        for ref in (mapping.values() if isinstance(mapping, Mapping) else ()):
+            if _field(ref, "from_step") is not None:
+                inputs.append(_field(ref, "from_step"))
+    return [i for i in inputs if str(i) != str(key)]
 
 
 def _own_extent(output: Mapping) -> tuple[int | None, bool]:

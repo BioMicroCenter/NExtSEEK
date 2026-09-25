@@ -555,3 +555,126 @@ def test_an_intersection_of_whole_searches_is_whole():
     from chat_nextseek.agents.followup import describe_stored_result
     described = describe_stored_result(_intersect_bundle((500, 500)))
     assert described["capped"] is False and described["total"] == 500
+
+
+# ---------------------------------------------------------------- a plan's stored query is the step the user saw
+
+GRAPH_A = "MATCH (s:T_TIS) RETURN s.uuid AS uuid, s.Tissue AS Tissue"
+GRAPH_B = "MATCH (s:T_RNA) RETURN s.uuid AS uuid, s.Tissue AS Tissue"
+
+
+def _tissue_rows(n, prefix="TIS"):
+    return [{"uuid": f"{prefix}-{i}", "Tissue": "liver" if i % 3 == 0 else "lung"} for i in range(n)]
+
+
+def _planned_graph_step(rows, *, cypher, total=None, truncated=False):
+    step = _graph_step(rows, total=len(rows) if total is None else total, truncated=truncated)
+    step["output"]["graph_plan"] = {"cypher": cypher, "parameters": {}}
+    return step
+
+
+def _plan_with(steps, plan_steps=None):
+    bundle = _plan_bundle(steps)
+    first_graph = next((s["output"]["graph_plan"] for s in steps if s.get("tool") == "graph_query"), None)
+    bundle["graph_plan"] = first_graph  # as the plan-mode builder keeps it: the FIRST graph step's
+    if plan_steps is not None:
+        bundle["plan"] = {"steps": plan_steps}
+    return bundle
+
+
+def _seed_mode(bundle, tmp_path, monkeypatch):
+    """The seam's scoping of a seeded run_new_query, called as run_followup calls it."""
+    from chat_nextseek.agents.followup import _all_uids, _stored_query
+    monkeypatch.setattr(orch, "graph_agent",
+                        lambda *a, **k: GraphAgentPlan(cypher="MATCH (s) WHERE s.uuid IN $uids RETURN count(s) AS n",
+                                                       context_mode="catalog"))
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: {
+        "ok": True, "count": 1, "total": 1, "truncated": False, "data": [{"n": 1}], "cypher": "x",
+        "submitted_cypher": "x", "parameters": {}, "counters": {}, "scope": {"decision": "proven"}})
+    got = {}
+    _seam(bundle, tmp_path, [dict(source="stored", where=None, group_by=None, code=None)],
+          before=lambda run_query: got.setdefault("q", run_query(
+              question="how many", seed_uids=_all_uids(bundle), stored_query=_stored_query(bundle), scoped=True)))
+    return got["q"]["seed_mode"]
+
+
+def test_graph_then_filter_has_no_stored_query_and_is_capped(tmp_path, monkeypatch):
+    from chat_nextseek.agents.followup import describe_stored_result
+    rows = _tissue_rows(1000)
+    kept = [r for r in rows if r["Tissue"] == "liver"]
+    bundle = _plan_with([_planned_graph_step(rows, cypher=GRAPH_A, total=36622, truncated=True),
+                         _filter_step(kept, 1)])
+    described = describe_stored_result(bundle)
+    assert described["stored_query"] is None and described["stored_query_rebuildable"] is False
+    assert described["capped"] is True and described["rows_stored"] == 334
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "uids"
+    assert compute_over_rows(rows=kept, total=None, complete=False, where=None, group_by=None, code=None)["ok"] is False
+
+
+def test_an_empty_filter_over_a_whole_graph_step_is_not_rebuilt_as_the_unfiltered_set(tmp_path, monkeypatch):
+    from chat_nextseek.agents.followup import describe_stored_result
+    bundle = _plan_with([_planned_graph_step(_tissue_rows(60), cypher=GRAPH_A), _filter_step([], 1)])
+    described = describe_stored_result(bundle)
+    assert described["stored_query"] is None and described["rows_stored"] == 0
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "none"
+    [p], _ = _seam(bundle, tmp_path, [dict(source="stored", where=None, group_by=["Tissue"], code=None)])
+    assert p["ok"] is False and p["needs_query"] is True
+
+
+def test_an_intersection_that_includes_a_graph_step_has_no_stored_query(tmp_path, monkeypatch):
+    from chat_nextseek.agents.followup import describe_stored_result
+    rows = _tissue_rows(500)
+    bundle = _plan_with([_planned_graph_step(rows, cypher=GRAPH_A), _search_step(rows, 500)],
+                        plan_steps=[{"step_id": 1, "tool": "graph_query", "combine_mode": "intersect"},
+                                    {"step_id": 2, "tool": "new_search", "combine_mode": "intersect"}])
+    bundle["step_results"]["intersection"] = {"ok": True, "tool": "intersection",
+                                              "output": {"data": rows[:200], "count": 200}}
+    described = describe_stored_result(bundle)
+    assert described["stored_query"] is None and described["capped"] is False and described["total"] == 200
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "uids"
+    [p], _ = _seam(bundle, tmp_path, [dict(source="stored", where=None, group_by=["Tissue"], code=None)])
+    assert p["ok"] is True and p["count"] == 200
+
+
+def test_a_later_graph_step_has_its_own_stored_query_unless_it_derives_from_another(tmp_path, monkeypatch):
+    from chat_nextseek.agents.followup import describe_stored_result
+    first = _planned_graph_step(_tissue_rows(60), cypher=GRAPH_A)
+    later = _planned_graph_step(_tissue_rows(1000, "RNA"), cypher=GRAPH_B, total=5000, truncated=True)
+    independent = _plan_with([first, later])
+    described = describe_stored_result(independent)
+    assert described["stored_query"]["cypher"] == GRAPH_B and described["stored_query_rebuildable"] is True
+    assert _seed_mode(independent, tmp_path, monkeypatch) == "stored_query"
+    dependent = _plan_with([first, later], plan_steps=[{"step_id": 1, "tool": "graph_query"},
+                                                      {"step_id": 2, "tool": "graph_query", "depends_on": 1}])
+    assert describe_stored_result(dependent)["stored_query"] is None
+    assert _seed_mode(dependent, tmp_path, monkeypatch) == "uids"
+
+
+def test_a_search_seeded_from_a_capped_graph_step_inherits_its_cap(tmp_path, monkeypatch):
+    seeded =[{"uid": f"TIS-{i}", "Tissue": "liver"} for i in range(250)]
+    bundle = _plan_with([_planned_graph_step(_tissue_rows(1000), cypher=GRAPH_A, total=36622, truncated=True),
+                         _search_step(seeded, 250)],
+                        plan_steps=[{"step_id": 1, "tool": "graph_query"},
+                                    {"step_id": 2, "tool": "new_search",
+                                     "input_mapping": {"uids": {"from_step": 1, "field": "uids"}}}])
+    described = _reads_capped_and_refuses(bundle, tmp_path)
+    assert described["stored_query"] is None and described["rows_stored"] == 250
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "uids"
+
+
+def test_a_search_seeded_from_a_capped_search_inherits_its_cap(tmp_path, monkeypatch):
+    first = [{"uid": f"TIS-{i}", "Tissue": "lung"} for i in range(1000)]
+    bundle = _plan_with([_search_step(first, 36622), _search_step(first[:250], 250)],
+                        plan_steps=[{"step_id": 1, "tool": "new_search"},
+                                    {"step_id": 2, "tool": "refine_last_search", "depends_on": 1}])
+    assert _reads_capped_and_refuses(bundle, tmp_path)["stored_query"] is None
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "uids"
+
+
+def test_a_single_graph_step_keeps_its_own_rebuildable_stored_query(tmp_path, monkeypatch):
+    from chat_nextseek.agents.followup import describe_stored_result
+    bundle = _plan_with([_planned_graph_step(_tissue_rows(1000), cypher=GRAPH_A, total=36622, truncated=True)])
+    described = describe_stored_result(bundle)
+    assert described["stored_query"]["cypher"] == GRAPH_A and described["stored_query_rebuildable"] is True
+    assert described["capped"] is True and described["total"] == 36622
+    assert _seed_mode(bundle, tmp_path, monkeypatch) == "stored_query"
