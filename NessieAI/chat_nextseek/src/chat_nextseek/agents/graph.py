@@ -2380,6 +2380,8 @@ def graph_agent(
             model_name=graph_model,
             temperature=0,
             response_format={"type": "json_object"},
+            # The catalog key finds the provider chain; the log label names the ledger entry.
+            agent_label="graph",
             log_label=log_label,
             thinking_budget=graph_budget,
             client=graph_client,

@@ -21,8 +21,11 @@ stays in `nextseek_api/`.
 `decide()` tries three strategies in order, and the first that answers wins:
 
 1. **Posterior selector**, only when `NEXTSEEK_POSTERIOR_ROUTING_ENABLED` is on (off by default). A returned selection skips BAML entirely.
-2. **BAML router**: `RouteQuery` from `NessieAI/dmac_assistant/`, fed by a classifier that assigns a task family, not a route.
-3. **Keyword heuristic**, when BAML is unreachable, raises, or returns `<router_unavailable>`.
+2. **BAML router**: `RouteQuery` from `NessieAI/dmac_assistant/`, fed by a classifier that assigns a task family, not a route. It runs on the client the function declares (`GCPReasoner`) under `ROUTER_PRIMARY_LIMIT_S`, BAML's retries included; on a timeout, an error or `<router_unavailable>` it gets one try on `GCPFlash` under `ROUTER_FALLBACK_LIMIT_S`, through a per-call `ClientRegistry` (no `.baml` edit).
+3. **Keyword heuristic**, when BAML is unreachable, or both of those calls fail.
+
+The decision records `router_model` (the model that answered; none for the heuristic or a forced
+turn) and `router_fallback` (`from`, `to`, `reason`), and the CC turn puts both on `route_decided`.
 
 Routing degrades; it never raises. A missing corpus, a missing build context or a BAML failure
 drops a turn to the heuristic and logs, so a wrong route is the only symptom. The route decision

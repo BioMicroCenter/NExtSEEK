@@ -9,6 +9,8 @@ The notes stay in the debug payload's parser_plan; the reply carries none of the
 """
 from __future__ import annotations
 
+import pytest
+
 from chat_nextseek.orchestrator import UNSUPPORTED_REPLY, unsupported_reply
 from chat_nextseek.schemas import ParserPlan
 
@@ -24,11 +26,26 @@ def test_an_unsupported_plan_gets_the_plain_reply_and_no_notes():
         assert leak not in reply
 
 
-def test_a_planning_fault_is_reported_as_ours_without_the_notes():
+# Operator-approved wording (2026-09-25, fix 5), pinned literally.
+PLANNER_TIMEOUT = ("The AI model that plans the search did not respond in time, so I have not run your question. "
+                   "This is a temporary problem on our side, not a problem with your question. Please ask again "
+                   "in a minute.")
+PLANNER_UNUSABLE = ("The AI model that plans the search sent back something I could not use, so I have not run "
+                    "your question. Please ask again in a minute. If it happens again, try rewording it.")
+
+
+def test_a_planning_timeout_says_the_model_did_not_answer_in_time():
+    plan = ParserPlan(mode="unsupported", notes="The query planner could not reach the language model in time.",
+                      metadata={"failure": "transport_timeout", "error": "LLMTimeoutError('60 s')"})
+    assert unsupported_reply(plan) == PLANNER_TIMEOUT
+
+
+@pytest.mark.parametrize("failure", ["parse_error", "parse", "anything else"])
+def test_any_other_planning_fault_says_the_model_sent_back_something_unusable(failure):
     plan = ParserPlan(mode="unsupported", notes="Parser could not produce valid structured output.",
-                      metadata={"failure": "parse"})
+                      metadata={"failure": failure})
     reply = unsupported_reply(plan)
-    assert "went wrong on our side" in reply
+    assert reply == PLANNER_UNUSABLE
     assert "Parser" not in reply and "structured output" not in reply
 
 
