@@ -71,9 +71,10 @@ def test_the_follow_up_premise_check_ignores_a_year_too():
 # Ranks, sample sizes and thresholds, for both scans (supervisor carry from Task 13's review)
 # --------------------------------------------------------------------------- #
 
-#: A number that picks which records (a rank, a random subset, a sample) or bounds them (a threshold) is no claim
-#: about the size of a set. The 2-digit forms are the literal cases; the 3-digit ones are the same shapes at a size
-#: the number scan reads at all (it skips numbers under 100 written without a comma).
+#: A number that picks which records (a rank, a random subset, a sample) or bounds them (a threshold, a range) is no
+#: claim about the size of a set. The 2-digit forms are the literal cases; the 3-digit ones are the same shapes at a
+#: size the number scan reads at all (it skips numbers under 100 written without a comma). Fix round 1 added the
+#: mirror forms: a bound after the number or its count word, a range, a superlative before the number, "sorted by".
 NOT_A_SET_SIZE = [
     "Of the 100 most recent samples, how many are female?",
     "Of the first 20 samples, how many are female?",
@@ -83,10 +84,25 @@ NOT_A_SET_SIZE = [
     "Of a random subset of 200 samples, how many are female?",
     "Of a sample of 300 mice, how many are female?",
     "Of the 500 samples with the highest RIN, how many are female?",
-    "Of the 500 D.SEQ files with the most reads, how many are paired?",
+    "Of the 500 D.SEQ files with the highest read count, how many are paired?",
     "Of the 300 latest samples, how many are female?",
     "Which projects have more than 100 samples?",
     "Show projects with at least 500 samples",
+    # fix round 1
+    "Which projects have 500 or more samples?",
+    "Which projects have 1,000 samples or more?",
+    "Which projects have 200 or fewer samples?",
+    "Which projects have between 100 and 500 samples?",
+    "Which projects have from 100 to 500 samples?",
+    "Which projects have 500+ samples?",
+    "Which projects have 1,000 samples and up?",
+    "Of the most recent 500 samples, how many are female?",
+    "Of the smallest 500 samples by RIN, how many are female?",
+    "Of the youngest 300 mice, how many are female?",
+    "Of the 500 samples sorted by RIN, how many are female?",
+    "Of the 500 samples ordered by date, how many are female?",
+    "Of the 500 samples ranked by RIN, how many are female?",
+    "Of a representative sample of 300 mice, how many are female?",
 ]
 
 
@@ -126,6 +142,29 @@ def test_a_set_size_near_a_rank_word_is_still_read(q, n):
     """The rank words count only in their places: before the number, between it and its count word, or as a
     ranking right after the count word ("with the highest ...")."""
     assert gr.stated_counts(q) == [n]
+
+
+@pytest.mark.parametrize("q,n", [
+    ("Of the subset of 1,206 CC mice, how many are female?", 1206),
+    ("In this subset of 1,206 mice, how many are female?", 1206),
+    ("Of the 4,095 D.SEQ files uploaded by the latest pipeline, how many are paired?", 4095),
+    ("Of these 1,206 mice with the most complete metadata, how many are female?", 1206),
+    ("Of the 4,095 best-quality D.SEQ files, how many are paired?", 4095),
+    ("Of the 745 CC mice, how many have 500 or more reads?", 745),
+    ("Are most of 1,206 samples female?", 1206),
+])
+def test_a_known_set_is_still_read_by_both_scans(q, n):
+    """A set named with "the" or "this" before "subset of", a set described after its count word, and a word joined
+    by a hyphen are set sizes, not samples or ranks (fix round 1, minors 1 and 2)."""
+    assert gr.stated_counts(q) == [n]
+    check = gr.check_premise(q, stored_total=7)
+    assert check.fired and check.detail == f"the earlier result had 7, not {n:,}"
+
+
+def test_with_the_most_is_read_as_a_description():
+    """After "with the", only a plain superlative ranks. "with the most complete metadata" describes a known set, so
+    "with the most reads" is read as a set size too (a top-N query returns its N, which premise_count then matches)."""
+    assert gr.stated_counts("Of the 500 D.SEQ files with the most reads, how many are paired?") == [500]
 
 
 def test_a_year_does_not_hide_a_count_after_it():

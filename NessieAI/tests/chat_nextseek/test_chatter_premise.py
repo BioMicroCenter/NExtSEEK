@@ -142,6 +142,27 @@ def test_a_number_in_the_question_alone_adds_nothing(monkeypatch):
     assert body == reply
 
 
+def test_a_threshold_question_gets_no_correction_end_to_end(monkeypatch):
+    """Fix round 1: "500 or more samples" is a bound, not a set the user sized. Before the fix Tier 1 read 500 as a
+    stated count and this backstop put "The question says 500; ..." ahead of a correct reply."""
+    from chat_nextseek.graph_review import DictCatalog, ReviewInput, review_tier1
+    from chat_nextseek.orchestrator import _review_note
+    q = "Which projects have 500 or more samples?"
+    inp = ReviewInput(question=q, cypher="MATCH (p:Project) RETURN p.title AS t", parameters={}, keyword_fields={},
+                      rows=[{"t": "A"}, {"t": "B"}], count=2, total=2, ok=True, error=None)
+    rv = review_tier1(inp, DictCatalog(None))
+    disclosure = rv.disclosure if rv.verdict in ("note", "suggest") else None
+    assert disclosure is None
+    reply = "Two projects have 500 or more samples: A and B."
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _says(reply))
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), q, EntityAgentOutput().model_dump(), ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": inp.cypher, "parameters": {}},
+        graph_result={"ok": True, "count": 2, "total": 2, "data": inp.rows},
+        query_notes=[_review_note(disclosure)] if disclosure else [], review_disclosure=disclosure, log_dir="")
+    assert out.split("**Debug info**")[0].strip() == reply
+
+
 @pytest.mark.parametrize("notes,reply,expected", [
     ([], "Of the 4,095 files, 962 match.", "Of the 4,095 files, 962 match."),
     (None, "Of the 4,095 files, 962 match.", "Of the 4,095 files, 962 match."),
