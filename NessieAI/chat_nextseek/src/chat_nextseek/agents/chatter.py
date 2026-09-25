@@ -249,12 +249,51 @@ def _has_lab_near_miss(notes: list[str] | None) -> bool:
     return any(_LAB_NEAR_MISS_LEAD in str(note or "") for note in notes or [])
 
 
-def _drop_stock_closer(reply: str) -> str:
+#: A NOT APPLIED label as ``helpers.query_scope`` writes it: 'keyword "CC"', 'sample type MUS (Mouse)', 'lab QWZ
+#: (Qwertz or Qwerty)', 'project Impact'.
+_NOT_APPLIED_LABEL = re.compile(r'keyword "(?P<keyword>.+)"|(?:sample type|assay|project|lab|sample|scientist) '
+                                r"(?P<value>.+?)(?: \((?P<name>.+)\))?")
+#: A value a reviewer fact quotes ('nanopore', 'non-NDMA'); an apostrophe inside a word ("user's") is none.
+_QUOTED_VALUE = re.compile(r"(?<!\w)'([^'\n]{1,80}?)'(?!\w)")
+
+
+def _must_keep_terms(not_applied: list[str] | None, review_disclosure: str | None) -> list[str]:
+    """What a reply must still name if a closer is its only mention: every value of a NOT APPLIED label (the
+    keyword, the code, its name, each name of a lab), and every value the reviewer's facts quote."""
+    terms: list[str] = []
+
+    def add(term: Any) -> None:
+        term = str(term or "").strip()
+        if term and term not in terms:
+            terms.append(term)
+
+    for label in not_applied or []:
+        m = _NOT_APPLIED_LABEL.fullmatch(str(label))
+        if not m:
+            continue
+        if m.group("keyword") is not None:
+            add(m.group("keyword"))
+            continue
+        add(m.group("value"))
+        for name in re.split(r"\s+or\s+", m.group("name") or ""):
+            add(name)
+    for m in _QUOTED_VALUE.finditer(review_disclosure or ""):
+        add(m.group(1))
+    return terms
+
+
+def _names(text: str, term: str) -> bool:
+    """``text`` names ``term`` as a whole word, ignoring case: "CC" is in "CC mice", not in "ACC"."""
+    return re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.IGNORECASE) is not None
+
+
+def _drop_stock_closer(reply: str, keep: Any = ()) -> str:
     """The model's last sentence when it is a stock offer no chip backs ("If you would like ... let me know").
 
-    Returns ``reply`` without that sentence; a reply that is nothing but the closer, whose closer holds a digit, or
-    whose closer starts a line after anything but a sentence end, a colon, a list item or a table row, comes back as
-    given."""
+    Returns ``reply`` without that sentence; a reply that is nothing but the closer, whose closer holds a digit,
+    whose closer starts a line after anything but a sentence end, a colon, a list item or a table row, or whose
+    closer is the only place that names a term in ``keep`` (``_must_keep_terms``: a constraint the query did not
+    apply, a value a reviewer fact quotes), comes back as given."""
     text = (reply or "").rstrip()
     m = _STOCK_CLOSER.search(text)
     if not m or re.search(r"\d", m.group(1)):
@@ -264,6 +303,8 @@ def _drop_stock_closer(reply: str) -> str:
         previous = head.rstrip().rsplit("\n", 1)[-1]
         if not (_ENDS_A_SENTENCE.search(previous) or _LIST_OR_TABLE_LINE.match(previous)):
             return reply
+    if any(_names(m.group(1), term) and not _names(head, term) for term in keep or ()):
+        return reply
     return head.rstrip() or reply
 
 
@@ -430,7 +471,8 @@ def chatter_agent_answer(
     offer where it lacks them (``_with_review_backstop``): the model's reply after its first sentence, the
     fallback first. With neither, nothing changes. With no offered step, a stock offer closing the model's
     reply to an answered result (rows, or a count or total above zero) is dropped (``_drop_stock_closer``):
-    the chip is the reply's only offer. A lab near-miss note keeps it (``_has_lab_near_miss``).
+    the chip is the reply's only offer. A lab near-miss note keeps it (``_has_lab_near_miss``), and so does a
+    closer that is the only place naming a NOT APPLIED value or a value the reviewer quotes.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
@@ -900,8 +942,11 @@ def chatter_agent_answer(
     # a misspelled lab's closest spelling, which the reply offers on any result. On the model's
     # answer only, before the backstops below, so the offer Task 9 appends is never a candidate;
     # after the URL cleanup, so a closer is judged as the user would read it.
+    # A closer that alone names a constraint the query did not apply, or a value the reviewer quotes, is that
+    # disclosure's only trace, so it stays.
     if answered and not offered_step and not _has_lab_near_miss(query_notes):
-        answer_no_links = _drop_stock_closer(answer_no_links)
+        answer_no_links = _drop_stock_closer(answer_no_links,
+                                             keep=_must_keep_terms(scope.not_applied, review_disclosure))
     # The reviewer's facts after the answer's first sentence and its offered step last, where the
     # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a
     # stated number.

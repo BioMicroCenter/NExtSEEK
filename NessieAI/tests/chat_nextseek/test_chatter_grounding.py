@@ -433,3 +433,82 @@ def test_no_closing_offer_keeps_a_notes_closest_spelling_on_any_result():
     rule = _section("NO CLOSING OFFER", 1000)
     rule = rule[:rule.index("\n")]
     assert "A note's closest spelling is part of the answer whatever the result." in rule
+
+
+# --------------------------------------------------------------------------- #
+# A closer that alone names what the query did not apply is the disclosure: it stays (Task 19 final wave)
+# --------------------------------------------------------------------------- #
+
+CC_Q = "How many CC mice have transcriptomic data?"
+CC_ENTITY = {"sampletypes": [{"code": "MUS", "name": "Mouse"}], "assays": [], "projects": [], "keywords": ["CC"]}
+CC_PLAN = {"cypher": "MATCH (s:Sample:T_MUS) RETURN count(s) AS n", "parameters": {}, "explanation": ""}
+
+
+def _cc_turn(monkeypatch, reply, **kw):
+    monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), CC_Q, CC_ENTITY, {"mode": "graph_query", "intent_summary": "x", "filters": {}},
+        graph_plan=CC_PLAN, graph_result={"ok": True, "count": 1, "data": [{"n": 731}]}, log_dir="", **kw)
+    return out.split("**Debug info**")[0].strip()
+
+
+def test_the_query_did_not_apply_cc():
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+    scope = describe_query_scope(entity_result=CC_ENTITY, parser_plan={"mode": "graph_query", "filters": {}},
+                                 graph_plan=CC_PLAN, user_query=CC_Q)
+    assert scope.not_applied == ['keyword "CC"']
+
+
+def test_a_closer_that_alone_names_the_missing_constraint_stays(monkeypatch):
+    reply = ("731 mice have transcriptomic data. Let me know if you want this narrowed to CC mice, which this count "
+             "does not do.")
+    assert _cc_turn(monkeypatch, reply) == reply
+
+
+def test_the_closer_goes_when_the_answer_already_names_the_gap(monkeypatch):
+    body = _cc_turn(monkeypatch, "731 mice have transcriptomic data, but I could not restrict this to CC. Let me know "
+                                 "if you want this narrowed to CC mice.")
+    assert body == "731 mice have transcriptomic data, but I could not restrict this to CC."
+
+
+def test_a_number_free_reviewer_fact_written_only_in_the_closer_stays(monkeypatch):
+    """Task 9's backstop re-adds only facts that carry a number, so this closer is the fact's only trace."""
+    fact = "The question names 'nanopore', but the search did not filter on it."
+    reply = "There are 98 D.SEQ files. Let me know if you want only the nanopore ones, which this search did not use."
+    monkeypatch.setattr(chatter_mod, "call_llm_text", lambda *a, **k: reply)
+    out = chatter_mod.chatter_agent_answer(
+        _Config(), "How many nanopore D.SEQ files are there?", EntityAgentOutput().model_dump(),
+        ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ) RETURN count(s) AS n", "parameters": {}},
+        graph_result={"ok": True, "count": 1, "total": 1, "data": [{"n": 98}]},
+        query_notes=[f"What the result matched: {fact}"], review_disclosure=fact, log_dir="")
+    assert out.split("**Debug info**")[0].strip() == reply
+
+
+@pytest.mark.parametrize("reply,keep,expected", [
+    ("731 mice match. Let me know if you want CC mice.", ["CC"], "731 mice match. Let me know if you want CC mice."),
+    ("731 mice match. Let me know if you want cc mice.", ["CC"], "731 mice match. Let me know if you want cc mice."),
+    ("731 mice match, not only CC. Let me know if you want CC mice.", ["CC"], "731 mice match, not only CC."),
+    ("731 mice match. Let me know if you want the ACC mice.", ["CC"], "731 mice match."),
+    ("731 mice match. Let me know if you want the list.", ["CC"], "731 mice match."),
+    ("731 mice match. Let me know if you want the list.", [], "731 mice match."),
+])
+def test_drop_stock_closer_keeps_the_only_naming_of_a_term(reply, keep, expected):
+    assert chatter_mod._drop_stock_closer(reply, keep=keep) == expected
+
+
+def test_the_terms_a_reply_must_keep():
+    labels = ['keyword "CC"', "sample type MUS (Mouse)", "lab QWZ (Qwertz or Qwerty)", "project Impact",
+              "assay D.SEQ (Sequencing Data)", "sample D.SEQ-240910ABC-1"]
+    fact = ("The question names 'nanopore', but the search did not filter on it. The filter on Treatment also "
+            "matched 'non-NDMA'.")
+    assert chatter_mod._must_keep_terms(labels, fact) == [
+        "CC", "MUS", "Mouse", "QWZ", "Qwertz", "Qwerty", "Impact", "D.SEQ", "Sequencing Data", "D.SEQ-240910ABC-1",
+        "nanopore", "non-NDMA"]
+    assert chatter_mod._must_keep_terms([], "The user's question counted 12 samples.") == []
+
+
+def test_the_query_example_names_no_person():
+    rule = _section("HOW MUCH YOU MAY SAY ABOUT THE QUERY", 4000)
+    rule = rule[:rule.index("\n")]
+    assert 'qualify the result itself ("4 samples mention CD8 in their records"), never the path to it.' in rule
