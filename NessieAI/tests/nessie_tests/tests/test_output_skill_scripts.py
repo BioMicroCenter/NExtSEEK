@@ -600,5 +600,96 @@ def test_a_pulled_case_counts_a_turn_the_run_sent_but_could_not_join():
     assert cases["run.partial"]["cost_partial"] is True
 
 
+# The launch skill copies fetch_run.py ALONE into a scratch directory and runs it
+# there, so the summing rule may be absent. The pull must still work: priced
+# fields come back None, never a crash.
+
+def _raw_pull(manifest=None):
+    turns = [
+        _pulled("uuid-a", cost=0.5, router_cost=0.01, cost_partial=None, model_fallback=[],
+                router_fallback=None, user="harness", status="completed"),
+        _pulled("uuid-b", route="nextseek_query", router_cost=0.01, user="harness",
+                status="completed"),
+    ]
+    return ("@@@MANIFEST@@@\n" + (json.dumps(manifest) if manifest else "MISSING")
+            + "\n@@@TZ@@@\n+0000\n@@@TURNS@@@\n"
+            + "\n".join(json.dumps(t) for t in turns) + "\n")
+
+
+def _pull(mod, monkeypatch, tmp_path, manifest=None):
+    monkeypatch.setattr(mod, "run_remote", lambda host, user, script: _raw_pull(manifest))
+    out = tmp_path / "pull"
+    old, sys.argv = sys.argv, ["fetch_run.py", "--instance", "local", "--id-min", "1",
+                               "--id-max", "2", "--out", str(out)]
+    try:
+        mod.main()
+    finally:
+        sys.argv = old
+    return out
+
+
+def _standalone_copy(tmp_path):
+    d = tmp_path / "scratch"
+    d.mkdir()
+    dest = d / "fetch_run.py"
+    dest.write_text((SCRIPTS / "fetch_run.py").read_text(encoding="utf-8"), encoding="utf-8")
+    return dest
+
+
+_MANIFEST = {"entries": [{"id": "cc.two", "task_ids": ["uuid-a", "uuid-b"], "turns_sent": 2}]}
+
+
+def test_a_standalone_copy_still_answers_help(tmp_path):
+    import subprocess
+
+    script = _standalone_copy(tmp_path)
+    proc = subprocess.run([sys.executable, str(script), "--help"], capture_output=True,
+                          text=True, timeout=60, cwd=script.parent)
+
+    assert proc.returncode == 0, proc.stderr
+    assert "--instance" in proc.stdout
+    assert "turn_cost.py" in proc.stderr, "the missing rule is named, once, on stderr"
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_a_standalone_copy_pulls_and_leaves_the_prices_empty(tmp_path, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location("_standalone_fetch_run",
+                                                  _standalone_copy(tmp_path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.turn_cost is None
+
+    out = _pull(mod, monkeypatch, tmp_path, manifest=_MANIFEST)
+
+    turns = json.loads((out / "turns.json").read_text(encoding="utf-8"))
+    assert [t["router_cost"] for t in turns] == [0.01, 0.01]
+    assert all(t["turn_cost"] is None and t["turn_cost_partial"] is None
+               and t["fell_back"] is None for t in turns)
+    assert not (out / "case_costs.json").exists()
+    assert "not priced" in capsys.readouterr().out
+
+
+def test_a_copy_beside_the_rule_uses_it(tmp_path):
+    script = _standalone_copy(tmp_path)
+    (script.parent / "turn_cost.py").write_text(
+        (SCRIPTS.parents[1] / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("_beside_fetch_run", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    assert mod.turn_cost is not None
+    assert Path(mod.turn_cost.__file__).parent == script.parent
+
+
+def test_the_in_tree_pull_prices_the_same_fixture(tmp_path, monkeypatch):
+    out = _pull(fetch_run, monkeypatch, tmp_path, manifest=_MANIFEST)
+
+    turns = json.loads((out / "turns.json").read_text(encoding="utf-8"))
+    assert [(t["turn_cost"], t["turn_cost_partial"]) for t in turns] == [(0.51, False),
+                                                                        (0.01, True)]
+    cases = json.loads((out / "case_costs.json").read_text(encoding="utf-8"))
+    assert cases["cc.two"]["cost"] == 0.52 and cases["cc.two"]["cost_partial"] is True
+
+
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
     assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
