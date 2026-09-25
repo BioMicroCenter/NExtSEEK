@@ -489,6 +489,28 @@ def test_cost_only_and_checks_print_and_write_nothing(tmp_path, capsys):
     assert _tree(tmp_path) == before
 
 
+@pytest.mark.parametrize("query_error, outaged", [
+    ({"error": "The AI models we use were unavailable, so I could not finish your question.",
+      "reason": "model_unavailable", "detail": "HTTP 503"}, True),
+    ({"error": "Internal", "detail": "All provider fallbacks exhausted: agent 'graph': 503"}, True),
+    ({"error": "Internal pipeline error", "agent": "unknown"}, False),
+    (None, False),
+], ids=["reason", "old-phrase-in-detail", "other-error", "none"])
+def test_an_attempt_whose_turn_ended_only_in_a_query_error_is_read_by_its_reason(
+        tmp_path, query_error, outaged):
+    """A stored payload with no reply still says why through its `query_error`, even when
+    the manifest entry predates the runner reading it."""
+    payload = {"query_complete": {}, "query_error": query_error}
+    attempt = ec.Attempt(tmp_path, "graph", {"outage": False}, {"main": payload})
+    assert attempt.outage is outaged
+
+
+def test_a_payload_stored_before_the_query_error_key_still_loads(tmp_path):
+    attempt = ec.Attempt(tmp_path, "graph", {"outage": False},
+                         {"main": {"query_complete": {"reply": "408 samples"}}})
+    assert attempt.outage is False
+
+
 def test_the_scorer_pins_the_harness_names():
     from NessieAI.tests.nessie_tests import outage, preflight, runner
     assert ec.FORCE_NOTE_MARKER == preflight.FORCE_NOTE_MARKER

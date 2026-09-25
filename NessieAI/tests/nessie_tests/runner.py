@@ -317,11 +317,15 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
                 v_route_sources.append(res.route_obs.source)
             qc = next((e["data"] for e in reversed(res.payload.get("progress") or [])
                        if e.get("event") == "query_complete"), {})
+            # The turn's last `query_error` data, None when it sent none. A turn that
+            # ended ONLY in one (a Container-CC turn whose model was unavailable sends
+            # no `query_complete`) has no reply, so its outage is read from here.
+            qe = evaluate.last_query_error(res.payload)
             if payload_dir is not None:
                 # Before anything below can raise: a paid turn keeps its evidence
                 # even when scoring it fails.
                 _write_turn_payload(
-                    payload_dir, v.id, turn, res, qc, payload_names,
+                    payload_dir, v.id, turn, res, qc, payload_names, query_error=qe,
                     force_route=force_route, force_parser_mode=force_parser_mode,
                     elapsed_s=round(clock() - t_turn, 3), prompt_variant=prompt_variant)
             bundle_summary = None
@@ -359,7 +363,7 @@ def run_case(v, *, tier, post_query, get_progress, bundle_reader=None,
             ]
             evaluated_any = evaluated_any or evaluate.any_criterion_evaluated(results)
             # One authority for this turn's status: passed / failed / error.
-            turn_status = evaluate.classify_turn_status(passed, last_reply)
+            turn_status = evaluate.classify_turn_status(passed, last_reply, qe)
             if turn_status == "error":
                 # Provider outage: the fallback chain gave up before the
                 # product ran, so this turn is infrastructure, not evidence.
@@ -532,9 +536,11 @@ def run_suite(*, base_url, auth_header, tier, scope="specific", family=None, var
                 # `reply` is what lets run_group see a provider outage. Without it
                 # the group only ever saw {route, count}, so an outage surfaced as
                 # "count could not be resolved" and read as product drift.
+                # `query_error` is the same for a member that ended with no reply.
                 return {"route": r.route_obs.route,
                         "count": consistency.get_result_count(r.payload),
-                        "reply": consistency.get_last_reply(r.payload)}
+                        "reply": consistency.get_last_reply(r.payload),
+                        "query_error": consistency.get_last_query_error(r.payload)}
             g_t0 = clock()
             g_expected_fail = "known_fail" in g.get("tags", [])
             try:
@@ -909,8 +915,14 @@ def _utc_now() -> str:
 
 
 def _write_turn_payload(payload_dir, variant_id, turn, res, qc, used, *, force_route,
-                        force_parser_mode, elapsed_s, prompt_variant=None) -> None:
-    """One driven turn's final payload, for `run_case`'s `payload_dir`."""
+                        force_parser_mode, elapsed_s, prompt_variant=None,
+                        query_error=None) -> None:
+    """One driven turn's final payload, for `run_case`'s `payload_dir`.
+
+    `query_error` is the turn's last `query_error` data (None when it sent none), kept
+    beside `query_complete` so a scorer reading the payload alone (`engine_compare`)
+    can tell an outage on a turn that ended with no reply.
+    """
     case_dir = _private_dir(_private_dir(payload_dir) / _safe_name(variant_id))
     name = _safe_name(turn.label)
     if name in used:
@@ -922,7 +934,7 @@ def _write_turn_payload(payload_dir, variant_id, turn, res, qc, used, *, force_r
         "force_route": force_route, "force_parser_mode": force_parser_mode,
         "prompt_variant": prompt_variant,
         "route_obs": dataclasses.asdict(res.route_obs),
-        "query_complete": qc, "elapsed_s": elapsed_s,
+        "query_complete": qc, "query_error": query_error, "elapsed_s": elapsed_s,
     }
     _private_write(case_dir / f"{name}.json", json.dumps(doc, indent=2, default=str))
 
