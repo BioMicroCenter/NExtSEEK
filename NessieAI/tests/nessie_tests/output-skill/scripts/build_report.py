@@ -238,6 +238,9 @@ def main():
             # particular: without it a rebuild turns a gate-exempt provider outage
             # back into a gate-failing error.
             "outage": e.get("outage", False), "cost": e.get("cost"),
+            # With `cost`, or a rebuilt manifest presents a floor as the whole spend.
+            "cost_partial": e.get("cost_partial", False),
+            "fallback_turns": e.get("fallback_turns", 0),
             "route_source": e.get("route_source"),
             "route_sources": e.get("route_sources", []),
             "reason": e.get("reason", ""),

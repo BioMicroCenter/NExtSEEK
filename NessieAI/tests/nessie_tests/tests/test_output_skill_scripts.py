@@ -302,6 +302,22 @@ def test_the_round_trip_preserves_the_fields_it_claims_to(tmp_path):
     assert by_id["graph.bad"].failed_criteria == ["main:graph_result.count"]
 
 
+def test_a_partial_cost_and_the_fallback_count_survive_the_round_trip(tmp_path):
+    """The `outage` defect again, for money: a rebuilt entry without `cost_partial`
+    lets `cost_summary` present a floor as the whole spend."""
+    entries = _entries()
+    next(e for e in entries if e["id"] == "cc.outage").update(cost_partial=True,
+                                                              fallback_turns=1)
+    rebuilt = _round_trip(tmp_path, _build(tmp_path, entries=entries))
+
+    o = next(e for e in rebuilt.entries if e.id == "cc.outage")
+    assert o.cost_partial is True and o.fallback_turns == 1
+    original = [M.NessieManifestEntry(**e) for e in entries]
+    assert (M.cost_summary(rebuilt.entries)["cost_display"]
+            == M.cost_summary(original)["cost_display"])
+    assert "PARTIAL" in M.cost_summary(rebuilt.entries)["cost_display"]
+
+
 def test_the_entry_field_map_is_actually_used(tmp_path):
     """The constant was declared and then never referenced, which is how it came
     to disagree with the code beside it. Naming a field it does not carry must

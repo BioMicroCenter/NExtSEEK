@@ -126,6 +126,19 @@ def test_an_unobserved_cost_is_empty_not_zero(tmp_path):
     assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["cost_usd"] == "0.25"
 
 
+def test_the_exported_cost_is_the_whole_case_not_its_last_turn(tmp_path):
+    """`cost_usd` is `entry.cost`, which is now every turn's router and engine cost
+    summed. A two-turn arm used to export its second turn's alone."""
+    from NessieAI.tests.nessie_tests.manifest import TurnMeta, case_money
+    turns = [TurnMeta(turn="t0", engine_cost=0.3, router_cost=0.01, cost=0.31),
+             TurnMeta(turn="t1", engine_cost=0.2, router_cost=0.01, cost=0.21)]
+    cc = NessieManifestEntry(id="a.one", family="f", tier="full", status="passed",
+                             elapsed_s=1.0, **case_money(turns, turns_sent=2))
+    m = BayesManifest(pairs=[BayesPair(id="a.one", family="f", ns=_entry(), cc=cc)])
+    export.export(m, tmp_path)
+    assert _rows(tmp_path / "hibayes_eval_rows_cc.csv")[0]["cost_usd"] == "0.52"
+
+
 def test_an_outage_row_is_excluded_not_scored(tmp_path):
     """An outage means the fallback chain died BEFORE the product ran. Scoring it
     as is_error teaches the posterior that Bedrock downtime is CC incapability."""

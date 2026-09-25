@@ -273,7 +273,10 @@ def runtime_row(entry, *, arm, family, subtype, artifact_count, engine_ops=0,
         "failure_mode": failure_mode(answer_provided=answer_provided,
                                      is_error=is_error, timed_out=timed_out),
         "latency_seconds": entry.elapsed_s,
-        # `None` is NOT zero. Only container_cc emits total_cost_usd.
+        # The CASE's cost: every turn's router and engine cost summed
+        # (`manifest.case_money`), no longer the last turn's alone. `None` is NOT
+        # zero: nothing was observed. A case whose `cost_partial` is set exports
+        # the observed floor, and the CSV has no column to say so.
         "cost_usd": entry.cost,
         # int, not nullable. See `engine_ops`.
         "tool_calls_total": engine_ops,
