@@ -8,7 +8,7 @@ import shutil
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _replace_fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
@@ -60,7 +60,7 @@ from .agents.reporter import report_coder_agent
 from .config import ChatConfig
 from .graph_review import (FOLLOWUP_SEEDED_SKIP, FOLLOWUP_TIER1_SKIP, GraphReview, ReviewInput, as_debug,
                            check_binding, check_premise, review_compute, review_tier1, with_checks)
-from .graph_review_counts import SKIP_AFTER_MS, live_values, run_tier2
+from .graph_review_counts import SKIP_AFTER_MS, live_values, rerun_statement, run_tier2
 from .graph_scope import RESERVED_PREFIX, SCOPE_ATTR, GraphScope
 from .prompt_variants import variant_record
 from .llm_clients import LLMFatalError
@@ -82,10 +82,11 @@ from .helpers import (
 )
 from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
-from .helpers.suggestions import accept, pending_for, suggestions_from_review
+from .helpers.suggestions import accept, clean_rerun, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
 from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
+from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .tee import Tee
 from .uid_links import link_sample_uids
@@ -674,7 +675,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         raised to each review, which records it."""
         if "value" not in provider:
             try:
-                provider["value"] = live_values(config)
+                provider["value"] = live_values(config, budget_s=REVIEW_TIER1_BUDGET_S)
             except Exception as exc:
                 provider["value"] = exc
         if isinstance(provider["value"], Exception):
@@ -1135,6 +1136,11 @@ REVIEW_BUDGET_S = 8.0
 REVIEW_LATE_TURN_S = 45
 #: The Tier 1 checks that have a Tier 2 count variant (graph_review_counts._BUILDERS).
 REVIEW_VARIANT_CHECKS = frozenset({"stem_miss", "all_question_narrowed", "zero_unproven_base", "unapplied_value"})
+#: Tier 1's time for uncached catalog reads (value lists, value probes), and the smaller one it gets when the
+#: kept statement took over SKIP_AFTER_MS or the turn is past REVIEW_LATE_TURN_S. Cache only there made the reviewer
+#: silent on the turns it was built for (2026-09-25); a value probe of three types costs about 0.1 s warm on dev.
+REVIEW_TIER1_BUDGET_S = 2.0
+REVIEW_TIER1_LATE_BUDGET_S = 1.0
 
 
 def _review_note(disclosure: str, template: str = REVIEW_NOTE) -> str:
@@ -1178,6 +1184,43 @@ def _review_input(question: str, graph_plan, graph_result: dict, elapsed_ms: int
     )
 
 
+def _with_lookups(review: GraphReview, catalog, **turn) -> GraphReview:
+    """``review`` with the provider's ``lookups()`` (what it read, what the budget stopped) and ``turn``'s facts in
+    ``lookups``, so a review that fired nothing says whether it could have. A provider without ``lookups`` adds only
+    ``turn``."""
+    read = getattr(catalog, "lookups", None)
+    try:
+        found = dict(read()) if callable(read) else {}
+    except Exception as exc:  # the reviewer's bookkeeping must never cost the user their answer
+        found = {"error": repr(exc)[:200]}
+    return _replace_fields(review, lookups={**found, **turn})
+
+
+def _with_chip_rerun(review: GraphReview, inp: ReviewInput) -> GraphReview:
+    """``review`` with what a click on its chip runs, as the suggestion's ``rerun`` (``helpers/suggestions.py``).
+
+    ``direct`` when the reviewer can build the chip's own statement from the turn's (``rerun_statement``): the click
+    runs it, then the reviewer and the chatter. Otherwise, when the chip names one change (a value chip's hint),
+    ``graph_agent``: the click hands the graph agent the turn's statement and that change. Otherwise nothing, and a
+    click is an ordinary turn. The statements are the model's, unscoped; whoever clicks gets them proven and scoped
+    for themselves. Never raises: a failure leaves the chip without a rerun."""
+    try:
+        if not isinstance(review.suggestion, dict):
+            return review
+        suggestion = dict(review.suggestion)
+        hint = suggestion.pop("rerun", None)
+        statement = rerun_statement(inp, review)
+        if statement is not None:
+            suggestion["rerun"] = {"mode": "direct", "cypher": statement[0], "parameters": dict(statement[1])}
+        elif isinstance(hint, dict) and isinstance(hint.get("change"), str) and inp.cypher:
+            suggestion["rerun"] = {"mode": "graph_agent", "base_cypher": inp.cypher,
+                                   "base_parameters": dict(inp.parameters or {}), "change": hint["change"]}
+        return _replace_fields(review, suggestion=suggestion)
+    except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
+        print(f"[DEBUG][SUGGEST] could not attach the chip's rerun: {exc!r}")
+        return review
+
+
 def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, user_text: str, graph_plan,
                            graph_result: dict, elapsed_ms: int | None, stored_total, target_bundle_id,
                            newest_bundle_id, seeded: bool = False) -> GraphReview:
@@ -1198,7 +1241,8 @@ def _review_followup_query(get_catalog: Callable[[], Any], *, question: str, use
     try:
         inp = _review_input(question, graph_plan, graph_result, elapsed_ms)
         skip = {**FOLLOWUP_TIER1_SKIP, **(FOLLOWUP_SEEDED_SKIP if seeded else {})}
-        review = review_tier1(inp, get_catalog(), skip=skip)
+        catalog = get_catalog()
+        review = _with_lookups(review_tier1(inp, catalog, skip=skip), catalog)
         return with_checks(review, [
             check_premise(user_text, stored_total=stored_total),
             check_binding(target_bundle_id=target_bundle_id, newest_bundle_id=newest_bundle_id, user_text=user_text),
@@ -1212,10 +1256,12 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
     """The graph reviewer over the result the turn keeps, before the chatter writes the reply.
 
     Tier 1 (``review_tier1``) reads the question, the statement the model wrote with its parameters, and the rows
-    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, reading only
-    cached values when the statement took over ``SKIP_AFTER_MS`` or the turn has already run
-    ``REVIEW_LATE_TURN_S``. Tier 2 (``run_tier2``, bounded count variants) runs only when a check that has a variant
-    fired and the turn is younger than ``REVIEW_LATE_TURN_S``, inside what Tier 1 left of ``REVIEW_BUDGET_S``.
+    and counts, against the stored values the caller can see: one ``live_values`` provider per turn, whose uncached
+    reads get ``REVIEW_TIER1_BUDGET_S``, or ``REVIEW_TIER1_LATE_BUDGET_S`` when the statement took over
+    ``SKIP_AFTER_MS`` or the turn has already run ``REVIEW_LATE_TURN_S``. What the provider read, and why it read no
+    more, goes to ``review.lookups`` with the turn's age and those two flags. Tier 2 (``run_tier2``, bounded count
+    variants) runs only when a check that has a variant fired and the turn is younger than ``REVIEW_LATE_TURN_S``,
+    inside what Tier 1 left of ``REVIEW_BUDGET_S``.
 
     The server's scope parameter is left out of the parameters: every count goes back through
     ``tool_neo4j_query``, whose prover refuses a reserved name on the way in, and Tier 1 has no use for it.
@@ -1231,13 +1277,14 @@ def _review_graph_turn(config, user_text: str, graph_plan, graph_result: dict, *
         inp = _review_input(user_text, graph_plan, graph_result, elapsed_ms)
         slow = isinstance(elapsed_ms, int) and elapsed_ms > SKIP_AFTER_MS
         late = t0 - t_turn_start > REVIEW_LATE_TURN_S
-        catalog = live_values(config, max_cold=0) if slow or late else live_values(config)
-        review = review_tier1(inp, catalog)
+        catalog = live_values(config, budget_s=REVIEW_TIER1_LATE_BUDGET_S if slow or late else REVIEW_TIER1_BUDGET_S)
+        review = _with_lookups(review_tier1(inp, catalog), catalog,
+                               turn_age_s=round(t0 - t_turn_start, 1), slow=slow, late=late)
         fired = {check.name for check in review.checks if check.fired}
         if fired & REVIEW_VARIANT_CHECKS and time.perf_counter() - t_turn_start < REVIEW_LATE_TURN_S:
             spent = time.perf_counter() - t0
             review = run_tier2(config, inp, review, budget_s=max(0.0, REVIEW_BUDGET_S - spent))
-        return review
+        return _with_chip_rerun(review, inp)
     except Exception as exc:  # a reviewer bug must never cost the user their answer
         return GraphReview("ok", [], None, None, [], _ms_since(t0), error=repr(exc))
 
@@ -1288,6 +1335,91 @@ def _remember_suggestions(session, items: list[dict[str, Any]]) -> None:
         pending_for(session, items, turn_id=_last_turn_id(session))
     except Exception as exc:  # a chip's bookkeeping must never cost the user their answer
         print(f"[DEBUG][SUGGEST] could not remember the offered suggestion: {exc!r}")
+
+
+#: What a click on a value chip hands the graph agent (``rerun`` mode ``graph_agent``), as a system message: the
+#: statement that answered, its parameters, and the one change. Operator-approved wording, 2026-09-25.
+CHIP_RERUN_CONTEXT = ("The user chose a suggested narrower search. Start from this statement, which answered the "
+                      "question before:\n{cypher}\nParameters: {parameters}\nChange only this: {change} Keep every "
+                      "other filter as it is.")
+#: The explanation a direct chip rerun records for its statement (the debug panel's graph summary).
+CHIP_RERUN_EXPLANATION = "The suggested search the user chose, as the reviewer built it from the previous statement."
+
+
+def _with_turn_context(chip: dict[str, Any], entity_result, plan) -> dict[str, Any]:
+    """The chip as the session keeps it: a chip with a ``rerun`` also keeps the offering turn's entity and parser
+    outputs, which a click reuses instead of asking those agents again."""
+    if not isinstance(chip.get("rerun"), dict):
+        return chip
+    try:
+        context = {"entity": entity_result.model_dump(), "parser_plan": plan.model_dump()}
+    except Exception:  # a chip's bookkeeping must never cost the user their answer
+        return {k: v for k, v in chip.items() if k != "rerun"}
+    return {**chip, "rerun": {**chip["rerun"], **context}}
+
+
+def _chip_rerun(accepted: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The rerun a clicked chip carries, checked, with its offering turn's context; None for an ordinary turn.
+
+    ``accepted`` is what ``accept`` returned: a chip the server itself stored for the previous turn, matched by the
+    message's text. Nothing in the request can add or change it."""
+    if not isinstance(accepted, dict):
+        return None
+    rerun = accepted.get("rerun")
+    checked = clean_rerun(rerun)
+    if checked is None:
+        return None
+    return {**checked, "entity": rerun.get("entity"), "parser_plan": rerun.get("parser_plan")}
+
+
+def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any], rerun: dict[str, Any], log_dir,
+                    artifact_store, send_event, t_total_start: float, note_agent):
+    """A click on a chip that carries a rerun: the graph turn without the entity agent and the parser, whose outputs
+    come from the turn that offered the chip.
+
+    ``direct``: the chip's own statement runs as the turn's plan (no graph agent), through ``tool_neo4j_query`` with
+    this request's ``config``, so it is proven and scoped for whoever clicks. ``graph_agent``: the graph agent writes
+    the statement from the offering turn's one and the change (``CHIP_RERUN_CONTEXT``). Then the reviewer and the
+    chatter run as on any graph turn, and no chip is offered back.
+
+    Returns the turn's payload, or None when the click cannot be run this way (its stored context does not load, or the
+    statement is refused for this caller's scope): run_query then gives the text the whole pipeline."""
+    try:
+        entity_result = EntityAgentOutput.model_validate(rerun.get("entity") or {})
+        stored_plan = dict(rerun.get("parser_plan") or {})
+        stored_plan.update(mode="graph_query", intent_summary=user_text)
+        plan = ParserPlan.model_validate(stored_plan)
+    except Exception as exc:
+        print(f"[DEBUG][SUGGEST] the clicked chip's turn context did not load; running the full pipeline: {exc!r}")
+        return None
+    debug_payload: dict[str, Any] = {
+        "entity_result": entity_result.model_dump(),
+        "parser_plan": plan.model_dump(),
+        "api_plan": None, "reporter_plan": None, "reporter_result": None, "report_writer_output": None,
+        "reporter_metadata": None, "api_result_meta": None, "api_result_slim": None, "api_result_full": None,
+        "raw_json_path": None, "error_context": None,
+        **variant_record(config),
+        "suggestion_accepted": {k: accepted.get(k) for k in ("id", "source", "kind")},
+        "chip_rerun": {"mode": rerun["mode"], "suggestion_id": accepted.get("id")},
+    }
+    graph_plan, refine = None, None
+    if rerun["mode"] == "direct":
+        graph_plan = GraphAgentPlan(cypher=rerun["cypher"], parameters=dict(rerun["parameters"]),
+                                    explanation=CHIP_RERUN_EXPLANATION, context_mode="chip")
+    else:
+        refine = CHIP_RERUN_CONTEXT.format(cypher=rerun["base_cypher"],
+                                           parameters=json.dumps(rerun["base_parameters"], default=str),
+                                           change=rerun["change"])
+    outcome = _execute_graph_turn(
+        config=config, session=session, user_text=user_text, entity_result=entity_result, plan=plan,
+        log_dir=log_dir, artifact_store=artifact_store, send_event=send_event, debug_payload=debug_payload,
+        t_total_start=t_total_start, refine_context=refine, note_agent=note_agent, offer_suggestions=False,
+        graph_plan=graph_plan,
+    )
+    if isinstance(outcome, GraphScopeFallback):
+        print("[DEBUG][SUGGEST] the clicked chip's statement was refused for this scope; running the full pipeline")
+        return None
+    return outcome
 
 
 def _graph_scope_fallback(graph_plan, graph_result: dict, attempts: list, debug_payload: dict,
@@ -1349,10 +1481,14 @@ def _execute_graph_turn(
     refine_context: str | None = None,
     note_agent: Callable[[str], None] | None = None,
     offer_suggestions: bool = True,
+    graph_plan: GraphAgentPlan | None = None,
 ):
     """``note_agent`` lets the caller follow which agent this turn is on.
 
     ``offer_suggestions`` is False on a turn that is itself a click on a chip: it offers no chip of its own.
+
+    ``graph_plan``, when given, is the statement to run, and the graph agent is not asked: a click on a chip whose
+    rerun is ``direct`` (``_run_chip_click``). A retry after a failure or a zero still goes to the agent.
 
     run_query's error handlers report ``current_agent``, a local of the caller. The
     graph turn runs in this function, so that local stayed "graph" for the whole turn:
@@ -1379,8 +1515,11 @@ def _execute_graph_turn(
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
 
-    print("\n[GRAPH] Running graph agent...")
-    graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
+    if graph_plan is None:
+        print("\n[GRAPH] Running graph agent...")
+        graph_plan = graph_agent(config, user_text, entity_result, plan, refine_context=agent_context)
+    else:
+        print("\n[GRAPH] Running the chip's statement (no graph agent)...")
     debug_payload["graph_context"] = graph_plan.context_mode
     # A fallback's reason and capture date: the harness reads the payload, the debug panel the summary line.
     schema_fallback = _schema_fallback_line(graph_plan.context_fallback)
@@ -1514,7 +1653,7 @@ def _execute_graph_turn(
     # that wrote it. Built before the chatter runs, so its reply can offer the same step.
     suggestions = _suggestions_for(debug_payload.get("graph_review"), bundle_id) if offer_suggestions else []
     if suggestions:
-        debug_payload["suggestions"] = suggestions
+        debug_payload["suggestions"] = [public_chip(chip) for chip in suggestions]
 
     _on("chatter")
     send_event("agent_started", {"agent": "chatter", "mode": "graph_query"})
@@ -1542,7 +1681,7 @@ def _execute_graph_turn(
         tool_summary=build_tool_summary_for_mode("graph_query", graph_plan=graph_plan.model_dump()),
         result_payload=graph_result, assistant_reply=reply, bundle_id=bundle_id,
     )
-    _remember_suggestions(session, suggestions)
+    _remember_suggestions(session, [_with_turn_context(chip, entity_result, plan) for chip in suggestions])
     print(f"[TIMING][TOTAL] {time.perf_counter() - t_total_start:.2f}s")
     return _emit_query_complete(
         send_event, reply, debug_payload, bundle_id,
@@ -1803,6 +1942,19 @@ def run_query(
         if pipeline_payload is not None:
             print(f"[TIMING][TOTAL] {time.perf_counter() - _t_total_start:.2f}s")
             return pipeline_payload
+
+        # A click on a chip that carries a rerun skips the entity agent and the parser (operator ruling 2026-09-25):
+        # the chip's statement, or the graph agent with the one change, then the reviewer and the chatter.
+        chip_rerun = _chip_rerun(accepted_suggestion)
+        if chip_rerun is not None:
+            current_agent = "graph"
+            clicked = _run_chip_click(
+                config=config, session=session, user_text=user_text, accepted=accepted_suggestion, rerun=chip_rerun,
+                log_dir=log_dir, artifact_store=artifact_store, send_event=send_event,
+                t_total_start=_t_total_start, note_agent=_note_agent,
+            )
+            if clicked is not None:
+                return clicked
 
         send_event("agent_started", {"agent": "catalog", "mode": ""})
         sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(

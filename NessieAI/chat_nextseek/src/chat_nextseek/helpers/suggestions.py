@@ -30,6 +30,13 @@ The guardrails a chip must pass (``check_suggestion``):
 ``pending_for`` remembers the chips offered on a turn in the session; ``accept`` recognises the next message as a
 click (its text is exactly a chip's query, on the very next turn) and always clears what was pending (C5).
 
+A chip may carry ``rerun``: what its click runs instead of the whole pipeline (operator ruling 2026-09-25). Either
+``{"mode": "direct", "cypher", "parameters"}``, a statement the reviewer built from the turn's own (``Only RNA-Seq``,
+``Include all spellings``), or ``{"mode": "graph_agent", "base_cypher", "base_parameters", "change"}``, the turn's
+statement and the one change the graph agent is asked to make. It stays server side: the session keeps it, the
+chip the client sees does not carry it (``public_chip``), and the chat panel sends only the chip's text, so a
+click can run nothing the server did not offer itself.
+
 Pure: no Django, no I/O. ``session`` is anything with ``get``, ``pop`` and item assignment.
 """
 from __future__ import annotations
@@ -156,8 +163,31 @@ def suggestions_from_review(review: dict, *, bundle_id: int, refers_back: Refers
             chip["expected_count"] = n
         if isinstance(s.get("alt"), dict):
             chip["alt"] = dict(s["alt"])
+        rerun = clean_rerun(s.get("rerun"))
+        if rerun is not None:
+            chip["rerun"] = rerun
         out.append(chip)
     return out
+
+
+def clean_rerun(rerun: Any) -> dict | None:
+    """``rerun`` when it is one of the two shapes a click can run (module docstring), else None."""
+    if not isinstance(rerun, dict):
+        return None
+    if rerun.get("mode") == "direct" and isinstance(rerun.get("cypher"), str) and rerun["cypher"].strip() \
+            and isinstance(rerun.get("parameters"), dict):
+        return {"mode": "direct", "cypher": rerun["cypher"], "parameters": dict(rerun["parameters"])}
+    if rerun.get("mode") == "graph_agent" and isinstance(rerun.get("base_cypher"), str) \
+            and rerun["base_cypher"].strip() and isinstance(rerun.get("base_parameters"), dict) \
+            and isinstance(rerun.get("change"), str) and rerun["change"].strip():
+        return {"mode": "graph_agent", "base_cypher": rerun["base_cypher"],
+                "base_parameters": dict(rerun["base_parameters"]), "change": rerun["change"]}
+    return None
+
+
+def public_chip(chip: dict) -> dict:
+    """The chip as the client sees it (``debug.suggestions``): everything but ``rerun``."""
+    return {k: v for k, v in chip.items() if k != "rerun"}
 
 
 def pending_for(session, items: list[dict], *, turn_id: int) -> None:
