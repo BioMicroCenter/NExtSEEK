@@ -33,6 +33,7 @@ from chat_nextseek import prompt_variants
 from chat_nextseek.prompt_variants import VARIANT_NAMES as PROMPT_VARIANT_NAMES
 from chat_nextseek.chat_memory import next_turn_id
 from chat_nextseek.orchestrator import run_query, run_query_plan
+from chat_nextseek import turn_spend
 
 from NessieAI.router import router as cc_router
 from NessieAI.router import router_context
@@ -677,10 +678,14 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     turn_timeout=resolved_turn_timeout,
                     chat_session_id=cc_state_key,
                 )
-        except Exception:
+        except Exception as exc:
             logger.exception("cc-assistant pipeline error")
             send_event("query_error", {
                 "error": "Internal pipeline error", "agent": "unknown",
+                # This is the turn's last event, and the harness reads a turn's cost off
+                # the last query_error: an NS turn that crashed carries what it spent,
+                # taken out on the exception (turn_spend.collects_turn). Empty otherwise.
+                **turn_spend.cost_fields(exc),
                 "session_id": resolved_session_id,
             })
         finally:
