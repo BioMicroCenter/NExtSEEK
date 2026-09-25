@@ -455,6 +455,10 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
             send_event("route_decided", {
                 "route": decision.route, "model_class": decision.model_class,
                 "source": decision.source, "reasoning": decision.reasoning,
+                # Which router model answered, and whether it fell back (fix 5): None
+                # when the keyword rules decided or the turn was forced.
+                "router_model": getattr(decision, "router_model", None),
+                "router_fallback": getattr(decision, "router_fallback", None),
             })
             _record_ledger_row(chat_session, decision, query_task=query_task)
 

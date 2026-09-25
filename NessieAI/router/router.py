@@ -6,8 +6,10 @@ classification (family only) is separate from routing (destination/model).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -33,6 +35,16 @@ ROUTE_NS = "nextseek_query"
 ROUTE_CC = "container_cc"
 ROUTE_UNRELATED = "unrelated"
 _FALLBACK_SENTINEL = "<router_unavailable>"
+
+# The router's time limits (operator ruling 2026-09-25). RouteQuery runs on the client its
+# .baml function declares (GCPReasoner, gemini-3.1-pro-preview) for at most 30 s, BAML's own
+# retries included; on a timeout, an error or the sentinel it gets ONE try on GCPFlash
+# (gemini-3.5-flash) for at most 15 s, through a per-call client override, so no .baml
+# file changes; then the keyword rules decide. Before, there was no limit at all.
+ROUTER_PRIMARY_CLIENT = "GCPReasoner"
+ROUTER_PRIMARY_LIMIT_S = 30
+ROUTER_FALLBACK_CLIENT = "GCPFlash"
+ROUTER_FALLBACK_LIMIT_S = 15
 
 UNRELATED_CANNED_TEXT = (
     "I'm the NExtSEEK research assistant for the MIT BioMicro Center. I can "
@@ -68,6 +80,11 @@ class RouteDecision:
     generation_hash: str = ""
     attempted_route: str | None = None
     attempted_source: str | None = None
+    # Which model answered (None when the keyword rules decided or the turn was forced),
+    # and whether the router fell back: {"from": model id, "to": model id or "heuristic",
+    # "reason": "timeout" or "error"}. The CC turn puts both on route_decided.
+    router_model: str | None = None
+    router_fallback: dict | None = None
 
 
 def _build_context_dir() -> Path:
@@ -215,7 +232,75 @@ def _classify_query(query: str, history: list[HistoryTurn] | None = None) -> tup
         return None, None, str(exc)
 
 
+@functools.lru_cache(maxsize=None)
+def _baml_client_model(client_name: str) -> str | None:
+    """The model id a BAML client declares, read from the generated client's inlined
+    clients.baml, so no model id is written here. None when it cannot be read."""
+    try:
+        from dmac_assistant.router.baml_client.inlinedbaml import get_baml_files
+
+        src = get_baml_files().get("clients.baml") or ""
+    except Exception:  # noqa: BLE001
+        return None
+    block = re.search(r"client<llm>\s+" + re.escape(client_name) + r"\s*\{(.*?)\n\}", src, re.DOTALL)
+    model = re.search(r'\bmodel\s+"([^"]+)"', block.group(1)) if block else None
+    return model.group(1) if model else None
+
+
+def _fallback_client_options() -> dict:
+    """BAML call options that send one call to ROUTER_FALLBACK_CLIENT instead of the
+    client the function declares (the declared client's model and retry policy)."""
+    from baml_py import ClientRegistry
+
+    registry = ClientRegistry()
+    registry.set_primary(ROUTER_FALLBACK_CLIENT)
+    return {"client_registry": registry}
+
+
+async def _within(awaitable, limit_s: float):
+    return await asyncio.wait_for(awaitable, timeout=limit_s)
+
+
+# The failure of the last _route_query on this thread, for the keyword-rules decision that
+# follows it: (query, router_fallback). Keyed by the query so it can never be applied to
+# another turn's decision; read once.
+_ROUTE_FAILURE = threading.local()
+
+
+def _note_route_failure(query: str, fallback: dict | None) -> None:
+    _ROUTE_FAILURE.value = (query, fallback) if fallback else None
+
+
+def _heuristic_after_route_failure(query: str) -> RouteDecision:
+    """The keyword rules' decision, carrying the router_fallback of the model calls that
+    failed first for this query, when there were any."""
+    noted = getattr(_ROUTE_FAILURE, "value", None)
+    _ROUTE_FAILURE.value = None
+    decision = _heuristic(query)
+    if noted and noted[0] == query:
+        return replace(decision, router_fallback=noted[1])
+    return decision
+
+
+def _ask(b, request, Route, *, limit_s: float, options: dict | None):
+    """One RouteQuery under a time limit. Returns (decision or None, failure reason or None)."""
+    try:
+        call = b.RouteQuery(input=request) if options is None else b.RouteQuery(input=request, baml_options=options)
+        routed = _route_from_baml(asyncio.run(_within(call, limit_s)), Route)
+    except TimeoutError:
+        logger.warning("CC router: RouteQuery timed out after %ss", limit_s)
+        return None, "timeout"
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: RouteQuery failed (%s)", type(exc).__name__)
+        return None, "error"
+    if routed is None:
+        logger.warning("CC router: RouteQuery answered %s", _FALLBACK_SENTINEL)
+        return None, "error"
+    return routed, None
+
+
 def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision | None:
+    _note_route_failure(query, None)
     try:
         RouterAgent, load_capabilities, Route, b = _load_router_deps()
         from dmac_assistant.router.baml_client.types import RouterInput
@@ -230,18 +315,35 @@ def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteD
             history=_history_to_baml(history, Route),
             followup_rule=followup.followup_rule_text(),
         )
-        decision = asyncio.run(b.RouteQuery(input=request))
-        return _route_from_baml(decision, Route)
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: RouteQuery failed (%s)", type(exc).__name__)
         return None
+
+    primary_model = _baml_client_model(ROUTER_PRIMARY_CLIENT)
+    routed, reason = _ask(b, request, Route, limit_s=ROUTER_PRIMARY_LIMIT_S, options=None)
+    if routed is not None:
+        return replace(routed, router_model=primary_model)
+
+    fallback_model = _baml_client_model(ROUTER_FALLBACK_CLIENT)
+    try:
+        options = _fallback_client_options()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("CC router: no fallback client (%s)", type(exc).__name__)
+        options = None
+    if options is not None:
+        routed, _ = _ask(b, request, Route, limit_s=ROUTER_FALLBACK_LIMIT_S, options=options)
+        if routed is not None:
+            return replace(routed, router_model=fallback_model,
+                           router_fallback={"from": primary_model, "to": fallback_model, "reason": reason})
+    _note_route_failure(query, {"from": primary_model, "to": "heuristic", "reason": reason})
+    return None
 
 
 def _legacy_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
     routed = _route_query(query, history)
     if routed is not None:
         return routed
-    return _heuristic(query)
+    return _heuristic_after_route_failure(query)
 
 
 def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = None) -> RouteDecision:
@@ -254,7 +356,7 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: corpus/typebuilder invalid pre-transport (%s)", type(exc).__name__)
         routed = _route_query(query, history)
-        decision = routed if routed is not None else _heuristic(query)
+        decision = routed if routed is not None else _heuristic_after_route_failure(query)
         return replace(
             decision,
             task_family=None,
@@ -276,7 +378,7 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
 
     if task_family is None:
         routed = _route_query(query, history)
-        decision = routed if routed is not None else _heuristic(query)
+        decision = routed if routed is not None else _heuristic_after_route_failure(query)
         return replace(
             decision,
             task_family=None,
@@ -303,7 +405,7 @@ def _posterior_enabled_decide(query: str, history: list[HistoryTurn] | None = No
         )
 
     routed = _route_query(query, history)
-    decision = routed if routed is not None else _heuristic(query)
+    decision = routed if routed is not None else _heuristic_after_route_failure(query)
     return replace(
         decision,
         task_family=task_family,
