@@ -100,6 +100,11 @@ export interface QueryErrorData {
   session_id?: string;
   reason?: string;
   /**
+   * The raw technical message behind `error`, which is plain text for the user when
+   * the reason is `model_unavailable`. Shown in the Debug panel only.
+   */
+  detail?: string;
+  /**
    * Files a Container-CC turn published before its wall clock stopped it
    * (reason `exec_timeout`, or `model_unavailable` when it was stopped while a
    * model call was being retried), in the shape a completed CC turn's carry. No
