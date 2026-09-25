@@ -345,7 +345,8 @@ def _validate_memory_code(tree: ast.AST) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, _MEMORY_ALLOWED_NODES):
             raise MemoryCodeSafetyError(f"Disallowed syntax: {type(node).__name__}")
-        if isinstance(node, ast.Name) and node.id in _MEMORY_BLOCKED_NAMES:
+        if isinstance(node, ast.Name) and (node.id in _MEMORY_BLOCKED_NAMES or node.id.startswith("_")):
+            # No name starting with an underscore, as for attributes below; `_` itself included.
             raise MemoryCodeSafetyError(f"Disallowed name: {node.id}")
         if isinstance(node, ast.Attribute):
             # Every attribute, whether it is read, called or assigned, must be on an allow-list: the

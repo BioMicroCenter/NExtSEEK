@@ -1,5 +1,10 @@
+import fcntl
+import os
+import subprocess
+import sys
 import threading
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -204,17 +209,44 @@ def test_the_input_limit_fits_in_the_process_memory():
     assert report_code.REPORT_INPUT_MAX_BYTES * 5 <= report_code.REPORT_MEM_MB << 20
 
 
-def test_a_second_report_waits_briefly_then_does_not_run(monkeypatch):
+@contextmanager
+def held_report_lock(path):
+    """The report lock, held here as another server process would hold it."""
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+def test_a_second_report_waits_briefly_then_does_not_run(monkeypatch, tmp_path):
+    monkeypatch.setattr(report_code, "REPORT_LOCK_PATH", str(tmp_path / "report.lock"))
     monkeypatch.setattr(report_code, "REPORT_WAIT_S", 0.1)
     started = []
     monkeypatch.setattr(row_compute.subprocess, "run", lambda *a, **k: started.append(a))
-    assert report_code._REPORT_SLOT.acquire(timeout=5)
-    try:
+    with held_report_lock(report_code.REPORT_LOCK_PATH):
         t0 = time.monotonic()
         with pytest.raises(ReportCodeError, match="already running"):
             execute_report_code("result = {}", SAMPLE_DATA)
         assert time.monotonic() - t0 < 2 and started == []
+
+
+def test_the_report_lock_holds_across_processes(monkeypatch, tmp_path):
+    """The server runs several worker processes: a report in one keeps a report in another from starting."""
+    lock = str(tmp_path / "report.lock")
+    monkeypatch.setattr(report_code, "REPORT_LOCK_PATH", lock)
+    monkeypatch.setattr(report_code, "REPORT_WAIT_S", 0.1)
+    holder = subprocess.Popen(
+        [sys.executable, "-c", "import fcntl, os, sys, time\n"
+         "fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)\n"
+         "fcntl.flock(fd, fcntl.LOCK_EX)\nprint('held', flush=True)\ntime.sleep(30)\n", lock],
+        stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        with pytest.raises(ReportCodeError, match="already running"):
+            execute_report_code("result = {}", SAMPLE_DATA)
     finally:
-        report_code._REPORT_SLOT.release()
-    assert report_code._REPORT_SLOT.acquire(timeout=0), "the slot is free again"
-    report_code._REPORT_SLOT.release()
+        holder.kill()
+        holder.wait()
+    assert execute_report_code("result = {'n': 1}", SAMPLE_DATA) == {"n": 1}, "free again once the holder is gone"

@@ -7,15 +7,20 @@ small helpers), while import/exec/open/dunder access remain hard-blocked.
 process (``row_compute.run_in_child``), which holds its time limit from any thread.
 Report code imports nothing (the checker refuses an import), and this module and
 ``memory_code`` use only the standard library, which is all that process has. One
-report runs at a time in each server process; another that cannot start within
-``REPORT_WAIT_S`` fails, and its caller falls back to the report writer."""
+report runs at a time on the machine, across every server process (a lock file,
+``REPORT_LOCK_PATH``); another that cannot start within ``REPORT_WAIT_S`` fails, and
+its caller falls back to the report writer."""
 from __future__ import annotations
 
 import ast
+import fcntl
 import json
+import os
 import re
 import signal
-import threading
+import tempfile
+import time
+from contextlib import contextmanager
 from typing import Any
 
 from .memory_code import (
@@ -38,9 +43,14 @@ REPORT_INPUT_MAX_BYTES = 768 << 20
 #: names, far smaller than the metadata it reads; this process holds about five times the reply while reading it.
 REPORT_REPLY_MAX_BYTES = 64 << 20
 REPORT_TRANSFER_S = 30
-#: One report at a time per server process: each can take REPORT_MEM_MB. Another waits this long, then fails.
+#: One report at a time on the machine: each can take REPORT_MEM_MB, and the server runs several worker
+#: processes under one memory cap. The lock is a file every worker opens; another report waits this long, then fails.
 REPORT_WAIT_S = 5.0
-_REPORT_SLOT = threading.BoundedSemaphore(1)
+#: The lock file; None means ``nextseek-report-code.lock`` in the system temp directory, found when first needed:
+#: this module is also imported inside the limited process, which can create no file, so not at import.
+REPORT_LOCK_PATH: str | None = None
+_LOCK_NAME = "nextseek-report-code.lock"
+_LOCK_POLL_S = 0.05
 
 
 class ReportCodeSafetyError(ValueError):
@@ -160,20 +170,43 @@ def execute_report_code(code: str, data: Any, *, timeout_seconds: int = 15) -> d
     JSON copy."""
     tree = ast.parse(code, mode="exec")
     _validate_report_code(tree)
-    if not _REPORT_SLOT.acquire(timeout=REPORT_WAIT_S):
-        raise ReportCodeError("another report's code is already running, so this one did not run")
-    try:
+    with _one_report_at_a_time():
         run = run_in_child("report", code, data, cpu_s=timeout_seconds, mem_mb=REPORT_MEM_MB,
                            wall_s=timeout_seconds + REPORT_TRANSFER_S, input_max=REPORT_INPUT_MAX_BYTES,
                            reply_max=REPORT_REPLY_MAX_BYTES)
-    finally:
-        _REPORT_SLOT.release()
     if run["ok"]:
         result = run["result"]
         return result if isinstance(result, dict) else {"value": result}
     if run["error"] == TIME_LIMIT:
         raise ReportCodeTimeoutError(f"Report code exceeded {timeout_seconds}s timeout")
     raise ReportCodeError(run["error"])
+
+
+@contextmanager
+def _one_report_at_a_time():
+    """Hold the machine-wide report lock (an exclusive ``flock`` on ``REPORT_LOCK_PATH``) for the block.
+
+    It is waited for up to ``REPORT_WAIT_S``; then, or when the lock file cannot be opened, ``ReportCodeError``.
+    Each call opens the file itself, so two threads of one process exclude each other as two processes do, and
+    closing the file releases the lock even when the block raises."""
+    try:
+        path = REPORT_LOCK_PATH or os.path.join(tempfile.gettempdir(), _LOCK_NAME)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    except OSError as exc:
+        raise ReportCodeError(f"the report lock could not be opened: {type(exc).__name__}") from exc
+    try:
+        deadline = time.monotonic() + REPORT_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise ReportCodeError("another report's code is already running, so this one did not run")
+                time.sleep(_LOCK_POLL_S)
+        yield
+    finally:
+        os.close(fd)
 
 
 def run_report_code_here(code: str, data: Any, *, timeout_seconds: int = 15) -> dict[str, Any]:

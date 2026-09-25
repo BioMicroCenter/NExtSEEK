@@ -128,3 +128,13 @@ def test_data_too_large_to_hand_over_starts_no_process(monkeypatch):
     monkeypatch.setattr(row_compute.subprocess, "run", lambda *a, **k: started.append(a))
     out = run_code_isolated("result = {}", {"data": {"rows": [{"note": "x" * (17 << 20)}]}})
     assert out["ok"] is False and "too large" in out["error"] and started == []
+
+
+@pytest.mark.parametrize("code", [
+    "_hidden = 1\nresult = {'n': _hidden}",
+    "for _ in range(2):\n    pass\nresult = {}",
+])
+def test_a_name_that_starts_with_an_underscore_is_refused(code):
+    with pytest.raises(MemoryCodeSafetyError, match="Disallowed name"):
+        _validate_memory_code(ast.parse(code))
+    assert run_code_isolated(code, DATA)["ok"] is False

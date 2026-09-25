@@ -64,7 +64,8 @@ run_new_query; never answer from part of the set. If its result has scope_note, 
 If its review lists the values a filter matched, give the count for each and say which one your
 answer used. A zero from compute_over_rows means only that these rows do not show it: say what
 the rows hold, or run a query that can check.
-Code: assign a dict to `result`; no import, def, class, lambda, while or with. Available: rows,
+Code: assign a dict to `result`; no import, def, class, lambda, while or with, and no name
+that starts with an underscore (not even `_`). Available: rows,
 data, re (search, match, fullmatch, findall, sub, I), json (loads, dumps), strip_html, len, str,
 int, float, bool, list, dict, set, tuple, sorted, sum, min, max, any, all, enumerate, range,
 isinstance; methods get, items, keys, values, append, extend, add, update, lower, upper, strip,
