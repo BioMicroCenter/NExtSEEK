@@ -76,3 +76,13 @@ def test_the_required_entries_are_still_required(tmp_path):
     path.write_text(json.dumps({"opus": BASE["opus"], "opus_fallback": BASE["opus"]}))
     with pytest.raises(ConfigError):
         models.load_model_class_map(path=path)
+
+
+@pytest.mark.parametrize("value, ok", [
+    ("us.anthropic.claude-sonnet-4-6", True),
+    ("us.anthropic.claude-haiku-4-5-20251001-v1:0", True),
+    ("claude-sonnet-4-6", False), ("us.anthropic.", False), ("us.anthropic.A B", False),
+    ("", False), (None, False), (7, False),
+])
+def test_the_bedrock_id_check_is_public_for_callers_that_take_an_override(value, ok):
+    assert models.is_bedrock_model_id(value) is ok

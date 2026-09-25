@@ -119,6 +119,15 @@ def resolve_cc_model() -> str:
 _CC_FALLBACK_KEY = "opus_fallback"
 
 
+def is_bedrock_model_id(value: object) -> bool:
+    """True when ``value`` passes the same ``us.anthropic.`` id check the loader applies.
+
+    For a caller that takes a model id from somewhere other than the map (an env
+    override) and must hold it to the map's rule.
+    """
+    return isinstance(value, str) and bool(_BEDROCK_ID_RE.match(value))
+
+
 def resolve_cc_fallback_model() -> str | None:
     """Return the Bedrock-qualified fallback model id for a container_cc turn, or None.
 
@@ -128,7 +137,7 @@ def resolve_cc_fallback_model() -> str | None:
     value = _ensure_cache().get(_CC_FALLBACK_KEY)
     if value is None:
         return None
-    if not isinstance(value, str) or not _BEDROCK_ID_RE.match(value):
+    if not is_bedrock_model_id(value):
         raise ConfigError(
             f"router_model_class_map entry for {_CC_FALLBACK_KEY!r} is not a "
             f"Bedrock-qualified id (must match {_BEDROCK_ID_RE.pattern!r}): {value!r}"

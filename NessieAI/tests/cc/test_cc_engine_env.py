@@ -314,6 +314,46 @@ def test_a_malformed_numeric_override_keeps_the_default(bad):
     assert env["API_TIMEOUT_MS"] == "60000"
 
 
+@pytest.mark.parametrize("bad", ["claude-sonnet-4-6", "anthropic.claude-sonnet-4-6",
+                                 "us.anthropic.Claude Sonnet", "us.anthropic."])
+def test_a_classifier_override_that_is_not_a_bedrock_id_falls_back_to_the_map(bad, caplog):
+    """Review L2: the override gets the loader's own us.anthropic. id check."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
+        env = cc_engine.build_agent_environment(
+            source={"NEXTSEEK_CC_DEFAULT_SONNET_MODEL": bad},
+            api_user="u", api_pass="p", path_mappings={})
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == _models().resolve_cc_classifier_model()
+    assert "NEXTSEEK_CC_DEFAULT_SONNET_MODEL" in caplog.text
+
+
+@pytest.mark.parametrize("small", ["0", "1", "999", "0000"])
+def test_a_request_timeout_under_one_second_keeps_the_default(small, caplog):
+    """Review L3: a zero or tiny API_TIMEOUT_MS would fail every model call at once."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
+        env = cc_engine.build_agent_environment(
+            source={"NEXTSEEK_CC_API_TIMEOUT_MS": small},
+            api_user="u", api_pass="p", path_mappings={})
+    assert env["API_TIMEOUT_MS"] == "60000"
+    assert "NEXTSEEK_CC_API_TIMEOUT_MS" in caplog.text
+
+
+def test_a_request_timeout_of_one_second_or_more_is_used():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_API_TIMEOUT_MS": "1000"}, api_user="u", api_pass="p",
+        path_mappings={})
+    assert env["API_TIMEOUT_MS"] == "1000"
+
+
+def test_zero_retries_is_a_valid_override():
+    env = cc_engine.build_agent_environment(
+        source={"NEXTSEEK_CC_MAX_RETRIES": "0"}, api_user="u", api_pass="p", path_mappings={})
+    assert env["CLAUDE_CODE_MAX_RETRIES"] == "0"
+
+
 def test_a_classifier_id_that_fails_to_resolve_is_left_out_not_raised(monkeypatch):
     from dmac_assistant.config import ConfigError
 

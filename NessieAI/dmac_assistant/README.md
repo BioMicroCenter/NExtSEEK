@@ -40,8 +40,9 @@ why every one of those call sites imports the way it does:
 | `load_capabilities(path)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/capabilities.py:41` | `NessieAI/router/router.py:223` |
 | `load_model_class_map(path)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:61` | `NessieAI/router/router.py:95` |
 | `resolve_cc_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:104` | `NessieAI/router/router.py:106` |
-| `resolve_cc_fallback_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:122` | `NessieAI/cc/cc_engine.py:477` |
-| `resolve_cc_classifier_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:139` | `NessieAI/cc/cc_engine.py:489` |
+| `is_bedrock_model_id(value)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:122` | `NessieAI/cc/cc_engine.py:509` |
+| `resolve_cc_fallback_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:131` | `NessieAI/cc/cc_engine.py:492` |
+| `resolve_cc_classifier_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:148` | `NessieAI/cc/cc_engine.py:509` |
 | `RouterAgent` | `NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py:100` | `NessieAI/router/router.py:224` |
 | `diff_files(before, after)` | `NessieAI/dmac_assistant/src/dmac_assistant/run_tracker.py:51` | `NessieAI/cc/cc_engine.py:1852` |
 | `ConfigError` | `NessieAI/dmac_assistant/src/dmac_assistant/config.py:37` | in-package only, at `NessieAI/dmac_assistant/src/dmac_assistant/router/capabilities.py:21` and `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:23` |

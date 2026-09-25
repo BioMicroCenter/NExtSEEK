@@ -95,10 +95,13 @@ _CC_MAX_RETRIES_ENV = "NEXTSEEK_CC_MAX_RETRIES"
 _DEFAULT_CC_MAX_RETRIES = "3"
 _CC_API_TIMEOUT_MS_ENV = "NEXTSEEK_CC_API_TIMEOUT_MS"
 _DEFAULT_CC_API_TIMEOUT_MS = "60000"
+# Below a second every model call would time out at once, so a smaller override (zero
+# included) keeps the default.
+_MIN_CC_API_TIMEOUT_MS = 1000
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
 # and names its own default Sonnet id (one the Bedrock proxy refuses) unless
 # ANTHROPIC_DEFAULT_SONNET_MODEL is set. The id comes from the model map's ``sonnet``
-# entry; this variable overrides it.
+# entry; this variable overrides it, and must pass the map's own id check.
 _CC_SONNET_MODEL_ENV = "NEXTSEEK_CC_DEFAULT_SONNET_MODEL"
 # 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
 # will have been stopped, so the plugin's nextseek-query stops polling while the
@@ -452,19 +455,31 @@ def build_agent_environment(
     # The CC 503 fallback: bounded retries and request time, and a classifier model the
     # proxy allows. None of these is a credential.
     env["CLAUDE_CODE_MAX_RETRIES"] = _whole_number(
-        src.get(_CC_MAX_RETRIES_ENV), _DEFAULT_CC_MAX_RETRIES)
+        src.get(_CC_MAX_RETRIES_ENV), _DEFAULT_CC_MAX_RETRIES, name=_CC_MAX_RETRIES_ENV)
     env["API_TIMEOUT_MS"] = _whole_number(
-        src.get(_CC_API_TIMEOUT_MS_ENV), _DEFAULT_CC_API_TIMEOUT_MS)
-    sonnet = (src.get(_CC_SONNET_MODEL_ENV) or "").strip() or _cc_classifier_model_id()
+        src.get(_CC_API_TIMEOUT_MS_ENV), _DEFAULT_CC_API_TIMEOUT_MS,
+        name=_CC_API_TIMEOUT_MS_ENV, minimum=_MIN_CC_API_TIMEOUT_MS)
+    sonnet = _cc_classifier_model_id((src.get(_CC_SONNET_MODEL_ENV) or "").strip())
     if sonnet:
         env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet
     return env
 
 
-def _whole_number(value: Any, default: str) -> str:
-    """``value`` when it is a whole number written in ASCII digits, else ``default``."""
+def _whole_number(value: Any, default: str, *, name: str, minimum: int = 0) -> str:
+    """``value`` when it is a whole number in ASCII digits and at least ``minimum``.
+
+    Unset or blank means ``default``, silently. Anything else that is not usable (not a
+    whole number, or under ``minimum``) also means ``default``, with a warning naming
+    the variable.
+    """
     text = value.strip() if isinstance(value, str) else ""
-    return text if re.fullmatch(r"[0-9]+", text) else default
+    if not text:
+        return default
+    if not re.fullmatch(r"[0-9]+", text) or int(text) < minimum:
+        logger.warning("cc: ignoring %s=%r (a whole number of at least %d is needed); "
+                       "using %s", name, text, minimum, default)
+        return default
+    return text
 
 
 def _cc_fallback_model_id() -> str | None:
@@ -483,11 +498,21 @@ def _cc_fallback_model_id() -> str | None:
         return None
 
 
-def _cc_classifier_model_id() -> str | None:
-    """The model map's ``sonnet`` id for the auto-mode classifier, or None. Never raises."""
-    try:
-        from dmac_assistant.router.models import resolve_cc_classifier_model
+def _cc_classifier_model_id(override: str = "") -> str | None:
+    """The auto-mode classifier's model id, or None. Never raises.
 
+    ``override`` (``NEXTSEEK_CC_DEFAULT_SONNET_MODEL``) wins when it passes the model
+    map's own ``us.anthropic.`` id check; otherwise, with a warning when it was set but
+    malformed, the map's ``sonnet`` id.
+    """
+    try:
+        from dmac_assistant.router.models import is_bedrock_model_id, resolve_cc_classifier_model
+
+        if override:
+            if is_bedrock_model_id(override):
+                return override
+            logger.warning("cc: ignoring %s=%r (not a Bedrock-qualified us.anthropic. id); "
+                           "using the model map's sonnet id", _CC_SONNET_MODEL_ENV, override)
         return resolve_cc_classifier_model()
     except Exception as exc:  # noqa: BLE001
         logger.warning("cc: classifier model id resolution failed (%s); Claude Code "
