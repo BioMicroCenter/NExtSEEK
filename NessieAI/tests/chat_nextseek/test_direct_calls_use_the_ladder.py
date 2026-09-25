@@ -11,7 +11,7 @@ them had no wall clock at all (operator ruling 2026-09-25, fix 5):
 
 Each is now ``call_llm_text`` under its catalog key, so the primary model and client are
 the ones ``get_agent_model(<key>)`` returns, as before, and each has a wall clock: the
-entity keeps 180 s, the two memory calls take the chatter's 300 s (they do the chatter's
+entity keeps 180 s with a 60 s retry, the two memory calls take the chatter's 300 s (they do the chatter's
 work, on the chatter's and the memory agent's models), and the context engineer's short
 extraction gets 60 s and a 60 s retry.
 """
@@ -86,7 +86,8 @@ def test_the_entity_raw_fallback_goes_through_the_ladder_with_its_180_s(monkeypa
     out = entity_mod.entity_agent(_entity_config(), "mice treated with NDMA", [], [], [])
 
     (call,) = capture.calls
-    _assert_on_the_ladder(call, key="entity", timeout=180, retry=180)
+    # 180 s as always, and a 60 s retry, so the worst case stays near the old single 180 s.
+    _assert_on_the_ladder(call, key="entity", timeout=180, retry=60)
     assert "NDMA" in out.keywords
 
 
