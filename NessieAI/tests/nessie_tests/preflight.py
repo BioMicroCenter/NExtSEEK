@@ -303,10 +303,11 @@ def _check_parser_force(arm, force_mode, res, timeout_s, prompt_variant=None) ->
             f"else. Run as the superuser account.")
 
     qc = _last_event_data(res.payload, "query_complete")
-    if outage.is_provider_outage(qc.get("reply")):
+    # The reply, or the turn's last `query_error` data for a turn that ended with none.
+    if outage.is_provider_outage(qc.get("reply"), _last_event_data(res.payload, "query_error")):
         raise ParserForceRejected(
-            f"{where}: INCONCLUSIVE, a provider outage: the reply is the exhausted-fallback "
-            f"message, so no parser ran and there is no plan to read.\n"
+            f"{where}: INCONCLUSIVE, a provider outage: the reply or the turn's query_error "
+            f"says the AI models were unavailable, so no parser ran and there is no plan to read.\n"
             f"Nothing here points at the switch. Rerun the same command once the provider "
             f"recovers; the probes are the only turns spent so far.")
     if res.status != "completed":

@@ -610,6 +610,11 @@ outage; nine were visible in the manifest and the tenth was hidden inside the
 `#33` consistency group, which reports its own summary instead of its members'
 replies. `run_group` checks for an outage before composing that summary.
 
+Since 2026-09-25 a turn the AI models could not answer replies with plain text instead
+of that marker, and its `query_error` event carries `reason: "model_unavailable"` (both
+engines). A Container-CC turn ends with that event alone and no reply, so every scorer
+reads the turn's last `query_error` data beside its reply (`outage.py` names them).
+
 ## Comparing the graph and API agents
 
 The graph_search follow-up (`docs/superpowers/plans/2026-09-15-graph-search-nessie.md`,
@@ -671,8 +676,8 @@ mode 600 in mode 700 directories:
   each arm's status, task ids and elapsed seconds;
 - `<arm>/manifest.json` and `<arm>/report.html`, the shapes every run writes;
 - `<arm>/payloads/<id>/<turn>.json`: each turn's final payload (the query, the task and
-  session ids, the route observation, `query_complete` and the elapsed time), which is
-  what the scorer reads.
+  session ids, the route observation, `query_complete`, the last `query_error` data or
+  null, and the elapsed time), which is what the scorer reads.
 
 The venue runs a `git archive` snapshot with no `.git`, so `runner.git_sha` falls back
 to a `SNAPSHOT` file at the repository root.

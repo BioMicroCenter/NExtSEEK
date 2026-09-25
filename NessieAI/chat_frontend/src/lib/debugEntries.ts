@@ -30,5 +30,7 @@ export function queryErrorSummary(d: QueryErrorData): string {
   const parts = [d.error];
   if (d.reason) parts.push(`reason=${d.reason}`);
   if (d.agent) parts.push(`agent=${d.agent}`);
-  return parts.join("  ·  ");
+  const head = parts.join("  ·  ");
+  // The raw provider error: `error` is the user's plain text since the failure messages.
+  return d.detail && d.detail !== d.error ? `${head}\ndetail=${d.detail}` : head;
 }

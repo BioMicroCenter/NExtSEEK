@@ -33,6 +33,13 @@ Container-CC route uses the same reason and its own plain text. All of it is
 detected here: either engine's plain text in a reply, and the reason in any event
 data handed in. The old phrase still counts,
 for stored runs and for the raw message wherever it surfaces.
+
+A Container-CC turn whose model was unavailable ends with that ``query_error`` alone
+and no ``query_complete``, so it has no reply. The scorers therefore hand in the
+turn's last ``query_error`` data beside its reply: ``evaluate.classify_turn_status``
+(and the runner through it), ``consistency.run_group``, the parser-force probe in
+``preflight.py`` and ``engine_compare.Attempt.outage``, which reads the copy the
+runner stores in each turn payload.
 """
 from __future__ import annotations
 
@@ -51,8 +58,8 @@ MODEL_UNAVAILABLE_REASON = "model_unavailable"
 
 # The stable opening of each engine's reply for that turn: NS (both variants, with and
 # without "(we tried a second one as well)") and Container-CC (both of its variants share
-# this prefix). Text-only callers, such as export.classify_error and the runner's reply
-# checks, classify a turn from these alone. The planner's own failure replies ("The AI
+# this prefix). Text-only callers, such as export.classify_error, classify a turn from
+# these alone. The planner's own failure replies ("The AI
 # model that plans the search ...") are an unsupported plan, not an outage, and do not match.
 MODEL_UNAVAILABLE_REPLY_MARKERS = (
     "The AI models we use were unavailable",

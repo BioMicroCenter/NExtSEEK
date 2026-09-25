@@ -40,6 +40,25 @@ describe("debugEntries formatters", () => {
     ).toBe("exceeded 180s  ·  reason=exec_timeout  ·  agent=container_cc");
   });
 
+  it("queryErrorSummary shows the raw detail on its own line", () => {
+    expect(
+      queryErrorSummary({
+        error: "The AI model was unavailable during this turn, so I could not finish your question.",
+        reason: "model_unavailable",
+        agent: "container_cc",
+        detail: "API Error: 529 overloaded",
+      }),
+    ).toBe(
+      "The AI model was unavailable during this turn, so I could not finish your question." +
+        "  ·  reason=model_unavailable  ·  agent=container_cc\ndetail=API Error: 529 overloaded",
+    );
+  });
+
+  it("queryErrorSummary leaves out an empty detail or one that repeats the error", () => {
+    expect(queryErrorSummary({ error: "boom", agent: "parser", detail: "" })).toBe("boom  ·  agent=parser");
+    expect(queryErrorSummary({ error: "boom", detail: "boom" })).toBe("boom");
+  });
+
   it("makeDebugEntry sets agent, summary, and a timestamp", () => {
     const e = makeDebugEntry("router", "hi");
     expect(e.agent).toBe("router");
