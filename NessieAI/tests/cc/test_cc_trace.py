@@ -68,3 +68,23 @@ def test_multitool_trace_kinds():
     t = extract_trace(p, cc_session_id="s", ts="t", files_created=[], files_modified=[])
     tool_kinds = {s.kind for s in t.steps if s.kind != "text"}
     assert tool_kinds == {"read", "tool"}
+
+
+def test_the_trace_carries_which_models_answered_and_what_fell_back():
+    fallback = [{"agent": "container_cc", "from": "us.anthropic.a", "to": "us.anthropic.b",
+                 "reason": "server_error"}]
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t", files_created=[], files_modified=[],
+                      result_meta={"models_used": ["us.anthropic.b"], "model_fallback": fallback})
+    assert t.models_used == ["us.anthropic.b"]
+    assert t.model_fallback == fallback
+    dumped = t.model_dump()
+    assert dumped["models_used"] == ["us.anthropic.b"]
+    assert dumped["model_fallback"] == fallback
+
+
+def test_a_trace_with_no_model_record_says_nothing_fell_back():
+    t = extract_trace(_parsed(), cc_session_id="s", ts="t", files_created=[], files_modified=[],
+                      result_meta={"models_used": None, "model_fallback": None})
+    assert t.models_used == [] and t.model_fallback == []
+    t2 = extract_trace(_parsed(), cc_session_id="s", ts="t", files_created=[], files_modified=[])
+    assert t2.models_used == [] and t2.model_fallback == []

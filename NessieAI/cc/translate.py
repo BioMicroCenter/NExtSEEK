@@ -18,9 +18,40 @@ dmac_assistant/src/dmac_assistant/streamjson.py and ws.py.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 Frame = tuple[str, dict[str, Any]]
+
+# Operator-approved (2026-09-25): what the user is told when a turn ended because the
+# model was unavailable. The first when a second model was tried this turn (Claude Code
+# switched to --fallback-model, which it does on a 5xx or a 529), the second otherwise
+# (it never falls back on a 429 or a timeout, or no fallback model was set).
+MODEL_UNAVAILABLE_TRIED = (
+    "The AI model was unavailable during this turn (we also tried a second model), "
+    "so I could not finish. Please ask again in a few minutes."
+)
+MODEL_UNAVAILABLE = (
+    "The AI model was unavailable during this turn, so I could not finish. "
+    "Please ask again in a few minutes."
+)
+MODEL_UNAVAILABLE_REASON = "model_unavailable"
+
+# Claude Code's own text when the model could not be reached: "API Error: 503 Service
+# Unavailable...", "API Error: Repeated 529 Overloaded errors...", "API Error: Request
+# rejected (429)...", "Request timed out". A result frame's ``api_error_status`` of 429
+# or any 5xx says the same thing.
+_MODEL_UNAVAILABLE_TEXT = re.compile(
+    r"API Error: (?:5\d\d\b|Repeated 529\b|Request rejected \(429\))|^\s*Request timed out\b"
+)
+
+
+def _model_unavailable(payload: dict[str, Any], text: str) -> bool:
+    status = payload.get("api_error_status")
+    if isinstance(status, int) and not isinstance(status, bool) and (
+            status == 429 or 500 <= status <= 599):
+        return True
+    return bool(_MODEL_UNAVAILABLE_TEXT.search(text))
 
 # The tool-input key whose value is the most useful one-line summary, per tool.
 _TOOL_DETAIL_KEY = {
@@ -72,7 +103,21 @@ class CCStreamTranslator:
             send_event(event, data)
     """
 
-    def __init__(self) -> None:
+    # Class-level defaults so a translator built without ``__init__`` (the result-meta
+    # tests do) still answers ``_handle_result``.
+    model_id: str | None = None
+    api_retries: int = 0
+    _init_model: str | None = None
+    _fallbacks: tuple[dict[str, Any], ...] | list[dict[str, Any]] = ()
+
+    def __init__(self, model_id: str | None = None) -> None:
+        # The ``--model`` id this turn was started with: what ``models_used`` names when
+        # the result frame carries no ``modelUsage``.
+        self.model_id = model_id
+        # Each ``system/model_fallback`` frame, in the turn-record contract's shape.
+        self._fallbacks = []
+        # ``system/api_retry`` frames seen: Claude Code retrying a failed model call.
+        self.api_retries = 0
         # Claude Code's OWN in-container session UUID (from system.init/result).
         # Deliberately surfaced on terminal frames as ``cc_session_id`` — NOT
         # ``session_id`` — so ``make_db_event_callback``'s setdefault fills
@@ -111,28 +156,54 @@ class CCStreamTranslator:
         return [(
             "query_complete",
             {"reply": self._joined_reply() or "(no response)", "bundle_id": None,
-             "cc_session_id": self.session_id},
+             "cc_session_id": self.session_id,
+             "models_used": self._models_used(None),
+             "model_fallback": self.model_fallback},
         )]
 
     @property
     def accumulated_reply(self) -> str:
         return self._joined_reply()
 
+    @property
+    def model_fallback(self) -> list[dict[str, Any]]:
+        """Every model switch this turn, ``[]`` when nothing fell back (a copy)."""
+        return [dict(item) for item in self._fallbacks]
+
     # ----------------------------------------------------------------- handlers
     def _handle_system(self, payload: dict[str, Any]) -> list[Frame]:
         sid = payload.get("session_id")
         if isinstance(sid, str):
             self.session_id = sid
-        if payload.get("subtype") == "init" and not self._started:
+        subtype = payload.get("subtype")
+        if subtype == "init" and not self._started:
             self._started = True
             data: dict[str, Any] = {"agent": "container_cc"}
             model = payload.get("model")
             if isinstance(model, str):
                 data["model"] = model
+                self._init_model = model
             return [("agent_started", data)]
+        # Claude Code 2.1.282 reports a --fallback-model switch as its own frame. Recorded
+        # for the turn record, never shown as a step or taken into the reply.
+        if subtype == "model_fallback":
+            self._fallbacks.append({
+                "agent": "container_cc",
+                "from": payload.get("original_model"),
+                "to": payload.get("fallback_model"),
+                "reason": payload.get("trigger"),
+            })
+        elif subtype == "api_retry":
+            self.api_retries += 1
+        # "informational", "permission_denied" and any other notice: nothing to do.
         return []
 
     def _handle_assistant(self, payload: dict[str, Any]) -> list[Frame]:
+        # Claude Code's own "API Error: ..." message, written as an assistant turn just
+        # before an error result. It is not the agent's answer, so it must not become
+        # the reply a stream that ends early falls back to.
+        if payload.get("is_api_error_message") is True:
+            return []
         frames: list[Frame] = []
         content = (payload.get("message") or {}).get("content") or []
         # Text in a message that also calls a tool is narration ("let me read
@@ -202,10 +273,22 @@ class CCStreamTranslator:
             and payload.get("subtype") != "success"
         )
         if is_error:
-            detail = payload.get("result") or payload.get("error") or payload.get("subtype") or "container error"
+            detail = str(payload.get("result") or payload.get("error") or payload.get("subtype")
+                         or "container error")
+            if _model_unavailable(payload, detail):
+                # The model could not be reached: the user gets the approved plain text,
+                # and Claude Code's own words stay in ``detail`` for whoever triages it.
+                return [(
+                    "query_error",
+                    {"error": MODEL_UNAVAILABLE_TRIED if self._fallbacks else MODEL_UNAVAILABLE,
+                     "reason": MODEL_UNAVAILABLE_REASON, "detail": detail,
+                     "agent": "container_cc", "cc_session_id": self.session_id,
+                     "model_fallback": self.model_fallback},
+                )]
             return [(
                 "query_error",
-                {"error": str(detail), "agent": "container_cc", "cc_session_id": self.session_id},
+                {"error": detail, "agent": "container_cc", "cc_session_id": self.session_id,
+                 "model_fallback": self.model_fallback},
             )]
         # Prefer Claude's own final `result` text; fall back to accumulated text.
         reply = payload.get("result")
@@ -219,10 +302,28 @@ class CCStreamTranslator:
              # (the per-turn cost lives only on the terminal `result` frame).
              "total_cost_usd": payload.get("total_cost_usd"),
              "num_turns": payload.get("num_turns"),
-             "duration_ms": payload.get("duration_ms")},
+             "duration_ms": payload.get("duration_ms"),
+             # The turn record: which models answered, and what fell back.
+             "models_used": self._models_used(payload.get("modelUsage")),
+             "model_fallback": self.model_fallback},
         )]
 
     # ------------------------------------------------------------------ helpers
+    def _models_used(self, model_usage: Any) -> list[str]:
+        """The model ids that answered this turn.
+
+        The result frame's ``modelUsage`` keys when it has any. Otherwise the model
+        that was answering when the turn ended: the last fallback's target, else the
+        ``--model`` id, else the model the init frame named.
+        """
+        if isinstance(model_usage, dict) and model_usage:
+            return [str(key) for key in model_usage]
+        for item in reversed(self._fallbacks):
+            if isinstance(item.get("to"), str) and item["to"]:
+                return [item["to"]]
+        model = self.model_id or self._init_model
+        return [model] if model else []
+
     def _joined_reply(self) -> str:
         return "\n\n".join(p for p in self._reply_parts if p).strip()
 

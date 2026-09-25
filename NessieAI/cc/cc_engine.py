@@ -1328,7 +1328,9 @@ def run_cc_turn(
     # UnboundLocalError and mask the real failure.
     transcript_persisted = False
 
-    translator = CCStreamTranslator()
+    # The --model id, so the turn record can name the model that answered even when the
+    # result frame carries no modelUsage.
+    translator = CCStreamTranslator(model_id=model_id)
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
     client = docker.from_env()
@@ -1523,7 +1525,9 @@ def run_cc_turn(
                 files_modified=result["files_modified"],
                 result_meta={"num_turns": data.get("num_turns"),
                              "duration_ms": data.get("duration_ms"),
-                             "cost_usd": data.get("total_cost_usd")},
+                             "cost_usd": data.get("total_cost_usd"),
+                             "models_used": data.get("models_used"),
+                             "model_fallback": data.get("model_fallback")},
             ) if parsed else None
             from django.conf import settings
             strict = getattr(settings, "CC_PERSIST_STRICT", False)
