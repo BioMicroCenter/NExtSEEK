@@ -10,8 +10,11 @@ probe was written. This script does the two halves of moving it:
     # 1. on the target box, print the read-only batch and run it
     python pin_probe_truths.py --emit-cypher probes/<probe>.json
 
-    # 2. put the answers in a JSON file ({case_id: number} or {case_id: [n, m]})
-    #    and rewrite the criteria
+    # 2. turn cypher-shell's plain output into the answers file ({case_id: number} or
+    #    {case_id: [n, m]}): the batch labels each case, so this is mechanical
+    python pin_probe_truths.py --parse-output pin.out --probe probes/<probe>.json --measured-out measured.json
+
+    # 3. rewrite the criteria
     python pin_probe_truths.py --pin probes/<probe>.json --from measured.json [--out new.json]
 
 Nothing here talks to a database: the transport differs per box (docker exec locally,
@@ -123,6 +126,53 @@ def pin(spec: dict, measured: dict) -> tuple[dict, list[str]]:
     return spec, log
 
 
+def parse_output(text: str) -> dict[str, list[int]]:
+    """The numbers each case's statements returned, in order, from `cypher-shell --format plain`.
+
+    The batch `emit_cypher` prints opens every case with `RETURN '<case_id>' AS case`, so the
+    output carries a `case` header and the quoted id before that case's result rows. A row's
+    number is its last comma-separated cell; header rows (`count(n)`, `species, n`) have none.
+    """
+    out: dict[str, list[int]] = {}
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    current = None
+    i = 0
+    while i < len(lines):
+        ln = lines[i].strip()
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ""
+        if ln in ("case", "sep") and nxt.startswith('"') and nxt.endswith('"'):
+            current = nxt.strip('"') if ln == "case" else current
+            if ln == "case":
+                out.setdefault(current, [])
+            i += 2
+            continue
+        if current is not None and ln:
+            last = ln.rsplit(",", 1)[-1].strip().strip('"')
+            if re.fullmatch(r"-?\d+", last):
+                out[current].append(int(last))
+        i += 1
+    return out
+
+
+def measured_from_output(spec: dict, parsed: dict[str, list[int]]) -> tuple[dict, list[str], list[str]]:
+    """({case_id: number or [numbers]}, cases to drop, cases to check by hand)."""
+    measure = spec.get("_measure") or {}
+    measured, drop, by_hand = {}, [], []
+    for case_id, entry in measure.items():
+        want = len(_as_list(entry.get("locals")))
+        got = parsed.get(case_id)
+        if got is None:
+            by_hand.append(f"{case_id}: not in the output (did the batch run to the end?)")
+        elif len(got) != want:
+            by_hand.append(f"{case_id}: {len(got)} number(s) {got} where the _measure block holds {want}")
+        elif 0 in got:
+            drop.append(f"{case_id}: measured {got}. A 0 from a scope the box does not hold is not a "
+                        "truth: drop this case from the run")
+        else:
+            measured[case_id] = got[0] if want == 1 else got
+    return measured, drop, by_hand
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -130,7 +180,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pin", type=Path, metavar="PROBE")
     ap.add_argument("--from", dest="measured", type=Path, metavar="JSON")
     ap.add_argument("--out", type=Path, help="default: rewrite the probe in place")
+    ap.add_argument("--parse-output", type=Path, metavar="OUT", help="cypher-shell's output of the batch")
+    ap.add_argument("--probe", type=Path, help="with --parse-output: the probe the batch came from")
+    ap.add_argument("--measured-out", type=Path, help="with --parse-output: where to write the answers")
     args = ap.parse_args(argv)
+
+    if args.parse_output:
+        if not (args.probe and args.measured_out):
+            ap.error("--parse-output needs --probe and --measured-out")
+        spec = json.loads(args.probe.read_text(encoding="utf-8"))
+        parsed = parse_output(args.parse_output.read_text(encoding="utf-8", errors="replace"))
+        measured, drop, by_hand = measured_from_output(spec, parsed)
+        args.measured_out.write_text(json.dumps(measured, indent=1) + "\n", encoding="utf-8")
+        for d in drop:
+            print(f"DROP: {d}")
+        for b in by_hand:
+            print(f"BY HAND: {b}")
+        print(f"wrote {args.measured_out}: {len(measured)} case(s) measured, {len(drop)} to drop, "
+              f"{len(by_hand)} to check by hand")
+        return 2 if by_hand else 0
 
     if args.emit_cypher:
         print(emit_cypher(json.loads(args.emit_cypher.read_text(encoding="utf-8"))))
