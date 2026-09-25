@@ -399,3 +399,79 @@ def test_the_loop_answers_from_its_last_computation_when_it_runs_out():
     reply, _ = resolve_followup_outcome({"reply": None, "queries": [], "computes": [
         {"source": "stored", "result": {"ok": False, "error": "x"}}]})
     assert "did not succeed" in reply
+
+
+# ---------------------------------------------------------------- a plan bundle's rows, and a loop query's scope
+
+def _plan_bundle(steps):
+    return {"id": 5, "mode": "plan", "user_query": "tissues in the project",
+            "step_results": {i + 1: step for i, step in enumerate(steps)}}
+
+
+def _graph_step(rows, *, total, truncated):
+    return {"ok": True, "tool": "graph_query",
+            "output": {"data": rows, "count": len(rows), "total": total, "truncated": truncated}}
+
+
+def test_a_plan_step_cut_at_its_limit_reads_as_capped_and_is_not_counted(tmp_path):
+    from chat_nextseek.agents.followup import describe_stored_result
+    rows = [{"uuid": f"TIS-{i}", "Tissue": "liver" if i % 3 == 0 else "lung"} for i in range(1000)]
+    bundle = _plan_bundle([_graph_step(rows, total=36622, truncated=True)])
+    described = describe_stored_result(bundle)
+    assert described["capped"] is True and described["total"] == 36622
+    [p], _ = _seam(bundle, tmp_path, [dict(source="stored", group_by=None, code=None,
+                                           where=[{"column": "Tissue", "op": "equals", "value": "liver"}])])
+    assert p["ok"] is False and p["needs_query"] is True and "count" not in p
+    no_total = _plan_bundle([_graph_step(rows, total=None, truncated=True)])
+    assert describe_stored_result(no_total)["capped"] is True
+
+
+def test_those_after_a_search_and_a_filter_is_the_filtered_set(tmp_path):
+    from chat_nextseek.agents.followup import _all_uids, _stored_rows, describe_stored_result
+    searched = [{"uid": f"MUS-{i}", "Sex": "F" if i % 2 else "M"} for i in range(250)]
+    filtered = searched[:40]
+    bundle = _plan_bundle([
+        {"ok": True, "tool": "new_search", "output": {"data": searched, "count": 250}},
+        {"ok": True, "tool": "coding_filter", "output": {"data": filtered, "count": 40}},
+        {"ok": False, "tool": "graph_query", "output": {"data": [{"uid": "X"}], "count": 1}},
+        {"ok": True, "tool": "reporter", "output": {"reply": "a summary"}},
+    ])
+    assert _stored_rows(bundle) == filtered and _all_uids(bundle) == [r["uid"] for r in filtered]
+    described = describe_stored_result(bundle)
+    assert described["total"] == 40 and described["capped"] is False
+    [p], _ = _seam(bundle, tmp_path, [dict(source="stored", where=None, group_by=["Sex"], code=None)])
+    assert p["ok"] is True and p["count"] == 40 and p["source"]["complete"] is True
+
+
+def _seam_after_a_query(monkeypatch, tmp_path, bundle, seed_uids, rows):
+    cypher = "MATCH (m:Sample) WHERE m.uuid IN $uids RETURN m.uuid AS uuid, m.Sex AS Sex"
+    monkeypatch.setattr(orch, "graph_agent", lambda *a, **k: GraphAgentPlan(cypher=cypher, context_mode="catalog"))
+    monkeypatch.setattr(orch, "tool_neo4j_query", lambda *a, **k: {
+        "ok": True, "count": len(rows), "total": len(rows), "truncated": False, "data": rows, "cypher": cypher,
+        "submitted_cypher": cypher, "parameters": {}, "counters": {}, "scope": {"decision": "proven"}})
+    queried = {}
+    [p], _ = _seam(bundle, tmp_path, [dict(source="last_query", where=None, group_by=["Sex"], code=None)],
+                   before=lambda run_query: queried.setdefault(
+                       "payload", run_query(question="sex of the mice", seed_uids=seed_uids)))
+    return p, queried["payload"]
+
+
+def test_a_computation_over_a_query_scoped_to_part_of_the_set_says_so(monkeypatch, tmp_path):
+    """A capped REST result has no query to rebuild from: the seeded query covers the 20 stored UIDs of 250."""
+    stored = [{"uid": f"MUS-{i}"} for i in range(20)]
+    bundle = {"id": 1, "mode": "api_query", "user_query": "mice in the project",
+              "memory_payload": {"data": {"rows": stored, "total": 250}}}
+    rows = [{"uuid": r["uid"], "Sex": "F" if i % 2 else "M"} for i, r in enumerate(stored)]
+    p, query = _seam_after_a_query(monkeypatch, tmp_path, bundle, [r["uid"] for r in stored], rows)
+    assert query["seed_mode"] == "uids" and "not the whole set" in query["scope_note"]
+    assert p["ok"] is True and p["count"] == 20
+    assert p["source"]["complete"] is False and p["source"]["seed_mode"] == "uids"
+    assert p["scope_note"] == query["scope_note"]
+
+
+def test_a_computation_over_a_query_scoped_to_the_whole_set_is_complete(monkeypatch, tmp_path):
+    rows = [{"uuid": r["uuid"], "Sex": r["Sex"]} for r in _rows_731()]
+    p, query = _seam_after_a_query(monkeypatch, tmp_path, _bundle(), [r["uuid"] for r in rows], rows)
+    assert query["scope_note"] is None
+    assert p["ok"] is True and p["count"] == 731 and p["source"]["complete"] is True
+    assert "scope_note" not in p

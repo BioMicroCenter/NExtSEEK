@@ -668,27 +668,40 @@ def _stored_rows_and_extent(bundle: dict) -> tuple[list, int | None, bool]:
         if rows is not None and total is not None:
             break
     if rows is None:
-        # A plan-mode bundle that kept no payload: its steps' own rows, the first successful step's that has
-        # them, and that step's count as their total.
-        rows, stated = _step_rows(bundle)
+        # A plan-mode bundle that kept no payload: the rows of the step that produced its final result.
+        rows, stated, cut = _step_rows(bundle)
         if total is None:
             total = stated
+        more = more or cut
     return rows or [], total, more
 
 
-def _step_rows(bundle: dict) -> tuple[list | None, int | None]:
-    """``(rows, count)`` of the first successful plan step in ``step_results`` whose output holds rows."""
+def _step_rows(bundle: dict) -> tuple[list | None, int | None, bool]:
+    """``(rows, total, truncated)`` of the step that produced a plan bundle's final result: the LAST successful
+    step in ``step_results`` whose output holds rows, so "those" after a search and a filter is the filtered set.
+
+    ``total`` and ``truncated`` are read as the plan bundle keeps a graph step's (``orchestrator._plan_graph_result``):
+    a graph step's ``count`` is only the number of rows returned, so its ``total`` is the step's own ``total``, and a
+    step that hit its LIMIT is ``truncated`` and reads as capped. A step without a ``total`` (a search, a filter) has
+    its ``count`` as its total unless it was cut short.
+    """
     step_results = bundle.get("step_results")
     if not isinstance(step_results, Mapping):
-        return None, None
+        return None, None, False
+    last = None
     for result in step_results.values():
         if not isinstance(result, Mapping) or not result.get("ok"):
             continue
         output = result.get("output")
         if isinstance(output, Mapping) and isinstance(output.get("data"), list):
-            count = output.get("count")
-            return output["data"], count if _is_count(count) else None
-    return None, None
+            last = output
+    if last is None:
+        return None, None, False
+    truncated = bool(last.get("truncated"))
+    total = last.get("total") if _is_count(last.get("total")) else None
+    if total is None and not truncated and _is_count(last.get("count")):
+        total = last["count"]
+    return last["data"], total, truncated
 
 
 def _uids_from_rows(rows: list) -> list[str]:

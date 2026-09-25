@@ -735,9 +735,15 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
         parameters = dict(run.parameters or {})
         applied = len(seed_uids) if seed is not None and "$uids" in (graph_plan.cypher or "") else None
         rows = result.get("data") or []
+        scope_note = _followup_scope_note(seed_mode, uids_available=len(seed_uids), uids_applied=applied,
+                                          total=total, partial=partial, scoped=scoped)
         if result.get("ok") and rows:
+            # How the query was scoped travels with its rows, so a computation over them says the same thing:
+            # a query bound to the UIDs of a capped copy covers only part of the earlier set.
             graph_runs.append({"graph_plan": graph_plan, "parameters": parameters,
-                               "result": result, "uids_applied": applied, "question": question})
+                               "result": result, "uids_applied": applied, "question": question,
+                               "seed_mode": seed_mode, "scope_note": scope_note,
+                               "part_of_set": seed_mode == "uids" and partial and applied is not None})
         # The head of the rows, bounded: this goes back into a conversation that is
         # re-sent in full on every later iteration of the loop. It used to be counts and
         # three examples harvested from uid/id/name columns only, so a breakdown row such
@@ -767,9 +773,7 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             # on a rebuilt query, which binds no UIDs by design; scope_note says which.
             "uids_applied": applied,
             "seed_mode": seed_mode,
-            "scope_note": _followup_scope_note(seed_mode, uids_available=len(seed_uids),
-                                               uids_applied=applied, total=total, partial=partial,
-                                               scoped=scoped),
+            "scope_note": scope_note,
             "review": as_debug(review),
         }
         if run.changed_answer:
@@ -821,12 +825,17 @@ def _run_followup_agent(config, *, session, user_text: str, bundle: dict, log_di
             result = run["result"]
             rows = list(result.get("data") or [])
             total = result.get("total") if result.get("total") is not None else result.get("count")
-            complete = (not result.get("truncated") and isinstance(total, int) and not isinstance(total, bool)
+            # Every row of that query is in hand: the computation runs over all of them. It covers the whole earlier
+            # set only when the query did; the query's own scope_note says what it covers, and comes with it.
+            all_rows = (not result.get("truncated") and isinstance(total, int) and not isinstance(total, bool)
                         and total <= len(rows))
-            origin = {"kind": "last_query", "question": run.get("question"), "rows_in": len(rows),
-                      "total": total, "complete": complete}
-            payload = compute_over_rows(rows=rows, total=total, complete=complete, where=where,
+            origin = {"kind": "last_query", "question": run.get("question"), "seed_mode": run.get("seed_mode"),
+                      "rows_in": len(rows), "total": total,
+                      "complete": all_rows and not run.get("part_of_set")}
+            payload = compute_over_rows(rows=rows, total=total, complete=all_rows, where=where,
                                         group_by=group_by, code=code)
+            if run.get("scope_note"):
+                payload["scope_note"] = " ".join(n for n in (run["scope_note"], payload.get("scope_note")) if n)
         else:
             rows = _stored_rows(bundle)
             total = described.get("total")
