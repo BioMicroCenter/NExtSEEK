@@ -197,6 +197,39 @@ class OpenAIClient(BaseLLMClient):
         )
 
 
+def _is_gemini_rate_limit(exc: BaseException, msg: str) -> bool:
+    """A 429 from google-genai: ``APIError.code`` when the SDK set one, else the status text."""
+    if getattr(exc, "code", None) == 429:
+        return True
+    head = msg.lstrip()
+    return head.startswith("429") or "RESOURCE_EXHAUSTED" in msg.upper()
+
+
+def _bedrock_transport_error(exc: BaseException) -> LLMError | None:
+    """The typed error for a botocore transport failure, or None when it is not one.
+
+    boto3 raises these outside ``ClientError`` (no HTTP response ever came back), so
+    before, ``chat`` wrapped them into a bare ``LLMError``, which the ladder treats as an
+    unrecoverable 400, and ``chat_with_tools`` let them escape untyped. A read or
+    connect timeout is a timeout and a closed or refused connection is a connection
+    error, both of which move to the next provider (operator ruling 2026-09-25).
+    """
+    try:
+        from botocore.exceptions import (
+            ConnectionError as BotoConnectionError,
+            ConnectTimeoutError,
+            HTTPClientError,
+            ReadTimeoutError,
+        )
+    except ImportError:  # pragma: no cover - boto3 is a dependency of this client
+        return None
+    if isinstance(exc, (ReadTimeoutError, ConnectTimeoutError)):
+        return LLMTimeoutError(f"Bedrock {type(exc).__name__}: {exc}")
+    if isinstance(exc, (BotoConnectionError, HTTPClientError)):
+        return LLMAPIConnectionError(f"Bedrock {type(exc).__name__}: {exc}")
+    return None
+
+
 class GeminiClient(BaseLLMClient):
     provider = "gcp"
 
@@ -271,6 +304,12 @@ class GeminiClient(BaseLLMClient):
         except Exception as e:
             msg = str(e)
             etype = type(e).__name__
+            # A 429 that reaches here has survived the SDK's own retries (HttpRetryOptions
+            # above), and used to fall through to a bare LLMError that ended the turn. It
+            # is checked first, by its code: a quota message can quote a limit such as
+            # 500, which the status-code scan below would read as a 5xx.
+            if _is_gemini_rate_limit(e, msg):
+                raise LLMRateLimitError(msg) from e
             # Typed exceptions from google-api-core / google-genai
             _GCP_TRANSIENT = ("ServiceUnavailable", "InternalServerError", "BadGateway", "GatewayTimeout", "DeadlineExceeded")
             if any(t in etype for t in _GCP_TRANSIENT):
@@ -750,6 +789,9 @@ class BedrockClient(BaseLLMClient):
                 raise LLMServiceUnavailableError(str(e)) from e
             raise LLMError(str(e)) from e
         except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
             msg = str(e)
             if any(code in msg for code in ("500", "502", "503", "504")) or "service unavailable" in msg.lower():
                 raise LLMServiceUnavailableError(msg) from e
@@ -971,6 +1013,11 @@ class BedrockClient(BaseLLMClient):
                 # provider would be the wrong move, and so would killing the turn.
                 raise LLMStructuredUnsupportedError(str(e)) from e
             raise   # unknown ClientError propagates
+        except Exception as e:
+            transport = _bedrock_transport_error(e)
+            if transport is not None:
+                raise transport from e
+            raise
 
         # Normalize the Converse response to anthropic-style content blocks.
         stop_reason = resp.get("stopReason", "end_turn")
