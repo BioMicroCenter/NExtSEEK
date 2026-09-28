@@ -61,6 +61,7 @@ Both engines write the same `QueryTask` rows and stream over one websocket, so t
 | The router model id | `NessieAI/dmac_assistant/build_context/router_model_class_map.json` only | `NessieAI/tests/router/` |
 | A Container-CC op | follow `/add-cc-op` (`.claude/skills/add-cc-op/SKILL.md`) | `NessieAI/tests/cc/` |
 | An NS agent, prompt or catalog | `NessieAI/chat_nextseek/` | `NessieAI/tests/chat_nextseek/` |
+| An NS model call's time limits, or what a model failure does | `schemas/call_budgets.py` (the per-agent table), `FAILURE_CLASSES` and `_Failover` in `schemas/schema_helper.py`, `call_scope.py` (the turn's memory and an op's deadline), all under `NessieAI/chat_nextseek/src/chat_nextseek/`; `NessieAI/chat_nextseek/README.md` "5. When a model fails: time limits, the one move, and the turn's memory" | `NessieAI/tests/chat_nextseek/`, `NessieAI/tests/ns/` |
 | The write gate or a granular op | `NessieAI/ns/` | `NessieAI/tests/ns/` |
 | The chat UI | `NessieAI/chat_frontend/`, then commit the rebuilt bundle | in-package vitest |
 | A judge schema | two files together: `NessieAI/dmac_assistant/baml_src/functional_evaluator.baml` and `NessieAI/hibayes/judge_models.py` | `NessieAI/tests/hibayes/` |

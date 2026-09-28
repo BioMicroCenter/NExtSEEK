@@ -22,10 +22,13 @@ refused breakdown comes back as that total with a note saying the breakdown coul
 
 Time. The sidecar gives the op 60 s. The op answers at ``OP_DEADLINE_S`` with whatever has finished and names the
 other parts ``timed_out``; work already started finishes in the background, as the graph op's does. A retry or a
-fallback starts only while at least ``MIN_REMAINING_S`` remain.
+fallback starts only while at least ``MIN_REMAINING_S`` remain. The op's call_scope carries the same deadline into
+every model call (``granular.run_op`` opens it at 55 s, this op tightens it to 50 s), so a model call is cut to fit
+it and none starts after it; a part (or the vocabulary) that ran out of time that way is ``timed_out`` too.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 import time
@@ -359,13 +362,26 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
 
     started = _clock()
     deadline = started + OP_DEADLINE_S
+    # Every model call of the op fits this op's own deadline, not only the sidecar's (run_op's 55 s).
+    from chat_nextseek import call_scope
+    from chat_nextseek.llm_clients import LLMFatalError
+    call_scope.limit_current(OP_DEADLINE_S)
+
+    def _out_of_time(future) -> bool:
+        """A task that ended because the op's deadline left no time for its model call (then it is timed_out)."""
+        err = future.exception() if future.done() else None
+        return isinstance(err, LLMFatalError) and getattr(err, "reason", None) == "deadline"
+
     notes: list[str] = []
     answered: dict[int, dict] = {}
     vocabulary_late = False
     pool = ThreadPoolExecutor(max_workers=len(parts), thread_name_prefix="nextseek-aggregate")
     try:
-        prelude = pool.submit(_prelude, config, question, parts, exec_fn)
-        if _wait_until({prelude}, deadline):
+        # Each task runs in a copy of the op's context, so it sees the op's call_scope: a model the
+        # prelude or one part found failing is not asked again by the others (a Context cannot be
+        # entered by two threads at once, hence one copy per task).
+        prelude = pool.submit(contextvars.copy_context().run, _prelude, config, question, parts, exec_fn)
+        if _wait_until({prelude}, deadline) or _out_of_time(prelude):
             vocabulary_late = True
             notes.append(f"The question's vocabulary was not resolved within {OP_DEADLINE_S:.0f} s, so no part "
                          "has an answer. Say so; never estimate one.")
@@ -379,7 +395,8 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
             entity_out, uid_note, uid_reply_notes = prelude.result()  # an entity agent failure fails the op
             notes.extend(uid_reply_notes)
             futures = {
-                pool.submit(_run_part, k, text, label=f"Part {k}: " if multi else "", question=question,
+                pool.submit(contextvars.copy_context().run, _run_part, k, text,
+                            label=f"Part {k}: " if multi else "", question=question,
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
                             entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline): k
                 for k, text in enumerate(parts, 1)
@@ -387,7 +404,7 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
             unfinished = _wait_until(set(futures), deadline)
             part_notes: dict[int, list[str]] = {}
             for future, k in futures.items():
-                if future not in unfinished:
+                if future not in unfinished and not _out_of_time(future):
                     answered[k], part_notes[k] = future.result()
             for k in sorted(part_notes):
                 notes.extend(part_notes[k])

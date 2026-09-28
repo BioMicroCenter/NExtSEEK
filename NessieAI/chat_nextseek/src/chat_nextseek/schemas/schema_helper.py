@@ -7,8 +7,9 @@ from typing import Any, Callable, Type
 
 from pydantic import BaseModel, ValidationError
 
-from .. import turn_spend
+from .. import call_scope, turn_spend
 from ..config import ChatConfig
+from .call_budgets import DEFAULT_BUDGET, budget_for
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
     LLMAPIConnectionError,
@@ -22,32 +23,16 @@ from ..llm_clients import (
     pydantic_to_tool_schema,
 )
 
-# Default timeout for LLM calls (5 minutes)
-LLM_CALL_TIMEOUT_SECONDS = 300
-
-# Default ceiling for the timeout RETRY, i.e. the attempt that follows
-# `_recycle_client_connections`. A first attempt may legitimately be slow; a retry on a
-# freshly dialled socket should not be, and until now it simply inherited the 300 s above,
-# so one dead pooled socket could cost ten minutes before the call gave up.
+# The wall clocks of every call now come from one per-agent table, ``call_budgets.CALL_BUDGETS`` (operator
+# ruling 2026-09-28): the primary's first try, and the one call that moves to the fallback model, whatever made
+# the primary fail. These two names are that table's default row, kept for an agent it does not name (report_coder,
+# the plan-mode agents): the 300 s and 180 s every call had before.
 #
-# Measured on 2026-09-21 over the 2,638 successful calls in llm_calls.jsonl: p95 is at or
-# under 17 s for every agent, and the two extreme successes in the whole ledger are entity
-# at 167.3 s and graph_agent at 131.7 s. 180 s sits above both, so no call that has ever
-# succeeded would be cut short, while the worst case for a stalled socket drops from
-# 300 + 300 to 300 + 180.
-#
-# The same night gave the signature this exists for: memory_coder waited the full 300 s
-# without the request ever being acknowledged, then the retry answered in 9.2 s on a new
-# connection. The model was never slow; only the detection was.
-#
-# A caller that passes `timeout_retry_seconds` explicitly is untouched. `agents/parser.py`
-# does, with 60 s against a deliberately short 35 s first attempt -- the opposite shape (a
-# fast probe, then a patient retry), which is right for an agent whose p50 is 4.8 s.
-#
-# The one trap: this default is sized against the 300 s `timeout_seconds` above, so a caller
-# that shortens `timeout_seconds` and leaves this alone gets a retry LONGER than its first
-# attempt. Set both, as parser.py does. No caller in the tree does otherwise today.
-TIMEOUT_RETRY_SECONDS = 180
+# The 2026-09-21 note that sized the 180 s still holds for why a timeout recycles the pool before the next
+# attempt: memory_coder waited the full 300 s without the request ever being acknowledged, then the retry answered
+# in 9.2 s on a new connection. The model was never slow; only the detection was.
+LLM_CALL_TIMEOUT_SECONDS = DEFAULT_BUDGET.first_try_s
+TIMEOUT_RETRY_SECONDS = DEFAULT_BUDGET.moved_s
 
 # The raw response of every labelled call, one JSON line each, beside the ledger
 # (llm_calls.jsonl) in LOG_DIR. The ledger says a call happened and how it ended; this
@@ -392,6 +377,8 @@ def _ledger_entry(
     repair_turn=False,
     fallback_from=None,
     fallback_reason=None,
+    fallback_remembered=None,
+    deadline_capped=None,
 ):
     """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises.
 
@@ -403,7 +390,10 @@ def _ledger_entry(
     The first attempt after a provider move also carries ``fallback_from`` (the model
     that failed) and ``fallback_reason`` (``FALLBACK_REASONS``), so a turn's fallback
     calls can be listed and priced from the ledger alone. Every other record leaves
-    both keys out.
+    both keys out. ``fallback_remembered`` is True when the turn's memory
+    (``call_scope``) decided the move: the primary had failed earlier in the turn and
+    was not asked. A record with outcome ``not_called`` names a fallback that failed
+    earlier in the turn and so was not asked.
     """
     entry: dict[str, Any] = {
         "agent": agent,
@@ -419,6 +409,10 @@ def _ledger_entry(
         entry["fallback_from"] = fallback_from
     if fallback_reason is not None:
         entry["fallback_reason"] = fallback_reason
+    if fallback_remembered:
+        entry["fallback_remembered"] = True
+    if deadline_capped:
+        entry["deadline_capped"] = True
     try:
         if resp is not None:
             usage = getattr(resp, "usage", None) or {}
@@ -535,6 +529,232 @@ def _unavailable_kind(sue: LLMServiceUnavailableError) -> tuple[str, str, str]:
     return "service_unavailable", "unavailable", "provider unavailable"
 
 
+# The one failure-class table of both surfaces, the recovery ladder below and the tool loop
+# (``tool_loop.call_tools``): which failures move a call to its fallback model, the reason the move
+# records (``FALLBACK_REASONS``), and whether the failure says the model itself is failing, so the
+# turn remembers it (``call_scope``; one strike, operator ruling D4, 2026-09-28). An empty body is
+# one response and marks nothing. Matched in order, a subclass before its base. Anything else (a bare
+# ``LLMError`` such as a 400, a raw ``ClientError``, bad output) never moves and marks nothing.
+FAILURE_CLASSES: tuple[tuple[type[BaseException], str, bool], ...] = (
+    (LLMModelUnusableError, "model_unusable", True),
+    (_EmptyCompletion, "empty", False),
+    (LLMServiceUnavailableError, "unavailable", True),
+    (LLMRateLimitError, "rate_limited", True),
+    (LLMTimeoutError, "timeout", True),
+    (LLMAPIConnectionError, "connection", True),
+)
+_REASON_MARKS_MODEL = {reason: marks for _, reason, marks in FAILURE_CLASSES}
+
+
+def failure_reason(err: BaseException) -> str | None:
+    """The ``FALLBACK_REASONS`` entry a failure moves with, or None when it does not move."""
+    for cls, reason, _marks in FAILURE_CLASSES:
+        if isinstance(err, cls):
+            return reason
+    return None
+
+
+def _write_ledger(config, entry: dict) -> None:
+    """One ledger record written outside an attempt (a call the turn's memory decided). Never raises."""
+    try:
+        log_llm_call(getattr(config, "LOG_DIR", None), entry)
+    except Exception:  # pragma: no cover - bookkeeping must not fail a turn
+        pass
+    turn_spend.record_call(entry)
+
+
+class _Failover:
+    """One model call's single move: which model it asks, the move it made, and its wall clock.
+
+    Shared by the recovery ladder and the tool loop, so both move on the same failures, to the
+    same place, with the same budget. The call starts on ``client``/``model`` with ``first_s``;
+    ``move`` switches it, once (``MAX_PROVIDER_SWITCHES``), to the first usable entry of the
+    agent's chain (``_get_fallback_agent_configs``, filtered by ``accept``), and from then on
+    every attempt runs on ``moved_s``, whatever the failure was (F5.1).
+    """
+
+    def __init__(self, config, *, agent_label, chain_label, client, model, thinking_budget,
+                 first_s, moved_s, log_prefix, accept=None, timeout_marks=True, move_reserve=True):
+        self.config = config
+        self.agent_label = agent_label
+        self.chain_label = chain_label
+        self.client = client
+        self.model = model
+        self.budget = thinking_budget
+        self.window = first_s
+        self.moved_s = moved_s
+        self.log_prefix = log_prefix
+        self.accept = accept
+        self.timeout_marks = timeout_marks
+        self.move_reserve = move_reserve  # False: under a deadline the first try keeps what is left (option A)
+        self.scope = call_scope.current()
+        self.attempt = 0  # the caller's attempt index, for a record written between attempts
+        self.capped = False  # whether the scope's deadline cut this attempt's window
+        self.switches = 0
+        self.moves: list[dict] = []  # the move this call made, for a fatal's model_fallback
+        self._pending: dict = {}     # fallback_from / fallback_reason for the next ledger record
+        self._chain: list[tuple] | None = None  # resolved on the first move
+
+    def _next(self) -> tuple | None:
+        """The entry the one move would go to, or None when there is none."""
+        if self._chain is None:
+            chain = []
+            if self.chain_label:
+                chain = list(_get_fallback_agent_configs(
+                    self.config, self.chain_label, _catalog_provider(self.client), failed_model=self.model,
+                ))
+            if self.accept is not None:
+                chain = [fb for fb in chain if self.accept(fb[0])]
+            self._chain = chain
+        return self._chain[0] if self._chain else None
+
+    @staticmethod
+    def _key(client, model) -> tuple[str, str]:
+        return (_catalog_provider(client), model)
+
+    def mark(self, reason: str) -> None:
+        """Remember, for the rest of the turn, that the model this attempt asked failed with ``reason``.
+
+        Only a failure that says the model itself is failing marks (``FAILURE_CLASSES``), and a
+        timeout marks nothing for an agent whose budget says so (the parsers, D3).
+        """
+        if self.scope is None or not _REASON_MARKS_MODEL.get(reason, False):
+            return
+        if reason == "timeout" and (not self.timeout_marks or self.capped):
+            # The parsers' speed preference (D3), or a window the op's deadline cut short:
+            # neither says the model is failing.
+            return
+        self.scope.mark_failed(self._key(self.client, self.model), reason=reason, agent=self.agent_label)
+
+    def begin(self) -> None:
+        """Before the first attempt: a primary that failed earlier in this turn is not asked again.
+
+        The call takes its one move at once, with the reason the model was marked with. With
+        nowhere to move it asks the primary anyway. Raises ``LLMFatalError`` when the fallback
+        failed earlier in this turn too.
+        """
+        if self.scope is None or self.switches:
+            return
+        mark = self.scope.failed(self._key(self.client, self.model))
+        if mark is None or self._next() is None:
+            return
+        self.move(mark["reason"], f"model='{self.model}' failed earlier in this turn ({mark['reason']})",
+                  remembered=True)
+
+    def move(self, reason: str, why: str, *, remembered: bool = False) -> bool:
+        """Move to the fallback, if this call still may and has one; False when it cannot.
+
+        ``remembered`` is True when the turn's memory decided the move (``begin``). Raises
+        ``LLMFatalError`` when the fallback failed earlier in this turn: it is not asked, and
+        the ledger gets one ``not_called`` record naming it.
+        """
+        if self.switches >= MAX_PROVIDER_SWITCHES:
+            return False
+        fb = self._next()
+        if fb is None:
+            return False
+        fb_client, fb_model, fb_budget = fb
+        dead = self.scope.failed(self._key(fb_client, fb_model)) if self.scope is not None else None
+        item = {"agent": self.agent_label, "from": self.model, "to": fb_model, "reason": reason}
+        if remembered:
+            # The primary was not asked: it failed earlier in this turn. A skip, not a new failure.
+            item["remembered"] = True
+        if dead:
+            # The fallback was not asked: it failed earlier in this turn.
+            item["not_called"] = True
+        self.moves.append(item)
+        if dead:
+            print(
+                f"{self.log_prefix} {why}: the fallback model='{fb_model}' failed earlier in this turn "
+                f"({dead['reason']}); not calling it"
+            )
+            entry = _ledger_entry(
+                self.agent_label, fb_model, fb_client, self.attempt, "not_called", time.perf_counter(),
+                thinking_budget=fb_budget, fallback_from=self.model, fallback_reason=reason,
+                fallback_remembered=remembered,
+            )
+            entry["error"] = f"{fb_model} failed earlier in this turn ({dead['reason']}), so it was not called"
+            _write_ledger(self.config, entry)
+            raise self.fatal(
+                f"All provider fallbacks exhausted: agent '{self.agent_label}': {reason} on '{self.model}', "
+                f"and '{fb_model}' failed earlier in this turn ({dead['reason']})",
+                reason=reason,
+            )
+        self._chain.pop(0)
+        print(
+            f"{self.log_prefix} {why}: switching to fallback "
+            f"provider='{getattr(fb_client, 'provider', '?')}' model='{fb_model}'"
+        )
+        self._pending = {"fallback_from": self.model, "fallback_reason": reason,
+                         **({"fallback_remembered": True} if remembered else {})}
+        self.client, self.model, self.budget = fb_client, fb_model, fb_budget
+        self.switches += 1
+        if self.moved_s:
+            self.window = self.moved_s
+        return True
+
+    def _can_move(self) -> bool:
+        """Whether a move is still possible: one left, somewhere to go, and not to a model that failed earlier."""
+        if self.switches >= MAX_PROVIDER_SWITCHES:
+            return False
+        fb = self._next()
+        if fb is None:
+            return False
+        return self.scope is None or self.scope.failed(self._key(fb[0], fb[1])) is None
+
+    def attempt_window(self) -> float:
+        """The wall clock of the next attempt, cut to fit the scope's deadline (F4, ruling D5).
+
+        With no deadline it is the call's own window. Under one, a first try that can still
+        move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), unless
+        its agent's budget says ``op_move_reserve=False`` (the graph agent, the report writer),
+        and any attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
+        starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
+        """
+        self.capped = False
+        remaining = self.scope.remaining() if self.scope is not None else None
+        if remaining is None:
+            return self.window
+        if remaining <= call_scope.DEADLINE_FLOOR_S:
+            total = self.scope.total_s or 0
+            entry = _ledger_entry(self.agent_label, self.model, self.client, self.attempt, "deadline",
+                                  time.perf_counter(), thinking_budget=self.budget, **self.take_pending())
+            entry["error"] = f"the op's {total:g} s deadline left {max(remaining, 0):.1f} s, so no call was started"
+            _write_ledger(self.config, entry)
+            raise self.fatal(
+                f"deadline: the op's {total:g} s ran out before the {self.agent_label} call could start",
+                reason="deadline", unavailable=False,
+            )
+        window = self.window
+        if self.move_reserve and not self.switches and self._can_move():
+            window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
+        window = min(window, remaining)
+        self.capped = window < self.window
+        return window
+
+    def deadline_fatal(self, cause: BaseException) -> LLMFatalError:
+        """The call's end when its last attempt timed out on a window the op's deadline cut.
+
+        The op ran out of time; no model was shown to be failing, so it is not unavailability.
+        """
+        total = (self.scope.total_s if self.scope is not None else None) or 0
+        return self.fatal(
+            f"deadline: the op's {total:g} s ran out during the {self.agent_label} call "
+            f"(model '{self.model}'): {cause}",
+            reason="deadline", unavailable=False,
+        )
+
+    def take_pending(self) -> dict:
+        """The move to name on the next ledger record (the first attempt after it), once."""
+        pending, self._pending = self._pending, {}
+        return pending
+
+    def fatal(self, message: str, *, reason: str | None, unavailable: bool = True) -> LLMFatalError:
+        """The call's end: ``reason`` is the failure that ended it; the move it made goes in ``model_fallback``."""
+        return LLMFatalError(message, agent=self.agent_label, unavailable=unavailable,
+                             model_fallback=self.moves, reason=reason)
+
+
 def _call_with_recovery(
     config: ChatConfig,
     *,
@@ -557,6 +777,8 @@ def _call_with_recovery(
     schema_name: str = "emit_result",
     is_empty: Callable[[Any], bool] | None = None,
     chain_key: str | None = None,
+    timeout_marks_model: bool = True,
+    op_move_reserve: bool = True,
 ) -> tuple[bool, Any]:
     """The provider-recovery ladder shared by every LLM call in the deterministic path.
 
@@ -567,9 +789,9 @@ def _call_with_recovery(
     repair loop works). Returns ``(False, last_value)`` when the attempts run out, so
     the caller decides which error to raise.
 
-    One trigger decides when a call moves to another provider. Six failures are
-    fallback-eligible, and they are the same failure to the user: the provider gave no
-    answer.
+    One trigger decides when a call moves to another provider: the failures of
+    ``FAILURE_CLASSES``, which are the same failure to the user (the provider gave no
+    answer):
 
       * 5xx/overloaded (``LLMServiceUnavailableError``)
       * a model the provider refused (``LLMModelUnusableError``, a kind of 5xx here): an
@@ -582,18 +804,22 @@ def _call_with_recovery(
       * a connection error (``LLMAPIConnectionError``)
 
     On the first of them the call moves to the next provider in ``_FALLBACK_CHAINS``,
-    once (``MAX_PROVIDER_SWITCHES``). When that provider fails too, the failure is
-    final: the ``LLMTimeoutError`` itself for a timeout, which is what the parser maps
-    to ``failure = transport_timeout``, and ``LLMFatalError`` with ``unavailable=True``
-    for anything else. With no chain to move to, a 5xx or an empty body is that fatal at
-    once, while a timeout keeps the old same-provider retry on a recycled socket, a 429
-    the old backoff on the same provider, and a connection error propagates unchanged.
-    Every such fatal names the move it made in ``model_fallback``.
+    once (``MAX_PROVIDER_SWITCHES``). When that provider fails too, whatever the failure,
+    the call ends in ``LLMFatalError`` with ``unavailable=True`` and ``reason`` naming the
+    failure (a timeout on the fallback included, since 2026-09-28: it used to leave as
+    ``LLMTimeoutError``, and each agent answered it its own way). With no chain to move
+    to, a 5xx or an empty body is that fatal at once, while a timeout keeps the old
+    same-provider retry on a recycled socket and then leaves as ``LLMTimeoutError`` (the
+    parser's ``transport_timeout``), a 429 the old backoff on the same provider, and a
+    connection error propagates unchanged. Every such fatal names the move it made in
+    ``model_fallback``.
 
-    Budget: a provider move does not add a wait. A timeout's retry, same provider or
-    next, runs on ``timeout_retry_seconds``, and there are still at most
-    ``timeout_retries`` of them, so the parser's worst case stays 35 s + 60 s and the
-    default stays 300 s + 180 s. The move only changes WHO the retry asks.
+    Budget: the first try runs on ``timeout_seconds``; the moved call runs on
+    ``timeout_retry_seconds`` whatever made the first try fail (F5.1), and so does a
+    timeout's same-provider retry when there is no chain. There are still at most
+    ``timeout_retries`` timeout retries. The callers take both from their agent's row of
+    ``call_budgets.CALL_BUDGETS`` unless they pass their own. Every ledger record carries
+    the window its attempt actually had.
 
     Everything else is not eligible: a bare ``LLMError`` (a 400 validation error, say)
     is fatal at once and not ``unavailable``, and any other ``LLMError`` subclass
@@ -601,190 +827,171 @@ def _call_with_recovery(
     client). Such an attempt still gets one ledger record, and so one report to the
     turn's cost collector, which counts it as unobserved.
 
+    Under an op's deadline (``call_scope``), every attempt's window is cut to fit it, so the
+    move happens inside the op, and no call starts once it is spent (``_Failover.attempt_window``).
+
+    Inside a turn or an op (``call_scope``), every failure that says the model itself is
+    failing marks it for the rest of the turn (one strike; not a timeout when
+    ``timeout_marks_model`` is False, the parsers' case). A later call whose primary is
+    marked starts on its fallback without asking it, and one whose fallback is marked too
+    fails at once without calling either (``_Failover.begin`` and ``move``).
+
     ``agent_label`` is the name the ledger and the errors carry. ``chain_key`` is the
     catalog key the provider chain is looked up by, when it differs from that name
     (the graph agent's calls are ledgered as ``graph_agent`` but its chain is ``graph``).
     """
-    chain_label = chain_key or agent_label
-    target_client = client
-    target_model_name = model_name
-    target_thinking_budget = thinking_budget
+    fo = _Failover(
+        config, agent_label=agent_label, chain_label=chain_key or agent_label, client=client,
+        model=model_name, thinking_budget=thinking_budget, first_s=timeout_seconds,
+        moved_s=timeout_retry_seconds, log_prefix=f"[STRUCTURED_PARSE][{label}]",
+        timeout_marks=timeout_marks_model, move_reserve=op_move_reserve,
+    )
+    fo.begin()
     empty = is_empty or _text_is_empty
 
-    chain: list[tuple] | None = None  # resolved on the first eligible failure
-    switches = 0
-    moves: list[dict] = []  # the move this call made, for a fatal's model_fallback
-    pending_move: dict = {}  # fallback_from / fallback_reason for the next ledger record
     attempt_recorded = False  # whether this attempt has its ledger record yet
     attempt_messages = base_messages
     timeout_attempts = 0
     last_value: Any = None
-    # The first attempt runs on the tight budget. Once a timeout has told us the
-    # connection was bad, the retry goes out on a fresh socket and gets more room.
-    _timeout = timeout_seconds
+    _timeout = fo.window
     max_attempts = retries + 1
     attempt = -1
-
-    def _switch_provider(reason: str, why: str) -> bool:
-        """Move to the next provider in the chain, if this call still may. Never raises."""
-        nonlocal chain, switches, target_client, target_model_name, target_thinking_budget, pending_move
-        if switches >= MAX_PROVIDER_SWITCHES or not chain_label:
-            return False
-        if chain is None:
-            chain = list(_get_fallback_agent_configs(
-                config, chain_label, _catalog_provider(target_client), failed_model=target_model_name,
-            ))
-        if not chain:
-            return False
-        fb_client, fb_model, fb_budget = chain.pop(0)
-        print(
-            f"[STRUCTURED_PARSE][{label}] {why}: switching to fallback "
-            f"provider='{getattr(fb_client, 'provider', '?')}' model='{fb_model}'"
-        )
-        moves.append({"agent": agent_label, "from": target_model_name, "to": fb_model, "reason": reason})
-        pending_move = {"fallback_from": target_model_name, "fallback_reason": reason}
-        target_client = fb_client
-        target_model_name = fb_model
-        target_thinking_budget = fb_budget
-        switches += 1
-        return True
 
     def _log(outcome: str, t0: float, **kw) -> None:
         """One ledger record for this attempt; the first one after a move names the move.
 
         The record, with the response or error behind it, also goes to this turn's cost
         collector (``turn_spend``), which prices the usage and counts what it cannot see.
+        It carries the window this attempt had.
         """
-        nonlocal pending_move, attempt_recorded
-        move, pending_move = pending_move, {}
+        nonlocal attempt_recorded
         attempt_recorded = True
         entry = _ledger_entry(
-            agent_label, target_model_name, target_client, attempt, outcome, t0, **kw, **move,
+            agent_label, fo.model, fo.client, attempt, outcome, t0,
+            timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
+            **kw, **fo.take_pending(),
         )
         log_llm_call(config.LOG_DIR, entry)
         turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
     while attempt + 1 < max_attempts:
         attempt += 1
+        fo.attempt = attempt
+        _timeout = fo.attempt_window()  # the op's deadline, if any, cuts it; past the deadline no call starts
         _t0 = time.perf_counter()
         attempt_recorded = False
         try:
             resp = _call_llm_with_timeout(
-                client=target_client,
-                model_name=target_model_name,
+                client=fo.client,
+                model_name=fo.model,
                 temperature=temperature,
                 messages=attempt_messages,
                 response_format=response_format,
                 timeout_seconds=_timeout,
-                thinking_budget=target_thinking_budget,
+                thinking_budget=fo.budget,
                 response_schema=response_schema,
                 schema_name=schema_name,
             )
             # An empty completion is a PROVIDER fault, not a schema error, and until
             # now it was treated as the latter: "" fails json parsing, so the repair
             # loop appended "your previous output did not validate" and asked the SAME
-            # model again, twice, then gave up. Production turn 406 (bonniethiel,
-            # 2026-08-28) is exactly that: us.anthropic.claude-opus-4-7 returned
-            # completion=1 token on all three attempts and the user was told their
-            # question could not be planned. Re-raising as 503 hands it to the provider
-            # chain below, which is what the run needed: a different model.
+            # model again, twice, then gave up. Production turn 406 (2026-08-28) is
+            # exactly that: us.anthropic.claude-opus-4-7 returned completion=1 token on
+            # all three attempts and the user was told their question could not be
+            # planned. Re-raising as 503 hands it to the provider chain below, which is
+            # what the run needed: a different model.
             if empty(resp):
                 _stop = (getattr(resp, "metadata", None) or {}).get("stop_reason")
                 _log(
-                    "empty_completion", _t0, timeout_seconds=timeout_seconds,
-                    thinking_budget=target_thinking_budget, resp=resp,
-                    response_format=response_format,
+                    "empty_completion", _t0, resp=resp, response_format=response_format,
                     repair_turn=attempt_messages is not base_messages,
                 )
                 raise _EmptyCompletion(
                     f"empty completion (0 text tokens) from "
-                    f"provider='{getattr(target_client, 'provider', None)}' "
-                    f"model='{target_model_name}' stop_reason={_stop!r}"
+                    f"provider='{getattr(fo.client, 'provider', None)}' "
+                    f"model='{fo.model}' stop_reason={_stop!r}"
                 )
         except LLMServiceUnavailableError as sue:
             # Raw client vocabulary ("bedrock", "anthropic", "gcp", "openai") — this is
             # what an operator needs to see in the log during an outage. The chain
-            # lookup needs the catalog vocabulary, which _switch_provider translates.
-            failed_provider = getattr(target_client, "provider", None)
+            # lookup needs the catalog vocabulary, which _Failover translates.
             outcome, reason, why = _unavailable_kind(sue)
             status_word = "model refused" if reason == "model_unusable" else "503"
             print(
-                f"[STRUCTURED_PARSE][{label}] {status_word} from provider='{failed_provider}' "
-                f"model='{target_model_name}' attempt {attempt+1}/{max_attempts}: {sue}"
+                f"[STRUCTURED_PARSE][{label}] {status_word} from provider='{getattr(fo.client, 'provider', None)}' "
+                f"model='{fo.model}' attempt {attempt+1}/{max_attempts}: {sue}"
             )
-            _log(
-                outcome, _t0, timeout_seconds=timeout_seconds,
-                thinking_budget=target_thinking_budget, err=sue,
-            )
-            if _switch_provider(reason, why):
+            _log(outcome, _t0, err=sue)
+            fo.mark(reason)
+            if fo.move(reason, why):
                 # The move gets an attempt of its own: it must never be the attempt
                 # that ran out, which used to end a call as a parse error.
                 max_attempts += 1
                 continue
             # The one move is spent, or there is no chain — kill the run
-            raise LLMFatalError(
-                f"All provider fallbacks exhausted — agent '{agent_label}': {sue}",
-                agent=agent_label,
-                unavailable=True,
-                model_fallback=moves,
-            ) from sue
+            raise fo.fatal(f"All provider fallbacks exhausted — agent '{agent_label}': {sue}", reason=reason) from sue
         except LLMTimeoutError as te:
             timeout_attempts += 1
             print(
                 f"[STRUCTURED_PARSE][{label}] timeout on attempt {attempt+1}/{max_attempts} "
                 f"(timeout retry {timeout_attempts}/{timeout_retries+1}) after {_timeout}s: {te}"
             )
-            _log(
-                "timeout", _t0, timeout_seconds=_timeout,
-                thinking_budget=target_thinking_budget, err=te,
-            )
+            _log("timeout", _t0, err=te)
+            fo.mark("timeout")
             # A timeout here is usually a dead pooled socket rather than a slow model:
             # the request is never acknowledged at all. Whatever happens next, drop the
             # pool, so neither this call's retry nor the next agent on this client
             # draws the same dead connection (the 120.01s double-failure signature).
-            _recycle_client_connections(target_client, label)
-            if timeout_attempts > timeout_retries:
+            _recycle_client_connections(fo.client, label)
+            if timeout_attempts > timeout_retries or fo.switches:
+                if fo.switches and fo.capped:
+                    # The moved call's window was cut by the op's deadline: the op ran out of
+                    # time, which is not a model outage (review of D5).
+                    raise fo.deadline_fatal(te) from te
+                if fo.switches:
+                    # The call moved once and the model it moved to timed out too: both models
+                    # failed, which ends the turn like a double 503 (F5.2, operator ruling
+                    # 2026-09-28). It used to leave as LLMTimeoutError, which every agent turned
+                    # into an answer of its own.
+                    raise fo.fatal(
+                        f"All provider fallbacks exhausted: agent '{agent_label}': timeout on model "
+                        f"'{fo.model}' after {_timeout}s: {te}",
+                        reason="timeout",
+                    ) from te
+                # No move was made (no chain, or no retry left): the timeout itself, for the
+                # callers that answer it (the parser's transport_timeout plan).
                 raise
             if timeout_retry_seconds:
-                _timeout = timeout_retry_seconds
+                fo.window = timeout_retry_seconds
             # The retry goes to the next provider when there is one: production task
             # 621 (2026-09-23) timed out on the parser at 35 s and again at 60 s on
             # the same provider, and nothing else was ever asked.
-            if _switch_provider("timeout", "transport timeout"):
+            if fo.move("timeout", "transport timeout"):
                 max_attempts += 1
                 continue
-            if switches:
-                # This call already moved once; the provider it moved to timed out.
-                raise
             continue
         except LLMRateLimitError as rle:
             print(
                 f"[STRUCTURED_PARSE][{label}] rate limit on attempt {attempt+1}/{max_attempts}: {rle}"
             )
-            _log(
-                "throttle", _t0, timeout_seconds=timeout_seconds,
-                thinking_budget=target_thinking_budget, err=rle,
-            )
+            _log("throttle", _t0, err=rle)
+            fo.mark("rate_limited")
             # A 429 here has already been backed off and retried by the SDK, so waiting
             # another second on the same provider rarely helps: it moves like a 5xx.
-            if _switch_provider("rate_limited", "rate limited"):
+            if fo.move("rate_limited", "rate limited"):
                 max_attempts += 1
                 continue
-            if switches:
-                raise LLMFatalError(
+            if fo.switches:
+                raise fo.fatal(
                     f"All provider fallbacks exhausted: agent '{agent_label}': rate limited (429) "
-                    f"on model '{target_model_name}': {rle}",
-                    agent=agent_label,
-                    unavailable=True,
-                    model_fallback=moves,
+                    f"on model '{fo.model}': {rle}",
+                    reason="rate_limited",
                 ) from rle
             # No chain: the old backoff on the same provider.
             if attempt + 1 >= max_attempts:
-                raise LLMFatalError(
-                    f"Rate limited (429) — agent '{agent_label}', model '{target_model_name}': {rle}",
-                    agent=agent_label,
-                    unavailable=True,
-                    model_fallback=moves,
+                raise fo.fatal(
+                    f"Rate limited (429) — agent '{agent_label}', model '{fo.model}': {rle}",
+                    reason="rate_limited",
                 ) from rle
             # brief backoff then retry
             try:
@@ -796,52 +1003,39 @@ def _call_with_recovery(
             print(
                 f"[STRUCTURED_PARSE][{label}] connection error on attempt {attempt+1}/{max_attempts}: {ce}"
             )
-            _log(
-                "error", _t0, timeout_seconds=timeout_seconds,
-                thinking_budget=target_thinking_budget, err=ce,
-            )
-            _recycle_client_connections(target_client, label)
-            if _switch_provider("connection", "connection error"):
+            _log("error", _t0, err=ce)
+            fo.mark("connection")
+            _recycle_client_connections(fo.client, label)
+            if fo.move("connection", "connection error"):
                 max_attempts += 1
                 continue
-            if switches:
-                raise LLMFatalError(
+            if fo.switches:
+                raise fo.fatal(
                     f"All provider fallbacks exhausted: agent '{agent_label}': connection error "
-                    f"on model '{target_model_name}': {ce}",
-                    agent=agent_label,
-                    unavailable=True,
-                    model_fallback=moves,
+                    f"on model '{fo.model}': {ce}",
+                    reason="connection",
                 ) from ce
             # No chain: propagate unchanged, as before, for the callers that degrade on it.
             raise
         except LLMError as le:
-            _log(
-                "error", _t0, timeout_seconds=timeout_seconds,
-                thinking_budget=target_thinking_budget, err=le,
-            )
+            _log("error", _t0, err=le)
             # Bare LLMError only (subclasses are already handled above).
             # Unclassified errors are treated as unrecoverable — kill the run.
             if type(le) is not LLMError:
                 raise
-            raise LLMFatalError(
-                f"Unrecoverable LLM error — agent '{agent_label}', model '{target_model_name}': {le}",
-                agent=agent_label,
-                model_fallback=moves,
+            raise fo.fatal(
+                f"Unrecoverable LLM error — agent '{agent_label}', model '{fo.model}': {le}",
+                reason=None, unavailable=False,
             ) from le
         except BaseException as unrecorded:
             # Anything else (a raw ClientError the client did not type, a bug in a client)
             # propagates unchanged and never moves, but the attempt still gets its one
             # ledger record, and the turn's cost collector counts it as unobserved (F1).
             if not attempt_recorded:
-                _log(
-                    "error", _t0, timeout_seconds=_timeout,
-                    thinking_budget=target_thinking_budget, err=unrecorded,
-                )
+                _log("error", _t0, err=unrecorded)
             raise
         _log(
-            "ok", _t0, timeout_seconds=timeout_seconds,
-            thinking_budget=target_thinking_budget, resp=resp,
-            response_format=response_format,
+            "ok", _t0, resp=resp, response_format=response_format,
             repair_turn=attempt_messages is not base_messages,
         )
         if usage_label:
@@ -871,8 +1065,8 @@ def call_llm_structured(
     log_payload_extra: dict[str, Any] | None = None,
     usage_label: str | None = None,
     rate_limit_sleep: float = 1.0,
-    timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
+    timeout_seconds: float | None = None,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
     thinking_budget: int | None = None,
     client=None,
@@ -882,8 +1076,10 @@ def call_llm_structured(
 ) -> BaseModel:
     """
     Call the LLM and parse into a structured Pydantic model with a repair loop.
-    Includes timeout handling (default 300s) with one retry on timeout, and moves to the
-    next provider on a timeout, a 5xx or an empty body (``_call_with_recovery``).
+    Moves to the next provider once on a timeout, a 5xx, a 429, an empty body, a dropped
+    connection or a refused model (``_call_with_recovery``). ``timeout_seconds`` (the first
+    try) and ``timeout_retry_seconds`` (the moved call) default to the agent's row of
+    ``call_budgets.CALL_BUDGETS``, looked up by ``agent_label``.
 
     ``structured_via_tools`` sends the schema to providers that can enforce a shape
     (a forced tool call on Bedrock) instead of asking for JSON in the prompt. It
@@ -912,6 +1108,11 @@ def call_llm_structured(
     rf = response_format if response_format is not None else {"type": "json_object"}
     _ledger_label = log_label or agent_label
     _chain_key = agent_label or log_label
+    _budget = budget_for(_chain_key)
+    if timeout_seconds is None:
+        timeout_seconds = _budget.first_try_s
+    if timeout_retry_seconds is None:
+        timeout_retry_seconds = _budget.moved_s
 
     state: dict[str, Any] = {"raw_output": "", "errors": None}
 
@@ -991,6 +1192,8 @@ def call_llm_structured(
         response_schema=schema,
         schema_name=_schema_tool_name(model),
         is_empty=_empty_body,
+        timeout_marks_model=_budget.timeout_marks_model,
+        op_move_reserve=_budget.op_move_reserve,
     )
     if ok:
         return value
@@ -1013,8 +1216,8 @@ def call_llm_text(
     temperature: float = 0,
     thinking_budget: int | None = None,
     retries: int = 2,
-    timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
+    timeout_seconds: float | None = None,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
     rate_limit_sleep: float = 1.0,
     usage_label: str | None = None,
@@ -1031,10 +1234,16 @@ def call_llm_text(
     and a timeout that survives it raises ``LLMTimeoutError``, exactly as for the
     structured agents; the caller decides what the user sees.
 
-    ``agent_label`` is the catalog key the provider chain is looked up by. ``log_label``,
-    when given, is the name the ledger and the response log record instead (the memory
-    coder's reply runs on the chatter's model and is ledgered as its own step).
+    ``agent_label`` is the catalog key the provider chain and the budgets
+    (``call_budgets.CALL_BUDGETS``) are looked up by. ``log_label``, when given, is the name
+    the ledger and the response log record instead (the memory coder's reply runs on the
+    chatter's model and is ledgered as its own step).
     """
+    _budget = budget_for(agent_label)
+    if timeout_seconds is None:
+        timeout_seconds = _budget.first_try_s
+    if timeout_retry_seconds is None:
+        timeout_retry_seconds = _budget.moved_s
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
         if log_label:
@@ -1059,5 +1268,7 @@ def call_llm_text(
         label=agent_label,
         usage_label=usage_label,
         on_response=_on_response,
+        timeout_marks_model=_budget.timeout_marks_model,
+        op_move_reserve=_budget.op_move_reserve,
     )
     return value if ok else ""

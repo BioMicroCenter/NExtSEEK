@@ -138,37 +138,18 @@ def entity_agent(
         )
     except Exception as e:
         print("[DEBUG][ENTITY] Exception or parse error (structured):", repr(e))
-        # If the structured call timed out (common with Gemini), retry once and skip raw fallback.
+        # A timeout has had the ladder's one second chance already: the move to the
+        # fallback model, or with no chain a retry on a fresh socket. There is no third
+        # call (operator ruling 2026-09-28): it went to the model that had just stalled,
+        # and with both models stalled it made the entity take 780 s. When both models
+        # fail the ladder raises LLMFatalError, which ends the turn with the plain text.
         if isinstance(e, LLMTimeoutError):
-            try:
-                print("[DEBUG][ENTITY] Retrying structured call after timeout.")
-                result = call_llm_structured(
-                    config=config,
-                    prompt=user_query,
-                    model=EntityAgentOutput,
-                    system=config.ENTITY_SYSTEM_PROMPT,
-                    messages=messages,
-                    model_name=entity_model,
-                    temperature=0,
-                    response_format={"type": "json_object"},
-                    log_label="entity",
-                    log_payload_extra={"user_query": user_query, "retry_after_timeout": True},
-                    usage_label="ENTITY",
-                    retries=0,
-                    timeout_retries=0,
-                    thinking_budget=entity_budget,
-                    client=entity_client,
-                    result_check=empty_output_problem,
-                )
-            except Exception as e_retry:
-                print("[DEBUG][ENTITY] Retry after timeout failed:", repr(e_retry))
-                result = EntityAgentOutput()
+            result = EntityAgentOutput()
         else:
             # Fallback: raw call without forced response_format. Through the recovery
             # ladder, so a timeout, a 503 or an empty body moves to the entity's next
-            # provider; it used to call the SDK directly and never moved. The first
-            # attempt keeps the 180 s this call always had, and the retry (usually on
-            # the fallback model) gets 60 s, so the worst case stays near the old 180 s.
+            # provider; it used to call the SDK directly and never moved. It runs on the
+            # entity's wall clocks (call_budgets.CALL_BUDGETS), like its structured call.
             try:
                 raw_content = call_llm_text(
                     config,
@@ -179,8 +160,6 @@ def entity_agent(
                     log_label="entity_raw",
                     temperature=0,
                     thinking_budget=entity_budget,
-                    timeout_seconds=180,
-                    timeout_retry_seconds=60,
                     usage_label="ENTITY_FALLBACK",
                 )
                 parsed = safe_parse_json(raw_content)

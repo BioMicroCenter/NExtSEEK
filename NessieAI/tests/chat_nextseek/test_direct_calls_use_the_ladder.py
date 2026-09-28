@@ -10,10 +10,11 @@ them had no wall clock at all (operator ruling 2026-09-25, fix 5):
 * the context engineer's LLM fallback (``ce_client.chat``).
 
 Each is now ``call_llm_text`` under its catalog key, so the primary model and client are
-the ones ``get_agent_model(<key>)`` returns, as before, and each has a wall clock: the
-entity keeps 180 s with a 60 s retry, the two memory calls take the chatter's 300 s (they do the chatter's
-work, on the chatter's and the memory agent's models), and the context engineer's short
-extraction gets 60 s and a 60 s retry.
+the ones ``get_agent_model(<key>)`` returns, as before, and each has a wall clock. Since
+2026-09-28 the entity and the two memory calls pass no window of their own: they run on
+their catalog key's row of ``call_budgets.CALL_BUDGETS`` (the entity 20 s then 90 s, the
+memory coder's reply the chatter's 30 s then 90 s, the legacy memory agent 60 s then 90 s).
+The context engineer's short extraction still passes its own 60 s and 60 s.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from chat_nextseek.agents import memory as memory_mod
 from chat_nextseek.agents.planner import agent as planner_mod
 from chat_nextseek.llm_clients import LLMAPIConnectionError, LLMResponse, LLMServiceUnavailableError
 from chat_nextseek.schemas import ContextEngineerOutput, MemoryCoderOutput, PlanStep
+from chat_nextseek.schemas.call_budgets import budget_for
 
 PRIMARY_CLIENT = object()
 PRIMARY_MODEL = "primary-model"
@@ -51,11 +53,17 @@ def _model_lookup(expected):
     return get_agent_model
 
 
-def _assert_on_the_ladder(call, *, key, timeout, retry):
+def _assert_on_the_ladder(call, *, key, timeout=None, retry=None):
+    """``timeout`` and ``retry`` None: the call passes no window, so its key's table row applies."""
     assert call["agent_label"] == key, "the chain is looked up by the catalog key whose model it uses today"
     assert call["client"] is PRIMARY_CLIENT and call["model_name"] == PRIMARY_MODEL, "the primary is unchanged"
-    assert call["timeout_seconds"] == timeout
-    assert call["timeout_retry_seconds"] == retry
+    assert call.get("timeout_seconds") == timeout
+    assert call.get("timeout_retry_seconds") == retry
+
+
+def _row(key):
+    b = budget_for(key)
+    return b.first_try_s, b.moved_s
 
 
 def test_no_direct_sdk_call_is_left_in_these_agents():
@@ -78,7 +86,7 @@ def _structured_fails(**kwargs):
     raise ValueError("the structured output did not validate")
 
 
-def test_the_entity_raw_fallback_goes_through_the_ladder_with_its_180_s(monkeypatch):
+def test_the_entity_raw_fallback_goes_through_the_ladder_on_the_entity_row(monkeypatch):
     monkeypatch.setattr(entity_mod, "call_llm_structured", _structured_fails)
     capture = _TextCapture('{"sampletypes": [], "assays": [], "keywords": ["NDMA"]}')
     monkeypatch.setattr(entity_mod, "call_llm_text", capture)
@@ -86,8 +94,9 @@ def test_the_entity_raw_fallback_goes_through_the_ladder_with_its_180_s(monkeypa
     out = entity_mod.entity_agent(_entity_config(), "mice treated with NDMA", [], [], [])
 
     (call,) = capture.calls
-    # 180 s as always, and a 60 s retry, so the worst case stays near the old single 180 s.
-    _assert_on_the_ladder(call, key="entity", timeout=180, retry=60)
+    # The entity's own row, like its structured call: 20 s, then 90 s for the move.
+    _assert_on_the_ladder(call, key="entity")
+    assert _row("entity") == (20, 90)
     assert "NDMA" in out.keywords
 
 
@@ -142,7 +151,8 @@ def test_the_memory_coder_reply_goes_through_the_ladder_as_the_chatter(monkeypat
     )
 
     (call,) = capture.calls
-    _assert_on_the_ladder(call, key="chatter", timeout=300, retry=180)
+    _assert_on_the_ladder(call, key="chatter")
+    assert _row("chatter") == (30, 90)
     assert call["log_label"] == "memory_coder_chatter", "the ledger still names the memory coder's reply"
     assert answer == "Three of them."
 
@@ -161,7 +171,8 @@ def test_the_legacy_memory_agent_goes_through_the_ladder_with_a_wall_clock(monke
     )
 
     (call,) = capture.calls
-    _assert_on_the_ladder(call, key="memory", timeout=300, retry=180)
+    _assert_on_the_ladder(call, key="memory")
+    assert _row("memory") == (60, 90)
     assert answer == "It held three records."
 
 
@@ -207,3 +218,31 @@ def test_the_context_engineer_fallback_goes_through_the_ladder(monkeypatch):
 @pytest.mark.parametrize("module", [entity_mod, memory_mod, planner_mod], ids=lambda m: m.__name__)
 def test_each_module_imports_the_ladder(module):
     assert callable(getattr(module, "call_llm_text", None))
+
+
+def test_call_llm_text_ledgers_under_the_log_label_and_moves_on_the_agent_labels_chain(tmp_path):
+    """CI-COVERAGE gap 3b, through the real ladder: the memory coder's reply is ledgered as its own step
+    (``log_label``) while its provider chain, and so the model it moves to, is the chatter's (``agent_label``)."""
+    import json
+
+    from chat_nextseek.schemas.schema_helper import call_llm_text
+
+    flash = _Client("gcp", [LLMServiceUnavailableError("503 UNAVAILABLE")])
+    sonnet = _Client("bedrock", ["Three of them."])
+    config = SimpleNamespace(
+        LOG_DIR=str(tmp_path), _CATALOG_KEY="default", _THINKING_BUDGET_MAP={None: None}, LLM_MODEL="unused",
+        LLM_CLIENT=flash, LLM_CLIENTS={"gcp": flash, "anth": sonnet},
+        AGENT_MODEL_CATALOG={"anth:current": {
+            "chatter": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": None},
+            "memory_coder_chatter": {"provider": "anth", "model": "a-model-a-log-label-must-never-pick",
+                                     "thinking_level": None}}},
+    )
+
+    reply = call_llm_text(config, messages=[{"role": "user", "content": "how many?"}], client=flash,
+                          model_name="gemini-3.5-flash", agent_label="chatter", log_label="memory_coder_chatter")
+
+    assert reply == "Three of them."
+    assert sonnet.calls == ["us.anthropic.claude-sonnet-4-6"], "the chain is the chatter's"
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    assert [e["agent"] for e in entries] == ["memory_coder_chatter", "memory_coder_chatter"]
+    assert entries[1]["fallback_from"] == "gemini-3.5-flash" and entries[1]["fallback_reason"] == "unavailable"

@@ -7,7 +7,6 @@
   "byte_identical_files": [
     "__init__.py",
     "app/__init__.py",
-    "app/proxy.py",
     "proxy-secret.env.example"
   ],
   "adapted_files": [
@@ -29,8 +28,8 @@
   "file_inventory": [
     {"path": "__init__.py", "size_bytes": 145, "sha256": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069"},
     {"path": "app/__init__.py", "size_bytes": 46, "sha256": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd"},
-    {"path": "app/config.py", "size_bytes": 3336, "sha256": "ed831ec3740dbddbf2e81523c775480cc94652b4f5fbf7a1f031bda729c675bd"},
-    {"path": "app/proxy.py", "size_bytes": 13794, "sha256": "e890f99a690b6dd3e03b454f95200c3261186f5df90cdf5f001a0b957f3b6859"},
+    {"path": "app/config.py", "size_bytes": 3999, "sha256": "0f2a6b7e155c96a6a1a3ed4c905dd26440c66ef28893fcbc1edf14d616c2dd6c"},
+    {"path": "app/proxy.py", "size_bytes": 16248, "sha256": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf"},
     {"path": "proxy-secret.env.example", "size_bytes": 821, "sha256": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16"},
     {"path": "Dockerfile", "size_bytes": 2398, "sha256": "8449007570f2dfb9227c028d04ae2edf39fed879ed141c0a6668105af35f2a83"},
     {"path": ".dockerignore", "size_bytes": 696, "sha256": "4b5f91bec5ffcd99b42d1f32a22a25396b2bd1eb6eed4d2444606084e902e820"}
@@ -38,8 +37,8 @@
   "mapping_table": [
     {"dest": "docker/bedrock-proxy/__init__.py", "source": "bedrock-proxy/__init__.py", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/app/__init__.py", "source": "bedrock-proxy/app/__init__.py", "status": "byte-identical"},
-    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical at the port; changed on 2026-09-25, see post_port_changes"},
-    {"dest": "docker/bedrock-proxy/app/proxy.py", "source": "bedrock-proxy/app/proxy.py", "status": "byte-identical"},
+    {"dest": "docker/bedrock-proxy/app/config.py", "source": "bedrock-proxy/app/config.py", "status": "byte-identical at the port; changed on 2026-09-25 and 2026-09-28, see post_port_changes"},
+    {"dest": "docker/bedrock-proxy/app/proxy.py", "source": "bedrock-proxy/app/proxy.py", "status": "byte-identical at the port; changed on 2026-09-28, see post_port_changes"},
     {"dest": "docker/bedrock-proxy/proxy-secret.env.example", "source": "bedrock-proxy/proxy-secret.env.example", "status": "byte-identical"},
     {"dest": "docker/bedrock-proxy/Dockerfile", "source": "bedrock-proxy/Dockerfile", "status": "adapted (COPY path only, see adapted_files)"},
     {"dest": "docker/bedrock-proxy/.dockerignore", "source": "none (new)", "status": "new file, adapted from docker/cc-runtime/.dockerignore pattern"},
@@ -54,6 +53,16 @@
       "why": "The Container-CC 503 fallback: a CC turn now names its --fallback-model (the model map's opus_fallback entry) and points its auto-mode classifier at the map's sonnet entry. The proxy refuses any other id with a 403, on which Claude Code never falls back.",
       "guards": [
         "NessieAI/tests/cc/test_cc_proxy_allow_list.py",
+        "NessieAI/tests/cc/test_step7_proxy_port.py"
+      ]
+    },
+    {
+      "date": "2026-09-28",
+      "path": "app/proxy.py, app/config.py",
+      "change": "The relay answers 504 {\"error\": \"upstream timeout\"} when a streamed invoke (invoke-with-response-stream) has no response headers within ProxyConfig.stream_headers_timeout (new, 45 s; a plain /invoke keeps the 600 s read timeout), and relays an upstream 429 as a 503 with Bedrock's own body and headers plus x-nextseek-upstream-status: 429. The access line gains two measured scalars: the time the request waited for its headers, and the upstream status when the relay mapped it. Auth, the allow list, canonicalization, the body cap and the token handling are unchanged.",
+      "why": "Operator rulings D6 and D7 (F3-F5 failover work): Claude Code falls back to its --fallback-model on a 5xx but never on a hang or a 429, so a hung Opus 4.8 ran a CC turn out at 180 s without asking the second model, and a throttled one ended the turn in about 4 s. Proven with free local runs of Claude Code 2.1.282 through this relay in front of a fake Bedrock endpoint: a stalled stream gives the 504 and Claude Code switches to the second model; a 429 relayed as a 503 does the same.",
+      "guards": [
+        "NessieAI/tests/cc/test_bedrock_proxy_failover.py",
         "NessieAI/tests/cc/test_step7_proxy_port.py"
       ]
     }

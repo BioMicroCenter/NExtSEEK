@@ -1111,7 +1111,12 @@ def chatter_agent_plan(
             thinking_budget=chatter_budget,
             usage_label="PLAN_CHATTER",
         ) or "(no response)"
-    except Exception as e:
+    except (Exception, LLMFatalError) as e:
+        # Both models failing ends in LLMFatalError (a BaseException), a double timeout
+        # included since 2026-09-28; the plan ran, so its step summary still answers, as the
+        # single-turn chatter's does (D2). A fatal that is not unavailability ends the turn.
+        if isinstance(e, LLMFatalError) and not getattr(e, "unavailable", False):
+            raise
         print(f"[DEBUG][PLAN_CHATTER] failed: {e!r}")
         narrative = (
             f"I executed a {len(plan.steps)}-step plan for your query: {plan.intent_summary}.\n\n"

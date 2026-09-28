@@ -356,6 +356,38 @@ def test_the_turn_chip_marks_a_partial_cost():
     assert "t.turn_cost_partial" in tpl and '"~$"' in tpl
 
 
+def _cost_chip(turn: dict) -> str:
+    """Run the template's own costChip on ``turn`` with node (CI-COVERAGE gap 9: it was covered by a grep only)."""
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    tpl = (SCRIPTS.parent / "templates" / "report.html.tpl").read_text(encoding="utf-8")
+    fn = re.search(r"^function costChip\(t\)\{.*?^\}", tpl, re.S | re.M).group(0)
+    script = f"{fn}\nprocess.stdout.write(costChip({json.dumps(turn)}));"
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, check=True, timeout=30).stdout
+
+
+@pytest.mark.parametrize("turn, chip", [
+    ({"turn_cost": 0.51, "turn_cost_partial": False}, '<span class="rchip">$0.5100</span>'),
+    ({"turn_cost": 0.51, "turn_cost_partial": True}, '<span class="rchip">~$0.5100</span>'),
+    ({"cost": 0.25}, '<span class="rchip">$0.2500</span>'),
+    ({"turn_cost": 0.0, "cost": 9.0}, '<span class="rchip">$0.0000</span>'),
+], ids=["summed", "summed-floor", "engine-only", "summed-wins"])
+def test_the_cost_chip_renders_the_summed_cost_and_marks_a_floor(turn, chip):
+    out = _cost_chip(turn)
+    assert out == f'<div class="chipline">{chip}</div>'
+
+
+def test_the_cost_chip_says_a_model_fell_back_and_is_empty_with_no_cost():
+    assert 'a model fell back' in _cost_chip({"turn_cost": 0.1, "fell_back": True})
+    assert _cost_chip({}) == ""
+    assert _cost_chip({"turn_cost": None, "cost": None}) == ""
+
+
 def test_the_entry_field_map_is_actually_used(tmp_path):
     """The constant was declared and then never referenced, which is how it came
     to disagree with the code beside it. Naming a field it does not carry must

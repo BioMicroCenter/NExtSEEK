@@ -39,12 +39,27 @@ MODEL_UNAVAILABLE = (
 )
 MODEL_UNAVAILABLE_REASON = "model_unavailable"
 
+# Operator-approved (2026-09-28, D8/D9): what the user is told when the turn could not reach a
+# model because the bedrock-proxy is not set up (it has no bearer token). Asking again cannot
+# help, so it is not the "unavailable" text, and the reason tells a run to count it apart.
+CC_MISCONFIGURED = (
+    "Nessie's AI model service is not set up correctly on this server, so I could not answer. "
+    "Asking again will not help; please tell the NExtSEEK team."
+)
+CC_MISCONFIGURED_REASON = "cc_misconfigured"
+# The bedrock-proxy's own answer when it has no token (NessieAI/docker/bedrock-proxy/app/proxy.py,
+# a 500), which Claude Code quotes in its error text after falling back on it.
+_PROXY_NO_TOKEN = "proxy misconfigured: no bearer token"
+
 # Claude Code's own text when the model could not be reached: "API Error: 503 Service
 # Unavailable...", "API Error: Repeated 529 Overloaded errors...", "API Error: Request
-# rejected (429)...", "Request timed out". A result frame's ``api_error_status`` of 429
-# or any 5xx says the same thing.
+# rejected (429)...", "Request timed out", and, with no HTTP status at all (the proxy down
+# or absent, 2026-09-28), "API Error: Connection refused ... (ECONNREFUSED)", "API Error:
+# Can't reach the API server ... (ENOTFOUND)" or "API Error: Connection error.". A result
+# frame's ``api_error_status`` of 429 or any 5xx says the same thing.
 _MODEL_UNAVAILABLE_TEXT = re.compile(
-    r"API Error: (?:5\d\d\b|Repeated 529\b|Request rejected \(429\))|^\s*Request timed out\b"
+    r"API Error: (?:5\d\d\b|Repeated 529\b|Request rejected \(429\)|Connection\b|Can't reach the API server)"
+    r"|^\s*Request timed out\b"
 )
 
 
@@ -400,6 +415,14 @@ class CCStreamTranslator:
         if is_error:
             detail = str(payload.get("result") or payload.get("error") or payload.get("subtype")
                          or "container error")
+            if _PROXY_NO_TOKEN in detail:
+                # A setup fault, not an outage: checked before the 5xx test it would also pass.
+                return [(
+                    "query_error",
+                    {"error": CC_MISCONFIGURED, "reason": CC_MISCONFIGURED_REASON, "detail": detail,
+                     "agent": "container_cc", "cc_session_id": self.session_id,
+                     "model_fallback": self.model_fallback},
+                )]
             if _model_unavailable(payload, detail):
                 # The model could not be reached: the user gets the approved plain text,
                 # and Claude Code's own words stay in ``detail`` for whoever triages it.

@@ -10,11 +10,12 @@ The rule pinned here, in ``_call_with_recovery`` and ``tool_loop.call_tools``:
 
 * a timeout, an empty body and a 503 are fallback-eligible;
 * on any of them the call moves to the next provider, ONCE;
-* when that provider fails too the failure is final (``LLMFatalError`` for a 503 or an
-  empty body, the ``LLMTimeoutError`` itself for a timeout, which the parser maps to
-  ``transport_timeout``);
-* the move adds no wait: a timeout's retry runs on ``timeout_retry_seconds`` whether it
-  goes to the same provider or the next, so the parser's worst case stays 35 s + 60 s;
+* when that provider fails too the failure is final: ``LLMFatalError`` with
+  ``unavailable=True`` whatever the failure, a timeout included since 2026-09-28 (F5.2;
+  it used to leave as ``LLMTimeoutError``). With no chain, a final timeout is still the
+  ``LLMTimeoutError`` itself, which the parser maps to ``transport_timeout``;
+* the move adds no wait: the moved call runs on ``timeout_retry_seconds`` whatever the
+  failure was, so the parser's worst case stays 35 s + 60 s;
 * a non-eligible error (a bare ``LLMError`` such as a 400) never moves.
 """
 from __future__ import annotations
@@ -254,12 +255,16 @@ def test_empty_then_empty_is_fatal():
     assert fallback.calls == ["fallback-1"]
 
 
-def test_timeout_then_timeout_raises_the_timeout_after_two_calls():
-    """The parser's honest failure depends on seeing LLMTimeoutError, not a fatal."""
+def test_timeout_then_timeout_is_an_unavailable_fatal_after_two_calls():
+    """F5.2 (2026-09-28): both models timing out ends the turn like a double 503."""
     primary = _Client("bedrock", [LLMTimeoutError("t1")])
     fallback = _Client("gcp", [LLMTimeoutError("t2"), '{"mode": "graph_query"}'])
-    with pytest.raises(LLMTimeoutError):
+    with pytest.raises(LLMFatalError) as excinfo:
         _structured(_Config(primary, fallback), primary, timeout_seconds=35, timeout_retry_seconds=60)
+    assert excinfo.value.unavailable is True and excinfo.value.reason == "timeout"
+    assert excinfo.value.model_fallback == [
+        {"agent": "parser", "from": "primary-model", "to": "fallback-1", "reason": "timeout"},
+    ]
     assert primary.calls == ["primary-model"]
     assert fallback.calls == ["fallback-1"]
 
@@ -267,8 +272,9 @@ def test_timeout_then_timeout_raises_the_timeout_after_two_calls():
 def test_503_then_a_timeout_on_the_fallback_is_final():
     primary = _Client("bedrock", [LLMServiceUnavailableError("503")])
     fallback = _Client("gcp", [LLMTimeoutError("t"), '{"mode": "graph_query"}'])
-    with pytest.raises(LLMTimeoutError):
+    with pytest.raises(LLMFatalError) as excinfo:
         _structured(_Config(primary, fallback), primary)
+    assert excinfo.value.unavailable is True and excinfo.value.reason == "timeout"
     assert fallback.calls == ["fallback-1"]
     assert primary.calls == ["primary-model"]
 
@@ -349,19 +355,30 @@ def test_the_parser_step_moves_on_a_timeout(parser_mod):
     assert (plan.metadata or {}).get("failure") is None
 
 
-def test_the_parser_step_keeps_its_honest_failure_when_both_time_out(parser_mod):
+def test_the_parser_step_ends_the_turn_when_both_time_out(parser_mod):
+    """T1 (2026-09-28): both models timing out is "tried two" (the orchestrator's fatal
+    handler), not the parser's own transport_timeout plan."""
     primary = _Client("bedrock", [LLMTimeoutError("t1")])
     fallback = _Client("gcp", [LLMTimeoutError("LLM call timed out after 60 seconds")])
-    plan = parser_mod.parser_agent(object(), _parser_config(primary, fallback), "q", {})
-    assert plan.mode == "unsupported"
-    assert plan.metadata["failure"] == "transport_timeout"
-    assert "temporary system fault" in plan.notes
+    with pytest.raises(LLMFatalError) as excinfo:
+        parser_mod.parser_agent(object(), _parser_config(primary, fallback), "q", {})
+    assert excinfo.value.unavailable is True and excinfo.value.model_fallback
     assert len(primary.calls) + len(fallback.calls) == 2
 
 
+def test_the_parser_step_keeps_its_honest_failure_with_no_chain(parser_mod):
+    """PLANNER_TIMEOUT_REPLY stays for the no-chain profiles: the same provider timed out twice."""
+    primary = _Client("bedrock", [LLMTimeoutError("t1"), LLMTimeoutError("t2")])
+    plan = parser_mod.parser_agent(object(), _parser_config(primary, None), "q", {})
+    assert plan.mode == "unsupported"
+    assert plan.metadata["failure"] == "transport_timeout"
+    assert "temporary system fault" in plan.notes
+    assert len(primary.calls) == 2
+
+
 def test_the_chatter_step_turns_a_final_timeout_into_its_busy_reply():
-    """call_llm_text now raises LLMTimeoutError after the move; the chatter must catch
-    it with LLMFatalError rather than let it escape as an internal error."""
+    """call_llm_text raises LLMFatalError when both models time out (and LLMTimeoutError with
+    no chain); the chatter catches both and answers with the query it already ran."""
     from chat_nextseek.agents import chatter
 
     src = inspect.getsource(chatter)
@@ -374,7 +391,7 @@ def test_the_chatter_step_turns_a_final_timeout_into_its_busy_reply():
     config.AGENT_MODEL_CATALOG = {
         "anth:current": {"chatter": {"provider": "anth", "model": "fallback-1", "thinking_level": None}},
     }
-    with pytest.raises(LLMTimeoutError):
+    with pytest.raises(LLMFatalError):
         _text(config, primary)
 
 
@@ -671,14 +688,18 @@ def test_the_tool_loop_has_a_wall_clock_and_its_retry_gets_the_retry_window():
 
 
 def test_the_tool_loop_wall_clock_defaults():
+    """The windows come from the agent's row of call_budgets.CALL_BUDGETS (test_call_budgets.py);
+    a loop the table does not name keeps 120 s and 120 s."""
     from chat_nextseek import tool_loop
+    from chat_nextseek.schemas.call_budgets import TOOL_LOOP_DEFAULT_BUDGET
 
     params = inspect.signature(tool_loop.call_tools).parameters
-    assert params["timeout_seconds"].default == 120
-    # A move regenerates the whole output (a write_samplesheet call can be thousands of
-    # tokens), so the retry gets the same window, not a shorter one.
-    assert params["timeout_retry_seconds"].default == 120
+    assert params["timeout_seconds"].default is None
+    assert params["timeout_retry_seconds"].default is None
     assert params["timeout_retries"].default == 1
+    # A move regenerates the whole output (a write_samplesheet call can be thousands of
+    # tokens), so an unnamed loop's move gets the same window, not a shorter one.
+    assert (TOOL_LOOP_DEFAULT_BUDGET.first_try_s, TOOL_LOOP_DEFAULT_BUDGET.moved_s) == (120, 120)
 
 
 @pytest.mark.parametrize("empty", [
@@ -748,7 +769,7 @@ def test_the_tool_loop_ledger_names_the_move(tmp_path):
     assert [(e["model"], e["outcome"]) for e in entries] == [(OPUS, "service_unavailable"), (SONNET, "ok")]
     assert "fallback_from" not in entries[0]
     assert entries[1]["fallback_from"] == OPUS and entries[1]["fallback_reason"] == "unavailable"
-    assert entries[1]["timeout_seconds"] == 120
+    assert entries[1]["timeout_seconds"] == 60, "the follow-up's moved-call budget"
 
 
 class _CacheRecordingToolClient(_SlowToolClient):

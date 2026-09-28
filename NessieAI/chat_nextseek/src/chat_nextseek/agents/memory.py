@@ -213,8 +213,8 @@ def _format_memory_coder_answer(
     ]
 
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
-    # Through the recovery ladder on the chatter's chain, with the chatter's wall clock
-    # (300 s, then 180 s): it used to call the SDK directly and never moved.
+    # Through the recovery ladder on the chatter's chain, with the chatter's wall clocks
+    # (call_budgets.CALL_BUDGETS): it used to call the SDK directly and never moved.
     answer = call_llm_text(
         config,
         messages=messages,
@@ -224,8 +224,6 @@ def _format_memory_coder_answer(
         log_label="memory_coder_chatter",
         temperature=0,
         thinking_budget=chatter_budget,
-        timeout_seconds=300,
-        timeout_retry_seconds=180,
         usage_label="MEMORY_CODER_CHATTER",
     )
     log_prompt(
@@ -298,8 +296,6 @@ def _legacy_memory_agent_answer(config: ChatConfig, user_query: str, result_bund
             agent_label="memory",
             temperature=0,
             thinking_budget=memory_budget,
-            timeout_seconds=300,
-            timeout_retry_seconds=180,
             usage_label="MEMORY",
         )
         print("[DEBUG][MEMORY][MEMORY] Answer:", answer)

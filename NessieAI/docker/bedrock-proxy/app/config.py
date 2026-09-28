@@ -35,6 +35,15 @@ _READ_TIMEOUT = 600.0
 _WRITE_TIMEOUT = 60.0
 _POOL_TIMEOUT = 10.0
 
+# How long a STREAMED invoke may wait for Bedrock's response headers before the relay
+# answers 504 (2026-09-28, operator ruling D6). Claude Code falls back to its second model
+# on a 504 but never on a hang, and its own per-request limit (API_TIMEOUT_MS, 60 s) fires
+# first, so this sits below it. A streamed answer sends its headers when the stream opens,
+# so only a stalled upstream waits this long; once headers arrive the 600 s read timeout
+# above governs the stream. A plain /invoke sends its headers only when the whole answer is
+# done, so it keeps the 600 s.
+_STREAM_HEADERS_TIMEOUT = 45.0
+
 
 @dataclass(frozen=True)
 class ProxyConfig:
@@ -53,6 +62,7 @@ class ProxyConfig:
     read_timeout: float = _READ_TIMEOUT
     write_timeout: float = _WRITE_TIMEOUT
     pool_timeout: float = _POOL_TIMEOUT
+    stream_headers_timeout: float = _STREAM_HEADERS_TIMEOUT
 
     @property
     def upstream_host(self) -> str:

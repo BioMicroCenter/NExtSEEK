@@ -140,8 +140,8 @@ and in pytest's warnings summary on a direct run.
   beside the ceiling, for information, and the ceiling does not count it. At
   most four chat POSTs leave the page; the browser aborts a fifth and the lane
   fails.
-- It adds about 4 to 5 minutes to a rebuild's CI. Each NS turn may take 300 s,
-  the CC turn 240 s, and the lane stops asking questions at 720 s.
+- It adds about 4 to 5 minutes to a rebuild's CI. The lane lets each NS turn take
+  300 s and the CC turn 240 s, and it stops asking questions at 720 s.
 
 ### Prerequisites
 

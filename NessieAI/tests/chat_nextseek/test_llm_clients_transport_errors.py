@@ -32,6 +32,7 @@ from chat_nextseek.llm_clients import (
     GeminiClient,
     LLMAPIConnectionError,
     LLMError,
+    LLMModelUnusableError,
     LLMRateLimitError,
     LLMServiceUnavailableError,
     LLMTimeoutError,
@@ -146,6 +147,26 @@ def test_a_gemini_429_whose_text_holds_a_5xx_number_is_still_a_rate_limit():
 def test_a_gemini_503_is_still_unavailable():
     with pytest.raises(LLMServiceUnavailableError):
         _gemini_chat(_gemini(_GenaiError(503, "UNAVAILABLE", "The model is overloaded")))
+
+
+@pytest.mark.parametrize("exc", [
+    _GenaiError(404, "NOT_FOUND", "models/gemini-9-flash is not found for API version v1beta"),
+    RuntimeError("404 NOT_FOUND. models/gemini-9-flash is not found"),
+    RuntimeError("The model gemini-1.0-pro is no longer available"),
+], ids=["code", "text", "retired"])
+def test_a_gemini_404_is_a_refused_model(exc):
+    """D10 (2026-09-28): an unknown or retired Gemini id is model_unusable, like a Bedrock refusal, so a wrong id
+    shows in model_fallback as the id's fault (run 2's gemini-3.8-flash), not as the provider being down. It still
+    moves: LLMModelUnusableError is a kind of LLMServiceUnavailableError."""
+    with pytest.raises(LLMModelUnusableError) as excinfo:
+        _gemini_chat(_gemini(exc))
+    assert isinstance(excinfo.value, LLMServiceUnavailableError)
+
+
+def test_a_gemini_503_is_not_a_refused_model():
+    with pytest.raises(LLMServiceUnavailableError) as excinfo:
+        _gemini_chat(_gemini(_GenaiError(503, "UNAVAILABLE", "The model is overloaded")))
+    assert not isinstance(excinfo.value, LLMModelUnusableError)
 
 
 def test_a_gemini_400_is_still_a_bare_error():
