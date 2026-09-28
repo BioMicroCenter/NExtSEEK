@@ -302,9 +302,138 @@ def test_deploy_checks_prints_in_a_fixed_order(monkeypatch):
     monkeypatch.setattr(dc, "check_cc_agent_runtime", lambda c, n: ok("cc-agent runtime"))
     monkeypatch.setattr(dc, "check_cc_models", lambda r, e, c: (
         ok("bedrock-proxy allow list"), ok("CC fallback wiring")))
+    monkeypatch.setattr(dc, "check_model_reach", lambda r, e: ok("model ids reachable"))
     names = [r.name for r in dc.deploy_checks(Path("/repo"), {}, "nextseek", Path("/repo"))]
     assert names == ["app image code", "cc-agent runtime", "bedrock-proxy allow list",
-                     "CC fallback wiring"]
+                     "CC fallback wiring", "model ids reachable"]
+
+
+# ---- model ids reachable ----------------------------------------------------------------
+
+def _use(model, path, status, users=("parser",), why="asked"):
+    return {"id": model, "path": path, "credential": "GCP_API_KEY" if path == "gemini"
+            else "AWS_BEARER_TOKEN_BEDROCK", "users": list(users), "status": status, "why": why}
+
+
+def _app_report(*uses):
+    return {"mode": "mixed", "profile": "default", "catalog": "/app/x.json", "moves": 1,
+            "uses": list(uses)}
+
+
+def _exec_answering(app_report, proxy_results=None, asked=None):
+    def fake_exec(service, command, project_dir, env, stdin=None, **kwargs):
+        request = json.loads(command[-1])
+        if asked is not None:
+            asked.append((service, command, request, stdin))
+        if service == "nextseek":
+            return "noise\nMODEL-REACH " + json.dumps(app_report) + "\n"
+        if proxy_results is None:
+            raise validate.DockerOpsError('service "bedrock-proxy" is not running')
+        return "MODEL-REACH " + json.dumps({"results": proxy_results}) + "\n"
+    return fake_exec
+
+
+def test_model_reach_pipes_the_probe_into_the_app_then_the_proxy(monkeypatch):
+    asked: list = []
+    report = _app_report(_use("gemini-3.5-flash", "gemini", "ok", ["entity", "fallback of memory"]),
+                         _use("us.anthropic.claude-opus-4-8", "proxy", "pending", ["CC main"]))
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(
+        report, {"us.anthropic.claude-opus-4-8": ["ok", "authorized"]}, asked))
+
+    result = dc.check_model_reach(Path("/repo"), {})
+
+    (app_call, proxy_call) = asked
+    source = Path(dc.model_reach_probe.__file__).read_bytes()
+    assert app_call[0] == "nextseek" and app_call[1][:5] == ["uv", "run", "--no-sync", "python", "-"]
+    assert app_call[2] == {"role": "app", "root": "/app"} and app_call[3] == source
+    assert proxy_call[0] == "bedrock-proxy" and proxy_call[1][:2] == ["python", "-"]
+    assert proxy_call[2] == {"role": "proxy", "ids": ["us.anthropic.claude-opus-4-8"]}
+    assert proxy_call[3] == source
+    assert result.name == "model ids reachable" and result.ok is True and not result.warn
+    assert "gemini-3.5-flash via app GCP_API_KEY ok (entity; fallback of memory)" in result.detail
+    assert "us.anthropic.claude-opus-4-8 via bedrock-proxy token ok (CC main)" in result.detail
+
+
+def test_a_refused_id_is_red_and_says_what_a_paid_run_would_grade(monkeypatch):
+    report = _app_report(
+        _use("us.anthropic.claude-opus-5-5", "bedrock", "access denied", ["parser", "report_writer"],
+             "entitlementAvailability NOT_AVAILABLE"),
+        _use("gemini-3.8-flash", "gemini", "ok", ["entity"]))
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(report))
+
+    result = dc.check_model_reach(Path("/repo"), {})
+
+    assert result.ok is False
+    assert result.detail.startswith("NOT REACHABLE: us.anthropic.claude-opus-5-5 via app Bedrock token: "
+                                    "access denied (entitlementAvailability NOT_AVAILABLE; parser, "
+                                    "report_writer)")
+    assert "grade the fallback" in result.detail and "before any paid run" in result.detail
+    assert "gemini-3.8-flash via app GCP_API_KEY ok (entity)" in result.detail
+
+
+@pytest.mark.parametrize("status", ["not found", "no credential"])
+def test_every_red_mark_fails_the_line(monkeypatch, status):
+    report = _app_report(_use("gemini-9", "gemini", status, ["entity"]))
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(report))
+    assert dc.check_model_reach(Path("/repo"), {}).ok is False
+
+
+def test_an_id_that_could_not_be_settled_is_yellow_not_green(monkeypatch):
+    report = _app_report(_use("us.anthropic.claude-opus-4-7", "bedrock", "unknown", ["parser"],
+                              "the token may not read model metadata"),
+                         _use("gemini-3.5-flash", "gemini", "ok", ["entity"]))
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(report))
+
+    result = dc.check_model_reach(Path("/repo"), {})
+
+    assert result.ok is True and result.warn is True
+    assert result.detail.startswith("NOT PROVEN: us.anthropic.claude-opus-4-7 via app Bedrock token: "
+                                    "unknown (the token may not read model metadata; parser)")
+
+
+def test_a_stopped_proxy_leaves_the_cc_ids_unproven(monkeypatch):
+    report = _app_report(_use("gemini-3.5-flash", "gemini", "ok", ["entity"]),
+                         _use("us.anthropic.claude-opus-4-8", "proxy", "pending", ["CC main"]))
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(report, proxy_results=None))
+
+    result = dc.check_model_reach(Path("/repo"), {})
+
+    assert result.ok is True and result.warn is True
+    assert "us.anthropic.claude-opus-4-8 via bedrock-proxy token: unknown" in result.detail
+    assert "is not running" in result.detail
+
+
+def test_an_app_that_cannot_run_the_probe_is_red(monkeypatch):
+    def fake_exec(service, command, project_dir, env, stdin=None, **kwargs):
+        raise validate.DockerOpsError('service "nextseek" is not running')
+    monkeypatch.setattr(dc, "compose_exec", fake_exec)
+    result = dc.check_model_reach(Path("/repo"), {})
+    assert result.ok is False and "is not running" in result.detail
+
+
+def test_an_app_that_cannot_derive_the_list_is_red(monkeypatch):
+    monkeypatch.setattr(dc, "compose_exec", _exec_answering(
+        {"error": "could not derive the model list: ValueError: no _FALLBACK_CHAINS"}))
+    result = dc.check_model_reach(Path("/repo"), {})
+    assert result.ok is False and "no _FALLBACK_CHAINS" in result.detail
+
+
+def test_an_app_that_prints_no_report_is_red(monkeypatch):
+    monkeypatch.setattr(dc, "compose_exec", lambda *a, **k: "Traceback: boom\n")
+    result = dc.check_model_reach(Path("/repo"), {})
+    assert result.ok is False and "no model report" in result.detail
+
+
+def test_a_long_user_list_is_shortened():
+    users = ["a", "b", "c", "d", "e", "f", "fallback of g", "fallback of h"]
+    assert dc._users_text(users) == "a, b, c, d +2; fallback of g, h"
+
+
+def test_users_are_grouped_runtime_roles_first_and_every_baml_function_named():
+    users = ["entity", "fallback of memory", "BAML ClassifyQuery", "BAML JudgeRouterAnswer",
+             "BAML JudgeUITranscript", "BAML RouteQuery", "BAML Summarize", "router fallback"]
+    assert dc._users_text(users) == ("router fallback; entity; fallback of memory; BAML ClassifyQuery, "
+                                     "JudgeRouterAnswer, JudgeUITranscript, RouteQuery, Summarize")
 
 
 @pytest.mark.parametrize("probe", [dc.CC_RUNTIME_PROBE, dc.PROXY_PROBE, dc.CC_WIRING_PROBE,

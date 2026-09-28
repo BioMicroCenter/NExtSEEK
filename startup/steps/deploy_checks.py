@@ -9,12 +9,14 @@ images were built from (``checkout``). The expected value always comes from that
 tree, never from a constant in this file, so a later pin bump needs no edit here,
 and every failure names the value it expected and the rebuild that fixes it.
 
-All four are advisory, like the rest of stack health (``startup/CLAUDE.md``):
+All five are advisory, like the rest of stack health (``startup/CLAUDE.md``):
 none of them changes what the smoke suite requests, so a failure is printed,
 recorded in the run record, and makes ``rebuild`` exit non-zero at the end.
 None makes a model call. The one that starts a container
 (``check_cc_agent_runtime``) replaces the image's entrypoint, so the agent never
-runs, and gives it no network and no mounts.
+runs, and gives it no network and no mounts. ``check_model_reach`` is the one
+that leaves the box: free metadata GETs to Gemini and Bedrock
+(``startup/steps/model_reach_probe.py``).
 """
 from __future__ import annotations
 
@@ -27,6 +29,7 @@ import tomllib
 from pathlib import Path
 
 from startup.lib.docker_ops import DockerOpsError, compose_exec, image_exists
+from startup.steps import model_reach_probe
 from startup.steps.validate import HealthResult, _cc_agent_image
 
 # The files the expected values are read from, repo-relative. Pinned to the real
@@ -503,6 +506,152 @@ def check_app_code(repo_root: Path, env: dict[str, str], checkout: Path) -> Heal
     return app_code_result(report)
 
 
+# --------------------------------------------------------------------------- #
+# every model id the deployed config calls, reached with its own credentials
+# --------------------------------------------------------------------------- #
+
+MODEL_REACH = "model ids reachable"
+# Where the app image holds the tree the probe derives the ids from.
+APP_ROOT = "/app"
+_PATH_LABELS = {
+    model_reach_probe.BEDROCK: "app Bedrock token",
+    model_reach_probe.PROXY: "bedrock-proxy token",
+    model_reach_probe.OTHER: "app (not asked)",
+}
+_USERS_SHOWN = 4
+
+
+def _first(items: list[str]) -> str:
+    more = f" +{len(items) - _USERS_SHOWN}" if len(items) > _USERS_SHOWN else ""
+    return ", ".join(items[:_USERS_SHOWN]) + more
+
+
+def _users_text(users: list[str]) -> str:
+    """Who calls an id, short: the router and CC roles, the NS agents, the agents it
+    is the fallback of, then every BAML function (there are few, and the router's is
+    the one that matters)."""
+    fb, baml = "fallback of ", "BAML "
+    roles = [u for u in users if " " in u and not u.startswith((fb, baml))]
+    agents = [u for u in users if " " not in u]
+    fallback = [u[len(fb):] for u in users if u.startswith(fb)]
+    functions = [u[len(baml):] for u in users if u.startswith(baml)]
+    return "; ".join(part for part in (
+        ", ".join(roles),
+        _first(agents) if agents else "",
+        fb + _first(fallback) if fallback else "",
+        baml + ", ".join(functions) if functions else "",
+    ) if part)
+
+
+def _via(use: dict) -> str:
+    label = _PATH_LABELS.get(use["path"]) or f"app {use.get('credential')}"
+    return f"{use['id']} via {label}"
+
+
+def _use_line(use: dict, *, why: bool) -> str:
+    if why:
+        return f"{_via(use)}: {use['status']} ({use.get('why')}; {_users_text(use['users'])})"
+    return f"{_via(use)} {use['status']} ({_users_text(use['users'])})"
+
+
+def model_reach_result(report: dict) -> HealthResult:
+    """Red when any id is not found, refused or has no credential; yellow when one
+    could not be settled for free; green when every id answered ok."""
+    uses = list(report.get("uses") or [])
+    red = [u for u in uses if u.get("status") in model_reach_probe.RED]
+    unsettled = [u for u in uses if u.get("status") != model_reach_probe.OK and u not in red]
+    count = len({u["id"] for u in uses})
+    listing = "; ".join(_use_line(u, why=False) for u in uses)
+    about = f"{count} ids, profile {report.get('profile')} (mode {report.get('mode')})"
+    if red:
+        return HealthResult(
+            name=MODEL_REACH, ok=False,
+            detail=(f"NOT REACHABLE: {'; '.join(_use_line(u, why=True) for u in red)}. A call to "
+                    "a refused id moves to its fallback model without a word, so a paid run "
+                    "would grade the fallback. Fix the id, the credential or the model access "
+                    f"before any paid run. All {about}: {listing}"),
+        )
+    if unsettled:
+        return HealthResult(
+            name=MODEL_REACH, ok=True, warn=True,
+            detail=(f"NOT PROVEN: {'; '.join(_use_line(u, why=True) for u in unsettled)}. The "
+                    "free metadata calls could not settle these; before a paid run, settle them "
+                    f"or accept them by name. All {about}: {listing}"),
+        )
+    return HealthResult(
+        name=MODEL_REACH, ok=True,
+        detail=(f"every id the deployed config calls answered, each with the credential its "
+                f"calls carry (free metadata calls; {about}): {listing}"),
+    )
+
+
+def _probe_source() -> bytes:
+    return Path(model_reach_probe.__file__).read_bytes()
+
+
+def _run_probe(repo_root: Path, env: dict[str, str], service: str, python: list[str],
+               request: dict) -> dict:
+    """Pipe the probe into ``python -`` in a running service. Raises DockerOpsError."""
+    out = compose_exec(service=service, command=[*python, "-", json.dumps(request)],
+                       project_dir=repo_root, env=env, stdin=_probe_source())
+    report = _marked_json(out, model_reach_probe.MARKER)
+    if not isinstance(report, dict):
+        tail = out.strip().splitlines()
+        raise DockerOpsError(f"the running {service} printed no model report"
+                             + (f" ({tail[-1][:160]})" if tail else ""))
+    return report
+
+
+def check_model_reach(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Whether every model id the deployed config would call can be reached with
+    the credentials its calls really carry, asked for free before any paid run.
+
+    Since fix F1 a refused or unknown model id moves the call to its fallback model
+    without a word, so a run meant to measure one model can silently grade another.
+    The id list is derived inside the running app from the deployed files and env
+    (the agent model catalog's active profile, the one fallback each call moves to,
+    the BAML clients the router and the CC summary name, the Container-CC model
+    map), never restated here, so a model switch needs no edit to this check. The
+    app's own ids are asked in the app container with its own Gemini key and
+    Bedrock token; the Container-CC ids in the bedrock-proxy, with the proxy's token.
+
+    ``ok`` proves: the credential is accepted, the id exists (Gemini ``models.get``;
+    an ACTIVE Bedrock inference profile or on-demand model), and for Bedrock the
+    account is authorized, entitled and the model available in the region, with a
+    Marketplace agreement in place (``GetFoundationModelAvailability``). It does NOT
+    prove that the credential may INVOKE the model (an IAM policy can allow the
+    reads and deny ``bedrock:InvokeModel``), that there is quota for it (a Gemini
+    project with no billing sees a preview model and gets a 429 on every call), or
+    that the request shape the app sends is accepted: only a paid call proves those.
+    """
+    try:
+        report = _run_probe(repo_root, env, APP_SERVICE, list(_APP_PYTHON),
+                            {"role": "app", "root": APP_ROOT})
+    except (DockerOpsError, OSError) as exc:
+        return HealthResult(name=MODEL_REACH, ok=False,
+                            detail=f"could not ask the running {APP_SERVICE}: {exc}")
+    if report.get("error") or not isinstance(report.get("uses"), list):
+        return HealthResult(name=MODEL_REACH, ok=False,
+                            detail=f"the running {APP_SERVICE}: {report.get('error') or 'no model list'}")
+    uses = report["uses"]
+    proxy_ids = sorted({u["id"] for u in uses if u.get("path") == model_reach_probe.PROXY})
+    if proxy_ids:
+        try:
+            results = _run_probe(repo_root, env, PROXY_SERVICE, ["python"],
+                                 {"role": "proxy", "ids": proxy_ids}).get("results") or {}
+            failure = None
+        except (DockerOpsError, OSError) as exc:
+            results, failure = {}, str(exc)
+        for use in uses:
+            if use.get("path") == model_reach_probe.PROXY:
+                answer = results.get(use["id"])
+                use["status"], use["why"] = (answer if isinstance(answer, list) and len(answer) == 2
+                                             else (model_reach_probe.UNKNOWN,
+                                                   f"could not ask the running {PROXY_SERVICE}: "
+                                                   f"{failure or 'no answer for this id'}"))
+    return model_reach_result(report)
+
+
 def deploy_checks(repo_root: Path, env: dict[str, str], compose_project_name: str,
                   checkout: Path) -> tuple[HealthResult, ...]:
     """Every check above, in the order stack health prints them."""
@@ -512,4 +661,5 @@ def deploy_checks(repo_root: Path, env: dict[str, str], compose_project_name: st
         check_cc_agent_runtime(checkout, compose_project_name),
         proxy,
         wiring,
+        check_model_reach(repo_root, env),
     )
