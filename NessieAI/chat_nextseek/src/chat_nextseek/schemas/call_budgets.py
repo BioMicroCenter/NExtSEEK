@@ -33,7 +33,9 @@ Gemini agent is Sonnet 4.6, which no local ledger has measured; Opus 4.7 on the 
 in 7.6 to 9.5 s, so the longest graph answer needs about 41 s there, and 90 s is about twice that.
 
 The model switch (Gemini 3.8 Flash, Opus 5.5 with thinking) must re-check the rows it changes: this is the one place
-to edit.
+to edit. Run 2 (2026-09-28) keeps every value the operator approved; they were sized on Gemini 3.5 Flash and on Opus
+4.7 without thinking, so run 2's own timings (ledger ``elapsed_ms``, moves with reason ``timeout``) are what re-checks
+them.
 """
 from __future__ import annotations
 
@@ -57,7 +59,7 @@ DEFAULT_BUDGET = CallBudget(first_try_s=300, moved_s=180)
 TOOL_LOOP_DEFAULT_BUDGET = CallBudget(first_try_s=120, moved_s=120)
 
 CALL_BUDGETS: dict[str, CallBudget] = {
-    # Gemini 3.5 Flash primaries, Sonnet 4.6 fallback.
+    # Gemini 3.8 Flash primaries (sized on Gemini 3.5 Flash), Sonnet 4.6 fallback.
     "entity": CallBudget(first_try_s=20, moved_s=90),
     "api": CallBudget(first_try_s=30, moved_s=90),
     "chatter": CallBudget(first_try_s=30, moved_s=90),
@@ -66,13 +68,14 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
     "graph": CallBudget(first_try_s=60, moved_s=90, op_move_reserve=False),
-    # Sonnet 4.6 primary (the legacy memory agent), Gemini 3.5 Flash fallback.
+    # Sonnet 4.6 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),
     # Opus primaries, Gemini 3.1 Pro fallback. The parser keeps its 35 s (ruling 9, 2026-09-25).
     "parser": CallBudget(first_try_s=35, moved_s=60, timeout_marks_model=False),
     "multi_parser": CallBudget(first_try_s=35, moved_s=60, timeout_marks_model=False),
     "report_writer": CallBudget(first_try_s=240, moved_s=180, op_move_reserve=False),
-    # The tool loops, per step. Opus 4.7 primary, Sonnet 4.6 fallback (the catalog's _fallback block).
+    # The tool loops, per step. Opus 5.5 primary (sized on Opus 4.7 without thinking), Sonnet 4.6 fallback (the
+    # catalog's _fallback block).
     "followup": CallBudget(first_try_s=60, moved_s=60),
     "pipeline_agent": CallBudget(first_try_s=120, moved_s=120),
 }

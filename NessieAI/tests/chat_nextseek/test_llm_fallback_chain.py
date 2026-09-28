@@ -343,16 +343,23 @@ class _ToolStub(_StubClient):
         raise AssertionError
 
 
+# The tool loops' primary per profile: run 2 (2026-09-28) moved the default profile to Opus 5.5 and left the
+# others on Opus 4.7.
+TOOL_LOOP_PRIMARY = {"default": "us.anthropic.claude-opus-5-5",
+                     "gcp:current": "us.anthropic.claude-opus-4-7",
+                     "anth:current": "us.anthropic.claude-opus-4-7"}
+
+
 @pytest.mark.parametrize("profile", ["default", "gcp:current", "anth:current"])
 @pytest.mark.parametrize("agent", ["followup", "pipeline_agent"])
 def test_the_tool_loops_move_to_sonnet_46_not_the_opus_that_failed(profile, agent):
-    """Their chains (where there is one) lead back to the same Bedrock Opus 4.7, and
-    Gemini has no tool surface; the catalog's _fallback block names Sonnet 4.6."""
+    """Their chains (where there is one) lead back to a Bedrock Opus, and Gemini has
+    no tool surface; the catalog's _fallback block names Sonnet 4.6."""
     bedrock = _ToolStub("bedrock")
     gcp = _StubClient("gcp")
     catalog = _normalized_shipped_catalog()
     primary = catalog[profile][agent]
-    assert (primary["provider"], primary["model"]) == ("anth", "us.anthropic.claude-opus-4-7")
+    assert (primary["provider"], primary["model"]) == ("anth", TOOL_LOOP_PRIMARY[profile])
     config = types.SimpleNamespace(
         LLM_CLIENT=None, LLM_MODEL="unused", LLM_CLIENTS={"anth": bedrock, "gcp": gcp},
         AGENT_MODEL_CATALOG=catalog, _CATALOG_KEY=profile,
@@ -379,7 +386,7 @@ def test_the_fallback_block_changes_no_profiles_primary():
         assert not config._resolve_catalog_key().startswith("_")
     config._CATALOG_KEY = "default"
     for agent in ("followup", "pipeline_agent"):
-        assert config.agent_config(agent)["model"] == "us.anthropic.claude-opus-4-7"
+        assert config.agent_config(agent)["model"] == TOOL_LOOP_PRIMARY["default"]
 
 
 def test_an_entry_for_the_model_that_just_failed_is_skipped():

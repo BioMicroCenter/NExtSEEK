@@ -119,3 +119,14 @@ def test_build_extraction_entry_single_and_multi_model(tmp_path):
     assert mixed["model"] == ["gemini-2.5-flash", "gemini-3.5-flash"]
     with pytest.raises(ValueError, match="no ledger lines"):
         ledger.build_extraction_entry("op", call_id="c3", ledger_line_start=9, ledger_line_end=10, path=path)
+
+
+@pytest.mark.parametrize("model", ["gemini-3.8-flash", "us.anthropic.claude-opus-5-5"])
+def test_run_2_models_carry_the_price_table_s_rates(model):
+    """The flat table here and chat_nextseek's dated table agree on run 2's models (on a day in 2026)."""
+    from datetime import date
+
+    from chat_nextseek.model_prices import rates_for
+
+    rates = rates_for(model, on=date(2026, 10, 1))
+    assert ledger.PRICES[model] == pytest.approx((rates["input"] / 1e6, rates["output"] / 1e6))
