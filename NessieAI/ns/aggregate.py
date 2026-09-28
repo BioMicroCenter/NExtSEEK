@@ -26,6 +26,7 @@ fallback starts only while at least ``MIN_REMAINING_S`` remain.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import re
 import time
@@ -364,7 +365,10 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
     vocabulary_late = False
     pool = ThreadPoolExecutor(max_workers=len(parts), thread_name_prefix="nextseek-aggregate")
     try:
-        prelude = pool.submit(_prelude, config, question, parts, exec_fn)
+        # Each task runs in a copy of the op's context, so it sees the op's call_scope: a model the
+        # prelude or one part found failing is not asked again by the others (a Context cannot be
+        # entered by two threads at once, hence one copy per task).
+        prelude = pool.submit(contextvars.copy_context().run, _prelude, config, question, parts, exec_fn)
         if _wait_until({prelude}, deadline):
             vocabulary_late = True
             notes.append(f"The question's vocabulary was not resolved within {OP_DEADLINE_S:.0f} s, so no part "
@@ -379,7 +383,8 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
             entity_out, uid_note, uid_reply_notes = prelude.result()  # an entity agent failure fails the op
             notes.extend(uid_reply_notes)
             futures = {
-                pool.submit(_run_part, k, text, label=f"Part {k}: " if multi else "", question=question,
+                pool.submit(contextvars.copy_context().run, _run_part, k, text,
+                            label=f"Part {k}: " if multi else "", question=question,
                             multi=multi, config=config, session=session, write_gate=write_gate, exec_fn=exec_fn,
                             entity_out=entity_out, uid_note=uid_note, started=started, deadline=deadline): k
                 for k, text in enumerate(parts, 1)

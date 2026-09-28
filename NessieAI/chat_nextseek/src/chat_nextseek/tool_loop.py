@@ -143,7 +143,11 @@ def call_tools(
         # A tool loop cannot fail over to a client with no tool surface: the conversation so
         # far is tool_use and tool_result blocks.
         accept=_tool_capable,
+        timeout_marks=_budget.timeout_marks_model,
     )
+    # A model that failed earlier in this turn (call_scope) is not asked again: a stalled
+    # Opus used to cost its first try on every step of a twelve-step build.
+    fo.begin()
     attempt_recorded = False  # whether this attempt has its ledger record yet
     timeout_attempts = 0
     _timeout = fo.window
@@ -167,6 +171,7 @@ def call_tools(
     attempt = -1
     while attempt + 1 < max_attempts:
         attempt += 1
+        fo.attempt = attempt
         t0 = time.perf_counter()
         attempt_recorded = False
         _timeout = fo.window
@@ -204,6 +209,7 @@ def call_tools(
                 f"attempt {attempt + 1}/{max_attempts}: {sue}"
             )
             _log(outcome, t0, err=sue)
+            fo.mark(reason)
             if fo.move(reason, why):
                 max_attempts += 1
                 continue
@@ -211,6 +217,7 @@ def call_tools(
         except LLMTimeoutError as te:
             timeout_attempts += 1
             _log("timeout", t0, err=te)
+            fo.mark("timeout")
             _recycle_client_connections(fo.client, agent_label)
             if timeout_attempts > timeout_retries:
                 raise _unavailable("timeout", te) from te
@@ -227,6 +234,7 @@ def call_tools(
             continue
         except LLMRateLimitError as rle:
             _log("throttle", t0, err=rle)
+            fo.mark("rate_limited")
             if fo.move("rate_limited", "rate limited"):
                 max_attempts += 1
                 continue
@@ -242,6 +250,7 @@ def call_tools(
             continue
         except LLMAPIConnectionError as ce:
             _log("error", t0, err=ce)
+            fo.mark("connection")
             _recycle_client_connections(fo.client, agent_label)
             if fo.move("connection", "connection error"):
                 max_attempts += 1

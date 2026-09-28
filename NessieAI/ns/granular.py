@@ -59,11 +59,18 @@ def run_op(
     neo4j_exec: Callable | None = None,
     outputs_dir: str | None = None,
 ) -> dict:
-    """Dispatch a granular op to its handler and return its result dict."""
+    """Dispatch a granular op to its handler and return its result dict.
+
+    The op runs inside its own ``call_scope`` (chat_nextseek), so a model that failed in one of its agent calls is
+    not asked again by the next one: a Gemini stall found by the entity agent sends the graph agent straight to its
+    fallback (operator ruling 2026-09-28, F3/F4).
+    """
     handler = _HANDLERS.get(op)
     if handler is None:
         raise OpValidationError(f"not a sidecar op: {op!r}")
-    return handler(args, config, session, write_gate, neo4j_exec, outputs_dir)
+    from chat_nextseek import call_scope
+    with call_scope.scope():
+        return handler(args, config, session, write_gate, neo4j_exec, outputs_dir)
 
 
 def _entity(args, config, session, write_gate, neo4j_exec, outputs_dir):

@@ -50,11 +50,19 @@ def test_nothing_else_moves(err):
 
 
 def test_every_reason_is_a_ledger_reason_and_every_ledger_reason_has_a_class():
-    assert sorted(reason for _, reason in FAILURE_CLASSES) == sorted(FALLBACK_REASONS)
+    assert sorted(reason for _, reason, _marks in FAILURE_CLASSES) == sorted(FALLBACK_REASONS)
+
+
+def test_every_outage_marks_the_model_and_an_empty_body_does_not():
+    """One strike (D4): the turn remembers a model after one timeout, 5xx, 429, connection error or refusal.
+    An empty body is one response, not the model failing."""
+    marks = {reason: marks for _, reason, marks in FAILURE_CLASSES}
+    assert marks == {"model_unusable": True, "empty": False, "unavailable": True, "rate_limited": True,
+                     "timeout": True, "connection": True}
 
 
 def test_a_subclass_is_matched_before_its_base():
-    classes = [cls for cls, _ in FAILURE_CLASSES]
+    classes = [cls for cls, _, _marks in FAILURE_CLASSES]
     for i, cls in enumerate(classes):
         for later in classes[i + 1:]:
             assert not issubclass(later, cls), f"{later.__name__} would never match after {cls.__name__}"

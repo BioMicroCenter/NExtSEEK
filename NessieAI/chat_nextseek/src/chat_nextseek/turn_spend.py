@@ -34,7 +34,7 @@ import functools
 import threading
 from typing import Any, Callable, Iterator, TypeVar
 
-from . import model_prices
+from . import call_scope, model_prices
 from .llm_clients import LLMAPIConnectionError, LLMError, LLMTimeoutError
 
 __all__ = ["TurnSpend", "current", "record_call", "collecting", "collects_turn", "turn_record", "cost_fields"]
@@ -91,8 +91,12 @@ class TurnSpend:
                "attempt": entry.get("attempt"), "outcome": entry.get("outcome")}
         with self._lock:
             if entry.get("fallback_from") is not None:
-                self.fallbacks.append({"agent": agent, "from": entry.get("fallback_from"), "to": model,
-                                       "reason": entry.get("fallback_reason")})
+                item = {"agent": agent, "from": entry.get("fallback_from"), "to": model,
+                        "reason": entry.get("fallback_reason")}
+                if entry.get("fallback_remembered"):
+                    # The turn's memory decided this move (call_scope): a skip, not a new failure.
+                    item["remembered"] = True
+                self.fallbacks.append(item)
             if resp is None:
                 if isinstance(err, LLMTimeoutError):
                     self.unobserved.append({**who, "why": "timed out: abandoned while it may still be billed"})
@@ -205,7 +209,7 @@ def collecting() -> Iterator[TurnSpend]:
 
 
 def collects_turn(fn: _F) -> _F:
-    """Decorate an NS turn entry point so its model calls are collected.
+    """Decorate an NS turn entry point so its model calls are collected, and its failed models remembered.
 
     An exception that escapes the turn (``run_pipeline_launch`` does not guard the
     pipeline agent, so a tool loop's ``LLMFatalError`` escapes it) takes the turn's
@@ -214,7 +218,8 @@ def collects_turn(fn: _F) -> _F:
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
-        with collecting() as spend:
+        # The turn's memory of failed models (call_scope) opens and closes with its cost collector.
+        with collecting() as spend, call_scope.scope():
             try:
                 return fn(*args, **kwargs)
             except BaseException as exc:
