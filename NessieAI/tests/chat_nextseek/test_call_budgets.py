@@ -62,6 +62,14 @@ def test_only_the_parsers_keep_a_timeout_from_marking_the_model():
     assert {agent for agent, b in CALL_BUDGETS.items() if not b.timeout_marks_model} == {"parser", "multi_parser"}
 
 
+def test_only_the_graph_agent_and_the_report_writer_skip_the_op_reserve():
+    """Operator ruling on review finding 1 (option A, 2026-09-28): inside a CC op their first try is not cut to leave
+    20 s for a move, because the move could not redo their work in 20 s (a 4k-token graph answer, a report)."""
+    assert {agent for agent, b in CALL_BUDGETS.items() if not b.op_move_reserve} == {"graph", "report_writer"}
+    assert call_budgets.DEFAULT_BUDGET.op_move_reserve is True
+    assert call_budgets.TOOL_LOOP_DEFAULT_BUDGET.op_move_reserve is True
+
+
 def test_an_agent_the_table_does_not_name_keeps_the_old_budgets():
     assert budget_for("report_coder") == CallBudget(300, 180)
     assert budget_for("planner") == call_budgets.DEFAULT_BUDGET

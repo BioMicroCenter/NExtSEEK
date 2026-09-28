@@ -6,7 +6,8 @@ Django then kept spending model calls nobody read for about ten minutes. Each op
 deadline (``ns/granular.run_op``), and every attempt's wall clock is cut to fit it:
 
 * a first try with a move still possible: at most what is left minus 20 s (the reserve for the move), never below
-  5 s, never more than what is left;
+  5 s, never more than what is left. Not for the graph agent and the report writer (operator ruling on review
+  finding 1, option A): the move could not redo their work in 20 s, so their first try gets what is left, as before;
 * the moved call, or a call with nowhere to move: at most what is left;
 * 2 s or less left before a call starts: no call; ``LLMFatalError`` with ``reason="deadline"`` (not unavailability:
   no model failed), and one ``deadline`` ledger record;
@@ -96,7 +97,8 @@ class _Config:
         self.AGENT_MODEL_CATALOG = {
             "anth:current": {a: {"provider": "anth", "model": SONNET, "thinking_level": None}
                              for a in ("entity", "graph", "api", "chatter")},
-            "gcp:current": {"parser": {"provider": "gcp", "model": PRO, "thinking_level": "high"}},
+            "gcp:current": {a: {"provider": "gcp", "model": PRO, "thinking_level": "high"}
+                            for a in ("parser", "report_writer")},
         }
 
 
@@ -130,8 +132,8 @@ def test_the_first_try_leaves_the_move_its_reserve(run, clock):
     windows, behaviour = run
     behaviour.update({FLASH: "stall", SONNET: 1.0})
     with _op_scope(55):
-        clock.now += 25  # 30 s left: the graph agent's 60 s first try is cut to 30 - 20 = 10 s
-        _call(_Config(), "graph", FLASH)
+        clock.now += 25  # 30 s left: the api agent's 30 s first try is cut to 30 - 20 = 10 s
+        _call(_Config(), "api", FLASH)
     assert windows == [(FLASH, 10), (SONNET, 20)]
 
 
@@ -140,7 +142,7 @@ def test_the_first_try_never_drops_below_5_s(run, clock):
     behaviour.update({FLASH: 1.0})
     with _op_scope(55):
         clock.now += 45  # 10 s left: 10 - 20 is below the floor
-        _call(_Config(), "graph", FLASH)
+        _call(_Config(), "api", FLASH)
     assert windows == [(FLASH, 5)]
 
 
@@ -177,10 +179,10 @@ def test_a_window_the_deadline_cut_is_recorded_and_its_timeout_marks_nothing(run
     with _op_scope(55) as scope:
         clock.now += 25  # 30 s left
         with pytest.raises(LLMFatalError) as excinfo:
-            _call(config, "graph", FLASH)
+            _call(config, "api", FLASH)
         # The op ran out of time on a cut window: the deadline, not a model outage (review, 2026-09-28).
         assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
-        assert str(excinfo.value).startswith("deadline: the op's 55 s ran out during the graph call")
+        assert str(excinfo.value).startswith("deadline: the op's 55 s ran out during the api call")
         entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
         assert [(e["model"], e["timeout_seconds"], e.get("deadline_capped")) for e in entries] == [
             (FLASH, 10, True), (SONNET, 20, True)]
@@ -224,7 +226,7 @@ def test_the_deadline_record_names_a_move_made_just_before_it(run, clock, tmp_pa
     with _op_scope(55):
         clock.now += 48  # 7 s left: a 5 s first try (the floor) stalls, and 2 s is too little for the move
         with pytest.raises(LLMFatalError) as excinfo:
-            _call(config, "graph", FLASH)
+            _call(config, "api", FLASH)
     assert windows == [(FLASH, 5)], "the fallback is never called"
     assert excinfo.value.reason == "deadline"
     entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
@@ -262,3 +264,64 @@ def test_the_tool_loop_ends_on_the_deadline_too(run, clock, monkeypatch):
             tool_loop.call_tools(config, messages=[], tools=[], system="s", model_name=OPUS, client=client,
                                  agent_label="followup")
     assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
+
+
+# --------------------------------------------------------------------------
+# Option A (operator ruling on review finding 1, 2026-09-28): no reserve for the graph agent and the report writer.
+# --------------------------------------------------------------------------
+
+def test_a_healthy_graph_answer_late_in_an_op_is_no_longer_cut(run, clock):
+    """entity and parser took 20 s: 35 s are left. A genuine 4k-token graph answer takes 30 to 40 s; the reserve cut
+    the graph agent to 15 s, then moved it to Sonnet with 20 s, which cannot redo it, and the op failed."""
+    windows, behaviour = run
+    behaviour.update({FLASH: 32.0})
+    with _op_scope(55):
+        clock.now += 20
+        assert _call(_Config(), "graph", FLASH).mode == FLASH
+    assert windows == [(FLASH, 35)], "what is left, as before F3-F5"
+
+
+def test_the_graph_agents_repair_calls_get_no_reserve_either(run, clock):
+    """The repair call runs on the same catalog key, so the same row: not cut to leave room for a move."""
+    windows, behaviour = run
+    behaviour.update({FLASH: 1.0})
+    config = _Config()
+    with _op_scope(55):
+        clock.now += 20
+        call_llm_structured(config, "q", _Plan, system="s", client=config.gcp, model_name=FLASH,
+                            agent_label="graph", log_label="graph_agent_repair")
+    assert windows == [(FLASH, 35)]
+
+
+def test_a_stalled_graph_agent_late_in_an_op_ends_on_the_deadline_not_as_an_outage(run, clock):
+    windows, behaviour = run
+    behaviour.update({FLASH: "stall", SONNET: 1.0})
+    with _op_scope(55) as scope:
+        clock.now += 20
+        with pytest.raises(LLMFatalError) as excinfo:
+            _call(_Config(), "graph", FLASH)
+        assert scope.failed(("gcp", FLASH)) is None, "a window the deadline cut marks nothing"
+    assert windows == [(FLASH, 35)], "no call starts after the deadline"
+    assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
+
+
+def test_the_report_writer_in_generate_submission_gets_what_is_left(run, clock):
+    """After 25 s of metadata and protocol preparation 30 s are left; the writer used to be cut to 10 s."""
+    windows, behaviour = run
+    behaviour.update({OPUS: 28.0})
+    with _op_scope(55):
+        clock.now += 25
+        assert _call(_Config(), "report_writer", OPUS).mode == OPUS
+    assert windows == [(OPUS, 30)], "its chain (Gemini 3.1 Pro) exists, and still no reserve is taken"
+
+
+@pytest.mark.parametrize("agent, model, fallback", [
+    ("entity", FLASH, SONNET), ("api", FLASH, SONNET), ("chatter", FLASH, SONNET), ("parser", OPUS, PRO),
+], ids=["entity", "api", "chatter", "parser"])
+def test_the_short_agents_keep_their_move_inside_the_op(run, clock, agent, model, fallback):
+    windows, behaviour = run
+    behaviour.update({model: "stall", fallback: 3.0})
+    with _op_scope(55):
+        clock.now += 25  # 30 s left: a first try of at most 10 s, then the move
+        assert _call(_Config(), agent, model).mode == fallback
+    assert windows == [(model, 10), (fallback, 20)]

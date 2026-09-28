@@ -143,7 +143,7 @@ def call_tools(
         # A tool loop cannot fail over to a client with no tool surface: the conversation so
         # far is tool_use and tool_result blocks.
         accept=_tool_capable,
-        timeout_marks=_budget.timeout_marks_model,
+        timeout_marks=_budget.timeout_marks_model, move_reserve=_budget.op_move_reserve,
     )
     # A model that failed earlier in this turn (call_scope) is not asked again: a stalled
     # Opus used to cost its first try on every step of a twelve-step build.

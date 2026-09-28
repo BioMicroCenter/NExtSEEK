@@ -574,7 +574,7 @@ class _Failover:
     """
 
     def __init__(self, config, *, agent_label, chain_label, client, model, thinking_budget,
-                 first_s, moved_s, log_prefix, accept=None, timeout_marks=True):
+                 first_s, moved_s, log_prefix, accept=None, timeout_marks=True, move_reserve=True):
         self.config = config
         self.agent_label = agent_label
         self.chain_label = chain_label
@@ -586,6 +586,7 @@ class _Failover:
         self.log_prefix = log_prefix
         self.accept = accept
         self.timeout_marks = timeout_marks
+        self.move_reserve = move_reserve  # False: under a deadline the first try keeps what is left (option A)
         self.scope = call_scope.current()
         self.attempt = 0  # the caller's attempt index, for a record written between attempts
         self.capped = False  # whether the scope's deadline cut this attempt's window
@@ -705,8 +706,9 @@ class _Failover:
         """The wall clock of the next attempt, cut to fit the scope's deadline (F4, ruling D5).
 
         With no deadline it is the call's own window. Under one, a first try that can still
-        move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), and any
-        attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
+        move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), unless
+        its agent's budget says ``op_move_reserve=False`` (the graph agent, the report writer),
+        and any attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
         starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
         """
         self.capped = False
@@ -724,7 +726,7 @@ class _Failover:
                 reason="deadline", unavailable=False,
             )
         window = self.window
-        if not self.switches and self._can_move():
+        if self.move_reserve and not self.switches and self._can_move():
             window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
         window = min(window, remaining)
         self.capped = window < self.window
@@ -776,6 +778,7 @@ def _call_with_recovery(
     is_empty: Callable[[Any], bool] | None = None,
     chain_key: str | None = None,
     timeout_marks_model: bool = True,
+    op_move_reserve: bool = True,
 ) -> tuple[bool, Any]:
     """The provider-recovery ladder shared by every LLM call in the deterministic path.
 
@@ -841,7 +844,7 @@ def _call_with_recovery(
         config, agent_label=agent_label, chain_label=chain_key or agent_label, client=client,
         model=model_name, thinking_budget=thinking_budget, first_s=timeout_seconds,
         moved_s=timeout_retry_seconds, log_prefix=f"[STRUCTURED_PARSE][{label}]",
-        timeout_marks=timeout_marks_model,
+        timeout_marks=timeout_marks_model, move_reserve=op_move_reserve,
     )
     fo.begin()
     empty = is_empty or _text_is_empty
@@ -1190,6 +1193,7 @@ def call_llm_structured(
         schema_name=_schema_tool_name(model),
         is_empty=_empty_body,
         timeout_marks_model=_budget.timeout_marks_model,
+        op_move_reserve=_budget.op_move_reserve,
     )
     if ok:
         return value
@@ -1265,5 +1269,6 @@ def call_llm_text(
         usage_label=usage_label,
         on_response=_on_response,
         timeout_marks_model=_budget.timeout_marks_model,
+        op_move_reserve=_budget.op_move_reserve,
     )
     return value if ok else ""

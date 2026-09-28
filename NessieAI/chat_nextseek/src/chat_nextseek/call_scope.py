@@ -19,8 +19,10 @@ whose primary and fallback both failed earlier fails at once without calling eit
   could show it healthy again; the next turn starts clean, on a fresh socket.
 * The deadline (F4, ruling D5): a Container-CC op opens its scope with one (55 s, inside the sidecar's 60 s;
   the aggregate op tightens it to its own 50 s), and the ladder cuts every attempt's wall clock to fit it. A first
-  try that can still move gets at most what is left minus ``MOVE_RESERVE_S``, never below ``MIN_FIRST_TRY_S``; the
-  moved call gets at most what is left; with ``DEADLINE_FLOOR_S`` or less left no call starts. An NS turn opens
+  try that can still move gets at most what is left minus ``MOVE_RESERVE_S``, never below ``MIN_FIRST_TRY_S``,
+  except for the agents whose budget says ``op_move_reserve=False`` (the graph agent and the report writer, whose
+  move could not redo their work in that time), which get what is left; the moved call gets at most what is left;
+  with ``DEADLINE_FLOOR_S`` or less left no call starts. An NS turn opens
   its scope with no deadline, so nothing is cut.
 * Threads: marks and reads take a lock. Only the caller's thread marks (the wall-clock worker threads never touch the
   scope, so an abandoned call that answers late cannot). The aggregate op's parts run on pool threads and get this
