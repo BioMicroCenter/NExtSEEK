@@ -97,6 +97,22 @@ Breaking one is a regression, not a refactor.
   it replaces the entrypoint with the image's `python`, so the agent never runs, with
   `--network none`, no mounts and `--rm`. Do not drop `--entrypoint`: the image's own
   entrypoint starts an agent. Tests: `startup/tests/test_deploy_checks.py`.
+- **A fifth advisory check, `model ids reachable`, asks for free whether every model id
+  the deployed config would call can be reached with the credentials its calls carry**
+  (`deploy_checks.check_model_reach`). A refused or unknown id moves a call to its
+  fallback model without a word, so a paid run could grade the fallback. The probe
+  (`startup/steps/model_reach_probe.py`, standard library only) is piped into `python -`
+  in the running app, where it derives the ids from the deployed catalog, fallback rules,
+  BAML clients and CC model map plus the container's env, and asks Gemini and Bedrock
+  about the app's own ids with the app's key and token; then into the running
+  bedrock-proxy for the Container-CC ids, with the proxy's token. It sends only metadata
+  GETs (Gemini `models.get`, Bedrock `GetInferenceProfile`, `GetFoundationModel`,
+  `GetFoundationModelAvailability`); never add an inference or token-count call to it.
+  Red (`✗ ... NOT REACHABLE`) for an id not found, refused or without a credential;
+  yellow (`! ... NOT PROVEN`) when the free calls could not settle one. `ok` does not
+  prove the credential may invoke the model or has quota: the docstring says what it
+  proves. The mirrors of `config.py`'s mode rules and the tool-loop agents are pinned
+  to the app's code by `startup/tests/test_model_reach.py`.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app

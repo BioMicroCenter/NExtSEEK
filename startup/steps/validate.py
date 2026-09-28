@@ -343,7 +343,9 @@ def deployed_checks(
 ) -> tuple[HealthResult, ...]:
     """Whether what runs is what the checkout builds: the app container's code,
     the cc-agent's node, Claude Code and chart library, the running proxy's allow
-    list, and the models a CC turn names (``startup/steps/deploy_checks.py``).
+    list, the models a CC turn names, and whether every model id the deployed
+    config calls can be reached with its own credentials
+    (``startup/steps/deploy_checks.py``).
     Advisory: the smoke suite requests none of them. Imported here, not at module
     scope, because that module takes ``HealthResult`` from this one."""
     from startup.steps import deploy_checks

@@ -195,7 +195,9 @@ never requests what those serve. Four more advisory checks
 running app container holds the checkout's tracked code, the cc-agent image has
 the node, Claude Code and chart library the checkout pins, the running
 bedrock-proxy allows exactly the checkout's model list, and the models a CC turn
-would name are ones that proxy allows.
+would name are ones that proxy allows. A fifth, `model ids reachable`, asks Gemini and
+Bedrock with free metadata calls whether every model id the deployed config would call
+can be reached with the credentials its calls carry (`startup/CLAUDE.md`).
 
 **The rebuild hook** runs that same command with the readiness gate on after a
 successful `./startup.sh rebuild` unless `--no-ci` is passed
