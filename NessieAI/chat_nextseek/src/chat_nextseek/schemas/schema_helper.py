@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from .. import turn_spend
 from ..config import ChatConfig
+from .call_budgets import DEFAULT_BUDGET, budget_for
 from ..helpers import log_prompt, log_usage, log_llm_call, safe_parse_json
 from ..llm_clients import (
     LLMAPIConnectionError,
@@ -22,32 +23,16 @@ from ..llm_clients import (
     pydantic_to_tool_schema,
 )
 
-# Default timeout for LLM calls (5 minutes)
-LLM_CALL_TIMEOUT_SECONDS = 300
-
-# Default ceiling for the timeout RETRY, i.e. the attempt that follows
-# `_recycle_client_connections`. A first attempt may legitimately be slow; a retry on a
-# freshly dialled socket should not be, and until now it simply inherited the 300 s above,
-# so one dead pooled socket could cost ten minutes before the call gave up.
+# The wall clocks of every call now come from one per-agent table, ``call_budgets.CALL_BUDGETS`` (operator
+# ruling 2026-09-28): the primary's first try, and the one call that moves to the fallback model, whatever made
+# the primary fail. These two names are that table's default row, kept for an agent it does not name (report_coder,
+# the plan-mode agents): the 300 s and 180 s every call had before.
 #
-# Measured on 2026-09-21 over the 2,638 successful calls in llm_calls.jsonl: p95 is at or
-# under 17 s for every agent, and the two extreme successes in the whole ledger are entity
-# at 167.3 s and graph_agent at 131.7 s. 180 s sits above both, so no call that has ever
-# succeeded would be cut short, while the worst case for a stalled socket drops from
-# 300 + 300 to 300 + 180.
-#
-# The same night gave the signature this exists for: memory_coder waited the full 300 s
-# without the request ever being acknowledged, then the retry answered in 9.2 s on a new
-# connection. The model was never slow; only the detection was.
-#
-# A caller that passes `timeout_retry_seconds` explicitly is untouched. `agents/parser.py`
-# does, with 60 s against a deliberately short 35 s first attempt -- the opposite shape (a
-# fast probe, then a patient retry), which is right for an agent whose p50 is 4.8 s.
-#
-# The one trap: this default is sized against the 300 s `timeout_seconds` above, so a caller
-# that shortens `timeout_seconds` and leaves this alone gets a retry LONGER than its first
-# attempt. Set both, as parser.py does. No caller in the tree does otherwise today.
-TIMEOUT_RETRY_SECONDS = 180
+# The 2026-09-21 note that sized the 180 s still holds for why a timeout recycles the pool before the next
+# attempt: memory_coder waited the full 300 s without the request ever being acknowledged, then the retry answered
+# in 9.2 s on a new connection. The model was never slow; only the detection was.
+LLM_CALL_TIMEOUT_SECONDS = DEFAULT_BUDGET.first_try_s
+TIMEOUT_RETRY_SECONDS = DEFAULT_BUDGET.moved_s
 
 # The raw response of every labelled call, one JSON line each, beside the ledger
 # (llm_calls.jsonl) in LOG_DIR. The ledger says a call happened and how it ended; this
@@ -590,10 +575,12 @@ def _call_with_recovery(
     the old backoff on the same provider, and a connection error propagates unchanged.
     Every such fatal names the move it made in ``model_fallback``.
 
-    Budget: a provider move does not add a wait. A timeout's retry, same provider or
-    next, runs on ``timeout_retry_seconds``, and there are still at most
-    ``timeout_retries`` of them, so the parser's worst case stays 35 s + 60 s and the
-    default stays 300 s + 180 s. The move only changes WHO the retry asks.
+    Budget: the first try runs on ``timeout_seconds``; the moved call runs on
+    ``timeout_retry_seconds`` whatever made the first try fail (F5.1), and so does a
+    timeout's same-provider retry when there is no chain. There are still at most
+    ``timeout_retries`` timeout retries. The callers take both from their agent's row of
+    ``call_budgets.CALL_BUDGETS`` unless they pass their own. Every ledger record carries
+    the window its attempt actually had.
 
     Everything else is not eligible: a bare ``LLMError`` (a 400 validation error, say)
     is fatal at once and not ``unavailable``, and any other ``LLMError`` subclass
@@ -626,8 +613,12 @@ def _call_with_recovery(
     attempt = -1
 
     def _switch_provider(reason: str, why: str) -> bool:
-        """Move to the next provider in the chain, if this call still may. Never raises."""
-        nonlocal chain, switches, target_client, target_model_name, target_thinking_budget, pending_move
+        """Move to the next provider in the chain, if this call still may. Never raises.
+
+        The moved call runs on ``timeout_retry_seconds`` whatever the failure was (F5.1): it used to
+        get that window after a timeout only, and the first try's budget after anything else.
+        """
+        nonlocal chain, switches, target_client, target_model_name, target_thinking_budget, pending_move, _timeout
         if switches >= MAX_PROVIDER_SWITCHES or not chain_label:
             return False
         if chain is None:
@@ -647,6 +638,8 @@ def _call_with_recovery(
         target_model_name = fb_model
         target_thinking_budget = fb_budget
         switches += 1
+        if timeout_retry_seconds:
+            _timeout = timeout_retry_seconds
         return True
 
     def _log(outcome: str, t0: float, **kw) -> None:
@@ -691,7 +684,7 @@ def _call_with_recovery(
             if empty(resp):
                 _stop = (getattr(resp, "metadata", None) or {}).get("stop_reason")
                 _log(
-                    "empty_completion", _t0, timeout_seconds=timeout_seconds,
+                    "empty_completion", _t0, timeout_seconds=_timeout,
                     thinking_budget=target_thinking_budget, resp=resp,
                     response_format=response_format,
                     repair_turn=attempt_messages is not base_messages,
@@ -713,7 +706,7 @@ def _call_with_recovery(
                 f"model='{target_model_name}' attempt {attempt+1}/{max_attempts}: {sue}"
             )
             _log(
-                outcome, _t0, timeout_seconds=timeout_seconds,
+                outcome, _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=sue,
             )
             if _switch_provider(reason, why):
@@ -762,7 +755,7 @@ def _call_with_recovery(
                 f"[STRUCTURED_PARSE][{label}] rate limit on attempt {attempt+1}/{max_attempts}: {rle}"
             )
             _log(
-                "throttle", _t0, timeout_seconds=timeout_seconds,
+                "throttle", _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=rle,
             )
             # A 429 here has already been backed off and retried by the SDK, so waiting
@@ -797,7 +790,7 @@ def _call_with_recovery(
                 f"[STRUCTURED_PARSE][{label}] connection error on attempt {attempt+1}/{max_attempts}: {ce}"
             )
             _log(
-                "error", _t0, timeout_seconds=timeout_seconds,
+                "error", _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=ce,
             )
             _recycle_client_connections(target_client, label)
@@ -816,7 +809,7 @@ def _call_with_recovery(
             raise
         except LLMError as le:
             _log(
-                "error", _t0, timeout_seconds=timeout_seconds,
+                "error", _t0, timeout_seconds=_timeout,
                 thinking_budget=target_thinking_budget, err=le,
             )
             # Bare LLMError only (subclasses are already handled above).
@@ -839,7 +832,7 @@ def _call_with_recovery(
                 )
             raise
         _log(
-            "ok", _t0, timeout_seconds=timeout_seconds,
+            "ok", _t0, timeout_seconds=_timeout,
             thinking_budget=target_thinking_budget, resp=resp,
             response_format=response_format,
             repair_turn=attempt_messages is not base_messages,
@@ -871,8 +864,8 @@ def call_llm_structured(
     log_payload_extra: dict[str, Any] | None = None,
     usage_label: str | None = None,
     rate_limit_sleep: float = 1.0,
-    timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
+    timeout_seconds: float | None = None,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
     thinking_budget: int | None = None,
     client=None,
@@ -882,8 +875,10 @@ def call_llm_structured(
 ) -> BaseModel:
     """
     Call the LLM and parse into a structured Pydantic model with a repair loop.
-    Includes timeout handling (default 300s) with one retry on timeout, and moves to the
-    next provider on a timeout, a 5xx or an empty body (``_call_with_recovery``).
+    Moves to the next provider once on a timeout, a 5xx, a 429, an empty body, a dropped
+    connection or a refused model (``_call_with_recovery``). ``timeout_seconds`` (the first
+    try) and ``timeout_retry_seconds`` (the moved call) default to the agent's row of
+    ``call_budgets.CALL_BUDGETS``, looked up by ``agent_label``.
 
     ``structured_via_tools`` sends the schema to providers that can enforce a shape
     (a forced tool call on Bedrock) instead of asking for JSON in the prompt. It
@@ -912,6 +907,11 @@ def call_llm_structured(
     rf = response_format if response_format is not None else {"type": "json_object"}
     _ledger_label = log_label or agent_label
     _chain_key = agent_label or log_label
+    _budget = budget_for(_chain_key)
+    if timeout_seconds is None:
+        timeout_seconds = _budget.first_try_s
+    if timeout_retry_seconds is None:
+        timeout_retry_seconds = _budget.moved_s
 
     state: dict[str, Any] = {"raw_output": "", "errors": None}
 
@@ -1013,8 +1013,8 @@ def call_llm_text(
     temperature: float = 0,
     thinking_budget: int | None = None,
     retries: int = 2,
-    timeout_seconds: float = LLM_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = TIMEOUT_RETRY_SECONDS,
+    timeout_seconds: float | None = None,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
     rate_limit_sleep: float = 1.0,
     usage_label: str | None = None,
@@ -1031,10 +1031,16 @@ def call_llm_text(
     and a timeout that survives it raises ``LLMTimeoutError``, exactly as for the
     structured agents; the caller decides what the user sees.
 
-    ``agent_label`` is the catalog key the provider chain is looked up by. ``log_label``,
-    when given, is the name the ledger and the response log record instead (the memory
-    coder's reply runs on the chatter's model and is ledgered as its own step).
+    ``agent_label`` is the catalog key the provider chain and the budgets
+    (``call_budgets.CALL_BUDGETS``) are looked up by. ``log_label``, when given, is the name
+    the ledger and the response log record instead (the memory coder's reply runs on the
+    chatter's model and is ledgered as its own step).
     """
+    _budget = budget_for(agent_label)
+    if timeout_seconds is None:
+        timeout_seconds = _budget.first_try_s
+    if timeout_retry_seconds is None:
+        timeout_retry_seconds = _budget.moved_s
     def _on_response(resp, attempt, msgs):
         text = resp.content or ""
         if log_label:

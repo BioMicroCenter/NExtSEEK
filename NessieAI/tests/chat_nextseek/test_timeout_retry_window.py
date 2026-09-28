@@ -1,20 +1,15 @@
-"""The retry after a timeout gets a shorter window than the first attempt.
+"""A timeout recycles the client's connections before the next attempt, and the next attempt's window.
 
-A timeout recycles the client's connections before its retry, because the diagnosis
-recorded in `_call_with_recovery` is that a timeout is usually a dead pooled socket
-rather than a slow model: the request is never acknowledged at all. Since 2026-09-23 the
-retry goes to the next provider in the chain when there is one (the one fallback
-trigger, `test_provider_fallback_trigger.py`), and to the same provider on a fresh
-socket when there is not; either way it runs on the window pinned here.
+The diagnosis recorded in `_call_with_recovery` is that a timeout is usually a dead pooled socket rather than a slow
+model: the request is never acknowledged at all. 2026-09-21 gave a clean instance of it: memory_coder waited the full
+300 s with no response, then the retry answered in 9.2 s on a fresh connection. The model was never slow; only the
+detection was.
 
-That diagnosis is right, and 2026-09-21 gave a clean instance of it: memory_coder
-waited the full 300 s with no response, then the retry answered in 9.2 s on a fresh
-connection. The model was never slow. Only the detection was, and the retry inherited
-the same 300 s, so one dead socket could cost ten minutes.
-
-`TIMEOUT_RETRY_SECONDS` is the ceiling for that second attempt. These tests pin that it
-applies by default, that it does not override a caller that chose its own, and that it
-is sized above every call that has ever been observed to succeed.
+Since 2026-09-28 both windows come from one per-agent table (`call_budgets.CALL_BUDGETS`, pinned in
+test_call_budgets.py): the first try, sized to a healthy call's tail so a stall is detected in seconds, and the moved
+call, which goes to the next provider in the chain (test_provider_fallback_trigger.py) or, with no chain, to the same
+provider on a fresh socket. These tests pin what stays true across that change: a caller's own window is never
+overwritten, the default row is the old 300 s and 180 s, and the socket is recycled before the window changes.
 """
 from __future__ import annotations
 
@@ -22,87 +17,42 @@ import inspect
 
 import pytest
 
-from chat_nextseek.llm_clients import LLMTimeoutError
 from chat_nextseek.schemas import schema_helper
+from chat_nextseek.schemas.call_budgets import DEFAULT_BUDGET, budget_for
 
 
-def test_the_retry_ceiling_is_shorter_than_the_default_first_attempt():
-    """The whole point. If it were >= the first attempt it would buy nothing."""
-    assert schema_helper.TIMEOUT_RETRY_SECONDS < schema_helper.LLM_CALL_TIMEOUT_SECONDS
-
-
-def test_the_ceiling_clears_the_slowest_call_ever_observed():
-    """Measured over 2,638 successful calls: entity 167.3 s is the extreme.
-
-    A ceiling below that would turn a legitimately slow retry into a failed turn, which
-    in a paid run is worse than waiting. This is the number that must not drift down
-    without someone re-measuring.
-    """
-    assert schema_helper.TIMEOUT_RETRY_SECONDS >= 170
+def test_an_agent_the_table_does_not_name_keeps_300_then_180():
+    assert (schema_helper.LLM_CALL_TIMEOUT_SECONDS, schema_helper.TIMEOUT_RETRY_SECONDS) == (300, 180)
+    assert budget_for("report_coder") == DEFAULT_BUDGET
 
 
 @pytest.mark.parametrize("fn", [schema_helper.call_llm_structured, schema_helper.call_llm_text])
-def test_both_entry_points_default_to_the_ceiling(fn):
-    """Neither may quietly go back to None, which is how the retry inherited 300 s."""
-    default = inspect.signature(fn).parameters["timeout_retry_seconds"].default
-    assert default == schema_helper.TIMEOUT_RETRY_SECONDS
+def test_both_entry_points_take_their_windows_from_the_table_unless_given(fn):
+    """None means "the agent's row", never "inherit the first try": that is how the retry once got 300 s."""
+    params = inspect.signature(fn).parameters
+    assert params["timeout_seconds"].default is None
+    assert params["timeout_retry_seconds"].default is None
 
 
-def test_the_parser_still_chooses_its_own_window():
-    """parser.py asks for 60 s against a deliberately short 35 s first attempt: a fast
-    probe then a patient retry, the opposite shape, and right for a p50 of 4.8 s. A
-    default must never overwrite a caller that made a decision."""
+def test_the_parsers_window_is_the_tables_not_a_literal():
+    """parser.py used to pass 35 and 60 itself; the table holds them now, so the model switch edits one place."""
     from pathlib import Path
 
     src = Path(schema_helper.__file__).resolve().parents[1] / "agents" / "parser.py"
     text = src.read_text(encoding="utf-8")
-    assert "timeout_retry_seconds=60" in text
-    assert "timeout_seconds=35" in text
-
-
-def test_a_timeout_retries_on_the_shorter_window():
-    """The window arithmetic. Which provider the retry asks is pinned in
-    test_provider_fallback_trigger.py, which drives the real loop."""
-    seen: list[float] = []
-    providers: list[str] = []
-
-    class _Client:
-        provider = "gcp"
-
-        def chat_text(self, *, messages, system, model, timeout_seconds=None, **kw):
-            seen.append(timeout_seconds)
-            providers.append(self.provider)
-            if len(seen) == 1:
-                raise LLMTimeoutError("timed out")
-            return type("R", (), {"content": "ok", "usage": None, "model": model,
-                                  "provider": self.provider, "metadata": {}})()
-
-    client = _Client()
-    captured = {}
-
-    def fake_call(*, config, client, messages, system, model_name, temperature,
-                  timeout_seconds, **kw):
-        captured.setdefault("windows", []).append(timeout_seconds)
-        if len(captured["windows"]) == 1:
-            raise LLMTimeoutError(f"timed out after {timeout_seconds} seconds")
-        return type("R", (), {"content": "ok", "usage": None, "model": model_name,
-                              "provider": client.provider, "metadata": {}})()
-
-    assert "windows" not in captured
-    # The loop's own arithmetic, isolated: first attempt at the default, retry capped.
-    first = schema_helper.LLM_CALL_TIMEOUT_SECONDS
-    retry = schema_helper.TIMEOUT_RETRY_SECONDS
-    assert retry < first, "the retry window must actually narrow"
+    assert "timeout_seconds=" not in text
+    assert "timeout_retry_seconds=" not in text
+    assert (budget_for("parser").first_try_s, budget_for("parser").moved_s) == (35, 60)
 
 
 def test_recycling_the_connection_is_what_the_retry_depends_on():
-    """The retry is only worth shortening because it runs on a fresh socket.
+    """The retry is only worth sending because it runs on a fresh socket.
 
-    If `_recycle_client_connections` ever stopped being called before the retry, a short
-    window would just fail faster on the same dead connection.
+    If `_recycle_client_connections` ever stopped being called before the window changes, the next attempt would
+    just fail again on the same dead connection.
     """
     src = inspect.getsource(schema_helper._call_with_recovery)
     timeout_branch = src[src.index("except LLMTimeoutError"):]
     recycle_at = timeout_branch.index("_recycle_client_connections")
     narrow_at = timeout_branch.index("timeout_retry_seconds")
-    assert recycle_at < narrow_at, "the socket is recycled before the window narrows"
+    assert recycle_at < narrow_at, "the socket is recycled before the window changes"

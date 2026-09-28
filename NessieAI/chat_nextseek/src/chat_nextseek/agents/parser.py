@@ -405,8 +405,7 @@ def _canonical_multi_parse(
             usage_label="MULTI_PARSER",
             thinking_budget=mp_budget,
             client=mp_client,
-            timeout_seconds=35,
-            timeout_retry_seconds=60,
+            # 35 s first try, 60 s for the move: the parsers' row of call_budgets.CALL_BUDGETS.
             result_check=_empty_multi_plan_problem,
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
@@ -884,8 +883,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
             usage_label="PARSER",
             thinking_budget=parser_thinking_budget,
             client=parser_client,
-            timeout_seconds=35,
-            timeout_retry_seconds=60,
+            # 35 s first try, 60 s for the move: the parsers' row of call_budgets.CALL_BUDGETS.
             result_check=_empty_plan_problem,
         )
     except LLMTimeoutError as e:

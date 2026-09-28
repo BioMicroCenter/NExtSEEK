@@ -327,7 +327,6 @@ def report_writer_agent(
             log_label="report_writer",
             log_payload_extra={"user_query": user_query, "report_type": canonical_report_type},
             usage_label="REPORT_WRITER",
-            timeout_seconds=600,
             thinking_budget=writer_budget,
             client=writer_client,
             result_check=empty_output_problem,

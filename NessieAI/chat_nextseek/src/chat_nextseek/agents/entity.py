@@ -166,9 +166,8 @@ def entity_agent(
         else:
             # Fallback: raw call without forced response_format. Through the recovery
             # ladder, so a timeout, a 503 or an empty body moves to the entity's next
-            # provider; it used to call the SDK directly and never moved. The first
-            # attempt keeps the 180 s this call always had, and the retry (usually on
-            # the fallback model) gets 60 s, so the worst case stays near the old 180 s.
+            # provider; it used to call the SDK directly and never moved. It runs on the
+            # entity's wall clocks (call_budgets.CALL_BUDGETS), like its structured call.
             try:
                 raw_content = call_llm_text(
                     config,
@@ -179,8 +178,6 @@ def entity_agent(
                     log_label="entity_raw",
                     temperature=0,
                     thinking_budget=entity_budget,
-                    timeout_seconds=180,
-                    timeout_retry_seconds=60,
                     usage_label="ENTITY_FALLBACK",
                 )
                 parsed = safe_parse_json(raw_content)

@@ -47,6 +47,7 @@ from .llm_clients import (
     LLMServiceUnavailableError,
     LLMTimeoutError,
 )
+from .schemas.call_budgets import TOOL_LOOP_DEFAULT_BUDGET, budget_for
 from .schemas.schema_helper import (
     MAX_PROVIDER_SWITCHES,
     _catalog_provider,
@@ -58,13 +59,13 @@ from .schemas.schema_helper import (
     _unavailable_kind,
 )
 
-# The wall clock on one tool-loop call. The local ledger's Opus 4.7 calls for these two
-# agents (41 followup, 19 pipeline_agent, 2026-09-25) have a p95 of 4-6 s and a maximum
-# of 10 s, so 120 s is ample for the first try. The retry gets the same 120 s, not less:
-# after a move the fallback model regenerates the whole output, and a pipeline
-# write_samplesheet call can be several thousand tokens. Worst case per call: 240 s.
-TOOL_CALL_TIMEOUT_SECONDS = 120
-TOOL_CALL_TIMEOUT_RETRY_SECONDS = 120
+# The wall clock on one tool-loop call comes from the agent's row of ``call_budgets.CALL_BUDGETS``
+# (operator ruling 2026-09-28): the follow-up 60 s and 60 s for the move (41 Opus 4.7 calls, 2026-09-22:
+# max 9.8 s, answers up to 259 tokens), the pipeline agent 120 s and 120 s (a write_samplesheet call can be
+# several thousand tokens, and the move regenerates the whole output). A loop the table does not name keeps
+# these, the defaults every loop had before.
+TOOL_CALL_TIMEOUT_SECONDS = TOOL_LOOP_DEFAULT_BUDGET.first_try_s
+TOOL_CALL_TIMEOUT_RETRY_SECONDS = TOOL_LOOP_DEFAULT_BUDGET.moved_s
 
 
 def _tool_capable(client) -> bool:
@@ -115,8 +116,8 @@ def call_tools(
     cache_prompt: bool = True,
     retries: int = 2,
     rate_limit_sleep: float = 1.0,
-    timeout_seconds: float = TOOL_CALL_TIMEOUT_SECONDS,
-    timeout_retry_seconds: float | None = TOOL_CALL_TIMEOUT_RETRY_SECONDS,
+    timeout_seconds: float | None = None,
+    timeout_retry_seconds: float | None = None,
     timeout_retries: int = 1,
 ) -> dict:
     """Run one tool-enabled turn and return the normalized Converse result.
@@ -125,7 +126,16 @@ def call_tools(
     ``LLMFatalError`` (``unavailable=True``) when the provider it moved to failed too,
     or when there was nowhere to move, so the caller reports one honest failure rather
     than looping on a dead provider. A bare ``LLMError`` propagates unchanged.
+
+    ``timeout_seconds`` (the first try) and ``timeout_retry_seconds`` (the moved call, whatever the
+    failure was, and a timeout's same-provider retry) default to the agent's row of
+    ``call_budgets.CALL_BUDGETS``.
     """
+    _budget = budget_for(agent_label, default=TOOL_LOOP_DEFAULT_BUDGET)
+    if timeout_seconds is None:
+        timeout_seconds = _budget.first_try_s
+    if timeout_retry_seconds is None:
+        timeout_retry_seconds = _budget.moved_s
     target_client = client
     target_model = model_name
     target_budget = thinking_budget
@@ -138,8 +148,11 @@ def call_tools(
     _timeout = timeout_seconds
 
     def _switch(reason: str, why: str) -> bool:
-        """The one provider move a call gets (``MAX_PROVIDER_SWITCHES``). Never raises."""
-        nonlocal fallbacks, switches, target_client, target_model, target_budget, pending_move
+        """The one provider move a call gets (``MAX_PROVIDER_SWITCHES``). Never raises.
+
+        The moved call runs on ``timeout_retry_seconds`` whatever the failure was (F5.1).
+        """
+        nonlocal fallbacks, switches, target_client, target_model, target_budget, pending_move, _timeout
         if switches >= MAX_PROVIDER_SWITCHES:
             return False
         if fallbacks is None:
@@ -157,6 +170,8 @@ def call_tools(
         pending_move = {"fallback_from": target_model, "fallback_reason": reason}
         target_client, target_model, target_budget = fallbacks.pop(0)
         switches += 1
+        if timeout_retry_seconds:
+            _timeout = timeout_retry_seconds
         print(
             f"[TOOL_LOOP][{agent_label}] {why}: switching to fallback "
             f"provider='{getattr(target_client, 'provider', '?')}' model='{target_model}'"

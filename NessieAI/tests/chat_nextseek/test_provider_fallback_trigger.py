@@ -671,14 +671,18 @@ def test_the_tool_loop_has_a_wall_clock_and_its_retry_gets_the_retry_window():
 
 
 def test_the_tool_loop_wall_clock_defaults():
+    """The windows come from the agent's row of call_budgets.CALL_BUDGETS (test_call_budgets.py);
+    a loop the table does not name keeps 120 s and 120 s."""
     from chat_nextseek import tool_loop
+    from chat_nextseek.schemas.call_budgets import TOOL_LOOP_DEFAULT_BUDGET
 
     params = inspect.signature(tool_loop.call_tools).parameters
-    assert params["timeout_seconds"].default == 120
-    # A move regenerates the whole output (a write_samplesheet call can be thousands of
-    # tokens), so the retry gets the same window, not a shorter one.
-    assert params["timeout_retry_seconds"].default == 120
+    assert params["timeout_seconds"].default is None
+    assert params["timeout_retry_seconds"].default is None
     assert params["timeout_retries"].default == 1
+    # A move regenerates the whole output (a write_samplesheet call can be thousands of
+    # tokens), so an unnamed loop's move gets the same window, not a shorter one.
+    assert (TOOL_LOOP_DEFAULT_BUDGET.first_try_s, TOOL_LOOP_DEFAULT_BUDGET.moved_s) == (120, 120)
 
 
 @pytest.mark.parametrize("empty", [
@@ -748,7 +752,7 @@ def test_the_tool_loop_ledger_names_the_move(tmp_path):
     assert [(e["model"], e["outcome"]) for e in entries] == [(OPUS, "service_unavailable"), (SONNET, "ok")]
     assert "fallback_from" not in entries[0]
     assert entries[1]["fallback_from"] == OPUS and entries[1]["fallback_reason"] == "unavailable"
-    assert entries[1]["timeout_seconds"] == 120
+    assert entries[1]["timeout_seconds"] == 60, "the follow-up's moved-call budget"
 
 
 class _CacheRecordingToolClient(_SlowToolClient):
