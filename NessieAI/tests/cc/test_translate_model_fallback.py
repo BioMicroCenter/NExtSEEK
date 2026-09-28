@@ -264,3 +264,51 @@ def test_the_translator_notes_when_each_retry_frame_arrived():
     assert t.last_api_retry_at == 12.5
     t.handle(RETRY_503)
     assert t.last_api_retry_at == 40.0
+
+
+# --- a proxy that is not set up, and a proxy that cannot be reached (D8, 2026-09-28) --------
+#
+# Claude Code 2.1.282's own texts, printed by free local runs against a fake Bedrock endpoint inside a private network
+# namespace on 2026-09-28 (no request left the machine, no model was called): the bedrock-proxy's no-token answer
+# (500, which Claude Code falls back on and then quotes), a closed port (the proxy container down), and a name that
+# does not resolve (the proxy container absent).
+
+NO_TOKEN = ('API Error: 500 {"error":"proxy misconfigured: no bearer token"}. This is a server-side issue, usually '
+            "temporary \u2014 try again in a moment. If it persists, check your Amazon Bedrock service status.")
+REFUSED = "API Error: Connection refused \u2014 a firewall or proxy may be blocking it (ECONNREFUSED)"
+NO_DNS = "API Error: Can't reach the API server \u2014 check your internet or DNS (ENOTFOUND)"
+MISCONFIGURED_TEXT = ("Nessie's AI model service is not set up correctly on this server, so I could not answer. "
+                      "Asking again will not help; please tell the NExtSEEK team.")
+
+
+def test_a_proxy_with_no_token_is_a_setup_fault_not_an_outage():
+    """It used to say "we also tried a second model... ask again in a few minutes", which cannot help."""
+    _, out = _run([INIT, FALLBACK_503, _synthetic_error(NO_TOKEN), _error_result(NO_TOKEN, 500)])
+    event, data = _terminal(out)
+    assert event == "query_error"
+    assert data["error"] == MISCONFIGURED_TEXT
+    assert data["reason"] == "cc_misconfigured"
+    assert data["detail"] == NO_TOKEN
+    assert data["model_fallback"] == [
+        {"agent": "container_cc", "from": MAIN, "to": FALLBACK, "reason": "server_error"}]
+
+
+@pytest.mark.parametrize("text", [REFUSED, NO_DNS, "API Error: Connection error."],
+                         ids=["refused", "no-dns", "connection-error"])
+def test_a_proxy_that_cannot_be_reached_is_the_plain_unavailable_text(text):
+    """It used to show Claude Code's raw text; there is no second model on a connection error."""
+    _, out = _run([INIT, _synthetic_error(text), _error_result(text, None)])
+    event, data = _terminal(out)
+    assert event == "query_error"
+    assert data["error"] == NOT_TRIED_TEXT
+    assert data["reason"] == "model_unavailable"
+    assert data["detail"] == text
+    assert data["model_fallback"] == []
+
+
+def test_the_setup_fault_text_is_the_approved_one():
+    from NessieAI.cc import translate
+
+    assert translate.CC_MISCONFIGURED == MISCONFIGURED_TEXT
+    assert translate.CC_MISCONFIGURED_REASON == "cc_misconfigured"
+    assert "\u2014" not in translate.CC_MISCONFIGURED
