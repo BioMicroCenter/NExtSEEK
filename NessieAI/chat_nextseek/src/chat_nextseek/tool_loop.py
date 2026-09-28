@@ -157,7 +157,8 @@ def call_tools(
         attempt_recorded = True
         entry = _ledger_entry(
             agent_label, fo.model, fo.client, attempt, outcome, t0,
-            timeout_seconds=_timeout, thinking_budget=fo.budget, **kw, **fo.take_pending(),
+            timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
+            **kw, **fo.take_pending(),
         )
         _ledger(config, entry)
         # This turn's cost collector prices the usage, or counts an abandoned attempt.
@@ -172,9 +173,9 @@ def call_tools(
     while attempt + 1 < max_attempts:
         attempt += 1
         fo.attempt = attempt
+        _timeout = fo.attempt_window()  # an op's deadline, if any, cuts it; past the deadline no call starts
         t0 = time.perf_counter()
         attempt_recorded = False
-        _timeout = fo.window
         try:
             call_client, call_model, call_budget = fo.client, fo.model, fo.budget
             # No cache point once the call has moved (see the module docstring).

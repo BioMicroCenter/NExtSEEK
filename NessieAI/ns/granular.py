@@ -61,15 +61,16 @@ def run_op(
 ) -> dict:
     """Dispatch a granular op to its handler and return its result dict.
 
-    The op runs inside its own ``call_scope`` (chat_nextseek), so a model that failed in one of its agent calls is
-    not asked again by the next one: a Gemini stall found by the entity agent sends the graph agent straight to its
-    fallback (operator ruling 2026-09-28, F3/F4).
+    The op runs inside its own ``call_scope`` (chat_nextseek), with ``OP_DEADLINE_S``: a model that failed in one
+    of its agent calls is not asked again by the next one (a Gemini stall found by the entity agent sends the graph
+    agent straight to its fallback), and every model call is cut to fit the deadline, so the move happens inside
+    the op (operator ruling 2026-09-28, F3/F4).
     """
     handler = _HANDLERS.get(op)
     if handler is None:
         raise OpValidationError(f"not a sidecar op: {op!r}")
     from chat_nextseek import call_scope
-    with call_scope.scope():
+    with call_scope.scope(deadline_s=OP_DEADLINE_S):
         return handler(args, config, session, write_gate, neo4j_exec, outputs_dir)
 
 
@@ -101,6 +102,12 @@ GRAPH_SCOPE_FALLBACK_RETRY_HINT = (
 #: model call and a graph_search request, so it runs inline only when the refusal came this early; later, the op hands
 #: back the retargeted plan and the agent runs it with nextseek-api-read, which gets a 60 s budget of its own.
 GRAPH_FALLBACK_START_BUDGET_S = 25.0
+
+#: The deadline every model call of an op must fit (operator ruling D5, 2026-09-28): the sidecar waits 60 s
+#: (ns-sidecar/app/ns_client.py), less 5 s for the Neo4j step and the answer. ``run_op`` opens the op's call_scope
+#: with it, and the recovery ladder cuts each attempt to fit, so the one move to the fallback model happens inside
+#: the op and no model call starts after the sidecar has given up. The aggregate op tightens it to its own 50 s.
+OP_DEADLINE_S = 55.0
 _monotonic = time.monotonic
 
 #: What the CC agent must tell the user when it answers from ``fallback`` (the NS chatter gets the same note).

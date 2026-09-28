@@ -378,6 +378,7 @@ def _ledger_entry(
     fallback_from=None,
     fallback_reason=None,
     fallback_remembered=None,
+    deadline_capped=None,
 ):
     """Build one LLM-ledger record (latency, provider metadata, outcome). Never raises.
 
@@ -409,6 +410,8 @@ def _ledger_entry(
         entry["fallback_reason"] = fallback_reason
     if fallback_remembered:
         entry["fallback_remembered"] = True
+    if deadline_capped:
+        entry["deadline_capped"] = True
     try:
         if resp is not None:
             usage = getattr(resp, "usage", None) or {}
@@ -584,6 +587,7 @@ class _Failover:
         self.timeout_marks = timeout_marks
         self.scope = call_scope.current()
         self.attempt = 0  # the caller's attempt index, for a record written between attempts
+        self.capped = False  # whether the scope's deadline cut this attempt's window
         self.switches = 0
         self.moves: list[dict] = []  # the move this call made, for a fatal's model_fallback
         self._pending: dict = {}     # fallback_from / fallback_reason for the next ledger record
@@ -614,7 +618,9 @@ class _Failover:
         """
         if self.scope is None or not _REASON_MARKS_MODEL.get(reason, False):
             return
-        if reason == "timeout" and not self.timeout_marks:
+        if reason == "timeout" and (not self.timeout_marks or self.capped):
+            # The parsers' speed preference (D3), or a window the op's deadline cut short:
+            # neither says the model is failing.
             return
         self.scope.mark_failed(self._key(self.client, self.model), reason=reason, agent=self.agent_label)
 
@@ -680,6 +686,44 @@ class _Failover:
         if self.moved_s:
             self.window = self.moved_s
         return True
+
+    def _can_move(self) -> bool:
+        """Whether a move is still possible: one left, somewhere to go, and not to a model that failed earlier."""
+        if self.switches >= MAX_PROVIDER_SWITCHES:
+            return False
+        fb = self._next()
+        if fb is None:
+            return False
+        return self.scope is None or self.scope.failed(self._key(fb[0], fb[1])) is None
+
+    def attempt_window(self) -> float:
+        """The wall clock of the next attempt, cut to fit the scope's deadline (F4, ruling D5).
+
+        With no deadline it is the call's own window. Under one, a first try that can still
+        move leaves ``MOVE_RESERVE_S`` for the move (never below ``MIN_FIRST_TRY_S``), and any
+        attempt gets at most what is left. With ``DEADLINE_FLOOR_S`` or less left, no call
+        starts: ``LLMFatalError`` with ``reason="deadline"``, and one ``deadline`` ledger record.
+        """
+        self.capped = False
+        remaining = self.scope.remaining() if self.scope is not None else None
+        if remaining is None:
+            return self.window
+        if remaining <= call_scope.DEADLINE_FLOOR_S:
+            total = self.scope.total_s or 0
+            entry = _ledger_entry(self.agent_label, self.model, self.client, self.attempt, "deadline",
+                                  time.perf_counter(), thinking_budget=self.budget)
+            entry["error"] = f"the op's {total:g} s deadline left {max(remaining, 0):.1f} s, so no call was started"
+            _write_ledger(self.config, entry)
+            raise self.fatal(
+                f"deadline: the op's {total:g} s ran out before the {self.agent_label} call could start",
+                reason="deadline", unavailable=False,
+            )
+        window = self.window
+        if not self.switches and self._can_move():
+            window = min(window, max(remaining - call_scope.MOVE_RESERVE_S, call_scope.MIN_FIRST_TRY_S))
+        window = min(window, remaining)
+        self.capped = window < self.window
+        return window
 
     def take_pending(self) -> dict:
         """The move to name on the next ledger record (the first attempt after it), once."""
@@ -763,6 +807,9 @@ def _call_with_recovery(
     client). Such an attempt still gets one ledger record, and so one report to the
     turn's cost collector, which counts it as unobserved.
 
+    Under an op's deadline (``call_scope``), every attempt's window is cut to fit it, so the
+    move happens inside the op, and no call starts once it is spent (``_Failover.attempt_window``).
+
     Inside a turn or an op (``call_scope``), every failure that says the model itself is
     failing marks it for the rest of the turn (one strike; not a timeout when
     ``timeout_marks_model`` is False, the parsers' case). A later call whose primary is
@@ -801,7 +848,8 @@ def _call_with_recovery(
         attempt_recorded = True
         entry = _ledger_entry(
             agent_label, fo.model, fo.client, attempt, outcome, t0,
-            timeout_seconds=_timeout, thinking_budget=fo.budget, **kw, **fo.take_pending(),
+            timeout_seconds=_timeout, thinking_budget=fo.budget, deadline_capped=fo.capped,
+            **kw, **fo.take_pending(),
         )
         log_llm_call(config.LOG_DIR, entry)
         turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
@@ -809,9 +857,9 @@ def _call_with_recovery(
     while attempt + 1 < max_attempts:
         attempt += 1
         fo.attempt = attempt
+        _timeout = fo.attempt_window()  # the op's deadline, if any, cuts it; past the deadline no call starts
         _t0 = time.perf_counter()
         attempt_recorded = False
-        _timeout = fo.window
         try:
             resp = _call_llm_with_timeout(
                 client=fo.client,
