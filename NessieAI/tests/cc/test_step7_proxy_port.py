@@ -70,9 +70,10 @@ PINNED_SOURCE_SHA256 = {
     "app/__init__.py": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd",
     # Deliberately changed after the port on 2026-09-25 (the allow list gained the
     # Container-CC fallback model and the classifier's Sonnet) and on 2026-09-28 (the
-    # streamed-invoke header deadline, PORT-EVIDENCE.json "post_port_changes"). Every
-    # other digest is still the pinned source's.
-    "app/config.py": "0f2a6b7e155c96a6a1a3ed4c905dd26440c66ef28893fcbc1edf14d616c2dd6c",
+    # streamed-invoke header deadline; then run 2's Opus 5.5 joined the allow list,
+    # PORT-EVIDENCE.json "post_port_changes"). Every other digest is still the pinned
+    # source's.
+    "app/config.py": "09c0283b782059bb166d8c80fd7e72012163b31abad6fe5abadae3db42409451",
     # Deliberately changed on 2026-09-28: a stalled streamed invoke is relayed as a 504
     # and an upstream 429 as a 503 (PORT-EVIDENCE.json "post_port_changes").
     "app/proxy.py": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf",
