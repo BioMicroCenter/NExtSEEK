@@ -169,27 +169,26 @@ def test_entity_agent_keeps_an_explicitly_empty_extraction(run):
     assert len(client.calls) == 1
 
 
-def test_entity_retry_after_a_timeout_is_guarded_too(run, monkeypatch):
+def test_entity_timeout_gets_no_second_structured_call(run, monkeypatch):
+    """The entity's own retry after a timeout is gone (2026-09-28, test_entity_timeout.py): the ladder's one move
+    was its second chance. So the guarded first call is the only structured call a timeout gets."""
     from chat_nextseek.agents import entity as entity_mod
     from chat_nextseek.llm_clients import LLMTimeoutError
 
-    real = entity_mod.call_llm_structured
     seen: list[dict] = []
 
-    def _first_times_out(*args, **kwargs):
+    def _times_out(*args, **kwargs):
         seen.append(kwargs)
-        if len(seen) == 1:
-            raise LLMTimeoutError("slow")
-        return real(*args, **kwargs)
+        raise LLMTimeoutError("slow")
 
-    monkeypatch.setattr(entity_mod, "call_llm_structured", _first_times_out)
+    monkeypatch.setattr(entity_mod, "call_llm_structured", _times_out)
     client, config = run(["{}"])
 
     result = entity_agent(config, "mice", [], [], [])
 
     assert result.sampletypes == []
+    assert len(seen) == 1
     assert seen[0].get("result_check") is schema_helper.empty_output_problem
-    assert seen[1].get("result_check") is schema_helper.empty_output_problem
 
 
 # --------------------------------------------------------------------------
