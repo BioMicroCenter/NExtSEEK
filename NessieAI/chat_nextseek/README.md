@@ -117,7 +117,32 @@ from the table is named there and makes the turn partial, and a guard test
 can reach has no price. The file is baked into the app image like the rest of this
 directory, so a price change is an edit to the JSON plus an app rebuild.
 
-## Running and testing
+### 5. When a model fails: time limits, the one move, and the turn's memory
+
+Every model call goes through one recovery ladder (`_call_with_recovery` in
+`src/chat_nextseek/schemas/schema_helper.py`; the tool loops' twin is `tool_loop.call_tools`),
+and both surfaces move through the same `_Failover` object:
+
+- **Time limits.** Each agent has two wall clocks in one table, `schemas/call_budgets.py`: the
+  primary's first try, sized to a healthy call's measured tail so a stalled model is given up on
+  in seconds, and the one call that moves to the fallback model, the same whatever made the
+  primary fail. A caller that passes its own window keeps it; an agent the table does not name
+  keeps 300 s and 180 s. This is the one place to edit when a model changes.
+- **What moves.** `FAILURE_CLASSES` says which failures move a call to its fallback, once: a
+  timeout, a 5xx, a 429, an empty body, a dropped connection, a refused model (a Bedrock
+  refusal or a Gemini 404). A 400 and bad output never move. When the fallback fails too, the
+  call ends in `LLMFatalError(unavailable=True)` whatever the failure, and the turn ends with the
+  plain "tried a second one" text (`failure_replies.py`); only the chatter, the follow-up and
+  seqera answer from work already done.
+- **The turn's memory.** `call_scope.py` holds one scope per NS turn (opened with the cost
+  collector) and per Container-CC op (`run_op` in `NessieAI/ns/granular.py`). A model that failed is
+  remembered for the rest of it, so a later call starts on its fallback without asking it, and
+  a call whose two models both failed earlier fails at once. The parsers' own 35 s timeout marks
+  nothing. The ledger names a skip (`fallback_remembered`) and `model_fallback` items carry
+  `remembered: true`.
+- **An op's deadline.** A CC op's scope carries 55 s (the aggregate op's 50 s), and each
+  attempt is cut to fit it, leaving room for the move; with 2 s or less left no call starts.
+
 
 The package's suite is `NessieAI/tests/chat_nextseek/`, including `evaluator/`. Its
 command is the Django lane in `NessieAI/tests/README.md`. The image installs this
