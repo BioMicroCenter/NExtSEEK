@@ -12,7 +12,7 @@ from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
-from ..llm_clients import LLMTimeoutError
+from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     ContextEngineerOutput,
@@ -854,12 +854,12 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     ])
 
     parser_client, parser_model_name, parser_thinking_budget = config.get_agent_model("parser")
-    # Log the *effective* temperature, not the requested one. Opus 4.7 and Mythos are
-    # adaptive-thinking-only (llm_clients.py), so temperature is never sent and routing
-    # samples between runs. Without this line a routing flip that was really a sample
-    # gets attributed to a code change — which is exactly what happened between the
-    # 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
-    _adaptive_only = any(tag in parser_model_name for tag in ("opus-4-7", "mythos"))
+    # Log the *effective* temperature, not the requested one. Opus 4.7 and later, Fable and
+    # Mythos are adaptive-thinking-only (llm_clients.model_traits), so temperature is never
+    # sent and routing samples between runs. Without this line a routing flip that was
+    # really a sample gets attributed to a code change, which is exactly what happened
+    # between the 2026-07-24 and 2026-07-27 runs for repro.cypher_uid_dot.
+    _adaptive_only = model_traits(parser_model_name).adaptive_only
     print(
         f"[DEBUG][PARSER] model={parser_model_name} "
         f"temperature={'UNSET (adaptive-thinking-only; routing may vary run to run)' if _adaptive_only else 0} "

@@ -61,7 +61,7 @@ from ..artifacts import load_api_result_full, load_memory_payload
 from ..config import ChatConfig
 from ..failure_replies import FOLLOWUP_MODEL_OUTAGE_PARTIAL
 from ..graph_scope import RESERVED_PREFIX
-from ..llm_clients import LLMFatalError
+from ..llm_clients import LLMFatalError, without_reasoning_blocks
 from ..tool_loop import call_tools
 
 FOLLOWUP_AGENT_KEY = "followup"
@@ -914,7 +914,10 @@ def run_followup(
         try:
             resp = call_tools(
                 config,
-                messages=messages,
+                # The last pass offers only `answer`, so its tools differ from the ones the earlier steps'
+                # reasoning was written under: an always-thinking model (Opus 5.5) would read those blocks
+                # as an edited history. That pass is sent the history without them; the loop keeps its own.
+                messages=without_reasoning_blocks(messages) if terminal else messages,
                 tools=build_followup_tool_schemas(final=terminal, compute=compute is not None),
                 system=system_prompt,
                 model_name=model_name,

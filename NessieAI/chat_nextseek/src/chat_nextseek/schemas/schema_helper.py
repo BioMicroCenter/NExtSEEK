@@ -20,6 +20,7 @@ from ..llm_clients import (
     LLMServiceUnavailableError,
     LLMStructuredUnsupportedError,
     LLMFatalError,
+    model_traits,
     pydantic_to_tool_schema,
 )
 
@@ -260,9 +261,16 @@ def _call_llm_with_timeout(
     path had no output constraint at all. A model that rejects the schema-shaped
     request raises `LLMStructuredUnsupportedError` and the same call is retried plain,
     which is exactly the behaviour every call had before — the schema can only help.
+
+    A model that refuses a forced tool (Opus 5.5, ``llm_clients.model_traits``) is sent the
+    plain request straight away: no refused request inside the call's wall clock, and the
+    ledger records ``structured_via`` as ``prompt``, which is what it was.
     """
+    forced_tool_ok = model_traits(model_name).forced_tool_ok
+
     def _do_call():
-        if response_schema is not None and callable(getattr(client, "chat_structured", None)):
+        if (response_schema is not None and forced_tool_ok
+                and callable(getattr(client, "chat_structured", None))):
             system_text = "\n\n".join(
                 str(m.get("content") or "") for m in messages if (m.get("role") or "").lower() == "system"
             )
