@@ -54,8 +54,8 @@ REAL_SECRET_FILENAME = "proxy-secret.env"
 # port-source clone is not mounted) with zero skips.
 #
 # These constants pinned the byte-identical port at source commit a429f137,
-# and all but app/config.py still do (it was changed deliberately on 2026-09-25;
-# see its entry below). At port time the worktree copies were verified byte-identical to the pinned
+# and all but app/config.py and app/proxy.py still do (changed deliberately on
+# 2026-09-25 and 2026-09-28; see their entries below). At port time the worktree copies were verified byte-identical to the pinned
 # dmac-assistant/bedrock-proxy source both by a live `diff` against the clone
 # (empty for all five files) and by matching sha256 digests (task-4-report.md
 # sections 1-2 record that one-time manual verification); these literals are
@@ -68,11 +68,14 @@ REAL_SECRET_FILENAME = "proxy-secret.env"
 PINNED_SOURCE_SHA256 = {
     "__init__.py": "6e20c439586b2f237ade5334ec7f4d62d57903f527bceea74fc1841a93fba069",
     "app/__init__.py": "e81e6cfec1157608321d2166cda98f3376486f49308c7ea80038fc1fb6bd86fd",
-    # Deliberately changed after the port on 2026-09-25: the allow list gained the
-    # Container-CC fallback model and the classifier's Sonnet (PORT-EVIDENCE.json
-    # "post_port_changes"). Every other digest is still the pinned source's.
-    "app/config.py": "ed831ec3740dbddbf2e81523c775480cc94652b4f5fbf7a1f031bda729c675bd",
-    "app/proxy.py": "e890f99a690b6dd3e03b454f95200c3261186f5df90cdf5f001a0b957f3b6859",
+    # Deliberately changed after the port on 2026-09-25 (the allow list gained the
+    # Container-CC fallback model and the classifier's Sonnet) and on 2026-09-28 (the
+    # streamed-invoke header deadline, PORT-EVIDENCE.json "post_port_changes"). Every
+    # other digest is still the pinned source's.
+    "app/config.py": "0f2a6b7e155c96a6a1a3ed4c905dd26440c66ef28893fcbc1edf14d616c2dd6c",
+    # Deliberately changed on 2026-09-28: a stalled streamed invoke is relayed as a 504
+    # and an upstream 429 as a 503 (PORT-EVIDENCE.json "post_port_changes").
+    "app/proxy.py": "fcd40ca1ae9a670e7e49dd073cb95b6054c94376fcec39ca3d277fb5458e41bf",
     "proxy-secret.env.example": "fdbf6c5cb8184158faf9ea06668d2dcf2aee21a37516103142040cfd02bf1d16",
 }
 
@@ -128,9 +131,9 @@ def test_bedrock_proxy_example_env_present():
 # ==========================================================================
 # Pinned digests: app/ logic files + top-level marker + .example must match
 # their pinned literal EXACTLY (no logic rewrite in the port). That literal is
-# the pinned source's digest for every file except app/config.py, whose allow
-# list was changed on purpose on 2026-09-25 (PORT-EVIDENCE.json
-# "post_port_changes").
+# the pinned source's digest for every file except app/config.py and
+# app/proxy.py, changed on purpose on 2026-09-25 and 2026-09-28
+# (PORT-EVIDENCE.json "post_port_changes").
 # ==========================================================================
 
 
@@ -138,8 +141,8 @@ def test_bedrock_proxy_example_env_present():
 def test_ported_file_is_byte_identical_to_pinned_source(rel_path):
     """Unconditional drift guard: each ported file must hash to the literal
     sha256 pinned in PINNED_SOURCE_SHA256 (= the pinned source's digest at
-    commit a429f137, except app/config.py, pinned at its deliberate
-    2026-09-25 change). Runs in every environment, no skips, and
+    commit a429f137, except app/config.py and app/proxy.py, pinned at their
+    deliberate 2026-09-25 and 2026-09-28 changes). Runs in every environment, no skips, and
     catches any post-port in-place edit -- including one that regenerates
     PORT-EVIDENCE.json to match, since these expected digests are pinned
     here, not read from that manifest."""
@@ -147,7 +150,7 @@ def test_ported_file_is_byte_identical_to_pinned_source(rel_path):
     assert dest.is_file(), f"missing ported file: {dest}"
     assert _sha256(dest) == PINNED_SOURCE_SHA256[rel_path], (
         f"{rel_path} has drifted from its pinned digest (the port source "
-        f"{PORT_SOURCE_COMMIT}, or app/config.py's recorded change) -- proxy logic must be ported verbatim, "
+        f"{PORT_SOURCE_COMMIT}, or a recorded post-port change) -- proxy logic must be ported verbatim, "
         "never rewritten. A deliberate change must update both "
         "PINNED_SOURCE_SHA256 and NessieAI/docker/bedrock-proxy/PORT-EVIDENCE.json "
         "consciously."
