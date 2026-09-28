@@ -290,3 +290,6 @@ ci.env
 # Superpowers working state (brainstorm mockups, SDD ledgers) is local only. A finished
 # ledger worth keeping is filed under docs/archive/<yyyy-mm>/ instead.
 .superpowers/
+
+# CI write-lane run file (startup ci), never committed
+startup/.ci-write-run.xml
