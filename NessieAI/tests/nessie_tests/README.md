@@ -127,9 +127,21 @@ consistency group is defined; and 3 variants carry the `route_gate` tag.
 here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
 into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
-the testable logic for the second one lives in the underscore-named package
-beside it and the skill's script is a thin entry point
-(`NessieAI/tests/nessie_tests/output_skill_bayesian/__init__.py:1-11`).
+the testable logic for each lives in the underscore-named package beside it and the
+skill's scripts are thin entry points
+(`NessieAI/tests/nessie_tests/output_skill_bayesian/__init__.py:1-11`). For the first
+that package is `NessieAI/tests/nessie_tests/output_skill/`: the forms a reviewer fills
+(the triage the page renders, a grader's per-case and per-turn verdicts, the fold of the
+reviewer's notes), each a schema, a validator and a deterministic writer, the way the
+session handoff skill works.
+
+**Before a paid run.** `NessieAI/tests/nessie_tests/case_file_check.py` checks a `--cases` file
+in one pass (`python -m NessieAI.tests.nessie_tests.case_file_check <file> [--instance prod]
+[--diverse]`): the harness loader, then the keys the loader silently ignores, unique ids,
+`include_ids` that resolve, criteria that can be observed over HTTP, a `_measure` block that
+matches its criteria, no writing family on production, and with `--diverse` no repeated question
+and no family outside the corpus. `scripts/pin_probe_truths.py --parse-output` turns the pin
+batch's cypher-shell output into the answers file the re-pin reads.
 
 **As one-off tooling.** `NessieAI/tests/nessie_tests/scripts/` is a group of corpus-maintenance
 programs, not a public API: they author and apply question sets

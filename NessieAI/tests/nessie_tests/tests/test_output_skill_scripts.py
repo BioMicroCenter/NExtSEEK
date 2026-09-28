@@ -206,7 +206,10 @@ def test_an_untriaged_failure_is_still_real(tmp_path):
 
 
 def test_a_hand_written_verdict_still_wins(tmp_path):
-    v = _verdicts(_build(tmp_path, triage={"verdicts": {"cc.outage": {"verdict": "real"}}}))
+    # A verdict entry needs its one-line `head` (the triage form, output_skill/triage.py):
+    # a verdict with no reason renders on the page as a bare word.
+    v = _verdicts(_build(tmp_path, triage={"verdicts": {"cc.outage": {
+        "verdict": "real", "head": "the reviewer judged it a product defect"}}}))
 
     assert v["cc.outage"] == "real"
 

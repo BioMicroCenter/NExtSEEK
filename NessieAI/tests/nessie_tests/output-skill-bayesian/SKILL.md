@@ -242,6 +242,13 @@ shorter one is how a partial grading pass gets read as a complete one. The page
 pins all of this in `GRADE_CONTRACT` and builds its keys from it;
 `NessieAI/tests/nessie_tests/tests/test_bayes_report.py` pins `GRADE_CONTRACT` against `export` itself.
 
+Each record is checked against the page's shape before the join: a record that is not an
+object, carries a key outside `grade`, `note` and `ts` (`merge_grades.GRADE_FIELDS`, pinned
+equal to the page's `GRADE_CONTRACT.fields`), or holds a note or timestamp that is not a string
+was not written by the page, and the merge refuses it by name rather than reading it as
+ungraded. The script exits 2 with the message on every refusal (an incomplete pass, a missing
+or misshapen file); 0 means `graded_rows.csv` was written.
+
 ## Files
 
 ```

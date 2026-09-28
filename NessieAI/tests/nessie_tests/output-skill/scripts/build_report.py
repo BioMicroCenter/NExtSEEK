@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Render a reviewable HTML report from a nessie_tests run + a hand-authored triage.
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pydantic>=2,<3"]
+# ///
+"""Render a reviewable HTML report from a nessie_tests run + a validated triage.
 
 Inputs
 ------
   manifest.json  what the harness recorded          (from fetch_run.py)
   turns.json     routing + full engine calls        (from fetch_run.py)
   corpus.json    every case expectation             (nessie_tests/corpus.json)
-  triage.json    YOUR analysis: verdicts, findings, gaps, next steps
+  triage.json    YOUR analysis: verdicts, findings, gaps, next steps. Validated against the
+                 triage form (NessieAI/tests/nessie_tests/output_skill/triage.py) before
+                 anything renders: a malformed triage, or a verdict for a case the run
+                 does not hold, exits 2 with every problem named.
 
 Everything a reviewer needs to judge a case ends up in that one case's record:
 each turn's query, how it routed and why, the exact call the engine ran (cypher
@@ -20,7 +27,7 @@ supplies them; pass --standalone for a complete document to open or send.
 
 Usage
 -----
-    python build_report.py --run ./run-2026-07-24 \
+    uv run build_report.py --run ./run-2026-07-24 \
         --repo /path/to/dev-v3-merge \
         --triage ./triage.json \
         --out ./report.html
@@ -33,6 +40,12 @@ import json
 import pathlib
 import sys
 from collections import Counter
+
+# This script ships INSIDE the harness (NessieAI/tests/nessie_tests/output-skill/scripts/),
+# so the repo root is five levels up; the triage form lives in the importable package.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[5]))
+from NessieAI.tests.nessie_tests.output_skill.common import FormError  # noqa: E402
+from NessieAI.tests.nessie_tests.output_skill.triage import load_triage  # noqa: E402
 
 TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "report.html.tpl"
 # This script ships INSIDE nessie_tests, so limits.py is two levels up.
@@ -203,7 +216,13 @@ def main():
     run, repo = pathlib.Path(a.run), pathlib.Path(a.repo)
     manifest = lj(run / "manifest.json")
     tasks = lj(run / "turns.json")
-    triage = lj(a.triage)
+    try:
+        triage, converted = load_triage(a.triage, entry_ids=[e["id"] for e in manifest["entries"]])
+    except FormError as e:
+        print("\n".join(e.problems), file=sys.stderr)
+        sys.exit(2)
+    for c in converted:
+        print(f"triage: CONVERTED {c}")
 
     # ONE source since 2026-08-04. It used to read the vendored catalog and the
     # superseded overlay file and merge them here, so this script had to reproduce
