@@ -15,7 +15,7 @@ The rule pinned here, in ``_call_with_recovery`` and ``tool_loop.call_tools``:
   it used to leave as ``LLMTimeoutError``). With no chain, a final timeout is still the
   ``LLMTimeoutError`` itself, which the parser maps to ``transport_timeout``;
 * the move adds no wait: the moved call runs on ``timeout_retry_seconds`` whatever the
-  failure was, so the parser's worst case stays 35 s + 60 s;
+  failure was, so the parser's worst case stays its first try + 60 s (50 s + 60 s since run 2);
 * a non-eligible error (a bare ``LLMError`` such as a 400) never moves.
 """
 from __future__ import annotations

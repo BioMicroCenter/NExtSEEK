@@ -137,7 +137,7 @@ and both surfaces move through the same `_Failover` object:
 - **The turn's memory.** `call_scope.py` holds one scope per NS turn (opened with the cost
   collector) and per Container-CC op (`run_op` in `NessieAI/ns/granular.py`). A model that failed is
   remembered for the rest of it, so a later call starts on its fallback without asking it, and
-  a call whose two models both failed earlier fails at once. The parsers' own 35 s timeout marks
+  a call whose two models both failed earlier fails at once. The parsers' own first-try timeout marks
   nothing. The ledger names a skip (`fallback_remembered`, and a `not_called` record for a
   fallback not asked); `model_fallback` items carry `remembered: true` when the primary was
   skipped (not a new failure) and `not_called: true` when the fallback was.

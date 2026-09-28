@@ -169,7 +169,7 @@ def test_bad_output_marks_nothing():
 
 
 def test_the_parsers_own_timeout_does_not_mark_opus_but_its_503_does():
-    """D3: a thinking Opus may miss the parser's 35 s without being down (run 2)."""
+    """D3: a thinking Opus may miss the parser's first try (50 s in run 2) without being down."""
     gcp = _Client("gcp", {PRO: ['{"mode": "pro"}']})
     anth = _Client("bedrock", {OPUS: [LLMTimeoutError("35 s"), '{"mode": "opus"}']})
     config = _Config(gcp, anth)

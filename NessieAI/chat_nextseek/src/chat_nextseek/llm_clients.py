@@ -798,7 +798,7 @@ _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
 # with no level used to get could be spent before the answer starts (stop_reason max_tokens, an empty or cut reply,
 # then a move). A higher effort thinks more, so the ceiling rises with it, and it sits above what the call's own
 # wall clock lets it write (Opus 4.7 on this Bedrock path writes about 110 tokens a second, schemas/call_budgets.py:
-# the parser's 35 s is about 4,000 tokens, report_writer's 240 s about 26,000), so the clock, not this, ends a long
+# the parser's 50 s is about 5,500 tokens, report_writer's 240 s about 26,000), so the clock, not this, ends a long
 # call. It goes no higher because Bedrock counts maxTokens against the account's tokens-per-minute quota when a
 # request starts.
 _ALWAYS_THINKING_MAX_TOKENS = {"low": 8192, "medium": 16384, "high": 32768}

@@ -45,8 +45,9 @@ RULED = {
     "memory_coder": (45, 90),
     "graph": (60, 90),
     "memory": (60, 90),
-    "parser": (35, 60),
-    "multi_parser": (35, 60),
+    # Run 2 (operator, 2026-09-28): 35 -> 50 s, because Opus 5.5 always thinks. The move stays 60 s.
+    "parser": (50, 60),
+    "multi_parser": (50, 60),
     "report_writer": (240, 180),
     "followup": (60, 60),
     "pipeline_agent": (120, 120),
@@ -58,7 +59,7 @@ def test_the_table_holds_the_ruled_values():
 
 
 def test_only_the_parsers_keep_a_timeout_from_marking_the_model():
-    """D3: the parser's 35 s is a speed preference, not a stall test."""
+    """D3: the parser's first try is a speed preference, not a stall test, at 35 s or 50 s."""
     assert {agent for agent, b in CALL_BUDGETS.items() if not b.timeout_marks_model} == {"parser", "multi_parser"}
 
 
@@ -196,7 +197,7 @@ FIRST_FAILURES = [
 
 @pytest.mark.parametrize("reason, first", FIRST_FAILURES, ids=[r for r, _ in FIRST_FAILURES])
 def test_the_moved_call_gets_one_budget_whatever_made_the_primary_fail(tmp_path, windows, reason, first):
-    """F5.1. The parser's row: 35 s first, 60 s for the move, after every class."""
+    """F5.1. The parser's row: 50 s first, 60 s for the move, after every class."""
     primary = _Client("bedrock", [first])
     fallback = _Client("gcp", ['{"mode": "graph_query"}'])
     config = _Config(primary, fallback, "parser", tmp_path)
@@ -205,7 +206,7 @@ def test_the_moved_call_gets_one_budget_whatever_made_the_primary_fail(tmp_path,
         "gcp:current": {"parser": {"provider": "gcp", "model": "fallback-1", "thinking_level": None}},
     }
     assert _structured(config, primary, agent_label="parser").mode == "graph_query"
-    assert windows == [("primary-model", 35), ("fallback-1", 60)]
+    assert windows == [("primary-model", 50), ("fallback-1", 60)]
 
 
 @pytest.mark.parametrize("reason, first", FIRST_FAILURES, ids=[r for r, _ in FIRST_FAILURES])

@@ -35,14 +35,14 @@ def test_both_entry_points_take_their_windows_from_the_table_unless_given(fn):
 
 
 def test_the_parsers_window_is_the_tables_not_a_literal():
-    """parser.py used to pass 35 and 60 itself; the table holds them now, so the model switch edits one place."""
+    """parser.py used to pass 35 and 60 itself; the table holds them now (50 and 60 since run 2), in one place."""
     from pathlib import Path
 
     src = Path(schema_helper.__file__).resolve().parents[1] / "agents" / "parser.py"
     text = src.read_text(encoding="utf-8")
     assert "timeout_seconds=" not in text
     assert "timeout_retry_seconds=" not in text
-    assert (budget_for("parser").first_try_s, budget_for("parser").moved_s) == (35, 60)
+    assert (budget_for("parser").first_try_s, budget_for("parser").moved_s) == (50, 60)
 
 
 def test_recycling_the_connection_is_what_the_retry_depends_on():
