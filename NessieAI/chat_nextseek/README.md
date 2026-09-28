@@ -138,8 +138,9 @@ and both surfaces move through the same `_Failover` object:
   collector) and per Container-CC op (`run_op` in `NessieAI/ns/granular.py`). A model that failed is
   remembered for the rest of it, so a later call starts on its fallback without asking it, and
   a call whose two models both failed earlier fails at once. The parsers' own 35 s timeout marks
-  nothing. The ledger names a skip (`fallback_remembered`) and `model_fallback` items carry
-  `remembered: true`.
+  nothing. The ledger names a skip (`fallback_remembered`, and a `not_called` record for a
+  fallback not asked); `model_fallback` items carry `remembered: true` when the primary was
+  skipped (not a new failure) and `not_called: true` when the fallback was.
 - **An op's deadline.** A CC op's scope carries 55 s (the aggregate op's 50 s), and each
   attempt is cut to fit it, leaving room for the move; with 2 s or less left no call starts.
 

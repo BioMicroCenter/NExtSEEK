@@ -11,9 +11,10 @@ without asking Opus 4.7, and a throttled one ended the turn in about 4 s. The re
 * logs how long each request waited for its headers, and the upstream status it mapped.
 
 The proxy is a FastAPI app in a hyphenated directory, so it is loaded here as the package ``app`` it imports itself
-as, the way its image runs it; its upstream is an httpx MockTransport. FastAPI is not in the app image, so this file
-runs in the host lane: ``uv run --no-project --with pytest --with fastapi --with httpx python -m pytest
-NessieAI/tests/cc/test_bedrock_proxy_failover.py`` (from the repo root). No network, no Bedrock.
+as, the way its image runs it; its upstream is an httpx MockTransport. FastAPI is not in the app image or in any CI
+lane, so this file runs in a host lane, from the repo root, without the Django conftest of this directory:
+``uv run --no-project --with pytest --with fastapi --with httpx python -m pytest --noconftest -o addopts=""
+NessieAI/tests/cc/test_bedrock_proxy_failover.py``. No network, no Bedrock.
 """
 from __future__ import annotations
 

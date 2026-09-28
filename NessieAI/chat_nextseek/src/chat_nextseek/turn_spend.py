@@ -94,8 +94,11 @@ class TurnSpend:
                 item = {"agent": agent, "from": entry.get("fallback_from"), "to": model,
                         "reason": entry.get("fallback_reason")}
                 if entry.get("fallback_remembered"):
-                    # The turn's memory decided this move (call_scope): a skip, not a new failure.
+                    # The primary was not asked: it failed earlier in this turn (call_scope).
                     item["remembered"] = True
+                if entry.get("outcome") == "not_called":
+                    # The fallback was not asked: it failed earlier in this turn.
+                    item["not_called"] = True
                 self.fallbacks.append(item)
             if resp is None:
                 if isinstance(err, LLMTimeoutError):

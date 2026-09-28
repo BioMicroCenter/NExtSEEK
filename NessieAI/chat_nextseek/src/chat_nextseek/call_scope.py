@@ -8,6 +8,9 @@ whose primary and fallback both failed earlier fails at once without calling eit
 * Who opens it: ``turn_spend.collects_turn`` (every NS entry point: ``run_query``, ``run_query_plan``,
   ``run_pipeline_launch``) and ``NessieAI/ns/granular.run_op`` (each CC op). A turn inside a turn shares the outer
   scope. A call made outside any scope asks its primary as before.
+* How it shows: a ``model_fallback`` item carries ``remembered: true`` when the call skipped a primary that failed
+  earlier (a skip, not a new failure) and ``not_called: true`` when it did not ask a fallback that failed earlier;
+  the ledger has ``fallback_remembered`` and ``not_called`` records.
 * What marks a model: a failure the ladder moves on and that says the model itself is failing: a timeout, a 5xx, a
   429, a dropped connection or a refused model. Not an empty body (one response), a 400 or bad output. The parsers'
   own timeout does not mark either (``call_budgets``: their 35 s is a speed preference, not a stall test). One

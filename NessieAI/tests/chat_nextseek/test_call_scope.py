@@ -10,8 +10,10 @@ pinned here:
 * the key is the model, not the agent and not the provider: a Gemini 3.5 Flash mark does not skip Gemini 3.1 Pro;
 * a call whose primary AND fallback both failed earlier fails at once, without calling either, and says so;
 * a call whose primary fails live while its fallback failed earlier ends without calling the fallback;
-* the skip shows in the ledger (``fallback_remembered``) and the turn record (``remembered: true``), and no
-  new top-level event key is added (the CC plugin's event models forbid unknown keys);
+* the skip shows in the ledger (``fallback_remembered``; a ``not_called`` record for a fallback not asked) and in
+  the turn record (``remembered: true`` when the primary was skipped, a skip and not a new failure;
+  ``not_called: true`` when the fallback was), and no new top-level event key is added (the CC plugin's event
+  models forbid unknown keys);
 * a new turn starts clean, a turn inside a turn shares its scope, and a call outside any scope behaves as before;
 * marks and reads are thread safe.
 """
@@ -215,7 +217,7 @@ def test_both_models_failed_earlier_fails_at_once_without_a_call(tmp_path):
     fatal = excinfo.value
     assert fatal.unavailable is True
     assert fatal.model_fallback == [
-        {"agent": "graph", "from": FLASH, "to": SONNET, "reason": "timeout", "remembered": True},
+        {"agent": "graph", "from": FLASH, "to": SONNET, "reason": "timeout", "remembered": True, "not_called": True},
     ]
     entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
     (not_called,) = [e for e in entries if e["outcome"] == "not_called"]
@@ -235,7 +237,9 @@ def test_a_live_failure_whose_fallback_failed_earlier_does_not_call_the_fallback
     assert gcp.calls == [FLASH]
     assert anth.calls == []
     assert excinfo.value.unavailable is True
-    assert excinfo.value.model_fallback[0]["remembered"] is True
+    (item,) = excinfo.value.model_fallback
+    assert item["not_called"] is True
+    assert "remembered" not in item, "the primary failed live in this call: a new failure, not a skip"
 
 
 # --------------------------------------------------------------------------
@@ -368,3 +372,21 @@ def test_the_text_path_remembers_too():
                               agent_label="chatter")
     assert reply == "Here are your samples."
     assert gcp.calls == [FLASH]
+
+
+def test_a_live_failure_whose_fallback_failed_earlier_counts_as_a_failure_in_the_turn_record(tmp_path):
+    """Agent C counts model_fallback items without ``remembered`` to count failures; this one must be counted."""
+    gcp = _Client("gcp", {FLASH: [LLMServiceUnavailableError("503")]})
+    anth = _Client("bedrock", {})
+    config = _Config(gcp, anth, log_dir=str(tmp_path))
+    with turn_spend.collecting() as spend, call_scope.scope() as scope:
+        scope.mark_failed(("anth", SONNET), reason="unavailable", agent="followup")
+        with pytest.raises(LLMFatalError):
+            _gemini_call(config, "entity")
+        record = spend.summary()
+    assert record["model_fallback"] == [
+        {"agent": "entity", "from": FLASH, "to": SONNET, "reason": "unavailable", "not_called": True},
+    ]
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    (not_called,) = [e for e in entries if e["outcome"] == "not_called"]
+    assert "fallback_remembered" not in not_called

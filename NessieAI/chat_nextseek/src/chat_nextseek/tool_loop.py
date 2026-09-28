@@ -220,7 +220,10 @@ def call_tools(
             _log("timeout", t0, err=te)
             fo.mark("timeout")
             _recycle_client_connections(fo.client, agent_label)
-            if timeout_attempts > timeout_retries:
+            if timeout_attempts > timeout_retries or (fo.switches and fo.capped):
+                if fo.capped:
+                    # The op's deadline cut this window: it ran out of time, not a model.
+                    raise fo.deadline_fatal(te) from te
                 raise _unavailable("timeout", te) from te
             if timeout_retry_seconds:
                 fo.window = timeout_retry_seconds

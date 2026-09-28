@@ -284,3 +284,37 @@ def test_the_follow_up_outage_ending_is_the_approved_text():
 
     assert failure_replies.FOLLOWUP_MODEL_OUTAGE_PARTIAL == FOLLOWUP_OUTAGE_ENDING
     assert "\u2014" not in FOLLOWUP_OUTAGE_ENDING
+
+
+def test_the_plan_mode_chatter_keeps_its_step_summary(monkeypatch):
+    """The plan-mode chatter is a chatter too (D2): the plan ran, so its step summary answers when both models fail.
+    A double timeout used to reach it as LLMTimeoutError, which it caught; it now arrives as LLMFatalError."""
+    from chat_nextseek.agents import chatter as chatter_mod
+    from chat_nextseek.schemas.planner import PlannerOutput, PlanStep
+
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _raise_both_timed_out)
+    config = MagicMock()
+    config.LOG_DIR = None
+    config.get_agent_model.return_value = (object(), "primary-model", None)
+    plan = PlannerOutput(intent_summary="mice treated with NDMA",
+                         steps=[PlanStep(step_id=1, tool="graph_query", context_prompt="mice")])
+    reply = chatter_mod.chatter_agent_plan(config, "mice treated with NDMA", plan,
+                                           {1: {"ok": True, "output": {"count": 12, "data": []}}})
+    assert reply.startswith("I executed a 1-step plan for your query: mice treated with NDMA.")
+    assert "12 result(s)" in reply
+
+
+def test_the_plan_mode_chatter_lets_a_bad_request_through(monkeypatch):
+    from chat_nextseek.agents import chatter as chatter_mod
+    from chat_nextseek.schemas.planner import PlannerOutput, PlanStep
+
+    def _bad_request(*a, **k):
+        raise LLMFatalError("Unrecoverable LLM error: 400 malformed request", agent="chatter")
+
+    monkeypatch.setattr(chatter_mod, "call_llm_text", _bad_request)
+    config = MagicMock()
+    config.LOG_DIR = None
+    config.get_agent_model.return_value = (object(), "primary-model", None)
+    plan = PlannerOutput(intent_summary="x", steps=[PlanStep(step_id=1, tool="graph_query", context_prompt="x")])
+    with pytest.raises(LLMFatalError):
+        chatter_mod.chatter_agent_plan(config, "x", plan, {1: {"ok": True, "output": {"count": 1}}})

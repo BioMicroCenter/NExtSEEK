@@ -176,8 +176,11 @@ def test_a_window_the_deadline_cut_is_recorded_and_its_timeout_marks_nothing(run
     config = _Config(log_dir=str(tmp_path))
     with _op_scope(55) as scope:
         clock.now += 25  # 30 s left
-        with pytest.raises(LLMFatalError):
+        with pytest.raises(LLMFatalError) as excinfo:
             _call(config, "graph", FLASH)
+        # The op ran out of time on a cut window: the deadline, not a model outage (review, 2026-09-28).
+        assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False
+        assert str(excinfo.value).startswith("deadline: the op's 55 s ran out during the graph call")
         entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
         assert [(e["model"], e["timeout_seconds"], e.get("deadline_capped")) for e in entries] == [
             (FLASH, 10, True), (SONNET, 20, True)]
@@ -201,3 +204,61 @@ def test_a_later_deadline_never_extends_an_earlier_one(clock):
         call_scope.limit_current(50)
         assert outer.remaining() == pytest.approx(50)
     assert call_scope.limit_current(10) is None, "no scope, nothing to limit"
+
+
+def test_a_timeout_on_a_window_the_deadline_did_not_cut_is_still_an_outage(run, clock):
+    """Plenty of time left: both models stalling on their full windows is unavailability, as before."""
+    windows, behaviour = run
+    behaviour.update({FLASH: "stall", SONNET: "stall"})
+    with _op_scope(1000):
+        with pytest.raises(LLMFatalError) as excinfo:
+            _call(_Config(), "entity", FLASH)
+    assert windows == [(FLASH, 20), (SONNET, 90)]
+    assert excinfo.value.reason == "timeout" and excinfo.value.unavailable is True
+
+
+def test_the_deadline_record_names_a_move_made_just_before_it(run, clock, tmp_path):
+    windows, behaviour = run
+    behaviour.update({FLASH: "stall"})
+    config = _Config(log_dir=str(tmp_path))
+    with _op_scope(55):
+        clock.now += 48  # 7 s left: a 5 s first try (the floor) stalls, and 2 s is too little for the move
+        with pytest.raises(LLMFatalError) as excinfo:
+            _call(config, "graph", FLASH)
+    assert windows == [(FLASH, 5)], "the fallback is never called"
+    assert excinfo.value.reason == "deadline"
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    (deadline,) = [e for e in entries if e["outcome"] == "deadline"]
+    assert deadline["model"] == SONNET
+    assert deadline["fallback_from"] == FLASH and deadline["fallback_reason"] == "timeout"
+
+
+def test_the_tool_loop_ends_on_the_deadline_too(run, clock, monkeypatch):
+    from chat_nextseek import tool_loop
+
+    def fake(fn, timeout):
+        clock.now += timeout
+        raise LLMTimeoutError(f"LLM call timed out after {timeout} seconds")
+
+    monkeypatch.setattr(tool_loop, "_run_with_wall_clock", fake)
+
+    class _Tools:
+        provider = "bedrock"
+
+        def reset_connections(self):
+            return True
+
+        def chat_with_tools(self, **kw):  # pragma: no cover - the wall clock stands in for it
+            raise AssertionError
+
+    client = _Tools()
+    config = _Config()
+    config.LLM_CLIENTS = {"anth": client}
+    config.AGENT_MODEL_CATALOG = {"_fallback": {"followup": {"provider": "anth", "model": SONNET,
+                                                              "thinking_level": None}}}
+    with _op_scope(55):
+        clock.now += 30  # 25 s left: 5 s first try, then 20 s
+        with pytest.raises(LLMFatalError) as excinfo:
+            tool_loop.call_tools(config, messages=[], tools=[], system="s", model_name=OPUS, client=client,
+                                 agent_label="followup")
+    assert excinfo.value.reason == "deadline" and excinfo.value.unavailable is False

@@ -392,7 +392,8 @@ def _ledger_entry(
     calls can be listed and priced from the ledger alone. Every other record leaves
     both keys out. ``fallback_remembered`` is True when the turn's memory
     (``call_scope``) decided the move: the primary had failed earlier in the turn and
-    was not asked, or (outcome ``not_called``) the fallback had and was not asked.
+    was not asked. A record with outcome ``not_called`` names a fallback that failed
+    earlier in the turn and so was not asked.
     """
     entry: dict[str, Any] = {
         "agent": agent,
@@ -654,8 +655,12 @@ class _Failover:
         fb_client, fb_model, fb_budget = fb
         dead = self.scope.failed(self._key(fb_client, fb_model)) if self.scope is not None else None
         item = {"agent": self.agent_label, "from": self.model, "to": fb_model, "reason": reason}
-        if remembered or dead:
+        if remembered:
+            # The primary was not asked: it failed earlier in this turn. A skip, not a new failure.
             item["remembered"] = True
+        if dead:
+            # The fallback was not asked: it failed earlier in this turn.
+            item["not_called"] = True
         self.moves.append(item)
         if dead:
             print(
@@ -665,7 +670,7 @@ class _Failover:
             entry = _ledger_entry(
                 self.agent_label, fb_model, fb_client, self.attempt, "not_called", time.perf_counter(),
                 thinking_budget=fb_budget, fallback_from=self.model, fallback_reason=reason,
-                fallback_remembered=True,
+                fallback_remembered=remembered,
             )
             entry["error"] = f"{fb_model} failed earlier in this turn ({dead['reason']}), so it was not called"
             _write_ledger(self.config, entry)
@@ -711,7 +716,7 @@ class _Failover:
         if remaining <= call_scope.DEADLINE_FLOOR_S:
             total = self.scope.total_s or 0
             entry = _ledger_entry(self.agent_label, self.model, self.client, self.attempt, "deadline",
-                                  time.perf_counter(), thinking_budget=self.budget)
+                                  time.perf_counter(), thinking_budget=self.budget, **self.take_pending())
             entry["error"] = f"the op's {total:g} s deadline left {max(remaining, 0):.1f} s, so no call was started"
             _write_ledger(self.config, entry)
             raise self.fatal(
@@ -724,6 +729,18 @@ class _Failover:
         window = min(window, remaining)
         self.capped = window < self.window
         return window
+
+    def deadline_fatal(self, cause: BaseException) -> LLMFatalError:
+        """The call's end when its last attempt timed out on a window the op's deadline cut.
+
+        The op ran out of time; no model was shown to be failing, so it is not unavailability.
+        """
+        total = (self.scope.total_s if self.scope is not None else None) or 0
+        return self.fatal(
+            f"deadline: the op's {total:g} s ran out during the {self.agent_label} call "
+            f"(model '{self.model}'): {cause}",
+            reason="deadline", unavailable=False,
+        )
 
     def take_pending(self) -> dict:
         """The move to name on the next ledger record (the first attempt after it), once."""
@@ -924,6 +941,10 @@ def _call_with_recovery(
             # draws the same dead connection (the 120.01s double-failure signature).
             _recycle_client_connections(fo.client, label)
             if timeout_attempts > timeout_retries or fo.switches:
+                if fo.switches and fo.capped:
+                    # The moved call's window was cut by the op's deadline: the op ran out of
+                    # time, which is not a model outage (review of D5).
+                    raise fo.deadline_fatal(te) from te
                 if fo.switches:
                     # The call moved once and the model it moved to timed out too: both models
                     # failed, which ends the turn like a double 503 (F5.2, operator ruling
