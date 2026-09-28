@@ -607,8 +607,10 @@ class _Failover:
         pending, self._pending = self._pending, {}
         return pending
 
-    def fatal(self, message: str, *, unavailable: bool = True) -> LLMFatalError:
-        return LLMFatalError(message, agent=self.agent_label, unavailable=unavailable, model_fallback=self.moves)
+    def fatal(self, message: str, *, reason: str | None, unavailable: bool = True) -> LLMFatalError:
+        """The call's end: ``reason`` is the failure that ended it; the move it made goes in ``model_fallback``."""
+        return LLMFatalError(message, agent=self.agent_label, unavailable=unavailable,
+                             model_fallback=self.moves, reason=reason)
 
 
 def _call_with_recovery(
@@ -658,13 +660,15 @@ def _call_with_recovery(
       * a connection error (``LLMAPIConnectionError``)
 
     On the first of them the call moves to the next provider in ``_FALLBACK_CHAINS``,
-    once (``MAX_PROVIDER_SWITCHES``). When that provider fails too, the failure is
-    final: the ``LLMTimeoutError`` itself for a timeout, which is what the parser maps
-    to ``failure = transport_timeout``, and ``LLMFatalError`` with ``unavailable=True``
-    for anything else. With no chain to move to, a 5xx or an empty body is that fatal at
-    once, while a timeout keeps the old same-provider retry on a recycled socket, a 429
-    the old backoff on the same provider, and a connection error propagates unchanged.
-    Every such fatal names the move it made in ``model_fallback``.
+    once (``MAX_PROVIDER_SWITCHES``). When that provider fails too, whatever the failure,
+    the call ends in ``LLMFatalError`` with ``unavailable=True`` and ``reason`` naming the
+    failure (a timeout on the fallback included, since 2026-09-28: it used to leave as
+    ``LLMTimeoutError``, and each agent answered it its own way). With no chain to move
+    to, a 5xx or an empty body is that fatal at once, while a timeout keeps the old
+    same-provider retry on a recycled socket and then leaves as ``LLMTimeoutError`` (the
+    parser's ``transport_timeout``), a 429 the old backoff on the same provider, and a
+    connection error propagates unchanged. Every such fatal names the move it made in
+    ``model_fallback``.
 
     Budget: the first try runs on ``timeout_seconds``; the moved call runs on
     ``timeout_retry_seconds`` whatever made the first try fail (F5.1), and so does a
@@ -767,7 +771,7 @@ def _call_with_recovery(
                 max_attempts += 1
                 continue
             # The one move is spent, or there is no chain — kill the run
-            raise fo.fatal(f"All provider fallbacks exhausted — agent '{agent_label}': {sue}") from sue
+            raise fo.fatal(f"All provider fallbacks exhausted — agent '{agent_label}': {sue}", reason=reason) from sue
         except LLMTimeoutError as te:
             timeout_attempts += 1
             print(
@@ -780,7 +784,19 @@ def _call_with_recovery(
             # pool, so neither this call's retry nor the next agent on this client
             # draws the same dead connection (the 120.01s double-failure signature).
             _recycle_client_connections(fo.client, label)
-            if timeout_attempts > timeout_retries:
+            if timeout_attempts > timeout_retries or fo.switches:
+                if fo.switches:
+                    # The call moved once and the model it moved to timed out too: both models
+                    # failed, which ends the turn like a double 503 (F5.2, operator ruling
+                    # 2026-09-28). It used to leave as LLMTimeoutError, which every agent turned
+                    # into an answer of its own.
+                    raise fo.fatal(
+                        f"All provider fallbacks exhausted: agent '{agent_label}': timeout on model "
+                        f"'{fo.model}' after {_timeout}s: {te}",
+                        reason="timeout",
+                    ) from te
+                # No move was made (no chain, or no retry left): the timeout itself, for the
+                # callers that answer it (the parser's transport_timeout plan).
                 raise
             if timeout_retry_seconds:
                 fo.window = timeout_retry_seconds
@@ -790,9 +806,6 @@ def _call_with_recovery(
             if fo.move("timeout", "transport timeout"):
                 max_attempts += 1
                 continue
-            if fo.switches:
-                # This call already moved once; the provider it moved to timed out.
-                raise
             continue
         except LLMRateLimitError as rle:
             print(
@@ -807,12 +820,14 @@ def _call_with_recovery(
             if fo.switches:
                 raise fo.fatal(
                     f"All provider fallbacks exhausted: agent '{agent_label}': rate limited (429) "
-                    f"on model '{fo.model}': {rle}"
+                    f"on model '{fo.model}': {rle}",
+                    reason="rate_limited",
                 ) from rle
             # No chain: the old backoff on the same provider.
             if attempt + 1 >= max_attempts:
                 raise fo.fatal(
-                    f"Rate limited (429) — agent '{agent_label}', model '{fo.model}': {rle}"
+                    f"Rate limited (429) — agent '{agent_label}', model '{fo.model}': {rle}",
+                    reason="rate_limited",
                 ) from rle
             # brief backoff then retry
             try:
@@ -832,7 +847,8 @@ def _call_with_recovery(
             if fo.switches:
                 raise fo.fatal(
                     f"All provider fallbacks exhausted: agent '{agent_label}': connection error "
-                    f"on model '{fo.model}': {ce}"
+                    f"on model '{fo.model}': {ce}",
+                    reason="connection",
                 ) from ce
             # No chain: propagate unchanged, as before, for the callers that degrade on it.
             raise
@@ -844,7 +860,7 @@ def _call_with_recovery(
                 raise
             raise fo.fatal(
                 f"Unrecoverable LLM error — agent '{agent_label}', model '{fo.model}': {le}",
-                unavailable=False,
+                reason=None, unavailable=False,
             ) from le
         except BaseException as unrecorded:
             # Anything else (a raw ClientError the client did not type, a bug in a client)

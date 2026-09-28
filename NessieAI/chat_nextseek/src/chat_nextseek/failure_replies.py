@@ -12,6 +12,10 @@ with the operator. Two places use it.
   ``reason = MODEL_UNAVAILABLE_REASON``; the raw provider message goes to the event's
   ``detail``, the debug payload's ``fatal_error`` and the chat log's ``error``, never to
   the reply. A fatal error that is not unavailability (a bare 400) keeps its old reply.
+  Since 2026-09-28 (D2) every double failure ends this way, both models timing out
+  included, except where real work already answers part of the question: the chatter's
+  unformatted answer, the follow-up's partial answer (ending with
+  ``FOLLOWUP_MODEL_OUTAGE_PARTIAL``) and seqera's catalog-default launch plan.
 """
 from __future__ import annotations
 
@@ -40,6 +44,14 @@ MODELS_UNAVAILABLE_TRIED_TWO_REPLY = (
 MODELS_UNAVAILABLE_REPLY = (
     "The AI models we use were unavailable, so I could not finish your question. "
     "Please ask again in a few minutes."
+)
+
+
+#: How a follow-up's partial answer ends when the models stopped answering after it had already run a query or a
+#: computation (operator-approved, 2026-09-28, D9). The step-limit ending stays for a loop that ran out of turns.
+FOLLOWUP_MODEL_OUTAGE_PARTIAL = (
+    "The AI model stopped answering before I could finish, so treat this as partial: "
+    "ask it again in a few minutes."
 )
 
 

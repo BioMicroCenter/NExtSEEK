@@ -57,7 +57,10 @@ class LLMFatalError(BaseException):
     well when there was one), and False for anything else (a bare 400). The orchestrator
     tells the user a different thing for each. ``model_fallback`` lists the provider
     move the call made before it gave up, as ``{"agent", "from", "to", "reason"}``
-    items; it is empty when no second model was tried.
+    items; it is empty when no second model was tried. ``reason`` names the failure that
+    ended the call, as the ladder's ``FALLBACK_REASONS`` spell it (``timeout`` for both
+    models timing out, ``unavailable``, ``rate_limited``, ...), or None when it was not a
+    model failure the ladder classifies (a 400).
     """
     def __init__(
         self,
@@ -66,11 +69,13 @@ class LLMFatalError(BaseException):
         agent: str | None = None,
         unavailable: bool = False,
         model_fallback: list[dict] | None = None,
+        reason: str | None = None,
     ):
         super().__init__(message)
         self.agent = agent
         self.unavailable = bool(unavailable)
         self.model_fallback = list(model_fallback or [])
+        self.reason = reason
 
 
 class LLMStructuredUnsupportedError(LLMError):

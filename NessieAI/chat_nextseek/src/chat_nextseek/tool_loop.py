@@ -56,6 +56,7 @@ from .schemas.schema_helper import (
     _recycle_client_connections,
     _run_with_wall_clock,
     _unavailable_kind,
+    failure_reason,
 )
 
 # The wall clock on one tool-loop call comes from the agent's row of ``call_budgets.CALL_BUDGETS``
@@ -159,7 +160,8 @@ def call_tools(
         turn_spend.record_call(entry, resp=kw.get("resp"), err=kw.get("err"))
 
     def _unavailable(what: str, cause: BaseException) -> LLMFatalError:
-        return fo.fatal(f"All tool-capable providers exhausted: agent '{agent_label}': {what}: {cause}")
+        return fo.fatal(f"All tool-capable providers exhausted: agent '{agent_label}': {what}: {cause}",
+                        reason=failure_reason(cause))
 
     max_attempts = retries + 1
     attempt = -1
@@ -230,7 +232,8 @@ def call_tools(
                 continue
             if fo.switches or attempt + 1 >= max_attempts:
                 raise fo.fatal(
-                    f"Rate limited (429): agent '{agent_label}', model '{fo.model}': {rle}"
+                    f"Rate limited (429): agent '{agent_label}', model '{fo.model}': {rle}",
+                    reason="rate_limited",
                 ) from rle
             try:
                 time.sleep(rate_limit_sleep)
@@ -258,7 +261,7 @@ def call_tools(
         _log("ok", t0, resp=_LedgerView(result))
         return result
 
-    raise fo.fatal(f"Tool call exhausted its attempts: agent '{agent_label}'")
+    raise fo.fatal(f"Tool call exhausted its attempts: agent '{agent_label}'", reason=None)
 
 
 class _LedgerView:

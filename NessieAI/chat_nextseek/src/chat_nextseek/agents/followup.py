@@ -59,6 +59,7 @@ from typing import Any
 
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..config import ChatConfig
+from ..failure_replies import FOLLOWUP_MODEL_OUTAGE_PARTIAL
 from ..graph_scope import RESERVED_PREFIX
 from ..llm_clients import LLMFatalError
 from ..tool_loop import call_tools
@@ -219,8 +220,11 @@ FOLLOWUP_UNAVAILABLE_REPLY = ("I could not finish this follow-up. Ask it as a fr
 _PARTIAL = ("I ran out of steps before I could finish, so treat this as partial: "
             "ask it again and I will answer it properly.")
 
+#: The end of the same reply when the loop stopped because its models failed (approved text, 2026-09-28).
+_PARTIAL_MODEL_OUTAGE = FOLLOWUP_MODEL_OUTAGE_PARTIAL
 
-def _reply_from_computes(computes) -> str | None:
+
+def _reply_from_computes(computes, ending: str = _PARTIAL) -> str | None:
     """The last successful computation's count, as a partial reply, or None when none succeeded."""
     done = [c for c in computes or () if isinstance(c, dict) and isinstance(c.get("result"), dict)
             and c["result"].get("ok") is True and _is_count(c["result"].get("count"))]
@@ -231,11 +235,11 @@ def _reply_from_computes(computes) -> str | None:
     rows = ("the rows the follow-up query returned" if last.get("source") == "last_query"
             else "the earlier result's rows")
     if n == 0:
-        return f"None of {rows} show this, which does not mean that none exist. {_PARTIAL}"
-    return f"{n:,} of {rows} match. {_PARTIAL}"
+        return f"None of {rows} show this, which does not mean that none exist. {ending}"
+    return f"{n:,} of {rows} match. {ending}"
 
 
-def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
+def _reply_from_queries(queries: list[dict], computes=(), ending: str = _PARTIAL) -> str | None:
     """What the loop established, when it ran out of turns before saying it.
 
     Worse than an answer the model composed. The stored-result answer this branch used
@@ -246,7 +250,7 @@ def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
     ran = [q for q in queries or [] if isinstance(q, dict)]
     found = [q for q in ran if (q.get("result") or {}).get("ok") and (q.get("result") or {}).get("count")]
     if not found:
-        computed = _reply_from_computes(computes)
+        computed = _reply_from_computes(computes, ending)
         if computed:
             return computed
         if ran:
@@ -263,7 +267,7 @@ def _reply_from_queries(queries: list[dict], computes=()) -> str | None:
              if isinstance(result.get("count"), int) else "The follow-up query found records."]
     if examples:
         parts.append("Examples: " + ", ".join(examples) + ".")
-    parts.append(_PARTIAL)
+    parts.append(ending)
     return " ".join(parts)
 
 
@@ -288,7 +292,10 @@ def resolve_followup_outcome(outcome: dict | None) -> str:
             reply = reply + "\n\n" + "\n".join(f"- {c}" for c in caveats)
         return reply
     if outcome.get("queries") or outcome.get("computes"):
-        return (_reply_from_queries(outcome.get("queries") or [], computes=outcome.get("computes") or ())
+        # A loop its models stopped says so; one that ran out of turns says that.
+        ending = _PARTIAL_MODEL_OUTAGE if outcome.get("model_unavailable") else _PARTIAL
+        return (_reply_from_queries(outcome.get("queries") or [], computes=outcome.get("computes") or (),
+                                    ending=ending)
                 or FOLLOWUP_UNAVAILABLE_REPLY)
     return FOLLOWUP_UNAVAILABLE_REPLY
 
