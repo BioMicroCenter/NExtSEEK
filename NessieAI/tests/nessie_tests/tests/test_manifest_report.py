@@ -529,6 +529,40 @@ def test_the_fallback_summary_counts_turns_and_names_the_cases():
                                      "1 turn(s) did not report whether they fell back")
 
 
+def test_remembered_skips_are_not_counted_as_more_failures():
+    """Since F3-F5 (2026-09-28) a model that failed is remembered for the rest of the turn: every later call
+    whose primary it is starts on its fallback and adds a ``model_fallback`` item with ``remembered: true``.
+    Those items are skips, not failures. One failure in a turn is still one fallback turn in the case, however
+    many calls skipped the failed model afterwards, and a case whose turn fell back once counts once."""
+    live = {"agent": "entity", "from": "gemini-3.8-flash", "to": "us.anthropic.claude-sonnet-4-6",
+            "reason": "timeout"}
+    skips = [{**live, "agent": agent, "remembered": True} for agent in ("graph", "chatter")]
+    payload = {"progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml",
+                                            "router_cost_usd": 0.01, "router_fallback": None}},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.2, "cost_partial": False,
+                                             "models_used": ["us.anthropic.claude-sonnet-4-6"],
+                                             "model_fallback": [live, *skips]}}]}
+    turn = M.TurnMeta.from_payload(payload, turn="t1")
+    quiet = M.TurnMeta.from_payload({"progress": [
+        {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml",
+                                            "router_cost_usd": 0.01, "router_fallback": None}},
+        {"event": "query_complete", "data": {"total_cost_usd": 0.1, "cost_partial": False,
+                                             "models_used": ["gemini-3.8-flash"], "model_fallback": []}}]},
+        turn="t2")
+
+    money = M.case_money([turn, quiet], turns_sent=2)
+    assert turn.model_fallback == [live, *skips]  # every item is kept for the reader
+    assert money["fallback_turns"] == 1
+    e = _e(0, money["cost"], turns=money["turns_meta"])
+    e.fallback_turns = money["fallback_turns"]
+    s = M.fallback_summary([e])
+    assert s["fallback_turns"] == 1
+    assert s["fallback_display"] == "1 of 2 turn(s) fell back to another model, in 1 case(s)"
+    # The failures in the turn are the items that are not skips: one.
+    assert [i for i in turn.model_fallback if not i.get("remembered")] == [live]
+
+
 def test_a_run_that_recorded_no_turn_says_so_rather_than_no_fallback():
     assert M.fallback_summary([_e(0)])["fallback_display"] == "no turn recorded a model record"
 
