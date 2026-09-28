@@ -54,12 +54,13 @@ def _crash_after_a_call(*_a, **_k):
     raise RuntimeError("boom after a paid call")
 
 
-def _start(monkeypatch, tmp_path, crash):
+def _start(monkeypatch, tmp_path, crash, **decision_fields):
     """Run one routed NS turn whose first step is ``crash``; return the events it sent."""
+    fields = dict(router_model="gemini-3.1-pro-preview", router_cost_usd=0.004, router_usage={"calls": []},
+                  router_cost_partial=False)
+    fields.update(decision_fields)
     decision = cc_router.RouteDecision(
-        route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="r", source="baml",
-        router_model="gemini-3.1-pro-preview", router_cost_usd=0.004, router_usage={"calls": []},
-        router_cost_partial=False)
+        route=cc_router.ROUTE_NS, model_class=None, model_id=None, reasoning="r", source="baml", **fields)
     monkeypatch.setattr(cc_turn, "threading", SimpleNamespace(Thread=_Thread))
     monkeypatch.setattr(cc_turn, "_select_chat_config", lambda request, r: SimpleNamespace())
     monkeypatch.setattr(cc_turn, "_eval_config", lambda config, user, r: config)
@@ -127,3 +128,24 @@ def test_the_generic_error_still_ends_a_turn_that_crashed_before_any_error_went_
     assert error["session_id"] == "s-1"
     assert error["total_cost_usd"] == pytest.approx(model_prices.call_cost(FLASH, USAGE).cost_usd, abs=1e-6)
     assert error["cost_partial"] is False and error["models_used"] == [FLASH]
+
+
+def test_route_decided_names_the_router_model_and_its_fallback(monkeypatch, tmp_path):
+    """CI-COVERAGE gap 2: the values reach the route_decided event of the driven start_task, not only its source
+    (test_router_time_limits.py pins them with an AST check)."""
+    fallback = {"from": "gemini-3.1-pro-preview", "to": "gemini-3.5-flash", "reason": "timeout"}
+    progress = _start(monkeypatch, tmp_path, _crash_after_a_call,
+                      router_model="gemini-3.5-flash", router_fallback=fallback)
+
+    (decided,) = [p["data"] for p in progress if p["event"] == "route_decided"]
+    assert decided["router_model"] == "gemini-3.5-flash"
+    assert decided["router_fallback"] == fallback
+    assert decided["router_cost_usd"] == 0.004
+
+
+def test_route_decided_says_nothing_fell_back_when_the_router_answered_first_time(monkeypatch, tmp_path):
+    progress = _start(monkeypatch, tmp_path, _crash_after_a_call)
+
+    (decided,) = [p["data"] for p in progress if p["event"] == "route_decided"]
+    assert decided["router_model"] == "gemini-3.1-pro-preview"
+    assert decided["router_fallback"] is None

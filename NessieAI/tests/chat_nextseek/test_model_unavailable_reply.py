@@ -113,3 +113,54 @@ def test_the_texts_are_the_approved_ones():
     for text in (TRIED_TWO, NO_SECOND, failure_replies.PLANNER_TIMEOUT_REPLY,
                  failure_replies.PLANNER_UNUSABLE_REPLY):
         assert "\u2014" not in text, "the approved texts carry no em dash"
+
+
+# --- CI-COVERAGE gap 4: the failed turn's record, end to end through run_query ---------------------------------
+
+FLASH = "gemini-3.5-flash"
+SONNET = "us.anthropic.claude-sonnet-4-6"
+USAGE = {"prompt_tokens": 4000, "completion_tokens": 100}
+
+
+def _moved_then_fatal(*, remembered: bool):
+    """An entity step that moved to Sonnet 4.6 (the ledger record the ladder writes, with its usage), then failed."""
+    from chat_nextseek import turn_spend
+    from chat_nextseek.llm_clients import LLMResponse
+
+    def entity(*args, **kwargs):
+        entry = {"agent": "entity", "provider": "bedrock", "model": SONNET, "attempt": 1, "outcome": "ok",
+                 "fallback_from": FLASH, "fallback_reason": "timeout"}
+        if remembered:
+            entry["fallback_remembered"] = True
+        turn_spend.record_call(entry, resp=LLMResponse(content="x", raw=None, usage=dict(USAGE), model=SONNET,
+                                                       provider="bedrock", metadata={}))
+        raise LLMFatalError(RAW, agent="entity", unavailable=True, reason="timeout",
+                            model_fallback=[{"agent": "entity", "from": FLASH, "to": SONNET, "reason": "timeout"}])
+    return entity
+
+
+@pytest.mark.parametrize("remembered", [False, True], ids=["live-move", "remembered-move"])
+def test_a_failed_turn_carries_its_cost_and_its_move(remembered):
+    from chat_nextseek import model_prices
+
+    events: list[tuple[str, dict]] = []
+    with patch.object(orch.pipeline_agent, "is_active", return_value=False), \
+            patch.object(orch, "_ensure_query_log_dir", return_value="/tmp/log"), \
+            patch.object(orch, "ArtifactStore", return_value=MagicMock()), \
+            patch.object(orch, "shortlist_catalog", return_value=([], [], {})), \
+            patch.object(orch, "entity_agent", _moved_then_fatal(remembered=remembered)), \
+            patch.object(orch, "append_turn", lambda session, **kw: None):
+        payload = orch.run_query({}, _Config(), "how many mice", lambda e, d: events.append((e, d)),
+                                 credentials=CREDS, graph_scope={"is_admin": True, "project_ids": []})
+
+    cost = model_prices.call_cost(SONNET, USAGE).cost_usd
+    assert payload["reply"] == TRIED_TWO
+    assert payload["total_cost_usd"] == pytest.approx(cost, abs=1e-9)
+    assert payload["models_used"] == [SONNET]
+    item = {"agent": "entity", "from": FLASH, "to": SONNET, "reason": "timeout"}
+    if remembered:
+        item["remembered"] = True
+    assert payload["model_fallback"] == [item]
+    (complete,) = [d for e, d in events if e == "query_complete"]
+    assert complete["total_cost_usd"] == payload["total_cost_usd"]
+    assert complete["model_fallback"] == [item]

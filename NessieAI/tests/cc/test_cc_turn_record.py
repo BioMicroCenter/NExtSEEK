@@ -64,11 +64,13 @@ class _Sock:
         return None if self._container.stopped else ""
 
 
-def _drive(tmp_path, monkeypatch, lines, *, idle=False, persist=False, **kwargs):
+def _drive(tmp_path, monkeypatch, lines, *, idle=False, persist=False, runs=None, **kwargs):
     container = _Container()
 
     class _Containers:
-        def run(self, **_kw):
+        def run(self, **kw):
+            if runs is not None:
+                runs.append(kw)
             return container
 
     class _Client:
@@ -157,3 +159,25 @@ def test_a_model_unavailable_turn_ends_in_the_approved_error(tmp_path, monkeypat
     assert data["reason"] == "model_unavailable"
     assert data["detail"] == text
     assert data["model_fallback"] == RECORD
+
+
+def _map_ids() -> dict:
+    """The model map the engine resolves ``--model`` and ``--fallback-model`` from, read as a file."""
+    from NessieAI import paths
+
+    return json.loads((paths.DMAC_BUILD_CONTEXT / "router_model_class_map.json").read_text(encoding="utf-8"))
+
+
+def test_the_container_is_started_with_the_fallback_model_after_the_model(tmp_path, monkeypatch):
+    """CI-COVERAGE gap 1: the command run_cc_turn really starts the container with, not only _build_command."""
+    ids = _map_ids()
+    runs: list[dict] = []
+    (event, _), _, _ = _drive(tmp_path, monkeypatch, [_ok()], runs=runs, model_id=ids["opus"])
+    assert event == "query_complete"
+    (run,) = runs
+    command = list(run["command"])
+    model_at = command.index("--model")
+    fallback_at = command.index("--fallback-model")
+    assert command[model_at + 1] == ids["opus"]
+    assert command[fallback_at + 1] == ids["opus_fallback"]
+    assert fallback_at > model_at

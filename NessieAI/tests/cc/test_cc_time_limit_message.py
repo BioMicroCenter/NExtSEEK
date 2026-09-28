@@ -233,3 +233,19 @@ def test_the_retry_window(retry, retry_at, stopped_at, api_timeout_ms, expected)
     assert cc_engine._stopped_waiting_on_retry(
         retry, retry_at=retry_at, stopped_at=stopped_at,
         api_timeout_ms=api_timeout_ms) is expected
+
+
+def test_the_about_dialog_quotes_the_limit_the_engine_says():
+    """CI-COVERAGE gap 8: the chat's About dialog tells the user what a stopped task says; it must name the same
+    limit, in the same words, as the message the engine sends at the default ceiling."""
+    import re
+
+    from NessieAI import paths
+
+    src = (paths.NESSIE_ROOT / "chat_frontend" / "src" / "components" / "Layout" / "AboutDialog.tsx").read_text(
+        encoding="utf-8")
+    about = " ".join(src.split())
+    message = cc_engine._time_limit_message(cc_engine._TIMEOUT_HARD_MAX)
+    quoted = re.search(r"took longer than the \S+ limit", message).group(0)
+    assert quoted in about, f"the About dialog no longer quotes {quoted!r}"
+    assert "Say continue" in message and "Say continue" in about

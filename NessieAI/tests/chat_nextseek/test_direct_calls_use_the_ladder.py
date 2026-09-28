@@ -218,3 +218,31 @@ def test_the_context_engineer_fallback_goes_through_the_ladder(monkeypatch):
 @pytest.mark.parametrize("module", [entity_mod, memory_mod, planner_mod], ids=lambda m: m.__name__)
 def test_each_module_imports_the_ladder(module):
     assert callable(getattr(module, "call_llm_text", None))
+
+
+def test_call_llm_text_ledgers_under_the_log_label_and_moves_on_the_agent_labels_chain(tmp_path):
+    """CI-COVERAGE gap 3b, through the real ladder: the memory coder's reply is ledgered as its own step
+    (``log_label``) while its provider chain, and so the model it moves to, is the chatter's (``agent_label``)."""
+    import json
+
+    from chat_nextseek.schemas.schema_helper import call_llm_text
+
+    flash = _Client("gcp", [LLMServiceUnavailableError("503 UNAVAILABLE")])
+    sonnet = _Client("bedrock", ["Three of them."])
+    config = SimpleNamespace(
+        LOG_DIR=str(tmp_path), _CATALOG_KEY="default", _THINKING_BUDGET_MAP={None: None}, LLM_MODEL="unused",
+        LLM_CLIENT=flash, LLM_CLIENTS={"gcp": flash, "anth": sonnet},
+        AGENT_MODEL_CATALOG={"anth:current": {
+            "chatter": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": None},
+            "memory_coder_chatter": {"provider": "anth", "model": "a-model-a-log-label-must-never-pick",
+                                     "thinking_level": None}}},
+    )
+
+    reply = call_llm_text(config, messages=[{"role": "user", "content": "how many?"}], client=flash,
+                          model_name="gemini-3.5-flash", agent_label="chatter", log_label="memory_coder_chatter")
+
+    assert reply == "Three of them."
+    assert sonnet.calls == ["us.anthropic.claude-sonnet-4-6"], "the chain is the chatter's"
+    entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    assert [e["agent"] for e in entries] == ["memory_coder_chatter", "memory_coder_chatter"]
+    assert entries[1]["fallback_from"] == "gemini-3.5-flash" and entries[1]["fallback_reason"] == "unavailable"

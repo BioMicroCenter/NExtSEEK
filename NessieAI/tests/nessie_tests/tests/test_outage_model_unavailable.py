@@ -84,10 +84,29 @@ def test_the_outage_reason_still_names_the_old_marker_and_the_new_reason():
     assert outage.OUTAGE_REASON.startswith("provider outage")
 
 
-CC_REPLIES = [
-    "The AI model was unavailable during this turn, so I could not finish your question. Please ask again.",
-    "The AI model was unavailable during this turn (it stopped part way). Please ask again in a few minutes.",
-]
+# The engine's own texts and reason, imported rather than copied (CI-COVERAGE gap 6): a copy drifts silently when
+# the operator changes the wording. NessieAI.cc.translate is stdlib only, so the host lane imports it.
+from NessieAI.cc import translate as cc_translate  # noqa: E402
+
+CC_REPLIES = [cc_translate.MODEL_UNAVAILABLE, cc_translate.MODEL_UNAVAILABLE_TRIED]
+
+
+def test_the_cc_texts_are_the_engines_and_share_the_ns_reason():
+    from NessieAI.tests.nessie_tests import outage as _outage
+
+    assert cc_translate.MODEL_UNAVAILABLE_REASON == "model_unavailable"
+    for text in CC_REPLIES:
+        assert text.startswith("The AI model was unavailable during this turn")
+    assert "The AI model was unavailable during this turn" in _outage.MODEL_UNAVAILABLE_REPLY_MARKERS
+
+
+def test_a_cc_setup_fault_is_not_a_provider_outage():
+    """D8 (2026-09-28): a bedrock-proxy with no token is the box's fault, not the provider's; a run must not write it
+    off as outage noise."""
+    fault = {"error": cc_translate.CC_MISCONFIGURED, "reason": cc_translate.CC_MISCONFIGURED_REASON,
+             "detail": 'API Error: 500 {"error":"proxy misconfigured: no bearer token"}', "agent": "container_cc"}
+    assert outage.is_provider_outage(cc_translate.CC_MISCONFIGURED) is False
+    assert outage.is_provider_outage(fault) is False
 
 
 @pytest.mark.parametrize("reply", CC_REPLIES, ids=["cc-a", "cc-b"])
@@ -122,7 +141,7 @@ def test_the_markers_are_the_two_engines_prefixes():
 # turn's last `query_error` data is read too, reason first and then its texts.
 # --------------------------------------------------------------------------- #
 
-CC_UNAVAILABLE = {"error": CC_REPLIES[0], "reason": "model_unavailable",
+CC_UNAVAILABLE = {"error": CC_REPLIES[0], "reason": cc_translate.MODEL_UNAVAILABLE_REASON,
                   "detail": "API Error: 529 overloaded", "agent": "container_cc",
                   "model_fallback": []}
 CC_TIME_LIMIT = {"error": "Container-CC turn exceeded the 600s limit and was stopped.",
