@@ -100,7 +100,8 @@ class LLMModelUnusableError(LLMServiceUnavailableError):
 
     Bedrock's ``ResourceNotFoundException`` (a retired model), ``AccessDeniedException``
     (a model this account may not use) and a ``ValidationException`` about the model id
-    (invalid, not supported, not enabled). Another model may well answer the same request,
+    (invalid, not supported, not enabled); Gemini's 404 ``NOT_FOUND`` or "no longer
+    available" (since 2026-09-28; it used to read as a plain 5xx). Another model may well answer the same request,
     so the recovery ladder moves on it once, like a 5xx, and records the reason
     ``model_unusable`` (operator ruling 2026-09-25, F1). Before, the forced tool call let
     these leave the ladder as a raw ``ClientError`` and the plain call made them a bare
@@ -357,6 +358,11 @@ class GeminiClient(BaseLLMClient):
             # 500, which the status-code scan below would read as a 5xx.
             if _is_gemini_rate_limit(e, msg):
                 raise LLMRateLimitError(msg) from e
+            # A model id the API does not know, by its code: another model may answer, so it
+            # moves like a Bedrock refusal and is recorded model_unusable (D10, 2026-09-28), so
+            # a wrong id shows as the id's fault rather than as the provider being down.
+            if getattr(e, "code", None) == 404:
+                raise LLMModelUnusableError(msg) from e
             # Typed exceptions from google-api-core / google-genai
             _GCP_TRANSIENT = ("ServiceUnavailable", "InternalServerError", "BadGateway", "GatewayTimeout", "DeadlineExceeded")
             if any(t in etype for t in _GCP_TRANSIENT):
@@ -364,9 +370,9 @@ class GeminiClient(BaseLLMClient):
             # Fallback: HTTP status codes in the error message
             if any(code in msg for code in ("500", "502", "503", "504")) or "UNAVAILABLE" in msg.upper():
                 raise LLMServiceUnavailableError(msg) from e
-            # 404 model-not-found / deprecated: treat as recoverable so the provider chain takes over
+            # 404 model-not-found / retired, known only by its text: the refused model again.
             if "404" in msg or "NOT_FOUND" in msg.upper() or "no longer available" in msg.lower():
-                raise LLMServiceUnavailableError(msg) from e
+                raise LLMModelUnusableError(msg) from e
             raise LLMError(msg) from e
 
         text = ""
