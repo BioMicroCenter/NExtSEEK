@@ -227,7 +227,8 @@ def test_every_derived_metric_name_can_appear_in_compute_output():
         read_distribution={"cds_pct": 60.0, "utr_pct": 20.0,
                            "intron_pct": 16.0, "intergenic_pct": 4.0},
         infer_experiment={"forward": 0.6, "reverse": 0.4, "failed": 0.0},
-        star={"total": 1000.0, "unique": 800.0, "multi": 150.0},
+        star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
+              "too_many_loci": 30.0, "unmapped": 20.0},
         counts=counts, n_annotated_genes=80)
     assert set(derived.DERIVED_METRICS) <= set(out.keys())
 
@@ -243,11 +244,54 @@ def test_gene_metrics_count_nonzero_rows_and_top30_share():
     assert round(out["top30_count_percent"], 2) == round(765 / 820 * 100, 2)
 
 
-def test_unaligned_reads_is_total_minus_unique_minus_multi():
+def test_unaligned_reads_is_stars_own_unmapped_sum():
+    """Not total - unique - multi. STAR files "mapped to too many loci" under
+    MULTI-MAPPING READS:, so subtracting counts reads that DID align."""
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 1000.0, "unique": 800.0, "multi": 150.0,
+                                "too_many_loci": 30.0, "unmapped": 20.0},
+                          counts=None, n_annotated_genes=None)
+    assert out["unaligned_reads"] == 20.0
+    subtracted = 1000.0 - 800.0 - 150.0
+    assert out["unaligned_reads"] != subtracted, "the old reading included too_many_loci"
+
+
+def test_without_the_unmapped_lines_there_is_no_unaligned_count():
+    """A partial parse must not be completed by falling back to subtraction."""
     out = derived.compute(read_distribution=None, infer_experiment=None,
                           star={"total": 1000.0, "unique": 800.0, "multi": 150.0},
                           counts=None, n_annotated_genes=None)
-    assert out["unaligned_reads"] == 50.0
+    assert "unaligned_reads" not in out
+
+
+def test_the_star_log_parser_reads_every_count_it_needs():
+    text = """\
+                          Number of input reads |\t27091972
+                      Uniquely mapped reads number |\t24155641
+                                    MULTI-MAPPING READS:
+           Number of reads mapped to multiple loci |\t2520588
+           Number of reads mapped to too many loci |\t85073
+                                    UNMAPPED READS:
+     Number of reads unmapped: too many mismatches |\t0
+                Number of reads unmapped: too short |\t274137
+                   Number of reads unmapped: other |\t56533
+"""
+    got = derived.parse_star_log(text)
+    assert got["total"] == 27091972
+    assert got["unique"] == 24155641
+    assert got["multi"] == 2520588
+    assert got["too_many_loci"] == 85073
+    assert got["unmapped"] == 330670, "0 + 274137 + 56533"
+    # and the reading this replaced, for contrast
+    assert got["total"] - got["unique"] - got["multi"] == 415743
+
+
+def test_an_incomplete_unmapped_block_yields_no_sum():
+    """Two of three lines would understate it while looking like a measurement."""
+    got = derived.parse_star_log(
+        "Number of reads unmapped: too short |\t100\n"
+        "Number of reads unmapped: other |\t50\n")
+    assert "unmapped" not in got
 
 
 def test_a_missing_input_yields_no_key_rather_than_a_zero():

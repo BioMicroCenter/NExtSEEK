@@ -70,7 +70,9 @@
                               "alternates": ["samtools_stats-reads_mapped_percent", "salmon-percent_mapped"],
                               "provenance": "seed" },
     "UnalignedReads":       { "from": "$derived.unaligned_reads", "target": "D.SEQ",
-                              "datatype": "number", "provenance": "seed" },
+                              "datatype": "number", "provenance": "seed",
+                              "note": "sum of STAR's three \"unmapped:\" lines in <sample>.Log.final.out (too many mismatches + too short + other). NOT total-unique-multi: that also counts \"mapped to too many loci\", which STAR files under MULTI-MAPPING READS because those reads did align, just to more places than the threshold allows."
+                            },
     "CDSPercent":           { "from": "$derived.cds_pct",
                               "target": "D.SEQ", "datatype": "number", "provenance": "seed" },
     "UTRPercent":           { "from": "$derived.utr_pct",

@@ -62,6 +62,11 @@ _SAMPLESHEET_GLOB = "*.csv"
 _MULTIQC_TXT_GLOB = "multiqc*/**/*_data/multiqc_*.txt"
 _RSEQC_READ_DISTRIBUTION_GLOB = "*/rseqc/read_distribution/*.read_distribution.txt"
 _RSEQC_INFER_EXPERIMENT_GLOB = "*/rseqc/infer_experiment/*.infer_experiment.txt"
+# STAR's own per-sample summary. In GENERIC_GLOBS because it is PARSED
+# (parse_star_log -> unaligned_reads), not merely staged: every map already
+# named it in harvest_globs, but nothing read that field, so the file was
+# never fetched and UnalignedReads could never be produced.
+_STAR_LOG_GLOB = "*/log/*.Log.final.out"
 
 GENERIC_GLOBS: tuple[str, ...] = (
     _PARAMS_GLOB,
@@ -71,6 +76,7 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _MULTIQC_TXT_GLOB,
     _RSEQC_READ_DISTRIBUTION_GLOB,
     _RSEQC_INFER_EXPERIMENT_GLOB,
+    _STAR_LOG_GLOB,
 )
 
 def staged_globs() -> tuple[str, ...]:
@@ -803,11 +809,10 @@ def _rseqc_glob_for_sample(pattern: str, sample: str) -> str:
 def _derived_for(base: Path, sample: str, read) -> dict[str, float]:
     """Per-sample derived metrics from whichever per-sample QC files exist.
 
-    STAR and per-gene counts are not in the harvest allowlist (see
-    GENERIC_GLOBS), so `star` and `counts` are always None here: `compute()`
-    simply omits the metrics that depend on them (unaligned_reads,
-    genes_detected*, top30_count_percent). That is the designed behaviour,
-    not a gap to fill in this function.
+    `counts` stays None: the per-gene matrix is deliberately inventoried and
+    never staged, so genes_detected* and top30_count_percent remain omitted --
+    designed behaviour, not a gap to fill here. `star` IS now read, from the
+    per-sample STAR log, which is what lets unaligned_reads be produced at all.
     """
     dist = None
     dist_pattern = _rseqc_glob_for_sample(_RSEQC_READ_DISTRIBUTION_GLOB, sample)
@@ -828,4 +833,12 @@ def _derived_for(base: Path, sample: str, read) -> dict[str, float]:
         if text:
             infer = derived.parse_infer_experiment(text)
 
-    return derived.compute(dist, infer, None, None, None)
+    star = None
+    star_pattern = _rseqc_glob_for_sample(_STAR_LOG_GLOB, sample)
+    match = next(iter(sorted(base.glob(star_pattern))), None)
+    if match is not None:
+        text = read(str(match.relative_to(base)))
+        if text:
+            star = derived.parse_star_log(text)
+
+    return derived.compute(dist, infer, star, None, None)

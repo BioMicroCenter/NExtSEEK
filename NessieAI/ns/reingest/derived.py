@@ -140,6 +140,59 @@ def parse_infer_experiment(text: str) -> dict[str, float]:
     return out
 
 
+#: The three lines STAR files under its own "UNMAPPED READS:" heading. STAR
+#: reports a fourth non-aligning category, "mapped to too many loci", under
+#: "MULTI-MAPPING READS:" instead -- those reads DID align, to more places than
+#: the threshold allows -- so it is deliberately not summed here. See
+#: `parse_star_log`.
+_STAR_UNMAPPED_LABELS = (
+    "Number of reads unmapped: too many mismatches",
+    "Number of reads unmapped: too short",
+    "Number of reads unmapped: other",
+)
+
+_STAR_COUNT_LABELS = {
+    "Number of input reads": "total",
+    "Uniquely mapped reads number": "unique",
+    "Number of reads mapped to multiple loci": "multi",
+    "Number of reads mapped to too many loci": "too_many_loci",
+}
+
+
+def parse_star_log(text: str) -> dict[str, float]:
+    """`<sample>.Log.final.out` -> the read counts, as integers, unscaled.
+
+    Returns `total`, `unique`, `multi`, `too_many_loci` and `unmapped` (the sum
+    of the three "UNMAPPED READS:" lines). MultiQC reports the first three in
+    MILLIONS; these come straight from STAR and do not need unscaling.
+
+    A label STAR did not print is simply absent, and `unmapped` is present only
+    when all three of its lines were found -- a partial sum would understate it
+    while looking like a real measurement.
+    """
+    values: dict[str, float] = {}
+    unmapped_seen: dict[str, float] = {}
+    for line in text.splitlines():
+        label, sep, raw = line.partition("|")
+        if not sep:
+            continue
+        label = label.strip()
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            number = float(raw)
+        except ValueError:
+            continue
+        if label in _STAR_COUNT_LABELS:
+            values[_STAR_COUNT_LABELS[label]] = number
+        elif label in _STAR_UNMAPPED_LABELS:
+            unmapped_seen[label] = number
+    if len(unmapped_seen) == len(_STAR_UNMAPPED_LABELS):
+        values["unmapped"] = sum(unmapped_seen.values())
+    return values
+
+
 def compute(
     read_distribution: dict[str, float] | None,
     infer_experiment: dict[str, float] | None,
@@ -172,11 +225,15 @@ def compute(
         if reverse:
             out["sense_antisense_ratio"] = round(forward / reverse, 4)
 
-    if star:
-        total = star.get("total", 0.0)
-        if total:
-            unaligned = total - star.get("unique", 0.0) - star.get("multi", 0.0)
-            out["unaligned_reads"] = round(max(unaligned, 0.0), 4)
+    if star and "unmapped" in star:
+        # STAR's own three "UNMAPPED READS:" lines, summed -- NOT
+        # `total - unique - multi`, which also swallows "mapped to too many
+        # loci". STAR files that category under "MULTI-MAPPING READS:" because
+        # those reads did align, just to more places than the threshold allows,
+        # and the two readings differ by ~26% on a real sample. `parse_star_log`
+        # only sets "unmapped" when all three lines were found, so a partial sum
+        # can never arrive here looking like a whole one.
+        out["unaligned_reads"] = round(float(star["unmapped"]), 4)
 
     if counts:
         values = sorted(v for v in counts.values() if v > 0)
