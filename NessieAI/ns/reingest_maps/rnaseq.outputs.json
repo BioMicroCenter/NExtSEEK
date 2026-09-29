@@ -27,17 +27,20 @@
 
   "outputs": [
     { "glob": "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam",
-      "sample_type": "A.ALN", "cardinality": "per_sample", "primary_data": true,
+      "sample_type": "A.ALN", "assay": "Genome Alignment", "cardinality": "per_sample", "primary_data": true,
       "secondary_data_glob": "{star_salmon,star_rsem,hisat2}/*.markdup.sorted.bam.bai",
-      "attributes": { "Type": "BAM", "DataType": "bam",
+      "attributes": { "DataType": "BAM",
+                      "Name": "@fastq_stem", "Scientist": "@nextseek_user",
+                      "SampleCreationDate": "@run_date",
                       "Aligner": "$params.aligner", "Genome": "$params.genome",
                       "Software": "$software_versions.STAR" } },
 
     { "glob": "{star_salmon,salmon,star_rsem,kallisto}/*.merged.gene_counts.tsv",
-      "sample_type": "A.GEX", "cardinality": "per_run", "primary_data": true,
+      "sample_type": "A.GEX", "assay": "Gene Expression Analysis", "cardinality": "per_run", "primary_data": true,
       "include_provenance": true,
-      "attributes": { "Matrix": "gene_counts", "MatrixDataType": "tsv",
-                      "DataType": "gene-level raw counts" } }
+      "attributes": { "Matrix": "gene_counts",
+                      "Name": "@gex_name", "Scientist": "@nextseek_user", "Lab": "@lab",
+                      "SampleCreationDate": "@run_date", "DataType": "TSV" } }
   ],
 
   "provenance_attributes": {
@@ -49,7 +52,6 @@
     "Link_ReferenceGenome": "$params.fasta",
     "AnnotationGTF":        "$params.gtf",
     "Link_GTF":             "$params.gtf",
-    "Software":             "$software_versions",
     "Link_QualityControl":  "$outputs.multiqc_report_html",
     "DESeqFile":            "$outputs.deseq2_dds_rdata",
     "DESeqFile_Link":       "$outputs.deseq2_dds_rdata"

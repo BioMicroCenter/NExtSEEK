@@ -975,7 +975,7 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
       ``{"SampleType", "json_metadata", "assay_ids"}`` rows directly.
     """
     if args.get("manifest_id"):
-        return _build_upload_xlsx_from_manifest(args, outputs_dir)
+        return _build_upload_xlsx_from_manifest(args, outputs_dir, session=session)
     if args.get("rows") is not None:
         return _build_upload_xlsx_from_rows(args, outputs_dir)
     raise OpValidationError("build-upload-xlsx needs either manifest_id or rows")
@@ -1087,7 +1087,7 @@ def _existing_notes(rows) -> dict[str, str]:
     return notes_for_uids([u for u in uids if u])
 
 
-def _build_upload_xlsx_from_manifest(args, outputs_dir):
+def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     """Manifest-driven path: render workbooks from a harvested manifest.
 
     Takes a manifest_id, not values: CC sends a mode and the server fills every
@@ -1118,7 +1118,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     from NessieAI.ns.reingest.store import load_manifest
     from NessieAI.ns.reingest_qa import HARD, HARD_REJECT, Finding, NO_ATTRIBUTES_TO_WRITE, qa_rows
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
-    from nextseek_api.services.reingest_lookups import attributes_for, known_sample_types
+    from nextseek_api.services.reingest_lookups import (
+        attributes_for, known_sample_types, lab_code_from_uid,
+        lab_for_code_strict, next_name_ordinal_strict)
 
     def _slug(name: str) -> str:
         # Artifact keys are word characters only; the download route accepts
@@ -1146,8 +1148,23 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
     pipeline = run_manifest.pipeline.name or "nf-core/rnaseq"
     run_name = run_manifest.pipeline.run_name or manifest_id
     pipeline_map = maps.load(pipeline)
+    # Scientist is the person running the reingest, which is session state, not
+    # anything the run directory knows. No session (a test, or the legacy rows
+    # path) leaves it blank for a curator rather than attributing to nobody.
+    user = getattr(session, "user", None)
+    full_name = ""
+    if user is not None:
+        full_name = (getattr(user, "get_full_name", lambda: "")() or "").strip()
+    # `next_name_ordinal` is injected rather than imported by mapper, which
+    # stays a pure function of manifest + map (same shape as harvest.py's
+    # `lookup_by_fastq`). It raises on an unreachable catalog by design: a
+    # fabricated "1" is how two A.GEX rows end up sharing a Name.
     result = mapper.apply(run_manifest, pipeline_map,
-                          approved_rules=proposals.approved_rules(pipeline))
+                          approved_rules=proposals.approved_rules(pipeline),
+                          context={"user_full_name": full_name,
+                                   "next_name_ordinal": next_name_ordinal_strict,
+                                   "lab_code_from_uid": lab_code_from_uid,
+                                   "lab_for_code": lab_for_code_strict})
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
     saved_files, qa, reports_by_type = {}, {}, {}
@@ -1189,6 +1206,42 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
             exists_cache[key] = proposals.attribute_exists(sample_type, attribute)
         return exists_cache[key]
 
+    # Assay per sample type, by internal assay title, off the committed map.
+    # A sample type with no `assay` declared resolves to no ASSAY rows, which
+    # is what every map did before the field existed.
+    assay_name_by_type: dict[str, str] = {
+        rule.sample_type: rule.assay
+        for rule in pipeline_map.outputs
+        if rule.assay
+    }
+    assay_cache: dict[tuple[str, str], list[int]] = {}
+
+    def _assay_ids(sample_type: str, parent_value) -> list[int]:
+        """Study-scoped SEEK assay ids for one row, or [] if unresolvable.
+
+        Keyed on (sample_type, Parent) because the answer is a property of the
+        study the parents sit in, so every row sharing a parent set shares an
+        answer -- a per-sample run of 24 costs one query, not 24.
+
+        Deliberately not try/except'd, exactly as `_attribute_exists` is not:
+        `assay_ids_for_parents_strict` raises RuntimeError on an unreachable
+        assay catalog, and a workbook whose samples are silently unassociated
+        because the database blinked is worse than a run that stops.
+        """
+        name = assay_name_by_type.get(sample_type)
+        parents = str(parent_value or "")
+        if not name or not parents:
+            return []
+        key = (sample_type, parents)
+        if key not in assay_cache:
+            from nextseek_api.services.reingest_lookups import (
+                assay_ids_for_parents_strict,
+            )
+            assay_cache[key] = assay_ids_for_parents_strict(
+                [u for u in parents.split(";") if u.strip()], name
+            )
+        return assay_cache[key]
+
     # rows carrying at least one parked value, so their Notes can be composed
     # once existing Notes for their UIDs are known (below, after this loop).
     dseq_parked: list[tuple[dict, dict, dict]] = []
@@ -1224,7 +1277,9 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir):
         if row.uid:
             meta["UID"] = row.uid
 
-        row_dict = {"json_metadata": meta, "assay_ids": [], "provenance": provenance_entry}
+        row_dict = {"json_metadata": meta,
+                    "assay_ids": _assay_ids(row.sample_type, meta.get("Parent")),
+                    "provenance": provenance_entry}
         rows_by_type.setdefault(row.sample_type, []).append(row_dict)
         if parked_values:
             dseq_parked.append((row_dict, parked_values, parked_attrs))

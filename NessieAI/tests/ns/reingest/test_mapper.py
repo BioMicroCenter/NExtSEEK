@@ -1,3 +1,5 @@
+import pytest
+
 from NessieAI.ns.reingest import manifest, mapper, maps
 
 
@@ -778,3 +780,267 @@ def test_a_single_checksummed_candidate_is_not_reported_as_ambiguous():
     result = mapper.apply(run, maps.load("rnaseq"))
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     assert gex.attributes["File_PrimaryData"].candidates == []
+
+
+# ── secondary data ─────────────────────────────────────────────────────────
+# secondary_data_glob sat in the map schema and in the rnaseq map, read by
+# nothing: every .bam.bai was inventoried and then dropped, leaving four A.ALN
+# attributes blank for no reason other than a missing reader.
+
+def _run_with_alignment_outputs(checksums=None, extra=()):
+    run = _run()
+    paths = ["star_salmon/CONTROL_REP1.markdup.sorted.bam",
+             "star_salmon/CONTROL_REP1.markdup.sorted.bam.bai", *extra]
+    run.outputs = [manifest.OutputRecord(path=p, bytes=10, sample="CONTROL_REP1")
+                   for p in paths]
+    run.checksums = dict(checksums or {})
+    return run
+
+
+def _aln_row(run):
+    result = mapper.apply(run, maps.load("rnaseq"))
+    return next(r for r in result.rows if r.sample_type == "A.ALN")
+
+
+def test_the_bai_beside_the_bam_becomes_file_secondarydata():
+    row = _aln_row(_run_with_alignment_outputs())
+    assert row.attributes["File_PrimaryData"].value == "CONTROL_REP1.markdup.sorted.bam"
+    assert row.attributes["File_SecondaryData"].value == "CONTROL_REP1.markdup.sorted.bam.bai"
+
+
+def test_secondary_data_is_a_basename_never_a_path():
+    """Same reason as File_PrimaryData: the server resolves it per sample."""
+    row = _aln_row(_run_with_alignment_outputs())
+    assert "/" not in row.attributes["File_SecondaryData"].value
+
+
+def test_the_secondary_checksum_comes_from_the_bai_not_the_bam():
+    run = _run_with_alignment_outputs(checksums={
+        "star_salmon/CONTROL_REP1.markdup.sorted.bam": "aaa",
+        "star_salmon/CONTROL_REP1.markdup.sorted.bam.bai": "bbb"})
+    row = _aln_row(run)
+    assert row.attributes["Checksum_PrimaryData"].value == "aaa"
+    assert row.attributes["Checksum_SecondaryData"].value == "bbb"
+
+
+def test_an_unhashed_secondary_still_gets_its_filename():
+    """No checksum is not a reason to withhold the name we do know."""
+    row = _aln_row(_run_with_alignment_outputs())
+    assert row.attributes["File_SecondaryData"].value
+    assert "Checksum_SecondaryData" not in row.attributes
+
+
+def test_no_bai_in_the_inventory_means_no_secondary_attributes():
+    run = _run()
+    run.outputs = [manifest.OutputRecord(
+        path="star_salmon/CONTROL_REP1.markdup.sorted.bam", bytes=10,
+        sample="CONTROL_REP1")]
+    row = _aln_row(run)
+    assert "File_SecondaryData" not in row.attributes
+    assert "Checksum_SecondaryData" not in row.attributes
+
+
+def test_another_samples_bai_is_never_attached_to_this_row():
+    """The per-sample filter is OutputRecord.sample, set once at harvest."""
+    run = _run_with_alignment_outputs()
+    run.outputs.append(manifest.OutputRecord(
+        path="star_salmon/OTHER.markdup.sorted.bam.bai", bytes=10, sample="OTHER"))
+    row = _aln_row(run)
+    assert row.attributes["File_SecondaryData"].value == "CONTROL_REP1.markdup.sorted.bam.bai"
+
+
+def test_several_matching_secondaries_are_flagged_not_silently_picked():
+    """There is no winner to pick among secondaries, so the choice is surfaced.
+
+    Both paths really do match the rule's glob (`*.markdup.sorted.bam.bai`)
+    and both are attributed to the same sample, so the sorted-first pick is a
+    silent judgement call -- which is exactly what `candidates` exists to make
+    reviewable in the QA reply.
+    """
+    run = _run_with_alignment_outputs(
+        extra=["star_salmon/CONTROL_REP1.extra.markdup.sorted.bam.bai"])
+    row = _aln_row(run)
+    attr = row.attributes["File_SecondaryData"]
+    assert len(attr.candidates) == 2
+    assert attr.value == "CONTROL_REP1.extra.markdup.sorted.bam.bai", "sorted-first"
+
+
+# ── computed "@name" values ────────────────────────────────────────────────
+# A $ref resolves; these transform. Names in maps.COMPUTED_VALUES, bodies in
+# mapper._COMPUTED, and nothing may resolve to a placeholder.
+
+def test_every_declared_computed_name_has_an_implementation():
+    """The drift guard: names live in maps.py, bodies in mapper.py."""
+    assert set(maps.COMPUTED_VALUES) == set(mapper._COMPUTED)
+
+
+def test_an_unknown_computed_name_fails_map_load_not_silently():
+    with pytest.raises(Exception) as exc:
+        maps.PipelineMap(pipeline="x", outputs=[
+            {"glob": "a/*.bam", "sample_type": "A.ALN",
+             "attributes": {"Name": "@no_such_thing"}}])
+    assert "no_such_thing" in str(exc.value)
+
+
+def _computed(name, run, sample=None, context=None):
+    return mapper._COMPUTED[name](run, sample, context)
+
+
+@pytest.mark.parametrize("fastq_1, expected", [
+    ("/net/run/fastq/SAMPLE01_R1.fastq.gz", "SAMPLE01_R1"),
+    ("SAMPLE01_R1.fq.gz",                   "SAMPLE01_R1"),
+    ("/x/SAMPLE01_R1.fastq",                "SAMPLE01_R1"),
+    ("/x/SAMPLE01_R1.FASTQ.GZ",             "SAMPLE01_R1"),
+    ("",                                None),
+])
+def test_fastq_stem_strips_the_suffix_and_the_directory(fastq_1, expected):
+    run = _run()
+    run.samples[0].fastq_1 = fastq_1
+    assert _computed("fastq_stem", run, run.samples[0]) == expected
+
+
+def test_run_date_takes_the_date_half_of_the_trace_suffix():
+    run = _run(params={"trace_report_suffix": "2026-01-26_13-53-17"})
+    assert _computed("run_date", run) == "2026-01-26"
+
+
+@pytest.mark.parametrize("suffix", ["", "not-a-date", "26-01-2026_13-53-17", "2026-1-6_1-2-3"])
+def test_an_unexpected_trace_suffix_yields_no_date_rather_than_a_wrong_one(suffix):
+    run = _run(params={"trace_report_suffix": suffix})
+    assert _computed("run_date", run) is None
+
+
+def test_gex_name_is_the_date_plus_a_running_counter():
+    run = _run(params={"trace_report_suffix": "2026-01-26_13-53-17"})
+    ctx = {"next_name_ordinal": lambda st, prefix: 1}
+    assert _computed("gex_name", run, None, ctx) == "gex_2026-01-26_1"
+    ctx3 = {"next_name_ordinal": lambda st, prefix: 3}
+    assert _computed("gex_name", run, None, ctx3) == "gex_2026-01-26_3"
+    assert _computed("gex_name", _run(params={}), None, ctx) is None
+
+
+def test_the_counter_is_asked_for_the_right_sample_type_and_prefix():
+    run = _run(params={"trace_report_suffix": "2026-01-26_13-53-17"})
+    seen = []
+    _computed("gex_name", run, None,
+              {"next_name_ordinal": lambda st, prefix: seen.append((st, prefix)) or 1})
+    assert seen == [("A.GEX", "gex_2026-01-26")]
+
+
+def test_without_the_counter_there_is_no_name_rather_than_a_collidable_one():
+    """An unnumbered "gex_<date>" is exactly what a second run that day makes."""
+    run = _run(params={"trace_report_suffix": "2026-01-26_13-53-17"})
+    assert _computed("gex_name", run, None, {}) is None
+    assert _computed("gex_name", run, None, None) is None
+
+
+def test_the_scientist_is_the_session_user_and_blank_without_one():
+    run = _run()
+    assert _computed("nextseek_user", run, None,
+                     {"user_full_name": "Forrest Hopkins"}) == "Forrest Hopkins"
+    assert _computed("nextseek_user", run, None, {}) is None
+    assert _computed("nextseek_user", run, None, None) is None
+
+
+def test_the_computed_attributes_reach_the_rows_end_to_end():
+    run = _run(params={"aligner": "star_salmon",
+                       "trace_report_suffix": "2026-01-26_13-53-17"})
+    run.samples[0].fastq_1 = "/net/run/fastq/SAMPLE01_R1.fastq.gz"
+    result = mapper.apply(run, maps.load("rnaseq"), context={
+        "user_full_name": "Forrest Hopkins",
+        "next_name_ordinal": lambda st, prefix: 1})
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert aln.attributes["Name"].value == "SAMPLE01_R1"
+    assert gex.attributes["Name"].value == "gex_2026-01-26_1"
+    for row in (aln, gex):
+        assert row.attributes["Scientist"].value == "Forrest Hopkins"
+        assert row.attributes["SampleCreationDate"].value == "2026-01-26"
+
+
+def test_a_missing_input_leaves_the_cell_absent_never_a_placeholder():
+    """Blank a curator can fill beats a fabricated value they must catch."""
+    run = _run(params={"aligner": "star_salmon"})   # no trace_report_suffix
+    run.samples[0].fastq_1 = ""
+    result = mapper.apply(run, maps.load("rnaseq"))  # and no context
+    aln = next(r for r in result.rows if r.sample_type == "A.ALN")
+    for absent in ("Name", "Scientist", "SampleCreationDate"):
+        assert absent not in aln.attributes
+
+
+# ── Lab, from the parent UID's lab segment ─────────────────────────────────
+# Lab is not an attribute on D.SEQ, so the UID is the only carrier. The value
+# is an EXISTING database string, never a composed one: the catalog spells the
+# same lab several ways and inventing "<Surname> Lab" would add another.
+
+def _lab_ctx(table, seen=None):
+    from nextseek_api.services.reingest_lookups import lab_code_from_uid
+    def lookup(code):
+        if seen is not None:
+            seen.append(code)
+        return table.get(code)
+    return {"lab_code_from_uid": lab_code_from_uid, "lab_for_code": lookup}
+
+
+@pytest.mark.parametrize("uid, code", [
+    ("D.SEQ-230512ABC-287-PUB", "ABC"),
+    ("A.ALN-230303DEF-1-PUB",   "DEF"),
+    ("D.SEQ-240710GHI-12-PUB",  "GHI"),
+    ("a free-text CEL title",   None),
+    ("D.SEQ-NOTADATEFOR-1-PUB", None),
+    ("",                        None),
+])
+def test_the_lab_code_is_read_off_the_uid_or_not_at_all(uid, code):
+    from nextseek_api.services.reingest_lookups import lab_code_from_uid
+    assert lab_code_from_uid(uid) == code
+
+
+def test_lab_resolves_through_the_parent_uid():
+    run = _run()
+    run.samples[0].d_seq_uid = "D.SEQ-230512ABC-287-PUB"
+    seen = []
+    assert _computed("lab", run, run.samples[0],
+                     _lab_ctx({"ABC": "Abbott"}, seen)) == "Abbott"
+    assert seen == ["ABC"], "looked up by code, not by UID"
+
+
+def test_a_lab_code_with_no_recorded_name_leaves_the_cell_blank():
+    """Real lab codes exist for which no sample carries a Lab value at all."""
+    run = _run()
+    run.samples[0].d_seq_uid = "D.SEQ-230512XYZ-1-PUB"
+    assert _computed("lab", run, run.samples[0], _lab_ctx({"ABC": "Abbott"})) is None
+
+
+def test_parents_from_two_labs_give_no_lab_rather_than_the_majority():
+    run = _run()
+    run.samples = [
+        manifest.SampleRecord(nfcore_sample="a", d_seq_uid="D.SEQ-230512ABC-1-PUB"),
+        manifest.SampleRecord(nfcore_sample="b", d_seq_uid="D.SEQ-230512ABC-2-PUB"),
+        manifest.SampleRecord(nfcore_sample="c", d_seq_uid="D.SEQ-230512ESS-3-PUB"),
+    ]
+    ctx = _lab_ctx({"ABC": "Abbott", "DEF": "Danforth"})
+    assert _computed("lab", run, None, ctx) is None, "a mixed run has no single Lab"
+
+
+def test_a_per_run_row_agrees_across_every_parent():
+    run = _run()
+    run.samples = [
+        manifest.SampleRecord(nfcore_sample=n, d_seq_uid=f"D.SEQ-230512ABC-{i}-PUB")
+        for i, n in enumerate(("a", "b", "c"))]
+    assert _computed("lab", run, None, _lab_ctx({"ABC": "Abbott"})) == "Abbott"
+
+
+def test_unresolved_parents_contribute_no_code():
+    """An unresolved sample has no UID, so it cannot veto the others' agreement."""
+    run = _run()
+    run.samples = [
+        manifest.SampleRecord(nfcore_sample="a", d_seq_uid="D.SEQ-230512ABC-1-PUB"),
+        manifest.SampleRecord(nfcore_sample="b", d_seq_uid=None),
+    ]
+    assert _computed("lab", run, None, _lab_ctx({"ABC": "Abbott"})) == "Abbott"
+
+
+def test_without_the_injected_lookups_lab_is_blank():
+    run = _run()
+    run.samples[0].d_seq_uid = "D.SEQ-230512ABC-287-PUB"
+    assert _computed("lab", run, run.samples[0], {}) is None

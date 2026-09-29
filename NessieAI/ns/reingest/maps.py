@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 
@@ -54,6 +54,19 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # key) -- `resolve_ref` below only ever does one dotted lookup, never a
 # lookup-of-a-lookup, so this is a real gap to design around, not one edit
 # away.
+# Map values beginning "@" are COMPUTED by `mapper.py`, not looked up: a `$ref`
+# is a literal or a single key lookup and cannot transform, but several real
+# attributes need exactly that -- a fastq basename with its extension stripped,
+# a date pulled out of a longer timestamp, a prefix joined to that date, the
+# name of whoever is running the reingest. Those live in code (`mapper._COMPUTED`),
+# where they are testable, rather than as string munging inside a map file.
+#
+# The NAMES live here and the IMPLEMENTATIONS in mapper.py, so a map can be
+# validated at load time without importing mapper (which imports this module).
+# `test_maps.py` asserts the two sets are identical, so adding one in only one
+# place fails loudly instead of resolving to None at runtime.
+COMPUTED_VALUES = ("fastq_stem", "run_date", "gex_name", "nextseek_user", "lab")
+
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")
 _RUN_SECTION_ATTR = {"outputs": "named_outputs"}
@@ -84,6 +97,16 @@ class OutputRule(BaseModel):
     # set rather than silently receiving attributes that may not exist on
     # its sample type, which would break the upload at runtime.
     include_provenance: bool = False
+    # The HOUSE assay this rule's samples belong to, by internal assay title
+    # (`internal_assays.internal_assay_title`) -- e.g. "Genome Alignment" for
+    # A.ALN, "Gene Expression Analysis" for A.GEX. A NAME, never an id: the
+    # integer the ASSAY sheet needs is a study-scoped `assays.id`, and one
+    # internal assay maps to many of them (Gene Expression Analysis to eight,
+    # Genome Alignment to three). The id is resolved per run from the parent
+    # D.SEQ samples' study, so a committed id would attach samples to whatever
+    # project happened to be first. None means emit no ASSAY rows for this
+    # rule -- the pre-existing behaviour, not an error.
+    assay: str | None = None
 
 
 class AttributeRule(BaseModel):
@@ -138,6 +161,31 @@ class PipelineMap(BaseModel):
     def ruled_out(self) -> set[str]:
         """Keys someone already decided not to map. Never re-proposed."""
         return {entry.key for entry in self.deliberately_unmapped}
+
+    @model_validator(mode="after")
+    def computed_names_must_exist(self):
+        """An unknown "@name" fails map load rather than resolving to None.
+
+        Same reasoning as `OutputRule.cardinality` being a Literal: a typo in a
+        committed map must be loud at load, not a silently blank column a
+        curator would have to notice was missing.
+        """
+        bad = []
+        for rule in self.outputs:
+            for attr, value in rule.attributes.items():
+                if (isinstance(value, str) and value.startswith("@")
+                        and value[1:] not in COMPUTED_VALUES):
+                    bad.append(f"{rule.sample_type}::{attr} = {value!r}")
+        for attr, value in self.provenance_attributes.items():
+            if (isinstance(value, str) and value.startswith("@")
+                    and value[1:] not in COMPUTED_VALUES):
+                bad.append(f"provenance_attributes::{attr} = {value!r}")
+        if bad:
+            raise ValueError(
+                "unknown computed value(s); known: "
+                f"{', '.join('@' + n for n in COMPUTED_VALUES)} -- got "
+                + "; ".join(bad))
+        return self
 
 
 def _slug(pipeline: str) -> str:

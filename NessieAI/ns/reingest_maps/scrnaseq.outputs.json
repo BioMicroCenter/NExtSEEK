@@ -16,7 +16,7 @@
       "primary_data": true,
       "include_provenance": true,
       "attributes": {
-        "DataType": "h5ad"
+        "DataType": "H5AD"
       }
     }
   ],

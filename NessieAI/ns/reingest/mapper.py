@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -118,8 +119,14 @@ class MapResult(BaseModel):
 
 
 def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
-          approved_rules: dict[str, maps.AttributeRule] | None = None) -> MapResult:
+          approved_rules: dict[str, maps.AttributeRule] | None = None,
+          context: dict | None = None) -> MapResult:
+    """``context`` carries what the manifest cannot: values about the SESSION
+    rather than the run. Only ``user_full_name`` today, for ``@nextseek_user``.
+    Absent means the computed values that need it resolve to None, leaving
+    those cells blank -- never a placeholder."""
     approved_rules = approved_rules or {}
+    context = context or {}
     result = MapResult()
     ruled_out = pipeline_map.ruled_out()
     metrics_source = run_manifest.sources.get("metrics", "")
@@ -240,10 +247,10 @@ def apply(run_manifest: manifest.RunManifest, pipeline_map: maps.PipelineMap,
             merged_attrs = dict(rule.attributes)
 
         if rule.cardinality == "per_sample":
-            for row in _per_sample_rows(rule, merged_attrs, run_manifest):
+            for row in _per_sample_rows(rule, merged_attrs, run_manifest, context):
                 result.rows.append(row)
         else:
-            row = _per_run_row(rule, merged_attrs, run_manifest)
+            row = _per_run_row(rule, merged_attrs, run_manifest, context)
             if row is not None:
                 result.rows.append(row)
 
@@ -278,6 +285,142 @@ def _expand_braces(pattern: str) -> list[str]:
             for expanded in _expand_braces(before + alt + after)]
 
 
+# ── computed values ("@name" in a map) ─────────────────────────────────────
+# A `$ref` resolves; these TRANSFORM. The names are declared in
+# `maps.COMPUTED_VALUES` (so a map validates without importing this module) and
+# implemented here; `test_maps.py` asserts the two agree.
+#
+# Every resolver returns None rather than a placeholder when its input is
+# missing, so the attribute is simply absent from the row -- the same
+# blank-not-zero discipline the QC backfill follows. A blank cell a curator can
+# fill beats a fabricated one they would have to notice was wrong.
+
+_FASTQ_SUFFIXES = (".fastq.gz", ".fq.gz", ".fastq", ".fq")
+
+
+def _computed_fastq_stem(run_manifest, sample, context) -> str | None:
+    """"SAMPLE01_R1" from ".../SAMPLE01_R1.fastq.gz" -- the read-1 basename, no suffix.
+
+    Read 1 specifically: it is the one column every nf-core samplesheet has
+    (fastq_2 is empty for single-end), so it is the only basename guaranteed to
+    exist for every sample.
+    """
+    if sample is None:
+        return None
+    raw = str(getattr(sample, "fastq_1", "") or "")
+    if not raw:
+        return None
+    name = os.path.basename(raw)
+    for suffix in _FASTQ_SUFFIXES:
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)] or None
+    stem = os.path.splitext(name)[0]
+    return stem or None
+
+
+def _computed_run_date(run_manifest, sample, context) -> str | None:
+    """"2026-01-26" -- the day the pipeline ran.
+
+    From ``params.trace_report_suffix`` ("2026-01-26_13-53-17"), which nf-core
+    fixes at launch. The date half only: the time is deliberately dropped.
+
+    Validated against the exact YYYY-MM-DD shape rather than just split on "_",
+    so a future nf-core that changes this key's format yields None (a blank
+    cell) instead of a plausible-looking wrong date.
+    """
+    raw = str((run_manifest.params or {}).get("trace_report_suffix") or "")
+    date = raw.split("_")[0]
+    return date if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else None
+
+
+def _computed_gex_name(run_manifest, sample, context) -> str | None:
+    """"gex_2026-01-26_1" -- the per_run expression row's name.
+
+    A.GEX is one row for the whole run, so it cannot inherit a parent's name
+    the way a per_sample row can: it has as many parents as the run had
+    samples. This names it by what it is, when it was made, and a running
+    counter -- two runs on one day would otherwise collide.
+
+    The counter needs the catalog, which this module deliberately never
+    reaches: `next_name_ordinal` is INJECTED through `context` by
+    `granular.py`, the same dependency-injection shape `harvest.py` uses for
+    `lookup_by_fastq`, so `mapper` stays a pure function of manifest + map.
+
+    Without that callable there is no way to number the row, so this returns
+    None and the cell is blank. Deliberately NOT an unnumbered "gex_<date>":
+    that is the exact name a second run of the day would also produce, and a
+    blank a curator fills is better than two samples quietly sharing a Name.
+    """
+    date = _computed_run_date(run_manifest, sample, context)
+    if not date:
+        return None
+    prefix = f"gex_{date}"
+    next_ordinal = (context or {}).get("next_name_ordinal")
+    if not callable(next_ordinal):
+        return None
+    return f"{prefix}_{next_ordinal('A.GEX', prefix)}"
+
+
+def _computed_nextseek_user(run_manifest, sample, context) -> str | None:
+    """The full name of whoever is running the reingest, e.g. "Forrest Hopkins".
+
+    Comes from the chat session's user, threaded in by
+    ``granular._build_upload_xlsx``; None when there is no session (a test, or
+    the legacy rows path), leaving Scientist blank for a curator to fill rather
+    than attributing the samples to nobody.
+    """
+    return (context or {}).get("user_full_name") or None
+
+
+def _computed_lab(run_manifest, sample, context) -> str | None:
+    """The lab that owns these samples, as the database already spells it.
+
+    Derived from the lab segment of the PARENT UIDs ("D.SEQ-230512ABC-287-PUB"
+    -> "ABC"), because `Lab` is not an attribute on D.SEQ and so there is
+    nothing to inherit -- the UID is the only carrier.
+
+    Every parent must agree. A per_run A.GEX row descends from every sample in
+    the run, and a run mixing two labs has no single right answer, so a
+    disagreement returns None rather than picking the majority: a wrong Lab on
+    a shared analysis record is worse than a blank one.
+
+    Both halves are INJECTED through `context` (`lab_code_from_uid`,
+    `lab_for_code`), keeping this module free of database imports, and the
+    resolution is a lookup of an EXISTING Lab string, never a composed one --
+    see `reingest_lookups.lab_for_code_strict` on why the catalog has no
+    convention to compose to.
+    """
+    code_of = (context or {}).get("lab_code_from_uid")
+    lookup = (context or {}).get("lab_for_code")
+    if not callable(code_of) or not callable(lookup):
+        return None
+    if sample is not None:
+        uids = [sample.d_seq_uid] if sample.d_seq_uid else []
+    else:
+        uids = [s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid]
+    codes = {c for c in (code_of(u) for u in uids) if c}
+    if len(codes) != 1:
+        return None
+    return lookup(codes.pop())
+
+
+_COMPUTED = {
+    "fastq_stem": _computed_fastq_stem,
+    "run_date": _computed_run_date,
+    "gex_name": _computed_gex_name,
+    "nextseek_user": _computed_nextseek_user,
+    "lab": _computed_lab,
+}
+
+
+def _resolve_value(ref, run_manifest, sample=None, context=None):
+    """One map value: "@name" computes, "$section.key" looks up, else literal."""
+    if isinstance(ref, str) and ref.startswith("@"):
+        fn = _COMPUTED.get(ref[1:])
+        return fn(run_manifest, sample, context) if fn else None
+    return maps.resolve_ref(ref, run_manifest, sample)
+
+
 def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
                         sample_name: str | None) -> list[manifest.OutputRecord]:
     """Every inventoried output this rule's own ``glob`` matches, sorted by
@@ -297,6 +440,33 @@ def _primary_candidates(rule: maps.OutputRule, run_manifest: manifest.RunManifes
     if not rule.primary_data:
         return []
     patterns = _expand_braces(rule.glob)
+    return sorted(
+        (o for o in run_manifest.outputs
+         if (sample_name is None or o.sample == sample_name)
+         and any(fnmatch.fnmatch(o.path, pat) for pat in patterns)),
+        key=lambda o: o.path)
+
+
+def _secondary_candidates(rule: maps.OutputRule,
+                          run_manifest: manifest.RunManifest,
+                          sample_name: str | None) -> list[manifest.OutputRecord]:
+    """Every inventoried output this rule's ``secondary_data_glob`` matches.
+
+    The sibling of ``_primary_candidates``, and deliberately shaped the same
+    way: same brace expansion, same per-sample filter on the harvest-time
+    ``OutputRecord.sample`` attribution, same sorted-by-path result. A rule
+    that declares no ``secondary_data_glob`` has no secondary data, exactly as
+    a rule with ``primary_data: false`` has no primary -- empty, never an
+    error.
+
+    Gated on ``primary_data`` as well: secondary data is defined relative to a
+    primary (the ``.bam.bai`` beside the ``.bam``), so a rule claiming a
+    secondary without a primary is a map mistake rather than something to
+    honour half-way.
+    """
+    if not rule.primary_data or not rule.secondary_data_glob:
+        return []
+    patterns = _expand_braces(rule.secondary_data_glob)
     return sorted(
         (o for o in run_manifest.outputs
          if (sample_name is None or o.sample == sample_name)
@@ -440,8 +610,51 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
         raw_key=f"$checksums.{primary.path}", source_file=primary.path)
 
 
+def _attach_secondary(row: MappedRow, rule: maps.OutputRule,
+                      run_manifest: manifest.RunManifest,
+                      sample_name: str | None) -> None:
+    """Set ``File_SecondaryData`` and, when hashed, ``Checksum_SecondaryData``.
+
+    ``secondary_data_glob`` sat in the map schema and in the rnaseq map
+    (the ``.bam.bai`` beside each alignment) read by nothing at all, so every
+    index file was inventoried and then dropped. This is the reader.
+
+    Shaped deliberately like ``_attach_checksum``: basename only (never a
+    path, same reason -- the server resolves the file against the sample's own
+    location), the checksum keyed by the SAME run-relative path the inventory
+    hashed, and a map-authored value never overwritten if one is already
+    present.
+
+    Unlike primary data there is no tie-break to make: a secondary glob that
+    matches several files for one sample has no "winner" to pick, because
+    nothing downstream distinguishes them. The sorted-first match is taken and
+    every candidate recorded on ``candidates`` so the QA reply shows it,
+    rather than a silent choice -- the same treatment the primary pick gets
+    when its checksum cannot single one out.
+    """
+    candidates = _secondary_candidates(rule, run_manifest, sample_name)
+    if not candidates:
+        return
+    secondary = candidates[0]
+    if "File_SecondaryData" not in row.attributes:
+        row.attributes["File_SecondaryData"] = MappedAttribute(
+            attribute="File_SecondaryData",
+            value=os.path.basename(secondary.path),
+            origin=ORIGIN_MAP, raw_key="", source_file=secondary.path,
+            candidates=[c.path for c in candidates] if len(candidates) > 1 else [])
+    if "Checksum_SecondaryData" in row.attributes:
+        return
+    checksum = run_manifest.checksums.get(secondary.path)
+    if not checksum:
+        return
+    row.attributes["Checksum_SecondaryData"] = MappedAttribute(
+        attribute="Checksum_SecondaryData", value=checksum, origin=ORIGIN_MAP,
+        raw_key=f"$checksums.{secondary.path}", source_file=secondary.path)
+
+
 def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
-                     run_manifest: manifest.RunManifest) -> list[MappedRow]:
+                     run_manifest: manifest.RunManifest,
+                     context: dict | None = None) -> list[MappedRow]:
     """One row per sample this rule's child ships for; the analysis record
     does not exist yet, so `uid` stays None and this row is what creates it.
 
@@ -478,7 +691,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
             continue
         row = MappedRow(sample_type=rule.sample_type, nfcore_sample=sample.nfcore_sample)
         for attribute, ref in merged_attrs.items():
-            value = maps.resolve_ref(ref, run_manifest, sample)
+            value = _resolve_value(ref, run_manifest, sample, context)
             if value is None or value == "":
                 continue
             row.attributes[attribute] = MappedAttribute(
@@ -486,6 +699,7 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
                 raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
                 source_file=run_manifest.sources.get("params", ""))
         _attach_checksum(row, rule, run_manifest, sample.nfcore_sample)
+        _attach_secondary(row, rule, run_manifest, sample.nfcore_sample)
         # Parent is a structural lineage field, not a mapped attribute -- set
         # it last so no rule attribute can accidentally clobber it. A
         # multi-run sample joins its OWN multi-parent list; a resolution in
@@ -504,7 +718,8 @@ def _per_sample_rows(rule: maps.OutputRule, merged_attrs: dict[str, str],
 
 
 def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
-                 run_manifest: manifest.RunManifest) -> MappedRow | None:
+                 run_manifest: manifest.RunManifest,
+                 context: dict | None = None) -> MappedRow | None:
     """One row for the whole run, with `Parent` `;`-joined across the run's
     resolved `d_seq_uid`s -- and, since they too are honest identity
     (`sample.d_seq_uid_multirun` is real, resolved D.SEQ UIDs, only the
@@ -528,7 +743,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
     """
     row = MappedRow(sample_type=rule.sample_type)
     for attribute, ref in merged_attrs.items():
-        value = maps.resolve_ref(ref, run_manifest)
+        value = _resolve_value(ref, run_manifest, None, context)
         if value is None or value == "":
             continue
         row.attributes[attribute] = MappedAttribute(
@@ -536,6 +751,7 @@ def _per_run_row(rule: maps.OutputRule, merged_attrs: dict[str, str],
             raw_key=ref if isinstance(ref, str) and ref.startswith("$") else "",
             source_file=run_manifest.sources.get("params", ""))
     _attach_checksum(row, rule, run_manifest, None)
+    _attach_secondary(row, rule, run_manifest, None)
 
     uids: list[str] = []
     for sample in run_manifest.samples:
