@@ -253,7 +253,7 @@ def _metadata_object(raw) -> dict:
 def parent_identities(uuids: Iterable[str]) -> dict[str, str | None]:
     """Stored uuid to the identity a child's `parent_titles` names it by.
 
-    The external-UID lookup of `batch_upload/neo4j_sync.py::enrich_parent_titles`:
+    The external-UID lookup of batch upload's former `enrich_parent_titles`:
     `extract_identity(meta, uid=uuid)` over the row's metadata, unreadable or non-object
     metadata reading as empty (the identity is then None). Only stored uuids equal to a
     requested one byte for byte are kept. Rows are read in id order and a later row replaces an
@@ -633,7 +633,7 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
     """SEEK assay id to its internal assay `(id, title)`, the smallest internal id on 1:N.
 
     `dmac.assays_internal_assays` joined to `dmac.internal_assays`, the lookup of batch
-    upload's `neo4j_sync.py::_resolve_internal_assays`; the title is kept as stored, None
+    upload's former `_resolve_internal_assays`; the title is kept as stored, None
     included. Empty when either table is absent.
     """
     alias = settings.NEXTSEEK_DATABASE
@@ -656,7 +656,7 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
 def resolved_assay_map() -> dict[int, tuple[int | None, str | None]]:
     """SEEK assay id to `(internal assay id or None, title)`, the label rule's assay map.
 
-    Batch upload's resolution (`neo4j_sync.py::build_derived_from_payloads_from_db`, step 3):
+    Batch upload's former resolution (`build_derived_from_payloads_from_db`, step 3):
     a mapped assay resolves to `internal_assay_links`' pair; every other SEEK assay falls back
     to `(None, its own title or "")`, the label rule then using the SEEK assay id itself (R6).
     An assay id mapped in dmac but absent from SEEK's `assays` keeps its mapping, as there.

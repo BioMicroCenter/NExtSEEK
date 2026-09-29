@@ -330,7 +330,7 @@ class TestBulkUpdateSamples:
 
         The literal-key check missed AntibodyParent (12,367 live references) and
         CompensationFCSParent (66,529), leaving stale DERIVED_FROM edges behind
-        on re-upload because neo4j_sync only deletes edges for parent_changed rows.
+        on re-upload because the graph writer of the time deleted edges only for parent_changed rows.
         """
         from nextseek_api.batch_upload.update import bulk_update_samples
 

@@ -2,8 +2,7 @@
 
 The first class is the parity proof: on one small MySQL world, where the upload sheet says nothing MySQL does not,
 `labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produced for the same edges,
-frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`; `test_graph_sync_parity_fixture.py` proves
-the file equals that function's output while it exists).
+frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`) while that function still existed.
 """
 import json
 from pathlib import Path
@@ -12,11 +11,10 @@ import pytest
 from django.test import override_settings
 
 from nextseek_api.batch_upload import helpers
-from nextseek_api.batch_upload.models import InputRowModel, RowOutcome
 from nextseek_api.graph_sync import labels
 
-# The host settings the protocol rule reads to tell a local /sops/<id> URL from a foreign one (as
-# test_neo4j_sync.py's TestDerivedFromProtocolResolution pins them).
+# The host settings the protocol rule reads to tell a local /sops/<id> URL from a foreign one (as batch upload's
+# protocol tests pinned them).
 _LOCAL = dict(SEEK_PUBLIC_URL="http://localhost:3000", SEEK_URL="http://seek:3000", ALLOWED_HOSTS=["127.0.0.1"])
 
 
@@ -72,36 +70,6 @@ PARENTS = {                          # child uuid: parent uuids (C-1 is also a p
 ID_BY_UUID = {uuid: sid for sid, (uuid, _meta, _assays) in SAMPLES.items()}
 
 
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def fetchall(self):
-        return list(self._rows)
-
-
-class _FakeMySQL:
-    """Answers batch upload's label SQL from the world above, as MySQL would."""
-
-    def execute(self, sql, params):
-        text, wanted = str(sql), list(params.values())
-        if "FROM samples WHERE uuid IN" in text:
-            return _Result([(u, ID_BY_UUID[u]) for u in wanted if u in ID_BY_UUID])
-        if "SELECT id, json_metadata FROM samples" in text:
-            return _Result([(i, json.dumps(SAMPLES[i][1])) for i in wanted if i in SAMPLES])
-        if "FROM sops WHERE title IN" in text:
-            # MySQL's default collation compares case-insensitively.
-            keys = {str(t).strip().casefold() for t in wanted}
-            return _Result([(i, t) for i, t in SOPS.items() if t.strip().casefold() in keys])
-        if "FROM sops WHERE id IN" in text:
-            return _Result([(i, SOPS[i]) for i in wanted if i in SOPS])
-        if "assays_internal_assays" in text:
-            return _Result([(ia, a, INTERNAL[ia]) for a, ia in JUNCTION if a in wanted])
-        if "FROM assays WHERE id IN" in text:
-            return _Result([(a, ASSAYS[a]) for a in wanted if a in ASSAYS])
-        raise AssertionError(f"unexpected SQL: {text}")
-
-
 def _resolved_assay_map():
     """What sources.resolved_assay_map() returns for this world: SEEK assay id to (internal id or None, title).
 
@@ -114,32 +82,13 @@ def _resolved_assay_map():
     return out
 
 
-def _models(overrides=None):
-    overrides = overrides or {}
-    return [InputRowModel(UID=uuid, SampleType="Blood", json_metadata=json.dumps(SAMPLES[ID_BY_UUID[uuid]][1]),
-                          **overrides.get(uuid, {}))
-            for uuid in PARENTS]
-
-
 PARITY_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "graph_sync_batch_upload_parity.json"
 
 
 def _frozen_batch_upload_labels():
-    """batch upload's labels for the world above, as its rule produced them (the frozen fixture)."""
+    """batch upload's labels for the world above, as its former rule produced them (the frozen fixture)."""
     rows = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))["edge_labels"]
     return {(r["child_id"], r["parent_id"]): r["labels"] for r in rows}
-
-
-def _batch_upload_labels(models=None):
-    from nextseek_api.batch_upload.neo4j_sync import build_derived_from_payloads_from_db
-
-    outcomes = {uuid: RowOutcome(status="success", sample_id=ID_BY_UUID[uuid]) for uuid in PARENTS}
-    assays_by_uid = {uuid: set(assays) for uuid, _meta, assays in SAMPLES.values()}
-    with override_settings(**_LOCAL):
-        rows = build_derived_from_payloads_from_db(
-            {c: set(p) for c, p in PARENTS.items()}, _FakeMySQL(), assays_by_uid, outcomes,
-            models if models is not None else _models())
-    return {(r.child_id, r.parent_id): {k: getattr(r, k) for k in labels.LABEL_KEYS} for r in rows}
 
 
 def _graph_sync_labels():
@@ -168,12 +117,6 @@ class TestParityWithBatchUpload:
         assert len(ours) == 14
         for pair in sorted(theirs):
             assert ours[pair] == theirs[pair], pair
-
-    def test_sheet_values_equal_to_mysql_change_nothing(self):
-        """A sheet sop_id and assay titles that equal MySQL's give batch upload the labels MySQL alone gives."""
-        sheet = {"C-11": {"sop_id": 5, "assay_ids": [100], "assay_titles": ["Internal Five"]},
-                 "C-3": {"sop_id": 7}}
-        assert _batch_upload_labels(_models(sheet)) == _graph_sync_labels()
 
     @pytest.mark.parametrize("pair, expected", [
         # one shared assay: the plural lists are [internal id], [title]

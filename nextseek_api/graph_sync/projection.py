@@ -7,9 +7,10 @@ attribute's ``value_type`` and keep their raw form when the cast fails, every sa
 
 Schema 1.2 adds two system properties the sync needs (spec section 6): ``source_hash``, a digest of everything the
 node is projected from, which the nightly targeted sync recomputes from MySQL to find changed samples (spec 10.3);
-and the parent lists ``parent_titles`` and ``parent_title_hashes``, computed by batch upload's rule
-(``nextseek_api/batch_upload/neo4j_sync.py::enrich_parent_titles``) so orphan discovery keeps finding new uploads
-(R4). The identity hash and the UID pattern are batch upload's own, imported rather than copied.
+and the parent lists ``parent_titles`` and ``parent_title_hashes``, computed by batch upload's former rule
+(``enrich_parent_titles``, whose outputs ``nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`` keeps) so
+orphan discovery keeps finding new uploads (R4). The identity hash and the UID pattern are batch upload's own,
+imported rather than copied.
 """
 from __future__ import annotations
 

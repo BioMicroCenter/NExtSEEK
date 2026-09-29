@@ -93,18 +93,18 @@ The local graph (the production snapshot plus TCGA) at schema 1.2, `catalog_hash
 
 ### Constraints and indexes
 
-Locally: none, apart from the two default LOOKUP indexes. `nextseek_api/batch_upload/neo4j_sync.py` declares five
+Locally: none, apart from the two default LOOKUP indexes. Batch upload's graph writer of the time declared five
 uniqueness constraints (`Sample.id`, `Sample.uuid`, `SampleType.title`, `Study.id`, `Investigation.id`), but the
-`Sample.id` one cannot be created while 79 ids sit on two nodes each, and the seed loader
-(`startup/steps/seed.py`) carries none. The dev box has all five, plus a FAILED `sample_parent_title_hashes` index.
+`Sample.id` one could not be created while 79 ids sat on two nodes each, and the seed loader
+(`startup/steps/seed.py`) carried none. The dev box had all five, plus a FAILED `sample_parent_title_hashes` index.
 
 ### Writers
 
-Batch upload's stage 6 (`nextseek_api/batch_upload/neo4j_sync.py`) is the main writer: Sample nodes, SampleType
-nodes, DERIVED_FROM, OF_TYPE, IN_STUDY, Study, Investigation and IN_INVESTIGATION. DERIVED_FROM pairs come from the
-parent tokens rule in `nextseek_api/batch_upload/helpers.py` (any key containing "parent", split on `;`, UIDs only).
-Orphan resolution, assay registration and the legacy sample pages also write; nothing writes a Person, a Project or
-`Investigation.project_id`. No command rebuilds the graph from MySQL.
+Batch upload's stage 6 was the main writer: Sample nodes, SampleType nodes, DERIVED_FROM, OF_TYPE, IN_STUDY, Study,
+Investigation and IN_INVESTIGATION. DERIVED_FROM pairs came from the parent tokens rule in
+`nextseek_api/batch_upload/helpers.py` (any key containing "parent", split on `;`, UIDs only). Orphan resolution,
+assay registration and the legacy sample pages also wrote; nothing wrote a Person, a Project or
+`Investigation.project_id`. No command rebuilt the graph from MySQL.
 
 ### Known defects
 

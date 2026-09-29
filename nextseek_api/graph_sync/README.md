@@ -252,9 +252,10 @@ the live stack: `scripts/graph_search/lane.sh app graph_sync ...` (see
 - Depends on Django's `seek` and `default` database connections, the `neo4j` driver,
   `settings.NEO4J_DATABASE`, migration `0021_graph_sync_outbox_and_run`, the graph contract
   [`nextseek_graph/schema.py`](../../nextseek_graph/README.md) for every label, relationship, property, key and
-  constraint name and the schema version it writes, and two rules it imports rather than
-  copies: `nextseek_api/batch_upload/helpers.py` for Protocol-to-SOP resolution and
-  `nextseek_api/batch_upload/neo4j_sync.py` for the parent-identity and label rules its tests compare against.
+  constraint name and the schema version it writes, and the rule it imports rather than copies:
+  `nextseek_api/batch_upload/helpers.py` for Protocol-to-SOP resolution. Its tests compare its parent-identity and
+  label rules with the frozen outputs of batch upload's former rule
+  (`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`).
 - Depended on by every writer that enqueues (above), by the lane scripts in `scripts/graph_search/`, by
   `nextseek_api/services/graph_sync_status.py`, and, through the graph it writes, by
   [`nextseek_api/graph_search/`](../graph_search/README.md).

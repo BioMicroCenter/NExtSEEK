@@ -608,8 +608,8 @@ def test_resolved_assay_map_falls_back_everywhere_without_the_dmac_tables(fake_d
     assert dmac.executed == []
 
 
-# The junction rows batch upload's resolver was given, and what it returned for SEEK assays 10, 20 and 30, frozen with
-# neo4j_sync (fixtures/graph_sync_batch_upload_parity.json, "resolved_internal_assays").
+# The junction rows batch upload's resolver was given, and what it returned for SEEK assays 10, 20 and 30, frozen before
+# that resolver was deleted (fixtures/graph_sync_batch_upload_parity.json, "resolved_internal_assays").
 RESOLVER_JUNCTION = [(200, 10, "IA 200"), (50, 10, "IA 50"), (60, 20, "IA 60")]
 RESOLVER_ASSAY_IDS = (10, 20, 30)
 

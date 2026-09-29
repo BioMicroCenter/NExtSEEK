@@ -1,8 +1,9 @@
 """The DERIVED_FROM label rule: batch upload's, moved into graph_sync and fed from MySQL (sync design 7.3).
 
-Pure: no database, no Neo4j. The rule is `nextseek_api/batch_upload/neo4j_sync.py::build_derived_from_payloads_from_db`
-Steps 1 to 3, and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function
-returns for the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py`):
+Pure: no database, no Neo4j. The rule is batch upload's former `build_derived_from_payloads_from_db` Steps 1 to 3,
+and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function returned for
+the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py` against its frozen outputs,
+`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`):
 
 - **Assays.** The SEEK assays both endpoints share in `assay_assets`, each resolved through the map `sources` reads
   (SEEK assay id to `(internal assay id or None, title)`, the smallest internal id on 1:N). An assay with no internal
