@@ -23,12 +23,11 @@ from decimal import Decimal, InvalidOperation
 
 from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.batch_upload.identity import hash_identity
+from nextseek_graph import schema
 
-SYSTEM_KEYS = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
-                         "parent_titles", "parent_title_hashes"})
+SYSTEM_KEYS = schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 SKIPPED_METADATA_KEYS = frozenset({"UID"})
 
-_LABEL_RE = re.compile(r"[^A-Za-z0-9_]")
 _NUM_RE = re.compile(r"^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$")
 _MDY_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
@@ -38,9 +37,8 @@ _VALUE_TYPES = {"Float": "float", "Integer": "integer", "Date": "date", "DateTim
 _SEP = b"\x1f"
 
 
-def label_for(title: str) -> str:
-    """The sample's type label: ``T_`` plus the title with every character outside [A-Za-z0-9_] made ``_``."""
-    return "T_" + _LABEL_RE.sub("_", title)
+# The sample's type label: ``T_`` plus the title with every character outside [A-Za-z0-9_] made ``_``.
+label_for = schema.type_label
 
 
 def value_type_for(base_type: str | None) -> str:

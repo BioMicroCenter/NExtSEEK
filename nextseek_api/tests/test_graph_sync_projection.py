@@ -12,6 +12,7 @@ from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.batch_upload.models import InputRowModel, NodeRow
 from nextseek_api.batch_upload.neo4j_sync import enrich_parent_titles
 from nextseek_api.graph_sync import projection as p
+from nextseek_graph import schema
 
 
 @pytest.mark.parametrize("title, label", [
@@ -95,8 +96,7 @@ def test_is_empty(value, empty):
 
 
 def test_key_sets():
-    assert p.SYSTEM_KEYS == frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at",
-                                       "source_hash", "parent_titles", "parent_title_hashes"})
+    assert p.SYSTEM_KEYS == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
     assert p.SKIPPED_METADATA_KEYS == frozenset({"UID"})
 
 

@@ -27,12 +27,13 @@ import json
 from collections.abc import Iterable, Mapping
 
 from nextseek_api.batch_upload.helpers import parse_protocol_value
+from nextseek_graph import schema
 
-SINGULAR_ASSAY_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title")
-PLURAL_ASSAY_KEYS = ("internal_assay_ids", "internal_assay_titles")
-ASSAY_KEYS = SINGULAR_ASSAY_KEYS + PLURAL_ASSAY_KEYS
-PROTOCOL_KEYS = ("protocol_id", "protocol_title")
-LABEL_KEYS = ASSAY_KEYS + PROTOCOL_KEYS
+SINGULAR_ASSAY_KEYS = schema.DERIVED_FROM_SINGULAR_ASSAY_KEYS
+PLURAL_ASSAY_KEYS = schema.DERIVED_FROM_PLURAL_ASSAY_KEYS
+ASSAY_KEYS = schema.DERIVED_FROM_ASSAY_KEYS
+PROTOCOL_KEYS = schema.DERIVED_FROM_PROTOCOL_KEYS
+LABEL_KEYS = schema.DERIVED_FROM_LABEL_KEYS
 
 NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED = "new", "equal", "plural_missing", "changed", "cleared"
 CLASSES = (NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED)

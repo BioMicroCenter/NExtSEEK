@@ -28,6 +28,7 @@ from nextseek_api.graph_sync import (
 )
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_graph import schema
 
 command = import_module("nextseek_api.management.commands.graph_sync")
 
@@ -179,7 +180,7 @@ class WriterRecorder:
             "ensure_fulltext": lambda d, db: {"fulltext_index": "sample_search_text"},
             "await_indexes": lambda d, db: {"indexes_online": 20},
             "write_graphmeta": lambda d, db, catalog_hash, label_maps_hash=None: {
-                "schema_version": "1.2", "catalog_hash": catalog_hash},
+                "schema_version": schema.SCHEMA_VERSION, "catalog_hash": catalog_hash},
         }
         for name, fn in fakes.items():
             monkeypatch.setattr(writer, name, self._recording(name, fn))
@@ -509,7 +510,7 @@ class GraphWorld:
         self.constraints = list(verify.EXPECTED_CONSTRAINTS)
         self.indexes = [{"name": n, "state": "ONLINE", "populationPercent": 100.0}
                         for n in verify.EXPECTED_INDEXES + verify.EXPECTED_CONSTRAINTS]
-        self.graphmeta = [{"schema_version": "1.2"}]
+        self.graphmeta = [{"schema_version": schema.SCHEMA_VERSION}]
 
     def __call__(self, query, params):
         nodes = self.nodes

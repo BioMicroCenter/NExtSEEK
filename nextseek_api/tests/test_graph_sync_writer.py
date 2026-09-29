@@ -16,6 +16,7 @@ import pytest
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import writer as w
 from nextseek_api.graph_sync.projection import SampleProjection
+from nextseek_graph import schema
 
 
 class FakeDriver:
@@ -73,13 +74,35 @@ def test_write_samples_takes_the_parent_lists_from_the_props_when_present():
     assert q.WRITE_SAMPLES.index("AS pth") < q.WRITE_SAMPLES.index("SET s = r.props")
 
 
+# The schema DDL as it was written by hand before it was rendered from the contract's 1.1 triples: the rendering must
+# give these statements byte for byte.
+GOLDEN_CONSTRAINTS_V11 = [
+    "CREATE CONSTRAINT sample_id_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.id IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_id_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.id IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_title_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.title IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_label_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.label IS UNIQUE",
+    "CREATE CONSTRAINT attribute_key_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.key IS UNIQUE",
+    "CREATE CONSTRAINT attribute_id_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.id IS UNIQUE",
+    "CREATE CONSTRAINT project_id_unique IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE",
+    "CREATE CONSTRAINT person_id_unique IF NOT EXISTS FOR (p:Person) REQUIRE p.id IS UNIQUE",
+    "CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (s:Study) REQUIRE s.id IS UNIQUE",
+    "CREATE CONSTRAINT investigation_id_unique IF NOT EXISTS FOR (i:Investigation) REQUIRE i.id IS UNIQUE",
+    "CREATE INDEX sample_uuid IF NOT EXISTS FOR (s:Sample) ON (s.uuid)",
+    "CREATE INDEX sample_type IF NOT EXISTS FOR (s:Sample) ON (s.type)",
+    "CREATE INDEX study_seek_study_id IF NOT EXISTS FOR (s:Study) ON (s.seek_study_id)",
+]
+GOLDEN_FULLTEXT = "CREATE FULLTEXT INDEX sample_search_text IF NOT EXISTS FOR (s:Sample) ON EACH [s.search_text]"
+
+
+def test_the_schema_ddl_is_byte_identical_to_the_hand_written_statements():
+    assert isinstance(q.CONSTRAINTS_V11, list)
+    assert q.CONSTRAINTS_V11 == GOLDEN_CONSTRAINTS_V11
+    assert q.FULLTEXT == GOLDEN_FULLTEXT
+    assert q.FULLTEXT_INDEX == "sample_search_text"
+
+
 def test_constraints_are_the_v11_set():
     joined = "\n".join(q.CONSTRAINTS_V11)
-    for prop in ("(s:Sample) REQUIRE s.id", "(t:SampleType) REQUIRE t.id", "(t:SampleType) REQUIRE t.title",
-                 "(t:SampleType) REQUIRE t.label", "(a:Attribute) REQUIRE a.key", "(a:Attribute) REQUIRE a.id",
-                 "(p:Project) REQUIRE p.id", "(p:Person) REQUIRE p.id", "(s:Study) REQUIRE s.id",
-                 "(i:Investigation) REQUIRE i.id"):
-        assert prop in joined
     # uuid is indexed but never unique while MySQL holds duplicate uuids
     assert "REQUIRE s.uuid" not in joined
     assert any("ON (s.uuid)" in stmt for stmt in q.CONSTRAINTS_V11)
@@ -694,16 +717,17 @@ def test_write_sample_type_counts():
     assert driver.queries() == [q.SET_SAMPLE_TYPE_COUNTS]
 
 
-def test_the_schema_version_is_1_2():
-    assert w.SCHEMA_VERSION == "1.2"
+def test_the_schema_version_is_the_contracts():
+    assert w.SCHEMA_VERSION is schema.SCHEMA_VERSION
 
 
 def test_write_graphmeta_stamps_the_schema_version():
     driver = FakeDriver()
-    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": "1.2", "catalog_hash": "abc"}
+    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": schema.SCHEMA_VERSION,
+                                                         "catalog_hash": "abc"}
     (call,) = driver.calls
     assert call.query == q.WRITE_GRAPHMETA
-    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc"}
+    assert call.params == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc"}
 
 
 def test_write_graphmeta_without_label_maps_hash_keeps_the_stored_one():
@@ -715,10 +739,11 @@ def test_write_graphmeta_without_label_maps_hash_keeps_the_stored_one():
 def test_write_graphmeta_with_label_maps_hash():
     driver = FakeDriver()
     counts = w.write_graphmeta(driver, "neo4j", "abc", label_maps_hash="def")
-    assert counts == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    assert counts == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc", "label_maps_hash": "def"}
     (call,) = driver.calls
     assert call.query == q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
-    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    assert call.params == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc",
+                           "label_maps_hash": "def"}
     assert "m.label_maps_hash = $label_maps_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
     assert "m.schema_version = $schema_version, m.catalog_hash = $catalog_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
 

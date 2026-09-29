@@ -549,7 +549,7 @@ def test_exactly_one_section_names_the_fulltext_index():
 
 
 # --- the copies ----------------------------------------------------------------------------------------------------
-# Each single name below becomes the contract object itself in the writer commit; until then its value must equal it.
+# Each single name below is the contract object itself (an alias), so it is checked by identity.
 
 WRITER_ALIASES = [
     ("writer.SCHEMA_VERSION", lambda: writer.SCHEMA_VERSION, "SCHEMA_VERSION"),
@@ -568,13 +568,12 @@ WRITER_ALIASES = [
 
 
 @pytest.mark.parametrize("where, read, name", WRITER_ALIASES, ids=[w for w, _, _ in WRITER_ALIASES])
-def test_the_writer_copies_equal_the_contract(where, read, name):
-    assert read() == getattr(schema, name), f"{where} is not schema.{name}"
+def test_the_writer_copies_are_the_contract(where, read, name):
+    assert read() is getattr(schema, name), f"{where} is not schema.{name}"
 
 
-@pytest.mark.parametrize("title", ["TIS", "D.SEQ", "A.VCF", "X Y-1", "é", ""])
-def test_the_writer_label_rule_is_the_contract(title):
-    assert projection.label_for(title) == schema.type_label(title)
+def test_the_writer_label_rule_is_the_contract():
+    assert projection.label_for is schema.type_label
 
 
 def test_the_writer_composed_names_equal_their_groups():
@@ -622,6 +621,14 @@ def _literal(node: ast.expr):
         return {ast.literal_eval(k): _literal(v) for k, v in zip(node.keys, node.values)}
     value = ast.literal_eval(node)
     return frozenset(value) if isinstance(value, set) else value
+
+
+def test_the_writer_string_names_are_bound_to_the_contract():
+    # Python interns a short identifier-like string, so `is` holds for a restated "sample_search_text" too: only the
+    # assignment itself shows that the name reads the contract.
+    graph_sync = REPO_ROOT / "nextseek_api" / "graph_sync"
+    assert ast.unparse(_assigned(graph_sync / "cypher.py", "FULLTEXT_INDEX")) == "schema.FULLTEXT_INDEX"
+    assert ast.unparse(_assigned(graph_sync / "writer.py", "SCHEMA_VERSION")) == "schema.SCHEMA_VERSION"
 
 
 GRAPH_AGENT = NESSIE / "agents" / "graph.py"

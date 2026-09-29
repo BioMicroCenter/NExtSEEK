@@ -46,7 +46,6 @@ import heapq
 import json
 import logging
 import random
-import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -62,6 +61,7 @@ from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import labels, run, sources, writer
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, label_for, parent_lists, project_sample
 from nextseek_api.graph_sync.writer import _one, _records, _run
+from nextseek_graph import schema
 
 log = logging.getLogger(__name__)
 
@@ -72,12 +72,9 @@ EXAMPLES = 10
 SAMPLED_BATCH = 1_000
 LABEL_RULE_CACHE = 100_000   # distinct (child assays, parent assays, protocol) inputs whose labels check 9 keeps
 
-_NAME_RE = re.compile(r"CREATE (CONSTRAINT|INDEX) (\w+)")
-EXPECTED_CONSTRAINTS = tuple(m.group(2) for m in map(_NAME_RE.match, q.CONSTRAINTS_V11)
-                             if m and m.group(1) == "CONSTRAINT")
-EXPECTED_INDEXES = tuple(m.group(2) for m in map(_NAME_RE.match, q.CONSTRAINTS_V11)
-                         if m and m.group(1) == "INDEX") + (q.FULLTEXT_INDEX,)
-_LABEL_RE = re.compile(r"T_[A-Za-z0-9_]+")
+# The names gate G expects, from the contract's 1.1 groups (nextseek_graph/schema.py).
+EXPECTED_CONSTRAINTS = tuple(name for name, _label, _prop in schema.UNIQUE_CONSTRAINTS_V11)
+EXPECTED_INDEXES = tuple(name for name, _label, _prop in schema.RANGE_INDEXES_V11) + (schema.FULLTEXT_INDEX,)
 # "Protocol" and "protocol" both end in this as JSON keys. A child's metadata without it names no protocol, which
 # spares parsing most children's metadata a second time.
 _PROTOCOL_KEY_TAIL = 'rotocol"'
@@ -430,7 +427,7 @@ def _check_catalog(driver, db, graph_catalog: list, audit: dict, sampled: dict, 
     unlisted_by_type: dict[str, list] = {}
     total = 0
     for label in sorted(titles_by_label):
-        if not _LABEL_RE.fullmatch(label):
+        if not schema.is_type_label(label):
             unlisted_by_type[label] = ["(label outside the T_ rule; not scanned)"]
             continue
         log.info("gate G: keys on %s", label)

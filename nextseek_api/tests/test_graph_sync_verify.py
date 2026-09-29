@@ -18,6 +18,7 @@ from nextseek_api.batch_upload.identity import hash_identity
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import run, sources, verify
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_graph import schema
 
 
 class FakeDriver:
@@ -196,7 +197,7 @@ class GateWorld:
         if query in (verify.LABEL_COLLISIONS, verify.SAMPLE_TYPES_WITHOUT_ID_OR_LABEL):
             return [{"n": 0}]
         if query == verify.GRAPHMETA:
-            return [{"schema_version": "1.2"}]
+            return [{"schema_version": schema.SCHEMA_VERSION}]
         if query == verify.T_LABEL_WITHOUT_SAMPLE:
             return [{"n": len(self.t_labelled)}]
         if query == verify.T_LABEL_WITHOUT_SAMPLE_EXAMPLES:

@@ -19,6 +19,7 @@ from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import drift, run, sources, verify, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_graph import schema
 
 T0 = datetime(2026, 9, 15, 2, 30, tzinfo=dt_timezone.utc)
 
@@ -92,7 +93,7 @@ def _hash(row):
 class DriftGraph:
     """The graph side: ``hashes`` (id to source_hash), ``uuids`` (id to uuid) and the GraphMeta node."""
 
-    def __init__(self, rows=(), schema_version="1.2", catalog=()):
+    def __init__(self, rows=(), schema_version=schema.SCHEMA_VERSION, catalog=()):
         self.hashes = {r["id"]: _hash(r) for r in rows}
         self.uuids = {r["id"]: r["uuid"] for r in rows}
         self.meta = [{"props": {"schema_version": schema_version, "catalog_hash": "c"}}] if schema_version else []
@@ -397,7 +398,7 @@ def test_drift_check_reads_only_and_records_nothing_without_a_trigger(mysql_rows
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("version, status", [("1.2", "drift"), ("1.1", "refused")])
+@pytest.mark.parametrize("version, status", [(schema.SCHEMA_VERSION, "drift"), ("1.1", "refused")])
 def test_drift_check_records_its_run_when_given_a_trigger(mysql_rows, gate, catalog, version, status):
     mysql_rows.append(_row(3, "TIS-220119FLY-3"))
     result, _ = _check_drift(DriftGraph(schema_version=version), trigger="command")
@@ -411,7 +412,7 @@ def test_drift_check_records_its_run_when_given_a_trigger(mysql_rows, gate, cata
 def test_drift_check_records_a_failed_run_and_raises_when_it_cannot_complete(mysql_rows, gate, catalog):
     def broken(query, params):
         if query == q.READ_GRAPHMETA:
-            return [{"props": {"schema_version": "1.2"}}]
+            return [{"props": {"schema_version": schema.SCHEMA_VERSION}}]
         raise OSError("Neo4j went away")
 
     with pytest.raises(OSError):

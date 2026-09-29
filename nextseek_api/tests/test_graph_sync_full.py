@@ -20,6 +20,7 @@ from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.graph_sync import labels, projection, run, sources, state, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
+from nextseek_graph import schema
 
 pytestmark = pytest.mark.django_db
 
@@ -462,7 +463,7 @@ def test_graphmeta_gets_the_label_maps_hash(world, monkeypatch, tmp_path, lock):
     report = _full(graph, tmp_path)
 
     expected = labels.label_maps_hash(ASSAY_MAP, SOPS)
-    assert graph.graphmeta["label_maps_hash"] == expected and graph.graphmeta["schema_version"] == "1.2"
+    assert graph.graphmeta["label_maps_hash"] == expected and graph.graphmeta["schema_version"] == schema.SCHEMA_VERSION
     assert report["label_maps_hash"] == expected
 
 
@@ -638,7 +639,7 @@ def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(
 
 # --- catalog_sync --------------------------------------------------------------------------------
 
-def _catalog_graph(version="1.2"):
+def _catalog_graph(version=schema.SCHEMA_VERSION):
     graph = Graph()
     if version is not None:
         graph.graphmeta = {"schema_version": version, "catalog_hash": "old"}
