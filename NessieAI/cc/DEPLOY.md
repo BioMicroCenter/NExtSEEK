@@ -88,7 +88,7 @@ docker run --rm --network dmac-cc-net --entrypoint sh dmac-assistant:poc -c '
   curl -s -o /dev/null -w "healthz=%{http_code}\n" $B/healthz                       # 200 (free)
   curl -s -o /dev/null -w "haiku=%{http_code}\n" -X POST $B/model/us.anthropic.claude-haiku-4-5-20251001-v1:0/invoke -d "{}"  # 403 (free; allowlist rejects pre-Bedrock)
   # PAID (approval-gated; 500 expected when the proxy token is empty):
-  curl -s -o /dev/null -w "opus=%{http_code}\n"   -X POST $B/model/us.anthropic.claude-opus-4-8/invoke \
+  curl -s -o /dev/null -w "opus=%{http_code}\n"   -X POST $B/model/us.anthropic.claude-opus-5-5/invoke \
        -H content-type:application/json -d "{\"anthropic_version\":\"bedrock-2023-05-31\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"   # 200
 '
 docker logs dmac-bedrock-proxy 2>&1 | grep -c -E "ABSK|Authorization"   # 0  (token never logged)

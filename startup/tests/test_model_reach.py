@@ -180,23 +180,12 @@ def _copy_tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_the_run_2_switch_needs_no_edit_to_the_check(tmp_path):
-    """The operator's run-2 rulings, applied to copies of the real files: NS Opus 4.7
-    -> Opus 5.5 and NS Gemini 3.5 Flash -> 3.8 Flash in the catalog (BAML unchanged),
-    CC main Opus 5.5 with fallback Opus 4.8. The check lists what the switch calls."""
-    tree = _copy_tree(tmp_path)
-    catalog = json.loads((tree / mr.CATALOG).read_text())
-    for profile in ("default", "gcp:current"):
-        models = catalog[profile]["models"]
-        models["gemini-3.8-flash"] = models.pop("gemini-3.5-flash")
-    catalog["default"]["models"]["us.anthropic.claude-opus-5-5"] = \
-        catalog["default"]["models"].pop("us.anthropic.claude-opus-4-7")
-    (tree / mr.CATALOG).write_text(json.dumps(catalog))
-    model_map = json.loads((tree / mr.CLASS_MAP).read_text())
-    model_map.update(opus="us.anthropic.claude-opus-5-5", opus_fallback="us.anthropic.claude-opus-4-8")
-    (tree / mr.CLASS_MAP).write_text(json.dumps(model_map))
-
-    report = mr.derive(tree, CREDS)
+def test_the_run_2_switch_needs_no_edit_to_the_check():
+    """The operator's run-2 rulings, now in the real files (2026-09-28): NS Opus 4.7 ->
+    Opus 5.5 and NS Gemini 3.5 Flash -> 3.8 Flash in the catalog (BAML unchanged), CC
+    main Opus 5.5 with fallback Opus 4.8. The check, unedited, lists what the switch
+    calls. (Before the switch this test made the same edits to copies of the files.)"""
+    report = mr.derive(REPO_ROOT, CREDS)
 
     assert "parser" in _users(report, "us.anthropic.claude-opus-5-5", mr.BEDROCK)
     assert _users(report, "us.anthropic.claude-opus-5-5", mr.PROXY) == ["CC main"]
@@ -227,7 +216,7 @@ def test_without_a_bedrock_token_the_opus_agents_are_marked_no_credential():
     """ChatConfig gives an agent whose client was not built the Gemini client, with
     the Bedrock id: every such call fails over without a word."""
     report = mr.derive(REPO_ROOT, {"GCP_API_KEY": "k"})
-    (use,) = [u for u in report["uses"] if u["id"] == "us.anthropic.claude-opus-4-7"
+    (use,) = [u for u in report["uses"] if u["id"] == "us.anthropic.claude-opus-5-5"
               and u["path"] == mr.GEMINI]
     assert use["preset"][0] == mr.NO_CREDENTIAL
     assert "AWS_BEARER_TOKEN_BEDROCK" in use["preset"][1]
@@ -433,8 +422,8 @@ def test_the_app_role_asks_its_own_paths_and_leaves_the_cc_ids_to_the_proxy():
     asked = [u for u, _ in http.requests if "availability" not in u]
     assert len(asked) == len(set(asked)), "an id was asked twice"
     assert {u.rsplit("/", 1)[1] for u in asked} == {
-        "gemini-3.5-flash", "gemini-3.1-pro-preview",
-        "us.anthropic.claude-opus-4-7", "us.anthropic.claude-sonnet-4-6"}
+        "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview",
+        "us.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-4-6"}
 
 
 def test_the_app_role_marks_a_missing_key_without_asking():

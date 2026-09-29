@@ -6,7 +6,7 @@ import json
 
 from NessieAI.tests.cc.validate_cc_acceptance import validate_run
 
-OPUS = "us.anthropic.claude-opus-4-8"
+OPUS = "us.anthropic.claude-opus-5-5"
 
 
 def _write(d, name, obj):

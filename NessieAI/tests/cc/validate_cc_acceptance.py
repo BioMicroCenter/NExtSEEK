@@ -10,7 +10,7 @@ network, no paid call — so anyone can re-verify the proof:
 It maps 1:1 onto the security-acceptance checklist (AUDIT.md, live items):
   11 real router    routed_route_decided.json: source=="baml", route=="container_cc"
   12 real Opus turn forced_result.json: is_error false, reply echoes the sentinel
-  12 proxy live     proxy_log.txt: >=1 `POST /model/<opus-4-8>/invoke[...] -> 200`
+  12 proxy live     proxy_log.txt: >=1 `POST /model/<opus-5-5>/invoke[...] -> 200`
   13 token unlogged proxy_log.txt: 0 occurrences of `ABSK` / `Authorization`
   10 agent de-cred  agent_env_scan.txt: none of the 16 shared keys; no `ABSK`/`demopassword`
    9 segmentation   network.json: agent net excludes neo4j/seek-mysql/seek/seek-solr
@@ -92,7 +92,7 @@ def is_dmac_cc_net_closed_set_member(name: str, *, run_id: str | None = None) ->
     return False
 
 
-OPUS = "us.anthropic.claude-opus-4-8"
+OPUS = "us.anthropic.claude-opus-5-5"
 _INVOKE_200 = re.compile(
     r"POST\s+/model/" + re.escape(OPUS) + r"/invoke(?:-with-response-stream)?\b[^\n]*?->\s*200"
 )
@@ -134,11 +134,11 @@ def validate_run(run_dir: str | Path) -> tuple[bool, list[tuple[str, bool, str]]
         add("turn_completed_no_error", False, f"unreadable: {e}")
         add("reply_echoes_sentinel", False, "no result")
 
-    # 12/13 — proxy traversed live (>=1 opus-4-8 invoke -> 200) and token never logged
+    # 12/13: proxy traversed live (>=1 opus-5-5 invoke -> 200) and token never logged
     try:
         log = (d / "proxy_log.txt").read_text(encoding="utf-8", errors="replace")
         n200 = len(_INVOKE_200.findall(log))
-        add("proxy_opus_invoke_200", n200 >= 1, f"{n200} opus-4-8 invoke->200 lines")
+        add("proxy_opus_invoke_200", n200 >= 1, f"{n200} opus-5-5 invoke->200 lines")
         leaks = sum(log.count(m) for m in ("ABSK", "Authorization", "authorization"))
         add("proxy_never_logs_token", leaks == 0, f"{leaks} token/authz occurrences")
     except Exception as e:  # noqa: BLE001

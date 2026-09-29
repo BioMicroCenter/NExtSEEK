@@ -6,6 +6,10 @@ classifier's Sonnet (``ANTHROPIC_DEFAULT_SONNET_MODEL``, the map's ``sonnet``). 
 proxy refuses any other id with a 403 before Bedrock is reached, and Claude Code never
 falls back on a 403, so an id missing here would turn every fallback into a failure.
 
+Run 2 (2026-09-28) moved the map to Opus 5.5 with Opus 4.8 as its fallback. Run 1's
+fallback, Opus 4.7, stays allowed (``ROLLBACK_IDS``): an app image rolled back to run 1's
+map must not be refused by a proxy that was not rolled back with it.
+
 Read from ``app/config.py`` with ``ast``: the proxy directory is hyphenated and is not
 an importable package here.
 """
@@ -37,11 +41,20 @@ def test_the_main_cc_model_is_allowed_and_listed_first():
     assert _default_allowed_models()[0] == _map()["opus"]
 
 
-def test_the_allow_list_is_exactly_the_models_a_cc_turn_names():
+#: Allowed although no CC turn of the current map names them: the ids of the map before it.
+ROLLBACK_IDS = {"us.anthropic.claude-opus-4-7"}
+
+
+def test_the_allow_list_is_the_models_a_cc_turn_names_and_the_rollback_ids():
     mapping = _map()
     allowed = _default_allowed_models()
     assert len(allowed) == len(set(allowed))
-    assert set(allowed) == {mapping["opus"], mapping["opus_fallback"], mapping["sonnet"]}
+    assert set(allowed) == {mapping["opus"], mapping["opus_fallback"], mapping["sonnet"]} | ROLLBACK_IDS
+
+
+def test_a_rollback_id_is_one_no_turn_of_the_current_map_names():
+    """A rollback id that the map names again is not a rollback id; keep the set honest."""
+    assert not ROLLBACK_IDS & set(_map().values())
 
 
 def test_a_model_no_cc_turn_names_stays_refused():

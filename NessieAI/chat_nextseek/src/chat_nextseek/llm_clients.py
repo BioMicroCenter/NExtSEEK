@@ -5,6 +5,7 @@ Lightweight provider adapters so agents can call OpenAI, GCP Gemini, or Anthropi
 without changing prompts or core logic.
 """
 
+import base64
 import dataclasses
 import inspect
 import re
@@ -25,6 +26,9 @@ __all__ = [
     "GeminiClient",
     "AnthropicClient",
     "BedrockClient",
+    "ModelTraits",
+    "model_traits",
+    "without_reasoning_blocks",
     "pydantic_to_tool_schema",
     "build_llm_client",
 ]
@@ -667,9 +671,10 @@ def _converse_metadata(resp: dict) -> dict | None:
     `stop_reason` is the field that would have named production turn 406's cause; the
     enum now includes `malformed_model_output` and `model_context_window_exceeded`.
 
-    `reasoning_blocks` counts the response's reasoning (thinking) blocks. Both `chat`
-    and `chat_with_tools` drop those blocks from what they return, so this count is the
-    only place a caller can see that the model reasoned before it answered.
+    `reasoning_blocks` counts the response's reasoning (thinking) blocks. `chat` drops
+    those blocks from what it returns and `chat_with_tools` keeps them only for its loop
+    to replay, so this count is where the ledger reads whether the model reasoned
+    (`reasoning_present`).
     """
     try:
         rmeta = resp.get("ResponseMetadata") or {}
@@ -728,6 +733,147 @@ def pydantic_to_tool_schema(model: Any) -> dict:
 
     close(schema)
     return schema
+
+
+@dataclasses.dataclass(frozen=True)
+class ModelTraits:
+    """What a request to one model may carry. See ``model_traits``."""
+
+    #: temperature, top_p and top_k are refused, and so is thinking with budget_tokens: thinking, when on, is
+    #: {"type": "adaptive"} with an effort.
+    adaptive_only: bool = False
+    #: the model thinks even when the request leaves thinking out (Opus 5.5, Fable and Mythos cannot turn it off at
+    #: all), so every request carries an effort and room for the thinking in maxTokens.
+    always_thinks: bool = False
+    #: False when tool_choice "any" or a named tool is refused with a 400.
+    forced_tool_ok: bool = True
+
+
+# A Claude id by family and version, on Bedrock or not: "us.anthropic.claude-opus-5-5",
+# "anthropic.claude-opus-4-5-20251101-v1:0" (a date is never taken for a minor version), "claude-mythos-preview".
+_CLAUDE_ID = re.compile(r"claude-(opus|sonnet|haiku|fable|mythos)(?:-(\d+))?(?:-(\d{1,2}))?(?=$|[-:@.])")
+
+
+def model_traits(model: str | None) -> ModelTraits:
+    """The model's family, by what a request to it may carry.
+
+    From the claude-api reference (Anthropic's current model documentation, "Thinking & Effort" and "Migrating to
+    Claude Opus 5.5", read 2026-09-28):
+
+    * adaptive only: Opus 4.7 and later, Sonnet 5, every Fable and Mythos;
+    * always thinks: Opus 5 and later, Sonnet 5, every Fable and Mythos (Opus 5.5, Fable and Mythos cannot disable
+      it: thinking ``disabled`` and ``budget_tokens`` are 400s at every effort);
+    * refuses a forced tool: Opus 5.5 and later, Fable 5.1 and later, Mythos 5.1 and later.
+
+    Any id that is not a Claude family gets the plain traits, as every model did before this helper. It replaces
+    the substring test ``"opus-4-7" in model or "mythos" in model``: every id that test matched is still adaptive
+    only, and an Opus 4.7 request is unchanged byte for byte (test_bedrock_opus47_request_pin.py).
+    """
+    text = (model or "").lower()
+    match = _CLAUDE_ID.search(text)
+    if match is None:
+        if "mythos" in text:
+            return ModelTraits(adaptive_only=True, always_thinks=True)
+        return ModelTraits()
+    family = match.group(1)
+    version = (int(match.group(2)), int(match.group(3) or 0)) if match.group(2) else None
+    if family in ("fable", "mythos"):
+        return ModelTraits(adaptive_only=True, always_thinks=True,
+                           forced_tool_ok=version is None or version < (5, 1))
+    if version is None:
+        return ModelTraits()
+    if family == "opus":
+        return ModelTraits(adaptive_only=version >= (4, 7), always_thinks=version >= (5, 0),
+                           forced_tool_ok=version < (5, 5))
+    if family == "sonnet":
+        return ModelTraits(adaptive_only=version >= (5, 0), always_thinks=version >= (5, 0))
+    return ModelTraits()
+
+
+# The catalog's thinking levels reach the client as budgets (ChatConfig._THINKING_BUDGET_MAP); an adaptive request
+# sends the level itself as the effort. An unknown budget is "high", as before.
+_BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
+
+# maxTokens for a model that always thinks, by effort. Its thinking counts against maxTokens, so the 4096 a call
+# with no level used to get could be spent before the answer starts (stop_reason max_tokens, an empty or cut reply,
+# then a move). A higher effort thinks more, so the ceiling rises with it, and it sits above what the call's own
+# wall clock lets it write (Opus 4.7 on this Bedrock path writes about 110 tokens a second, schemas/call_budgets.py:
+# the parser's 50 s is about 5,500 tokens, report_writer's 240 s about 26,000), so the clock, not this, ends a long
+# call. It goes no higher because Bedrock counts maxTokens against the account's tokens-per-minute quota when a
+# request starts.
+_ALWAYS_THINKING_MAX_TOKENS = {"low": 8192, "medium": 16384, "high": 32768}
+
+
+def _always_thinking_fields(thinking_budget: int | None, max_tokens: int) -> tuple[dict, int]:
+    """(additionalModelRequestFields, maxTokens) for a model that always thinks.
+
+    The catalog's level becomes the effort directly; no level is ``low``, the least thinking such a model can do
+    (Opus 5.5's own default is ``medium``). A caller's larger ``max_tokens`` stands.
+    """
+    effort = "low" if thinking_budget is None else _BUDGET_TO_EFFORT.get(thinking_budget, "high")
+    fields = {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}
+    return fields, max(max_tokens, _ALWAYS_THINKING_MAX_TOKENS[effort])
+
+
+def _is_forced_tool_choice(choice: str | dict) -> bool:
+    """Whether ``tool_choice`` forces a call ("any", or a named tool), which Opus 5.5 refuses."""
+    normalized = _normalize_tool_choice(choice)
+    return "any" in normalized or "tool" in normalized
+
+
+# A redacted reasoning block's bytes, as text: a pipeline build keeps its history in the chat session, which is JSON.
+_REDACTED_BASE64 = "redactedContentBase64"
+
+
+def _reasoning_block_out(block: dict) -> dict:
+    """A Converse reasoning block as a tool loop keeps it: unchanged, unless it holds bytes.
+
+    ``{"reasoningContent": {"reasoningText": {"text", "signature"}}}`` is plain JSON and is kept as it came.
+    ``{"reasoningContent": {"redactedContent": <bytes>}}`` keeps its bytes as base64 text, which
+    ``_reasoning_block_in`` turns back into the same bytes before the block is sent again.
+    """
+    content = block.get("reasoningContent")
+    if isinstance(content, dict) and isinstance(content.get("redactedContent"), (bytes, bytearray)):
+        return {"reasoningContent": {
+            (_REDACTED_BASE64 if key == "redactedContent" else key):
+                (base64.b64encode(bytes(value)).decode("ascii") if key == "redactedContent" else value)
+            for key, value in content.items()
+        }}
+    return block
+
+
+def _reasoning_block_in(block: dict) -> dict:
+    """The block ``_reasoning_block_out`` kept, as Converse takes it back: the same bytes, the same keys."""
+    content = block.get("reasoningContent")
+    if isinstance(content, dict) and _REDACTED_BASE64 in content:
+        return {"reasoningContent": {
+            ("redactedContent" if key == _REDACTED_BASE64 else key):
+                (base64.b64decode(value) if key == _REDACTED_BASE64 else value)
+            for key, value in content.items()
+        }}
+    return block
+
+
+def _is_reasoning_block(block: Any) -> bool:
+    return isinstance(block, dict) and "type" not in block and "reasoningContent" in block
+
+
+def without_reasoning_blocks(messages: list[dict]) -> list[dict]:
+    """``messages`` with every reasoning block removed; text and tool calls stay. The caller's list is not changed.
+
+    Removing all of them is the documented way to send on a history whose reasoning the receiving request must not
+    or cannot replay (claude-api reference, "Migrating to Claude Fable 5.1 from Claude Fable 5", recovery 1): a
+    model that is not thinking, or a request whose tools differ from the ones the blocks were written under. A turn
+    left with nothing gets the placeholder ``_convert_messages`` uses, because Bedrock refuses an empty turn.
+    """
+    out: list[dict] = []
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, list) and any(_is_reasoning_block(b) for b in content):
+            kept = [b for b in content if not _is_reasoning_block(b)]
+            msg = {**msg, "content": kept or [{"text": "(no content)"}]}
+        out.append(msg)
+    return out
 
 
 class BedrockClient(BaseLLMClient):
@@ -849,8 +995,9 @@ class BedrockClient(BaseLLMClient):
         from botocore.exceptions import ClientError
 
         system_blocks, converted = self._convert_messages(messages)
-        # Opus 4.7 / Mythos: adaptive thinking only; temperature/top_p/top_k forbidden.
-        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        # Opus 4.7 and later, Fable, Mythos: adaptive thinking only; temperature/top_p/top_k forbidden.
+        traits = model_traits(model)
+        is_adaptive_only = traits.adaptive_only
         inference_config: dict[str, Any] = {"maxTokens": self.max_output_tokens}
         if not is_adaptive_only:
             # Extended thinking on older models requires temperature=1.
@@ -862,9 +1009,12 @@ class BedrockClient(BaseLLMClient):
         }
         if system_blocks:
             kwargs["system"] = system_blocks
-        if thinking_budget is not None:
+        if traits.always_thinks:
+            # Opus 5.5 and the like think on every call: always an explicit effort, and room for the thinking.
+            kwargs["additionalModelRequestFields"], inference_config["maxTokens"] = _always_thinking_fields(
+                thinking_budget, self.max_output_tokens)
+        elif thinking_budget is not None:
             if is_adaptive_only:
-                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
                 effort = _BUDGET_TO_EFFORT.get(thinking_budget, "high")
                 kwargs["additionalModelRequestFields"] = {
                     "thinking": {"type": "adaptive"},
@@ -947,9 +1097,9 @@ class BedrockClient(BaseLLMClient):
         """
         if not isinstance(block, dict):
             return block
-        # Already Bedrock-shaped — pass through.
+        # Already Bedrock-shaped: pass through (a kept reasoning block gets its bytes back, if it had any).
         if "type" not in block:
-            return block
+            return _reasoning_block_in(block) if "reasoningContent" in block else block
         btype = block["type"]
         if btype == "text":
             return {"text": block.get("text", "")}
@@ -1021,9 +1171,28 @@ class BedrockClient(BaseLLMClient):
         Returns:
             ``{"stop_reason": str, "content": [content blocks]}`` where content
             blocks are anthropic-style: ``{"type": "text", "text": "..."}`` or
-            ``{"type": "tool_use", "id": str, "name": str, "input": dict}``.
+            ``{"type": "tool_use", "id": str, "name": str, "input": dict}``, and
+            the model's reasoning blocks in their Converse shape
+            (``{"reasoningContent": ...}``, no ``type``), in the order the model
+            wrote them, so a loop that appends ``content`` as the assistant turn
+            replays them unchanged (``_reasoning_block_out``).
+
+        A request that carries no thinking (no ``thinking_budget``, and a model
+        that does not always think) is sent its history without reasoning
+        blocks (``without_reasoning_blocks``): after a move, a tool loop's later
+        steps send the fallback a history an always-thinking model wrote.
+
+        A forced ``tool_choice`` ("any" or a tool name) asked of a model that
+        refuses one (``model_traits``) raises ``LLMStructuredUnsupportedError``
+        before any request is sent.
         """
         from botocore.exceptions import ClientError
+
+        traits = model_traits(model)
+        if tools and tool_choice is not None and not traits.forced_tool_ok and _is_forced_tool_choice(tool_choice):
+            raise LLMStructuredUnsupportedError(
+                f"model '{model}' refuses a forced tool_choice ({tool_choice!r}); not sent"
+            )
 
         # Translate messages: wrap plain-string content into [{"text": ...}] blocks,
         # and translate anthropic-native content blocks to Bedrock Converse shape.
@@ -1037,6 +1206,11 @@ class BedrockClient(BaseLLMClient):
                 converse_messages.append({"role": msg["role"], "content": translated})
             else:
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
+        if not (traits.always_thinks or thinking_budget is not None):
+            # A model that is not thinking is not handed another model's reasoning (the tool loops' Sonnet 4.6
+            # fallback after an Opus 5.5 step). Removing every reasoning block is the documented way to send such
+            # a history on; the text and tool calls stay.
+            converse_messages = without_reasoning_blocks(converse_messages)
 
         # Translate tools: anthropic-style -> Bedrock toolConfig shape.
         tool_specs: list[dict] = []
@@ -1068,8 +1242,8 @@ class BedrockClient(BaseLLMClient):
             if system_blocks:
                 system_blocks.append(dict(cache_block))
 
-        # Opus 4.7 / Mythos forbid temperature/top_p/top_k.
-        is_adaptive_only = "opus-4-7" in model or "mythos" in model
+        # Opus 4.7 and later, Fable, Mythos forbid temperature/top_p/top_k.
+        is_adaptive_only = traits.adaptive_only
         inference_config: dict[str, Any] = {"maxTokens": max_tokens or self.max_output_tokens}
         if not is_adaptive_only:
             inference_config["temperature"] = temperature
@@ -1079,13 +1253,16 @@ class BedrockClient(BaseLLMClient):
             "system": system_blocks,
             "inferenceConfig": inference_config,
         }
-        if thinking_budget is not None:
+        if traits.always_thinks:
+            # Opus 5.5 and the like think on every step: always an explicit effort, and room for the thinking.
+            kwargs["additionalModelRequestFields"], inference_config["maxTokens"] = _always_thinking_fields(
+                thinking_budget, max_tokens or self.max_output_tokens)
+        elif thinking_budget is not None:
             # Same translation `chat` does. Adaptive thinking auto-enables interleaved
             # thinking, so a tool loop keeps reasoning between calls; the headroom on
             # maxTokens is what stops the model spending the whole budget thinking and
             # returning nothing.
             if is_adaptive_only:
-                _BUDGET_TO_EFFORT = {4000: "low", 8000: "medium", 16000: "high"}
                 kwargs["additionalModelRequestFields"] = {
                     "thinking": {"type": "adaptive"},
                     "output_config": {"effort": _BUDGET_TO_EFFORT.get(thinking_budget, "high")},
@@ -1153,6 +1330,11 @@ class BedrockClient(BaseLLMClient):
                     "name": tu["name"],
                     "input": tu.get("input", {}),
                 })
+            elif "reasoningContent" in block:
+                # Kept, in place and with its signature: an always-thinking model's tool loop must send the
+                # step's reasoning back unchanged with its tool call. Callers read blocks by ``type``, which
+                # this block has none of, so nothing that reads text or tool calls sees it.
+                normalized.append(_reasoning_block_out(block))
             # Other block types (image, document, etc.) ignored for now.
 
         # usage and metadata used to be dropped here, so the pipeline agent — the one
@@ -1195,6 +1377,11 @@ class BedrockClient(BaseLLMClient):
         parsed the free-text reply and nothing downstream changes. `strict=True` adds
         Bedrock's grammar-level guarantee but only some models accept it (Claude Sonnet
         4.5/4.6, Haiku 4.5, Opus 4.5/4.6; NOT Opus 4.7), so it stays opt-in.
+
+        A model that refuses a forced tool (Opus 5.5, ``model_traits``) gets no request:
+        this raises ``LLMStructuredUnsupportedError`` at once, the error the structured
+        path already answers with the plain JSON request. ``schema_helper`` does not
+        call this for such a model at all.
         """
         import json as _json
 

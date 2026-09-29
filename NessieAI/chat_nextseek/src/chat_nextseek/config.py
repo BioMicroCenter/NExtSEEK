@@ -553,9 +553,9 @@ class ChatConfig:
                 raise RuntimeError("GCP mode selected but GCP_API_KEY is not set.")
             _gcp_defaults = {
                 "gcp:lite": "gemini-2.5-flash",
-                "gcp:current": "gemini-3.5-flash",
+                "gcp:current": "gemini-3.8-flash",
             }
-            env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.5-flash"))
+            env_config_map["LLM_MODEL"] = os.getenv("GCP_LLM_MODEL", _gcp_defaults.get(_mode, "gemini-3.8-flash"))
         elif _mode == "anth" or _mode.startswith("anth:"):
             # Routes through AWS Bedrock (Claude models via cross-region inference).
             if not env_config_map["AWS_BEARER_TOKEN_BEDROCK"] and not getattr(self, "AWS_BEARER_TOKEN_BEDROCK", None):

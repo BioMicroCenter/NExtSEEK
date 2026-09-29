@@ -13,7 +13,7 @@ whose primary and fallback both failed earlier fails at once without calling eit
   the ledger has ``fallback_remembered`` and ``not_called`` records.
 * What marks a model: a failure the ladder moves on and that says the model itself is failing: a timeout, a 5xx, a
   429, a dropped connection or a refused model. Not an empty body (one response), a 400 or bad output. The parsers'
-  own timeout does not mark either (``call_budgets``: their 35 s is a speed preference, not a stall test). One
+  own timeout does not mark either (``call_budgets``: their first try is a speed preference, not a stall test). One
   strike: the first such failure marks (ruling D4). A timeout the op's deadline cut short marks nothing.
 * What resets it: only the end of the turn or op. A marked model gets no further call in this scope, so nothing
   could show it healthy again; the next turn starts clean, on a fresh socket.

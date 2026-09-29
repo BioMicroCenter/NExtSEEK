@@ -209,8 +209,12 @@ def _reachable_models() -> dict[str, str]:
 def test_the_guard_sees_the_models_it_is_meant_to():
     reach = _reachable_models()
     for m in ("gemini-3.5-flash", "us.anthropic.claude-opus-4-7", "us.anthropic.claude-sonnet-4-6",
-              "gemini-3.1-pro-preview", "us.anthropic.claude-opus-4-8"):
+              "gemini-3.1-pro-preview", "us.anthropic.claude-opus-4-8",
+              # run 2's models (2026-09-28): the default profile's and the Container-CC map's
+              "gemini-3.8-flash", "us.anthropic.claude-opus-5-5"):
         assert m in reach
+    assert reach["us.anthropic.claude-opus-5-5"] == "default profile"
+    assert reach["gemini-3.8-flash"] == "default profile"
 
 
 def test_every_model_a_turn_can_reach_has_a_price():

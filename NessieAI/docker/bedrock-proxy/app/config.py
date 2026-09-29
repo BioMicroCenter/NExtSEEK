@@ -17,7 +17,11 @@ import httpx
 # Allowed model ids: the Container-CC model, first, then the two a CC turn may also
 # name (2026-09-25): its --fallback-model and its auto-mode classifier's Sonnet. Each
 # is an entry of NessieAI/dmac_assistant/build_context/router_model_class_map.json.
+# Run 2 (2026-09-28) moved the map to Opus 5.5 with Opus 4.8 as its fallback; Opus 4.7,
+# run 1's fallback, stays allowed so an app image rolled back to run 1's map is not
+# refused (a 403 is never a reason for Claude Code to fall back).
 _DEFAULT_ALLOWED_MODELS: tuple[str, ...] = (
+    "us.anthropic.claude-opus-5-5",
     "us.anthropic.claude-opus-4-8",
     "us.anthropic.claude-opus-4-7",
     "us.anthropic.claude-sonnet-4-6",
