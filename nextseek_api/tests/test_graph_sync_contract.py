@@ -10,6 +10,7 @@ Nessie agent stack. Every failure names the doc section, row or file it read.
 - ``docs/neo4j-schema.md``: every ``## vX.Y`` section from v1.1 on equals the contract's groups of that version.
 - The copies: the writer's names are the contract's; the readers' literals equal the groups they are built from.
 - The committed fallback capture names nothing the contract lacks.
+- The graph agent's structure prompt names only the contract's labels, relationships and properties.
 """
 from __future__ import annotations
 
@@ -31,6 +32,9 @@ SCHEMA_PATH = REPO_ROOT / "nextseek_graph" / "schema.py"
 INIT_PATH = REPO_ROOT / "nextseek_graph" / "__init__.py"
 NESSIE = REPO_ROOT / "NessieAI" / "chat_nextseek" / "src" / "chat_nextseek"
 CAPTURE_PATH = NESSIE / "context" / "neo4j_schema.json"
+# The structure prompts the graph agent sends, each with the newest schema version whose names it may use. The first
+# is the base text every graph turn reads; a file the agent appends for a later version is listed with that version.
+STRUCTURE_FILES = ((NESSIE / "prompts" / "graph_schema_structure.txt", "1.2"),)
 
 _CYPHER_WORD = re.compile(r"\b(MATCH|MERGE|CREATE|DELETE|SET|RETURN|UNWIND)\b")
 _SUFFIX = re.compile(r"_V(\d)(\d+)$")
@@ -669,3 +673,73 @@ def test_the_fallback_capture_names_nothing_the_contract_lacks():
         assert set(props) <= allowed, f"{where}: node_properties.{label} {set(props) - allowed}"
     assert _sample_system_through(last) <= set(capture["node_properties"][schema.SAMPLE]), (
         f"{where}: node_properties.Sample lacks a system property")
+
+
+# --- the structure prompt ------------------------------------------------------------------------------------------
+
+def _structure_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _structure_labels(text: str) -> set[str]:
+    labels = set()
+    for chain in re.findall(r"\(\s*[A-Za-z_]*\s*((?::[A-Za-z_][A-Za-z0-9_<>]*)+)", text):
+        labels.update(part for part in chain.split(":") if part)
+    labels.update(re.findall(r"(?<![A-Za-z0-9_`'\"\[(]):([A-Za-z_][A-Za-z0-9_<>]*)", text))
+    return labels
+
+
+def _relationship_types_through(version: str) -> set[str]:
+    return {t for v in _through(version) for t in _group("RELATIONSHIPS", v, {})}
+
+
+_STRUCTURE_IDS = [f"{path.name}@{version}" for path, version in STRUCTURE_FILES]
+
+
+@pytest.mark.parametrize("path, version", STRUCTURE_FILES, ids=_STRUCTURE_IDS)
+def test_the_structure_prompt_names_only_contract_labels(path, version):
+    labels = _structure_labels(_structure_text(path))
+    unknown = {label for label in labels
+               if label not in _labels_through(version) and not label.startswith(schema.TYPE_LABEL_PREFIX)}
+    assert not unknown, f"{path.relative_to(REPO_ROOT)} names labels the contract lacks at {version}: {unknown}"
+
+
+def test_the_base_structure_prompt_names_the_labels_and_every_relationship_type():
+    path, version = STRUCTURE_FILES[0]
+    text = _structure_text(path)
+    labels = _structure_labels(text)
+    assert {schema.SAMPLE, schema.SAMPLE_TYPE, schema.ATTRIBUTE, schema.STUDY, schema.INVESTIGATION, schema.PROJECT,
+            schema.PERSON} <= labels, f"{path.relative_to(REPO_ROOT)}: the parse found {labels}"
+    used = set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
+    assert used == _relationship_types_through(version), f"{path.relative_to(REPO_ROOT)}: relationship types"
+
+
+@pytest.mark.parametrize("path, version", STRUCTURE_FILES, ids=_STRUCTURE_IDS)
+def test_the_structure_prompt_uses_only_contract_relationship_types(path, version):
+    text = _structure_text(path)
+    used = set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
+    assert used <= _relationship_types_through(version), f"{path.relative_to(REPO_ROOT)}: {used}"
+    shouted = {tok for tok in re.findall(r"\b[A-Z]+(?:_[A-Z]+)+\b", text)
+               if not tok.startswith(schema.TYPE_LABEL_PREFIX)}
+    assert shouted - {"CHILD_OF"} <= _relationship_types_through(version), f"{path.relative_to(REPO_ROOT)}: {shouted}"
+
+
+@pytest.mark.parametrize("path, version", STRUCTURE_FILES, ids=_STRUCTURE_IDS)
+def test_the_structure_prompt_node_properties_are_the_contracts(path, version):
+    text = " ".join(_structure_text(path).split())
+    for label, body in re.findall(r"\(:([A-Za-z]+) \{([^}]*)\}\)", text):
+        props = {p.split(":")[0].strip() for p in body.split(",") if p.strip()}
+        allowed = (_sample_system_through(version) if label == schema.SAMPLE
+                   else _node_properties_through(version, label))
+        assert props <= allowed, f"{path.relative_to(REPO_ROOT)} (:{label}): {props - allowed}"
+
+
+def test_the_base_structure_prompt_lists_the_derived_from_assay_titles():
+    # An edge several assays share names one in internal_assay_title and all in internal_assay_titles, so the plural
+    # has to be in the structure or the agent filters on the singular and misses the others.
+    path, _version = STRUCTURE_FILES[0]
+    text = " ".join(_structure_text(path).split())
+    (body,) = re.findall(r"\[:DERIVED_FROM \{([^}]*)\}\]", text)
+    props = {p.strip() for p in body.split(",")}
+    assert {"internal_assay_title", "internal_assay_titles", "protocol_title"} <= props, props
+    assert props <= set(schema.DERIVED_FROM_LABEL_KEYS), props
