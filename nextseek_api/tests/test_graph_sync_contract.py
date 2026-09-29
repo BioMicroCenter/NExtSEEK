@@ -613,16 +613,6 @@ def _assigned(path: Path, name: str) -> ast.expr:
     return found
 
 
-def _literal(node: ast.expr):
-    """A literal, a set literal, ``frozenset(<literal>)``, or a dict of those."""
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "frozenset":
-        return frozenset(ast.literal_eval(node.args[0])) if node.args else frozenset()
-    if isinstance(node, ast.Dict):
-        return {ast.literal_eval(k): _literal(v) for k, v in zip(node.keys, node.values)}
-    value = ast.literal_eval(node)
-    return frozenset(value) if isinstance(value, set) else value
-
-
 def test_the_writer_string_names_are_bound_to_the_contract():
     # Python interns a short identifier-like string, so `is` holds for a restated "sample_search_text" too: only the
     # assignment itself shows that the name reads the contract.
@@ -632,14 +622,26 @@ def test_the_writer_string_names_are_bound_to_the_contract():
 
 
 def test_the_graph_search_fulltext_name_is_the_contract():
+    from nextseek_api.graph_search import query
+
+    assert query.FULLTEXT_INDEX is schema.FULLTEXT_INDEX
     path = REPO_ROOT / "nextseek_api" / "graph_search" / "query.py"
-    assert _literal(_assigned(path, "FULLTEXT_INDEX")) == schema.FULLTEXT_INDEX
+    assert ast.unparse(_assigned(path, "FULLTEXT_INDEX")) == "schema.FULLTEXT_INDEX"
 
 
-def test_the_fallback_script_system_properties_are_the_sample_groups():
+def test_the_fallback_script_reads_the_contract():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("graph_schema_fallback_under_test",
+                                                  REPO_ROOT / "scripts" / "graph_schema_fallback.py")
+    script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(script)
+    assert script.V12_SYSTEM_PROPERTIES == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
+    assert script.NOT_QUERIED == (schema.GRAPH_META,)
     path = REPO_ROOT / "scripts" / "graph_schema_fallback.py"
-    assert _literal(_assigned(path, "V12_SYSTEM_PROPERTIES")) == (
-        schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12)
+    assert ast.unparse(_assigned(path, "V12_SYSTEM_PROPERTIES")) == (
+        "schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12")
+    assert ast.unparse(_assigned(path, "NOT_QUERIED")) == "(schema.GRAPH_META,)"
 
 
 # --- the committed fallback capture --------------------------------------------------------------------------------
