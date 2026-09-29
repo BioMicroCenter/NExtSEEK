@@ -5,6 +5,8 @@ The document of record for the NExtSEEK sample graph: what it holds (v1.0), what
 [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
 The graph agent reads the live catalog on every turn; the committed `neo4j_schema.json` it falls back to is a
 capture (`scripts/graph_schema_fallback.py` regenerates it), not this document.
+The names these sections define are also in `nextseek_graph/schema.py`, one group per version, and
+`nextseek_api/tests/test_graph_sync_contract.py` keeps the two equal.
 
 Counts are dated measurements; re-measure before relying on one. "Measured" is the graph now; the v1.0 section
 records the graph as found on 2026-09-14, before v1.1.
@@ -130,7 +132,7 @@ the ghost nodes, and adds metadata, a catalog, people and projects.
 | `Attribute` | `key`, `id`, `sample_type_id`, `sample_type`, `title`, `pos`, `required`, `is_title`, `base_type`, `value_type`, `declared`, `seek_description`, `meaning`, `role`, `unit_key`, `needs_backticks`, `sample_count` | `key` = `"<sample_type_id>:<title>"` (unique); `id` unique where present | `sample_attributes`, `sample_attribute_types`, `dmac.sample_attributes_unique` |
 | `Project` | `id`, `title` | `id` (unique) | `projects` |
 | `Person` | `id` only; no name or email | `id` (unique) | `people` |
-| `Study`, `Investigation` | as v1.0; `Investigation.project_id` is now written; SEEK studies added by the writer carry `seek_study_id` | `Study.id`, `Study.seek_study_id`, `Investigation.id` | `studies`, `investigations`, `investigations_projects` |
+| `Study`, `Investigation` | as v1.0; `Investigation.project_id` is now written; SEEK studies added by the writer carry `Study.seek_study_id` | `Study.id`, `Study.seek_study_id`, `Investigation.id` | `studies`, `investigations`, `investigations_projects` |
 | `GraphMeta` | `schema_version` (`"1.1"`), `catalog_hash`, `synced_at` | single node | the writer |
 | `OrphanSample` | a former `Sample` with no row in MySQL; properties and edges kept | `id` | relabeled by the writer |
 
@@ -175,18 +177,27 @@ Removed: `CHILD_OF`, and any DERIVED_FROM edge between two `Sample` nodes that M
 
 - Uniqueness: `Sample.id`, `SampleType.id`, `SampleType.title`, `SampleType.label`, `Attribute.key`, `Attribute.id`,
   `Project.id`, `Person.id`, `Study.id`, `Investigation.id`.
-- Range: `Sample.uuid` (not unique while MySQL holds duplicate uuids), `Sample.type`, and per-type metadata indexes
-  within an index budget: numeric and date attributes with values, string attributes on at least 1,000 samples with
-  no value over 4,000 characters, and named benchmark keys. Never a lineage or file key: a range-indexed value over
-  about 8 KB fails the whole write transaction.
+- Range: `Sample.uuid` (not unique while MySQL holds duplicate uuids), `Sample.type`, `Study.seek_study_id`, and
+  per-type metadata indexes within an index budget: numeric and date attributes with values, string attributes on at
+  least 1,000 samples with no value over 4,000 characters, and named benchmark keys. Never a lineage or file key: a
+  range-indexed value over about 8 KB fails the whole write transaction.
 - Fulltext: `sample_search_text` on `Sample.search_text`.
 - Neo4j Community rejects existence and type constraints, so "every Sample has `project_ids`" and "every property has
   an Attribute" are enforced by the writer's verification, not the database.
 
 ### Versioning
 
-`GraphMeta.schema_version` names the version a graph was written to. A change to any table above bumps the version
-here and in the writer in the same commit.
+`GraphMeta.schema_version` names the version a graph was written to.
+
+A change that adds or removes a name (a label, relationship type, property, constraint or index), or changes which
+key the writer finds a label's nodes by (the property it merges them on), makes a new version with a section of its
+own, and an earlier section's tables do not change. Prose on how the writer keeps the names and keys it has (which
+nodes carry a property, which nodes an edge joins, when an edge is removed) does not. The commit that adds a
+section's tables adds its names to `nextseek_graph/schema.py`; the commit that adds its Versioning subsection moves
+graph_sync to it. Until then the section is being built and the writer does not write it; only the newest section may
+be in that state. `nextseek_api/tests/test_graph_sync_contract.py` checks what one tree shows of this: each section's
+tables equal that version's groups, the writer's version is the newest section with a Versioning subsection, and only
+the newest may lack one. Whether a change needed a new section at all is the review's to check.
 
 ## v1.2: what the sync adds
 
@@ -197,12 +208,12 @@ sync at 1.2; the sync's by-id paths write nothing to a graph at any other versio
 
 ### Nodes
 
-| Label | Change from v1.1 |
-|---|---|
-| `Sample` | new system property `source_hash`: a sha256 hex digest of everything the node is projected from (the uuid, the title, the type's title and its attribute value types, the raw `json_metadata` bytes, the sorted project ids and the sorted assay ids). A node whose hash differs from the one computed from MySQL is synced again; a node written by anything else simply mismatches |
-| `Sample` | `parent_titles` and `parent_title_hashes` are projection-owned: every graph_sync write computes them from the parent tokens with batch upload's rule (`enrich_parent_titles`), so orphan discovery keeps finding new uploads. A write that does not carry them keeps the node's own |
-| `GraphMeta` | `schema_version` is `"1.2"`; new `label_maps_hash`, a digest of the resolved assay map and of `sops` (id, title), so a change to either is found without reading every edge. A write that does not name it keeps it |
-| `OrphanSample` | never carries a `T_` label, `OF_TYPE` or `IN_PROJECT` (see "The deletion rule"); `orphaned_at` records when it became one. An orphan made before 1.2 is left as it is, so it may keep `OF_TYPE` and `IN_STUDY` and lack `orphaned_at` |
+| Label | Properties | Change from v1.1 |
+|---|---|---|
+| `Sample` | `source_hash` | new system property `source_hash`: a sha256 hex digest of everything the node is projected from (the uuid, the title, the type's title and its attribute value types, the raw `json_metadata` bytes, the sorted project ids and the sorted assay ids). A node whose hash differs from the one computed from MySQL is synced again; a node written by anything else simply mismatches |
+| `Sample` | `parent_titles`, `parent_title_hashes` | `parent_titles` and `parent_title_hashes` are projection-owned: every graph_sync write computes them from the parent tokens with batch upload's rule (`enrich_parent_titles`), so orphan discovery keeps finding new uploads. A write that does not carry them keeps the node's own |
+| `GraphMeta` | `label_maps_hash` | `schema_version` is `"1.2"`; new `label_maps_hash`, a digest of the resolved assay map and of `sops` (id, title), so a change to either is found without reading every edge. A write that does not name it keeps it |
+| `OrphanSample` | `orphaned_at` | never carries a `T_` label, `OF_TYPE` or `IN_PROJECT` (see "The deletion rule"); `orphaned_at` records when it became one. An orphan made before 1.2 is left as it is, so it may keep `OF_TYPE` and `IN_STUDY` and lack `orphaned_at` |
 
 ### DERIVED_FROM labels
 
