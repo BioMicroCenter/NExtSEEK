@@ -206,6 +206,34 @@ def load(pipeline: str) -> PipelineMap:
     return PipelineMap.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def all_harvest_globs() -> tuple[str, ...]:
+    """Every committed map's ``harvest_globs``, deduplicated, in a stable order.
+
+    The UNION across pipelines, not one map's list, because staging happens
+    before the pipeline is known: `run-harvest` copies files off the cluster and
+    only then reads `software_versions.yml` to find out what produced them.
+    Selecting a single map's list would need either a second SSH round trip or a
+    caller-supplied pipeline name that can be wrong.
+
+    The union is naturally scoped anyway -- these patterns name pipeline-specific
+    directories (`{star_salmon,star_rsem,hisat2}/log/*.Log.final.out`), so a run
+    from another pipeline simply matches none of them. And the remote stager
+    deduplicates matches by relative path, so a file two patterns both match is
+    staged once and counted against the caps once.
+
+    A map that fails to load is skipped rather than fatal: one broken map must
+    not stop every other pipeline's files being staged.
+    """
+    seen: dict[str, None] = {}
+    for pipeline in available():
+        try:
+            for pattern in load(pipeline).harvest_globs:
+                seen.setdefault(pattern, None)
+        except Exception:
+            continue
+    return tuple(seen)
+
+
 def resolve_ref(ref: str, run_manifest, sample=None):
     """Resolve one map value. A non-`$` value is a literal and passes through.
 

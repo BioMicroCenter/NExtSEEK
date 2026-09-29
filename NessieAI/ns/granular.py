@@ -551,16 +551,23 @@ def _stage_run_dir(luria_env: dict, run_dir: str, runs_root: str, staged_dir: st
 
     from chat_nextseek.luria.ssh import ssh_run_bytes
     from NessieAI.ns.reingest.harvest import (
-        GENERIC_GLOBS, INVENTORY_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_INVENTORY_FILES, MAX_TOTAL_BYTES,
+        INVENTORY_GLOBS, MAX_FILE_BYTES, MAX_FILES, MAX_INVENTORY_FILES, MAX_TOTAL_BYTES,
+        staged_globs,
     )
+
+    # GENERIC_GLOBS plus every map's own harvest_globs -- the maps' per-pipeline
+    # lists used to be declared and never read, so their files were never
+    # fetched. `len()` below tells the remote script where the stage patterns
+    # end and the inventory patterns begin, so it must be this list's length.
+    stage_patterns = staged_globs()
 
     remote_cmd = " ".join([
         "python3", "-c", shlex.quote(_STAGE_SCRIPT), shlex.quote(run_dir), shlex.quote(runs_root),
         shlex.quote(str(MAX_FILE_BYTES)), shlex.quote(str(MAX_TOTAL_BYTES)), shlex.quote(str(MAX_FILES)),
         shlex.quote(str(MAX_INVENTORY_FILES)),
         shlex.quote(str(_HARVEST_CHECKSUM_MAX_FILE_BYTES)), shlex.quote(str(_HARVEST_CHECKSUM_MAX_TOTAL_BYTES)),
-        shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(GENERIC_GLOBS))),
-        *(shlex.quote(pattern) for pattern in GENERIC_GLOBS),
+        shlex.quote(_STAGE_REPORT_NAME), shlex.quote(str(len(stage_patterns))),
+        *(shlex.quote(pattern) for pattern in stage_patterns),
         *(shlex.quote(pattern) for pattern in INVENTORY_GLOBS),
     ])
     # Bounded, not indefinite: see _HARVEST_SSH_TIMEOUT_S below for why this

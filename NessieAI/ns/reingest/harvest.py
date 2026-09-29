@@ -73,6 +73,37 @@ GENERIC_GLOBS: tuple[str, ...] = (
     _RSEQC_INFER_EXPERIMENT_GLOB,
 )
 
+def staged_globs() -> tuple[str, ...]:
+    """What the remote stager copies: GENERIC_GLOBS plus every map's harvest_globs.
+
+    `GENERIC_GLOBS` is the generic core every pipeline shares (params, software
+    versions, execution trace, samplesheet, MultiQC tables). `harvest_globs` is
+    each map's own per-pipeline list -- STAR logs, samtools stats, Picard
+    duplication metrics, qualimap results, featureCounts summaries, tx2gene --
+    which sat in the map files read by nothing at all, so the files someone had
+    identified as wanted were never fetched.
+
+    GENERIC_GLOBS stays the authority for what this module PARSES; this function
+    is only what gets copied. A staged file with no parser costs staging budget
+    and yields nothing, so adding a pattern to a map's harvest_globs is a real
+    cost, not free.
+
+    A map pattern whose FILENAME part is one `INVENTORY_GLOBS` already claims is
+    dropped, because staging and inventory are mutually exclusive by design:
+    inventory files are listed and checksummed in place, never transferred. The
+    scrnaseq map declares `**/*.h5ad` among its harvest_globs, and honouring that
+    literally would try to copy single-cell matrices off the cluster -- the
+    4 MB per-file cap would reject most of them, but "rejected by a cap" is not
+    the same as "never asked for", and a small one would come across as binary
+    nothing parses. Inventory owns those extensions; this list is text.
+    """
+    inventory_names = {pattern.rsplit("/", 1)[-1] for pattern in INVENTORY_GLOBS}
+    extra = tuple(
+        pattern for pattern in maps.all_harvest_globs()
+        if pattern.rsplit("/", 1)[-1] not in inventory_names)
+    return tuple(dict.fromkeys((*GENERIC_GLOBS, *extra)))
+
+
 # A sibling to GENERIC_GLOBS, but for a completely different purpose:
 # GENERIC_GLOBS is small QC/metadata TEXT that gets staged (copied) and read
 # for content; INVENTORY_GLOBS is never staged (never copied back) -- it is

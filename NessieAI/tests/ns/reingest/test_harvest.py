@@ -839,3 +839,56 @@ def test_a_per_run_rule_gets_nothing_rather_than_one_samples_file():
         run_dir="/r",
         named_outputs_by_sample={"A": {"kraken2_report": "x/A.kraken2.report.txt"}})
     assert maps.resolve_ref("$outputs.kraken2_report", run) is None
+
+
+# ── harvest_globs is now read ──────────────────────────────────────────────
+# Each map declares its own per-pipeline QC files, and nothing consumed the
+# field: STAR logs, samtools stats, Picard metrics and tx2gene were named in the
+# map and never fetched.
+
+def test_the_staged_list_is_the_generic_core_plus_the_maps_text_globs():
+    staged = harvest.staged_globs()
+    for pattern in harvest.GENERIC_GLOBS:
+        assert pattern in staged, "the generic core must survive"
+    inventory_names = {p.rsplit("/", 1)[-1] for p in harvest.INVENTORY_GLOBS}
+    for pattern in maps.all_harvest_globs():
+        if pattern.rsplit("/", 1)[-1] not in inventory_names:
+            assert pattern in staged, "a map's text pattern must be staged"
+
+
+def test_a_map_pattern_inventory_already_owns_is_not_staged():
+    """Staging copies; inventory lists in place. A pattern in both would try to
+    pull single-cell matrices off the cluster -- the scrnaseq map declares one."""
+    staged = harvest.staged_globs()
+    assert not any(p.endswith("*.h5ad") for p in staged)
+    assert not any(p.endswith("*.kraken2.report.txt") for p in staged)
+    # ...while the map does still declare them, so this is a live guard
+    assert any(p.endswith("*.h5ad") for p in maps.all_harvest_globs())
+
+
+def test_the_star_log_is_now_staged():
+    """The concrete gap: UnalignedReads needs it and it was never fetched."""
+    assert any(".Log.final.out" in p for p in harvest.staged_globs())
+
+
+def test_the_staged_list_has_no_duplicates():
+    """Overlapping patterns are fine remotely (it dedupes by path), but sending
+    the same pattern twice is just waste."""
+    staged = harvest.staged_globs()
+    assert len(staged) == len(set(staged))
+
+
+def test_the_union_spans_pipelines_not_just_one_map():
+    """Staging runs before the pipeline is known, so one map's list will not do."""
+    union = set(maps.all_harvest_globs())
+    rnaseq = set(maps.load("rnaseq").harvest_globs)
+    assert rnaseq <= union
+    assert union >= rnaseq
+
+
+def test_inventory_globs_are_not_folded_into_the_staged_list():
+    """Inventory files are LISTED, never copied; conflating them would pull
+    every BAM off the cluster."""
+    staged = harvest.staged_globs()
+    assert "**/*.bam" not in staged
+    assert not any(p.endswith("*.bam") for p in staged)
