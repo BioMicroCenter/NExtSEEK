@@ -223,6 +223,18 @@ def resolve_ref(ref: str, run_manifest, sample=None):
         bag = getattr(sample, section, None) or {}
         return bag.get(key) if key else bag
     if section in _RUN_SECTIONS:
+        # `$outputs.<key>` is the one run section with a per-SAMPLE half. When a
+        # sample is in scope and it has its own copy of this named output, that
+        # copy wins: a per_sample row must never be handed another sample's file,
+        # which is what a purely run-scoped `named_outputs` did for per-sample
+        # outputs like <sample>.kraken2.report.txt. Falls through to the
+        # run-level dict when the sample has no copy (an ordinary run-level
+        # output such as multiqc_report.html), so nothing else changes.
+        if section == "outputs" and sample is not None and key:
+            own = (getattr(run_manifest, "named_outputs_by_sample", None) or {}).get(
+                getattr(sample, "nfcore_sample", "") or "", {})
+            if key in own:
+                return own[key]
         attr = _RUN_SECTION_ATTR.get(section, section)
         bag = getattr(run_manifest, attr, None)
         if bag is None:

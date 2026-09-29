@@ -119,6 +119,20 @@ class RunManifest(BaseModel):
     # key (see the 2026-09-16 whole-branch review that found this).
     outputs: list[OutputRecord] = Field(default_factory=list)
     named_outputs: dict[str, str] = Field(default_factory=dict)
+    # The per-sample half of `named_outputs`, {nfcore_sample: {key: path}}.
+    #
+    # Some well-known outputs are per-RUN (one multiqc_report.html) and some are
+    # per-SAMPLE (one <sample>.kraken2.report.txt each). A single flat dict can
+    # only hold one path per key, so a per-sample output resolved through it gave
+    # every sample the same arbitrary file -- on a 24-sample run, 23 rows linked
+    # to another sample's contamination report.
+    #
+    # `OutputRecord.sample` already carries the attribution, made once at harvest
+    # time; this index is that attribution kept rather than discarded. A key whose
+    # every match is sample-attributed is per-sample ONLY and is deliberately
+    # absent from `named_outputs`, so a per_run rule referencing it resolves to
+    # None instead of to whichever sample sorted first.
+    named_outputs_by_sample: dict[str, dict[str, str]] = Field(default_factory=dict)
     # {OutputRecord.path: hex md5 digest}. Filled in two ways, both measured
     # by us (there is no separate provenance to track -- see the removed
     # `.md5`-sibling design in this branch's history for why that distinction

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from NessieAI.ns.reingest import harvest, manifest
+from NessieAI.ns.reingest import harvest, manifest, maps
 
 pytestmark = pytest.mark.django_db
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "nfcore_rnaseq_run"
@@ -773,3 +773,69 @@ def test_an_unresolvable_choice_falls_back_but_says_so(params, because):
     assert len(warnings) == 1
     assert because in warnings[0]
     assert "wrong quantification route" in warnings[0]
+
+
+# ── $outputs scoping: per-run vs per-sample ────────────────────────────────
+# named_outputs was a single flat dict, so a per-SAMPLE well-known output
+# (<sample>.kraken2.report.txt) resolved to the alphabetically first sample's
+# file for every row: on a 24-sample run, 23 rows linked to someone else's
+# contamination screen.
+
+def _out(path, sample=None):
+    return manifest.OutputRecord(path=path, bytes=1, sample=sample)
+
+
+def test_a_per_sample_named_output_is_indexed_per_sample():
+    run_level, per_sample = harvest._resolve_named_outputs([
+        _out("star_salmon/contaminants/kraken2/kraken_reports/A.kraken2.report.txt", "A"),
+        _out("star_salmon/contaminants/kraken2/kraken_reports/B.kraken2.report.txt", "B"),
+    ])
+    assert per_sample["A"]["kraken2_report"].endswith("A.kraken2.report.txt")
+    assert per_sample["B"]["kraken2_report"].endswith("B.kraken2.report.txt")
+
+
+def test_a_fully_attributed_key_is_absent_from_the_run_level_dict():
+    """No run-level answer exists, so a blank beats an arbitrary sample's file."""
+    run_level, _ = harvest._resolve_named_outputs([
+        _out("x/A.kraken2.report.txt", "A"),
+        _out("x/B.kraken2.report.txt", "B"),
+    ])
+    assert "kraken2_report" not in run_level
+
+
+def test_a_genuinely_run_level_output_stays_run_level():
+    run_level, per_sample = harvest._resolve_named_outputs([
+        _out("multiqc/multiqc_report.html"),
+    ])
+    assert run_level["multiqc_report_html"] == "multiqc/multiqc_report.html"
+    assert per_sample == {}
+
+
+def test_each_sample_resolves_outputs_to_its_own_copy():
+    """The regression: B's row must not carry A's report."""
+    run = manifest.RunManifest(
+        run_dir="/r",
+        samples=[manifest.SampleRecord(nfcore_sample=n) for n in ("A", "B")],
+        named_outputs_by_sample={
+            "A": {"kraken2_report": "x/A.kraken2.report.txt"},
+            "B": {"kraken2_report": "x/B.kraken2.report.txt"},
+        })
+    a, b = run.samples
+    assert maps.resolve_ref("$outputs.kraken2_report", run, a) == "x/A.kraken2.report.txt"
+    assert maps.resolve_ref("$outputs.kraken2_report", run, b) == "x/B.kraken2.report.txt"
+
+
+def test_a_sample_without_its_own_copy_falls_back_to_run_level():
+    run = manifest.RunManifest(
+        run_dir="/r",
+        samples=[manifest.SampleRecord(nfcore_sample="A")],
+        named_outputs={"multiqc_report_html": "multiqc/multiqc_report.html"})
+    assert maps.resolve_ref("$outputs.multiqc_report_html", run,
+                            run.samples[0]) == "multiqc/multiqc_report.html"
+
+
+def test_a_per_run_rule_gets_nothing_rather_than_one_samples_file():
+    run = manifest.RunManifest(
+        run_dir="/r",
+        named_outputs_by_sample={"A": {"kraken2_report": "x/A.kraken2.report.txt"}})
+    assert maps.resolve_ref("$outputs.kraken2_report", run) is None

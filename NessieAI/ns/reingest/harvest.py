@@ -503,7 +503,8 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
         checksum = (entry or {}).get("checksum")
         if checksum:
             out.checksums[rel] = checksum
-    out.named_outputs = _resolve_named_outputs(out.outputs)
+    out.named_outputs, out.named_outputs_by_sample = (
+        _resolve_named_outputs(out.outputs))
 
     # Complete requires BOTH the versions file present AND the trace showing
     # no non-terminal process. A trace that never arrived (not staged,
@@ -670,14 +671,40 @@ _NAMED_OUTPUT_MATCHERS: tuple[tuple[str, Callable[[str], bool]], ...] = (
 )
 
 
-def _resolve_named_outputs(outputs: list[manifest.OutputRecord]) -> dict[str, str]:
-    named: dict[str, str] = {}
+def _resolve_named_outputs(
+    outputs: list[manifest.OutputRecord],
+) -> tuple[dict[str, str], dict[str, dict[str, str]]]:
+    """Well-known outputs by canonical name: (run-level, per-sample).
+
+    `_NAMED_OUTPUT_MATCHERS` mixes two kinds. `multiqc_report.html` is one file
+    for the whole run. `<sample>.kraken2.report.txt` is one PER SAMPLE, and
+    keeping only the first (which is what this function used to do) handed every
+    sample the alphabetically first sample's report -- so a row's own
+    ContamPercent sat beside a link to someone else's contamination screen, and
+    the disagreement was the only way to notice.
+
+    So a key is classified by its matches rather than declared up front: when
+    EVERY match carries an `OutputRecord.sample`, the key is per-sample and
+    appears only in the second dict. A per_run rule referencing it then resolves
+    to None -- deliberately, because there is no run-level answer to give and an
+    arbitrary sample's file is worse than a blank.
+
+    A key with any unattributed match stays run-level, which is the ordinary
+    case: nothing derives a sample name from "multiqc_report.html".
+    """
+    run_level: dict[str, str] = {}
+    per_sample: dict[str, dict[str, str]] = {}
+    ordered = sorted(outputs, key=lambda o: o.path)
     for key, matches in _NAMED_OUTPUT_MATCHERS:
-        for record in sorted(outputs, key=lambda o: o.path):
-            if matches(Path(record.path).name.lower()):
-                named[key] = record.path
-                break
-    return named
+        hits = [o for o in ordered if matches(Path(o.path).name.lower())]
+        if not hits:
+            continue
+        for record in hits:
+            if record.sample:
+                per_sample.setdefault(record.sample, {}).setdefault(key, record.path)
+        if not all(o.sample for o in hits):
+            run_level[key] = hits[0].path
+    return run_level, per_sample
 
 
 def _classify_general_stats_row(name: str, columns: dict, stats: dict) -> str:
