@@ -713,3 +713,63 @@ def test_the_lookup_is_called_once_for_the_whole_run_not_once_per_sample(tmp_pat
     by_name = {s.nfcore_sample: s for s in got.samples}
     assert by_name["S1"].parent_sample_type == "D.SEQ"
     assert by_name["S2"].parent_sample_type == "A.ALN"
+
+
+# ── which MultiQC tree the QC numbers come from ────────────────────────────
+# A run setting both --aligner and --pseudo_aligner publishes one MultiQC tree
+# per quantification route, and they disagree on every number. Selection must
+# follow the run's declared aligner, not sort order: "multiqc/salmon" sorts
+# before "multiqc/star_salmon", so the old sorted-first pick silently returned
+# pseudo-alignment numbers for an alignment-based run.
+
+_SALMON = "multiqc/salmon/multiqc_report_data/multiqc_general_stats.txt"
+_STAR_SALMON = "multiqc/star_salmon/multiqc_report_data/multiqc_general_stats.txt"
+_BOTH = [_SALMON, _STAR_SALMON]
+
+
+def test_declared_aligner_beats_sort_order():
+    """The regression: star_salmon must win although salmon sorts first."""
+    warnings: list[str] = []
+    assert harvest._pick_metrics_source(
+        _BOTH, {"aligner": "star_salmon"}, warnings) == _STAR_SALMON
+    assert len(warnings) == 1
+    assert "star_salmon" in warnings[0]
+
+
+def test_aligner_matches_a_whole_path_component_not_a_substring():
+    """'salmon' is a substring of 'star_salmon'; matching must not be fooled.
+
+    A substring test would return the star_salmon tree for an --aligner salmon
+    run, since that path contains "salmon" too. Only a whole-component match
+    distinguishes them.
+    """
+    warnings: list[str] = []
+    assert harvest._pick_metrics_source(
+        _BOTH, {"aligner": "salmon"}, warnings) == _SALMON
+
+
+def test_a_single_candidate_needs_no_warning():
+    warnings: list[str] = []
+    assert harvest._pick_metrics_source(
+        [_STAR_SALMON], {"aligner": "star_salmon"}, warnings) == _STAR_SALMON
+    assert warnings == []
+
+
+def test_no_candidate_resolves_to_none():
+    warnings: list[str] = []
+    assert harvest._pick_metrics_source([], {"aligner": "star_salmon"}, warnings) is None
+
+
+@pytest.mark.parametrize("params, because", [
+    ({}, "params.aligner is unset"),
+    ({"aligner": ""}, "params.aligner is unset"),
+    ({"aligner": "hisat2"}, "no multiqc general-stats file sits under it"),
+])
+def test_an_unresolvable_choice_falls_back_but_says_so(params, because):
+    """Falling back to sort order is allowed; doing it silently is not."""
+    warnings: list[str] = []
+    got = harvest._pick_metrics_source(_BOTH, params, warnings)
+    assert got == _SALMON, "fallback is still sorted-first"
+    assert len(warnings) == 1
+    assert because in warnings[0]
+    assert "wrong quantification route" in warnings[0]

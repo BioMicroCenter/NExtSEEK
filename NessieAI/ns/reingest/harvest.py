@@ -226,23 +226,28 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
                 return rel, text
         return None
 
-    def first_named(pattern: str, filename: str) -> tuple[str, str] | None:
-        """Like `first`, but only among candidates named exactly `filename`.
+    def all_named(pattern: str, filename: str) -> list[str]:
+        """Every allowlisted path named exactly `filename`, sorted.
 
         `_MULTIQC_TXT_GLOB` is deliberately broader than "just general
         stats" (see its comment above), so the specific file this stage
         wants is picked out by name from that same allowlisted glob, rather
         than a second, narrower glob pattern typed separately that could
         drift from GENERIC_GLOBS.
+
+        Returns EVERY match rather than the first, because a run that set
+        both `--aligner` and `--pseudo_aligner` publishes one MultiQC tree
+        per quantification route and the sorted-first one is the wrong
+        answer: `multiqc/salmon/` sorts before `multiqc/star_salmon/`, so
+        every QC number would silently come from pseudo-alignment. The
+        choice belongs to `_pick_metrics_source`, which reads the run's own
+        declared aligner instead of guessing.
         """
-        for path in sorted(base.glob(pattern)):
-            if path.name != filename:
-                continue
-            rel = str(path.relative_to(base))
-            text = read(rel)
-            if text is not None:
-                return rel, text
-        return None
+        return [
+            str(path.relative_to(base))
+            for path in sorted(base.glob(pattern))
+            if path.name == filename
+        ]
 
     out = manifest.RunManifest(run_dir=resolved_run_dir)
 
@@ -289,13 +294,19 @@ def harvest_local(root: str, *, inventory=None, lookup_by_fastq=None,
 
     stats: dict[str, dict] = {}
     stats_source: str | None = None
-    found = first_named(_MULTIQC_TXT_GLOB, "multiqc_general_stats.txt")
-    if found:
-        stats_source, text = found[0], found[1]
+    candidates = all_named(_MULTIQC_TXT_GLOB, "multiqc_general_stats.txt")
+    picked = _pick_metrics_source(candidates, out.params, warnings)
+    text = read(picked) if picked else None
+    if text is not None:
+        stats_source = picked
         sources["metrics"] = stats_source
         stats = parsers.parse_general_stats(text)
-    else:
+    elif not candidates:
         warnings.append("no multiqc general stats found; QC metrics unavailable")
+    else:
+        warnings.append(
+            f"multiqc general stats at {picked} could not be read; "
+            "QC metrics unavailable")
 
     sheet = _find_samplesheet(base, read)
     rows: list[dict] = []
@@ -553,6 +564,65 @@ def _find_samplesheet(base: Path, read) -> tuple[str, str] | None:
             continue
         return rel, text
     return None
+
+
+def _pick_metrics_source(
+    candidates: list[str], params: dict, warnings: list[str]
+) -> str | None:
+    """Which MultiQC general-stats file the QC numbers come from.
+
+    A run that sets both ``--aligner`` and ``--pseudo_aligner`` publishes a
+    MultiQC tree per quantification route, and the two disagree on every
+    number: alignment-based quantification is not pseudo-alignment. Sorting
+    picks the wrong one (``multiqc/salmon/`` < ``multiqc/star_salmon/``), so
+    the run's own ``params.aligner`` decides instead -- it is the authoritative
+    statement of which route the run was for, and it is already parsed by the
+    time this is called.
+
+    Matching is on a whole path COMPONENT, never a substring: ``"salmon" in
+    "star_salmon"`` is true, so a substring test would happily hand back the
+    pseudo-aligned tree for an ``--aligner star_salmon`` run -- the exact bug
+    this function exists to prevent.
+
+    Every multi-candidate outcome is appended to ``warnings``, including the
+    one that resolved cleanly. A curator checking a workbook cannot see which
+    of two trees was read, and the QC block is where a wrong choice hides
+    best, so the resolution is stated rather than left to be inferred from the
+    Provenance sheet's ``Source file`` column.
+    """
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    aligner = str((params or {}).get("aligner") or "").strip()
+    if aligner:
+        matched = [c for c in candidates if aligner in Path(c).parts]
+        if len(matched) == 1:
+            warnings.append(
+                f"{len(candidates)} multiqc general-stats files "
+                f"({', '.join(candidates)}); read the one under {aligner!r} "
+                "as declared by params.aligner")
+            return matched[0]
+        if len(matched) > 1:
+            warnings.append(
+                f"{len(matched)} multiqc general-stats files under the declared "
+                f"aligner {aligner!r} ({', '.join(matched)}); read the first. "
+                "QC numbers may come from the wrong one -- check Source file "
+                "on the Provenance sheet")
+            return matched[0]
+        warnings.append(
+            f"params.aligner is {aligner!r} but no multiqc general-stats file "
+            f"sits under it ({', '.join(candidates)}); read {candidates[0]}. "
+            "QC numbers may come from the wrong quantification route")
+        return candidates[0]
+
+    warnings.append(
+        f"{len(candidates)} multiqc general-stats files "
+        f"({', '.join(candidates)}) and params.aligner is unset; "
+        f"read {candidates[0]}. QC numbers may come from the wrong "
+        "quantification route")
+    return candidates[0]
 
 
 def _pipeline_name(params: dict) -> str:
