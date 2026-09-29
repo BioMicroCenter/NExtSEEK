@@ -1,17 +1,18 @@
 """The DERIVED_FROM label rule (`graph_sync/labels.py`; sync design 7.3, R5, R14, R15).
 
 The first class is the parity proof: on one small MySQL world, where the upload sheet says nothing MySQL does not,
-`labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produces for the same edges.
-It calls that function, fed by a fake connection that answers its SQL from the same world.
+`labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produced for the same edges,
+frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`; `test_graph_sync_parity_fixture.py` proves
+the file equals that function's output while it exists).
 """
 import json
+from pathlib import Path
 
 import pytest
 from django.test import override_settings
 
 from nextseek_api.batch_upload import helpers
 from nextseek_api.batch_upload.models import InputRowModel, RowOutcome
-from nextseek_api.batch_upload.neo4j_sync import build_derived_from_payloads_from_db
 from nextseek_api.graph_sync import labels
 
 # The host settings the protocol rule reads to tell a local /sops/<id> URL from a foreign one (as
@@ -120,7 +121,18 @@ def _models(overrides=None):
             for uuid in PARENTS]
 
 
+PARITY_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "graph_sync_batch_upload_parity.json"
+
+
+def _frozen_batch_upload_labels():
+    """batch upload's labels for the world above, as its rule produced them (the frozen fixture)."""
+    rows = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))["edge_labels"]
+    return {(r["child_id"], r["parent_id"]): r["labels"] for r in rows}
+
+
 def _batch_upload_labels(models=None):
+    from nextseek_api.batch_upload.neo4j_sync import build_derived_from_payloads_from_db
+
     outcomes = {uuid: RowOutcome(status="success", sample_id=ID_BY_UUID[uuid]) for uuid in PARENTS}
     assays_by_uid = {uuid: set(assays) for uuid, _meta, assays in SAMPLES.values()}
     with override_settings(**_LOCAL):
@@ -151,7 +163,7 @@ def _labels(assay_id=None, internal_id=None, title=None, ids=(), titles=(), prot
 
 class TestParityWithBatchUpload:
     def test_every_edge_equals_batch_upload(self):
-        ours, theirs = _graph_sync_labels(), _batch_upload_labels()
+        ours, theirs = _graph_sync_labels(), _frozen_batch_upload_labels()
         assert set(ours) == set(theirs)
         assert len(ours) == 14
         for pair in sorted(theirs):

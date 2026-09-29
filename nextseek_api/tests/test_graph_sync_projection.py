@@ -2,15 +2,13 @@ import hashlib
 import json
 import re
 from datetime import date
-from unittest.mock import MagicMock
+from pathlib import Path
 
 import pytest
 
 from nextseek_api.batch_upload import helpers, identity
 from nextseek_api.batch_upload.helpers import collect_parent_tokens
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.batch_upload.models import InputRowModel, NodeRow
-from nextseek_api.batch_upload.neo4j_sync import enrich_parent_titles
 from nextseek_api.graph_sync import projection as p
 from nextseek_graph import schema
 
@@ -368,14 +366,16 @@ _ENRICH_FIXTURES = {
 }
 
 
+_PARITY_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "graph_sync_batch_upload_parity.json"
+
+
 def _enrich(child_meta, batch, external):
-    node = NodeRow(sample_id=100, sample_uuid="NHP-260225MIT-50", sample_type="Blood", properties=dict(child_meta))
-    models = [InputRowModel(UID="NHP-260225MIT-50", SampleType="Blood", json_metadata=json.dumps(child_meta))]
-    models += [InputRowModel(UID=uid, SampleType=st, json_metadata=json.dumps(meta)) for uid, st, meta in batch]
-    conn = MagicMock()
-    conn.execute.return_value.fetchall.return_value = [(uuid, json.dumps(meta)) for uuid, meta in external]
-    enrich_parent_titles([node], models, sql_conn=conn)
-    return node.parent_titles, node.parent_title_hashes
+    """What batch upload's enrich_parent_titles returned for the case with these inputs: ``[titles, hashes]``, frozen
+    in ``fixtures/graph_sync_batch_upload_parity.json`` (``parent_lists``)."""
+    frozen = json.loads(_PARITY_FIXTURE.read_text(encoding="utf-8"))["parent_lists"]
+    (name,) = [n for n, case in _ENRICH_FIXTURES.items() if case == (child_meta, batch, external)]
+    titles, hashes = frozen[name]
+    return titles, hashes
 
 
 @pytest.mark.parametrize("name", sorted(_ENRICH_FIXTURES))
