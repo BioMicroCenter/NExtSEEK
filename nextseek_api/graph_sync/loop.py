@@ -53,7 +53,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from django.conf import settings
-from django.db import DatabaseError
+from django.db import DatabaseError, connections
 from django.utils import timezone as dj_timezone
 
 from nextseek_api.graph_sync import drift, run, schedule, state, targeted, writer
@@ -73,6 +73,12 @@ ERROR_INTERVAL_S = 60.0                # after a failed pass, so a broken box lo
 KEEP_RUN_DIRS = 20                     # run directories kept per kind
 DEFER_BACKOFF_S = 60                   # how long a deferred row waits; it counts no attempt
 MAX_ROWS_PER_PASS = 1_000              # a pass with more work than this finishes it at the next one
+
+# Closes every Django connection before each pass. Django refreshes connections only around a web request, so a
+# loop that lives for days keeps each one until MySQL drops it for idling, and every drain on it then fails with
+# "Server has gone away" (2006) and waits out its backoff. Closing them all costs one reconnect per pass, whatever
+# CONN_MAX_AGE a box sets.
+refresh_connections = connections.close_all
 
 DONE, DEFERRED, FAILED = "done", "deferred", "failed"
 
@@ -388,13 +394,18 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
 
 
 def run_forever(driver, db, worker_id: str, *, opts: Options | None = None,
-                interval_s: float = DEFAULT_INTERVAL_S, launch=None, sleep=time.sleep) -> None:
-    """Pass after pass, for ever (module docstring). Only a signal ends it."""
+                interval_s: float = DEFAULT_INTERVAL_S, launch=None, sleep=time.sleep, refresh=None) -> None:
+    """Pass after pass, for ever (module docstring). Only a signal ends it.
+
+    Every pass starts on fresh database connections (``refresh``, ``refresh_connections`` by default).
+    """
     opts = opts or Options()
+    refresh = refresh or refresh_connections
     log.info("graph_sync: the sync loop drains as %s every %s s, run root %s", worker_id, interval_s, opts.run_root)
     while True:
         wait = interval_s
         try:
+            refresh()
             report = run_pass(driver, db, worker_id, opts=opts, launch=launch)
             if report["drained"]:
                 log.info("graph_sync: pass %s", report["counts"])

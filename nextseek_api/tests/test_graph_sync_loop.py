@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import connections
 
 from nextseek_api.graph_sync import drift, loop, run, state, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
@@ -535,10 +536,38 @@ def test_the_loop_never_exits_on_a_failing_pass(work, monkeypatch):
 
     monkeypatch.setattr(loop, "run_pass", one)
     with pytest.raises(KeyboardInterrupt):
-        loop.run_forever(DRIVER, DB, "w1", opts=work.opts, interval_s=5, sleep=sleep)
+        loop.run_forever(DRIVER, DB, "w1", opts=work.opts, interval_s=5, sleep=sleep, refresh=lambda: None)
 
     assert passes == ["w1"] * 3
     assert slept == [loop.ERROR_INTERVAL_S, 5, 5]
+
+
+@pytest.mark.django_db
+def test_every_pass_starts_on_fresh_database_connections(work, monkeypatch):
+    # A loop that lives for days keeps each connection until MySQL drops it for idling; the next drain on it then
+    # fails with "Server has gone away" (2006). So the connections are refreshed before every pass, a failed one too.
+    events = []
+
+    def one(driver, db, worker_id, *, opts, launch=None, now=None):
+        events.append("pass")
+        if events.count("pass") == 1:
+            raise RuntimeError("(2006, 'Server has gone away')")
+        return {"drained": [], "counts": {loop.DONE: 0}}
+
+    def sleep(seconds):
+        if events.count("pass") == 3:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(loop, "run_pass", one)
+    with pytest.raises(KeyboardInterrupt):
+        loop.run_forever(DRIVER, DB, "w1", opts=work.opts, interval_s=5, sleep=sleep,
+                         refresh=lambda: events.append("refresh"))
+
+    assert events == ["refresh", "pass"] * 3
+
+
+def test_the_loop_refreshes_every_django_connection_by_default():
+    assert loop.refresh_connections.__self__ is connections and loop.refresh_connections.__name__ == "close_all"
 
 
 # --- the flags the loop passes on -----------------------------------------------------------------
