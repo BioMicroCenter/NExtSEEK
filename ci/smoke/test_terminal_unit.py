@@ -1,7 +1,7 @@
 """Unit tests for the suite's terminal reporting. No stack, no network.
 
     PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pytest --with requests \
-      --with playwright pytest ci/smoke/test_terminal_unit.py -q -p no:cacheprovider
+      --with playwright==1.60.0 pytest ci/smoke/test_terminal_unit.py -q -p no:cacheprovider
 
 A session fixture runs inside the first test's setup phase, where pytest's output
 capture is on. On a pipe the terminal reporter's line slips through; on a real

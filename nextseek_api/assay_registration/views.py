@@ -78,7 +78,7 @@ RESPONSE_EXAMPLE = {
                    "message": "resolves to 2 rows in `samples`; expected exactly 1",
                    "submitted_identifier": "D.IMG-260311ENG-490"}},
     ],
-    "graph": {"status": "succeeded", "edges_recomputed": 128},
+    "graph": {"status": "queued", "edges_recomputed": 0},
 }
 
 #: `processed_rows` is 0, and it is the ONLY honest value for a running job.

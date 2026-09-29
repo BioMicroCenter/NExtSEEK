@@ -11,7 +11,7 @@ def test_run_loop_uses_build_pipeline_tool_schemas(monkeypatch):
     monkeypatch.setattr(agent, "summarize_pinned_bundle", lambda session: "")
 
     class FakeClient:
-        def chat_with_tools(self, *, messages, tools, system, model):
+        def chat_with_tools(self, *, messages, tools, system, model, **kwargs):
             captured["tools"] = tools
             # Return a 'conclude' tool_use so the loop terminates immediately.
             return {"content": [{"type": "tool_use", "name": "conclude", "id": "t1",
@@ -42,7 +42,7 @@ def test_run_loop_substitutes_launch_mode_into_prompt(monkeypatch):
     monkeypatch.setattr(agent, "summarize_pinned_bundle", lambda session: "")
 
     class FakeClient:
-        def chat_with_tools(self, *, messages, tools, system, model):
+        def chat_with_tools(self, *, messages, tools, system, model, **kwargs):
             captured["system"] = system
             return {"content": [{"type": "tool_use", "name": "conclude", "id": "t",
                                  "input": {"outcome": "answered", "message": "d"}}]}

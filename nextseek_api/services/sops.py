@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.graph_sync import hooks
 from nextseek_api.endpoint_descriptions import (
     SOP_LIST_DESC,
     SOP_FETCH_DESC,
@@ -245,6 +246,10 @@ class SopProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
+            if 200 <= code < 300:
+                # A SOP is a protocol: the DERIVED_FROM protocol labels resolve through it (spec 5 E9).
+                hooks.enqueue("protocol_map", "*")
+
             return HttpResponse({"data": [body]}, status=code, content_type=ct)
 
         else:
@@ -286,7 +291,11 @@ class SopProxyViewSet(viewsets.ViewSet):
                     sop_results.append(sop_data)
                 except Exception:
                     return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-                
+
+                if 200 <= code < 300:
+                    # One row per committed SOP; the key coalesces them (spec 5 E9).
+                    hooks.enqueue("protocol_map", "*")
+
                 asset_id = data.get("data", {}).get("id")
                 content_blobs_meta = data.get("data", {}).get("attributes", {}).get("content_blobs", [])
 
@@ -395,6 +404,10 @@ class SopProxyViewSet(viewsets.ViewSet):
             SopSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
+
+        if 200 <= code < 300:
+            # A retitled SOP leaves every protocol label naming it stale (spec 5 E9).
+            hooks.enqueue("protocol_map", "*")
 
         if not has_files:
             ct = headers.get('Content-Type', 'application/json')

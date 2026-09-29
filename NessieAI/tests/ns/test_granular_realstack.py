@@ -16,8 +16,10 @@ it. Tests run cheapest-first (Gemini Flash), the two Opus-with-thinking ops last
 
 Published rates (USD per 1e6 tokens):
   gemini-3.5-flash               : 1.50 in / 9.00 out
+  gemini-3.8-flash               : 0.75 in / 3.75 out    (through 2026-12-31)
   gemini-2.5-flash               : 0.30 in / 2.50 out
   us.anthropic.claude-opus-4-7   : 5.50 in / 27.50 out   (Opus 4.7 $5/$25 + 10% cross-region)
+  us.anthropic.claude-opus-5-5   : 4.40 in / 22.00 out   (Opus 5.5 $4/$20 + 10% cross-region)
 """
 import json
 import os
@@ -38,11 +40,14 @@ BUDGET_CAP_USD = 5.00
 # Don't START an Opus op unless this much headroom remains (one Opus op << $1).
 OPUS_HEADROOM_USD = 2.00
 
-# USD per token (input, output). Unpriced models -> hard error (no estimates).
+# USD per token (input, output). Unpriced models -> hard error (no estimates). Run 2's models at the rates of
+# NessieAI/chat_nextseek/model_prices.json (Gemini 3.8 Flash's through 2026-12-31).
 PRICES = {
     "gemini-3.5-flash": (1.50e-6, 9.00e-6),
+    "gemini-3.8-flash": (0.75e-6, 3.75e-6),
     "gemini-2.5-flash": (0.30e-6, 2.50e-6),
     "us.anthropic.claude-opus-4-7": (5.50e-6, 27.50e-6),
+    "us.anthropic.claude-opus-5-5": (4.40e-6, 22.00e-6),
 }
 
 LEDGER: list[dict] = []

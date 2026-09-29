@@ -108,15 +108,26 @@ def _load_granular_with_stubs():
     mod_helpers.fetch_reporter_metadata = fetch_spy
     mod_helpers.annotate_metadata_with_sampletypes = annotate_spy
 
-    sys.modules["chat_nextseek"] = pkg_cn
-    sys.modules["chat_nextseek.portable"] = mod_portable
-    sys.modules["chat_nextseek.schemas"] = pkg_schemas
-    sys.modules["chat_nextseek.schemas.chat"] = mod_chat
-    sys.modules["chat_nextseek.helpers"] = mod_helpers
+    saved["granular_under_test"] = sys.modules.get("granular_under_test")
+    # A load that raises must not leave the stub package in sys.modules: every later test in the
+    # process would import chat_nextseek from it (a dataclass added to granular.py once turned this
+    # into 124 unrelated reds in the ai lane).
+    try:
+        sys.modules["chat_nextseek"] = pkg_cn
+        sys.modules["chat_nextseek.portable"] = mod_portable
+        sys.modules["chat_nextseek.schemas"] = pkg_schemas
+        sys.modules["chat_nextseek.schemas.chat"] = mod_chat
+        sys.modules["chat_nextseek.helpers"] = mod_helpers
 
-    spec = importlib.util.spec_from_file_location("granular_under_test", _GRANULAR_PY)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+        spec = importlib.util.spec_from_file_location("granular_under_test", _GRANULAR_PY)
+        module = importlib.util.module_from_spec(spec)
+        # Registered before it runs, as a normal import would be: a @dataclass resolves its
+        # annotations through sys.modules[cls.__module__].
+        sys.modules["granular_under_test"] = module
+        spec.loader.exec_module(module)
+    except BaseException:
+        _restore(saved)
+        raise
 
     spies = types.SimpleNamespace(
         fetch=fetch_spy, annotate=annotate_spy, writer=writer_spy,

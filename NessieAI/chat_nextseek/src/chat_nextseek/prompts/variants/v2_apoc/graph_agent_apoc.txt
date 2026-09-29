@@ -1,0 +1,88 @@
+---
+
+## APOC path procedures (this section adds three procedures)
+
+Besides `db.index.fulltext.queryNodes` you may CALL exactly three APOC procedures: `apoc.path.subgraphNodes`, `apoc.path.spanningTree` and `apoc.path.expandConfig`. They walk DERIVED_FROM from one start sample and visit each sample once. They return the same samples as the bounded patterns in STEP 4, in about the same time, but a single call says things a pattern has to spell out: every sample once however many paths reach it, how many steps away each one is, and where to stop.
+
+**Use them for lineage from one or two anchored samples** (a UID, a few UIDs, or each sample of a small type):
+- everything above or below one sample, each sample once (`subgraphNodes`);
+- the same with each sample's distance in steps (`spanningTree`);
+- the nearest sample of a type above or below each start sample (a stopping label filter);
+- the samples two samples share above them, or the route from a sample up to one given ancestor.
+
+**Keep the STEP 4 patterns** for "every sample of type X that has (or comes from) a sample of type Y": the `EXISTS { (s)-[:DERIVED_FROM*1..12]->(:T_Y) }` test is two to three times faster than one call per sample, and a count of direct parents or children is a one-hop pattern.
+
+### The call
+
+A call runs only when its configuration is a literal map written in the query and holds:
+- `relationshipFilter`: `'DERIVED_FROM>'` walks to ancestors (child to parent), `'<DERIVED_FROM'` to descendants, `'DERIVED_FROM'` both ways. It may name no other relationship.
+- `maxLevel`: a literal integer from 1 to 12. The longest chain is 11 hops, so 12 reaches every ancestor and descendant; use the number of steps the question names when it names one ("directly" is 1).
+- on `expandConfig` only: `uniqueness: 'NODE_GLOBAL'` (its default walks every path to every sample).
+
+A call without these is sent back once and then refused, and so is any other procedure. Two more settings belong in almost every call:
+- `labelFilter: '+Sample'`, so retired `OrphanSample` nodes are neither returned nor walked through. Without it the walk returns them too.
+- `minLevel: 1` to leave the start sample out of the result.
+
+**Label filters** go in the one `labelFilter` string, joined with `|`: `'+Sample|/T_TIS'` stops at the nearest TIS on each branch and returns only those; `'+Sample|>T_TIS'` returns every TIS on the way and keeps walking past them.
+
+**Return names, never the nodes.** `YIELD node` gives `node.uuid`, `node.type` and named properties; `YIELD path` gives `length(path)` (steps), `last(nodes(path)).uuid` (the sample it reached) and `[n IN nodes(path) | n.uuid]` (the route). `RETURN node`, `RETURN path`, `nodes(path)` on its own, `collect(node)` and `apoc.any.properties(node)` ship every attribute and are refused like `RETURN s`; collect `node.id` or `node.uuid` instead.
+
+### Worked shapes
+
+Everything derived from one sample, by type:
+```
+MATCH (x:Sample {uuid: $uid})
+CALL apoc.path.subgraphNodes(x, {relationshipFilter: '<DERIVED_FROM', labelFilter: '+Sample', minLevel: 1, maxLevel: 12})
+YIELD node
+RETURN node.type AS type, count(*) AS n
+ORDER BY n DESC
+```
+
+One sample's ancestry, each ancestor with its distance in steps (`spanningTree` keeps the shortest route to each):
+```
+MATCH (x:Sample {uuid: $uid})
+CALL apoc.path.spanningTree(x, {relationshipFilter: 'DERIVED_FROM>', labelFilter: '+Sample', minLevel: 1, maxLevel: 12})
+YIELD path
+RETURN length(path) AS steps, last(nodes(path)).uuid AS uuid, last(nodes(path)).type AS type
+ORDER BY steps, uuid
+LIMIT 5000
+```
+
+The nearest water sample above each spectrum, stopping at the first one on each branch:
+```
+MATCH (d:T_D_SPC)
+CALL apoc.path.subgraphNodes(d, {relationshipFilter: 'DERIVED_FROM>', labelFilter: '+Sample|/T_WTR', maxLevel: 12})
+YIELD node
+RETURN d.uuid AS uuid, collect(node.uuid) AS nearest_water
+ORDER BY uuid
+LIMIT 5000
+```
+
+What two samples share above them (a start sample is its own level 0, so this also finds one being the other's ancestor):
+```
+MATCH (a:Sample {uuid: $a}), (b:Sample {uuid: $b})
+CALL apoc.path.subgraphNodes(a, {relationshipFilter: 'DERIVED_FROM>', labelFilter: '+Sample', maxLevel: 12})
+YIELD node
+WITH b, collect(node.id) AS above_a
+CALL apoc.path.subgraphNodes(b, {relationshipFilter: 'DERIVED_FROM>', labelFilter: '+Sample', maxLevel: 12})
+YIELD node
+WITH node WHERE node.id IN above_a
+RETURN node.uuid AS uuid, node.type AS type
+ORDER BY type, uuid
+LIMIT 5000
+```
+A chemical, antibody or bacterial stock used on both counts as a shared ancestor, because a sample that used one points to it with DERIVED_FROM. Return the shared samples' types so the reply can tell a common source (a tissue, an animal) from a common reagent.
+
+The route from a sample up to one given ancestor (no row means `$ancestor` is not above `$uid`):
+```
+MATCH (x:Sample {uuid: $uid}), (anc:Sample {uuid: $ancestor})
+CALL apoc.path.expandConfig(x, {relationshipFilter: 'DERIVED_FROM>', labelFilter: '+Sample', terminatorNodes: [anc], uniqueness: 'NODE_GLOBAL', maxLevel: 12, limit: 1})
+YIELD path
+RETURN length(path) AS steps, [n IN nodes(path) | n.uuid + ' (' + n.type + ')'] AS route
+```
+
+### APOC functions for values
+
+- `apoc.text.clean(v)` lower-cases and keeps only letters and digits, so it matches names that differ only in spaces, hyphens, slashes, dots or underscores: an instrument model written `NovaSeq 6000` or `NovaSeq6000`, a fluorophore written `PE-Cy7` or `PE/Cy7`, a clone `MEL-14` or `MEL14`. Use it on both sides of a whole-value or CONTAINS test: `apoc.text.clean(toString(s.Sequencer)) CONTAINS apoc.text.clean($model)`. Never use it where a sign or a dot carries meaning: it turns `-28` into `28` and `1.5` into `15`, and makes `CD4+` equal `CD4-`. Numbers, doses, dates and marker states keep STEP 2's rules.
+- Do not use the string-similarity functions (`apoc.text.levenshteinSimilarity`, `jaroWinklerDistance`, `fuzzyMatch`, `sorensenDiceSimilarity`) to match a user's term to stored values. The variants this graph holds are codes and abbreviations, which are far from their words (`F` and `female` score 0.17), while opposite words score close (`male` and `female` 0.67). STEP 2's codes and abbreviations rule is the tool for them.
+- Counts, breakdowns, medians and percentiles stay plain Cypher (`count(*)`, `percentileCont`, `stDev`): they are exact, and `apoc.agg.statistics` percentiles are approximate.

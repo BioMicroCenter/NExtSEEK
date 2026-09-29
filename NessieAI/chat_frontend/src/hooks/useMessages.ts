@@ -6,7 +6,7 @@ interface UseMessagesReturn {
   messages: Message[];
   addUserMessage: (content: string) => void;
   addAssistantMessage: (content: string) => void;
-  addSystemMessage: (content: string) => void;
+  addSystemMessage: (content: string, extras?: Pick<Message, "artifacts" | "mode">) => void;
   updateLastAssistantMessage: (patch: Partial<Message>) => void;
   clearMessages: () => void;
   hydrateFromTurns: (turns: Turn[]) => void;
@@ -42,8 +42,8 @@ export function useMessages(): UseMessagesReturn {
     setMessages((prev) => [...prev, createMessage(nextId(), content, false, "text")]);
   }, []);
 
-  const addSystemMessage = useCallback((content: string) => {
-    setMessages((prev) => [...prev, createMessage(nextId(), content, false, "system")]);
+  const addSystemMessage = useCallback((content: string, extras?: Pick<Message, "artifacts" | "mode">) => {
+    setMessages((prev) => [...prev, { ...createMessage(nextId(), content, false, "system"), ...extras }]);
   }, []);
 
   const updateLastAssistantMessage = useCallback((patch: Partial<Message>) => {

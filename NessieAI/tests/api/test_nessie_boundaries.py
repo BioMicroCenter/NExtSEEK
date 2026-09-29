@@ -120,7 +120,7 @@ HARNESS_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
         {f"{_NT}.bayes_manifest", f"{_NT}.corpus", f"{_NT}.export", f"{_NT}.runner"}
     ),
     "NessieAI/build_tools/gen_op_surfaces/route_capabilities.py": frozenset(
-        {f"{_NT}.corpus", f"{_NT}.export", f"{_NT}.runner"}
+        {f"{_NT}.corpus", f"{_NT}.export"}
     ),
     "NessieAI/hibayes/human_grade_fit.py": frozenset({f"{_NT}.bayes_manifest"}),
 }

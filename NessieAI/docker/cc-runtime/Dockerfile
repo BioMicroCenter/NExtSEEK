@@ -16,7 +16,7 @@
 # Auth + model are injected per-container at run time (CLAUDE_CODE_USE_BEDROCK=1,
 # AWS_BEARER_TOKEN_BEDROCK, AWS_REGION, --model <bedrock-id>), never baked.
 
-FROM --platform=linux/amd64 node:20-bookworm-slim AS base
+FROM --platform=linux/amd64 node:22-bookworm-slim AS base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       jq \
@@ -27,10 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV UV_INSTALL_DIR=/usr/local/bin
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock.
-RUN npm install -g @anthropic-ai/claude-code@2.1.163
-
+# 2.1.282 declares node >= 22, so the base is node:22. The RUN claude --version after the install fails the build, not a turn, when the CLI cannot start.
+# OI-5: >= 2.1.158 required for CLAUDE_CODE_ENABLE_AUTO_MODE on Bedrock. The CC 503 fallback needs >= 2.1.282 (why: NessieAI/tests/cc/test_cc_runtime_claude_code_pin.py).
+RUN npm install -g @anthropic-ai/claude-code@2.1.282
+RUN claude --version
 # Pin uv-managed CPython 3.14 BEFORE any downstream dependency-install or run
 # step. Two well-known symlinks make `python` and `python3.14` resolve to the
 # managed interpreter via PATH; $DMAC_PYTHON is exposed for callers that
@@ -81,6 +81,7 @@ COPY build_context/plugins/nextseek/bin/_ws_contract.py /opt/dmac/_ws_contract.p
 COPY build_context/plugins/nextseek/bin/_assistant_models.py /opt/dmac/_assistant_models.py
 COPY build_context/plugins/nextseek/bin/_assistant_client.py /opt/dmac/_assistant_client.py
 COPY build_context/plugins/nextseek/bin/_sidecar_client.py /opt/dmac/_sidecar_client.py
+COPY build_context/plugins/nextseek/bin/_turn_deadline.py /opt/dmac/_turn_deadline.py
 
 # claude-code discovers CLAUDE.md from cwd / project tree, not /app/. Symlink
 # the image-baked spec into the WORKDIR so the in-container Claude Code sees
@@ -141,7 +142,7 @@ USER user
 WORKDIR /home/user
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-# NOTE: cosmetic in router mode -- the bridge starts the container in idle
-# mode (entrypoint runs `sleep infinity`) and every turn is a fresh
-# `docker exec`. This CMD only runs on a bare `docker run`.
+# NOTE: cosmetic for a routed turn -- NessieAI/cc/cc_engine.py starts one fresh
+# container per turn (containers.run with attached stdin) and passes its own
+# command, so this CMD only runs on a bare `docker run`.
 CMD ["claude", "--print", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto"]

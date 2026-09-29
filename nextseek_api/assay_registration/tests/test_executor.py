@@ -275,9 +275,10 @@ class TestRecomputeSampleIds:
     def test_a_re_post_of_an_identical_batch_still_feeds_the_recompute(self):
         """The documented repair path, pinned at its source.
 
-        Re-POSTing an identical batch is what `service._recompute`'s docstring,
-        the spec's Recovery section and the endpoint description all tell an
-        operator to do after a graph failure. Every pair is already present, so
+        Re-POSTing an identical batch is what `service._enqueue_graph_sync`'s
+        docstring, the spec's Recovery section and the endpoint description all
+        tell an operator to do after a graph failure. Every pair is already
+        present, so
         `plan.to_write` is EMPTY -- and with a written-only set that produced an
         empty set, a `skipped` graph outcome, and no repair at all, while
         reporting that there was nothing to repair.
@@ -298,8 +299,8 @@ class TestRecomputeSampleIds:
         assert [r.status for r in result.rows] == ["already_present", "already_present"]
         assert result.overall_status == "succeeded"
         assert result.recompute_sample_ids == {100, 200}, \
-            "a no-op write still invalidated nothing, but the recompute is how " \
-            "a stale label from an EARLIER failure gets repaired"
+            "a no-op write still invalidated nothing, but queueing these samples " \
+            "is how a stale label from an EARLIER failure gets repaired"
 
     def test_a_dry_run_tells_the_graph_nothing_wrote(self):
         plan = _plan(to_write=[_ok(0, "A", 100, 351)])

@@ -359,6 +359,8 @@ def test_the_floor_still_asserts_something_on_every_family_it_covers():
         "lineage_tree": {"outcome_observed"},
         "project_summary_report": {"report_produced_output"},
         "submission_package": {"report_produced_output"},
+        # 2026-09-23: added with the production researcher questions.
+        "publication_lookup": {"outcome_observed"},
     }
     assert set(expected) == set(corpus.load_family_floor(CORPUS).get("floors", {})), (
         "a family gained or lost a floor without this pin being updated")
@@ -467,7 +469,24 @@ _ADDED_2026_08_06 = {
     v["id"]
     for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
     for v in fam["variants"]
-    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06")) for k in v)
+    # 2026-09-23: the production researcher questions are later additions too, and are
+    # excluded from the historical measurements below for the same reason.
+    if any(k.startswith(("_promoted_2026_08_06", "_added_2026_08_06",
+                         "_added_2026_09_23_prod_researchers")) for k in v)
+}
+
+# The variants whose inline REST-path plumbing (api_ok, api_plan.endpoint,
+# api_result_meta.*, parser mode new_search) was retired on 2026-09-23 because the
+# graph answers them (prod suite, seed 17). The measurements below are evidence
+# about the floor as it met cases that asserted `api_ok` in their own text, so they
+# are excluded for the same reason as the later additions above: folded in, the
+# retired floor would "reach" them only because their inline assertion was
+# deliberately removed, not because the floor change took anything away.
+_RETIRED_PLUMBING_2026_09_23 = {
+    v["id"]
+    for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
+    for v in fam["variants"]
+    if "2026-09-23: REST-path plumbing criteria retired" in (v.get("_why") or "")
 }
 
 RETIRED_FLOOR = {
@@ -570,9 +589,11 @@ def test_the_retired_floor_entries_were_inert_almost_everywhere():
     # rewrite the evidence set without changing what it is evidence for.
     added = _floor_added_under(RETIRED_FLOOR)
     added = {vid: f for vid, f in added.items()
-             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06}
-    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK
-    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK
+             if vid in _CURATED_IDS and vid not in _ADDED_2026_08_06
+             and vid not in _RETIRED_PLUMBING_2026_09_23}
+    retired = _RETIRED_PLUMBING_2026_09_23
+    assert {vid for vid, f in added.items() if "neo4j_ok" in f} == LOST_NEO4J_OK - retired
+    assert {vid for vid, f in added.items() if "api_ok" in f} == LOST_API_OK - retired
 
     # The mirror above must reproduce the real corpus, or none of this is measuring
     # the corpus the harness actually runs.
@@ -605,13 +626,20 @@ def test_search_tree_got_stricter_not_looser_on_all_but_one_variant():
                and v.id not in _ADDED_2026_08_06]
     assert len(floored) == 13, [v.id for v in floored]
 
-    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)}
-    assert traded == {"tree.then_ask_about"}
+    # 2026-09-23: every one of the 13 had its inline api_ok retired (the graph
+    # answers lineage; prod suite, seed 17), so the "kept its inline api_ok" half of
+    # this measurement has no members left. The half that guards the floor still
+    # holds on all 13: each gains `outcome_observed`, so a turn with no outcome fails.
+    retired = {v.id for v in floored if v.id in _RETIRED_PLUMBING_2026_09_23}
+    traded = {v.id for v in floored if "api_ok" not in _inline_fields(v.id)} - retired
+    assert traded <= {"tree.then_ask_about"}
 
     for v in floored:
         fields = {c.field for c in v.turns[-1].pass_criteria}
         assert "outcome_observed" in fields, v.id
-        if v.id not in traded:
+        if v.id in retired:
+            assert "api_ok" not in fields, f"{v.id} still asserts the retired api_ok"
+        elif v.id not in traded:
             assert "api_ok" in fields, f"{v.id} lost its inline api_ok"
 
 
@@ -916,7 +944,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 365  # 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 416  # 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}
@@ -1021,7 +1049,7 @@ GOOD_REPLY = {
         "A total of 1,765 Sequencing Data (D.SEQ) files are associated with Short "
         "Read Sequencing.\n\n- D.SEQ-230512FOR-287-PUB",
     "advanced.find_me_d_seq_samples_in_proje":
-        "A total of 1,858 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
+        "A total of 4,658 Sequencing Data (D.SEQ) samples match project IMPACT.\n\n"
         "* `D.SEQ-220823SHA-9-PUB`",
 }
 

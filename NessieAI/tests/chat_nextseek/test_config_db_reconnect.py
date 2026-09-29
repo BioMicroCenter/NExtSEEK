@@ -31,6 +31,7 @@ import types
 from mysql.connector.connection import MySQLConnection
 
 from chat_nextseek.config import ChatConfig, live_db_conn
+from chat_nextseek.graph_scope import SCOPE_ATTR, GraphScope
 from chat_nextseek.reports.runners import run_project_sample_report, run_reporter_summary
 
 
@@ -72,8 +73,12 @@ class _LiveConn:
 
 
 def _cfg(existing, replacement):
-    """A ChatConfig whose singleton is `existing` and whose reconnect yields `replacement`."""
+    """A ChatConfig whose singleton is `existing` and whose reconnect yields `replacement`.
+
+    It carries an admin scope: the report runners refuse a config without one, and scope is not what these tests
+    are about (test_report_runner_scope.py is)."""
     cfg = ChatConfig.__new__(ChatConfig)          # bypass __init__: it dials the DB
+    setattr(cfg, SCOPE_ATTR, GraphScope.admin("test"))
     cfg._db_conn = existing
     cfg._connect_db = lambda env="prod": replacement  # type: ignore[assignment]
     return cfg

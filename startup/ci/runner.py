@@ -69,8 +69,8 @@ def read_nessie_summary(repo_root: Path) -> dict | None:
 
 def render_nessie_section(summary: dict) -> list[str]:
     """The CI record's Nessie section: one row per question (route, source, the
-    path it took, seconds, cost, status, task id), then the spend, and on a
-    failure the kept chat and the evidence folder."""
+    path it took, seconds, cost, status, task id), then the spend, the kept chat
+    (kept on a pass too), and on a failure the evidence folder."""
     lines = ["## Nessie", "",
              "| question | route | source | path | seconds | cost | status | task |",
              "|---|---|---|---|---|---|---|---|"]
@@ -84,16 +84,26 @@ def render_nessie_section(summary: dict) -> list[str]:
                      f"| {q.get('path') or '-'} "
                      f"| {q.get('seconds') if q.get('seconds') is not None else '-'} "
                      f"| {cost} | {status} | {task} |")
-    lines += ["",
-              f"- **Reported spend:** ${summary.get('spent_usd', 0):.2f} of "
-              f"${summary.get('ceiling_usd', 1):.2f}; NS turns are unmeasured"]
+    spend = (f"- **Reported spend:** ${summary.get('spent_usd', 0):.2f} of "
+             f"${summary.get('ceiling_usd', 1):.2f}")
+    if summary.get("all_turns_usd") is None:
+        spend += "; NS turns are unmeasured"          # a summary from before fix 6a
+    else:
+        # The ceiling counts Claude Code's own cost on the CC turn; every turn's engine
+        # and router cost is shown beside it, for information.
+        at_least = "at least " if summary.get("all_turns_partial") else ""
+        spend += (f" (Claude Code's own cost on the CC turn); all turns with NS and router: "
+                  f"{at_least}${summary['all_turns_usd']:.2f}")
+    lines += ["", spend]
     kept = summary.get("kept_session")
     if kept:
         lines.append(f"- **Kept session:** `{kept['session_id']}`; debug: {kept['debug_url']}")
     if summary.get("evidence_dir"):
         lines.append(f"- **Evidence:** `{summary['evidence_dir']}`")
     if summary.get("cleanup_error"):
-        # A passing lane deletes its chat; this is the DELETE that did not work.
+        # What the lane's cleanup could not do: title a passing chat, delete one
+        # (an untitled passing chat, or an older one past the kept number), or
+        # read the sessions list (finish_chat in ci/smoke/test_nessie.py).
         lines.append(f"- **Cleanup failed:** {summary['cleanup_error']}; delete it by hand.")
     return lines + [""]
 
@@ -116,6 +126,25 @@ def render_nessie_without_summary(evidence_dir: str | None) -> list[str]:
     return lines + [""]
 
 
+#: The Playwright the smoke suite runs on, pinned. Unpinned, `--with playwright` resolved to
+#: whatever PyPI held that day: on 2026-09-22 fairdata-dev got 1.63.0, whose browser build
+#: (chromium_headless_shell-1243) had never been downloaded for the account running CI, and
+#: every browser test errored at setup. ci/smoke/README.md and the smoke module headers carry
+#: the same pin; bump them together.
+PLAYWRIGHT = "playwright==1.60.0"
+
+
+def browser_install_command() -> list[str]:
+    """The argv that makes sure the pinned Playwright's Chromium is present.
+
+    `playwright install` is a no-op when the build is already in the running account's
+    ~/.cache/ms-playwright, so run_ci calls it before every run: after a pin bump, or on a
+    new account, the browser arrives by itself. It downloads the browser only; system
+    libraries remain the host's (a one-time package install).
+    """
+    return ["uv", "run", "--no-project", "--with", PLAYWRIGHT, "playwright", "install", "chromium"]
+
+
 def build_command(repo_root: Path, state: InstanceState, *, wait_ready: bool,
                   profile: str | None = None,
                   force_profile: str | None = None,
@@ -128,7 +157,7 @@ def build_command(repo_root: Path, state: InstanceState, *, wait_ready: bool,
     port = state.ports.get("nextseek", 8000)
     cmd = [
         "uv", "run", "--no-project",
-        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "--with", "pytest", "--with", "requests", "--with", PLAYWRIGHT,
         "pytest", "ci/smoke/",
         "--base-url", f"http://127.0.0.1:{port}",
         f"--junitxml={junit_path(repo_root)}",
@@ -172,6 +201,12 @@ def run_ci(repo_root: Path, state: InstanceState, *, wait_ready: bool,
     nessie_summary_path(repo_root).unlink(missing_ok=True)
     shutil.rmtree(nessie_evidence_path(repo_root), ignore_errors=True)
     try:
+        # The browser first. A failure here is reported, not fatal: the suite still runs, and
+        # its browser tests then fail with Playwright's own "Executable doesn't exist" message.
+        installed = subprocess.run(browser_install_command(), cwd=repo_root, env=env).returncode
+        if installed != 0:
+            print(f"warning: '{' '.join(browser_install_command())}' exited {installed}; "
+                  "the browser tests may fail at setup.", file=sys.stderr)
         return subprocess.run(cmd, cwd=repo_root, env=env).returncode
     except FileNotFoundError:
         # This module stays free of the UI layer -- startup.lib.ui and the rich
@@ -248,6 +283,7 @@ def write_report(repo_root: Path, *, label: str | None = None,
                  image_ref: str | None = None, image_id: str | None = None,
                  profile: str | None = None, command: list[str] | None = None,
                  health: list[tuple[str, bool, str]] | None = None,
+                 graph_drift: tuple[str, bool, str] | None = None,
                  now: datetime.datetime | None = None,
                  nessie_summary: dict | None = None,
                  nessie_ran: bool = False) -> Path | None:
@@ -259,6 +295,8 @@ def write_report(repo_root: Path, *, label: str | None = None,
 
     `health` is the stack-health step that ran before the suite, as plain
     (name, ok, detail) tuples so this module stays free of startup.steps.
+    `graph_drift` is the post-rebuild drift check in the same shape, or None on a
+    run that did not ask (a prod box, a component rebuild, a stack that was down).
 
     `nessie_ran` says the Nessie lane was on for this run, and `nessie_summary` is
     what read_nessie_summary returned (a summary implies the lane ran). Whenever
@@ -328,6 +366,13 @@ def write_report(repo_root: Path, *, label: str | None = None,
         lines += ["## Stack health", ""]
         lines += [f"- {'✓' if ok else '✗'} **{name}:** {detail}" for name, ok, detail in health]
         lines.append("")
+
+    if graph_drift:
+        # Next to stack health because it is the same kind of statement: what was
+        # true of this box before the suite was asked anything.
+        drift_name, drift_ok, drift_detail = graph_drift
+        lines += ["## Graph drift", "",
+                  f"- {'✓' if drift_ok else '✗'} **{drift_name}:** {drift_detail}", ""]
 
     if nessie_summary:
         lines += render_nessie_section(nessie_summary)

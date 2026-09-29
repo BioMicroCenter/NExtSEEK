@@ -3,7 +3,7 @@ import { useMessages, useProcessingState, useChatApi } from "@/hooks";
 import { useChatRoute } from "@/hooks/useChatRoute";
 import { useSessions } from "@/hooks/useSessions";
 import { ChatPanel } from "@/components/ChatPanel";
-import { HeaderBar, RightSidebar } from "@/components/Layout";
+import { AboutDialog, HeaderBar, RightSidebar } from "@/components/Layout";
 import { SessionSidebar } from "@/components/Sessions";
 import { getForceRoute } from "@/lib/forceRoute";
 import { getUseProd } from "@/lib/useProd";
@@ -32,6 +32,7 @@ interface AppLayoutProps {
 
 export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) {
   const [rightOpen, setRightOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     return localStorage.getItem("chat.sidebar.collapsed") === "1";
   });
@@ -158,6 +159,9 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
           const artifacts = d.artifacts ?? null;
           const ccTraces = d.cc_traces ?? undefined;
           const mode = d.mode ?? undefined;
+          // The reviewer's chips (#128), on an NS turn only: a CC turn carries no
+          // debug, so its reply gets none. Kept in step with EmbeddedApp.
+          const suggestions = d.debug?.suggestions ?? undefined;
           queueMicrotask(() => {
             updateLastAssistantMessage({
               debugEntries: captured,
@@ -165,6 +169,7 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
               artifacts,
               ccTraces,
               mode,
+              suggestions,
             });
           });
           resetProcessing();
@@ -174,7 +179,13 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         }
         case "query_error": {
           const d = event.data as QueryErrorData;
-          addSystemMessage(`Error: ${d.error}`);
+          // A Container-CC turn stopped at its time limit still publishes what it
+          // wrote, and only CC files ride on an error: show them under the error,
+          // downloaded by the CC route as a completed CC turn's are. Kept in step with EmbeddedApp.
+          addSystemMessage(
+            `Error: ${d.error}`,
+            d.artifacts?.length ? { artifacts: d.artifacts, mode: "cc" } : undefined,
+          );
           const errEntry = makeDebugEntry(d.agent || "error", queryErrorSummary(d));
           pendingDebugRef.current.push(errEntry);
           setDebugData((prev) => ({ ...prev, entries: [...prev.entries, errEntry] }));
@@ -211,9 +222,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         useProd: isAdmin ? getUseProd() : false,
         maxTurnLengthS: isAdmin ? getMaxTurnLength() : null,
       };
-      submitQuery(text, mode, opts, handleProgress, handleQueryError);
+      // The notice (a dropped progress socket, the answer still on its way) is
+      // shown as a system line and leaves the turn in flight. Kept in step with EmbeddedApp.
+      submitQuery(text, mode, opts, handleProgress, handleQueryError, addSystemMessage);
     },
-    [addUserMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
+    [addUserMessage, addSystemMessage, submitQuery, handleProgress, handleQueryError, sessions.activeSessionId, sessions.pendingNewChat, isAdmin],
   );
 
   const handleArtifactDownload = useCallback(
@@ -248,6 +261,16 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
     [sessions.activeSessionId, sessionId, debugData.bundleId, downloadBundle],
   );
 
+  const handleDownloadAll = useCallback(() => {
+    // The chat on screen, whatever its newest turn wrote. Kept in step with EmbeddedApp.
+    // Returned so the button stays pending until the download is handed over.
+    const sid = sessions.activeSessionId;
+    if (!sid) return;
+    return apiService
+      .downloadSession(sid)
+      .catch((err: Error) => addSystemMessage(`Download failed: ${err.message}`));
+  }, [apiService, sessions.activeSessionId, addSystemMessage]);
+
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const next = !prev;
@@ -260,7 +283,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <HeaderBar onRightToggle={() => setRightOpen(!rightOpen)} onLeftToggle={toggleSidebar} />
+      <HeaderBar
+        onRightToggle={() => setRightOpen(!rightOpen)}
+        onLeftToggle={toggleSidebar}
+        onAboutOpen={() => setAboutOpen(true)}
+      />
       <div className="flex flex-1 overflow-hidden">
         <SessionSidebar
           sessions={sessions.sessions}
@@ -287,8 +314,11 @@ export function AppLayout({ credentialError, isAdmin = false }: AppLayoutProps) 
         onOpenChange={setRightOpen}
         debugData={debugData}
         onDownload={handleDownload}
+        activeSessionId={sessions.activeSessionId}
+        onDownloadAll={handleDownloadAll}
         isAdmin={isAdmin}
       />
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
     </div>
   );
 }

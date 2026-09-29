@@ -145,7 +145,16 @@ class SeekDB(object):
         return self.user_seek
         
         
-    def getSeekLogin(self, request, whetherFullInfo=True):
+    def getSeekLogin(self, request, whetherFullInfo=True, fromLoginForm=False):
+        """The caller's SEEK login: its credentials, ``status``, ``err`` and, with ``whetherFullInfo``, its person,
+        projects and lab.
+
+        For an HTTP request, ``status`` is True only for a logged-in Django user, with the SEEK credentials the login
+        view wrote into the same session, or, with ``fromLoginForm`` (the login view alone), for the ``username`` and
+        ``password`` a POST carries once SEEK answers ``/people/current`` with them as the person that login belongs to.
+        No other caller reads credentials from a request body: a POST naming any user with any password used to count
+        as that user, because nothing was checked and SEEK serves a person's record to anyone.
+        """
         user_seek = {}
         status = True
         err = []
@@ -164,28 +173,27 @@ class SeekDB(object):
                 user_seek['username'] = self.user_seek['username']
                 user_seek['password'] = self.user_seek['password']
             
-        elif request.method == 'POST':
+        elif fromLoginForm and request.method == 'POST':
+            logger.debug("getSeekLogin from the login form")
             user_seek['server'] = settings.SEEK_URL
             user_seek['storage'] = settings.SEEK_URL
             user_seek['storagetype'] = 'SEEK'
             user_seek['username'] = request.POST.get('username')
             user_seek['password'] = request.POST.get('password')
             user_seek['noexpire'] = request.POST.get('no-expire')
-            username = request.POST.get("user")
-            if username is None and user_seek['username'] is None:
-                logger.debug("getSeekLogin from Session")
-                user_seek['server'] = request.session.get('server')
-                user_seek['storage'] = settings.SEEK_URL
-                user_seek['storagetype'] = 'SEEK'
-                user_seek['username'] = request.session.get('username')
-                user_seek['password'] = request.session.get('password')
         else:
-            logger.debug("getSeekLogin from GET")
+            logger.debug("getSeekLogin from the session")
             user_seek['server'] = request.session.get('server')
             user_seek['storage'] = settings.SEEK_URL
             user_seek['storagetype'] = 'SEEK'
             user_seek['username'] = request.session.get('username')
             user_seek['password'] = request.session.get('password')
+            if hasattr(request, 'user') and not request.user.is_authenticated:
+                # Credentials in a session nobody is logged in to are no login; the answer is the one a request with
+                # no session gets. Only an object the server builds itself carries no user at all (the attribute
+                # API's proof request, nextseek_api/attributes/auth.py): every HTTP request has one.
+                user_seek['username'] = None
+                user_seek['password'] = None
         
         if user_seek['username'] is None or user_seek['username']=="":
             err.append("No valid username or password")
@@ -215,7 +223,11 @@ class SeekDB(object):
             else:
                 self.__seekapi = SeekAPI(user_seek['server'], user_seek['username'], user_seek['password'])
                 
-                if whetherFullInfo:
+                if fromLoginForm and not self.__seekAcceptsLogin(user_seek['username']):
+                    err.append("No valid username or password")
+                    logger.debug("SEEK did not accept the login form's credentials")
+                    status = False
+                elif whetherFullInfo:
                     person_id = self.__getSeekPersonID(user_seek['username'])
                     userInfo, status, msg = self.getUserInfo(person_id)
                     user_seek.update(userInfo)
@@ -228,6 +240,20 @@ class SeekDB(object):
         
         self.creator = self.user_seek.copy()
         return user_seek
+
+    def __seekAcceptsLogin(self, username):
+        """Does SEEK answer ``/people/current``, with the credentials ``self.__seekapi`` carries, as ``username``'s
+        person? ``/people/<id>`` cannot tell: SEEK serves it to anyone, treating a wrong password as an anonymous
+        caller. Fails closed: an unknown login, a refusal, another person or an unreadable answer are all no."""
+        person_id = self.__getSeekPersonID(username)
+        if not person_id:
+            return False
+        try:
+            current = self.__seekapi.getCurrentUser()
+            return str(current['data']['id']) == str(person_id)
+        except Exception:  # noqa: BLE001 (SEEK unreachable or an error page: not a confirmed login)
+            logger.warning("SEEK could not confirm a login; refusing it")
+            return False
     
     def getPageRequests(self, seek_url):
         bodyhtml = self.__seekapi.getPageRequests(seek_url)

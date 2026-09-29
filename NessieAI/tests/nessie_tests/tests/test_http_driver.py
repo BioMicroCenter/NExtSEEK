@@ -162,3 +162,69 @@ def test_blips_interspersed_with_successes_reset_the_budget():
                    sleep=lambda s: None, clock=lambda: 0.0)
     assert res.status == "completed"
     assert res.poll_errors == 3
+
+
+# ── the evaluation switch (graph_search Nessie POC, spec E2) ──────────────
+
+def test_force_parser_mode_is_not_sent_unless_set():
+    """Omitted, not sent as null: an unforced body stays the body an ordinary
+    client sends, force_route or not."""
+    p = _post()
+    hd.drive("q", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             force_route="ns", sleep=lambda s: None, clock=lambda: 0.0)
+    assert "force_parser_mode" not in p.body
+
+
+def test_force_parser_mode_is_sent_when_set():
+    p = _post()
+    hd.drive("q", tier="route", post_query=p, get_progress=_seq_get_progress([ROUTED]),
+             force_route="ns", force_parser_mode="graph",
+             sleep=lambda s: None, clock=lambda: 0.0)
+    assert p.body["force_parser_mode"] == "graph"
+    assert p.body["force_route"] == "ns"
+
+
+# ── the free probe chat the full tier opens to prove its bundle reader's instance ──
+
+
+class _Resp:
+    def __init__(self, body=b""):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_session_clients_open_and_close_an_empty_chat_on_the_base_url(monkeypatch):
+    sent = []
+
+    def fake_urlopen(req, timeout=None):
+        sent.append((req.get_method(), req.full_url, req.data, req.get_header("Authorization"),
+                     timeout))
+        if req.get_method() == "POST":
+            return _Resp(b'{"session_id": "0000beef-0000-0000-0000-000000000000", '
+                         b'"created_at": "2026-09-18T00:00:00Z"}')
+        return _Resp()
+
+    monkeypatch.setattr(hd.urllib.request, "urlopen", fake_urlopen)
+    open_session, close_session = hd.make_session_clients("http://h:8000", "Basic x",
+                                                          timeout_s=7)
+    sid = open_session()
+    close_session(sid)
+    assert sid == "0000beef-0000-0000-0000-000000000000"
+    assert sent == [
+        ("POST", "http://h:8000/nextseek_api/assistant/sessions/", b"{}", "Basic x", 7),
+        ("DELETE", f"http://h:8000/nextseek_api/assistant/sessions/{sid}/", None, "Basic x", 7),
+    ]
+
+
+def test_the_probe_chat_is_opened_on_a_free_route_never_the_paid_one():
+    """The probe must cost nothing: it is a plain session create, not a chat turn."""
+    assert hd.SESSIONS_PATH == "/nextseek_api/assistant/sessions/"
+    assert "query" not in hd.SESSIONS_PATH

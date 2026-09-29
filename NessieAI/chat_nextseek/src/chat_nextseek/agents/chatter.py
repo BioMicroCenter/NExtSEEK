@@ -9,15 +9,453 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
-from ..llm_clients import LLMAPIConnectionError, LLMRateLimitError
+from ..graph_review import PREMISE_FACT_RE
+from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
+from ..schemas.schema_helper import call_llm_text
 from ..helpers import (
+    api_row_count,
     log_prompt,
-    log_usage,
 )
+from ..helpers.query_scope import describe_query_scope, render_query_scope
+from ..uid_links import link_sample_uids
 from ..schemas import (
     PlannerOutput,
 )
 from .parser import _step_query
+
+#: Keys on the REST result envelope that describe HOW the request was made rather
+#: than WHAT came back. `slim_api_result_for_llm` copies them straight through from
+#: `tool_nextseek_api_request`, so until D1 the prompt carried the full URL, the HTTP
+#: verb, `page_size` and every requestBody field name. They stay on
+#: `debug_payload["api_result_slim"]` and in the stored bundle, where a power user
+#: inspects them; they are only removed from what the reply writer reads.
+#: `page_size` joins them: it is the NAME of an API query parameter, and the three
+#: disclosure flags the prompt actually has rules for (`rows_returned`,
+#: `result_capped`, `total_matching`) already carry everything a reply needs about
+#: the cap it describes.
+_RESULT_PLUMBING_KEYS = frozenset({"url", "method", "query", "body", "endpoint", "page_size"})
+
+#: The same cut on `error_context`. `status_code`, `error`, `response_preview` and
+#: `schema_required_paths` are kept: they are the cause and the names of the values
+#: the user has to supply, which the error-handling system message asks for.
+_ERROR_PLUMBING_KEYS = frozenset({"url", "method", "request_body", "request_query"})
+
+
+def _scrub_plumbing(payload: dict | None, keys: frozenset[str]) -> dict:
+    """A shallow copy without the transport keys. Non-dicts pass through as {}."""
+    if not isinstance(payload, dict):
+        return {}
+    return {k: v for k, v in payload.items() if k not in keys}
+
+
+#: A graph row is a sample record when it carries a sample identity key; any other row is an
+#: aggregate (a value and its count, a type and its count). Pilot A v2 (2026-09-18): the
+#: Scientist-duplicates query returned all 216 stored names with counts and the writer was
+#: handed 20 of them, so it could not see a single duplicate pair.
+_PREVIEW_ROWS = 20
+_AGGREGATE_ROWS_MAX = 500
+_AGGREGATE_CHARS_MAX = 24_000
+
+
+def _is_sample_key(key: Any) -> bool:
+    k = str(key).lower()
+    return k in {"id", "uuid", "uid"} or k.endswith(("_id", "_uuid", "_uid"))
+
+
+def _is_count_only(rows: Any) -> bool:
+    """One row whose every value is a number: an aggregate with no evidence beside it.
+
+    The same single-row shape as ``matched_nothing`` (``helpers/tools/neo4j.py``) without
+    requiring the numbers to be zero. A row of real data that happens to hold a count keeps
+    its non-numeric values, and several rows are a breakdown the writer can reason over; a
+    lone ``RETURN count(s) AS n`` leaves it holding nothing it can name.
+    """
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict) or not rows[0]:
+        return False
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in rows[0].values())
+
+
+def _above_zero(n: Any) -> bool:
+    return isinstance(n, (int, float)) and not isinstance(n, bool) and n > 0
+
+
+def _returned_something(rows: Any, total: Any) -> bool:
+    """Rows that are not one all-zero count row (``RETURN count(s) AS n`` over nothing), or, with no rows, a total
+    above zero. The same zero as ``matched_nothing`` (``helpers/tools/neo4j.py``), read without its ``count``."""
+    if isinstance(rows, list) and rows:
+        return not (_is_count_only(rows) and not any(rows[0].values()))
+    return _above_zero(total)
+
+
+def _report_returned_rows(summary: Any) -> bool:
+    """A project report with rows, in the shape ``reports.runners.run_reporter_summary`` builds: ``rows_returned``
+    above zero at the top (the samples and protocols modes), in its ``samples`` or ``protocols`` block (RPPR,
+    published), or in the RPPR ``published`` block's samples; or a published protocol count above zero."""
+    if not isinstance(summary, dict):
+        return False
+
+    def rows(block: Any) -> Any:
+        return block.get("rows_returned") if isinstance(block, dict) else None
+
+    published = summary.get("published") if isinstance(summary.get("published"), dict) else {}
+    return any(_above_zero(n) for n in (
+        rows(summary), rows(summary.get("samples")), rows(summary.get("protocols")), rows(published.get("samples")),
+        summary.get("protocols_count"), published.get("protocols_count")))
+
+
+def _graph_rows_for_writer(rows: list) -> list:
+    """The graph rows the writer is shown: an aggregate whole, up to a size cap; a list of
+    sample records as its first 20."""
+    rows = list(rows or [])
+    aggregate = bool(rows) and all(
+        isinstance(r, dict) and not any(_is_sample_key(k) for k in r) for r in rows
+    )
+    if not aggregate:
+        return rows[:_PREVIEW_ROWS]
+    shown: list = []
+    size = 2
+    for row in rows[:_AGGREGATE_ROWS_MAX]:
+        size += len(json.dumps(row, separators=(",", ":"), default=str)) + 1
+        if size > _AGGREGATE_CHARS_MAX:
+            break
+        shown.append(row)
+    return shown or rows[:_PREVIEW_ROWS]
+
+
+def _breakdown_sum(rows: list) -> tuple[str, int | float] | None:
+    """``(column, sum)`` when every row carries exactly the same one numeric column, over two
+    or more rows: a breakdown whose total the question may ask for (Lung / lung / LUNG)."""
+    if len(rows) < 2 or not all(isinstance(r, dict) for r in rows):
+        return None
+    numeric = [
+        {k for k, v in r.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} for r in rows
+    ]
+    if any(len(cols) != 1 for cols in numeric) or len(set.union(*numeric)) != 1:
+        return None
+    col = next(iter(numeric[0]))
+    return col, sum(r[col] for r in rows)
+
+
+def _type_histogram_block(all_rows: list, shown: int) -> str:
+    """How the sample types are distributed across the WHOLE result, not the preview.
+
+    B8 (task 437): a query returned a heterogeneous result and the writer was shown its
+    first twenty rows, which happened to be one type. It named the whole result after that
+    type. The rows are all in memory, so the distribution costs a pass over a list.
+
+    Only emitted when it adds something the preview cannot show: the preview is short of
+    the full set, and the full set holds more than one type.
+    """
+    if shown >= len(all_rows):
+        return ""
+    counts: dict[str, int] = {}
+    for row in all_rows:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            k = str(key).lower()
+            if (k == "type" or k.endswith("_type")) and isinstance(value, str) and value:
+                counts[value] = counts.get(value, 0) + 1
+                break
+    if len(counts) < 2:
+        return ""
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    listed = ", ".join(f"{code} {n:,}" for code, n in ranked[:12])
+    more = f", and {len(ranked) - 12} more" if len(ranked) > 12 else ""
+    return (
+        f"Sample types across ALL {len(all_rows):,} rows, not just the preview: {listed}{more}. "
+        "The preview is the head of the result and is not representative: describe the result "
+        "by this distribution, and never name it after the type that happens to appear first.\n"
+    )
+
+
+def _type_names_block(config: Any, rows: list) -> str:
+    """Catalog names for the sample type codes in the rows, so the writer does not invent them
+    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+    catalog = getattr(config, "MIN_SAMPLETYPES", None)
+    if not isinstance(catalog, list):
+        return ""
+    names = {
+        str(item.get("SampleType")): str(item.get("Name"))
+        for item in catalog
+        if isinstance(item, dict) and item.get("SampleType") and item.get("Name")
+    }
+    seen: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key, value in row.items():
+            k = str(key).lower()
+            if (k == "type" or k.endswith("_type")) and isinstance(value, str) and value in names:
+                if value not in seen:
+                    seen.append(value)
+    if not seen:
+        return ""
+    return ("Sample type names for the codes in these rows (use these names; never invent one):\n"
+            + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
+
+
+# The graph-result reviewer's two outputs (graph_review.py, helpers/suggestions.py): the facts the result matched,
+# which the reply states first, and the one next step it offers as a chip, which the reply offers last. The prompt
+# asks for both; these make sure a reply that drops either still carries it.
+
+#: The input line naming the step the reviewer offered (the chip's label). Its own line, right after the block that
+#: holds the notes and never inside it: a note is the query author's words, which the prompt says not to quote back,
+#: and the step is offered in exactly its words.
+OFFERED_STEP_LINE = "Offered next step: {step}"
+#: The sentence appended when the reply does not name the offered step.
+OFFER_SENTENCE = "Would you like me to run: {step}?"
+#: A reply whose final sentence is a question, allowing for closing quotes, brackets and emphasis after the mark.
+_ENDS_WITH_QUESTION = re.compile(r"\?[\s\"'\u201d\u2019)\]*_]*$")
+
+#: A number as a whole token: "1,306" is one number, the "57" inside "1,570" or the "14" in "T14" is none.
+_NUMBER = re.compile(r"(?<![\w.,])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)")
+
+
+def _numbers(text: str) -> set[str]:
+    """The numbers in ``text`` without thousands separators, so "1,306" and "1306" are the same."""
+    return {m.group(0).replace(",", "") for m in _NUMBER.finditer(text or "")}
+
+
+def _one_line(text: Any) -> str:
+    return " ".join(str(text or "").split())
+
+
+# F-d: the reply's only offer is the chip's (``OFFERED_STEP_LINE``). Without one, the model's closing stock offer is
+# dropped from an answered reply; a closing sentence holding a digit says something about the data and stays. The
+# closer starts the reply, follows a sentence end, or starts a line; "you'd" may be typeset. It is one line: a closer
+# that leads into a list or a table ("Feel free to pick one of these:") holds the answer and is never a candidate.
+_STOCK_CLOSER = re.compile(
+    r"(?:^|(?<=[.!?])\s+|(?<=\n))((?:If you(?:['\u2019]d| would) like|Let me know|Feel free|Would you like"
+    r"|Should you (?:need|want)|Do you want|I can (?:also )?(?:retrieve|provide|list|look up|show|pull))\b[^.!?\n]*"
+    r"[.!?]?)\s*$",
+    re.IGNORECASE)
+#: What a line must end with, or be, for a closer starting the next line to count: a sentence end or a colon (closing
+#: quotes, brackets or emphasis may follow), a list item or a table row. A hard-wrapped sentence ("..., and\nfeel
+#: free to ask") is none of these.
+_ENDS_A_SENTENCE = re.compile(r"[.!?:][\"'\u201d\u2019)\]*_]*$")
+_LIST_OR_TABLE_LINE = re.compile(r"[ \t]*(?:\||[-*+][ \t]|\d+[.)][ \t])")
+
+
+#: The opening words of every lab near-miss note (``helpers.lab_code.lab_near_miss_notes``: 'No lab is recorded as
+#: "X". The closest on record is ..., so say so and offer that spelling.'). Its offer is the closest spelling of a
+#: misspelled lab, which the reply keeps whatever the result. A test builds the note with that function, so a change
+#: to its wording fails there.
+_LAB_NEAR_MISS_LEAD = 'No lab is recorded as "'
+
+
+def _has_lab_near_miss(notes: list[str] | None) -> bool:
+    """Whether the turn's notes carry a lab near-miss note."""
+    return any(_LAB_NEAR_MISS_LEAD in str(note or "") for note in notes or [])
+
+
+#: A NOT APPLIED label as ``helpers.query_scope`` writes it: 'keyword "CC"', 'sample type MUS (Mouse)', 'lab QWZ
+#: (Qwertz or Qwerty)', 'project Impact'.
+_NOT_APPLIED_LABEL = re.compile(r'keyword "(?P<keyword>.+)"|(?:sample type|assay|project|lab|sample|scientist) '
+                                r"(?P<value>.+?)(?: \((?P<name>.+)\))?")
+#: A value a reviewer fact quotes ('nanopore', 'non-NDMA'); an apostrophe inside a word ("user's") is none.
+_QUOTED_VALUE = re.compile(r"(?<!\w)'([^'\n]{1,80}?)'(?!\w)")
+
+
+def _must_keep_terms(not_applied: list[str] | None, review_disclosure: str | None) -> list[str]:
+    """What a reply must still name if a closer is its only mention: every value of a NOT APPLIED label (the
+    keyword, the code, its name, each name of a lab), and every value the reviewer's facts quote."""
+    terms: list[str] = []
+
+    def add(term: Any) -> None:
+        term = str(term or "").strip()
+        if term and term not in terms:
+            terms.append(term)
+
+    for label in not_applied or []:
+        m = _NOT_APPLIED_LABEL.fullmatch(str(label))
+        if not m:
+            continue
+        if m.group("keyword") is not None:
+            add(m.group("keyword"))
+            continue
+        add(m.group("value"))
+        for name in re.split(r"\s+or\s+", m.group("name") or ""):
+            add(name)
+    for m in _QUOTED_VALUE.finditer(review_disclosure or ""):
+        add(m.group(1))
+    return terms
+
+
+def _names(text: str, term: str) -> bool:
+    """``text`` names ``term`` as a whole word, ignoring case: "CC" is in "CC mice", not in "ACC"."""
+    return re.search(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.IGNORECASE) is not None
+
+
+def _drop_stock_closer(reply: str, keep: Any = ()) -> str:
+    """The model's last sentence when it is a stock offer no chip backs ("If you would like ... let me know").
+
+    Returns ``reply`` without that sentence; a reply that is nothing but the closer, whose closer holds a digit,
+    whose closer starts a line after anything but a sentence end, a colon, a list item or a table row, or whose
+    closer is the only place that names a term in ``keep`` (``_must_keep_terms``: a constraint the query did not
+    apply, a value a reviewer fact quotes), comes back as given."""
+    text = (reply or "").rstrip()
+    m = _STOCK_CLOSER.search(text)
+    if not m or re.search(r"\d", m.group(1)):
+        return reply
+    head = text[:m.start(1)]
+    if head.endswith("\n"):
+        previous = head.rstrip().rsplit("\n", 1)[-1]
+        if not (_ENDS_A_SENTENCE.search(previous) or _LIST_OR_TABLE_LINE.match(previous)):
+            return reply
+    if any(_names(m.group(1), term) and not _names(head, term) for term in keep or ()):
+        return reply
+    return head.rstrip() or reply
+
+
+#: A first line that is not prose: a table row, a heading, a quote, a code fence or a list item.
+_NOT_PROSE = re.compile(r"[ \t]*(?:\||#|>|```|~~~|[-*+][ \t]|\d+[.)][ \t])")
+#: A full stop, question or exclamation mark with whitespace or the end after it (closing quotes, brackets or emphasis
+#: may come between). One inside a token has none: "D.SEQ", "T.TIS", "D.SEQ-240910ABC-1", "3.5", "1,306".
+_SENTENCE_END = re.compile(r"[.!?][\"'\u201d\u2019)\]*_]*(?=\s|$)")
+#: A word whose full stop ends no sentence: a common abbreviation, or a single capital (an initial, or a letter of
+#: "U.S."). "St. Jude", "No. 5", "Illumina Inc. Sequencing", "Mt. Sinai" never split.
+_ABBREVIATION = re.compile(r"(?:^|[\s(\[\"'.])(?:(?i:e\.g|i\.e|vs|cf|etc|approx|ca|incl|al)"
+                           r"|Dr|Prof|Mrs?|Ms|St|No|Inc|Co|Ltd|Fig|Jr|Sr|Mt|[A-Z])\.$")
+
+
+def _first_sentence_end(line: str) -> int | None:
+    """Where the first sentence of ``line`` ends, or None. Not after an abbreviation, and not before a lower-case
+    word: when unsure it reads on, which puts what follows later, never inside a sentence."""
+    for m in _SENTENCE_END.finditer(line):
+        if line[m.start()] == "." and _ABBREVIATION.search(line[max(0, m.start() - 15):m.start() + 1]):
+            continue
+        if line[m.end():].lstrip()[:1].islower():
+            continue
+        return m.end()
+    return None
+
+
+def _after_first_sentence(reply: str, facts: str) -> str:
+    """``reply`` with ``facts`` right after its first sentence, so the answer still leads.
+
+    When the reply's first line is prose and holds a sentence end (``_first_sentence_end``), the facts follow it on
+    that line, after a space. Otherwise (a table row, a heading, a quote, a list item or a code fence, or a first line
+    with no sentence end) they are a paragraph of their own after the first block: the lines up to the first blank
+    line, or up to a code block's closing fence."""
+    if not reply:
+        return facts
+    lines = reply.split("\n")
+    if not _NOT_PROSE.match(lines[0]):
+        end = _first_sentence_end(lines[0])
+        if end is not None:
+            return reply[:end] + " " + facts + reply[end:]
+    fence = re.match(r"[ \t]*(```|~~~)", lines[0])
+    if fence:
+        close = next((i for i in range(1, len(lines)) if lines[i].lstrip().startswith(fence.group(1))),
+                     len(lines) - 1)
+        block, rest = "\n".join(lines[:close + 1]), "\n".join(lines[close + 1:])
+    else:
+        gap = re.search(r"\n[ \t]*\n", reply)
+        block, rest = (reply[:gap.start()], reply[gap.end():]) if gap else (reply, "")
+    rest = rest.lstrip("\n")
+    return block + "\n\n" + facts + ("\n\n" + rest if rest.strip() else "")
+
+
+def _with_review_backstop(reply: str, review_disclosure: str | None, offered_step: str | None, *,
+                          always_disclose: bool = False, corrected: bool = False) -> str:
+    """``reply`` with the reviewer's facts after its first sentence and its offered step last, where it lacks them.
+
+    The facts are added when they hold a number the reply does not; facts without a number (a failed query, a value
+    the query did not apply) are left to the model, which has them as a note. In a model's reply they go right after
+    the first sentence (``_after_first_sentence``), so the answer still leads; the premise sentence is put first
+    later, by ``_premise_first``. ``corrected`` (``_corrects_premise`` on the model's reply) says the reply already
+    corrects the question's number in its own words: the premise sentence is then left out of the facts, so the
+    reply is not corrected twice. ``always_disclose`` adds them regardless, first, for the fallback reply, which no
+    model wrote. The offer is appended when the reply does not name the step, compared case-insensitively, and does
+    not end with a question: a closing question is the model's offer in its own words, and a second one would double
+    it. Both are judged on the reply as given, before either is added."""
+    facts = _one_line(PREMISE_FACT_RE.sub(" ", review_disclosure or "") if corrected else review_disclosure)
+    step = _one_line(offered_step)
+    add_facts = bool(facts) and (always_disclose or not _numbers(facts) <= _numbers(reply))
+    add_offer = (bool(step) and step.casefold() not in _one_line(reply).casefold()
+                 and not _ENDS_WITH_QUESTION.search(reply or ""))
+    body = reply or ""
+    if add_facts:
+        body = "\n\n".join(p for p in (facts, body) if p) if always_disclose else _after_first_sentence(body, facts)
+    parts = ([body] if body else []) + ([OFFER_SENTENCE.format(step=step)] if add_offer else [])
+    return "\n\n".join(parts)
+
+
+#: A reply that corrects the question's number in its own words: the premise backstop leaves it as written.
+_CORRECTED = re.compile(r"did not reproduce|could not confirm|not confirmed|not reproduced", re.IGNORECASE)
+
+
+def _corrects_premise(reply: str | None) -> bool:
+    """Whether ``reply`` corrects the question's number in its own words (``_CORRECTED``). The premise sentence
+    itself is taken out first: a reply that only quotes it has not corrected anything of its own, and
+    ``_premise_first`` moves the quote to the front. Judged on the model's reply before any backstop adds text, and
+    carried into both backstops (Task 24: judged after, the disclosure the facts backstop inserted brought the premise
+    sentence with it, and the reply was corrected twice)."""
+    return bool(_CORRECTED.search(PREMISE_FACT_RE.sub(" ", reply or "")))
+
+
+def _drop_fact(text: str, fact: str) -> str:
+    """``text`` without ``fact`` (one line), touching only the lines that held it: the spaces around it closed up, a
+    line it filled left blank, and the blank lines that leaves folded into one paragraph break, as the reply's own
+    cleanup does. Every other line, its indentation and inner spacing included, is kept as written."""
+    lines = []
+    for line in text.split("\n"):
+        if fact in line:
+            indent = line[:len(line) - len(line.lstrip())]
+            rest = re.sub(r"[ \t]*" + re.escape(fact) + r"[ \t]*", " ", line.strip()).strip()
+            line = indent + rest if rest else ""
+        lines.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _premise_first(reply: str, notes: list[str] | None, *, corrected: bool | None = None) -> str:
+    """The reviewer's premise sentence first, when the reply does not already correct the question's number.
+
+    The sentence is ``graph_review.PREMISE_FACT`` ("The question says 4,095; this search did not reproduce that
+    number."), found in ``notes`` by ``PREMISE_FACT_RE``; nothing else triggers this, and a number in the question
+    alone never does. A reply that already opens with it is left as written. A reply that holds it later (Task 9's
+    backstop put the disclosure after the first sentence or first block, or the fallback's disclosure has another
+    fact leading, or the model quoted it) has it moved to the front. A reply that corrects the number in its own words
+    (``_CORRECTED``) is left as written. Otherwise the sentence is put first: an echo ("Of the 4,095 D.SEQ files, 962
+    ...") holds the fact's number, so Task 9's backstop passed it. Before a reply that opens with a table, a heading, a
+    quote, a code fence or a list, the sentence is a paragraph of its own, so that block stays intact.
+
+    ``corrected``, when given, is ``_corrects_premise`` of the model's reply, judged before the facts backstop added
+    anything: True leaves the reply with its own correction only (a copy of the premise sentence is taken out), False
+    puts the sentence first. Left None (a fallback reply, which no model wrote) the reply is judged as it stands."""
+    facts: list[str] = []
+    for note in notes or []:
+        for m in PREMISE_FACT_RE.finditer(str(note or "")):
+            if m.group(0) not in facts:
+                facts.append(m.group(0))
+    text = reply or ""
+    if not facts:
+        return reply
+    if corrected:
+        if not any(fact in text for fact in facts):
+            return reply
+        rest = text
+        for fact in facts:
+            rest = _drop_fact(rest, fact)
+        return rest
+    lead = " ".join(facts)
+    if text.lstrip().startswith(lead):
+        return reply
+    if any(fact in text for fact in facts):
+        rest = text
+        for fact in facts:
+            rest = _drop_fact(rest, fact)
+        return _lead_with(lead, rest)
+    if corrected is None and _CORRECTED.search(text):
+        return reply
+    return _lead_with(lead, text.lstrip())
+
+
+def _lead_with(lead: str, rest: str) -> str:
+    """``lead`` then ``rest``: on one line after a space, or as a paragraph of its own before a first line that is not
+    prose (``_NOT_PROSE``), which a space would break."""
+    return (lead + ("\n\n" if _NOT_PROSE.match(rest) else " ") + rest).strip()
 
 
 def chatter_agent_answer(
@@ -34,6 +472,9 @@ def chatter_agent_answer(
     graph_result: dict | None = None,
     log_dir: str | None = None,
     session: "SessionState | SessionStateProxy | None" = None,
+    query_notes: list[str] | None = None,
+    review_disclosure: str | None = None,
+    offered_step: str | None = None,
 ) -> str:
     """
     Unified chatter agent: produces a narrative answer for search, reporter, and graph results,
@@ -41,14 +482,29 @@ def chatter_agent_answer(
     Pass reporter_summary for reporter mode, graph_plan+graph_result for graph mode,
     or API params for search/refine mode.
     Falls back to informative messages when the LLM hits rate or connection limits.
+
+    ``query_notes`` are caveats the caller knows and the plans do not carry — the
+    graph turn's ``graph_retry_changed_answer`` is the first one — each of which is
+    disclosed to the writer verbatim.
+
+    ``review_disclosure`` is the graph reviewer's facts (already in ``query_notes`` as its note) and
+    ``offered_step`` the label of the chip the turn offers. The step is its own input line
+    (``OFFERED_STEP_LINE``), after the notes block and outside it, and the reply gets the facts and the
+    offer where it lacks them (``_with_review_backstop``): the model's reply after its first sentence, the
+    fallback first. With neither, nothing changes. With no offered step, a stock offer closing the model's
+    reply to an answered result (rows, or a count or total above zero) is dropped (``_drop_stock_closer``):
+    the chip is the reply's only offer. A lab near-miss note keeps it (``_has_lab_near_miss``), and so does a
+    closer that is the only place naming a NOT APPLIED value or a value the reviewer quotes.
     """
     is_reporter = reporter_summary is not None
     is_graph = graph_plan is not None
 
     # ---------- Build mode-appropriate debug JSON (UI debug panel only) ----------
     # This JSON is for power-user inspection in the UI — it intentionally
-    # keeps plumbing (endpoint, requestBody, Cypher). The LLM prompt built
-    # further below does NOT see any of this.
+    # keeps plumbing (endpoint, requestBody, Cypher). The LLM prompt built further
+    # below is assembled separately and none of these fields is passed into it; the
+    # guard is tests/chat_nextseek/test_chatter_prompt.py, not this comment, which
+    # said the same thing while the REST envelope carried the plumbing in anyway.
     if is_graph:
         debug_info = {
             "entity": {
@@ -105,9 +561,29 @@ def chatter_agent_answer(
     debug_json = json.dumps(debug_info, indent=2)
 
     # ---------- Build LLM user_content (UNIVERSAL across modes) ----------
-    # The LLM never sees endpoint names, Cypher, requestBody, or filter
-    # operators. It gets a uniform structure: question + resolved entities
-    # + mode-specific data + result stats + brief instructions.
+    # D1. This block used to claim "the LLM never sees endpoint names, Cypher,
+    # requestBody, or filter operators", and on the REST path that was never true.
+    # `tool_nextseek_api_request` returns {ok, url, status_code, method, query, body,
+    # data} and `slim_api_result_for_llm` copies everything but `data` through
+    # verbatim, so the prompt carried the full URL, the verb, `page_size` and the
+    # requestBody field names — while the instruction block told the model not to
+    # mention any of it. The mechanics were in the prompt and the useful form was not.
+    #
+    # Both halves are fixed here. `_scrub_plumbing` takes the raw envelope out, which
+    # is what this comment always claimed; `describe_query_scope` puts in a structured,
+    # user-facing account of what the executed query CONSTRAINED and what the user
+    # asked for that it did not. That gap is what production issues B7, B8 and B13 all
+    # needed and none of them had: a reply cannot avoid misreporting the question if
+    # the writer has no way to know what ran. See helpers/query_scope.py.
+    offered_step = _one_line(offered_step) or None
+    scope = describe_query_scope(
+        entity_result=entity_result,
+        parser_plan=parser_plan,
+        api_plan=api_plan if not (is_graph or is_reporter) else None,
+        graph_plan=graph_plan,
+        extra_notes=query_notes,
+        user_query=user_query,
+    )
 
     def _fmt_entities(items: Any) -> str:
         if not items:
@@ -128,7 +604,12 @@ def chatter_agent_answer(
     resolved_sampletypes = _fmt_entities(entity_result.get("sampletypes"))
     resolved_assays = _fmt_entities(entity_result.get("assays"))
     resolved_projects = _fmt_entities(entity_result.get("projects"))
-    keywords_list = (entity_result.get("filters") or {}).get("keywords") or []
+    # `keywords` is a TOP-LEVEL field on EntityAgentOutput (schemas/entity.py); there
+    # has never been a `filters` key on it, so reading entity_result["filters"]
+    # ["keywords"] rendered "(none)" in every turn, in every mode, since the line was
+    # written. The system prompt's "state ... what the key filters were (sample type,
+    # assay, keywords)" was unsatisfiable for keywords the whole time.
+    keywords_list = [str(k) for k in (entity_result.get("keywords") or []) if str(k).strip()]
     keywords_str = ", ".join(keywords_list) if keywords_list else "(none)"
 
     # Compute total_matches + preview_count for the mode at hand, AND
@@ -163,7 +644,8 @@ def chatter_agent_answer(
         graph_limit = (graph_result or {}).get("limit")
         probed_total = (graph_result or {}).get("total")
         total_matches = probed_total if probed_total is not None else (graph_result or {}).get("count")
-        preview_count = len(graph_data[:20])
+        graph_rows_shown = _graph_rows_for_writer(graph_data)
+        preview_count = len(graph_rows_shown)
         example_ids = _harvest_ids(graph_data)
     elif is_reporter and isinstance(reporter_summary, dict):
         total_matches = (
@@ -195,13 +677,28 @@ def chatter_agent_answer(
 
     # Mode-specific data section (the actual answer payload).
     if is_graph:
-        records = ((graph_result or {}).get("data") or [])[:20]
+        all_rows = (graph_result or {}).get("data") or []
+        records = _graph_rows_for_writer(all_rows)
         preview_json = json.dumps(records, separators=(",", ":"), default=str)
         ok = (graph_result or {}).get("ok", False)
         error_str = (graph_result or {}).get("error", "")
+        row_total = total_matches if isinstance(total_matches, int) else len(all_rows)
+        complete = bool(records) and len(records) == len(all_rows) == row_total and not graph_truncated
+        if complete:
+            heading = f"Graph result (all {len(records)} rows):"
+        else:
+            heading = f"Graph result preview (first {len(records)} of {row_total} rows):"
+        breakdown = _breakdown_sum(records) if complete else None
         data_section = (
-            f"Graph result preview (up to 20 records):\n{preview_json}\n"
-            f"Query status: {'success' if ok else 'failed'}"
+            f"{heading}\n{preview_json}\n"
+            + (f"Sum of {breakdown[0]} across all {len(records)} rows: {breakdown[1]:,}. When the question "
+               "asks how many, give this total first, then the breakdown.\n" if breakdown else "")
+            + ("Every row of this result is attached to the turn as a table and a downloadable "
+               "file, so say the full list is available rather than offering to re-run the "
+               "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
+            + _type_histogram_block(all_rows, len(records))
+            + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
+            + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
         )
         mode_label = "graph_query"
@@ -212,13 +709,56 @@ def chatter_agent_answer(
         mode_label = "reporter"
         log_label = "chatter_report"
     else:
-        api_json = json.dumps(api_result_slim, separators=(",", ":"))
+        api_json = json.dumps(
+            _scrub_plumbing(api_result_slim, _RESULT_PLUMBING_KEYS),
+            separators=(",", ":"), default=str,
+        )
         data_section = f"Matching sample records (slimmed):\n{api_json}"
         if error_context:
-            error_json = json.dumps(error_context, separators=(",", ":"))
+            error_json = json.dumps(
+                _scrub_plumbing(error_context, _ERROR_PLUMBING_KEYS),
+                separators=(",", ":"), default=str,
+            )
             data_section += f"\n\nError context:\n{error_json}"
         mode_label = "search"
         log_label = "chatter"
+
+    # The 2026-09-21 re-run: 34 of the 43 replies recited the shape of the search,
+    # because the permission to state it was unconditional while every disclosure that
+    # behaves (NOT APPLIED, TRUNCATED, substitution) fires only when it changes the
+    # reading. Grant it on the same footing.
+    slim_flags = api_result_slim if isinstance(api_result_slim, dict) else {}
+    # `query_notes`, not `scope.notes`: the scope's notes also carry the graph agent's own
+    # `explanation` on every graph turn (helpers/query_scope.py), so using them qualified
+    # every turn and turn 1151 answered "There are 57,441 samples in the SRP project. This
+    # count was determined by a graph query over the sample network, ..." on an image that
+    # carried this fix. A qualification is something the CALLER knows and the answer needs.
+    disclosure_qualifies = bool(
+        scope.not_applied
+        or query_notes
+        or graph_truncated
+        or slim_flags.get("search_text_substituted")
+        or slim_flags.get("result_capped")
+        or (isinstance(total_matches, int) and total_matches == 0)
+    )
+    # 13 of that run's 34 graph turns answered from one count row and named no identifier
+    # at all (12 of the 13 named nothing), because every rule about naming them is written
+    # for rows ("from the preview", "when you were given all the rows") and none can fire.
+    count_only = is_graph and _is_count_only((graph_result or {}).get("data") or [])
+    # F-d's closer drop is for an answered result only: rows, or a count or total above zero. On a zero, a failed
+    # query or an error, a question that asks the user to choose (which project, the closest spelling of a
+    # misspelled lab) is the answer, not a stock offer.
+    if is_graph:
+        answered = bool((graph_result or {}).get("ok")) and _returned_something(
+            (graph_result or {}).get("data"), total_matches)
+    elif is_reporter:
+        answered = _report_returned_rows(reporter_summary)
+    else:
+        api_source = api_result_full if isinstance(api_result_full, dict) else slim_flags
+        rest_rows = api_row_count(api_result_full)
+        answered = (not error_context and api_source.get("ok") is not False
+                    and (_above_zero(rest_rows if rest_rows is not None else slim_flags.get("rows_returned"))
+                         or _above_zero(total_matches)))
 
     examples_block = ""
     if example_ids:
@@ -235,7 +775,9 @@ def chatter_agent_answer(
         f"- Assays: {resolved_assays}\n"
         f"- Projects: {resolved_projects}\n"
         f"- Keywords: {keywords_str}\n\n"
-        f"{data_section}\n\n"
+        f"{render_query_scope(scope)}\n\n"
+        + (f"{OFFERED_STEP_LINE.format(step=offered_step)}\n\n" if offered_step else "")
+        + f"{data_section}\n\n"
         "Result statistics:\n"
         f"- Total matches: {total_matches if total_matches is not None else 'unknown'}\n"
         f"- Preview rows shown: {preview_count}\n"
@@ -249,16 +791,50 @@ def chatter_agent_answer(
         f"{examples_block}"
         f"MODE: {mode_label}\n\n"
         "Instructions for this turn:\n"
-        "- Lead with the count or key finding.\n"
-        "- Use resolved entity NAMES (e.g. 'Non-Human Primate'), not codes alone, when introducing the result.\n"
+        "- Lead with the count or key finding: the first sentence is the answer, not an account of how it "
+        "was found.\n"
+        "- Name a sample type, assay or project ONCE, by its name or its code, not both: '140 RNA samples', "
+        "never '140 RNA samples (RNA Sample)'. Use the form the user used.\n"
         + (
             "- MUST mention all example identifiers listed above verbatim — they are pre-extracted for you.\n"
             if example_ids else
+            # With an offered step the count line says nothing about offers: the line below asks for
+            # exactly that one. Without one, the count line forbids an offer of the model's own (F-d).
+            "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
+            "the number and what it counts, and never write as though you had seen the records.\n"
+            if count_only and offered_step else
+            "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
+            "the number and what it counts, never write as though you had seen the records, and make no offer "
+            "of your own: the reply ends on the answer.\n"
+            if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
-        + "- Do NOT describe HOW the data was retrieved — no endpoint names, no Cypher, "
-        "no API mechanics, no filter operators (AND/OR), no requestBody.\n"
-        "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
+        + (
+            "- The message includes an 'Offered next step' line: end the reply with one sentence offering exactly "
+            "that step, and make no other offer.\n"
+            if offered_step else ""
+        )
+        + (
+            "- The query did NOT constrain on everything the user asked for. Say which "
+            "constraint is missing in your FIRST sentence, and do not describe the result "
+            "as though it were restricted to it.\n"
+            if scope.not_applied else ""
+        )
+        + "- If you name a sample type, assay code or keyword, take it from 'Constrained by', never from "
+        "'What the user asked for' — those are what was requested, not what was searched.\n"
+        + (
+            "- You may name WHAT was searched using the 'Searched' phrase above, once and after the answer, "
+            "because something about this result needs qualifying (a dropped constraint, a substituted or "
+            "capped search, a zero, or a note from whoever built the query). Never name an endpoint, a URL, "
+            "an HTTP method, Cypher, a query operator (AND/OR) or a request field: the user cannot act on "
+            "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
+            "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
+            if disclosure_qualifies else
+            "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
+            "search is not part of the reply: no mention of a query, of what it was constrained by, or of "
+            "how the number was determined.\n"
+        )
+        + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
     )
 
@@ -280,16 +856,33 @@ def chatter_agent_answer(
     messages.append({"role": "user", "content": user_content})
 
     # ---------- LLM Call ----------
+    # Through call_llm_text, not client.chat: the chatter is the last step of a turn
+    # whose query has already run, so a provider blip here throws away a finished
+    # answer. It now gets the same 503 -> provider-fallback, timeout-recycle and 429
+    # backoff ladder as every structured agent, plus a ledger entry it never had.
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
+
+    def _fallback(text: str) -> str:
+        # No model wrote this reply, so it carries the reviewer's facts whether or not they hold
+        # a number, and the offered step.
+        return _with_review_backstop(text, review_disclosure, offered_step, always_disclose=True)
+
+    # Where the premise backstop looks for the reviewer's premise sentence: the notes, and the disclosure itself,
+    # which keeps the sentence when a long note was cut (the note keeps whole facts from the front, and the premise
+    # fact is disclosed last).
+    premise_notes = [*(query_notes or []), review_disclosure or ""]
+
     try:
-        resp = chatter_client.chat(
-            model=chatter_model,
-            temperature=0,
+        answer = call_llm_text(
+            config,
             messages=messages,
+            model_name=chatter_model,
+            client=chatter_client,
+            agent_label="chatter",
+            temperature=0,
             thinking_budget=chatter_budget,
+            usage_label="CHATTER",
         )
-        log_usage(resp, "CHATTER")
-        answer = resp.content or ""
         print("[DEBUG][CHATTER] Raw answer:", answer)
         log_prompt(
             log_dir or config.LOG_DIR,
@@ -304,40 +897,92 @@ def chatter_agent_answer(
     except LLMAPIConnectionError as e:
         print("[DEBUG][CHATTER] APIConnectionError:", repr(e))
         if is_reporter:
-            return "Reporter completed, but had a connection issue summarizing the results."
+            return _fallback("Reporter completed, but had a connection issue summarizing the results.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return f"Graph query returned {count} record(s), but had a connection issue summarizing the results."
+            return _premise_first(_fallback(f"Graph query returned {count} record(s), but had a connection issue "
+                                            "summarizing the results."), premise_notes)
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
-        return (
+        return _fallback(
             "I successfully queried NExtSEEK, but had a connection issue talking to the LLM to "
             "summarize the results.\n\n"
-            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
-            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}\n\n"
             "You can re-run the query or refine it (e.g. by project or study) to narrow the results."
         )
     except LLMRateLimitError as e:
         print("[DEBUG][CHATTER] RateLimitError:", repr(e))
         if is_reporter:
-            return "Reporter completed, but the summarization call hit the model's token/throughput limit."
+            return _fallback("Reporter completed, but the summarization call hit the model's token/throughput limit.")
         if is_graph:
             count = (graph_result or {}).get("count", 0)
-            return f"Graph query returned {count} record(s), but hit the rate limit while summarizing. Try again shortly."
+            return _premise_first(_fallback(f"Graph query returned {count} record(s), but hit the rate limit while "
+                                            "summarizing. Try again shortly."), premise_notes)
         data = (api_result_slim or {}).get("data", {})
         total = data.get("total") if isinstance(data, dict) else None
-        return (
+        return _fallback(
             "I pulled the NExtSEEK results, but the summarization call hit the model's token/throughput limit. "
             "Try again with a narrower query or after a short pause.\n\n"
-            f"Basic info:\n- endpoint: {parser_plan.get('target_endpoint')}\n"
-            f"- intent: {parser_plan.get('intent_summary')}\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
+            f"- total matches: {total if total is not None else 'unknown'}"
+        )
+    except (LLMFatalError, LLMTimeoutError) as e:
+        # Every provider in the chain refused, or the provider the call moved to after
+        # a timeout timed out too (that surfaces as LLMTimeoutError, which the parser
+        # needs to see as such). The query itself already succeeded, so
+        # report what it found and name the real cause. Previously this exception left
+        # the chatter uncaught, escaped run_query's bare `except Exception` and was
+        # rewritten by ns/turn.py into "Internal pipeline error" — production turns
+        # 463/464, where a finished graph result (total=0) was thrown away and the user
+        # was told nothing except that something had broken.
+        print("[DEBUG][CHATTER] Fatal LLM error:", repr(e))
+        busy = (
+            "The model that writes the reply is busy, so this answer is unformatted. "
+            "The query itself ran. Ask again in a moment for the written version."
+        )
+        if is_reporter:
+            return _fallback(f"{busy}\n\nThe report step completed.")
+        if is_graph:
+            count = (graph_result or {}).get("count", 0)
+            return _premise_first(_fallback(f"{busy}\n\nThe graph query returned {count} record(s)."), premise_notes)
+        data = (api_result_slim or {}).get("data", {})
+        total = data.get("total") if isinstance(data, dict) else None
+        return _fallback(
+            f"{busy}\n\n"
+            f"Basic info:\n- searched: {scope.searched}\n"
+            f"- your question: {parser_plan.get('intent_summary')}\n"
             f"- total matches: {total if total is not None else 'unknown'}"
         )
 
     # ---------- Clean answer ----------
     answer_no_links = re.sub(r"https?://\S+", "", answer)
     answer_no_links = re.sub(r"\n{3,}", "\n\n", answer_no_links).strip()
+    # F-d: with no chip to offer, an answered result's closing stock offer goes, unless a note names
+    # a misspelled lab's closest spelling, which the reply offers on any result. On the model's
+    # answer only, before the backstops below, so the offer Task 9 appends is never a candidate;
+    # after the URL cleanup, so a closer is judged as the user would read it.
+    # A closer that alone names a constraint the query did not apply, or a value the reviewer quotes, is that
+    # disclosure's only trace, so it stays.
+    if answered and not offered_step and not _has_lab_near_miss(query_notes):
+        answer_no_links = _drop_stock_closer(answer_no_links,
+                                             keep=_must_keep_terms(scope.not_applied, review_disclosure))
+    # The reviewer's facts after the answer's first sentence and its offered step last, where the
+    # model's reply dropped them. Before the UIDs are linked, so a link's digits never count as a
+    # stated number.
+    # Whether the model already corrected the question's number is judged here, on its reply alone, and carried
+    # into both backstops: judged after, the premise sentence the disclosure brought in read as a second correction.
+    corrected = _corrects_premise(answer_no_links)
+    answer_no_links = _with_review_backstop(answer_no_links, review_disclosure, offered_step, corrected=corrected)
+    # A number the question states and the result did not reproduce is corrected in the first sentence (F-b): the
+    # last reply backstop, so it adds the sentence only where nothing before it did, and puts it first where the
+    # disclosure above holds it behind another fact.
+    answer_no_links = _premise_first(answer_no_links, premise_notes, corrected=corrected)
+    # Every sample UID the reply names links to its sample page. Before the debug
+    # block is appended, so that block is never a candidate.
+    answer_no_links = link_sample_uids(answer_no_links)
 
     # ---------- Debug block ----------
     debug_block = (
@@ -454,14 +1099,24 @@ def chatter_agent_plan(
     ])
 
     try:
-        resp = chatter_client.chat(
-            model=chatter_model,
-            temperature=0.3,
+        # Same path as the single-turn chatter: retries, provider fallback and a ledger
+        # entry, none of which a bare client.chat had.
+        narrative = call_llm_text(
+            config,
             messages=messages,
+            model_name=chatter_model,
+            client=chatter_client,
+            agent_label="chatter",
+            temperature=0.3,
             thinking_budget=chatter_budget,
-        )
-        narrative = resp.content or "(no response)"
-    except Exception as e:
+            usage_label="PLAN_CHATTER",
+        ) or "(no response)"
+    except (Exception, LLMFatalError) as e:
+        # Both models failing ends in LLMFatalError (a BaseException), a double timeout
+        # included since 2026-09-28; the plan ran, so its step summary still answers, as the
+        # single-turn chatter's does (D2). A fatal that is not unavailability ends the turn.
+        if isinstance(e, LLMFatalError) and not getattr(e, "unavailable", False):
+            raise
         print(f"[DEBUG][PLAN_CHATTER] failed: {e!r}")
         narrative = (
             f"I executed a {len(plan.steps)}-step plan for your query: {plan.intent_summary}.\n\n"
@@ -477,5 +1132,5 @@ def chatter_agent_plan(
         "plan_chatter",
         {"messages": messages, "response": narrative},
     )
-    return f"{narrative}\n\n```json\n{debug_json}\n```"
+    return f"{link_sample_uids(narrative)}\n\n```json\n{debug_json}\n```"
 

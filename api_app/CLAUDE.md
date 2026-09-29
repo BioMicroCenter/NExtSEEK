@@ -115,7 +115,7 @@
 - **The `remoteJob/` script indexes a metadata key SEEK does not write.** Its live save
   loop at `api_app/remoteJob/updateTrees.py:952` reads the lowercase spelling, while the
   successor's own SQL at `api_app/updateTrees.py:58` and SEEK's own writer at
-  `seek/sample/upload.py:480` both spell it `UID`, and its matching loop at
+  `seek/sample/upload.py:344` both spell it `UID`, and its matching loop at
   `api_app/updateTrees.py:990` reads it that way, so the older script raises `KeyError`
   on the first row rather than rebuilding anything. One
   lowercase read survives in the successor too, at `api_app/updateTrees.py:365`, but only

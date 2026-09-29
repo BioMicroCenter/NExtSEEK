@@ -12,8 +12,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 SIDECAR_OPS = frozenset(
-    {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
-     "run-ls", "build-upload-xlsx"}
+    {"aggregate", "entity", "parse", "api-read", "api-write", "graph", "graph-schema", "report",
+     "generate-submission", "run-ls", "build-upload-xlsx"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -140,6 +140,22 @@ class _SubmissionArgs(BaseModel):
         return v
 
 
+class _GraphSchemaArgs(BaseModel):
+    """graph-schema takes nothing required: both fields narrow a read of the live catalog.
+    `types` is comma-separated sample type codes; `query` only gates the vocabulary blocks."""
+    model_config = ConfigDict(extra="forbid")
+    types: str = ""
+    query: str = ""
+
+
+class _AggregateArgs(BaseModel):
+    """aggregate: the whole question, and optionally its parts as a JSON array of 1 to 4 plain-language
+    sub-questions sent as text. No Cypher and no scope: NExtSEEK takes the scope from the caller's account."""
+    model_config = ConfigDict(extra="forbid")
+    query: str
+    parts: str = ""
+
+
 class _RunLsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
     run_dir: str
@@ -152,9 +168,11 @@ class _BuildUploadXlsxArgs(BaseModel):
 
 
 _OP_ARG_MODELS = {
+    "aggregate": _AggregateArgs,
     "entity": _QueryArg,
     "parse": _QueryArg,
     "graph": _QueryArg,
+    "graph-schema": _GraphSchemaArgs,
     "api-read": _ApiReadArgs,
     "api-write": ApiWriteArgs,
     "report": _ReportArgs,

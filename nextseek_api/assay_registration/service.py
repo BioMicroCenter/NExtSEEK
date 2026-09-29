@@ -8,10 +8,10 @@ from django.conf import settings
 from django.urls import reverse
 
 from nextseek_api.batch_upload.db_engine import get_connection
+from nextseek_api.graph_sync import hooks
 
 from . import jobs
 from .executor import execute, preview
-from .graph import recompute_for_samples
 from .planner import plan_batch
 from .schemas import (
     ErrorResponse,
@@ -52,65 +52,50 @@ def _http_status(result) -> int:
     return _STATUS_FOR[result.overall_status]
 
 
-def _neo4j():
-    """Driver and database name, from settings. See graph.py trap 2.
+def _enqueue_graph_sync(changed_sample_ids) -> GraphOutcome:
+    """Queue a graph sync for every sample whose assay links this batch changed.
 
-    ``settings.NEO4J_DATABASE`` is a DICT here -- ``{"NAME", "URI", "AUTH"}`` --
-    not a database name, and there are no NEO4J_URI / NEO4J_USER /
-    NEO4J_PASSWORD settings at all. Every other Neo4j caller in this repo reads
-    that one dict (services/sampletype_connections.py:193,
-    batch_upload/scripts/backfill_shared_assays.py:165, which is the script
-    graph.py was lifted from), so this does too. Inventing per-field names would
-    have produced a driver pointed at bolt://neo4j:7687 with an empty password
-    and a database named by a dict, and every symptom would have surfaced as a
-    graph failure rather than as a configuration error.
+    Registering a membership invalidates the assay labels on every DERIVED_FROM
+    edge incident to that sample, in both directions. One rule owns those labels
+    now (`nextseek_api/graph_sync/labels.py`), so this endpoint computes and
+    writes none of them: it writes one `samples` outbox row per sample and
+    returns, and the drain relabels the edges through `targeted.sync_samples`
+    under the same rule every other writer gets. Nothing here waits on Neo4j,
+    and that is why the outcome says `queued` rather than carrying a count:
+    when this request answers, nothing has been recomputed yet.
+
+    A failure here never invalidates the write. assay_assets is the source of
+    truth and the labels are derived from it, so a row that could not be queued
+    leaves a stale view, which is exactly the state the graph was in before the
+    registration; rolling back a correct MySQL write to satisfy a derived store
+    would be strictly worse. The loss is bounded rather than permanent: the
+    nightly targeted sync compares each sample's source hash, which covers its
+    assay links, against what its node was written from, and syncs what differs.
+
+    The input is `ExecutionResult.recompute_sample_ids`, which is written UNION
+    already_present, NOT the written-only set. Fed that, a re-POST of an
+    identical batch would write nothing, hand this function an empty set and
+    report `skipped` -- so the published recovery instruction, re-POST the
+    batch, would repair nothing while reporting that there was nothing to
+    repair. `skipped` means what it says: no row ended written or
+    already_present, so no membership exists for a label to be derived from.
     """
-    from neo4j import GraphDatabase
-
-    neo = settings.NEO4J_DATABASE
-    return GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]), neo["NAME"]
-
-
-def _recompute(recompute_sample_ids) -> GraphOutcome:
-    """Recompute derived labels. A failure here never invalidates the write.
-
-    assay_assets is the source of truth and the edge labels are derived from
-    it, so a failed recompute leaves a stale view, which is exactly the state
-    the graph was in before the #118 backfill. Rolling back a correct MySQL
-    write to satisfy a derived store would be strictly worse. Re-POSTing the
-    identical batch repairs it: MySQL answers already_present for every row and
-    the recompute runs again.
-
-    That last sentence is TRUE ONLY BECAUSE the input is
-    `ExecutionResult.recompute_sample_ids`, which is written UNION
-    already_present. Fed the written-only set, a re-POST of an identical batch
-    writes nothing, hands this function an empty set, and gets `skipped` -- so
-    the published recovery instruction would repair nothing while reporting
-    that there was nothing to repair. `skipped` now means what it says: no row
-    ended written or already_present, so no membership exists for a label to be
-    derived from.
-
-    ``edges_recomputed`` counts RELATIONSHIPS, not edge pairs, and one pair can
-    be carried by several DERIVED_FROM relationships (measured: 1,920 pairs,
-    5,117 relationships, worst multiplicity 6). It is a report, not a
-    reconciliation figure -- do not compare it against the number of rows
-    written.
-    """
-    if not recompute_sample_ids:
+    if not changed_sample_ids:
         return GraphOutcome(status="skipped")
-    try:
-        driver, db_name = _neo4j()
-        try:
-            written = recompute_for_samples(recompute_sample_ids, driver, db_name)
-        finally:
-            driver.close()
-        return GraphOutcome(status="succeeded", edges_recomputed=written)
-    except Exception as exc:  # noqa: BLE001 - reported, never raised past here
-        log.exception("assay-registration graph recompute failed")
-        # `edges_recomputed` stays 0, and that is not a count of anything. The
-        # read pass itself is what failed, so no honest figure exists; the error
-        # string is the whole of what this outcome can say.
-        return GraphOutcome(status="failed", error=str(exc))
+
+    ids = sorted(int(sample_id) for sample_id in changed_sample_ids)
+    # `hooks.enqueue` never raises: it logs a failure with its traceback,
+    # counts it per kind, and reports False. Reporting `queued` over a row that
+    # was never written would be the class of lie this endpoint exists to
+    # remove, so what was lost is counted and named instead. `edges_recomputed`
+    # stays 0: it is not a count of anything on either path.
+    lost = [sample_id for sample_id in ids
+            if not hooks.enqueue("samples", f"sample:{sample_id}")]
+    if lost:
+        return GraphOutcome(status="failed", error=(
+            f"{len(lost)} of {len(ids)} samples could not be queued for a "
+            "graph sync; the nightly targeted sync will find them"))
+    return GraphOutcome(status="queued")
 
 
 def register(payload: RegistrationRequest, request) -> Tuple[dict, int]:
@@ -150,8 +135,9 @@ def register(payload: RegistrationRequest, request) -> Tuple[dict, int]:
 
         result = execute(plan, conn)
 
-    # Outside the MySQL transaction, deliberately. See _recompute.
-    graph = _recompute(result.recompute_sample_ids)
+    # Outside the MySQL transaction, deliberately: a hook goes after the
+    # writer's own commit, never inside it. See _enqueue_graph_sync.
+    graph = _enqueue_graph_sync(result.recompute_sample_ids)
 
     body = RegistrationResponse(
         mode="synchronous", overall_status=result.overall_status,

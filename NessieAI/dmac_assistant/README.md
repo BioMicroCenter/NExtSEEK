@@ -40,6 +40,9 @@ why every one of those call sites imports the way it does:
 | `load_capabilities(path)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/capabilities.py:41` | `NessieAI/router/router.py:223` |
 | `load_model_class_map(path)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:61` | `NessieAI/router/router.py:95` |
 | `resolve_cc_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:104` | `NessieAI/router/router.py:106` |
+| `is_bedrock_model_id(value)` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:122` | `NessieAI/cc/cc_engine.py:509` |
+| `resolve_cc_fallback_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:131` | `NessieAI/cc/cc_engine.py:492` |
+| `resolve_cc_classifier_model()` | `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:148` | `NessieAI/cc/cc_engine.py:509` |
 | `RouterAgent` | `NessieAI/dmac_assistant/src/dmac_assistant/router/agent.py:100` | `NessieAI/router/router.py:224` |
 | `diff_files(before, after)` | `NessieAI/dmac_assistant/src/dmac_assistant/run_tracker.py:51` | `NessieAI/cc/cc_engine.py:1852` |
 | `ConfigError` | `NessieAI/dmac_assistant/src/dmac_assistant/config.py:37` | in-package only, at `NessieAI/dmac_assistant/src/dmac_assistant/router/capabilities.py:21` and `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:23` |
@@ -113,7 +116,10 @@ the sync one.
   ruling is `NessieAI/docs/dev-v5-merge-decisions.md`.
 - `NessieAI/dmac_assistant/build_context/router_model_class_map.json` maps the three
   `ModelClass` members of `NessieAI/dmac_assistant/baml_src/router.baml:39-43` onto
-  Bedrock-qualified model ids. It is hand-maintained: it appears in no target
+  Bedrock-qualified model ids, plus one optional entry that is not a member,
+  `opus_fallback`: the model a Container-CC turn falls back to (`--fallback-model`).
+  The loader does not require it; `resolve_cc_fallback_model()` checks it, so a bad
+  fallback id costs only the fallback. It is hand-maintained: it appears in no target
   tuple in `NessieAI/build_tools/gen_op_surfaces/emit.py:205-218`. Every value is validated
   against a `us.anthropic.` regex at
   `NessieAI/dmac_assistant/src/dmac_assistant/router/models.py:30` before use, and the

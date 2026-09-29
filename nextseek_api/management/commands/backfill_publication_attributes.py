@@ -19,6 +19,13 @@ the end, matching where DOI and PMID sit in the attribute list.
 A sample can appear in more than one paper. Multiple values are joined with
 '; ' and PMIDs align positionally with DOIs, blank where a paper has no PubMed
 record.
+
+The graph: this command bumps no updated_at, so nothing else would tell the
+sample graph that the metadata moved. Once --apply has committed, the ids it
+wrote are queued for a graph sync in batches of 5,000 (kind 'samples', key
+'batch:backfill:<n>', the ids as the payload). The row goes in after the
+updates, never inside them, and it is only a note to the drain, which reads the
+samples back and writes the graph itself.
 """
 
 from __future__ import annotations
@@ -29,7 +36,10 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 from django.conf import settings
 
+from nextseek_api.graph_sync import hooks
+
 SEPARATOR = "; "
+GRAPH_SYNC_BATCH = 5_000
 
 _FROM_STUDIES_SQL = """
     SELECT sample_id,
@@ -91,6 +101,22 @@ def updated_metadata(raw: str | None, doi: str, pmid: str) -> str:
     return json.dumps(data)
 
 
+def enqueue_graph_sync(ids: list[int], batch: int | None = None) -> int:
+    """Queue the samples this run updated for a graph sync. Returns how many ids were queued.
+
+    Called after the updates are committed, never inside them. hooks.enqueue never raises, so a batch that cannot be
+    queued costs the backfill nothing: those samples wait for the nightly targeted sync instead.
+    """
+    size = batch or GRAPH_SYNC_BATCH
+    ordered = sorted(ids)
+    queued = 0
+    for n, start in enumerate(range(0, len(ordered), size)):
+        chunk = ordered[start:start + size]
+        if hooks.enqueue("samples", f"batch:backfill:{n}", chunk):
+            queued += len(chunk)
+    return queued
+
+
 class Command(BaseCommand):
     help = "Backfill DOI/PMID into sample json_metadata. Dry-run unless --apply."
 
@@ -118,6 +144,7 @@ class Command(BaseCommand):
         ids = sorted(pairs)
         missing = 0
         changed = 0
+        updated: list[int] = []
         with _cursor() as c:
             for i in range(0, len(ids), options["batch"]):
                 chunk = ids[i:i + options["batch"]]
@@ -140,11 +167,19 @@ class Command(BaseCommand):
                             "UPDATE samples SET json_metadata = %s WHERE id = %s",
                             [new, sample_id],
                         )
+                        updated.append(sample_id)
 
         self.stdout.write(f"{changed} sample(s) would change" if not options["apply"]
                           else f"{changed} sample(s) updated")
         if missing:
             self.stdout.write(self.style.WARNING(
                 f"{missing} sample id(s) in the source do not exist here"))
+        if updated:
+            queued = enqueue_graph_sync(updated)
+            self.stdout.write(f"{queued} sample(s) queued for a graph sync")
+            if queued < len(updated):
+                self.stdout.write(self.style.WARNING(
+                    f"{len(updated) - queued} sample(s) could not be queued for a graph sync; "
+                    "the nightly targeted sync will find them"))
         if not options["apply"]:
             self.stdout.write("Dry run. Re-run with --apply to write.")

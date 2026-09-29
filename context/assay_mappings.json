@@ -1,0 +1,583 @@
+[
+  {
+    "action": "rename_internal",
+    "internal_assay_id": 14,
+    "from_title": "Chemical challenge",
+    "internal_assay_title": "Chemical Challenge"
+  },
+  {
+    "action": "rename_internal",
+    "internal_assay_id": 143,
+    "from_title": "Alanine Aminotransferase (ALT/GPT) Activity Assay",
+    "internal_assay_title": "GPT Assay"
+  },
+  {
+    "action": "rename_internal",
+    "internal_assay_id": 130,
+    "from_title": "Mass Spectrometry",
+    "internal_assay_title": "Mass Spectrometry Proteomics"
+  },
+  {
+    "action": "rename_internal",
+    "internal_assay_id": 47,
+    "from_title": "Mass Spectrometry Analysis",
+    "internal_assay_title": "Mass Spectrometry Proteomics Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Antibody-Dependent Cellular Phagocytosis Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Antibody-Dependent NK Cell Activation Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Device Assembly"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Device Design"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Electrochemical Filtration"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Ion Chromatography"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Ion Chromatography Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Mass Spectrometry"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Mass Spectrometry Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Scanning Electron Microscopy"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Variant Call Filtering"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Voltammetry"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Voltammetry Analysis"
+  },
+  {
+    "action": "create_internal",
+    "internal_assay_title": "Water Quality Detection"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 466,
+    "seek_title": "Library Prep",
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 467,
+    "seek_title": "Short Read Sequencing",
+    "internal_assay_title": "Short Read Sequencing"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 468,
+    "seek_title": "Genome Alignment",
+    "internal_assay_title": "Genome Alignment"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 469,
+    "seek_title": "Mutational Spectral Analysis",
+    "internal_assay_title": "Mutational Spectra Analysis"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 470,
+    "seek_title": "Variant Call Filtering",
+    "internal_assay_title": "Variant Call Filtering"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 471,
+    "seek_title": "Predictive Modeling",
+    "internal_assay_title": "Computational Modeling"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 472,
+    "seek_title": "Water Quality Detection",
+    "internal_assay_title": "Water Quality Detection"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 473,
+    "seek_title": "Electrochemical Filtration",
+    "internal_assay_title": "Electrochemical Filtration"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 474,
+    "seek_title": "Ion Chromatography",
+    "internal_assay_title": "Ion Chromatography"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 475,
+    "seek_title": "Ion Chromatography Analysis",
+    "internal_assay_title": "Ion Chromatography Analysis"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 476,
+    "seek_title": "Voltammetry",
+    "internal_assay_title": "Voltammetry"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 477,
+    "seek_title": "Voltammetry Analysis",
+    "internal_assay_title": "Voltammetry Analysis"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 478,
+    "seek_title": "Device Design",
+    "internal_assay_title": "Device Design"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 479,
+    "seek_title": "Scanning Electron Microscopy",
+    "internal_assay_title": "Scanning Electron Microscopy"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 480,
+    "seek_title": "Device Assembly",
+    "internal_assay_title": "Device Assembly"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 481,
+    "seek_title": "RNA Extraction",
+    "internal_assay_title": "RNA Extraction"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 482,
+    "seek_title": "Gene Expression Analysis",
+    "internal_assay_title": "Gene Expression Analysis"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 483,
+    "seek_title": "Tissue Collection",
+    "internal_assay_title": "Tissue Collection"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 484,
+    "seek_title": "Cell Isolation",
+    "internal_assay_title": "Cell Isolation"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 485,
+    "seek_title": "Reverse Transcription-Polymerase Chain Reaction (RT-PCR)",
+    "internal_assay_title": "Polymerase Chain Reaction (PCR)"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 486,
+    "seek_title": "γH2AX staining and analysis",
+    "internal_assay_title": "Immunohistochemistry"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 487,
+    "seek_title": "Cleaved caspase-3 staining and analysis",
+    "internal_assay_title": "Immunohistochemistry"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 488,
+    "seek_title": "HistoPathology Analysis",
+    "internal_assay_title": "Histopathology Analysis"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 489,
+    "seek_title": "Flow Cytometry",
+    "internal_assay_title": "Flow Cytometry"
+  },
+  {
+    "action": "map",
+    "seek_assay_id": 490,
+    "seek_title": "Flow Cytometry Analysis",
+    "internal_assay_title": "Flow Cytometry Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 37,
+    "seek_title": "Mass Spectrometry",
+    "from_internal_assay_id": 130,
+    "internal_assay_title": "Mass Spectrometry"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 47,
+    "seek_title": "Mass Spectrometry Analysis",
+    "from_internal_assay_id": 47,
+    "internal_assay_title": "Mass Spectrometry Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 211,
+    "seek_title": "Library Creation – Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 239,
+    "seek_title": "Antibody-Dependent Cellular Phagocytosis - Data Linked",
+    "from_internal_assay_id": 154,
+    "internal_assay_title": "Antibody-Dependent Cellular Phagocytosis (ADCP)"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 242,
+    "seek_title": "Antibody-Dependent Neutrophil Phagocytosis - Data Linked",
+    "from_internal_assay_id": 154,
+    "internal_assay_title": "Antibody-Dependent Neutrophil Phagocytosis (ADNP)"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 253,
+    "seek_title": "Antibody-Dependent Neutrophil Phagocytosis Analysis - Data Linked",
+    "from_internal_assay_id": 150,
+    "internal_assay_title": "Antibody-Dependent Neutrophil Phagocytosis Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 254,
+    "seek_title": "Antibody-Dependent NK Cell Activation Analysis - Data Linked",
+    "from_internal_assay_id": 152,
+    "internal_assay_title": "Antibody-Dependent NK Cell Activation Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 255,
+    "seek_title": "Antibody-Dependent Cellular Phagocytosis Analysis - Data Linked",
+    "from_internal_assay_id": 151,
+    "internal_assay_title": "Antibody-Dependent Cellular Phagocytosis Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 269,
+    "seek_title": "Library Prep - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 276,
+    "seek_title": "Library Prep - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 286,
+    "seek_title": "Antibody Titer Analysis - Data Linked",
+    "from_internal_assay_id": 106,
+    "internal_assay_title": "Antibody Titer Assay Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 295,
+    "seek_title": "Library Prep - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 301,
+    "seek_title": "Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 309,
+    "seek_title": "Library Prep - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 320,
+    "seek_title": "Library Prep: Validation Data - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 323,
+    "seek_title": "Gene Expression Analysis: Validation Data - Data Linked",
+    "from_internal_assay_id": 98,
+    "internal_assay_title": "Gene Expression Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 327,
+    "seek_title": "Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 333,
+    "seek_title": "Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 356,
+    "seek_title": "Microfluidic Device Creation - Metadata",
+    "from_internal_assay_id": 128,
+    "internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 365,
+    "seek_title": "Microfluidic Device Creation - Metadata",
+    "from_internal_assay_id": 128,
+    "internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 367,
+    "seek_title": "Flow Cytometry Analysis - Data Linked",
+    "from_internal_assay_id": 30,
+    "internal_assay_title": "Flow Cytometry Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 369,
+    "seek_title": "Device Creation - Metadata",
+    "from_internal_assay_id": 128,
+    "internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 373,
+    "seek_title": "Device Creation - Metadata",
+    "from_internal_assay_id": 128,
+    "internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 381,
+    "seek_title": "Library Prep - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 391,
+    "seek_title": "Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 406,
+    "seek_title": "Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 410,
+    "seek_title": "Mass Spectrometry Processing – Data Linked",
+    "from_internal_assay_id": 47,
+    "internal_assay_title": "Mass Spectrometry Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 411,
+    "seek_title": "Mass Spectrometry – Data Linked",
+    "from_internal_assay_id": 130,
+    "internal_assay_title": "Mass Spectrometry"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 418,
+    "seek_title": "Extraction and Library Creation - Metadata",
+    "from_internal_assay_id": 174,
+    "internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 421,
+    "seek_title": "Illumina Sequencing - Data Linked",
+    "from_internal_assay_id": 114,
+    "internal_assay_title": "Short Read Sequencing"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 378,
+    "seek_title": "Fluorescence-Activated Cell Sorting - Data Linked",
+    "from_internal_assay_id": 78,
+    "internal_assay_title": "Cell Sorting"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 353,
+    "seek_title": "ADFP Analysis - Data Linked",
+    "from_internal_assay_id": 186,
+    "internal_assay_title": "Antibody Functional Profiling (Systems Serology)"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 427,
+    "seek_title": "High Resolution Mass Spectra - Data Linked",
+    "from_internal_assay_id": 129,
+    "internal_assay_title": "Mass Spectrometry"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 432,
+    "seek_title": "High Resolution Mass Spectra Analysis - Data Linked",
+    "from_internal_assay_id": 181,
+    "internal_assay_title": "Mass Spectrometry Analysis"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 384,
+    "seek_title": "Real-time RT-PCR - Data Linked",
+    "from_internal_assay_id": 136,
+    "internal_assay_title": "Polymerase Chain Reaction (PCR)"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 339,
+    "seek_title": "Mouse Challenge – Metadata",
+    "from_internal_assay_id": 132,
+    "internal_assay_title": "Pathogen Challenge and Antibody Depletion"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 379,
+    "seek_title": "Microvascular Network Formation - Metadata",
+    "from_internal_assay_id": 81,
+    "internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 449,
+    "seek_title": "UV-Vis Spectroscopy - Data Linked",
+    "from_internal_assay_id": 120,
+    "internal_assay_title": "Spectroscopy"
+  },
+  {
+    "action": "remap",
+    "seek_assay_id": 424,
+    "seek_title": "Absorption and Emission Spectroscopy - Data Linked",
+    "from_internal_assay_id": 121,
+    "internal_assay_title": "Spectroscopy"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 174,
+    "from_title": "Library Preparation",
+    "into_internal_assay_title": "Library Creation"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 128,
+    "from_title": "Device Creation",
+    "into_internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 98,
+    "from_title": "Gene Expression Validation Assay",
+    "into_internal_assay_title": "Gene Expression Analysis"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 114,
+    "from_title": "Illumina Next-Generation Sequencing",
+    "into_internal_assay_title": "Short Read Sequencing"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 78,
+    "from_title": "Fluorescence-Activated Cell Sorting (FACS)",
+    "into_internal_assay_title": "Cell Sorting"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 186,
+    "from_title": "ADFP Analysis",
+    "into_internal_assay_title": "Antibody Functional Profiling (Systems Serology)"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 129,
+    "from_title": "High Resolution Mass Spectrometry (HRMS)",
+    "into_internal_assay_title": "Mass Spectrometry"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 181,
+    "from_title": "High Resolution Mass Spectra Analysis",
+    "into_internal_assay_title": "Mass Spectrometry Analysis"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 136,
+    "from_title": "Real-time RT-PCR",
+    "into_internal_assay_title": "Polymerase Chain Reaction (PCR)"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 132,
+    "from_title": "Mouse Challenge Experiment",
+    "into_internal_assay_title": "Pathogen Challenge and Antibody Depletion"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 81,
+    "from_title": "Microvascular Network Formation Assay",
+    "into_internal_assay_title": "Organ-on-a-Chip Device Fabrication"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 120,
+    "from_title": "UV-Vis Spectroscopy",
+    "into_internal_assay_title": "Spectroscopy"
+  },
+  {
+    "action": "merge_internal",
+    "internal_assay_id": 121,
+    "from_title": "Absorption and Emission Spectroscopy",
+    "into_internal_assay_title": "Spectroscopy"
+  }
+]

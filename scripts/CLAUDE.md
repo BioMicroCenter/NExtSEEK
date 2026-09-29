@@ -87,7 +87,7 @@ root (Landmines, above); everything else in that selection is expected to pass.
 
 ## See also
 
-- See README.md in this directory for the six purpose groups, what each reads and writes,
+- See README.md in this directory for the seven purpose groups, what each reads and writes,
   and the dependency edges in both directions.
 - See `ci/README.md` for how the route-registry gate consumes the dumper.
 - See `docs/ISSUE-CONVENTIONS.md` for the issue taxonomy these validators own.

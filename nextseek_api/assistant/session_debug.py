@@ -230,6 +230,9 @@ def collect(session, *, include: Iterable[str] = ()) -> dict[str, Any]:
     ledger = [
         {
             "turn_number": r.turn_number,
+            # The QueryTask UUID this turn ran as, the join key to "tasks" above;
+            # None on rows written before the ledger carried the link.
+            "task_id": str(r.query_task.task_id) if r.query_task_id else None,
             "route": r.route,
             "route_source": r.route_source,
             "task_family": r.task_family,
@@ -237,7 +240,8 @@ def collect(session, *, include: Iterable[str] = ()) -> dict[str, Any]:
             "attempted_source": r.attempted_source,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in TurnLedger.objects.filter(session=session).order_by("turn_number")
+        for r in TurnLedger.objects.filter(session=session)
+        .select_related("query_task").order_by("turn_number")
     ]
 
     transcripts = []

@@ -1,7 +1,7 @@
 """Unit tests for the shared assertions. No stack, no network, no browser.
 
     PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pytest --with requests \
-      --with playwright pytest ci/smoke/test_assertions_unit.py -q -p no:cacheprovider
+      --with playwright==1.60.0 pytest ci/smoke/test_assertions_unit.py -q -p no:cacheprovider
 
 The rule under test is the redaction one. T0 builds its URLs out of identifiers
 discovered at run time, and under the prod profile those are real production

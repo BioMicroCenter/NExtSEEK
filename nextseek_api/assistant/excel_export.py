@@ -256,6 +256,40 @@ def _read_workbook_preview(filepath: str | Path, max_rows: int = 5) -> list[dict
     return sheets
 
 
+def _graph_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """One table artifact for a graph turn, from the rows it stored.
+
+    Reads the bundle's own rows rather than the artifact file, so a turn whose file write
+    failed still shows its rows. MAX_INLINE_ROWS and the "Showing first N of M rows" footer
+    are the reporter path's and work here unchanged.
+    """
+    rows = ((bundle.get("graph_result") or {}).get("data")) or []
+    rows = [r for r in rows if isinstance(r, dict)]
+    if not rows:
+        return []
+
+    columns: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in columns:
+                columns.append(str(key))
+    if not columns:
+        return []
+
+    total = (bundle.get("graph_result") or {}).get("total")
+    total = total if isinstance(total, int) else len(rows)
+    shown = rows[:MAX_INLINE_ROWS]
+    return [{
+        "type": "table",
+        "title": "Graph query results",
+        "columns": columns,
+        "rows": [[row.get(c) for c in columns] for row in shown],
+        "total_rows": total,
+        "footer": (f"Showing first {len(shown)} of {total} rows"
+                   if len(shown) < total else f"{total} rows"),
+    }]
+
+
 def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     """Build the artifacts list from a bundle dict.
 
@@ -264,6 +298,14 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     For search bundles: returns empty (search xlsx is generated client-side).
     """
     mode = bundle.get("mode", "")
+
+    # F7: a graph turn's rows are a table the user can have. Before this, every non-reporter
+    # mode returned [] here, the only file a graph turn wrote was its internal debug JSON,
+    # and the payload carried no artifacts -- so the frontend, which renders `artifacts` and
+    # nothing else, showed a researcher none of the hundreds of rows their query returned.
+    if mode == "graph_query":
+        return _graph_table_artifacts(bundle)
+
     if mode not in ("reporter", "report_generation", "sql_report"):
         return []
 

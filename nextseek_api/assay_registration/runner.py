@@ -28,10 +28,10 @@ replaces wearing a different hat. `_failure_receipt` is the only failure shape,
 and `TestTheReceiptIsReadableByTheStatusEndpoint` drives every terminal
 state this module can write through the real `service.job_status`.
 
-A COMMITTED BATCH IS NEVER REPORTED AS FAILED. The write and the graph
-recompute have separate exception guards for that one reason: they are two
-different questions, and answering the second badly must not retract the answer
-to the first.
+A COMMITTED BATCH IS NEVER REPORTED AS FAILED. The write and the graph enqueue
+have separate exception guards for that one reason: they are two different
+questions, and answering the second badly must not retract the answer to the
+first.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ from .schemas import (
     RowError,
     RowResult,
 )
-from .service import _recompute
+from .service import _enqueue_graph_sync
 
 log = logging.getLogger(__name__)
 
@@ -172,17 +172,18 @@ def run_one(job, owner: str) -> bool:
         return _fail(job, owner, "job_execution_failed", str(exc))
 
     # OUTSIDE that except, deliberately, and with a guard of its own. Inside it,
-    # a recompute that RAISES would write "the whole batch failed, nothing was
+    # a graph step that RAISES would write "the whole batch failed, nothing was
     # written" for a batch already committed at the block exit above -- the exact
     # lie this endpoint exists to remove, produced by the handler meant to
-    # prevent it. Leaving it to `service._recompute`'s own `except Exception`
-    # would rest this module's correctness on another module's error handling
-    # with nothing pinning the invariant across the boundary. Belt and braces,
-    # cheaply. assay_assets is the source of truth; the graph is derived.
+    # prevent it. `hooks.enqueue` promises never to raise, so nothing should
+    # reach this handler; resting this module's correctness on another module's
+    # promise, with nothing pinning it across the boundary, is what this guard
+    # refuses to do. Belt and braces, cheaply. assay_assets is the source of
+    # truth; the graph is derived.
     try:
-        graph: GraphOutcome = _recompute(result.recompute_sample_ids)
+        graph: GraphOutcome = _enqueue_graph_sync(result.recompute_sample_ids)
     except Exception as exc:  # noqa: BLE001
-        log.exception("assay-registration job %s: recompute raised", job.job_id)
+        log.exception("assay-registration job %s: graph enqueue raised", job.job_id)
         graph = GraphOutcome(status="failed", error=str(exc))
 
     jobs.record_progress(job, owner, result.counts.submitted)

@@ -1,0 +1,74 @@
+{
+  "_name": "probe-2026-09-23-cc-aggregate-forced - Container-CC aggregates, forced",
+  "_why": "Proves nextseek-aggregate live on Container-CC, which has never been observed. Metadata aggregation stays routed to NS (it answers correctly there, ~30 s, $0), so the case is FORCED onto CC; it cannot share a file with the routed probe because --force-route applies to every turn of a run.\n  manage.py nessie --tier full --force-route cc --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-23-cc-aggregate-forced.json --out /app/runs/cc-aggregate-<date>\nA forced run needs a superuser account (a non-admin's force is dropped silently; the harness preflight proves it landed). Route criteria are stripped from forced arms, so none is written here; cc_trace_text is engine-neutral and is scored.",
+  "_instance_warning": "Measured on the workstation's graph on 2026-09-23. Re-pin with pin_probe_truths.py (mode 'each', four numbers).",
+  "families": {
+    "cc_aggregate_forced": {
+      "description": "A metadata breakdown, forced onto Container-CC.",
+      "variants": [
+        {
+          "family": "cc_aggregate_forced",
+          "id": "ccagg.impactb_species_forced",
+          "name": "Operator case b: Container-CC aggregates a metadata question NS answers today",
+          "_why": "Run with --force-route cc: the router would send this to nextseek_query, which answers it. The point is that CC can aggregate too, through nextseek-aggregate (the trace must show it). IMPAcTb samples by Species: 83,582 have none; of those that do, Macaca fascicularis 327, Macaca mulatta (Rhesus) 239, Mus musculus 119, Rhesus macaque 88, then smaller spellings. The four largest are pinned.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What species are the samples in the IMPAcTb project, and how many of each?",
+              "pass_criteria": [
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])327(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])239(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])119(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])88(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "cc_trace_text",
+                  "op": "matches_re",
+                  "value": "nextseek-aggregate"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "_measure": {
+    "ccagg.impactb_species_forced": {
+      "locals": [
+        327,
+        239,
+        119,
+        88
+      ],
+      "mode": "each",
+      "cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project {title:'IMPAcTb'}) WITH DISTINCT s WHERE s.Species IS NOT NULL RETURN s.Species AS species, count(*) AS n ORDER BY n DESC LIMIT 4"
+    }
+  }
+}

@@ -1,6 +1,6 @@
 [
   {
-    "path": "/nextseek_api/admin/samples/retrieve/",
+    "path": "/nextseek_api/samples/retrieve/",
     "method": "POST",
     "description": "Retrieve full scientific metadata for one or more samples by UID or SEEK ID. Returns metadata for the requested samples plus all parent and child (associated) samples in their full lineage. Output is JSON grouped by sample type; set output_format='excel' for an Excel workbook. Use this when the user provides explicit UIDs and wants comprehensive metadata including all associated samples.",
     "category": "sample_export",
@@ -16,9 +16,9 @@
       "metadata",
       "associated with"
     ],
-    "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' \u2014 not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
+    "llm_hint": "Use when the user provides explicit UIDs and wants full sample metadata including all related parent/child samples. This is the correct endpoint for 'retrieve all samples associated with UID X' — not samples/{uid}/ GET. POST body must use field name \"identifiers\" (list of UID strings).",
     "example_intents": [
-      "Retrieve all metadata for NHP-220630FLY-1-PUB and its derived samples",
+      "Retrieve all metadata for SLD-230105ABC-12-PUB and its derived samples",
       "Download an Excel spreadsheet with data for samples 12345 and 67890"
     ],
     "request_body": {
@@ -46,13 +46,13 @@
     "llm_hint": "Use for questions listing available assays or experimental procedures.",
     "example_intents": [
       "Show me all available assays",
-      "What experimental procedures have been run on the primate samples?"
+      "List every assay record in the catalog"
     ]
   },
   {
     "path": "/nextseek_api/sample-tree/{uid}/tree/",
     "method": "GET",
-    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent\u2013child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
+    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent–child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
     "category": "sample_lineage",
     "requires_uids": true,
     "supports_free_text": false,
@@ -68,10 +68,10 @@
       "descendants",
       "ancestors"
     ],
-    "llm_hint": "Use when the user wants to see the full sample lineage or derivation tree from a specific known UID. Requires a UID. For full metadata export of associated samples, use admin/samples/retrieve/ instead.",
+    "llm_hint": "Use when the user explicitly asks to see or visualise the lineage TREE around one known UID. Requires a UID. A question about that lineage (what a sample was derived from, what came from it, how many of a type descend from it) is graph_query. For full metadata export of associated samples, use samples/retrieve/ instead.",
     "example_intents": [
-      "Show me all samples derived from NHP-220630FLY-2-PUB",
-      "What tissue and cell samples came from PAT-241113DFC-3?"
+      "Show me the lineage tree around SLD-230105ABC-12-PUB",
+      "Visualise the derivation tree of SLD-230105ABC-12-PUB"
     ]
   },
   {
@@ -94,57 +94,6 @@
     "example_intents": [
       "What types of samples can I register?",
       "Show me all available sample categories"
-    ]
-  },
-  {
-    "path": "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
-    "method": "POST",
-    "description": "Find parent samples that have derived samples of ALL specified child types (AND logic). Only returns parents with descendants matching every requested type. Optionally filter by parent sample type. Use when the user wants to find ancestors that have multiple specific types of derived data \u2014 e.g., monkeys that have BOTH flow cytometry AND sequencing data.",
-    "category": "sample_parent_search",
-    "requires_uids": false,
-    "supports_free_text": false,
-    "primary_entities": [
-      "sampletypes",
-      "keywords"
-    ],
-    "intent_patterns": [
-      "which",
-      "find",
-      "have",
-      "both",
-      "all",
-      "parents"
-    ],
-    "llm_hint": "Use when the user wants parent samples that have descendants of multiple specified types (AND logic across child types). E.g., 'monkeys that have both flow and sequencing data', 'animals with tissue AND cell line derivatives'.",
-    "example_intents": [
-      "Which monkeys have both imaging data and sequencing results?",
-      "Find all animals that have tissue samples and cell line derivatives"
-    ]
-  },
-  {
-    "path": "/nextseek_api/samples/advanced_search/",
-    "method": "POST",
-    "description": "Search and filter samples by type, attribute values, and free-text keywords. Supports multiple sample types, attribute-based filtering, and partial/exact match modes. Returns paginated list of matching samples with full metadata. This is a broad-purpose search endpoint \u2014 use it for attribute/keyword-based queries when no more specific endpoint applies.",
-    "category": "sample_search",
-    "requires_uids": false,
-    "supports_free_text": true,
-    "primary_entities": [
-      "sampletypes",
-      "assays",
-      "keywords"
-    ],
-    "intent_patterns": [
-      "find",
-      "search",
-      "list",
-      "count",
-      "filter"
-    ],
-    "llm_hint": "Use for attribute or keyword-based sample searches when the user wants to find, list, or filter samples by properties like type, treatment, keyword, or assay \u2014 and no more specific endpoint fits. Do NOT use this as a default for every query.",
-    "example_intents": [
-      "Find all mice treated with NDMA",
-      "Show me all samples associated with T cell depletion",
-      "What CD8 antibodies are in the database?"
     ]
   },
   {
@@ -200,13 +149,11 @@
     "intent_patterns": [
       "researchers",
       "people",
-      "who",
-      "scientists"
+      "user accounts"
     ],
-    "llm_hint": "Use when the user wants to list researchers or users in the system.",
+    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint.",
     "example_intents": [
-      "Show me all researchers in the system",
-      "Who are the scientists working on primate studies?"
+      "List the registered user accounts in the system"
     ]
   },
   {
@@ -224,7 +171,7 @@
       "SOPs",
       "procedures"
     ],
-    "llm_hint": "Use when the user wants to list available protocols or SOPs.",
+    "llm_hint": "Use when the user wants the LIST of protocol records themselves: what protocols are on file, their titles, descriptions and attachments. DO NOT USE WHEN the question filters, counts or analyses protocols -- which samples followed one, how many did, which protocol a sample used, protocols by keyword or lab. This endpoint cannot filter: it returns the whole list and the reply then has to admit it could not constrain it. Those questions are graph_query: the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes.",
     "example_intents": [
       "Show me all available protocols",
       "What procedures are documented for sample collection?"

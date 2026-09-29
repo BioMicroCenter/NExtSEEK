@@ -409,7 +409,7 @@ def test_agent_loop_threads_send_event_into_the_tool(monkeypatch):
         def __init__(self):
             self.n = 0
 
-        def chat_with_tools(self, *, messages, tools, system, model):
+        def chat_with_tools(self, *, messages, tools, system, model, **kwargs):
             self.n += 1
             if self.n == 1:
                 return {"content": [{"type": "tool_use", "id": "t1",

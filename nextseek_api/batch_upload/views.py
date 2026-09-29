@@ -18,6 +18,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from nextseek_api.permissions import IsSuperUser
 from nextseek_api.services.assistant import CsrfExemptSessionAuthentication
 
 from .celery_app import app as celery_app
@@ -286,12 +287,10 @@ class BatchUploadViewSet(viewsets.ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # Optional explicit lababbv override — admin only (non-admin silently ignored)
+        # Optional explicit lababbv override: superuser only, ignored for anyone else.
+        # is_superuser, never is_staff: the SEEK login sets is_staff on every account.
         explicit_lababbv = request.data.get("lababbv")
-        is_admin = bool(
-            getattr(request.user, "is_authenticated", False)
-            and (request.user.is_staff or request.user.is_superuser)
-        )
+        is_admin = IsSuperUser().has_permission(request, self)
         if is_admin and isinstance(explicit_lababbv, str) and explicit_lababbv.strip():
             effective_lababbv = explicit_lababbv.strip().upper()
         else:
@@ -769,11 +768,9 @@ def _resolve_user_context(request) -> dict | None:
     else:
         request_person_id = raw_person_id
 
-    is_admin = (
-        hasattr(request, "user")
-        and getattr(request.user, "is_authenticated", False)
-        and bool(request.user.is_staff or request.user.is_superuser)
-    )
+    # A person_id override is a superuser's alone; is_superuser, never is_staff,
+    # because the SEEK login sets is_staff on every account.
+    is_admin = IsSuperUser().has_permission(request, None)
     person_id_ignored = False
 
     if is_admin and request_person_id is not None:

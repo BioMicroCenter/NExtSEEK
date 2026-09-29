@@ -1,4 +1,7 @@
 from pathlib import Path
+
+import pytest
+
 from NessieAI.tests.nessie_tests import runner
 
 CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
@@ -1072,3 +1075,585 @@ def test_an_unrelated_gate_is_unmeasured_rather_than_free(tmp_path, monkeypatch)
     s = runner.classify_entries(m)
     assert s["cost_unmeasured"] == 1, "an `unrelated` turn still paid for the router call"
     assert s["total_cost"] is None
+
+
+# --------------------------------------------------------------------------- #
+# Fix 6a: a case costs the SUM of its turns, the router's call included.
+#
+# `run_case` used to do `v_cost = qc.get("total_cost_usd", v_cost)` per turn:
+# last write wins. A case of three CC turns reported only the third, an NS turn
+# (no key) carried the previous value forward, and a key present with a null
+# erased an earlier cost. The 2026-09-25 dev run printed $1.57 for cases that
+# cost $2.49. The rules themselves are pinned in tests/test_turn_cost.py; these
+# pin that the runner applies them to every turn it drives.
+# --------------------------------------------------------------------------- #
+
+def _turn(route="container_cc", cost=None, router_cost=None, *, cost_key=True,
+          rd_extra=None, **qc_extra):
+    rd = {"route": route, "model_class": "opus" if route == "container_cc" else None,
+          "source": "baml", "reasoning": ""}
+    if router_cost is not None:
+        rd["router_cost_usd"] = router_cost
+    rd.update(rd_extra or {})
+    qc = {"reply": "done", **qc_extra}
+    if cost_key:
+        qc["total_cost_usd"] = cost
+    return {"status": "completed", "progress": [
+        {"event": "route_decided", "data": rd}, {"event": "query_complete", "data": qc}]}
+
+
+REPLY_OK = {"field": "last_reply", "op": "nonempty"}
+
+
+def test_a_multi_turn_case_costs_the_sum_of_its_turns(tmp_path, monkeypatch):
+    """The 2026-09-25 shape: three CC turns, and the manifest kept only the third."""
+    m = _run(tmp_path, monkeypatch, _variant("cc.three", REPLY_OK, turns=3),
+             [_turn(cost=0.5, router_cost=0.01), _turn(cost=0.6, router_cost=0.01),
+              _turn(cost=0.7, router_cost=0.01)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(1.83)
+    assert e.cost_partial is False
+    assert e.turns_sent == 3
+    assert [t.cost for t in e.turns_meta] == [pytest.approx(0.51), pytest.approx(0.61),
+                                             pytest.approx(0.71)]
+    assert [t.turn for t in e.turns_meta] == ["t0", "t1", "t2"]
+    assert all(t.task_id == "t" for t in e.turns_meta)
+
+
+def test_an_ns_turn_without_a_cost_does_not_carry_the_previous_turn_forward(
+        tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("mixed.two", REPLY_OK, turns=2),
+             [_turn(cost=0.5, router_cost=0.01),
+              _turn(route="nextseek_query", router_cost=0.01, cost_key=False)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(0.52), "the NS turn's router call is spend too"
+    assert e.cost_partial is True, "the NS engine's spend was never observed"
+    assert e.turns_meta[1].engine_cost is None and e.turns_meta[1].partial is True
+
+
+def test_a_null_cost_key_does_not_erase_an_earlier_turn(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("cc.null", REPLY_OK, turns=2),
+             [_turn(cost=0.5), _turn(cost=None)])
+
+    e = m.entries[0]
+    assert e.cost == 0.5
+    assert e.cost_partial is True
+
+
+def test_a_turn_that_says_its_cost_is_partial_makes_the_case_partial(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("ns.partial", REPLY_OK),
+             [_turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=True)])
+
+    e = m.entries[0]
+    assert e.cost == pytest.approx(0.21)
+    assert e.cost_partial is True
+    assert e.turns_meta[0].cost_partial is True
+
+
+def test_a_router_attempt_it_could_not_price_makes_the_case_partial(tmp_path, monkeypatch):
+    """Contract addendum: `router_cost_partial` on `route_decided`."""
+    m = _run(tmp_path, monkeypatch, _variant("cc.rpartial", REPLY_OK),
+             [_turn(cost=0.2, router_cost=0.01, rd_extra={"router_cost_partial": True})])
+
+    assert m.entries[0].cost_partial is True
+    assert m.entries[0].turns_meta[0].router_cost_partial is True
+
+
+def test_a_fully_priced_case_is_not_partial(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("ns.priced", REPLY_OK),
+             [_turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False)])
+
+    s = runner.classify_entries(m)
+    assert m.entries[0].cost == pytest.approx(0.21)
+    assert m.entries[0].cost_partial is False
+    assert s["cost_partial"] is False and s["cost_partial_cases"] == 0
+    assert "PARTIAL" not in s["cost_display"]
+
+
+def test_a_route_tier_gate_now_counts_the_router_cost_it_saw(tmp_path, monkeypatch):
+    """The client stops at `route_decided`, and the router's price is on that event.
+    The engine keeps running and billing out of sight, so the case is partial."""
+    gate_payload = {"status": "running", "progress": [
+        {"event": "route_decided", "data": {**CC_ROUTED["progress"][0]["data"],
+                                            "router_cost_usd": 0.004}}]}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_cc_gate()])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        corpus_path=CORPUS, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: gate_payload,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    e = m.entries[0]
+    assert e.cost == 0.004 and e.cost_partial is True
+    s = runner.classify_entries(m)
+    assert s["total_cost"] == 0.004
+    assert s["cost_partial"] is True and s["cost_partial_cases"] == 1
+
+
+def test_an_unrelated_gate_with_a_router_price_is_fully_measured(tmp_path, monkeypatch):
+    """`unrelated` calls no engine after `route_decided`, so the router is the whole bill."""
+    from NessieAI.tests.e2e.catalog import Variant, Turn
+    gate = Variant(
+        family="nessie_route", id="gate.unrelated", name="unrelated gate",
+        tags=["nessie", "route_gate", "overlay"], requires_env=[],
+        turns=[Turn(label="m", query="what is the weather",
+                    pass_criteria=[{"field": "route", "op": "eq", "value": "unrelated"}])])
+    payload = {"status": "running", "progress": [
+        {"event": "route_decided", "data": {"route": "unrelated", "model_class": None,
+                                            "source": "baml", "reasoning": "",
+                                            "router_cost_usd": 0.003}}]}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [gate])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="specific",
+        corpus_path=CORPUS, out_dir=tmp_path,
+        post_query=_post(), get_progress=lambda tid: payload,
+        sleep=lambda s: None, clock=lambda: 0.0)
+
+    assert m.entries[0].cost == 0.003 and m.entries[0].cost_partial is False
+
+
+def test_every_turn_records_its_models_and_fallbacks(tmp_path, monkeypatch):
+    fb = {"agent": "container_cc", "from": "us.anthropic.claude-opus-4-8",
+          "to": "us.anthropic.claude-opus-4-7", "reason": "server_error"}
+    rfb = {"from": "gemini-3.1-pro-preview", "to": "gemini-3.5-flash", "reason": "timeout"}
+    m = _run(tmp_path, monkeypatch, _variant("cc.fb", REPLY_OK, turns=3), [
+        _turn(cost=0.5, router_cost=0.01, models_used=["us.anthropic.claude-opus-4-7"],
+              model_fallback=[fb], rd_extra={"router_model": "gemini-3.1-pro-preview",
+                                             "router_fallback": None}),
+        _turn(cost=0.4, router_cost=0.002, model_fallback=[],
+              rd_extra={"router_model": "gemini-3.5-flash", "router_fallback": rfb}),
+        _turn(cost=0.3, router_cost=0.01, model_fallback=[],
+              rd_extra={"router_model": "gemini-3.1-pro-preview", "router_fallback": None}),
+    ])
+
+    e = m.entries[0]
+    t0, t1, t2 = e.turns_meta
+    assert t0.models_used == ["us.anthropic.claude-opus-4-7"] and t0.model_fallback == [fb]
+    assert t0.router_model == "gemini-3.1-pro-preview" and t0.router_fallback is None
+    assert t1.router_model == "gemini-3.5-flash" and t1.router_fallback == rfb
+    assert [t.fell_back for t in (t0, t1, t2)] == [True, True, False]
+    assert e.fallback_turns == 2
+    s = runner.classify_entries(m)
+    assert s["fallback_turns"] == 2
+    assert [x.id for x in s["fallback_cases"]] == ["cc.fb"]
+    assert "2 of 3 turn(s) fell back" in s["fallback_display"]
+
+
+def test_a_turn_from_an_older_server_is_not_read_as_no_fallback(tmp_path, monkeypatch):
+    m = _run(tmp_path, monkeypatch, _variant("cc.old", REPLY_OK), [_turn(cost=0.5)])
+
+    assert m.entries[0].turns_meta[0].fallback_reported is False
+    s = runner.classify_entries(m)
+    assert s["fallback_turns"] == 0
+    assert "1 turn(s) did not report" in s["fallback_display"]
+
+
+def test_a_turn_the_driver_lost_mid_case_marks_the_case_partial(tmp_path, monkeypatch):
+    """The second turn's request went out and its polling died: it may have billed,
+    and nothing about it was observed. The first turn's cost still stands."""
+    calls = {"n": 0}
+
+    def get_progress(_tid):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _turn(cost=0.5, router_cost=0.01)
+        raise ConnectionError("endpoint down")
+
+    monkeypatch.setattr(runner.corpus, "select",
+                        lambda *a, **k: [_variant("cc.lost", REPLY_OK, turns=2)])
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=get_progress, sleep=lambda s: None, clock=lambda: 0.0)
+
+    e = m.entries[0]
+    assert e.status == "error"
+    assert e.cost == pytest.approx(0.51)
+    assert e.cost_partial is True
+    assert len(e.turns_meta) == 1
+    # Recorded, so a later pull that joins by task id knows a turn is missing: the
+    # lost turn has no task id to join on.
+    assert e.turns_sent == 2 and e.task_ids == ["t"]
+
+
+def test_a_consistency_group_costs_the_sum_of_its_queries(monkeypatch, tmp_path):
+    """Groups never set a cost at all; each query is a paid turn like any other."""
+    group = {"id": "cons.priced", "tags": [], "queries": ["a", "b"],
+             "assert": {"same_route": True}}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [])
+    monkeypatch.setattr("NessieAI.tests.nessie_tests.corpus.load_consistency_groups",
+                        lambda p: [group])
+    fb = {"agent": "graph", "from": "x", "to": "y", "reason": "timeout"}
+    payloads = iter([
+        _turn(route="nextseek_query", cost=0.2, router_cost=0.01, cost_partial=False,
+              model_fallback=[fb]),
+        _turn(route="nextseek_query", cost=0.3, router_cost=0.01, cost_partial=False,
+              model_fallback=[]),
+    ])
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=lambda tid: next(payloads),
+        sleep=lambda s: None, clock=lambda: 0.0, run_consistency=True)
+
+    e = next(x for x in m.entries if x.id == "cons.priced")
+    assert e.cost == pytest.approx(0.52)
+    assert e.cost_partial is False
+    assert [t.turn for t in e.turns_meta] == ["a", "b"]
+    assert e.fallback_turns == 1
+
+
+def test_a_consistency_group_that_raised_mid_way_keeps_what_it_saw(monkeypatch, tmp_path):
+    group = {"id": "cons.lost", "tags": [], "queries": ["a", "b"],
+             "assert": {"same_route": True}}
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [])
+    monkeypatch.setattr("NessieAI.tests.nessie_tests.corpus.load_consistency_groups",
+                        lambda p: [group])
+    calls = {"n": 0}
+
+    def get_progress(_tid):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _turn(route="nextseek_query", cost=0.2, router_cost=0.01,
+                         cost_partial=False)
+        raise ConnectionError("endpoint down")
+
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=_post(),
+        get_progress=get_progress, sleep=lambda s: None, clock=lambda: 0.0,
+        run_consistency=True)
+
+    e = next(x for x in m.entries if x.id == "cons.lost")
+    assert e.status == "error"
+    assert e.cost == pytest.approx(0.21) and e.cost_partial is True
+    assert e.turns_sent == 2 and len(e.turns_meta) == 1
+
+
+def test_old_manifests_load_without_the_turn_record(tmp_path):
+    from NessieAI.tests.nessie_tests import manifest as M
+
+    p = tmp_path / "manifest.json"
+    p.write_text(
+        '{"started_at":"a","ended_at":"b","tier":"full","scope":"all","entries":'
+        '[{"id":"c0","family":"f","tier":"full","status":"passed","cost":0.3}]}',
+        encoding="utf-8")
+
+    e = M.load_manifest(p).entries[0]
+    assert e.turns_meta == [] and e.cost_partial is False and e.fallback_turns == 0
+    assert e.turns_sent == 0
+    s = runner.classify_entries(M.load_manifest(p))
+    assert s["total_cost"] == 0.3 and s["cost_partial"] is False
+
+
+# ── forcing a normal run (graph_search Nessie POC) ──────────────────────────
+
+_FORCED_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "model_class": None,
+                                        "source": "forced", "reasoning": ""}},
+    {"event": "query_complete", "data": {"reply": "ok",
+                                         "debug": {"parser_plan": {"mode": "graph_query"}}}}]}
+
+
+def _routed_variant(vid):
+    from NessieAI.tests.e2e.catalog import Variant, Turn
+    return Variant(family="f", id=vid, name="n", tags=["nessie", "full"], turns=[
+        Turn(label="m", query="q", pass_criteria=[
+            {"field": "route", "op": "eq", "value": "container_cc"},
+            {"field": "engine", "op": "eq", "value": "container_cc"},
+            {"field": "route_source", "op": "eq", "value": "baml"},
+            {"field": "last_reply", "op": "nonempty"}])])
+
+
+def _recording_post():
+    def post_query(body):
+        post_query.bodies.append(body)
+        return {"task_id": "t", "session_id": "s"}
+    post_query.bodies = []
+    return post_query
+
+
+def test_run_suite_forces_every_case_and_strips_the_route_criteria(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select",
+                        lambda *a, **k: [_routed_variant("f.one"), _routed_variant("f.two")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: _FORCED_DONE, force_route="ns", force_parser_mode="graph",
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert len(post_query.bodies) == 2
+    assert all(b["force_route"] == "ns" and b["force_parser_mode"] == "graph"
+               for b in post_query.bodies)
+    for e in m.entries:
+        assert not ({o.field for o in e.observations} & {"route", "engine", "route_source"})
+        assert "stripped 3 route criteria (forced route)" in e.reason
+        assert e.status == "passed"
+
+
+def test_run_suite_forces_nothing_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner.corpus, "select", lambda *a, **k: [_routed_variant("f.one")])
+    post_query = _recording_post()
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+        get_progress=lambda tid: NS_DONE, sleep=lambda s: None, clock=lambda: 0.0)
+    assert all("force_route" not in b and "force_parser_mode" not in b
+               for b in post_query.bodies)
+    assert "route" in {o.field for o in m.entries[0].observations}
+
+
+@pytest.mark.parametrize("route", [None, "cc"])
+def test_run_suite_refuses_a_parser_force_off_the_ns_route(route, tmp_path):
+    post_query = _recording_post()
+    with pytest.raises(ValueError, match="force_route"):
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, post_query=post_query,
+            get_progress=lambda tid: NS_DONE, force_route=route, force_parser_mode="api",
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert post_query.bodies == []
+
+
+def test_arm_presets_force_ns_and_name_their_parser_mode():
+    assert runner.ARM_PRESETS == {
+        "graph": {"force_route": "ns", "force_parser_mode": "graph"},
+        "api": {"force_route": "ns", "force_parser_mode": "api"},
+        "auto": {"force_route": "ns", "force_parser_mode": None},  # the parser unforced
+    }
+
+
+# ── git_sha: the venue's snapshot has no .git ──────────────────────────────
+
+_SHA = "0123456789abcdef0123456789abcdef01234567"
+
+
+def test_git_sha_prefers_git_when_it_answers(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 0, stdout="abc1234\n", stderr=""))
+    assert runner.git_sha() == "abc1234"
+
+
+def test_git_sha_reads_the_snapshot_file_when_git_is_unavailable(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_reads_the_snapshot_file_outside_a_checkout(tmp_path, monkeypatch):
+    import subprocess
+    snap = tmp_path / "SNAPSHOT"
+    snap.write_text(_SHA + "\n")
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", snap)
+    monkeypatch.setattr(runner.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(
+        a, 128, stdout="", stderr="fatal: not a git repository"))
+    assert runner.git_sha() == _SHA
+
+
+def test_git_sha_is_none_with_neither(tmp_path, monkeypatch):
+    def no_git(*a, **k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner, "SNAPSHOT_FILE", tmp_path / "SNAPSHOT")
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+    assert runner.git_sha() is None
+
+
+def test_the_snapshot_file_is_at_the_repository_root():
+    assert runner.SNAPSHOT_FILE.name == "SNAPSHOT"
+    assert (runner.SNAPSHOT_FILE.parent / "manage.py").exists()
+    assert (runner.SNAPSHOT_FILE.parent / "NessieAI").is_dir()
+
+
+# ── 8.4: a full-tier run must prove its bundle reader before the first turn ──
+
+
+class _Reader:
+    """A bundle reader carrying the preflight hook the runner calls, recording order."""
+
+    def __init__(self, log, *, fail=None):
+        self.log, self.fail = log, fail
+
+    def __call__(self, session_id):
+        self.log.append("read")
+        return None
+
+    def preflight(self):
+        self.log.append("preflight")
+        if self.fail:
+            raise self.fail
+
+
+def _logging_post(log):
+    def post_query(body):
+        log.append("post")
+        return {"task_id": "t", "session_id": "s"}
+    return post_query
+
+
+def test_a_full_tier_run_whose_bundle_reader_cannot_read_is_refused_before_any_turn(tmp_path):
+    log = []
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        runner.run_suite(
+            base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+            corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+            post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+            bundle_reader=_Reader(log, fail=RuntimeError("no database here")),
+            sleep=lambda s: None, clock=lambda: 0.0)
+    assert log == ["preflight"], "a turn was posted before the reader was proven"
+    assert "no database here" in str(e.value) and "nothing was billed" in str(e.value)
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_the_bundle_preflight_runs_once_and_before_the_first_turn(tmp_path):
+    log = []
+    m = runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="full", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+        bundle_reader=_Reader(log), sleep=lambda s: None, clock=lambda: 0.0)
+    assert log[0] == "preflight" and log.count("preflight") == 1
+    assert "post" in log and "read" in log
+    assert m.entries[0].status != "error", m.entries[0].reason
+
+
+def test_the_route_tier_never_calls_the_bundle_preflight(tmp_path):
+    log = []
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: CC_ROUTED,
+        bundle_reader=_Reader(log, fail=RuntimeError("never asked")),
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert "preflight" not in log
+
+
+def test_the_real_bundle_reader_carries_its_preflight():
+    from NessieAI.tests.nessie_tests import bundle
+    assert bundle.summary_for_session.preflight is bundle.preflight
+
+
+def test_the_real_bundle_preflight_names_the_entry_point_that_works(monkeypatch):
+    import sys
+    from NessieAI.tests.nessie_tests import bundle
+    monkeypatch.setitem(sys.modules, "django", None)
+    with pytest.raises(bundle.BundleReaderUnavailable) as e:
+        bundle.preflight()
+    assert "manage.py nessie" in str(e.value)
+
+
+# ── a bundle reader must read the instance the paid turns run on ──────────────
+
+
+class _PairedReader(_Reader):
+    """A reader that can say whether its database holds a chat, as the real one does
+    (`bundle.summary_for_session.holds_session`)."""
+
+    def __init__(self, log, *, holds, fail=None):
+        super().__init__(log, fail=fail)
+        self.holds = holds
+        self.asked = []
+
+    def holds_session(self, session_id):
+        self.log.append("holds")
+        self.asked.append(session_id)
+        return self.holds
+
+
+def _sessions(log, *, open_raises=None, close_raises=None):
+    """The free chat open/close pair on the turns' instance (`http_driver.make_session_clients`)."""
+    def open_session():
+        log.append("open")
+        if open_raises:
+            raise open_raises
+        return "0000000000000000000000000000beef"
+
+    def close_session(session_id):
+        log.append("close")
+        assert session_id == "0000000000000000000000000000beef"
+        if close_raises:
+            raise close_raises
+    return open_session, close_session
+
+
+def _full_run(tmp_path, log, reader, sessions, **kw):
+    return runner.run_suite(
+        base_url="http://other-instance:8000", auth_header="Basic x", tier="full",
+        scope="all", corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: NS_DONE,
+        bundle_reader=reader, session_clients=sessions,
+        sleep=lambda s: None, clock=lambda: 0.0, **kw)
+
+
+def test_a_reader_on_a_different_instance_is_refused_before_any_turn(tmp_path):
+    """The reader passes its own preflight (it can read ITS database), but that is
+    not the database behind --base-url: an empty chat opened there is not in it. A
+    run like that billed every turn and then read nothing, so it is refused here,
+    with nothing sent."""
+    log = []
+    reader = _PairedReader(log, holds=False)
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        _full_run(tmp_path, log, reader, _sessions(log))
+    assert isinstance(e.value, runner.BundleReaderOtherInstance)
+    assert log == ["preflight", "open", "holds", "close"], log
+    assert reader.asked == ["0000000000000000000000000000beef"]
+    message = str(e.value)
+    assert "nothing was billed" in message and "http://other-instance:8000" in message
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_a_reader_on_the_same_instance_passes_and_the_probe_chat_is_closed(tmp_path):
+    log = []
+    m = _full_run(tmp_path, log, _PairedReader(log, holds=True), _sessions(log))
+    assert log[:4] == ["preflight", "open", "holds", "close"], log
+    assert log.count("open") == 1 and "post" in log
+    assert m.entries[0].status != "error", m.entries[0].reason
+
+
+def test_a_probe_chat_that_cannot_be_opened_refuses_the_run(tmp_path):
+    """Without the probe chat the pairing is unproven, and an unproven pairing is the
+    one that bills for nothing, so it refuses rather than runs on."""
+    log = []
+    with pytest.raises(runner.BundleReaderUnavailable) as e:
+        _full_run(tmp_path, log, _PairedReader(log, holds=True),
+                  _sessions(log, open_raises=OSError("connection refused")))
+    assert "post" not in log and "holds" not in log
+    assert "connection refused" in str(e.value) and "nothing was billed" in str(e.value)
+
+
+def test_a_probe_chat_that_cannot_be_closed_does_not_stop_a_proven_run(tmp_path):
+    log = []
+    with pytest.warns(UserWarning, match="0000000000000000000000000000beef"):
+        _full_run(tmp_path, log, _PairedReader(log, holds=True),
+                  _sessions(log, close_raises=OSError("timed out")))
+    assert "post" in log
+
+
+def test_the_route_tier_never_opens_a_probe_chat(tmp_path):
+    log = []
+    runner.run_suite(
+        base_url="http://x", auth_header="Basic x", tier="route", scope="all",
+        corpus_path=CORPUS, out_dir=tmp_path, variant_id="green.global_count",
+        post_query=_logging_post(log), get_progress=lambda tid: CC_ROUTED,
+        bundle_reader=_PairedReader(log, holds=False), session_clients=_sessions(log),
+        sleep=lambda s: None, clock=lambda: 0.0)
+    assert "open" not in log and "holds" not in log
+
+
+def test_the_real_bundle_reader_says_whether_its_database_holds_a_chat():
+    from NessieAI.tests.nessie_tests import bundle
+    assert bundle.summary_for_session.holds_session is bundle.session_exists

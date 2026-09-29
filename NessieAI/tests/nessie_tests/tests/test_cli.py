@@ -121,6 +121,43 @@ def test_the_cli_still_prints_a_cost_it_did_observe(monkeypatch, tmp_path, capsy
     assert "unmeasured" not in out
 
 
+def test_the_budget_help_says_what_counts_toward_the_ceiling():
+    """It said only container_cc reports cost; every turn's router and engine cost
+    counts now, and an unobserved turn still adds nothing."""
+    text = " ".join(cli.build_parser().format_help().split())
+    assert "Only container_cc reports cost" not in text
+    assert "router and engine cost" in text
+    assert "not observed adds nothing" in text
+
+
+def test_the_cli_says_when_a_case_cost_is_only_part_of_the_spend(monkeypatch, tmp_path, capsys):
+    from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry
+    _manifest_with(monkeypatch, NessieManifestEntry(id="ns.q", family="f", tier="full",
+                                                    status="passed", cost=0.2,
+                                                    cost_partial=True))
+
+    cli.main(["--base-url", "http://h:8000", "--tier", "full", "--out", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert "$0.2000" in out and "PARTIAL" in out
+    assert "1 case(s) measured only in part" in out
+
+
+def test_the_cli_names_how_many_turns_fell_back(monkeypatch, tmp_path, capsys):
+    from NessieAI.tests.nessie_tests.manifest import NessieManifestEntry, TurnMeta, case_money
+    t = TurnMeta(turn="m", engine_cost=0.3, router_cost=0.01, cost=0.31,
+                 fallback_reported=True,
+                 router_fallback={"from": "a", "to": "heuristic", "reason": "timeout"})
+    _manifest_with(monkeypatch, NessieManifestEntry(id="cc.q", family="f", tier="full",
+                                                    status="passed",
+                                                    **case_money([t], turns_sent=1)))
+
+    cli.main(["--base-url", "http://h:8000", "--tier", "full", "--out", str(tmp_path)])
+
+    out = capsys.readouterr().out
+    assert "fallback: 1 of 1 turn(s) fell back to another model, in 1 case(s)" in out
+
+
 # --- --bayesian -------------------------------------------------------------
 
 
@@ -397,3 +434,152 @@ def test_the_refusals_that_really_are_free_still_say_so(exc, monkeypatch, tmp_pa
     _capture_paired(monkeypatch, raises=exc)
     cli.main(["--base-url", "http://x", "--bayesian", "--out", str(tmp_path)])
     assert "nothing was billed" in capsys.readouterr().out
+
+
+# --- forcing a normal run (graph_search Nessie POC) -------------------------
+
+
+def test_a_normal_run_forces_nothing_by_default(monkeypatch, tmp_path):
+    captured = _capture(monkeypatch)
+    cli.main(["--base-url", "http://x", "--out", str(tmp_path)])
+    assert captured["force_route"] is None and captured["force_parser_mode"] is None
+
+
+@pytest.mark.parametrize("route", ["ns", "cc"])
+def test_force_route_reaches_run_suite(route, monkeypatch, tmp_path):
+    captured = _capture(monkeypatch)
+    assert cli.main(["--base-url", "http://x", "--force-route", route,
+                     "--out", str(tmp_path)]) == 0
+    assert captured["force_route"] == route
+    assert captured["force_parser_mode"] is None
+
+
+@pytest.mark.parametrize("mode", ["graph", "api"])
+def test_force_parser_mode_reaches_run_suite_with_the_ns_route(mode, monkeypatch, tmp_path):
+    captured = _capture(monkeypatch)
+    assert cli.main(["--base-url", "http://x", "--force-route", "ns",
+                     "--force-parser-mode", mode, "--out", str(tmp_path)]) == 0
+    assert captured["force_route"] == "ns" and captured["force_parser_mode"] == mode
+
+
+@pytest.mark.parametrize("extra", [[], ["--force-route", "cc"]])
+def test_force_parser_mode_needs_the_ns_route(extra, monkeypatch, capsys):
+    """The switch lives in the NS parser. Without `--force-route ns` the router may
+    send the turn to Container-CC, where the field is ignored and nothing says so."""
+    _tripwire_on_every_spend(monkeypatch)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--base-url", "http://x", "--force-parser-mode", "graph", *extra])
+    assert e.value.code == 2
+    msg = capsys.readouterr().err.split("error:", 1)[1]
+    assert "--force-parser-mode" in msg and "--force-route ns" in msg
+
+
+@pytest.mark.parametrize("extra", [["--force-route", "ns"],
+                                   ["--force-route", "ns", "--force-parser-mode", "graph"]])
+def test_bayesian_refuses_the_force_flags(extra, monkeypatch, capsys):
+    """A paired run forces both routes itself; a second force source would make one
+    arm silently disagree with the manifest that names it."""
+    _tripwire_on_every_spend(monkeypatch)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--base-url", "http://x", "--bayesian", *extra])
+    assert e.value.code == 2
+    msg = capsys.readouterr().err.split("error:", 1)[1]
+    assert "--bayesian" in msg and "--force-route" in msg
+
+
+@pytest.mark.parametrize("extra", [["--force-route", "auto"],
+                                   ["--force-parser-mode", "cypher"]])
+def test_the_force_flags_take_only_their_choices(extra):
+    with pytest.raises(SystemExit) as e:
+        cli.build_parser().parse_args(["--base-url", "http://x", *extra])
+    assert e.value.code == 2
+
+
+# ── 8.4: the full tier must be able to score before it is allowed to bill ─────
+
+
+_NS_DONE = {"status": "completed", "progress": [
+    {"event": "route_decided", "data": {"route": "nextseek_query", "source": "baml"}},
+    {"event": "query_complete", "data": {"reply": "There are 1,084,754 samples.",
+                                          "debug": {"parser_plan": {"mode": "new_search"}}}}]}
+
+
+def _counting_endpoint(monkeypatch):
+    """Stands in for the live endpoint behind the REAL runner and driver: every body
+    posted here is a turn a live run would have billed. Nothing reaches a network."""
+    posted = []
+
+    def fake_clients(base_url, auth_header, *a, **k):
+        def post_query(body):
+            posted.append(body)
+            return {"task_id": "t", "session_id": "00000000-0000-0000-0000-000000000001"}
+        return post_query, (lambda task_id: _NS_DONE)
+
+    monkeypatch.setattr(cli.http_driver, "make_default_clients", fake_clients)
+    return posted
+
+
+def test_full_tier_without_django_refuses_before_the_first_paid_turn(monkeypatch, tmp_path,
+                                                                      capsys):
+    """Plan task 8.4. `--tier full` wires `bundle.summary_for_session`, which needs
+    Django, and nothing on the module CLI's path configured it. The runner drove the
+    paid turn first and read the bundle second, so every full-depth case billed, then
+    died on the import, evaluated zero criteria and recorded `error`.
+
+    Django is made unimportable here, as it is on the host. `green.global_count` is a
+    full-depth case, not a route gate, so it is the shape that used to bill."""
+    import sys
+    monkeypatch.setitem(sys.modules, "django", None)  # `import django` now raises
+    posted = _counting_endpoint(monkeypatch)
+
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "full",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+
+    assert posted == [], f"{len(posted)} turn(s) were sent, and billed, before the refusal"
+    assert rc == cli.EXIT_BUNDLE_READER_UNAVAILABLE
+    out = capsys.readouterr().out
+    assert "nothing was billed" in out
+    assert "django" in out.lower() and "manage.py nessie" in out
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_route_tier_without_django_still_runs(monkeypatch, tmp_path):
+    """The route tier never reads a bundle, so the host must keep running it."""
+    import sys
+    monkeypatch.setitem(sys.modules, "django", None)
+    _counting_endpoint(monkeypatch)
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "route",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+    assert rc == 0
+    assert (tmp_path / "manifest.json").exists()
+
+
+def test_full_tier_whose_reader_reads_another_instance_refuses_before_the_first_paid_turn(
+        monkeypatch, tmp_path, capsys):
+    """The pair 8.4 let through: the reader can read (its preflight passes) but reads a
+    different instance's database from the one --base-url names, so every turn billed
+    there and every bundle read found nothing. The real CLI wiring must refuse it, free."""
+    from NessieAI.tests.nessie_tests import bundle
+    monkeypatch.setattr(bundle.summary_for_session, "preflight", lambda: None)
+    monkeypatch.setattr(bundle.summary_for_session, "holds_session", lambda sid: False,
+                        raising=False)
+    opened = []
+
+    def fake_sessions(base_url, auth_header, *a, **k):
+        def open_session():
+            opened.append(base_url)
+            return "0000000000000000000000000000beef"
+        return open_session, (lambda session_id: None)
+
+    monkeypatch.setattr(cli.http_driver, "make_session_clients", fake_sessions, raising=False)
+    posted = _counting_endpoint(monkeypatch)
+
+    rc = cli.main(["--base-url", "http://h:8000", "--tier", "full",
+                   "--variant", "green.global_count", "--out", str(tmp_path)])
+
+    assert opened == ["http://h:8000"], "the probe chat must be opened on --base-url"
+    assert posted == [], f"{len(posted)} turn(s) were sent, and billed, before the refusal"
+    assert rc == cli.EXIT_BUNDLE_READER_UNAVAILABLE
+    out = capsys.readouterr().out
+    assert "nothing was billed" in out and "http://h:8000" in out
+    assert not (tmp_path / "manifest.json").exists()

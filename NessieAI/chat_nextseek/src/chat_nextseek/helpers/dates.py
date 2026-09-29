@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Iterable
 
 from ..config import ChatConfig
+from ..graph_scope import scope_of
 
 
 def _normalize_project_id(config: ChatConfig, project: int | str | None) -> int | None:
@@ -37,10 +38,22 @@ def _normalize_project_id(config: ChatConfig, project: int | str | None) -> int 
             print(f"[WARN][PROJECT] '{project}' fuzzy-matched to '{fuzzy_match[0]}' (id={fuzzy_match[1]})")
             return fuzzy_match[1]
         raise ValueError(
-            f"Unknown project '{project}'. Expected one of: {sorted(config.PROJECT_NAME_TO_ID.keys())} "
+            f"Unknown project '{project}'. Expected one of: {_project_names_for_caller(config)} "
             f"or a numeric project_id."
         )
     return config.PROJECT_NAME_TO_ID[key]
+
+
+def _project_names_for_caller(config: ChatConfig) -> list[str]:
+    """The project names an unknown-project error may list: every name for an admin, the names of the caller's own
+    projects for anyone else, and none when the config carries no scope."""
+    scope = scope_of(config)
+    if scope is None:
+        return []
+    names = config.PROJECT_NAME_TO_ID
+    if scope.is_admin:
+        return sorted(names.keys())
+    return sorted(name for name, pid in names.items() if pid in scope.project_ids)
 
 def _normalize_years(years: Iterable[int | str]) -> list[str]:
     """

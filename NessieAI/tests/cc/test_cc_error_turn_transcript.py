@@ -320,6 +320,29 @@ def test_a_watchdog_timeout_turn_persists_a_transcript_row(harness):
     assert b"never finished it" in blob
 
 
+def test_a_watchdog_timeout_turn_keeps_its_record_and_publishes_its_files(harness):
+    """13b.1: publishing what the overrun turn wrote must not cost it the #68
+    record. Both halves, on the one path: the row and raw/ copy from the
+    fallback, and the file the agent left in its per-turn scratch."""
+    body = _jsonl("wrote the report", "then ran out of time")
+    scratch = harness.tmp_path / PROJECT / USER / "scratch" / RUN1
+
+    def script(container):
+        _append(harness.session_path, body)
+        scratch.mkdir(parents=True, exist_ok=True)
+        (scratch / "report.csv").write_bytes(b"a,b\n")
+        yield from _never_terminating_script()(container)
+
+    harness.run(script=script, turn_timeout=1)
+
+    assert harness.terminal == "query_error"
+    assert harness.events[-1][1]["reason"] == "exec_timeout"
+    assert b"then ran out of time" in harness.blob(RUN1)
+    assert harness.raw_copy(RUN1).is_file()
+    assert (harness.output / "artifacts" / RUN1 / "report.csv").read_bytes() == b"a,b\n"
+    assert harness.events[-1][1]["artifacts"][0]["key"] == f"{RUN1}/report.csv"
+
+
 # ---------------------------------------------------------------------------
 # Branch 5 — the exception handlers
 # ---------------------------------------------------------------------------

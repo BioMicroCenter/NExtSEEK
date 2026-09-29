@@ -31,7 +31,7 @@ class _Session(dict):
 def _refine_plan(**over) -> ParserPlan:
     base = dict(
         mode="refine_last_search",
-        target_endpoint="/nextseek_api/samples/advanced_search/",
+        target_endpoint="/nextseek_api/sample-tree/{uid}/tree/",
         intent_summary="narrow those to males",
         notes="",
     )

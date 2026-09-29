@@ -3,39 +3,36 @@ info:
   title: NExtSEEK API
   version: 0.1.0
 paths:
-  /nextseek_api/admin/samples/retrieve/:
+  /nextseek_api/samples/retrieve/:
     post:
-      operationId: Admin Sample Retrieval
-      description: 'Export sample metadata to Excel for admin users. Accepts a list
-        of sample UIDs and returns an Excel workbook containing full metadata for
-        those samples and all derived samples. Requires admin privileges. Examples:
-        ''Export all metadata for NHP-220630FLY-1-PUB and its derived samples to Excel'';
-        ''Download a spreadsheet with data for these three monkeys'''
+      operationId: Sample Retrieval
+      description: 'Download the full metadata of samples already known by UID or
+        SEEK ID, with every ancestor and descendant sample by default (include_tree),
+        as JSON grouped by sample type or as an Excel workbook (output_format excel).
+        Any logged-in user; rows are limited to the caller''s projects unless they
+        are a superuser. Examples: ''Export all metadata for NHP-220630FLY-1-PUB and
+        its derived samples''; ''Download a spreadsheet with data for these three monkeys'''
       tags:
       - Samples
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminRetrieveRequest'
+              $ref: '#/components/schemas/SampleRetrieveRequest'
             examples:
               UIDList:
                 value:
-                  retrieval_uids:
-                  - UID1
-                  - UID2
+                  identifiers:
+                  - NHP-220630FLY-1-PUB
+                  - TIS-230324BOO-39-PUB
                 summary: UID list
-              Whitespace-separated:
+              NoLineage:
                 value:
-                  retrieval_uids_text: UID1 UID2 UID3
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/AdminRetrieveRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/AdminRetrieveRequest'
+                  identifiers:
+                  - '12345'
+                  include_tree: false
+                summary: Only the named samples, by SEEK ID
       security:
-      - tokenAuth: []
       - cookieAuth: []
       - basicAuth: []
       responses:
@@ -43,17 +40,10 @@ paths:
           content:
             application/json:
               schema:
-                type: string
-              examples:
-                UIDList:
-                  value:
-                    retrieval_uids:
-                    - UID1
-                    - UID2
-                  summary: UID list
-                Whitespace-separated:
-                  value:
-                    retrieval_uids_text: UID1 UID2 UID3
+                type: object
+                description: '{total_samples, total_sample_types, total_children,
+                  failed_uids, data: [{sample_type, n_samples, samples: [{id, uuid,
+                  sample_type_id, metadata}]}], lineage_complete}'
           description: ''
   /nextseek_api/assays/:
     get:
@@ -2419,22 +2409,28 @@ paths:
           description: ''
 components:
   schemas:
-    AdminRetrieveRequest:
+    SampleRetrieveRequest:
       type: object
       description: |-
-        Request body for admin sample retrieval.
-        Accepts either a list of UIDs or a whitespace-separated string.
+        Request body for sample retrieval (POST /nextseek_api/samples/retrieve/).
+        identifiers is a list of sample UIDs and/or numeric SEEK IDs; a
+        whitespace-separated string also works.
       properties:
-        retrieval_uids:
+        identifiers:
           type: array
           items:
             type: string
-        uids:
-          type: array
-          items:
-            type: string
-        retrieval_uids_text:
+        output_format:
           type: string
+          enum:
+          - json
+          - excel
+          default: json
+        include_tree:
+          type: boolean
+          default: true
+      required:
+      - identifiers
     AdvancedSearchMatchType:
       enum:
       - EXACT

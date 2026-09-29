@@ -74,7 +74,7 @@ list and its unique key in `__init__`, and all but one also bind a Django model:
 `seek/dbtable_sample.py:1-2`, is a two-line backwards-compatibility shim left
 behind when the sample table moved to `seek/sample/`
 (`seek/sample/__init__.py:1-9`), which splits `DBtable_sample` into eight mixins
-combined at `seek/sample/table.py:31`.
+combined at `seek/sample/table.py:29`.
 
 `seek/dbtable_ontology.py:23` is the one table module that names a table
 (`sample_controlled_vocab_terms`) without binding a model to it, a gap its own
@@ -161,7 +161,7 @@ importer grep cannot see.
   unmapped here.
 - Two SEEK tables this package deletes from have no model at all:
   `sample_resource_links` and `sample_auth_lookup`, both hit by raw SQL at
-  `seek/sample/table.py:71-73`, and both present in that same dump. The delete
+  `seek/sample/table.py:62-65`, and both present in that same dump. The delete
   set is hand-maintained, so a SEEK upgrade that adds a table referencing
   `samples` leaves orphan rows behind.
 - Nothing here creates a SEEK table on the live SEEK schema. `manage.py migrate`
@@ -183,15 +183,17 @@ importer grep cannot see.
   `seek/seekapi.py:60-64` and wrapped by `seek/seekdb.py:11-31`. This is the
   authorization boundary: project membership and supervisor status come from
   SEEK, not from Django's auth tables.
-- Neo4j, for sample lineage: `seek/sample/table.py:61-65` opens the driver
-  directly from `settings.NEO4J_DATABASE`.
+- Neo4j, for sample lineage, to READ: `seek/sample/trees.py:31-32` opens the
+  driver directly from `settings.NEO4J_DATABASE`. Nothing under `seek/` writes
+  the graph any more: the pages enqueue a `graph_sync` outbox row after their
+  own MySQL commit and the sync loop writes it.
 - `dmac/`, mutually: 14 modules here import `dmac.dbtable.DBtable`, and
-  `seek/views/admin.py:5-8` imports four `dmac.dbtable_*` modules that
+  `seek/views/admin.py:11-14` imports four `dmac.dbtable_*` modules that
   themselves import back from `seek.models` (`dmac/dbtable_clades.py:15`).
 - `nextseek_api.services`, mutually and at module scope, for the catalog and
   workbook logic the pages render: `seek/views/catalog.py:16`,
   `seek/views/projects.py:19-22`, `seek/views/assets.py:17-18`,
-  `seek/views/admin.py:25`, `seek/sample/download.py:17`.
+  `seek/views/admin.py:32`, `seek/sample/download.py:17`.
 
 **Depended on by.** Generated 2026-09-03 by grepping every `.py` file in the
 worktree for a line beginning with an import of `seek` or of any `seek.`

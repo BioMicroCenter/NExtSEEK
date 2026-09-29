@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from ..config import ChatConfig
-from ..schemas.schema_helper import call_llm_structured
+from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
     APIRequestPlan,
     ParserPlan,
@@ -49,8 +49,13 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
     # (→ "405 Method Not Allowed").
     if not methods and default_method:
         methods = [default_method]
-    # Also pull enriched catalog entry (has request_body, llm_hint, requires_uids, etc.)
-    enriched_entry = next((ep for ep in config.MIN_API_ENDPOINTS if ep.get("path") == endpoint), None)
+    # Also pull enriched catalog entry (has request_body, llm_hint, requires_uids, etc.). The scope fallback's
+    # graph_search entry is kept out of the parser's catalog, in FALLBACK_API_ENDPOINTS, and looked up here too.
+    enriched_entry = next(
+        (ep for ep in [*config.MIN_API_ENDPOINTS, *getattr(config, "FALLBACK_API_ENDPOINTS", [])]
+         if ep.get("path") == endpoint),
+        None,
+    )
     schema_text = (
         f"Schema for endpoint {endpoint}:\n"
         f"{json.dumps(schema, indent=2) if schema else 'No schema is registered for this endpoint.'}"
@@ -135,11 +140,16 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
             messages=messages,
             model_name=api_model,
             temperature=0,
+            agent_label="api",
             log_label="api_agent",
             log_payload_extra={"parser_plan": plan_dict},
             usage_label="API_AGENT",
             thinking_budget=api_budget,
             client=api_client,
+            # An empty plan used to be filled below with the parser's endpoint and the
+            # method default and sent, bypassing the refusal in the except path for an
+            # endpoint that needs a body. Now it is a failed parse like any other.
+            result_check=empty_output_problem,
         )
     except Exception as e:
         print("[DEBUG][API_AGENT] Exception or parse error:", repr(e))
@@ -211,6 +221,25 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
                       rb["filter_searchText"])
             else:
                 rb["filter_searchText"] = ""  # genuinely unfiltered: the user asked for everything
+
+        # F4 (4): a lab-scoped question with no keywords searches the lab code, as its own
+        # term. advanced_search has no lab field, so the code goes in the search text -- and
+        # the agent fused it with a word the parser had deliberately set aside, producing
+        # "KAM MetNet", which matched nothing and sent the question down the retry ladder.
+        # The api agent reads `resolved`, not `filters`, so it never saw that the parser had
+        # excluded the other term; this reads `filters`, which is where that decision lives.
+        # A list is the request model's own shape (filter_searchText is str | list[str]), and
+        # one element carries no searchText_logic, so this narrows nothing.
+        lab_codes = [c.strip() for c in (filters.get("lab_codes") or [])
+                     if isinstance(c, str) and c.strip()]
+        parser_keywords = [k.strip() for k in (filters.get("keywords") or [])
+                           if isinstance(k, str) and k.strip()]
+        if lab_codes and not parser_keywords and rb.get("filter_searchText") != lab_codes:
+            print("[DEBUG][API_AGENT] Lab-scoped search with no parser keywords; "
+                  f"filter_searchText={rb.get('filter_searchText')!r} -> {lab_codes!r}")
+            rb["filter_searchText"] = lab_codes
+            rb.setdefault("filter_matchType", "PARTIAL")
+
         api_plan = api_plan.model_copy(update={"requestBody": rb})
 
     # If the agent selected a method not in the allowed list, fall back to default

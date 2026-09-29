@@ -16,14 +16,34 @@ def test_turn_cc_traces_defaults_none():
 
 
 def test_projection_passes_cc_traces_through():
-    """Hermetic guard for the Step 4 reload wiring in services/assistant.py.
-    The Turn projection (assistant.py:521-529) MUST pass the chat_log entry's
-    persisted trace onto the Turn (`cc_traces=entry.get("cc_traces")`); without it,
-    reload silently returns NO traces and only the paid Task 13 live gate catches it.
-    The projection lives inside the DRF `get_session` @action and is not callable
-    without a DB, so this is a source-text guard (same pattern as the Task 11a
-    `assistant_reply` grep guard). MUTATION-SENSITIVE: deleting the passthrough line
-    removes the substring and FAILS this assertion."""
+    """Hermetic guard for the Step 4 reload wiring.
+    The Turn projection MUST pass the chat_log entry's persisted trace onto the
+    Turn; without it, reload silently returns NO traces and only the paid Task 13
+    live gate catches it. The projection is ``session_export.turn_rows``, a plain
+    function of the session row that needs no DB, so it is called here rather
+    than grepped for. MUTATION-SENSITIVE: dropping the passthrough leaves
+    ``cc_traces`` None and FAILS this assertion."""
+    from types import SimpleNamespace
+
+    from nextseek_api.assistant.session_export import turn_rows
+
+    trace = [{"cc_session_id": "s", "ts": "t",
+              "steps": [{"line": 2, "kind": "bash", "tool": "Bash", "detail": "ls"}]}]
+    session = SimpleNamespace(results_history=[], extra_state={"chat_log": [
+        {"turn_id": 1, "user_query": "hi", "assistant_reply": "ok", "mode": "cc",
+         "cc_traces": trace},
+    ]})
+
+    (row,) = turn_rows(session)
+
+    assert row.payload["cc_traces"][0]["steps"][0]["detail"] == "ls"
+
+
+def test_reload_serves_turns_from_the_shared_projection():
+    """``GET /assistant/sessions/{sid}/?include=turns`` must build its turns with
+    ``turn_rows`` (the test above) and not with a second, inline walk that could
+    drop the passthrough again. Source-text guard, as the @action needs a DB.
+    MUTATION-SENSITIVE: an inline walk in ``get_session`` FAILS this assertion."""
     from NessieAI import paths
     src = (paths.REPO_ROOT / "nextseek_api" / "services" / "assistant.py").read_text()
-    assert 'cc_traces=entry.get("cc_traces")' in src   # Step 4 passthrough is wired
+    assert "session_export.turn_rows(session)" in src

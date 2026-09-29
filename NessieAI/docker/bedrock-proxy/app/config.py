@@ -14,8 +14,18 @@ from dataclasses import dataclass
 
 import httpx
 
-# Allowed model ids. Per the vetted plan: exactly this one.
-_DEFAULT_ALLOWED_MODELS: tuple[str, ...] = ("us.anthropic.claude-opus-4-8",)
+# Allowed model ids: the Container-CC model, first, then the two a CC turn may also
+# name (2026-09-25): its --fallback-model and its auto-mode classifier's Sonnet. Each
+# is an entry of NessieAI/dmac_assistant/build_context/router_model_class_map.json.
+# Run 2 (2026-09-28) moved the map to Opus 5.5 with Opus 4.8 as its fallback; Opus 4.7,
+# run 1's fallback, stays allowed so an app image rolled back to run 1's map is not
+# refused (a 403 is never a reason for Claude Code to fall back).
+_DEFAULT_ALLOWED_MODELS: tuple[str, ...] = (
+    "us.anthropic.claude-opus-5-5",
+    "us.anthropic.claude-opus-4-8",
+    "us.anthropic.claude-opus-4-7",
+    "us.anthropic.claude-sonnet-4-6",
+)
 
 # Default request-body cap: 10 MiB. Bedrock Anthropic payloads are well under
 # this; anything larger is rejected with 413 before being read into memory.
@@ -28,6 +38,15 @@ _CONNECT_TIMEOUT = 10.0
 _READ_TIMEOUT = 600.0
 _WRITE_TIMEOUT = 60.0
 _POOL_TIMEOUT = 10.0
+
+# How long a STREAMED invoke may wait for Bedrock's response headers before the relay
+# answers 504 (2026-09-28, operator ruling D6). Claude Code falls back to its second model
+# on a 504 but never on a hang, and its own per-request limit (API_TIMEOUT_MS, 60 s) fires
+# first, so this sits below it. A streamed answer sends its headers when the stream opens,
+# so only a stalled upstream waits this long; once headers arrive the 600 s read timeout
+# above governs the stream. A plain /invoke sends its headers only when the whole answer is
+# done, so it keeps the 600 s.
+_STREAM_HEADERS_TIMEOUT = 45.0
 
 
 @dataclass(frozen=True)
@@ -47,6 +66,7 @@ class ProxyConfig:
     read_timeout: float = _READ_TIMEOUT
     write_timeout: float = _WRITE_TIMEOUT
     pool_timeout: float = _POOL_TIMEOUT
+    stream_headers_timeout: float = _STREAM_HEADERS_TIMEOUT
 
     @property
     def upstream_host(self) -> str:

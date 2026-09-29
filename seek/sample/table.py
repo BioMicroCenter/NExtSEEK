@@ -8,8 +8,6 @@ base. They hold no state of their own; every one of them operates on the
 from dmac.dbtable import DBtable
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sops import DBtable_sops
-from neo4j import GraphDatabase
-from ..models import People
 from ..models import Samples
 from dmac.conversion import getDefaultDateTime
 import html
@@ -17,8 +15,8 @@ from dmac.iocsv import saveDiclistIntoExcel
 from django.conf import settings
 import simplejson
 
-from .constants import NEO4J_DATABASE, SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_LINK_ACCESSOR_NAME, SAMPLE_PARENT_ACCESSOR_NAME, SAMPLE_PROTOCOL_ACCESSOR_NAME, SAMPLE_PUBLISH_ACCESSOR_NAME, SEEK_DATABASE, logger
-from .upload import SampleUploadMixin
+from .constants import SAMPLE_FILE_ACCESSOR_NAME, SAMPLE_FILTER_MAPPING, SAMPLE_LINK_ACCESSOR_NAME, SAMPLE_PARENT_ACCESSOR_NAME, SAMPLE_PROTOCOL_ACCESSOR_NAME, SAMPLE_PUBLISH_ACCESSOR_NAME, SEEK_DATABASE, logger
+from .upload import SampleUploadMixin, enqueueSampleSync
 from .download import SampleDownloadMixin
 from .search import SampleSearchMixin
 from .api import SampleApiMixin
@@ -57,13 +55,6 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         self.fieldMapping = SAMPLE_FILTER_MAPPING
         self.excludeFields = []
 
-    def deleteSampleNeo4j(self, sample_id):
-        with GraphDatabase.driver(NEO4J_DATABASE['URI'], auth=NEO4J_DATABASE['AUTH']) as driver:
-            records, summary, keys = driver.execute_query("MATCH (s:Sample {id: $id}) DETACH DELETE s",
-                    id=sample_id,
-                    database_=NEO4J_DATABASE['NAME'])
-            logger.debug(f"NEO4J summary: {summary}")
-
     def _deleteOneSample(self, sample_id, policy_id):
         sqlqueries = []
         sqlquery = "DELETE FROM projects_samples where sample_id=" + str(sample_id) + ";"
@@ -86,10 +77,10 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         status = self.db.run_custom_transaction(sqlqueries, db_alias)
         if status:
             msg = "Transaction successful"
-            try:
-                self.deleteSampleNeo4j(sample_id)
-            except:
-                None
+            # The row is gone from MySQL, so the graph holds a sample that no longer exists. The deletion rule (the
+            # design's section 9) is the loop's to apply, from this row, after the transaction: the node used to be
+            # DETACH DELETEd here and a bare ``except`` discarded every failure.
+            enqueueSampleSync('retire', sample_id)
         else:
             msg = "Error: The trandsaction of deletion failed. Delete this sample manually"
         
@@ -110,10 +101,14 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
             
         return childrenList
 
-    def _deleteSampleList(self, user_seek, sample_ids, xlsfile):
+    def _deleteSampleList(self, user_seek, sample_ids, xlsfile, is_superuser=False):
+        """Delete each sample for its contributor, or for any sample when ``is_superuser``.
+
+        ``is_superuser`` is the caller's Django ``is_superuser``, the admin signal the
+        views read (``seek.decorators.verifySuperUser``).
+        """
         user_id = user_seek['user_id']
-        roles_mask = self.db.retrieveFieldValue(People, user_id, 'roles_mask')
-    
+
         status = 1
         msg = ''
         diclist = []
@@ -135,7 +130,7 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
             
             dici['uid'] = currentuid
             childrenList =  self._getSampleChildren(currentuid)
-            if user_id==contributor_id or int(roles_mask)>0:
+            if user_id==contributor_id or is_superuser:
                 if len(childrenList)==0:
                     msgi, statusi = self._deleteOneSample(sample_id, policy_id)
                     if statusi:
@@ -159,8 +154,9 @@ class DBtable_sample(SampleUploadMixin, SampleDownloadMixin, SampleSearchMixin, 
         saveDiclistIntoExcel(diclist, xlsfile, headers, 'samples')
         return diclist, msg, status 
 
-    def deleteSamples(self, user_seek, xlsfile, link, sample_ids):
-        diclist, msg, status = self._deleteSampleList(user_seek, sample_ids, xlsfile)
+    def deleteSamples(self, user_seek, xlsfile, link, sample_ids, is_superuser=False):
+        diclist, msg, status = self._deleteSampleList(user_seek, sample_ids, xlsfile,
+                                                      is_superuser=is_superuser)
         data = {}
         data['msg'] = msg
         data['status'] = status

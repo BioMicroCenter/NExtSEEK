@@ -24,6 +24,8 @@ largest module here and holds several concerns; read the part you need.
 | Mounts: one named volume, one subpath per mount | `_build_volumes` |
 | Fail-closed check that each subpath directory exists | `_preflight_subpath_dirs` |
 | Wall-clock clamp for one turn | `clamp_turn_timeout` |
+| The fallback model on a server error, bounded retries, the classifier's model | `_build_command` (`--fallback-model`), `build_agent_environment` (env `NEXTSEEK_CC_MAX_RETRIES`, `NEXTSEEK_CC_API_TIMEOUT_MS`, `NEXTSEEK_CC_DEFAULT_SONNET_MODEL`) |
+| Container paths in a reply become this turn's real paths | `rewrite_container_paths` |
 | Secret-scrub watermark for a stored transcript | `transcript_is_verified_scrubbed` |
 | Agent image and network defaults | `DEFAULT_IMAGE`, `DEFAULT_NETWORK` (env `NEXTSEEK_CC_IMAGE`, `NEXTSEEK_CC_NETWORK`) |
 
@@ -38,6 +40,7 @@ largest module here and holds several concerns; read the part you need.
 | `cc_session.py`, `cc_turn_complete.py` | multi-turn resume and turn-completion persistence (Django-free) |
 | `cc_memory.py`, `cc_memory_io.py`, `cc_summary.py` | cross-session memory: which sessions to recall, the mounted files, transcript distillation |
 | `cc_turn_context.py`, `ns_turn_context.py`, `ns_digest.py` | the deterministic CC and NS turn-context projections, and the NS digest renderer |
+| `prior_turns.py` | stages the chat's previous turns (Search details, rows, downloads, CC answers and files) into the session's `_memory` tree, mounted read-only at `/data/previous_turns`; copies only through the download endpoint's own guard |
 | `cc_upload_list.py`, `cc_upload_validate.py` | the upload list and filename validation for agent file uploads |
 | `cc_config.py` | `CCPaths` (the external volume and its mount point, read from env) and `CCMemoryConfig` |
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |

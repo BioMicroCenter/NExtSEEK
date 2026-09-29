@@ -110,14 +110,14 @@ jobs:
             ARGS+=(--no-nessie)
           fi
           uv run --no-project \
-            --with pytest --with requests --with playwright \
+            --with pytest --with requests --with playwright==1.60.0 \
             pytest ci/smoke/ "${ARGS[@]}" -q --junitxml=smoke-results.xml
 
       - name: Run the write lane
         if: ${{ inputs.write_lane }}
         run: |
           uv run --no-project \
-            --with pytest --with requests --with playwright \
+            --with pytest --with requests --with playwright==1.60.0 \
             pytest ci/smoke/ -m write --base-url "${{ inputs.base_url }}" -q
 
       # Never off a prod box. A JUnit file carries every test id and every failure

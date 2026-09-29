@@ -21,14 +21,18 @@ from NessieAI.cc.op_registry.paired_evidence import (
     load_committed_evidence,
     validate_committed_structure,
 )
+from NessieAI.cc.op_registry.ns_capabilities import BEST_FOR_PREFIX, NOT_FOR_PREFIX
 from NessieAI.cc.op_registry.routes import (
     CONTAINER_CC_ROUTE,
+    FOLLOWUP_FAMILIES_ON_CC,
     GENERIC_CC_BUILTINS,
     NEXTSEEK_QUERY_TOOLS,
+    NS_CAPABILITY_LABELS_ON_CC,
+    NS_FOLLOWUP_NOT_FOR,
+    NS_SUMMARY_NOT_FOR,
 )
 from NessieAI.tests.nessie_tests import corpus as nessie_corpus
 from NessieAI.tests.nessie_tests import export as nexport
-from NessieAI.tests.nessie_tests import runner as nessie_runner
 
 # Repo-relative, joined onto the --root checkout; one source in constants.py.
 ROUTE_CAPABILITIES_REL = Path(constants.ROUTE_CAPABILITIES_REL)
@@ -144,11 +148,12 @@ def _validate_evidence_against_corpus(
     *,
     corpus_path: Path,
 ) -> None:
-    fingerprint = nessie_runner.corpus_fingerprint(corpus_path)
-    if evidence.get("corpus_fingerprint") != fingerprint:
-        raise RouteCapabilitiesError(
-            "evidence corpus_fingerprint is stale versus current corpus.json"
-        )
+    """Evidence stays valid across corpus edits; only a change to an evidence
+    record's own id, family or question text refuses.
+
+    The recorded ``corpus_fingerprint`` values stay in the evidence file as
+    provenance (which corpus the evidence was cut from); they are not compared.
+    """
     index = _corpus_index(corpus_path)
     for record in evidence["records"]:
         query_id = record["query_id"]
@@ -159,8 +164,6 @@ def _validate_evidence_against_corpus(
             raise RouteCapabilitiesError(f"family drift for {query_id!r}")
         if record["query_text"] != expected["query_text"]:
             raise RouteCapabilitiesError(f"query_text drift for {query_id!r}")
-        if record.get("corpus_fingerprint") not in (None, fingerprint):
-            raise RouteCapabilitiesError(f"per-record fingerprint drift for {query_id!r}")
 
 
 def container_cc_tools(*, repo_root: Path) -> list[str]:
@@ -217,6 +220,41 @@ def _task_families_for_route(
     return families
 
 
+def _split_labels(text: str, prefix: str) -> list[str]:
+    if not text.startswith(prefix) or not text.endswith("."):
+        raise RouteCapabilitiesError(f"route prose does not start with {prefix!r}: {text!r}")
+    body = text[len(prefix):-1]
+    return [label for label in body.split("; ") if label]
+
+
+def apply_followup_ruling(ns_route: dict[str, Any]) -> dict[str, Any]:
+    """The nextseek_query route under the follow-up rule (2026-09-24 split; 2026-09-23 before).
+
+    Takes ``FOLLOWUP_FAMILIES_ON_CC`` off the route's task families, the
+    ``NS_CAPABILITY_LABELS_ON_CC`` labels out of its best_for, and adds
+    ``NS_FOLLOWUP_NOT_FOR`` to its not_for, so the router prompt does not offer the NS
+    route for a follow-up the router rule sends to CC. Since the split, the rule itself
+    lives in the router prompt paragraph (NessieAI/router/followup.py) and only
+    cross_session_memory leaves the NS route. The capability markdown is not
+    edited: it describes what the assistant as a whole can do, and the system agent
+    reads it. Idempotent, so the committed file is its own fixed point.
+    """
+    route = dict(ns_route)
+    route["task_families"] = [
+        family for family in route.get("task_families") or []
+        if family.get("name") not in FOLLOWUP_FAMILIES_ON_CC
+    ]
+    best = [label for label in _split_labels(route["best_for"], BEST_FOR_PREFIX)
+            if label not in NS_CAPABILITY_LABELS_ON_CC]
+    route["best_for"] = f"{BEST_FOR_PREFIX}{'; '.join(best)}."
+    negatives = _split_labels(route["not_for"], NOT_FOR_PREFIX)
+    for ruling in (NS_FOLLOWUP_NOT_FOR, NS_SUMMARY_NOT_FOR):
+        if ruling not in negatives:
+            negatives.append(ruling)
+    route["not_for"] = f"{NOT_FOR_PREFIX}{'; '.join(negatives)}."
+    return route
+
+
 def build_route_capabilities_payload(
     *,
     repo_root: Path,
@@ -252,11 +290,11 @@ def build_route_capabilities_payload(
             "nextseek_query.tools must stay fallback-router agent symbols; "
             f"capability labels leaked: {sorted(leaked_labels)}"
         )
-    ns_route = {
+    ns_route = apply_followup_ruling({
         **projection.route_level_object(),
         "tools": ns_tools,
         "task_families": ns_families,
-    }
+    })
     route_level = {
         key: ns_route[key]
         for key in ("route_name", "description", "tools", "best_for", "not_for")

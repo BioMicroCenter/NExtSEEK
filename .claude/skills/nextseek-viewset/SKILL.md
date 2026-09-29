@@ -41,7 +41,7 @@ scoping, and error-envelope patterns. New actions still need full `*_DESC`,
 
 - Default: `permission_classes = [IsAuthenticated]`.
 - Superuser-only: `[IsAuthenticated, IsDjangoSuperuser]`; import `IsDjangoSuperuser` from [`nextseek_api/services/users.py`](../../../nextseek_api/services/users.py). Gate on `is_superuser`, not `is_staff`.
-- **Do not use `IsAdminUser`.** SEEK-mirrored Django users are created with `is_staff=True`; `IsAdminUser` collapses to any authenticated user. Known live anti-patterns: [`AdminSampleViewSet`](../../../nextseek_api/views.py), [`EvaluatorViewSet`](../../../nextseek_api/services/evaluator.py).
+- **Do not use `IsAdminUser`.** SEEK-mirrored Django users are created with `is_staff=True`; `IsAdminUser` collapses to any authenticated user. `AdminSampleViewSet` and `EvaluatorViewSet` both once used it; both are fixed (2690598, #75).
 
 ## 4. Project-scoping
 
@@ -49,7 +49,7 @@ scoping, and error-envelope patterns. New actions still need full `*_DESC`,
 
 **Native:** load the caller's projects and constrain the query. See [`references/patterns.md`](references/patterns.md) for the `SeekDB.getCurrentUser()` + `project_id IN (...)` snippet. Empty project list → empty result set, not unscoped rows.
 
-Pattern reference: [`AdminSampleViewSet.admin_retrieve_samples`](../../../nextseek_api/views.py). Do not use `resolve_user_project` for list scoping (that helper picks one project dirname for CC mounts).
+Pattern references: [`handle_retrieve`](../../../nextseek_api/services/sample_retrieve.py) (the sample download API; scope from `resolve_scope`, the caller's projects read from MySQL) and [`GraphSearchViewSet`](../../../nextseek_api/services/graph_search.py). Do not use `resolve_user_project` for list scoping (that helper picks one project dirname for CC mounts).
 
 Superuser-only endpoints that are intentionally global (e.g. admin user mutations) may omit native project filtering; document that choice in **USE WHEN** / **DO NOT USE WHEN**.
 

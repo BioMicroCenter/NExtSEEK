@@ -10,10 +10,11 @@ if TYPE_CHECKING:
 from ...session import SessionState
 from ...config import ChatConfig
 from ...artifacts import ArtifactStore
+from ...helpers.tools.neo4j import is_scope_refusal
+from ...helpers.tools.row_compute import run_code_isolated
 from ...helpers import (
     _retry_advanced_search_if_empty,
     build_memory_data_profile,
-    execute_memory_code,
     fix_sample_endpoint,
     generate_report_outputs,
     normalize_report_type,
@@ -37,6 +38,19 @@ from ..memory import memory_agent_answer, memory_coder_agent
 from ..reporter import reporter_agent, report_writer_agent
 from ..system import system_agent
 
+#: Added to a planner graph step refused for its project scope (legacy plan mode has no automatic fallback).
+SCOPE_REFUSAL_HINT = (
+    "Use the project-scoped sample search, /nextseek_api/samples/graph_search/, for this step instead."
+)
+
+#: The REST sample searches a planner step no longer calls: every sample question goes to the graph (routing
+#: review 6a, 2026-09-24), so a search step naming one of these, or no endpoint, runs as a graph step. graph_search
+#: is not here: it stays the scope fallback SCOPE_REFUSAL_HINT names.
+_RETIRED_REST_SAMPLE_SEARCHES = frozenset({
+    "/nextseek_api/samples/advanced_search/",
+    "/nextseek_api/sample_types/get_parents/parents_by_child_types/",
+})
+
 
 def _plan_tool_graph_query(
     config: ChatConfig,
@@ -47,7 +61,11 @@ def _plan_tool_graph_query(
     log_dir: str | None,
     enriched_context: "dict[int, ContextEngineerOutput]",
 ) -> dict:
-    """Execute a planner graph step, including one retry with error-informed Cypher regeneration."""
+    """Execute a planner graph step, including one retry with error-informed Cypher regeneration.
+
+    A statement refused for its project scope is not retried (another query would be refused the
+    same way); the step's error names graph_search instead.
+    """
     query = step.execution.tool_query or query
     candidate_metadata = dict(step.execution.metadata or {})
     entity_payload = entity_result if isinstance(entity_result, dict) else entity_result.model_dump()
@@ -65,7 +83,7 @@ def _plan_tool_graph_query(
     if not graph_plan.cypher:
         return {"ok": False, "tool": "graph_query", "output": {}, "error": "graph_agent produced no cypher"}
     result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
-    if not result.get("ok"):
+    if not result.get("ok") and not is_scope_refusal(result):
         retry_ctx = (
             f"Your previous Cypher failed:\n{result.get('error', '')}\n\n"
             "Check schema, property types, relationship directions, and retry."
@@ -73,15 +91,22 @@ def _plan_tool_graph_query(
         graph_plan = graph_agent(config, query, entity_result, parser_plan=graph_parser_plan, retry_context=retry_ctx)
         if graph_plan.cypher:
             result = tool_neo4j_query(config, graph_plan.cypher, graph_plan.parameters)
+    error = result.get("error") if not result.get("ok") else None
+    if is_scope_refusal(result):
+        error = f"{error} {SCOPE_REFUSAL_HINT}"
     return {
         "ok": result.get("ok", False),
         "tool": "graph_query",
         "output": {
             "data": result.get("data", []),
             "count": result.get("count", 0),
+            # As tool_neo4j_query returns them: count is len(records), so a step that hit
+            # its LIMIT is told apart from the whole set only by these two.
+            "total": result.get("total"),
+            "truncated": bool(result.get("truncated")),
             "graph_plan": graph_plan.model_dump(),
         },
-        "error": result.get("error") if not result.get("ok") else None,
+        "error": error,
     }
 
 
@@ -95,10 +120,14 @@ def _plan_tool_new_search(
     enriched_context: "dict[int, ContextEngineerOutput]",
     parser_plan: "MultiParserPlan | None" = None,
 ) -> dict:
-    """Execute a planner search step by synthesizing a parser plan and running the API agent/tool."""
+    """Execute a planner search step by synthesizing a parser plan and running the API agent/tool.
+
+    A step with no endpoint, or one naming a retired REST sample search (the step's own, else the refined
+    result's), runs as a graph step instead, with the filters the REST call would have been given.
+    """
     entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
     query = step.execution.tool_query or query
-    endpoint = step.execution.target_endpoint or step.target_endpoint or "/nextseek_api/samples/advanced_search/"
+    endpoint = step.execution.target_endpoint or step.target_endpoint
     endpoint = fix_sample_endpoint({"target_endpoint": endpoint}).get("target_endpoint", endpoint)
     input_values, _missing = _resolve_step_inputs(step, enriched_context)
     base_filters = dict(step.execution.filters or {})
@@ -164,6 +193,19 @@ def _plan_tool_new_search(
             for key in ("sampletype_code", "assay_codes", "uids"):
                 if base_filters.get(key) in (None, "", [], {}) and previous_filters.get(key) not in (None, "", [], {}):
                     base_filters[key] = previous_filters[key]
+
+    if not endpoint or endpoint in _RETIRED_REST_SAMPLE_SEARCHES:
+        print(f"[DEBUG][PLAN_TOOL][new_search] step {step.step_id} has no REST sample search to call "
+              f"(endpoint={endpoint!r}); running it on the graph")
+        graph_step = step.model_copy(update={
+            "target_endpoint": "",
+            "execution": step.execution.model_copy(update={
+                "mode": "graph_query",
+                "target_endpoint": None,
+                "filters": {**base_filters, **input_values},
+            }),
+        })
+        return _plan_tool_graph_query(config, session, graph_step, query, entity_result, log_dir, enriched_context)
 
     for key, value in input_values.items():
         base_filters[key] = value
@@ -575,7 +617,11 @@ def _plan_tool_coding_filter(
         data_profile=profile,
         log_dir=log_dir,
     )
-    computed_result = execute_memory_code(coder_output.extraction_code, data_for_code)
+    # The code runs in a separate, limited process; the step fails on an error, as it did before.
+    run = run_code_isolated(coder_output.extraction_code, data_for_code)
+    if not run["ok"]:
+        raise RuntimeError(run["error"])
+    computed_result = run["result"]
     filtered_rows = (
         computed_result.get("filtered_rows")
         or computed_result.get("rows")
@@ -647,10 +693,8 @@ def _plan_tool_unsupported(
 ) -> dict:
     """Planner-visible terminal path for out-of-scope or unsupported requests."""
     query = step.execution.tool_query or query
-    reply = (
-        "I can't turn that request into a valid NExtSEEK operation yet.\n\n"
-        f"Reason from planner: {step.notes or query}"
-    )
+    from ...orchestrator import UNSUPPORTED_REPLY  # lazy: the orchestrator imports this module
+    reply = UNSUPPORTED_REPLY  # the planner's notes are routing prose, kept out of the reply
     return {"ok": True, "tool": "unsupported", "output": {"reply": reply, "count": 1}, "error": None}
 
 

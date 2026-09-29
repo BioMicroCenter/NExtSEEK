@@ -28,6 +28,9 @@ class RouterInput {
   user_query  string
   routes      RouteCapability[]
   history     HistoryTurn[]
+  // The follow-up paragraph, filled by NessieAI/router/followup.py from NESSIE_FOLLOWUP_ROUTING
+  // (split by default; cc is the 2026-09-23 rule), so the prompt and the policy guard cannot disagree.
+  followup_rule string?
 }
 
 enum Route {
@@ -105,6 +108,18 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     scope exactly as much as "what assays do I have access to". Reserve
     `unrelated` for subjects that could not plausibly be an entry in a sample
     catalog at all.
+
+    {% if input.followup_rule %}{{ input.followup_rule }}{% endif %}
+
+    Open-ended summaries go to `container_cc`. A request to summarise a whole
+    project or investigation — how much data it holds, an inventory of it, an
+    overview or summary of what it contains, the span of its collection dates —
+    is `container_cc`, which writes the summary and hands over a file. These stay
+    `nextseek_query`: a formal NIH, RPPR, annual or progress report (the NS
+    reporter builds it); upload statistics ("how many samples were uploaded in
+    2025"); repository submissions and nf-core samplesheets; "tell me about X"
+    or "what is X", which asks what a project is; and a plain count or breakdown
+    ("how many samples are in SRP", "break SRP down by sample type").
 
     {{ ctx.output_format }}
   "#

@@ -7,7 +7,7 @@
 (function (window, document) {
   "use strict";
 
-  var ENDPOINT = "/nextseek_api/admin/samples/retrieve/";
+  var ENDPOINT = "/nextseek_api/samples/retrieve/";
 
   function getCsrfToken() {
     var match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);

@@ -37,7 +37,7 @@ from urllib.parse import quote, quote_plus
 import docker
 
 from .attach import BridgeAttachSocket
-from .translate import CCStreamTranslator
+from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
 from NessieAI.cc import cc_session
@@ -84,6 +84,38 @@ _DEFAULT_TURN_TIMEOUT = min(
     int(os.environ.get("NEXTSEEK_CC_TIMEOUT_SECONDS", str(_TIMEOUT_HARD_MAX))),
     _TIMEOUT_HARD_MAX,
 )
+# The CC 503 fallback (2026-09-25 operator ruling). Claude Code's own default is 11
+# attempts over about 175 s, so a Bedrock outage used to spend the whole turn before it
+# gave up. Three retries end such a turn in seconds, and ``--fallback-model`` (see
+# _build_command) switches model on the first 5xx other than 529. ``API_TIMEOUT_MS``
+# bounds one request, which matters only when the upstream hangs. Each is overridable
+# from the Django env, like the caps above; a value that is not a whole number keeps
+# the default.
+_CC_MAX_RETRIES_ENV = "NEXTSEEK_CC_MAX_RETRIES"
+_DEFAULT_CC_MAX_RETRIES = "3"
+_CC_API_TIMEOUT_MS_ENV = "NEXTSEEK_CC_API_TIMEOUT_MS"
+_DEFAULT_CC_API_TIMEOUT_MS = "60000"
+# Below a second every model call would time out at once, so a smaller override (zero
+# included) keeps the default.
+_MIN_CC_API_TIMEOUT_MS = 1000
+# A turn the watchdog stops while its last frame is an api_retry was still waiting on the
+# retried request only within the retry's delay plus API_TIMEOUT_MS (which bounds the wait
+# for response headers) plus this much slack. Later, the request must be streaming an
+# answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
+_RETRY_WINDOW_SLACK_S = 5.0
+# The engine's monotonic clock, one name so tests can stand in for it.
+_monotonic = time.monotonic
+# Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
+# and names its own default Sonnet id (one the Bedrock proxy refuses) unless
+# ANTHROPIC_DEFAULT_SONNET_MODEL is set. The id comes from the model map's ``sonnet``
+# entry; this variable overrides it, and must pass the map's own id check.
+_CC_SONNET_MODEL_ENV = "NEXTSEEK_CC_DEFAULT_SONNET_MODEL"
+# 13b.2: the agent env carries the Unix time (whole seconds) by which this turn
+# will have been stopped, so the plugin's nextseek-query stops polling while the
+# agent can still report back, instead of being killed along with the turn. The
+# plugin reads the same name (``_assistant_client._TURN_DEADLINE_ENV``); a test
+# pins the two together.
+_TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
 
 # #73 (production DoS): hard cgroup ceilings for the per-turn sibling container.
 # Cost/turn/time caps above bound spend and wall-clock, but NOT RAM/CPU/PIDs/disk
@@ -146,6 +178,83 @@ _BASE_CMD = [
 
 _CONTAINER_SCRATCH = "/data/scratch"
 _CONTAINER_OUTPUT = "/data/output"
+
+
+def path_mappings_for(*, output_mnt: str, run_scratch_mnt: str | None) -> dict[str, dict[str, str]]:
+    """D19: how the in-container agent turns a container path into the path a person can use.
+
+    One entry per mounted root: ``container_root`` is the prefix the agent sees,
+    ``logical_root`` the prefix under ``user_root_mount`` it should quote instead, so
+    reporting a file is a prefix replacement and nothing else. G7-10 retired host-bind
+    ``host_root`` strings for ``logical_root``, and the agent-facing instruction was not
+    updated with it: on 2026-09-22 a turn read a perfectly good mapping, found no host
+    path in it, and fell back to quoting the container path. The key names live here and
+    `NessieAI/tests/cc/test_plugin_skill_md.py` requires the skill document to name them.
+
+    A root with no logical path is left out. An entry whose ``logical_root`` is None is
+    worse than a missing one: it is exactly what the agent cannot translate, and a turn
+    with no run id has no per-run scratch root.
+    """
+    mappings = {"output": {"container_root": _CONTAINER_OUTPUT, "logical_root": output_mnt}}
+    if run_scratch_mnt:
+        mappings["scratch"] = {"container_root": _CONTAINER_SCRATCH, "logical_root": run_scratch_mnt}
+    return mappings
+
+
+# D7 (2026-09-25 dev run): the template the agent's instructions show for each root, which
+# one reply printed literally instead of filling in. The run id placeholder is matched with
+# or without its space.
+_PATH_TEMPLATES = {
+    "scratch": r"/dmac/users/<project>/<user>/scratch/<run[ _-]?id>",
+    "output": r"/dmac/users/<project>/<user>/output",
+}
+# A root is matched only as a whole path segment run: never inside a longer path
+# (``/mnt/data/scratch``) and never as the start of a longer name (``/data/scratchpad``,
+# ``/data/scratch.bak``). A dot followed by a space or the end is sentence punctuation.
+_ROOT_BEFORE = r"(?<![\w.~/-])"
+_ROOT_AFTER = r"(?![\w-]|\.[\w-])"
+
+
+def rewrite_container_paths(text: Any, path_mappings: Mapping[str, Any] | None) -> Any:
+    """D7: put this turn's real paths where a reply names a container path.
+
+    The agent is told to quote a file it handed over by its user-facing path, and on the
+    2026-09-25 dev run 6 of 12 replies still named ``/data/scratch/...`` and one printed
+    the documented template ``/dmac/users/<project>/<user>/scratch/<run id>/...``. This is
+    the server-side guard: each mapped root (``/data/scratch``, ``/data/output``) and each
+    template becomes that entry's ``logical_root`` from ``path_mappings_for``, the same
+    mapping the agent was given, and the rest of the path is kept.
+
+    A root with no usable entry (a turn with no run id has no ``scratch`` entry) is left
+    as it is, and so is every other ``/data/`` path. One pass over the text, so a
+    replaced path is never rewritten again. Anything that is not a non-empty string is
+    returned unchanged.
+    """
+    if not isinstance(text, str) or not text or not isinstance(path_mappings, Mapping):
+        return text
+    alternatives: list[str] = []
+    roots: dict[str, str] = {}
+    for name, entry in path_mappings.items():
+        if not isinstance(entry, Mapping):
+            continue
+        container_root = entry.get("container_root")
+        logical_root = entry.get("logical_root")
+        if not (isinstance(container_root, str) and container_root
+                and isinstance(logical_root, str) and logical_root):
+            continue
+        patterns = [_ROOT_BEFORE + re.escape(container_root.rstrip("/")) + _ROOT_AFTER]
+        template = _PATH_TEMPLATES.get(name)
+        if template:
+            patterns.append(template + (_ROOT_AFTER if template.endswith("output") else ""))
+        for pattern in patterns:
+            group = f"r{len(roots)}"
+            roots[group] = logical_root.rstrip("/")
+            alternatives.append(f"(?P<{group}>{pattern})")
+    if not alternatives:
+        return text
+    return re.sub("|".join(alternatives), lambda m: roots[m.lastgroup], text)
+
+
 _CONTAINER_INPUT = "/data/input"
 _CONTAINER_SHARED = "/data/shared"
 # Image WORKDIR: the baked CLAUDE.md (-> /app/CLAUDE.md) and the nextseek plugin
@@ -174,6 +283,9 @@ _CONTAINER_MEMORY_CLAUDE_MD = "CLAUDE.md"  # basename copied into the cc-state s
 # Step 1c: the 10 most-recent OTHER sessions' raw transcripts, RO, for on-demand
 # depth. Outside .claude so it never collides with the session store / resume.
 _CONTAINER_MEMORY_TRANSCRIPTS = _CONTAINER_WORKDIR + "/.cc-memory/transcripts"
+# 2026-09-23: this chat's previous turns (Search details, rows, downloads), staged by
+# ``NessieAI/cc/prior_turns.py`` into the session's ``_memory`` subtree, RO.
+_CONTAINER_PREVIOUS_TURNS = "/data/previous_turns"
 
 
 def cc_runner_available() -> tuple[bool, str]:
@@ -286,6 +398,7 @@ def build_agent_environment(
     api_pass: str | None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
+    turn_deadline: float | None = None,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
 
@@ -296,7 +409,9 @@ def build_agent_environment(
     reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
     the authenticated REST API as the user. ``source`` is the Django/process env
     to read non-secret topology from (defaults to os.environ; the canary passes a
-    hostile source to prove nothing leaks).
+    hostile source to prove nothing leaks). ``turn_deadline`` is the Unix time by
+    which the turn will have been stopped; only the turn driver knows it, so it
+    is never read from ``source``.
     """
     src = os.environ if source is None else source
     env: dict[str, str] = {
@@ -341,7 +456,75 @@ def build_agent_environment(
     # §4.C: the live chat session id for nextseek-recall/query — not a credential.
     if chat_session_id:
         env["NEXTSEEK_CHAT_SESSION_ID"] = chat_session_id
+    # 13b.2: rounded down, so the agent never believes it has longer than it does.
+    if turn_deadline is not None:
+        env[_TURN_DEADLINE_ENV] = str(int(turn_deadline))
+    # The CC 503 fallback: bounded retries and request time, and a classifier model the
+    # proxy allows. None of these is a credential.
+    env["CLAUDE_CODE_MAX_RETRIES"] = _whole_number(
+        src.get(_CC_MAX_RETRIES_ENV), _DEFAULT_CC_MAX_RETRIES, name=_CC_MAX_RETRIES_ENV)
+    env["API_TIMEOUT_MS"] = _whole_number(
+        src.get(_CC_API_TIMEOUT_MS_ENV), _DEFAULT_CC_API_TIMEOUT_MS,
+        name=_CC_API_TIMEOUT_MS_ENV, minimum=_MIN_CC_API_TIMEOUT_MS)
+    sonnet = _cc_classifier_model_id((src.get(_CC_SONNET_MODEL_ENV) or "").strip())
+    if sonnet:
+        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = sonnet
     return env
+
+
+def _whole_number(value: Any, default: str, *, name: str, minimum: int = 0) -> str:
+    """``value`` when it is a whole number in ASCII digits and at least ``minimum``.
+
+    Unset or blank means ``default``, silently. Anything else that is not usable (not a
+    whole number, or under ``minimum``) also means ``default``, with a warning naming
+    the variable.
+    """
+    text = value.strip() if isinstance(value, str) else ""
+    if not text:
+        return default
+    if not re.fullmatch(r"[0-9]+", text) or int(text) < minimum:
+        logger.warning("cc: ignoring %s=%r (a whole number of at least %d is needed); "
+                       "using %s", name, text, minimum, default)
+        return default
+    return text
+
+
+def _cc_fallback_model_id() -> str | None:
+    """The model map's ``opus_fallback`` id, or None when it is absent or unusable.
+
+    Never raises: a turn with no fallback is what a resolution failure costs, not the
+    turn itself. Imported here, not at module scope (``NessieAI/dmac_assistant/CLAUDE.md``).
+    """
+    try:
+        from dmac_assistant.router.models import resolve_cc_fallback_model
+
+        return resolve_cc_fallback_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: fallback model id resolution failed (%s); the turn runs "
+                       "with no fallback model", type(exc).__name__)
+        return None
+
+
+def _cc_classifier_model_id(override: str = "") -> str | None:
+    """The auto-mode classifier's model id, or None. Never raises.
+
+    ``override`` (``NEXTSEEK_CC_DEFAULT_SONNET_MODEL``) wins when it passes the model
+    map's own ``us.anthropic.`` id check; otherwise, with a warning when it was set but
+    malformed, the map's ``sonnet`` id.
+    """
+    try:
+        from dmac_assistant.router.models import is_bedrock_model_id, resolve_cc_classifier_model
+
+        if override:
+            if is_bedrock_model_id(override):
+                return override
+            logger.warning("cc: ignoring %s=%r (not a Bedrock-qualified us.anthropic. id); "
+                           "using the model map's sonnet id", _CC_SONNET_MODEL_ENV, override)
+        return resolve_cc_classifier_model()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("cc: classifier model id resolution failed (%s); Claude Code "
+                       "keeps its own default", type(exc).__name__)
+        return None
 
 
 def _redact_env(env: Mapping[str, str]) -> dict[str, str]:
@@ -797,18 +980,31 @@ def _automode_settings_args(source: Mapping[str, str] | None = None) -> list[str
     return ["--settings", json.dumps(settings, separators=(",", ":"))]
 
 
+_FROM_MODEL_MAP: Any = object()
+
+
 def _build_command(
     *,
     model_id: str | None,
     session_id: str | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     source: Mapping[str, str] | None = None,
+    fallback_model_id: str | None = _FROM_MODEL_MAP,
 ) -> list[str]:
-    """Build the in-container ``claude`` command: auto-mode base + model + per-turn
-    caps + the ``$defaults``-first trusted-infra allowlist (OI-5)."""
+    """Build the in-container ``claude`` command: auto-mode base + model + fallback
+    model + per-turn caps + the ``$defaults``-first trusted-infra allowlist (OI-5).
+
+    ``--fallback-model`` is the CC 503 fallback: Claude Code switches to it on the first
+    5xx other than 529 (after three 529s), and it serves the rest of the turn. It is
+    added only when an id resolves and differs from ``--model``; by default the id is
+    the model map's ``opus_fallback`` entry, and a failure to resolve it means no flag.
+    """
     cmd = list(_BASE_CMD)
     if model_id:
         cmd += ["--model", model_id]
+    fallback = _cc_fallback_model_id() if fallback_model_id is _FROM_MODEL_MAP else fallback_model_id
+    if fallback and fallback != model_id:
+        cmd += ["--fallback-model", fallback]
     cmd += _cc_limit_args(max_budget_usd)
     cmd += _automode_settings_args(source)
     if session_id:
@@ -937,6 +1133,7 @@ def _build_volumes(
     cc_state_key: str | None,
     run_id: str,
     transcripts_subpath: str | None = None,
+    previous_turns: bool = False,
 ) -> list[dict]:
     """Engine-API ``Mount`` payloads (volume subpaths of ``dmac-cc-users``) for
     the CC sibling container.
@@ -982,6 +1179,14 @@ def _build_volumes(
                 vol, _CONTAINER_MEMORY_TRANSCRIPTS, transcripts_subpath, read_only=True
             )
         )
+    # The previous turns of THIS chat: a boolean, not a path, so the subpath comes
+    # from the provisioner like every other one, and it exists only for a session.
+    if previous_turns and dirs.previous_turns_subpath:
+        mounts.append(
+            _mount_volume_subpath(
+                vol, _CONTAINER_PREVIOUS_TURNS, dirs.previous_turns_subpath, read_only=True
+            )
+        )
     return mounts
 
 
@@ -1015,6 +1220,7 @@ def run_cc_turn(
     cc_state_key: str | None = None,
     memory_claude_md: str | None = None,
     transcripts_subpath: str | None = None,
+    previous_turns: bool = False,
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
@@ -1065,6 +1271,7 @@ def run_cc_turn(
         paths=paths, project_dirname=project_dirname, user_id=user_id,
         cc_state_key=cc_state_key, run_id=run_id,
         transcripts_subpath=transcripts_subpath,
+        previous_turns=previous_turns,
     )
     for _m in mounts:
         _backing = mount_root / _m["VolumeOptions"]["Subpath"]
@@ -1109,21 +1316,17 @@ def run_cc_turn(
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)
 
-    # D19: tell the in-container agent how to translate container paths to the
-    # user-facing logical paths (under user_root_mount) when it reports artifact
-    # locations. G7-10 retires host-bind ``host_root`` strings for ``logical_root``.
-    path_mappings = {
-        "output": {"container_root": _CONTAINER_OUTPUT,
-                   "logical_root": dirs.output_mnt},
-        "scratch": {"container_root": _CONTAINER_SCRATCH,
-                    "logical_root": dirs.run_scratch_mnt},
-    }
+    path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
+                                      run_scratch_mnt=dirs.run_scratch_mnt)
     # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
     # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
     environment = build_agent_environment(
         source=os.environ, api_user=api_user, api_pass=api_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
+        # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
+        # it is never later than the watchdog's, which starts after the spawn.
+        turn_deadline=time.time() + turn_timeout,
     )
 
     command = _build_command(
@@ -1157,7 +1360,9 @@ def run_cc_turn(
     # UnboundLocalError and mask the real failure.
     transcript_persisted = False
 
-    translator = CCStreamTranslator()
+    # The --model id, so the turn record can name the model that answered even when the
+    # result frame carries no modelUsage.
+    translator = CCStreamTranslator(model_id=model_id, clock=lambda: _monotonic())
     translator._turn_start_ts = time.time()
     terminal: tuple[str, dict[str, Any]] | None = None
     client = docker.from_env()
@@ -1174,9 +1379,11 @@ def run_cc_turn(
         # stream so the read loop below exits.
         _done = threading.Event()
         _timed_out = threading.Event()
+        _stopped_at: list[float] = []  # when the watchdog fired, on the engine's clock
 
         def _watchdog() -> None:
             if not _done.wait(turn_timeout):
+                _stopped_at.append(_monotonic())
                 _timed_out.set()
                 for _op in (lambda: container.stop(timeout=2),
                             lambda: container.remove(force=True)):
@@ -1219,14 +1426,13 @@ def run_cc_turn(
                 break
 
         _done.set()
-        if _timed_out.is_set():
-            send_event("query_error", {
-                "error": f"Container-CC turn exceeded the {turn_timeout}s limit and was stopped.",
-                "reason": "exec_timeout", "agent": "container_cc",
-                "cc_session_id": translator.session_id,
-            })
-            return
-        if terminal is None:
+        # 13b.1: a turn the watchdog stopped goes on through the sweep and the
+        # publish below before it reports. Its scratch subtree is per-turn and
+        # no later turn mounts it, so what it wrote before the limit is
+        # published now or lost, and its staged downloads carry this turn's
+        # timestamp, which later in-turn sweeps skip.
+        timed_out = _timed_out.is_set()
+        if terminal is None and not timed_out:
             for event, data in translator.finalize():
                 terminal = (event, data)
 
@@ -1260,11 +1466,64 @@ def run_cc_turn(
                 )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
-        result = _publish_artifacts(
-            scratch_mount, output_mount,
-            turn_id=str(run_id),
-            output_logical_root=dirs.output_mnt, before=before,
-        )
+        try:
+            result = _publish_artifacts(
+                scratch_mount, output_mount,
+                turn_id=str(run_id),
+                output_logical_root=dirs.output_mnt, before=before,
+                # A stopped turn keeps its raw/ files in its own scratch only:
+                # output/raw/ is not per-turn (see _publish_artifacts).
+                include_raw=not timed_out,
+            )
+        except Exception:
+            if not timed_out:
+                raise
+            # A failed salvage must not replace the timeout the user is owed.
+            logger.exception("cc: publishing a timed-out turn's files failed "
+                             "(run_id=%s)", run_id)
+            result = {"artifacts": [], "raw": []}
+
+        if timed_out:
+            # Always a query_error, never a query_complete: the user is told the turn
+            # was stopped (at its time limit, or while the model it was waiting on was
+            # being retried; see below), and on_turn_complete is not called
+            # (it writes a "completed" chat_log entry, which the sticky-CC rule
+            # reads). The transcript row and raw/ copy come from the #68 fallback
+            # in the finally, as for every turn that did not complete.
+            # F20: hand back what the turn had. Its files are published above, but the
+            # user was given no text at all -- no partial answer and no account of how
+            # far it got, with the agent's own words left only in the transcript row.
+            partial = ""
+            try:
+                partial = rewrite_container_paths(translator.partial_reply(), path_mappings)
+            except Exception:  # pragma: no cover - never lose the timeout to a salvage
+                logger.exception("cc: reading the partial reply failed (run_id=%s)", run_id)
+            # Review M2: stopped while Claude Code was still retrying a model call, the
+            # model was the problem, not the size of the task. With the approved retry
+            # bound and request timeout a hung upstream needs about 244 s to give up, so
+            # this watchdog fires first, and "say continue" would only stall again.
+            # Only while the retried request can still be waiting for its headers: a stop
+            # after that window is a healthy but slow answer (see _stopped_waiting_on_retry).
+            retry = translator.retrying_model
+            if retry is not None and _stopped_waiting_on_retry(
+                    retry, retry_at=translator.last_api_retry_at,
+                    stopped_at=_stopped_at[0] if _stopped_at else _monotonic(),
+                    api_timeout_ms=environment.get("API_TIMEOUT_MS")):
+                stopped = {"error": translator.model_unavailable_error(),
+                           "reason": MODEL_UNAVAILABLE_REASON,
+                           "detail": _retry_stop_detail(turn_timeout, retry)}
+            else:
+                stopped = {"error": _time_limit_message(turn_timeout), "reason": "exec_timeout"}
+            send_event("query_error", {
+                **stopped, "agent": "container_cc",
+                "cc_session_id": translator.session_id,
+                "partial_reply": partial or None,
+                "artifacts": result["artifacts"] or None,
+                "cc_raw_files": result["raw"],
+                # The turn record: a fallback model can still be what ran out the clock.
+                "model_fallback": translator.model_fallback,
+            })
+            return
 
         if terminal is None:
             terminal = ("query_complete", {"reply": "(no response)", "bundle_id": None,
@@ -1273,6 +1532,9 @@ def run_cc_turn(
         if event == "query_complete":
             data = dict(data)
             data["mode"] = "cc"
+            # D7: the reply names this turn's real paths, never the container's, and it
+            # is rewritten here, before on_turn_complete persists it.
+            data["reply"] = rewrite_container_paths(data.get("reply"), path_mappings)
             data["artifacts"] = result["artifacts"] or None
             data["cc_raw_files"] = result["raw"]
         if event == "query_complete" and on_turn_complete and chat_session is not None:
@@ -1295,12 +1557,14 @@ def run_cc_turn(
                 # this copy is named for run_id, so it must hold that run's
                 # records rather than the whole conversation so far.
                 _write_raw_turn_copy(dirs.output_mnt, run_id, captured.turn)
-            # ...but the trace keeps the FULL session. extract_trace's steps,
-            # transcript_line_count and turn_count are conversation-scoped;
-            # feeding it the slice would change every Debug-panel trace, which is
-            # a separate defect and deliberately out of scope for #68.
-            parsed = (cc_summary.parse_transcript(captured.session)
-                      if captured.session else None)
+            # The trace is THIS turn's too (CC-RERUN-FINDINGS fix 2). Parsed from the
+            # whole --resume session it listed every earlier CC turn's calls under this
+            # reply, so a turn that ran nothing showed turn 1's graph search (r5-637),
+            # which read as "it re-ran the previous searches". Its steps, line numbers,
+            # transcript_line_count and turn_count now count this turn's records, the
+            # same slice the transcript row stores.
+            parsed = (cc_summary.parse_transcript(captured.turn)
+                      if captured.turn else None)
             trace = cc_trace.extract_trace(
                 parsed, cc_session_id=translator.session_id or "",
                 ts=timezone.now().isoformat(),
@@ -1308,7 +1572,9 @@ def run_cc_turn(
                 files_modified=result["files_modified"],
                 result_meta={"num_turns": data.get("num_turns"),
                              "duration_ms": data.get("duration_ms"),
-                             "cost_usd": data.get("total_cost_usd")},
+                             "cost_usd": data.get("total_cost_usd"),
+                             "models_used": data.get("models_used"),
+                             "model_fallback": data.get("model_fallback")},
             ) if parsed else None
             from django.conf import settings
             strict = getattr(settings, "CC_PERSIST_STRICT", False)
@@ -1513,6 +1779,52 @@ def run_cc_turn(
             logger.warning("cc #72: transcript store scrub failed", exc_info=True)
 
 
+def _time_limit_phrase(seconds: float) -> str:
+    """A turn's time limit as the user reads it: whole minutes as "N-minute", else "N-second"."""
+    value = float(seconds)
+    if value > 0 and value % 60 == 0:
+        return f"{int(value // 60)}-minute"
+    return f"{value:g}-second"
+
+
+def _stopped_waiting_on_retry(retry: Mapping[str, Any], *, retry_at: float | None,
+                              stopped_at: float | None, api_timeout_ms: Any) -> bool:
+    """Whether a stop at ``stopped_at`` can still have been waiting on the retried request.
+
+    True within the retry frame's ``retry_delay_ms`` plus ``api_timeout_ms`` (the value
+    the agent's env was given; it bounds only the wait for response headers) plus
+    ``_RETRY_WINDOW_SLACK_S`` of the frame's arrival at ``retry_at``. Later than that the
+    retried request must be streaming. An unknown arrival time is never "waiting".
+    """
+    if retry_at is None or stopped_at is None:
+        return False
+    delay = retry.get("retry_delay_ms")
+    delay_s = (delay / 1000 if isinstance(delay, (int, float)) and not isinstance(delay, bool)
+               and delay > 0 else 0.0)
+    try:
+        timeout_s = int(api_timeout_ms) / 1000
+    except (TypeError, ValueError):
+        timeout_s = int(_DEFAULT_CC_API_TIMEOUT_MS) / 1000
+    return stopped_at - retry_at <= delay_s + timeout_s + _RETRY_WINDOW_SLACK_S
+
+
+def _retry_stop_detail(seconds: float, retry: Mapping[str, Any]) -> str:
+    """The technical fact behind a turn stopped while a model call was being retried."""
+    error = retry.get("error") or "unknown error"
+    status = retry.get("error_status")
+    what = f"{error} ({status})" if status not in (None, "") else str(error)
+    attempt, most = retry.get("attempt"), retry.get("max_retries")
+    tail = f", attempt {attempt} of {most}" if attempt is not None and most is not None else ""
+    return (f"stopped at the {float(seconds):g} s limit while retrying the model: "
+            f"{what}{tail}")
+
+
+def _time_limit_message(seconds: float) -> str:
+    """Operator-approved (2026-09-25): what a turn stopped at its time limit tells the user."""
+    return (f"This took longer than the {_time_limit_phrase(seconds)} limit, so I stopped. "
+            "Say continue and I will carry on from where I got to.")
+
+
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
     """Return regular, non-symlink file versions under root, keyed by relpath."""
     out: dict[str, tuple[int, int]] = {}
@@ -1711,12 +2023,12 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
 class CapturedTranscript(NamedTuple):
     """One turn's transcript capture, in the two shapes its readers need.
 
-    ``session`` is the WHOLE ``--resume`` session file (scrubbed) and feeds
-    ``cc_summary.parse_transcript`` / ``cc_trace.extract_trace``, which count
-    turns and steps across the conversation and would report differently off a
-    slice. ``turn`` is only the records this turn appended (scrubbed) and feeds
-    the two per-TURN-keyed sinks — the ``raw/transcript-<run_id>.jsonl`` copy and
-    the ``CCSessionTranscript`` blob — which otherwise store turns 1..N in row N.
+    ``session`` is the WHOLE ``--resume`` session file (scrubbed). ``turn`` is only
+    the records this turn appended (scrubbed) and feeds the per-TURN sinks: the
+    ``raw/transcript-<run_id>.jsonl`` copy and the ``CCSessionTranscript`` blob,
+    which otherwise store turns 1..N in row N, and the Debug-panel trace
+    (``cc_summary.parse_transcript`` / ``cc_trace.extract_trace``), which
+    otherwise lists every earlier turn's calls under this reply.
 
     Both are ``b""`` when there was nothing to capture, and by ``_turn_slice``'s
     invariant ``turn`` is empty only when ``session`` is: a caller can gate on
@@ -1845,10 +2157,15 @@ def _publish_artifacts(
     turn_id: str,
     output_logical_root: str,
     before: dict[str, tuple[int, int]],
+    include_raw: bool = True,
 ) -> dict:
     """Diff scratch; split deliverables (artifacts) from scratch/raw/ (raw).
     Artifacts -> output/artifacts/<turn_id>/ (zipped if >1 per turn, downloadable);
-    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>"."""
+    raw -> output/raw/ (on disk, not bundled). Keys are turn-scoped: "<turn_id>/<relpath>".
+
+    ``include_raw=False`` publishes the artifacts only. output/raw/ is shared by
+    every turn of the user, so a turn stopped mid-write must not copy a possibly
+    truncated file over an earlier turn's same-named one (13b.1)."""
     from dmac_assistant.run_tracker import diff_files
     from . import cc_artifacts
 
@@ -1881,7 +2198,7 @@ def _publish_artifacts(
         return written
 
     art_files = _copy(art_rels, art_dir)
-    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True)
+    raw_files = _copy(raw_rels, raw_dir, strip_raw_prefix=True) if include_raw else []
 
     artifacts: list[dict] = []
     if len(art_files) > 1:

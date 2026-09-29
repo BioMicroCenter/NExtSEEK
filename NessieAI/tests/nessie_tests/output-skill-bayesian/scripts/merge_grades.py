@@ -23,4 +23,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[5]))
 from NessieAI.tests.nessie_tests.output_skill_bayesian import merge_grades  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(merge_grades.main())
+    # The module raises, and its tests pin that. The command line maps every refusal to
+    # exit 2 with the message on stderr, like the other forms' scripts: 0 is a written
+    # graded_rows.csv and nothing else.
+    try:
+        sys.exit(merge_grades.main())
+    except (merge_grades.IncompleteGrading, FileNotFoundError, ValueError) as e:
+        print(f"merge_grades: {e}", file=sys.stderr)
+        sys.exit(2)

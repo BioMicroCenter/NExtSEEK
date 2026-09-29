@@ -89,6 +89,8 @@ class FakeDB:
         self.inserted_policies: List[int] = []
         self.projects_samples: Set[Tuple[int, int]] = set()  # (pid, sid)
         self.assay_assets: Set[Tuple[int, int]] = set()  # (assay_id, asset_id)
+        # Stage 5's graph_sync outbox rows, written on this same connection
+        self.graph_sync_outbox: List[Dict[str, Any]] = []
 
         # Track call order for assertions
         self.insert_sample_calls: List[List[str]] = []  # list of uuid lists per INSERT
@@ -96,6 +98,14 @@ class FakeDB:
     def route(self, sql_text: str, params: Dict[str, Any]) -> FakeResultProxy:
         """Route a SQL query to the appropriate handler."""
         sql = sql_text.strip()
+
+        # ── the graph_sync outbox (stage 5, by qualified name) ──
+        if "graph_sync_outbox" in sql and "INSERT" in sql:
+            self.graph_sync_outbox.append({
+                "kind": params.get("kind"), "key": params.get("key"),
+                "payload": params.get("payload"), "done_at": None,
+            })
+            return FakeResultProxy()
 
         # ── sample_types ──
         if "FROM sample_types" in sql and "SELECT" in sql:
@@ -247,6 +257,10 @@ class FakeConnection:
     def begin(self):
         return FakeTransaction()
 
+    def begin_nested(self):
+        """The savepoint stage 5's outbox row is written to."""
+        return FakeTransaction()
+
 
 class FakeTransaction:
     def commit(self):
@@ -279,6 +293,7 @@ def _run_orchestrator(
     db: FakeDB,
     config: BatchUploadConfig | None = None,
     neo4j_only: bool = False,
+    should_stop=None,
 ) -> Dict:
     """Run the full orchestrator with a FakeDB.
 
@@ -351,6 +366,7 @@ def _run_orchestrator(
                 config=config,
                 output_dir=tmpdir,
                 neo4j_only=neo4j_only,
+                should_stop=should_stop,
             )
         finally:
             for p in stack:

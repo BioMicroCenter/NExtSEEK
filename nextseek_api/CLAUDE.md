@@ -7,10 +7,11 @@ from this file.
 ## Invariants
 
 - **Router registrations that share a prefix must stay ordered longest-first.**
-  `nextseek_api/urls.py:31` puts the advanced-search prefix ahead of the bare samples
-  prefix at `nextseek_api/urls.py:34`, whose detail lookup accepts any segment containing
-  no slash (`nextseek_api/services/samples.py:79`). Swap those two lines and the search
-  URL resolves into the sample-detail action with the literal word as its lookup value:
+  `nextseek_api/urls.py:31-32` put the graph-search and advanced-search prefixes ahead of
+  the bare samples prefix at `nextseek_api/urls.py:36`, whose detail lookup accepts any
+  segment containing no slash (`nextseek_api/services/samples.py:79`). Move either search
+  line below it and that search URL resolves into the sample-detail action with the
+  literal word as its lookup value:
   the same swallowing that a bare prefix already demonstrates today for a registration
   publishing no list route, measured with Django's resolver on 2026-09-03.
 - **The three documentation routes must each keep an explicit `permission_classes`.**
@@ -109,11 +110,6 @@ from this file.
   that name over this one module returns the import and nothing else. It is a standing
   invitation to a gate that admits every logged-in SEEK user; see the invariant above for
   why that gate is worthless here.
-- **A cross-reference in this code is now false.** `nextseek_api/views.py:270-272` says
-  the sibling admin export "still does" widen its scope with `is_staff`; that method reads
-  `is_superuser` alone at `nextseek_api/views.py:765`, and its own comment at
-  `nextseek_api/views.py:751-752` describes the widening in the past tense. Trusting the
-  pointer sends you hunting for a hole that was closed.
 - **The migration sequence forks three times and is stitched by two merge migrations.**
   Listing `nextseek_api/migrations/` on 2026-09-03 shows two files each for the prefixes
   0005, 0010 and 0011 (`nextseek_api/migrations/0010_attribute_mutation_job.py:1` and

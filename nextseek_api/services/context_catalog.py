@@ -345,8 +345,22 @@ def _coerce_json_list(value) -> list[str]:
 
 
 def _project_context_row(project_id: int) -> dict | None:
-    """The projects_context row for a SEEK project id, or None."""
-    rows = _query("SELECT * FROM projects_context WHERE project_id = %s LIMIT 1",
+    """The projects_context PROJECT row for a SEEK project id, or None.
+
+    The table also holds investigation rows, and each carries its owning project's
+    `project_id`, so without the filter an investigation could render as the project's
+    header. Which rows are projects is `chat_nextseek.context_rows`, the one definition the
+    chat config reads too: production's table types most project rows 'investigation' with
+    no parent_project until the gated 6.16 write, and those are projects; a row typed
+    'investigation' that names its parent_project is an investigation; 'study' is neither.
+    Imported here, not at module scope, so the SEEK pages never depend on the chat package
+    to import; a failure lands in `load_project_context`'s log and fallback.
+    Ordered by name so that two project rows for one id resolve the same way every time.
+    """
+    from chat_nextseek.context_rows import PROJECT_ROW_SQL  # noqa: PLC0415
+
+    rows = _query("SELECT * FROM projects_context WHERE project_id = %s "
+                  f"AND {PROJECT_ROW_SQL} ORDER BY name LIMIT 1",
                   [project_id])
     return rows[0] if rows else None
 

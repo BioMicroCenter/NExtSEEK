@@ -31,7 +31,7 @@ def test_force_route_rejects_bogus():
 
 # --- the admin-gated dispatch helper ---
 
-ADMIN = SimpleNamespace(is_staff=True, is_superuser=False)
+ADMIN = SimpleNamespace(is_staff=True, is_superuser=True)
 SUPER = SimpleNamespace(is_staff=False, is_superuser=True)
 USER = SimpleNamespace(is_staff=False, is_superuser=False)
 

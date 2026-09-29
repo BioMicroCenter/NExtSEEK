@@ -62,6 +62,15 @@ class DictSessionAdapter:
             **(getattr(chat_session, "extra_state", None) or {}),
         }
 
+    def reload(self) -> None:
+        """Re-read the row and rebuild the cache: a turn must see the turn before it."""
+        self._session.refresh_from_db(fields=["results_history", "last_debug", "extra_state"])
+        self._cache = {
+            "results_history": list(self._session.results_history),
+            "last_debug": dict(self._session.last_debug),
+            **(getattr(self._session, "extra_state", None) or {}),
+        }
+
     # --- dict-like interface ---
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -75,6 +84,21 @@ class DictSessionAdapter:
 
     def __contains__(self, key: str) -> bool:
         return key in self._cache
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Remove ``key`` and return its value, or ``default`` when it is not there.
+
+        A popped ``extra_state`` key is gone after :meth:`save`, which writes that column from the cache
+        wholesale. The column-backed keys are refused: a column cannot be removed, and ``save`` reads them
+        from the cache with a default, so a popped one would be written back as an empty value (``last_debug``)
+        or silently keep the stored bundles (``results_history``, which is merged).
+        """
+        if key in _TYPED_KEYS:
+            raise ValueError(
+                f"{key!r} is a ChatSession column that save() reads from the cache; "
+                "assign an empty value instead of popping it"
+            )
+        return self._cache.pop(key, default)
 
     # --- persistence ---
 
@@ -116,6 +140,11 @@ class DictSessionAdapter:
         with another turn in the same session.
         """
         from django.db import transaction  # local: keeps import cost off module load
+
+        # The module-level import is TYPE_CHECKING only, so the model must be imported
+        # here too. Without it the locked path raised NameError on every save, and every
+        # turn fell through to the unlocked, unmerged write below.
+        from .models_db import ChatSession
 
         cached_history = self._cache.get("results_history", [])
         last_debug = self._cache.get("last_debug", {})

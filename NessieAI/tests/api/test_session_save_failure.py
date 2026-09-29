@@ -77,6 +77,44 @@ class SaveFailureIsLoudTests(TestCase):
         self.assertEqual(self.session.results_history, [{"id": 1, "user_query": "q"}])
 
 
+class LockedSaveIsTakenTests(TestCase):
+    """The row-locked read-merge-write is the normal path, not a fallback's fallback.
+
+    ``ChatSession`` was imported only under ``TYPE_CHECKING``, so the locked path
+    raised NameError on every save, the except logged "locked save failed", and the
+    turn was written unlocked and UNMERGED: a concurrent turn's bundle in the same
+    session was overwritten, which is exactly what the lock and the merge exist to stop.
+    """
+
+    databases = {"default"}
+
+    def setUp(self):
+        self.user = User.objects.create_user("lockuser", password="x")
+        self.session = ChatSession.objects.create(user=self.user)
+        self.adapter = DictSessionAdapter(self.session)
+        self.adapter["results_history"] = [{"id": 1, "user_query": "this turn"}]
+
+    def test_a_save_takes_the_locked_path_and_logs_no_fallback(self):
+        real = ChatSession.objects.select_for_update
+        with patch.object(ChatSession.objects, "select_for_update", wraps=real) as locked:
+            with self.assertNoLogs("nextseek_api.assistant.session_adapter",
+                                   level=logging.WARNING):
+                self.adapter.save()
+
+        locked.assert_called_once_with()
+
+    def test_a_concurrent_turns_bundle_survives_the_save(self):
+        """Only the locked path merges; the unlocked fallback writes this turn's copy."""
+        ChatSession.objects.filter(pk=self.session.pk).update(
+            results_history=[{"id": 2, "user_query": "the other turn"}]
+        )
+
+        self.adapter.save()
+
+        self.session.refresh_from_db()
+        self.assertEqual([b["id"] for b in self.session.results_history], [2, 1])
+
+
 class TurnSurfacesTheFailureTests(TestCase):
     """The caller must turn a failed save into something the user can see."""
 

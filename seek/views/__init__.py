@@ -17,6 +17,7 @@ from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cla
 from .projects import (project_connections, project_page, project_samples, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
 from .pages import (getting_started)
+from .exports import (exportFile)
 from .shared import report
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     'document',
     'download_nhp_data',
     'editSample',
+    'exportFile',
     'fetch_event_data',
     'getAssaysOptions',
     'getAttributes',

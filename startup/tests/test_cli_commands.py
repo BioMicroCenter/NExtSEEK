@@ -585,7 +585,7 @@ def test_ci_builds_the_expected_argv_and_env(
     call = _suite_call(calls)
     assert call.cmd == [
         "uv", "run", "--no-project",
-        "--with", "pytest", "--with", "requests", "--with", "playwright",
+        "--with", "pytest", "--with", "requests", "--with", ci_runner.PLAYWRIGHT,
         "pytest", "ci/smoke/",
         "--base-url", "http://127.0.0.1:8000",
         f"--junitxml={repo / 'startup' / '.ci-last-run.xml'}",
@@ -605,8 +605,8 @@ def test_ci_base_url_follows_the_instance_port(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert "--base-url" in calls[0].cmd
-    assert calls[0].cmd[calls[0].cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
+    assert "--base-url" in _suite_call(calls).cmd
+    assert _suite_call(calls).cmd[_suite_call(calls).cmd.index("--base-url") + 1] == "http://127.0.0.1:8100"
 
 
 def test_ci_absent_box_profile_means_prod(
@@ -617,7 +617,7 @@ def test_ci_absent_box_profile_means_prod(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
 
 
 def test_ci_passes_wait_ready_and_profile_through(
@@ -629,10 +629,10 @@ def test_ci_passes_wait_ready_and_profile_through(
     result = runner.invoke(cli.app, ["ci", "--wait-ready", "--profile", "prod"])
 
     assert result.exit_code == 0, result.output
-    assert "--wait-ready" in calls[0].cmd
+    assert "--wait-ready" in _suite_call(calls).cmd
     # Narrowed to prod, the run gets prod's rule: no Nessie lane.
-    assert calls[0].cmd[-3:] == ["--profile", "prod", "--no-nessie"]
-    assert calls[0].env["CI_BOX_PROFILE"] == "dev"
+    assert _suite_call(calls).cmd[-3:] == ["--profile", "prod", "--no-nessie"]
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "dev"
 
 
 def test_ci_inherits_the_ambient_environment(
@@ -644,7 +644,7 @@ def test_ci_inherits_the_ambient_environment(
     calls = _record_ci_subprocess(monkeypatch)
 
     assert runner.invoke(cli.app, ["ci"]).exit_code == 0
-    assert calls[0].env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
+    assert _suite_call(calls).env["NEXTSEEK_CI_ENV"] == "/somewhere/ci.env"
 
 
 def test_ci_force_profile_declined_runs_nothing(
@@ -670,10 +670,10 @@ def test_ci_force_profile_accepted_confirms_for_that_call_only(
 
     assert result.exit_code == 0, result.output
     # A box declaring prod never runs the Nessie lane, however far it is widened.
-    assert calls[0].cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
-    assert calls[0].env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
+    assert _suite_call(calls).cmd[-3:] == ["--force-profile", "local", "--no-nessie"]
+    assert _suite_call(calls).env["CI_FORCE_PROFILE_CONFIRM"] == "yes"
     # The box's own declaration is untouched by a forced run.
-    assert calls[0].env["CI_BOX_PROFILE"] == "prod"
+    assert _suite_call(calls).env["CI_BOX_PROFILE"] == "prod"
     assert load_instance(repo).ci_profile == "prod"
     assert "CI_FORCE_PROFILE_CONFIRM" not in os.environ
 
@@ -698,20 +698,31 @@ def _stub_stack_health(
     runtimes_detail: str = "nextseek + nextseek_nginx running",
     images_ok: bool = True,
     image_detail: str = "all 4 present",
-) -> None:
-    """The stack-health step, answered without asking docker."""
+    context: tuple[bool, str, bool] = (
+        True, "dmac-assistant:poc bakes all 6 canonical context files", False),
+) -> list[dict]:
+    """The stack-health step, answered without asking docker. Returns the calls,
+    each as the keyword arguments it was given, so a test can see the checkout
+    the cc-agent context was compared with."""
     from startup.steps import validate
 
-    monkeypatch.setattr(
-        validate, "stack_health",
-        lambda repo_root, env, compose_project_name: validate.StackHealth(
+    context_ok, context_detail, context_warn = context
+    calls: list[dict] = []
+
+    def health(repo_root, env, compose_project_name, **kwargs):
+        calls.append({"repo_root": repo_root, **kwargs})
+        return validate.StackHealth(
             blocking=(validate.HealthResult("app + front door", runtimes_ok, runtimes_detail),),
             advisory=(
                 validate.HealthResult("first-party images", images_ok, image_detail),
                 validate.HealthResult("cc services", True, "bedrock-proxy + nextseek-sidecar running"),
+                validate.HealthResult("cc-agent context", context_ok, context_detail,
+                                      warn=context_warn),
             ),
-        ),
-    )
+        )
+
+    monkeypatch.setattr(validate, "stack_health", health)
+    return calls
 
 
 @pytest.fixture(autouse=True)
@@ -1678,6 +1689,114 @@ def test_rebuild_with_no_ci_still_exits_non_zero_on_absent_images(
 
     assert result.exit_code == 1
     assert "ABSENT: dmac-assistant:poc" in result.output
+
+
+_STALE_CONTEXT = (
+    False,
+    "STALE: dmac-assistant:poc bakes 1 of 6 canonical context files unlike the "
+    "checkout: capabilities.md (differs). The CC agent reads its baked copy until "
+    "you run: ./startup.sh rebuild --component cc-agent",
+    False,
+)
+
+
+def test_rebuild_exits_non_zero_when_the_cc_agent_bakes_stale_context(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gap this exists for: a canonical context file was edited and only the
+    app was rebuilt. Nothing else fails, and the agent serves the old copy."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_stack_health(monkeypatch, context=_STALE_CONTEXT)
+    monkeypatch.setattr(ci_runner, "run_ci", lambda *a, **k: 0)
+
+    result = runner.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 1
+    compact = "".join(result.output.split())
+    assert "✗cc-agentcontext:STALE" in compact
+    assert "capabilities.md(differs)" in compact
+    assert "./startup.shrebuild--componentcc-agent" in compact
+    # A stale agent changes nothing the smoke suite asks, so it still runs.
+    assert "CIpassed" in compact
+
+
+def test_rebuild_with_no_ci_still_exits_non_zero_on_stale_context(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_stack_health(monkeypatch, context=_STALE_CONTEXT)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1
+    assert "capabilities.md (differs)" in result.output
+
+
+def test_ci_prints_stale_context_but_answers_what_the_suite_says(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _stub_stack_health(monkeypatch, context=_STALE_CONTEXT)
+    calls = _record_ci_subprocess(monkeypatch)
+
+    result = runner.invoke(cli.app, ["ci", "--no-nessie"])
+
+    assert result.exit_code == 0, result.output
+    _suite_call(calls)
+    assert "capabilities.md (differs)" in result.output
+
+
+def test_rebuild_compares_the_cc_agent_context_with_the_checkout_it_built(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    calls = _stub_stack_health(monkeypatch)
+
+    runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert [call["checkout"] for call in calls] == [repo]
+
+
+def test_rebuild_from_a_source_tree_compares_the_context_with_that_tree(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    """The runtime checkout may carry another operator's edits (DEPLOYMENT.md
+    §3.3); the images were built from the clean tree, so that is the one the
+    agent's baked copy must equal."""
+    from startup.lib import deploy_source
+
+    clean = tmp_path / "clean"
+    clean.mkdir()
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    monkeypatch.setattr(deploy_source, "resolve_verified_source",
+                        lambda runtime, source: clean)
+    calls = _stub_stack_health(monkeypatch)
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci", "--source-tree", str(clean)])
+
+    assert result.exit_code == 0, result.output
+    assert [call["checkout"] for call in calls] == [clean]
+
+
+def test_stack_health_prints_a_skipped_check_as_a_warning(
+    repo: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A check that compared nothing must not print as a green tick."""
+    _saved_state(repo, ci_profile="dev")
+    _mock_rebuild(monkeypatch)
+    _stub_stack_health(monkeypatch, context=(
+        True, "skipped: dmac-assistant:poc is absent, so there is no baked context "
+              "to compare", True))
+
+    result = runner.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    compact = "".join(result.output.split())
+    assert "!cc-agentcontext:skipped" in compact
+    assert "✓cc-agentcontext" not in compact
 
 
 def test_rebuild_announces_a_first_build_when_no_rollback_source_exists(
