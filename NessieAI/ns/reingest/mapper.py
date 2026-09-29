@@ -404,12 +404,64 @@ def _computed_lab(run_manifest, sample, context) -> str | None:
     return lookup(codes.pop())
 
 
+#: The path component from which a reference path is safe to record. Everything
+#: to its left is site layout -- mount points, group directories, and the home
+#: directory of whoever built the index -- which identifies people and
+#: infrastructure while saying nothing about the science.
+_REFERENCE_KEEP_FROM = "genomes"
+
+#: How many trailing components to keep when `_REFERENCE_KEEP_FROM` is absent.
+#: Two, so the build directory survives beside the filename: "mm39_ens113/
+#: Mus_musculus.GRCm39.113.gtf" still says which assembly and which annotation
+#: release, which is the whole reason these attributes exist.
+_REFERENCE_KEEP_TAIL = 2
+
+
+def _redact_reference_path(raw) -> str | None:
+    """Drop the identifying leading path from a reference file path.
+
+    "/net/somewhere/data/grp/alice/Genomes/mm39_ens113/x.gtf"
+      -> "Genomes/mm39_ens113/x.gtf"
+
+    Truncates at the first path component named "Genomes" (case-insensitively),
+    which is the house layout. A path with no such component -- another site, or
+    a reference kept somewhere else entirely -- keeps its last two components
+    instead, so the redaction still holds rather than falling through and
+    emitting the whole path.
+
+    A bare filename passes through unchanged: there is nothing in front of it to
+    remove.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    parts = [p for p in text.replace("\\", "/").split("/") if p]
+    if not parts:
+        return None
+    lowered = [p.lower() for p in parts]
+    if _REFERENCE_KEEP_FROM in lowered:
+        return "/".join(parts[lowered.index(_REFERENCE_KEEP_FROM):])
+    return "/".join(parts[-_REFERENCE_KEEP_TAIL:])
+
+
+def _computed_genome_path(run_manifest, sample, context) -> str | None:
+    """`params.fasta`, with the identifying leading path removed."""
+    return _redact_reference_path((run_manifest.params or {}).get("fasta"))
+
+
+def _computed_gtf_path(run_manifest, sample, context) -> str | None:
+    """`params.gtf`, with the identifying leading path removed."""
+    return _redact_reference_path((run_manifest.params or {}).get("gtf"))
+
+
 _COMPUTED = {
     "fastq_stem": _computed_fastq_stem,
     "run_date": _computed_run_date,
     "gex_name": _computed_gex_name,
     "nextseek_user": _computed_nextseek_user,
     "lab": _computed_lab,
+    "genome_path": _computed_genome_path,
+    "gtf_path": _computed_gtf_path,
 }
 
 

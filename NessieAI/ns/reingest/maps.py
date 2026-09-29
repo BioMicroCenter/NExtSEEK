@@ -65,7 +65,8 @@ MAPS_DIR = Path(__file__).resolve().parent.parent / "reingest_maps"
 # validated at load time without importing mapper (which imports this module).
 # `test_maps.py` asserts the two sets are identical, so adding one in only one
 # place fails loudly instead of resolving to None at runtime.
-COMPUTED_VALUES = ("fastq_stem", "run_date", "gex_name", "nextseek_user", "lab")
+COMPUTED_VALUES = ("fastq_stem", "run_date", "gex_name", "nextseek_user", "lab",
+                   "genome_path", "gtf_path")
 
 _RUN_SECTIONS = ("params", "pipeline", "software_versions", "outputs", "checksums")
 _SAMPLE_SECTIONS = ("metrics", "derived")

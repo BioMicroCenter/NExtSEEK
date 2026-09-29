@@ -49,9 +49,9 @@
     "Aligner":              "$params.aligner",
     "Pseudo_Aligner":       "$params.pseudo_aligner",
     "ReferenceGenome":      "$params.genome",
-    "Link_ReferenceGenome": "$params.fasta",
-    "AnnotationGTF":        "$params.gtf",
-    "Link_GTF":             "$params.gtf",
+    "Link_ReferenceGenome": "@genome_path",
+    "AnnotationGTF":        "@gtf_path",
+    "Link_GTF":             "@gtf_path",
     "Link_QualityControl":  "$outputs.multiqc_report_html",
     "DESeqFile":            "$outputs.deseq2_dds_rdata",
     "DESeqFile_Link":       "$outputs.deseq2_dds_rdata"

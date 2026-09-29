@@ -1044,3 +1044,57 @@ def test_without_the_injected_lookups_lab_is_blank():
     run = _run()
     run.samples[0].d_seq_uid = "D.SEQ-230512ABC-287-PUB"
     assert _computed("lab", run, run.samples[0], {}) is None
+
+
+# ── reference paths are redacted ───────────────────────────────────────────
+# A reference path names the assembly (useful) via a mount point, group
+# directory and the home directory of whoever built the index (identifying).
+# Everything left of "Genomes" goes.
+
+@pytest.mark.parametrize("raw, expected", [
+    # the house layout: truncate at the Genomes component
+    ("/net/somewhere/data/grp/alice/Genomes/mm39_ens113/x.fa",
+     "Genomes/mm39_ens113/x.fa"),
+    # case-insensitive, because the component is a directory name not a keyword
+    ("/n/d/alice/genomes/mm39/x.gtf", "genomes/mm39/x.gtf"),
+    # NO Genomes component: keep the last two, so the redaction still holds
+    ("/scratch/refs/private/mm39_ens113/x.gtf", "mm39_ens113/x.gtf"),
+    # already relative, nothing identifying to remove
+    ("Genomes/mm39/x.fa", "Genomes/mm39/x.fa"),
+    ("x.fa", "x.fa"),
+    ("", None),
+    (None, None),
+])
+def test_a_reference_path_keeps_the_build_and_drops_the_rest(raw, expected):
+    assert mapper._redact_reference_path(raw) == expected
+
+
+def test_no_identifying_component_survives_redaction():
+    """The property that matters, stated as a property rather than a string."""
+    raw = "/net/ostrich/data/bcc/someuser/Genomes/mm39_ens113/ref.fa"
+    got = mapper._redact_reference_path(raw)
+    for identifying in ("net", "ostrich", "bcc", "someuser"):
+        assert identifying not in got.split("/")
+    assert got.startswith("Genomes/"), "the build directory is kept"
+
+
+def test_the_genome_and_gtf_attributes_are_redacted_end_to_end():
+    run = _run(params={
+        "aligner": "star_salmon",
+        "fasta": "/net/x/data/grp/someuser/Genomes/mm39_ens113/ref.fa",
+        "gtf": "/net/x/data/grp/someuser/Genomes/mm39_ens113/ann.gtf"})
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    assert gex.attributes["Link_ReferenceGenome"].value == "Genomes/mm39_ens113/ref.fa"
+    assert gex.attributes["AnnotationGTF"].value == "Genomes/mm39_ens113/ann.gtf"
+    assert gex.attributes["Link_GTF"].value == "Genomes/mm39_ens113/ann.gtf"
+    for attr in ("Link_ReferenceGenome", "AnnotationGTF", "Link_GTF"):
+        assert "someuser" not in gex.attributes[attr].value
+
+
+def test_an_absent_reference_param_leaves_the_cell_blank():
+    run = _run(params={"aligner": "star_salmon"})
+    result = mapper.apply(run, maps.load("rnaseq"))
+    gex = next(r for r in result.rows if r.sample_type == "A.GEX")
+    for attr in ("Link_ReferenceGenome", "AnnotationGTF", "Link_GTF"):
+        assert attr not in gex.attributes
