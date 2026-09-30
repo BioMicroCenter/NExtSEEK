@@ -169,6 +169,73 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
     )
 
 
+_VALUE_COLUMNS_MAX = 8
+_VALUE_TOP_MAX = 8
+_VALUE_CLIP = 60
+_VALUE_COUNTS_CHARS_MAX = 3000
+
+
+def _is_identity_key(key: Any) -> bool:
+    k = str(key).lower()
+    return k in ("id", "uuid", "uid") or k.endswith(("_id", "_uuid", "_uid"))
+
+
+def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str:
+    """The values of each returned column across the WHOLE result, not the preview.
+
+    ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
+    and called that strain "the only one" and a field "null throughout". The rows are all in memory, so the counts
+    cost a pass over a list. Sibling of ``_type_histogram_block``.
+
+    Only emitted when the preview is short of the full set. Identity keys and type columns are left out, and so is
+    a column where no value repeats (a column of names): its counts say nothing the preview does not.
+    """
+    if shown >= len(all_rows):
+        return ""
+    rows = [r for r in all_rows if isinstance(r, dict)]
+    keys: list[str] = []
+    for row in rows:
+        for key in row:
+            k = str(key).lower()
+            if key not in keys and not _is_identity_key(key) and not (k == "type" or k.endswith("_type")):
+                keys.append(key)
+    lines: list[str] = []
+    size = 0
+    for key in keys:
+        counts: dict[str, int] = {}
+        empty = 0
+        for row in rows:
+            value = row.get(key)
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, separators=(",", ":"), default=str)
+            text = "" if value is None else str(value).strip()
+            if not text:
+                empty += 1
+                continue
+            text = text[:_VALUE_CLIP - 1] + "…" if len(text) > _VALUE_CLIP else text
+            counts[text] = counts.get(text, 0) + 1
+        if not any(n > 1 for n in counts.values()):
+            continue
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        listed = ", ".join(f"{v} {n:,}" for v, n in ranked[:_VALUE_TOP_MAX])
+        more = f", and {len(ranked) - _VALUE_TOP_MAX} more" if len(ranked) > _VALUE_TOP_MAX else ""
+        line = f"- {key}: {listed}{more}" + (f"; empty {empty:,}" if empty else "")
+        if len(lines) >= _VALUE_COLUMNS_MAX or size + len(line) > _VALUE_COUNTS_CHARS_MAX:
+            break
+        lines.append(line)
+        size += len(line) + 1
+    if not lines:
+        return ""
+    n = f"{len(all_rows):,}"
+    first = (f"Values across the {n} returned rows, not just the preview (each column counted on its own):"
+             if capped else f"Values across ALL {n} rows, not just the preview (each column counted on its own):")
+    return (
+        first + "\n" + "\n".join(lines) + "\n"
+        "The preview is the head of the result and is not representative. When you say which values a field holds, "
+        "or that a field is empty or the same throughout, say it from these counts, never from the preview rows.\n"
+    )
+
+
 def _type_names(config: Any) -> dict[str, str]:
     """``{SampleType: Name}`` from the catalog's sample type rows."""
     catalog = getattr(config, "MIN_SAMPLETYPES", None)
@@ -722,6 +789,9 @@ def chatter_agent_answer(
                "file, so say the full list is available rather than offering to re-run the "
                "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
             + _type_histogram_block(all_rows, len(records))
+            + _value_counts_block(all_rows, len(records),
+                                  capped=graph_truncated or (isinstance(total_matches, int)
+                                                             and total_matches > len(all_rows)))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")

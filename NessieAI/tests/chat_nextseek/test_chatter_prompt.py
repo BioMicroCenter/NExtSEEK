@@ -487,6 +487,83 @@ def test_rows_without_a_type_are_ignored_rather_than_counted():
 
 
 # --------------------------------------------------------------------------
+# GFxRR-4 (ss.mtb_infected_mice): the writer saw the first 20 of 651 mice, all one strain, and said that strain
+# was "the only" one. The value counts over the WHOLE result are handed to it the way the type histogram is.
+# --------------------------------------------------------------------------
+
+_counts = chatter_mod._value_counts_block
+
+_COUNTS_LAST = ("The preview is the head of the result and is not representative. When you say which values a "
+                "field holds, or that a field is empty or the same throughout, say it from these counts, never "
+                "from the preview rows.")
+
+
+def _mice(head=20, tail=5):
+    rows = [{"uuid": f"MUS-{i}", "Name": f"m{i}", "Treatment1": "H37Rv", "Strain": None} for i in range(head)]
+    rows += [{"uuid": f"MUS-{head + i}", "Name": f"m{head + i}", "Treatment1": "BcRv", "Strain": "C57BL6"}
+             for i in range(tail)]
+    return rows
+
+
+def test_the_value_counts_name_a_value_the_preview_never_showed():
+    block = _counts(_mice(), shown=20)
+
+    assert block.startswith("Values across ALL 25 rows, not just the preview (each column counted on its own):\n")
+    assert "- Treatment1: H37Rv 20, BcRv 5" in block
+    assert "- Strain: C57BL6 5; empty 20" in block
+    assert block.rstrip("\n").endswith(_COUNTS_LAST)
+
+
+def test_no_value_counts_when_the_writer_already_sees_every_row():
+    rows = _mice()
+    assert _counts(rows, shown=len(rows)) == ""
+
+
+def test_a_column_where_no_value_repeats_and_the_identity_and_type_columns_are_left_out():
+    rows = [{"id": i, "uuid": f"U-{i}", "sample_id": i, "type": "MUS", "Sample_Type": "MUS",
+             "Name": f"n{i}", "Organ": "Lung"} for i in range(6)]
+    block = _counts(rows, shown=2)
+
+    assert "- Organ: Lung 6" in block
+    for left_out in ("id:", "uuid:", "sample_id:", "type:", "Sample_Type:", "Name:"):
+        assert f"- {left_out}" not in block, left_out
+
+
+def test_a_capped_result_says_returned_rows_not_all():
+    block = _counts(_mice(), shown=20, capped=True)
+
+    assert block.startswith("Values across the 25 returned rows, not just the preview (each column counted on its own):\n")
+    assert "ALL" not in block.splitlines()[0]
+    assert block.rstrip("\n").endswith(_COUNTS_LAST)
+
+
+def test_the_value_counts_are_bounded():
+    rows = [{"uuid": str(i), **{f"C{c}": f"{'x' * 80}{i % 20}" for c in range(12)}} for i in range(60)]
+    block = _counts(rows, shown=20)
+    lines = block.splitlines()
+
+    assert len([ln for ln in lines if ln.startswith("- ")]) == 8
+    for ln in lines:
+        if ln.startswith("- "):
+            assert ln.count(", ") <= 8, ln  # top 8 values, then "and N more"
+            assert "x" * 61 not in ln
+    assert len(block) < 3200
+
+
+def test_a_value_list_turn_carries_the_counts_after_the_preview(captured):
+    text = _graph_turn(captured, question="which mice have a Mycobacterium tuberculosis infection",
+                       rows=_mice(head=30, tail=5), cypher="MATCH (s:T_MUS) RETURN s.uuid AS uuid")
+    assert "Values across ALL 35 rows, not just the preview" in text
+    assert "- Treatment1: H37Rv 30, BcRv 5" in text
+
+
+def test_a_result_the_writer_sees_whole_carries_no_counts(captured):
+    text = _graph_turn(captured, question="which mice", rows=_mice(head=3, tail=2),
+                       cypher="MATCH (s:T_MUS) RETURN s.uuid AS uuid")
+    assert "Values across" not in text
+
+
+# --------------------------------------------------------------------------
 # The 2026-09-21 re-run: the replies were padded with machinery, including the
 # ones the harness scored green. Measured over the 43 NExtSEEK-routed replies of
 # that run (.claude/work/2026-09-21-step3-tickets/run-review/turns.json):
