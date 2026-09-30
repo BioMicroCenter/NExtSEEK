@@ -132,7 +132,7 @@ def test_each_agent_gets_the_one_fallback_the_ladder_moves_to():
             assert f"fallback of {agent}" in _users(report, entry["model"], mr.BEDROCK)
     # the Opus agents move across providers (the default profile's anth chain)
     assert "fallback of parser" in _users(report, "gemini-3.1-pro-preview", mr.GEMINI)
-    assert "fallback of entity" in _users(report, "us.anthropic.claude-sonnet-4-6", mr.BEDROCK)
+    assert "fallback of entity" in _users(report, "global.anthropic.claude-sonnet-5-5", mr.BEDROCK)
     # one move per call: nothing from the chains' second or third profile
     assert not _ids(report) & {"gemini-2.5-flash", "gemini-2.5-pro",
                                "anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -193,9 +193,9 @@ def test_the_run_2_switch_needs_no_edit_to_the_check():
     assert {"entity", "fallback of memory"} <= set(_users(report, "gemini-3.8-flash", mr.GEMINI))
     # Gemini 3.5 Flash is left only where BAML names it
     assert all(u.startswith(("BAML", "router")) for u in _users(report, "gemini-3.5-flash", mr.GEMINI))
-    # Opus 4.7 is called by nothing any more (the tool loops move to Sonnet 4.6 first)
+    # Opus 4.7 is called by nothing any more (the tool loops move to Sonnet 5.5 first)
     assert "us.anthropic.claude-opus-4-7" not in _ids(report)
-    assert "fallback of followup" in _users(report, "us.anthropic.claude-sonnet-4-6", mr.BEDROCK)
+    assert "fallback of followup" in _users(report, "global.anthropic.claude-sonnet-5-5", mr.BEDROCK)
 
 
 def test_nextseek_mode_picks_the_profile(tmp_path):
@@ -382,6 +382,19 @@ def test_a_bare_model_id_without_on_demand_calls_is_not_found():
     assert http.requests[0][0].endswith("/foundation-models/anthropic.claude-sonnet-4-5-20250929-v1%3A0")
 
 
+def test_a_global_profile_is_asked_as_a_profile_first_and_its_model_is_the_bare_id():
+    """Sonnet 5.5 is offered only as a global. inference profile (2026-09-30)."""
+    profile = {"inferenceProfileId": "global.anthropic.claude-sonnet-5-5", "status": "ACTIVE",
+               "models": [{"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-5-5"}]}
+    http = _bedrock(**{"/inference-profiles/": (200, profile),
+                       "/foundation-model-availability/": (200, {**AVAILABLE, "modelId": "anthropic.claude-sonnet-5-5"})})
+    state, why = mr.check_bedrock("global.anthropic.claude-sonnet-5-5", "t", "us-east-1", http)
+    assert state == mr.OK and "anthropic.claude-sonnet-5-5" in why
+    urls = [u for u, _ in http.requests]
+    assert urls == ["https://bedrock.us-east-1.amazonaws.com/inference-profiles/global.anthropic.claude-sonnet-5-5",
+                    "https://bedrock.us-east-1.amazonaws.com/foundation-model-availability/anthropic.claude-sonnet-5-5"]
+
+
 def test_bedrock_not_answering_is_unknown():
     assert mr.check_bedrock("us.anthropic.claude-opus-4-7", "t", "us-east-1", FakeHttp({}))[0] == mr.UNKNOWN
 
@@ -423,7 +436,7 @@ def test_the_app_role_asks_its_own_paths_and_leaves_the_cc_ids_to_the_proxy():
     assert len(asked) == len(set(asked)), "an id was asked twice"
     assert {u.rsplit("/", 1)[1] for u in asked} == {
         "gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.1-pro-preview",
-        "us.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-4-6"}
+        "us.anthropic.claude-opus-5-5", "global.anthropic.claude-sonnet-5-5"}
 
 
 def test_the_app_role_marks_a_missing_key_without_asking():

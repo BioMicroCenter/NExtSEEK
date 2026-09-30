@@ -117,6 +117,15 @@ def test_the_bedrock_us_prices_are_first_party_list_plus_the_regional_ten_percen
     assert "10%" in r["derivation"]
 
 
+def test_the_global_sonnet_5_5_price_is_first_party_list_with_no_premium():
+    """A global.anthropic. id is a global endpoint: the regional ten percent does not apply."""
+    r = _rates("global.anthropic.claude-sonnet-5-5")
+    got = (r["input"], r["output"], r["cache_write_5m"], r["cache_write_1h"], r["cache_read"])
+    assert got == pytest.approx((2.00, 10.00, 2.50, 4.00, 0.20))
+    assert (r["status"], r["source"], r["checked"]) == ("derived", CLAUDE_PAGE, "2026-09-30")
+    assert "no premium" in r["derivation"]
+
+
 @pytest.mark.parametrize("model", [
     "anthropic.claude-sonnet-4-5-20250929-v1:0",   # anth:lite
     "anthropic.claude-opus-4-5-20251101-v1:0",     # anth:lite

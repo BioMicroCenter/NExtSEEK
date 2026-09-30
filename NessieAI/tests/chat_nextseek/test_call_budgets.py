@@ -82,7 +82,7 @@ def test_an_agent_the_table_does_not_name_keeps_the_old_budgets():
 # time). Laptop ledger dev/logs/llm_calls.jsonl, 3,018 successful calls 2026-09-11 to 09-22; the entity batch of
 # 2026-09-16 (1,224 calls); F345-PROPOSAL.md appendix A. A first try below one of these would move a healthy call.
 LARGEST_GENUINE_SUCCESS_S = {
-    "entity": 16.8,        # batch, 178 output tokens; every laptop entity call over 20 s was a stall
+    "entity": 17.3,        # run 2 (3.8 Flash, 3,836 thought tokens); 16.8 before, in a batch, 178 output tokens; every laptop entity call over 20 s on 3.5 Flash was a stall
     "graph": 51.0,         # 4,351 output tokens
     "api": 25.3,
     "chatter": 13.9,

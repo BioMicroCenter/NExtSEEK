@@ -8,7 +8,7 @@
         "thinking_level": null,
         "agents": ["entity", "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
       },
-      "us.anthropic.claude-sonnet-4-6": {
+      "global.anthropic.claude-sonnet-5-5": {
         "provider": "anth",
         "thinking_level": null,
         "agents": ["memory"]
@@ -33,7 +33,7 @@
     }
   },
   "gcp:current": {
-    "_comment": "Pure GCP current-gen (-m gcp:current): Gemini 3.8 Flash for most, pro-preview for heavy reasoning agents. Also the first fallback of the default profile's Bedrock agents (schemas/schema_helper.py _FALLBACK_CHAINS), and of the memory agent's Sonnet 4.6.",
+    "_comment": "Pure GCP current-gen (-m gcp:current): Gemini 3.8 Flash for most, pro-preview for heavy reasoning agents. Also the first fallback of the default profile's Bedrock agents (schemas/schema_helper.py _FALLBACK_CHAINS), and of the memory agent's Sonnet 5.5.",
     "models": {
       "gemini-3.8-flash": {
         "provider": "gcp",
@@ -73,9 +73,9 @@
     }
   },
   "anth:current": {
-    "_comment": "Anthropic Bedrock current-gen (-m anth:current): Sonnet 4.6 for most, Opus 4.6+thinking for heavy agents.",
+    "_comment": "Anthropic Bedrock current-gen (-m anth:current): Sonnet 5.5 for most (it always thinks; no level means effort low), Opus 4.7 for heavy agents. Also the first fallback of the default profile's Gemini agents.",
     "models": {
-      "us.anthropic.claude-sonnet-4-6": {
+      "global.anthropic.claude-sonnet-5-5": {
         "provider": "anth",
         "thinking_level": null,
         "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
@@ -117,9 +117,9 @@
     }
   },
   "_fallback": {
-    "_comment": "Not a profile. The model a call moves to on a timeout, an empty body, a 5xx, a 429 or a connection error, consulted before the profile chains in schemas/schema_helper.py. Only the two tool loops need one: they can move only to a tool-capable (Bedrock) model, and their profile chains lead back to an Opus (the one that failed, outside the default profile), or to nothing (operator ruling 2026-09-25). It applies in every profile, the aws:* one included, where these two agents had no chain and now move to Sonnet 4.6; the other agents keep aws:*'s no-chain behaviour (accepted in review, 2026-09-25).",
-    "followup": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": null},
-    "pipeline_agent": {"provider": "anth", "model": "us.anthropic.claude-sonnet-4-6", "thinking_level": null}
+    "_comment": "Not a profile. The model a call moves to on a timeout, an empty body, a 5xx, a 429 or a connection error, consulted before the profile chains in schemas/schema_helper.py. Only the two tool loops need one: they can move only to a tool-capable (Bedrock) model, and their profile chains lead back to an Opus (the one that failed, outside the default profile), or to nothing (operator ruling 2026-09-25). It applies in every profile, the aws:* one included, where these two agents had no chain and now move to Sonnet 5.5; the other agents keep aws:*'s no-chain behaviour (accepted in review, 2026-09-25).",
+    "followup": {"provider": "anth", "model": "global.anthropic.claude-sonnet-5-5", "thinking_level": null},
+    "pipeline_agent": {"provider": "anth", "model": "global.anthropic.claude-sonnet-5-5", "thinking_level": null}
   },
   "aws": {
     "_comment": "-m aws:* (son/opus/ds/qwen-nxt/glm): single model for all agents via LLM_MODEL, no cross-provider.",

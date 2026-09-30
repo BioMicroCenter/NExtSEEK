@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from chat_nextseek.llm_clients import BedrockClient, LLMStructuredUnsupportedError, model_traits
 
 OPUS55 = "us.anthropic.claude-opus-5-5"
+SONNET55 = "global.anthropic.claude-sonnet-5-5"
 
 
 # ---------------------------------------------------------------------------- the families
@@ -44,6 +45,10 @@ OPUS55 = "us.anthropic.claude-opus-5-5"
     ("claude-mythos-preview", True, True, True),
     # Sonnet 5 is adaptive and thinks by default; Sonnet 4.6 and older take sampling and budgets.
     ("claude-sonnet-5", True, True, True),
+    # Sonnet 5.5 refuses a forced tool like Opus 5.5 (its fallback calls go plain JSON, not a refused request first).
+    (SONNET55, True, True, False),
+    ("anthropic.claude-sonnet-5-5", True, True, False),
+    ("claude-sonnet-5-5", True, True, False),
     ("us.anthropic.claude-sonnet-4-6", False, False, True),
     ("anthropic.claude-sonnet-4-5-20250929-v1:0", False, False, True),
     ("anthropic.claude-opus-4-5-20251101-v1:0", False, False, True),
@@ -158,6 +163,27 @@ def test_sonnet_4_6_still_gets_its_temperature_and_no_thinking_field():
     assert "additionalModelRequestFields" not in body
 
 
+@pytest.mark.parametrize("budget, effort, max_tokens", LEVELS)
+def test_a_plain_sonnet_5_5_call_carries_adaptive_thinking_an_effort_and_no_sampling(budget, effort, max_tokens):
+    client = _client()
+    client.chat(messages=[{"role": "system", "content": "S"}, {"role": "user", "content": "Q"}], model=SONNET55,
+                temperature=0, response_format={"type": "json_object"}, thinking_budget=budget)
+    body = _body(client)
+    assert body["modelId"] == SONNET55
+    assert body["inferenceConfig"] == {"maxTokens": max_tokens}
+    assert body["additionalModelRequestFields"] == {"thinking": {"type": "adaptive"},
+                                                   "output_config": {"effort": effort}}
+    assert "toolConfig" not in body
+
+
+def test_a_forced_tool_is_refused_for_sonnet_5_5_before_any_request():
+    client = _client()
+    with pytest.raises(LLMStructuredUnsupportedError, match="forced tool"):
+        client.chat_structured(messages=[{"role": "user", "content": "Q"}], system="S", model=SONNET55,
+                               schema={"type": "object"}, schema_name="emit_x")
+    client.client.converse.assert_not_called()
+
+
 # ---------------------------------------------------------------------------- the structured path
 
 
@@ -195,6 +221,25 @@ def test_a_structured_opus_5_5_call_goes_straight_to_plain_json_and_the_ledger_s
     assert record["model"] == OPUS55 and record["outcome"] == "ok"
     assert record["structured_via"] == "prompt"
     assert record["reasoning_present"] is True
+
+
+def test_a_structured_sonnet_5_5_call_goes_straight_to_plain_json_and_the_ledger_says_so(tmp_path):
+    import json
+
+    from chat_nextseek.schemas.schema_helper import call_llm_structured
+
+    client = _client()
+    plan = call_llm_structured(_Cfg(client, log_dir=str(tmp_path)), "Q", _Plan, system="S", client=client,
+                               model_name=SONNET55, agent_label="entity", thinking_budget=None)
+
+    assert plan.mode == "graph_query"
+    body = _body(client)  # one request, and it is the plain one
+    assert "toolConfig" not in body
+    assert body["modelId"] == SONNET55
+    assert body["additionalModelRequestFields"]["output_config"] == {"effort": "low"}
+    (record,) = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    assert record["model"] == SONNET55 and record["outcome"] == "ok"
+    assert record["structured_via"] == "prompt"
 
 
 def test_a_structured_opus_4_7_call_still_forces_its_tool(tmp_path):
