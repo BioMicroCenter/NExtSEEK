@@ -148,7 +148,7 @@ def seek(monkeypatch):
     """SEEK's tables, as much of them as the endpoint and resolve_scope read, shaped as in SEEK's MySQL."""
     conn = sqlite3.connect(":memory:")
     c = conn.cursor()
-    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT, json_metadata TEXT)")
+    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT COLLATE NOCASE, json_metadata TEXT)")  # MySQL compares uuids case-insensitively
     c.execute("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
     c.execute("CREATE TABLE users (login TEXT, person_id INTEGER)")
     c.execute("CREATE TABLE work_groups (id INTEGER, project_id INTEGER)")
@@ -367,6 +367,23 @@ def test_both_spellings_of_one_sample_count_as_one_answered_uid(seek, graph):
     _add(seek, 26, "TIS-4-PUB", 2)
     resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False})
     assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_returns_only_the_exact_spelling_and_counts_as_answered(seek, graph, login):
+    _add(seek, 22, "TIS-7", 2)
+    _add(seek, 23, "TIS-7-PUB", 2)
+    resp = _post({"identifiers": ["tis-7"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-7"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_still_finds_the_pub_sample_and_counts_as_answered(seek, graph, login):
+    _add(seek, 20, "TIS-9-PUB", 2)
+    resp = _post({"identifiers": ["tis-9"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-9-PUB"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
 
 
 def test_a_foreign_pub_sample_still_answers_404_to_a_member(seek, graph, monkeypatch):

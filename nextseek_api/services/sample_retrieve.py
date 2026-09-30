@@ -312,15 +312,25 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     requested = {**requested, **found} if scope.is_admin else found
     # Ruling D2: a UID resolves with or without its -PUB suffix. As written first, so an exact match is never
     # displaced by a guess; only a miss tries the other spelling, through the same scoped statement for a member.
-    hit = set(requested.values())
-    other = {alt: uid for uid in dict.fromkeys(typed) if uid not in hit for alt in uid_spellings(uid)[1:]}
+    # MySQL compares uuids case-insensitively, so every comparison here folds case.
+    stored = {u.casefold(): u for u in requested.values()}
+    other = {alt for uid in dict.fromkeys(typed) if uid.casefold() not in stored
+             for alt in uid_spellings(uid)[1:] if alt.casefold() not in stored}
     if other:
         more, ok = _resolve_requested(sorted(other), scope)
         graph_ok = graph_ok and ok
         requested.update(more)
-        # Name the resolved spelling as the requested one, so it counts as answered and not as failed.
-        swapped = {other[alt]: alt for alt in more.values() if alt in other}
-        requested_uids = list(dict.fromkeys(swapped.get(u, u) for u in requested_uids))
+        stored.update({u.casefold(): u for u in more.values()})
+    # Name the stored spelling as the requested one, so it counts as answered and not as failed.
+    typed_folded = {u.casefold() for u in typed}
+
+    def answered_as(uid):
+        for spelling in (uid_spellings(uid) if uid.casefold() in typed_folded else [uid]):
+            if spelling.casefold() in stored:
+                return stored[spelling.casefold()]
+        return uid
+
+    requested_uids = list(dict.fromkeys(answered_as(u) for u in requested_uids))
     visible = set(requested)
     wanted = set(visible)
 
