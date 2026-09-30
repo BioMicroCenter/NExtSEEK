@@ -856,3 +856,17 @@ def test_a_keyword_that_names_a_constrained_type_is_not_reported_as_dropped(capt
         log_dir="",
     )
     assert "NOT APPLIED, the user asked for this" not in captured["user_content"]
+
+
+def test_the_exception_names_a_type_label_that_names_the_thing_asked_for():
+    text = _prompt_text()
+
+    assert "a sample type label that names the thing asked for, such as T_D_FLOW for flow cytometry data" in text
+    assert "T_A_MET for methylation" not in text
+
+
+def test_the_offered_step_line_sits_after_those_blocks():
+    text = _prompt_text()
+
+    assert "a line of its own after those blocks" in text
+    assert "a line of its own right after that block" not in text
