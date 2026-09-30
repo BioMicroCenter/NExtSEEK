@@ -13,7 +13,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
-| [`UI.md`](UI.md) | snapshot | finding a page's route, view and template. Dated 2026-09-03; check it against the tree | |
+| [`ui/README.md`](ui/README.md) | guide | changing anything a user sees: the shell, a page, styles, scripts, the project graphs, the Nessie chat page, help pages; every open UI problem is in [`ui/known-issues.md`](ui/known-issues.md) | |
 | [`nfcore-capability-expansion.md`](nfcore-capability-expansion.md) | explanation | answering "what analyses can Nessie run?" in plain English, for a non-engineer | |
 | [`2026-08-07-pipeline-param-inference-design.md`](2026-08-07-pipeline-param-inference-design.md) | design | inferring species and library facts from NExtSEEK metadata to fill nf-core params. Approved, not yet built: the modules and audit script it cites do not exist in the tree | |
 | [`2026-08-07-nfcore-launch-path-presentation-design.md`](2026-08-07-nfcore-launch-path-presentation-design.md) | design | the explainer page for how a chat message becomes a job on Luria. The page itself is a meeting artifact built outside this repo; this doc is the maintained record | |
