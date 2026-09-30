@@ -631,37 +631,6 @@ def test_the_writer_string_names_are_bound_to_the_contract():
     assert ast.unparse(_assigned(graph_sync / "writer.py", "SCHEMA_VERSION")) == "schema.SCHEMA_VERSION"
 
 
-GRAPH_AGENT = NESSIE / "agents" / "graph.py"
-
-
-def test_the_graph_agent_literals_equal_their_groups():
-    assert _literal(_assigned(GRAPH_AGENT, "V11_SYSTEM_PROPERTIES")) == schema.SAMPLE_SYSTEM_PROPERTIES_V11
-    added = _assigned(GRAPH_AGENT, "V12_SYSTEM_PROPERTIES")
-    assert isinstance(added, ast.BinOp) and _literal(added.right) == schema.SAMPLE_SYSTEM_PROPERTIES_V12
-    assert _literal(_assigned(GRAPH_AGENT, "V11_RELATIONSHIP_PROPERTIES")) == dict(schema.RELATIONSHIPS_V11)
-    widened = {label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
-               | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
-               for label, props in schema.NODE_PROPERTIES_V11.items()}
-    assert _literal(_assigned(GRAPH_AGENT, "V11_NODE_PROPERTIES")) == widened
-
-
-def test_the_scope_prover_literals_equal_the_contract():
-    path = NESSIE / "cypher_scope.py"
-    for name, contract in (("SAMPLE_LABEL", schema.SAMPLE), ("SAMPLE_TYPE_LABEL_PREFIX", schema.TYPE_LABEL_PREFIX),
-                           ("PROJECT_LABEL", schema.PROJECT), ("LINEAGE_RELATIONSHIP", schema.DERIVED_FROM),
-                           ("FULLTEXT_INDEX", schema.FULLTEXT_INDEX)):
-        assert _literal(_assigned(path, name)) == contract, f"cypher_scope.{name}"
-
-
-def test_the_catalog_reader_minimum_is_the_contract():
-    assert _literal(_assigned(NESSIE / "graph_catalog.py", "SCHEMA_VERSION")) == schema.READER_MIN_VERSION
-
-
-def test_the_query_scope_system_properties_are_the_sample_groups():
-    assert _literal(_assigned(NESSIE / "helpers" / "query_scope.py", "_SYSTEM_PROPERTIES")) == (
-        schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12)
-
-
 def test_the_graph_search_fulltext_name_is_the_contract():
     path = REPO_ROOT / "nextseek_api" / "graph_search" / "query.py"
     assert _literal(_assigned(path, "FULLTEXT_INDEX")) == schema.FULLTEXT_INDEX

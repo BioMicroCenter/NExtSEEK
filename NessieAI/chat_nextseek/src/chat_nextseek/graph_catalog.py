@@ -49,12 +49,14 @@ from typing import Any, Iterable, Mapping
 
 from . import graph_scope
 from .cypher_scope import SCOPE_CLAUSE_TEMPLATE
+from .graph_contract import schema
 
 log = logging.getLogger(__name__)
 
-# The minimum GraphMeta.schema_version this reader accepts. Later versions are read as they are: 1.2 (the sync work)
-# adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
-SCHEMA_VERSION = "1.1"
+# The minimum GraphMeta.schema_version this reader accepts (the contract's READER_MIN_VERSION). Later versions are read
+# as they are: 1.2 (the sync work) adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1
+# defines it.
+SCHEMA_VERSION = schema.READER_MIN_VERSION
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
 # The VOCAB_* statements only: dev's graph measured them at 11-14 s, and their result is cached for VOCAB_TTL_S.
 VOCAB_QUERY_TIMEOUT_S = 30
@@ -66,18 +68,9 @@ SCOPED_VOCAB_MAX = 256
 # 120,000-sample graph (7.1 red team, finding N4), so minutes, not the admin form's hour.
 SCOPED_VOCAB_TTL_S = 300
 
-_VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
-
-
-def _version_tuple(value) -> tuple[int, int] | None:
-    match = _VERSION_RE.match(str(value).strip()) if value is not None else None
-    return (int(match.group(1)), int(match.group(2))) if match else None
-
-
 def schema_version_supported(value) -> bool:
     """True when ``value`` is a ``major.minor`` version at or above ``SCHEMA_VERSION`` ("1.2" and "1.10" are)."""
-    version = _version_tuple(value)
-    return version is not None and version >= _version_tuple(SCHEMA_VERSION)
+    return schema.at_least(value, SCHEMA_VERSION)
 
 # The catalog holds no attribute values: graph_sync writes none, and the reader of the old top_values was removed
 # (889abe89). Stored values are read per caller, through the graph tool, by the graph reviewer (graph_review_counts).
@@ -718,7 +711,6 @@ def reset_cache() -> None:
 # --- row conversion -------------------------------------------------------------------------------------------------
 
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_LABEL_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 
 
 def _age(now: float, then: float | None) -> float | None:
@@ -767,7 +759,7 @@ def _index_row(row: dict) -> TypeIndexRow:
     title = str(row["title"])
     return TypeIndexRow(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         clade=_opt_str(row.get("clade")),
         sample_count=_opt_int(row.get("sample_count")),
@@ -809,7 +801,7 @@ def _type_detail(row: dict) -> TypeDetail:
     title = str(row["title"])
     return TypeDetail(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         summary=_opt_str(row.get("summary")),
         clade=_opt_str(row.get("clade")),

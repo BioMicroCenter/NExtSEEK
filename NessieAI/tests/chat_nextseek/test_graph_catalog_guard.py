@@ -17,6 +17,7 @@ import pytest
 from chat_nextseek import cypher_text
 from chat_nextseek import graph_catalog as gcat
 from chat_nextseek.agents.graph import (
+    V11_NODE_PROPERTIES,
     V11_RELATIONSHIP_PROPERTIES,
     V11_SYSTEM_PROPERTIES,
     V12_SYSTEM_PROPERTIES,
@@ -24,6 +25,7 @@ from chat_nextseek.agents.graph import (
     catalog_unknown_properties,
     whole_node_returns,
 )
+from chat_nextseek.graph_contract import schema
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_DOC = (REPO_ROOT / "docs" / "neo4j-schema.md").read_text(encoding="utf-8")
@@ -57,6 +59,19 @@ def unknown(cypher):
 
 def test_mask_is_the_shared_cypher_text_mask():
     assert _mask_cypher is cypher_text.mask_cypher
+
+
+def test_the_guard_names_are_the_contract_groups():
+    # A single name is the contract's own object; a composed one equals the groups it names, and keeps its type.
+    assert V11_SYSTEM_PROPERTIES is schema.SAMPLE_SYSTEM_PROPERTIES_V11
+    assert V12_SYSTEM_PROPERTIES == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
+    assert type(V11_RELATIONSHIP_PROPERTIES) is dict
+    assert V11_RELATIONSHIP_PROPERTIES == dict(schema.RELATIONSHIPS_V11)
+    assert type(V11_NODE_PROPERTIES) is dict
+    assert V11_NODE_PROPERTIES == {
+        label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
+        | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
+        for label, props in schema.NODE_PROPERTIES_V11.items()}
 
 
 def test_system_properties_are_the_v11_sample_system_properties():

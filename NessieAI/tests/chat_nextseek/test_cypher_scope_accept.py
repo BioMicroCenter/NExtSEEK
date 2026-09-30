@@ -26,6 +26,7 @@ from chat_nextseek.cypher_scope import (
     Scoped,
     scope_cypher,
 )
+from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import SCOPE_PARAM, GraphScope
 
 from NessieAI.tests.chat_nextseek.graph_scope.battery import (
@@ -181,14 +182,31 @@ def test_function_allowlist_pin():
 
 
 def test_label_and_relationship_tables_pin():
-    assert cypher_scope.SAMPLE_LABEL == "Sample"
-    assert cypher_scope.SAMPLE_TYPE_LABEL_PREFIX == "T_"
-    assert cypher_scope.PROJECT_LABEL == "Project"
+    # The names are the contract's own objects.
+    assert cypher_scope.SAMPLE_LABEL is schema.SAMPLE
+    assert cypher_scope.SAMPLE_TYPE_LABEL_PREFIX is schema.TYPE_LABEL_PREFIX
+    assert cypher_scope.PROJECT_LABEL is schema.PROJECT
+    assert cypher_scope.LINEAGE_RELATIONSHIP is schema.DERIVED_FROM
+    assert cypher_scope.FULLTEXT_INDEX is schema.FULLTEXT_INDEX
+    # Python interns short identifier-like strings, so `is` holds for a restated literal too: the assignments
+    # themselves must read the contract.
+    import ast
+    import inspect
+
+    bound = {target.id: ast.unparse(node.value) for node in ast.parse(inspect.getsource(cypher_scope)).body
+             if isinstance(node, ast.Assign) for target in node.targets if isinstance(target, ast.Name)}
+    assert bound["SAMPLE_LABEL"] == "schema.SAMPLE"
+    assert bound["SAMPLE_TYPE_LABEL_PREFIX"] == "schema.TYPE_LABEL_PREFIX"
+    assert bound["PROJECT_LABEL"] == "schema.PROJECT"
+    assert bound["LINEAGE_RELATIONSHIP"] == "schema.DERIVED_FROM"
+    assert bound["FULLTEXT_INDEX"] == "schema.FULLTEXT_INDEX"
+    # The policy sets keep their literal pins, and name only labels and relationship types the graph has.
     assert cypher_scope.JOINED_LABELS == frozenset({"Study", "Investigation", "Person"})
-    assert cypher_scope.LINEAGE_RELATIONSHIP == "DERIVED_FROM"
+    assert cypher_scope.JOINED_LABELS <= schema.LABELS_V11
     assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
+    assert cypher_scope.FIXED_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V11)
+    # A Neo4j procedure, not a graph name.
     assert cypher_scope.FULLTEXT_PROCEDURE == "db.index.fulltext.queryNodes"
-    assert cypher_scope.FULLTEXT_INDEX == "sample_search_text"
 
 
 @pytest.mark.parametrize("name", ["apoc.text.join", "apoc.coll.toSet", "apoc.date.format", "toLower", "TOUPPER",
@@ -203,12 +221,21 @@ def test_prover_module_is_pure():
     import ast
     import inspect
 
-    tree = ast.parse(inspect.getsource(cypher_scope))
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported.add(("." * node.level) + (node.module or ""))
-    allowed = {"__future__", "dataclasses", "typing", "collections.abc", ".graph_scope"}
+    from chat_nextseek import graph_contract
+
+    def imports_of(module) -> set[str]:
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(inspect.getsource(module))):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                imported.add(("." * node.level) + (node.module or ""))
+        return imported
+
+    imported = imports_of(cypher_scope)
+    # .graph_contract is chat_nextseek's one door to the graph contract, names and not behaviour.
+    allowed = {"__future__", "dataclasses", "typing", "collections.abc", ".graph_scope", ".graph_contract"}
     assert imported <= allowed, imported - allowed
+    # The door imports nextseek_graph.schema (standard library only, nothing done at import) or loads that file by its
+    # path, and nothing else: no driver, Django, agent or config reaches the prover through it.
+    assert imports_of(graph_contract) == {"__future__", "importlib.util", "pathlib", "types", "nextseek_graph"}

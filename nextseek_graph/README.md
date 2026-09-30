@@ -36,8 +36,10 @@ consumer's own edit.
 
 Every consumer that can: the writer, `nextseek_api/graph_sync/`; `nextseek_api/graph_search/query.py`;
 `nextseek_api/services/graph_sync_status.py`; `scripts/graph_schema_fallback.py`; and `ci/smoke`, each with
-`from nextseek_graph import schema`. chat_nextseek reaches it through one module of its own, which also loads
-`schema.py` by its path when the checkout root is not importable.
+`from nextseek_graph import schema`. chat_nextseek reaches it only through
+`NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`, which also loads `schema.py` by its path when the
+checkout root is not importable (the evaluator's case). A non-editable or git install of chat_nextseek has no
+checkout around it, so it finds the contract only where the checkout root is on `sys.path`.
 
 ## How a schema change lands
 

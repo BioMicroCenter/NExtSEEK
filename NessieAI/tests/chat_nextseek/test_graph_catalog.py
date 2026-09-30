@@ -18,6 +18,7 @@ import pytest
 from NessieAI import paths
 from chat_nextseek import graph_catalog as gc
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import GraphScope, with_scope
 
 CONTEXT = paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
@@ -247,7 +248,7 @@ def harness(monkeypatch, clock):
 
 
 def test_interface_constants():
-    assert gc.SCHEMA_VERSION == "1.1"
+    assert gc.SCHEMA_VERSION is schema.READER_MIN_VERSION
     assert (gc.HASH_RECHECK_S, gc.DETAIL_TTL_S, gc.VOCAB_TTL_S, gc.FAILURE_MEMORY_S, gc.QUERY_TIMEOUT_S) == (
         60, 600, 3600, 60, 10)
     assert issubclass(gc.CatalogUnavailable, RuntimeError)
