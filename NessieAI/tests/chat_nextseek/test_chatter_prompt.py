@@ -214,21 +214,63 @@ def test_a_dropped_filter_reaches_the_prompt_as_not_applied(captured):
     assert "cannot be applied in the graph" in text
 
 
-def test_the_graph_prompt_still_withholds_the_cypher(captured):
-    """The half of D1 that was real, and stays."""
+def test_the_graph_prompt_carries_the_executed_query_and_its_parameters(captured):
+    """The Cypher reaches the writer on a graph turn, for one purpose: checking a NOT APPLIED line or a note that
+    says the search matched something it should not (the operator's ruling, dev run 2026-09-29)."""
     chatter_mod.chatter_agent_answer(
         _StubConfig(), "how many mice", _entity(),
         _plan(mode="graph_query"),
-        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.Organ = 'Lung' RETURN count(s)",
-                    "explanation": "counts lung samples"},
+        graph_plan={"cypher": "MATCH (s:Sample) WHERE s.Organ = $organ RETURN count(s)",
+                    "parameters": {"organ": "Lung"}, "explanation": "counts lung samples"},
         graph_result={"ok": True, "count": 1, "total": 16841, "data": [{"n": 16841}]},
         log_dir="",
     )
     text = captured["user_content"]
 
-    assert "MATCH (" not in text
-    assert "RETURN count" not in text
-    assert "DERIVED_FROM" not in text
+    assert ("Executed query (for checking NOT APPLIED and notes only; never quote or describe it):\n"
+            "MATCH (s:Sample) WHERE s.Organ = $organ RETURN count(s)\n"
+            'Parameters: {"organ": "Lung"}\n\n') in text
+    assert text.index("What the query actually did") < text.index("Executed query")
+
+
+def test_a_non_graph_turn_does_not_carry_the_executed_query(captured):
+    _rest_turn(captured, entity=_entity(), plan=_plan(mode="new_search"),
+               api_plan={"endpoint": "/nextseek_api/samples/", "method": "GET", "queryParameters": {"page_size": 10}})
+    assert "Executed query" not in captured["user_content"]
+
+
+def test_a_graph_turn_with_no_cypher_carries_no_executed_query_block(captured):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "how many mice", _entity(), _plan(mode="graph_query"),
+        graph_plan={"cypher": "", "explanation": "nothing ran"},
+        graph_result={"ok": False, "count": 0, "total": 0, "data": [], "error": "refused"},
+        log_dir="",
+    )
+    assert "Executed query" not in captured["user_content"]
+
+
+def test_the_not_applied_instruction_carries_the_one_exception(captured):
+    chatter_mod.chatter_agent_answer(
+        _StubConfig(), "how many CC mice", _entity(keywords=["CC"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_MUS) RETURN count(s)", "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 731, "data": [{"n": 731}]},
+        log_dir="",
+    )
+    text = captured["user_content"]
+
+    assert "The scope check says the query did NOT constrain on everything the user asked for." in text
+    assert "UNLESS the 'Executed query' plainly filters on that constraint" in text
+
+
+def test_the_prompt_describes_the_executed_query_and_its_one_exception():
+    text = _prompt_text()
+
+    assert "- `Executed query`: on a graph turn, the query that ran and its parameters." in text
+    assert "Never quote it, name it or describe its parts in the reply." in text
+    assert "ONE EXCEPTION, AND ONLY ONE." in text
+    assert "If you are not sure the query carries it, disclose it." in text
+    # the rule that the reply never names the mechanics is untouched
+    assert "you may never name" in text
 
 
 def test_a_reporter_turn_makes_no_claim_about_dropped_filters(captured):
@@ -432,7 +474,7 @@ def test_an_assay_the_question_never_named_raises_no_not_applied_line(captured):
         cypher="MATCH (s:Sample) WHERE toLower(s.search_text) CONTAINS 'cd8' RETURN s.id AS id",
     )
 
-    assert "NOT APPLIED" not in text
+    assert "NOT APPLIED, the user asked for this" not in text
 
 
 # --------------------------------------------------------------------------
@@ -789,7 +831,7 @@ def test_a_project_named_by_an_alias_of_the_compared_title_is_not_reported_as_dr
         graph_result={"ok": True, "count": 1, "total": 309, "data": [{"n": 309}]},
         log_dir="",
     )
-    assert "NOT APPLIED" not in captured["user_content"]
+    assert "NOT APPLIED, the user asked for this" not in captured["user_content"]
 
 
 def test_the_type_names_are_the_catalogs_sample_type_names():
@@ -813,4 +855,4 @@ def test_a_keyword_that_names_a_constrained_type_is_not_reported_as_dropped(capt
         graph_result={"ok": True, "count": 1, "total": 539, "data": [{"n": 539}]},
         log_dir="",
     )
-    assert "NOT APPLIED" not in captured["user_content"]
+    assert "NOT APPLIED, the user asked for this" not in captured["user_content"]

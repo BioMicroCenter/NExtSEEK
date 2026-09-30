@@ -665,6 +665,15 @@ def chatter_agent_answer(
     # asked for that it did not. That gap is what production issues B7, B8 and B13 all
     # needed and none of them had: a reply cannot avoid misreporting the question if
     # the writer has no way to know what ran. See helpers/query_scope.py.
+    #
+    # On a graph turn the writer is also handed the executed Cypher and its parameters (the operator's
+    # ruling, dev run 2026-09-29). The scope check is a text check and can miss a filter written under
+    # another name (a project asked by an alias of the Investigation title the query compared, a
+    # keyword realised as a sample type label), and the prompt makes its NOT APPLIED line a mandatory
+    # first sentence. The Cypher is there only so the writer can check that line and the reviewer's
+    # notes against what ran (chatter_agent.txt, "ONE EXCEPTION, AND ONLY ONE"). The rule that a reply
+    # never names Cypher, a graph pattern or a query operator is unchanged, and a REST turn still gets
+    # no plumbing: `_scrub_plumbing` above.
     offered_step = _one_line(offered_step) or None
     scope = describe_query_scope(
         entity_result=entity_result,
@@ -871,6 +880,9 @@ def chatter_agent_answer(
         f"- Projects: {resolved_projects}\n"
         f"- Keywords: {keywords_str}\n\n"
         f"{render_query_scope(scope)}\n\n"
+        + (f"Executed query (for checking NOT APPLIED and notes only; never quote or describe it):\n"
+           f"{graph_plan.get('cypher')}\nParameters: {json.dumps(graph_plan.get('parameters') or {}, default=str)}\n\n"
+           if is_graph and graph_plan.get('cypher') else "")
         + (f"{OFFERED_STEP_LINE.format(step=offered_step)}\n\n" if offered_step else "")
         + f"{data_section}\n\n"
         "Result statistics:\n"
@@ -910,9 +922,10 @@ def chatter_agent_answer(
             if offered_step else ""
         )
         + (
-            "- The query did NOT constrain on everything the user asked for. Say which "
-            "constraint is missing in your FIRST sentence, and do not describe the result "
-            "as though it were restricted to it.\n"
+            "- The scope check says the query did NOT constrain on everything the user asked for. Say which "
+            "constraint is missing in your FIRST sentence, and do not describe the result as though it were "
+            "restricted to it, UNLESS the 'Executed query' plainly filters on that constraint: then it was "
+            "applied and you say nothing about it.\n"
             if scope.not_applied else ""
         )
         + "- If you name a sample type, assay code or keyword, take it from 'Constrained by', never from "

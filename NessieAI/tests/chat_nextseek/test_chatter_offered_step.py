@@ -393,7 +393,10 @@ def test_the_offered_step_is_its_own_line_outside_the_notes(model):
     scope_at = text.index("What the query actually did:")
     scope_end = text.index("\n\n", scope_at)
     assert "Offered next step" not in text[scope_at:scope_end], "not inside the scope block"
-    assert text[scope_end:].startswith("\n\nOffered next step: Only Converter\n"), "right after it"
+    # On a graph turn the executed query (chatter.py, user_content) sits between the scope block and the step.
+    assert text.count("\n\nOffered next step: Only Converter\n") == 1
+    assert text[scope_end:].startswith("\n\nExecuted query"), "the executed query follows the scope block"
+    assert text.index("\n\nOffered next step: Only Converter\n") > text.index("Executed query"), "then the step"
 
 
 def test_no_offered_step_means_no_line_and_the_same_prompt(model):
