@@ -129,6 +129,6 @@ under pytest on its own. See `themes/README.md` for why the anonymous
   `themes/NextSeek/templates/accounts/includes/user_panel.html:38` reverses.
 - See `NessieAI/chat_frontend/README.md` for the React panel, which this tree neither
   loads nor styles.
-- See `docs/UI.md` for the page-by-page route and view map, a dated snapshot to
-  check against the tree.
+- See `docs/ui/README.md` for the UI guide: the page-by-page route and view map is
+  `docs/ui/pages.md`, and every open UI problem is in `docs/ui/known-issues.md`.
 - See `DEPLOYMENT.md` for what a rebuild does and does not replace.
