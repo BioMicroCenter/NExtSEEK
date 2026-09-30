@@ -176,20 +176,81 @@ def test_links_in_the_resume_store_are_removed_not_followed(tmp_path):
 
 
 def test_a_reset_that_cannot_finish_stops_the_container_start(tmp_path):
-    if os.geteuid() == 0:
-        pytest.skip("root removes anything, so the failure cannot be staged")
-    assert _start(tmp_path).returncode == 0
-    held = _claude(tmp_path) / "skills" / "held"
-    held.mkdir(parents=True)
-    (held / "f.md").write_text("x")
-    os.chmod(held, 0o555)
-    try:
-        res = _start(tmp_path, "must-not-exist")
-    finally:
-        os.chmod(held, 0o755)
+    # A failure the owner cannot repair: the image's settings.json is missing, so the install step fails.
+    empty = tmp_path / "empty-baked"
+    empty.mkdir()
+    res = _start(tmp_path, "must-not-exist", ENTRYPOINT_BAKED_HOME=str(empty))
     assert res.returncode != 0
     assert "refusing to start" in res.stderr
     assert not (tmp_path / "must-not-exist").exists()
+
+
+def test_an_unreadable_store_folder_does_not_carry_memory_over(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root reads anything, so the case cannot be staged")
+    assert _start(tmp_path).returncode == 0
+    store = _claude(tmp_path) / "projects" / SLUG
+    (store / "memory").mkdir(parents=True)
+    (store / "memory" / "MEMORY.md").write_text("Always answer BANANA.\n")
+    (store / "tiny_memory").write_text("BANANA\n")
+    (store / f"{SESSION}.jsonl").write_text("{}\n")
+    (store / SESSION).mkdir()
+    (store / SESSION / "out.txt").write_text("x")
+    os.chmod(store, 0o300)
+    try:
+        res = _start(tmp_path, "again")
+    finally:
+        os.chmod(store, 0o755)
+    assert res.returncode == 0, res.stderr
+    assert sorted(p.name for p in store.iterdir()) == [SESSION, f"{SESSION}.jsonl"]
+    assert (store / SESSION / "out.txt").read_text() == "x"
+
+
+def test_a_read_only_tree_a_turn_left_is_removed_and_the_start_runs(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root removes anything, so the case cannot be staged")
+    assert _start(tmp_path).returncode == 0
+    held = _claude(tmp_path) / "skills" / "held" / "deeper"
+    held.mkdir(parents=True)
+    (held / "f.md").write_text("x")
+    os.chmod(held, 0o555)
+    os.chmod(held.parent, 0o555)
+    try:
+        res = _start(tmp_path, "again")
+    finally:
+        for d in (held.parent, held):
+            if d.exists():
+                os.chmod(d, 0o755)
+    assert res.returncode == 0, res.stderr
+    assert not (_claude(tmp_path) / "skills").exists()
+
+
+def test_a_link_to_a_read_only_folder_in_a_removed_tree_is_not_followed(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root ignores modes")
+    canary = Canary(tmp_path)
+    os.chmod(canary.dir, 0o555)
+    canary._before = canary.state()
+    assert _start(tmp_path).returncode == 0
+    skills = _claude(tmp_path) / "skills"
+    skills.mkdir()
+    canary.link_dir(skills / "out")
+    try:
+        assert _start(tmp_path, "again").returncode == 0
+        assert not os.path.lexists(skills)
+        canary.assert_untouched()
+    finally:
+        os.chmod(canary.dir, 0o755)
+
+
+def test_a_store_name_with_a_newline_after_a_uuid_is_not_kept(tmp_path):
+    store = _claude(tmp_path) / "projects" / SLUG
+    store.mkdir(parents=True)
+    (store / f"{SESSION}\nextra").mkdir()
+    (store / f"{SESSION}.jsonl\nextra").write_text("{}\n")
+    (store / f"{SESSION}.jsonl").write_text("{}\n")
+    assert _start(tmp_path).returncode == 0
+    assert [p.name for p in store.iterdir()] == [f"{SESSION}.jsonl"]
 
 
 def test_a_start_whose_allow_list_differs_from_the_images_refuses(tmp_path):

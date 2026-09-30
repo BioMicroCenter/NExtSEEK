@@ -39,19 +39,27 @@ SETTINGS_PATH="${ENTRYPOINT_SETTINGS_PATH:-$CLAUDE_HOME/settings.local.json}"
 # Claude Code keeps a working folder's conversations under projects/<the cwd with every
 # character outside [A-Za-z0-9] replaced by '-'> (/home/user -> -home-user).
 CWD_SLUG="$(printf '%s' "${ENTRYPOINT_CC_CWD:-$PWD}" | sed 's/[^A-Za-z0-9]/-/g')"
-_UUID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 
+# Exact 8-4-4-4-12 lower-case hex match (a case pattern sees the whole name, newlines included).
 _is_uuid() {
-  printf '%s\n' "$1" | grep -Eq "$_UUID_RE"
+  case "$1" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Delete every entry of folder $1 that the keep test $2 rejects; stop at the first failure.
+# The entrypoint owns what the agent made, so it restores owner access first: a folder a turn made
+# unreadable would otherwise list as empty and keep its contents, or fail the delete for good.
 _prune() {
+  chmod u+rwx -- "$1" 2>/dev/null || true
+  [ -r "$1" ] && [ -w "$1" ] && [ -x "$1" ] || return 1
   for _entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
     [ -e "$_entry" ] || [ -L "$_entry" ] || continue
     if "$2" "$_entry"; then
       continue
     fi
+    if [ -d "$_entry" ] && [ ! -L "$_entry" ]; then chmod -R u+rwx -- "$_entry" 2>/dev/null || true; fi
     rm -rf -- "$_entry" || return 1
   done
 }
