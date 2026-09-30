@@ -451,7 +451,8 @@ def test_a_cleared_label_is_reported_and_kept(world, monkeypatch, tmp_path, lock
 def test_apply_label_changes_writes_changed_cleared_and_plural_missing_edges(world, monkeypatch, tmp_path, lock):
     graph = Graph()
     graph.samples.update({10, 11, 12})
-    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_id=98, internal_assay_title="Old title",
+                                 internal_assay_titles=["Old title"])
     graph.edges[(12, 10)] = dict(LABELS_12_10, assay_id=502, internal_assay_id=502, internal_assay_title="Other")
     Writers(monkeypatch, graph)
     report = _full(graph, tmp_path, apply_label_changes=True)
@@ -464,6 +465,55 @@ def test_apply_label_changes_writes_changed_cleared_and_plural_missing_edges(wor
     # The approved write compares with values read just before it, not with the first pass's.
     assert any(c.query == run.LABELS_FOR_PAIRS for c in graph.calls)
     assert all(c.params.get("rows") for c in graph.calls if c.query == q.WRITE_EDGE_LABELS_CHANGED)
+
+
+def test_a_rename_is_written_without_approval(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert graph.stored((11, 10)) == LABELS_11_10
+    assert (report["labels_renamed"], report["labels_refreshed"], report["labels_changed"]) == (1, 1, 0)
+    assert report["labels_by_property"]["renamed"] == {"internal_assay_title": 1, "internal_assay_titles": 1}
+
+
+def test_a_rename_that_became_a_change_before_the_write_is_not_written(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    real = graph.answer
+
+    def meanwhile(query, params):
+        if query == run.LABELS_FOR_PAIRS:            # another writer moved the edge to another assay
+            graph.edges[(11, 10)]["internal_assay_id"] = 98
+        return real(query, params)
+
+    graph.answer = meanwhile
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert graph.edges[(11, 10)]["internal_assay_id"] == 98 and report["labels_refreshed"] == 0
+
+
+def test_relabel_all_classifies_every_edge_and_a_dry_run_writes_nothing(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.graphmeta = {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "c"}
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    dry = run.relabel_all(graph, "neo4j", dry_run=True)
+    assert (dry["status"], dry["labels_renamed"], dry["labels_refreshed"]) == ("dry_run", 1, 0)
+    assert lock.timeouts == [] and graph.stored((11, 10))["internal_assay_title"] == "Old title"
+    done = run.relabel_all(graph, "neo4j", record=False)
+    assert (done["status"], done["labels_refreshed"]) == ("ok", 1)
+    assert graph.stored((11, 10)) == LABELS_11_10 and lock.timeouts == [run.FULL_LOCK_TIMEOUT_S]
+
+
+def test_relabel_all_refuses_a_graph_not_at_the_writers_version(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.graphmeta = {"schema_version": "1.1"}
+    with pytest.raises(run.PreflightError, match="schema"):
+        run.relabel_all(graph, "neo4j", record=False)
+    assert lock.timeouts == []
 
 
 def test_graphmeta_gets_the_label_maps_hash(world, monkeypatch, tmp_path, lock):

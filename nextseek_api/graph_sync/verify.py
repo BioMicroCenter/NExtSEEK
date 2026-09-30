@@ -673,6 +673,7 @@ class _LabelTally:
     new_without_assay: int = 0                              # new, but the endpoints share no assay the rule resolves
     unlabelled_examples: list = field(default_factory=list)
     differ_examples: list = field(default_factory=list)
+    refresh_examples: list = field(default_factory=list)    # renamed and protocol_filled: the next sync writes them
 
 
 def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, checks: list, stats: dict) -> None:
@@ -715,6 +716,11 @@ def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, 
                     tally.differ_examples.append({"pair": [child, parent], "class": kind,
                                                   "stored": {k: stored.get(k) for k in keys},
                                                   "rule": {k: rule[k] for k in keys}})
+            elif kind in labels.REFRESH_CLASSES and len(tally.refresh_examples) < EXAMPLES:
+                keys = labels.differences(stored, rule)
+                tally.refresh_examples.append({"pair": [child, parent], "class": kind,
+                                               "stored": {k: stored.get(k) for k in keys},
+                                               "rule": {k: rule[k] for k in keys}})
         return tally
 
     tally = _read(driver, db, LINEAGE_LABELS, transformer=classify)
@@ -735,6 +741,9 @@ def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, 
                   "examples": tally.differ_examples}
     _check(checks, "9.lineage.labels_differ_from_rule", "any", changed + cleared, passed=True, detail=differ)
     _check(checks, "9.lineage.labels_plural_missing", "any", tally.classes[labels.PLURAL_MISSING], passed=True)
+    refresh = tally.classes[labels.RENAMED] + tally.classes[labels.PROTOCOL_FILLED]
+    _check(checks, "9.lineage.labels_refresh_pending", "any", refresh, passed=True,
+           detail={"examples": tally.refresh_examples} if refresh else None)
 
 
 def _check_type_labels(driver, db, checks: list) -> None:

@@ -29,9 +29,10 @@ OrphanSample are left alone.
 The label step (the sync design, section 7.3; R14, R15) then reads every DERIVED_FROM between two Sample nodes and
 classifies it against batch upload's rule (``labels.py``), fed from what the sample pass read: each sample's SEEK
 assays and its protocol's SOP. An edge with no singular assay label (every edge the run created among them) is
-labelled; a label that differs (``changed``, ``cleared``) and a missing plural list (``plural_missing``) are counted
-per property in the report and written only with ``apply_label_changes``, and then only where the stored values
-still equal the ones read just before the write.
+labelled, and so is a rename or a filled protocol (``renamed``, ``protocol_filled``: the same assays, compare and
+set); a label that changes which assay the edge carries (``changed``, ``cleared``) and a missing plural list
+(``plural_missing``) are counted per property in the report and written only with ``apply_label_changes``, and then
+only where the stored values still equal the ones read just before the write.
 
 The preflight writes nothing. It builds the catalog (which enforces the label rule), scans every MySQL sample once
 (projecting it, collecting ids and the declared lineage), reads the ghost list, checks SampleType titles against the
@@ -581,9 +582,10 @@ def _close_outbox(started: datetime) -> int | None:
 
 # --- the DERIVED_FROM label step -----------------------------------------------------------------
 
-_REPORTED_CLASSES = (labels.CHANGED, labels.CLEARED, labels.PLURAL_MISSING)
+_REPORTED_CLASSES = (labels.CHANGED, labels.CLEARED, labels.PLURAL_MISSING, labels.RENAMED, labels.PROTOCOL_FILLED)
 _LABEL_COUNT_KEYS = ("labels_rows", "labels_written", "labels_skipped_labelled", "labels_skipped_changed",
-                     "labels_edges_missing")
+                     "labels_edges_missing", "labels_refresh_rows", "labels_refreshed",
+                     "labels_refresh_skipped_changed", "labels_refresh_edges_missing")
 
 
 def _sorted_unique_batches(codes, size: int):
@@ -614,21 +616,24 @@ def _approved_rows(driver, db, pairs: list[tuple[int, int]], label_sources: Labe
     return rows
 
 
-def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes: bool = False) -> dict:
+def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes: bool = False,
+                dry_run: bool = False) -> dict:
     """Classify every DERIVED_FROM between two Sample nodes against the label rule, then write what may be written.
 
-    Without ``apply_label_changes`` only ``new`` edges (no singular assay label) are written, through the writer's
-    guarded statement; ``changed``, ``cleared`` and ``plural_missing`` edges are counted per property
-    (``labels_by_property``) with capped examples (``labels_examples``) and left as they are. With it every edge that
-    differs is written where its stored labels still equal the ones read just before the write. An edge whose end
-    has no int id (a legacy node) is counted and left alone.
+    Without ``apply_label_changes`` ``new`` edges (no singular assay label) are written, through the writer's guarded
+    statement, and ``renamed`` and ``protocol_filled`` edges (``labels.REFRESH_CLASSES``), read again just before the
+    write and written only where their stored labels still equal it and their class is still one of those; the
+    other classes (``changed``, ``cleared``, ``plural_missing``) are counted per property (``labels_by_property``) with
+    capped examples (``labels_examples``), the refresh classes too, and left as they are. With it every edge that
+    differs is written where its stored labels still equal the ones read just before the write. ``dry_run`` classifies
+    and reports and writes nothing. An edge whose end has no int id (a legacy node) is counted and left alone.
     """
     def classify_all(result):
         # Built here, so a retried read starts clean.
         classes: Counter = Counter()
         by_property = {cls: Counter() for cls in _REPORTED_CLASSES}
         examples = {cls: [] for cls in _REPORTED_CLASSES}
-        targets = array("q")
+        targets, refresh_targets = array("q"), array("q")
         edges = legacy = 0
         for record in result:
             edges += 1
@@ -649,10 +654,14 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
                                           "computed": {k: computed[k] for k in diff}})
             if cls == labels.NEW or (apply_label_changes and cls != labels.EQUAL):
                 targets.append(encode_pair(child, parent))
-        return edges, legacy, classes, by_property, examples, targets
+            elif cls in labels.REFRESH_CLASSES:
+                refresh_targets.append(encode_pair(child, parent))
+        return edges, legacy, classes, by_property, examples, targets, refresh_targets
 
-    edges, legacy, classes, by_property, examples, targets = _run(driver, db, LABEL_EDGES, read=True,
-                                                                  transformer=classify_all)
+    edges, legacy, classes, by_property, examples, targets, refresh_targets = _run(
+        driver, db, LABEL_EDGES, read=True, transformer=classify_all)
+    if dry_run:
+        targets, refresh_targets = array("q"), array("q")
     written: Counter = Counter()
     for batch in _sorted_unique_batches(targets, writer.REL_CHUNK):
         pairs = [decode_pair(code) for code in batch]
@@ -663,14 +672,73 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
         if rows:
             out = writer.write_edge_labels(driver, db, rows, apply_label_changes=apply_label_changes)
             written.update({key: out.get(key, 0) for key in _LABEL_COUNT_KEYS})
+    for batch in _sorted_unique_batches(refresh_targets, writer.REL_CHUNK):
+        rows = [row for row in _approved_rows(driver, db, [decode_pair(code) for code in batch], label_sources)
+                if labels.classify(row["stored"], row["labels"]) in labels.REFRESH_CLASSES]
+        if rows:
+            out = writer.write_edge_label_refreshes(driver, db, rows)
+            written.update({key: out.get(key, 0) for key in _LABEL_COUNT_KEYS})
     report = {"labels_edges": edges, "labels_legacy_id_edges": legacy, "labels_apply_changes": apply_label_changes}
     report.update({f"labels_{cls}": classes.get(cls, 0) for cls in labels.CLASSES})
     report.update({key: written.get(key, 0) for key in _LABEL_COUNT_KEYS})
     report["labels_by_property"] = {cls: dict(sorted(c.items())) for cls, c in by_property.items()}
     report["labels_examples"] = examples
-    log.info("graph_sync: DERIVED_FROM labels: %d edges, %s; %d written", edges, dict(classes),
-             report["labels_written"])
+    log.info("graph_sync: DERIVED_FROM labels: %d edges, %s; %d written, %d refreshed", edges, dict(classes),
+             report["labels_written"], report["labels_refreshed"])
     return report
+
+
+def _label_sources_from_mysql(chunk: int) -> LabelSources:
+    """The label rule's inputs for every MySQL sample: the maps, and each sample's assays and protocol."""
+    label_sources = LabelSources.read()
+    for page in sources.iter_digest_rows(chunk=chunk):
+        for row in page:
+            label_sources.record(row, _metadata(row.get("json_metadata")))
+    return label_sources
+
+
+def relabel_all(driver, db, *, dry_run: bool = False, apply_label_changes: bool = False,
+                lock_timeout_s: float = FULL_LOCK_TIMEOUT_S, record: bool = True, trigger: str = "command",
+                chunk: int = writer.SAMPLE_CHUNK) -> dict:
+    """``graph_sync --labels``: the full sync's label step alone, over every DERIVED_FROM between two Sample nodes
+    (``label_edges``), for a backlog the by-id and nightly paths do not reach. It writes ``new`` and the refresh
+    classes, and every class with ``apply_label_changes`` (the operator's approval, R14). ``dry_run`` reads and
+    reports, takes no lock and records no run; otherwise it refuses a graph not at the writer's schema version
+    (PreflightError), holds the graph-write lock (LockTimeout when it is busy) and records a run of kind ``labels``.
+    """
+    report = {"mode": "labels", "dry_run": dry_run, "apply_label_changes": apply_label_changes,
+              "schema_version": writer.SCHEMA_VERSION, "started_at": _now(), "timings_s": {}}
+    if dry_run:
+        label_sources = _timed(report, "read_label_sources", _label_sources_from_mysql, chunk)
+        report.update(_timed(report, "labels", label_edges, driver, db, label_sources, dry_run=True))
+        report.update(status="dry_run", finished_at=_now())
+        return report
+    started = dj_timezone.now()
+    report["started_at"] = _iso(started)
+    handle = _start_record("labels", trigger, started, record)
+    try:
+        found = writer.graphmeta(driver, db).get("schema_version")
+        if found != writer.SCHEMA_VERSION:
+            raise PreflightError([f"the graph is at schema {found!r}, not {writer.SCHEMA_VERSION!r}; run a full "
+                                  "sync first, which brings it there"], report)
+        with state.graph_write_lock(lock_timeout_s) as held:
+            if not held:
+                raise LockTimeout([_lock_problem(lock_timeout_s)], report)
+            label_sources = _timed(report, "read_label_sources", _label_sources_from_mysql, chunk)
+            report.update(_timed(report, "labels", label_edges, driver, db, label_sources,
+                                 apply_label_changes=apply_label_changes))
+        report["status"] = "ok"
+        return report
+    except PreflightError:
+        report["status"] = "refused"
+        raise
+    except Exception as exc:
+        report["status"] = "failed"
+        report["error"] = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        report["finished_at"] = _now()
+        _finish_record(handle, report)
 
 
 # --- SEEK Study nodes keyed on id ----------------------------------------------------------------

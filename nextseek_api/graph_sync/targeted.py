@@ -31,10 +31,12 @@ is counted and skipped whole, its lineage included: its parent tokens could not 
 would delete every edge it has.
 
 **Labels** (section 7.3). Each edge is labelled by ``labels.edge_labels`` from MySQL and classified against what it
-stores (``labels.classify``). Without the operator's approval only ``new`` edges are written, and the writer's own
-guard skips an edge labelled meanwhile (R14). ``changed``, ``cleared`` and ``plural_missing`` edges are counted per
-property with a few examples, and written only with ``apply_label_changes=True``, then only where the stored values
-still equal those read. An edge a call creates has no label, so it is ``new`` and labelled in the same call (R15).
+stores (``labels.classify``). Without the operator's approval ``new`` edges are written, and the writer's own guard
+skips an edge labelled meanwhile (R14); so are ``renamed`` and ``protocol_filled`` edges (an internal assay renamed
+under its id, a protocol filled where none was stored), only where the stored values still equal those read.
+``changed``, ``cleared`` and ``plural_missing`` edges are counted per property with a few examples, and written only
+with ``apply_label_changes=True``, then only where the stored values still equal those read. An edge a call creates
+has no label, so it is ``new`` and labelled in the same call (R15).
 
 **Archives.** ``retired.tsv``, ``derived_from_undeclared_archive.tsv`` and ``in_study_removed.tsv`` are appended
 in ``run_dir``; without one,
@@ -76,7 +78,8 @@ STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missin
                        "seek_study_investigation_missing")
 
 _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0,
-                    "labels_skipped_changed": 0, "labels_edges_missing": 0}
+                    "labels_skipped_changed": 0, "labels_edges_missing": 0, "labels_refresh_rows": 0,
+                    "labels_refreshed": 0, "labels_refresh_skipped_changed": 0, "labels_refresh_edges_missing": 0}
 
 # --- statements ----------------------------------------------------------------------------------
 
@@ -484,7 +487,9 @@ def _label_edges(driver, db, edges: list[dict], ctx: _Context, metas: dict | Non
     keys) by the rule, write what R14 allows and count the rest.
 
     ``metas`` maps a child id to its metadata when the caller has it; the other children's rows are read by id, for
-    their ``Protocol``. Only the edges of class ``new`` are written, unless ``ctx.apply_label_changes``.
+    their ``Protocol``. Without ``ctx.apply_label_changes`` the edges of class ``new`` are written, and those of a
+    class in ``labels.REFRESH_CLASSES`` (a rename under the same id, a protocol filled) through
+    ``writer.write_edge_label_refreshes``; with it every edge that differs.
     """
     report = {"labels_edges": len(edges), **{f"labels_{c}": 0 for c in labels.CLASSES},
               "label_differences": {}, "label_examples": [], **_NO_LABEL_WRITES}
@@ -498,7 +503,7 @@ def _label_edges(driver, db, edges: list[dict], ctx: _Context, metas: dict | Non
     for row in (sources.samples_by_ids(unread) if unread else ()):
         metas[row["id"]] = row["json_metadata"]
 
-    rows = []
+    rows, refresh = [], []
     for edge in edges:
         child, parent, stored = edge["child_id"], edge["parent_id"], edge["stored"]
         protocol = labels.resolve_protocol(labels.protocol_value_of(metas.get(child)), sops, sop_index)
@@ -521,8 +526,12 @@ def _label_edges(driver, db, edges: list[dict], ctx: _Context, metas: dict | Non
             if ctx.apply_label_changes:
                 row["stored"] = stored
             rows.append(row)
+        elif cls in labels.REFRESH_CLASSES:
+            refresh.append({"child_id": child, "parent_id": parent, "labels": computed, "stored": stored})
     if rows:
         report.update(writer.write_edge_labels(driver, db, rows, apply_label_changes=ctx.apply_label_changes))
+    if refresh:
+        report.update(writer.write_edge_label_refreshes(driver, db, refresh))
     return report
 
 
@@ -624,9 +633,10 @@ def relabel_for_maps(driver, db, *, apply_label_changes: bool = False, lock_time
     a SEEK assay whose resolution on the edges it wins differs from the map's now is a changed assay, and the edges
     between its members (``assay_assets``) are labelled again; a SOP the edges carry whose title changed, or that
     shares its title with another SOP now, is a changed SOP, and the edges carrying it are labelled again. Each edge
-    goes through the rule and R14 as in ``sync_samples``: a renamed title makes a ``changed`` label, reported and
-    written only with ``apply_label_changes``. An assay that wins no edge before the change and some edge after it
-    is not seen here; the full sync's label step reports it.
+    goes through the rule and R14 as in ``sync_samples``: a renamed title makes a ``renamed`` label, written at once;
+    a mapping moved to another assay makes a ``changed`` one, reported and written only with ``apply_label_changes``.
+    An assay that wins no edge before the change and some edge after it is not seen here; the full sync's label step
+    reports it.
     """
     ctx = _Context(None, apply_label_changes)
     return _guarded(driver, db, lock_timeout_s, lambda: _relabel(driver, db, ctx, chunk))

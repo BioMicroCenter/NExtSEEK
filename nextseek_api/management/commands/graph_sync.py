@@ -1,7 +1,8 @@
 """Keep the Neo4j sample graph in step with MySQL, or check that it is (graph schema v1.2).
 
     manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once
-                          | --investigation-counts --instance {local,dev,prod} | --requeue-dead [--kind KIND])
+                          | --investigation-counts --instance {local,dev,prod} | --requeue-dead [--kind KIND]
+                          | --labels)
                          [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--seed N]
                          [--bench-keys FILE] [--apply-label-changes] [--no-record] [--trigger NAME]
                          [--interval S] [--i-mean-the-live-graph]
@@ -18,11 +19,13 @@
 | ``--once`` | one pass of that loop | yes |
 | ``--investigation-counts`` | every Investigation title with its nodes and samples, the counts file that ``scripts/context_gen.py --emit capabilities --counts`` reads; ``--instance`` names where it was measured and has no default | no |
 | ``--requeue-dead`` | dead outbox rows back to pending, claimable at once (``--kind``, ``--dry-run``) | no |
+| ``--labels`` | every DERIVED_FROM label against the rule, the whole graph (``run.relabel_all``): new ones, renames and filled protocols written, the rest counted unless approved | yes |
 
-``--dry-run`` makes ``--full``, ``--catalog`` and ``--reconcile`` read without writing and print their counts.
-``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``) is the operator's approval to write the
-DERIVED_FROM labels that differ from the rule, which are otherwise only counted (the sync design, R14); the loop
-takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record`` keeps the run out of
+``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile`` and ``--labels`` read without writing and print their
+counts. ``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``, ``--labels``) is the operator's approval
+to write the DERIVED_FROM labels that change which assay an edge carries, which are otherwise only counted (the sync
+design, R14; a rename or a filled protocol is written without it); the loop takes that approval from
+``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record`` keeps the run out of
 ``graph_sync_run``, and ``--trigger`` names who started it there (the loop passes ``loop``).
 
 ``--verify``, ``--drift``, ``--investigation-counts`` and ``--loop`` run against the live stack's Neo4j without
@@ -58,10 +61,10 @@ LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
 MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts",
-         "requeue_dead")
+         "requeue_dead", "labels")
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
-LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples"})
+LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples", "labels"})
 DRIFT_FILE = drift.RESULT_FILE
 TRIGGER_CHARS = 64
 
@@ -183,14 +186,18 @@ class Command(BaseCommand):
         mode.add_argument("--requeue-dead", action="store_true",
                           help="Put dead outbox rows (at the attempt limit) back to pending, claimable at once, "
                                "once their cause is fixed. Writes the dmac outbox only, never the graph.")
+        mode.add_argument("--labels", action="store_true",
+                          help="Classify every DERIVED_FROM label against the rule and write the new ones, the "
+                               "renames and the filled protocols (every class with --apply-label-changes); for a "
+                               "backlog the by-id and nightly paths do not reach.")
         parser.add_argument("--kind", metavar="KIND",
                             help="--requeue-dead: only the dead rows of this outbox kind.")
         parser.add_argument("--instance", choices=drift.INSTANCES,
                             help="--investigation-counts: the instance this graph is (no default).")
         parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
         parser.add_argument("--dry-run", action="store_true",
-                            help="With --full, --catalog or --reconcile: read MySQL and the graph, write nothing, "
-                                 "print the counts. With --requeue-dead: list the dead rows, change nothing.")
+                            help="With --full, --catalog, --reconcile or --labels: read MySQL and the graph, write "
+                                 "nothing, print the counts. With --requeue-dead: list the dead rows, change nothing.")
         parser.add_argument("--chunk", type=_positive_int, default=writer.SAMPLE_CHUNK,
                             help="Samples per MySQL page and per write transaction (default %(default)s).")
         parser.add_argument("--run-dir", metavar="PATH",
@@ -259,6 +266,8 @@ class Command(BaseCommand):
             return self._samples(driver, db, options)
         if mode == "reconcile":
             return self._reconcile(driver, db, options)
+        if mode == "labels":
+            return self._labels(driver, db, options)
         return self._sync(driver, db, mode, options, bench_keys)
 
     # --- the modes that write ---------------------------------------------------------------------
@@ -282,6 +291,18 @@ class Command(BaseCommand):
             # its child rather than closing the slot as done (loop.py).
             raise CommandError(str(exc), returncode=1 if isinstance(exc, run.LockTimeout) else 2) from exc
         self._emit(result, as_json)
+
+    def _labels(self, driver, db, options):
+        """``--labels``: ``run.relabel_all``; a refusal exits 2 (a busy lock 1), as ``--full`` does."""
+        try:
+            result = run.relabel_all(driver, db, dry_run=options["dry_run"],
+                                     apply_label_changes=options["apply_label_changes"],
+                                     record=not options["no_record"], trigger=options["trigger"],
+                                     chunk=options["chunk"])
+        except run.PreflightError as exc:
+            self._emit(exc.report, options["json"])
+            raise CommandError(str(exc), returncode=1 if isinstance(exc, run.LockTimeout) else 2) from exc
+        self._emit(result, options["json"])
 
     def _reconcile(self, driver, db, options):
         result = reconcile.reconcile(driver, db, run_dir=self._run_dir(options, "reconcile"),

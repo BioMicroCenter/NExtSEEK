@@ -740,6 +740,17 @@ def test_a_missing_plural_list_is_reported_not_written(env, tmp_path):
     assert env.graph.of(q.WRITE_EDGE_LABELS_NEW) == []
 
 
+def test_a_rename_is_written_without_approval_and_a_changed_label_is_not(env, tmp_path):
+    env.graph.add_edge(11, 10, **_as_set(dict(LABEL_11_10, internal_assay_title="Old name",
+                                              internal_assay_titles=["Old name"])))
+    env.graph.add_edge(13, 11, **_as_set(dict(LABEL_13_11, internal_assay_id=98)))
+    result = targeted.sync_samples(env.graph, DB, [11, 13], run_dir=str(tmp_path))
+    assert env.graph.edge(11, 10)["internal_assay_title"] == "Patient Visit"          # renamed: written
+    assert env.graph.edge(13, 11)["internal_assay_id"] == 98                           # changed: kept
+    assert (result["labels_renamed"], result["labels_changed"], result["labels_refreshed"]) == (1, 1, 1)
+    assert {e["class"] for e in result["label_examples"]} == {"renamed", "changed"}
+
+
 def test_an_equal_label_sends_no_write(env, tmp_path):
     env.graph.add_edge(11, 10, **_as_set(LABEL_11_10))
     result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
@@ -861,12 +872,12 @@ def test_relabel_for_maps_touches_only_the_members_of_a_changed_assay(labelled):
     read_children = {i for c in labelled.graph.of(q.DERIVED_FROM_OF_CHILDREN) for i in c.params["ids"]}
     assert read_children <= {10, 11, 13}
     assert labelled.graph.edge(14, 12) == edge_6
-    # a renamed title is a changed label: reported, not written, without the operator's approval
+    # an internal assay renamed under its id is written at once, with no approval (the operator's RELABEL ruling)
     assert result["labels_edges"] == 2
-    assert result["labels_changed"] == 2
-    assert result["labels_written"] == 0
-    assert result["label_differences"]["changed"] == {"internal_assay_title": 2, "internal_assay_titles": 2}
-    assert labelled.graph.edge(11, 10)["internal_assay_title"] == "Patient Visit"
+    assert (result["labels_renamed"], result["labels_changed"]) == (2, 0)
+    assert (result["labels_written"], result["labels_refreshed"]) == (0, 2)
+    assert result["label_differences"]["renamed"] == {"internal_assay_title": 2, "internal_assay_titles": 2}
+    assert labelled.graph.edge(11, 10)["internal_assay_title"] == "Patient Visit v2"
 
 
 def test_relabel_for_maps_writes_the_rename_with_apply_label_changes(labelled):

@@ -1193,3 +1193,41 @@ def test_requeue_dead_refuses_a_bad_kind_and_kind_belongs_to_it(graphdb, args, c
 def test_requeue_dead_is_a_mode_of_its_own():
     assert "requeue_dead" in command.MODES
     assert "requeue_dead" not in command.LIVE_OK_MODES      # it never reaches a graph, live or not
+
+
+# --- --labels (the operator's RELABEL ruling) ------------------------------------------------------------------------
+
+@pytest.fixture
+def relabel(monkeypatch):
+    calls = []
+
+    def fake(driver, db, **kwargs):
+        calls.append(kwargs)
+        return {"mode": "labels", "status": "dry_run" if kwargs["dry_run"] else "ok", "labels_renamed": 3}
+
+    monkeypatch.setattr(run, "relabel_all", fake)
+    return calls
+
+
+@pytest.mark.parametrize("args, dry_run, approved", [(("--labels", "--dry-run"), True, False),
+                                                     (("--labels",), False, False),
+                                                     (("--labels", "--apply-label-changes"), False, True)])
+def test_labels_runs_the_label_step_alone(graphdb, relabel, args, dry_run, approved):
+    out = StringIO()
+    call_command("graph_sync", *args, "--json", stdout=out, stderr=StringIO())
+    (call,) = relabel
+    assert (call["dry_run"], call["apply_label_changes"]) == (dry_run, approved)
+    assert json.loads(out.getvalue())["labels_renamed"] == 3
+
+
+@pytest.mark.parametrize("args", [("--labels",), ("--labels", "--dry-run")])
+def test_labels_needs_the_live_flag_even_for_a_dry_run(graphdb, settings, relabel, args):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and relabel == []
+
+
+def test_labels_is_a_mode_that_takes_the_approval():
+    assert "labels" in command.MODES and "labels" in command.LABEL_CHANGE_MODES
+    assert "labels" not in command.LIVE_OK_MODES

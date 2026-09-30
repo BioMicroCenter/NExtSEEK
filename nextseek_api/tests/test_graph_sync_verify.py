@@ -302,18 +302,20 @@ def test_check_9_passes_an_unlabelled_edge_whose_endpoints_share_no_assay(world)
 
 def test_check_9_reports_without_failing_a_label_that_differs_from_the_rule(world):
     graph = GateWorld(_graph_nodes())
-    graph.edges[(13, 12)]["internal_assay_title"] = "RNA-seq run (old name)"      # changed
+    graph.edges[(13, 12)]["internal_assay_title"] = "RNA-seq run (old name)"      # renamed: the next sync writes it
     graph.edges[(11, 10)].update(protocol_id=6, protocol_title="Staining SOP")    # changed: the child says SOP 5
     result = _gate(graph)
     assert _named(result, "9.lineage.labels")["pass"] is True
     differ = _named(result, "9.lineage.labels_differ_from_rule")
-    assert (differ["actual"], differ["pass"]) == (2, True)
-    assert differ["detail"]["changed"] == 2 and differ["detail"]["cleared"] == 0
-    assert differ["detail"]["by_property"] == {"internal_assay_title": 1, "protocol_id": 1, "protocol_title": 1}
-    example = [e for e in differ["detail"]["examples"] if e["pair"] == [13, 12]][0]
-    assert example == {"pair": [13, 12], "class": "changed",
-                       "stored": {"internal_assay_title": "RNA-seq run (old name)"},
-                       "rule": {"internal_assay_title": "RNA-seq run"}}
+    assert (differ["actual"], differ["pass"]) == (1, True)
+    assert differ["detail"]["changed"] == 1 and differ["detail"]["cleared"] == 0
+    assert differ["detail"]["by_property"] == {"protocol_id": 1, "protocol_title": 1}
+    pending = _named(result, "9.lineage.labels_refresh_pending")
+    assert (pending["actual"], pending["pass"]) == (1, True)
+    assert pending["detail"]["examples"] == [{"pair": [13, 12], "class": "renamed",
+                                              "stored": {"internal_assay_title": "RNA-seq run (old name)"},
+                                              "rule": {"internal_assay_title": "RNA-seq run"}}]
+    assert result["stats"]["lineage_labels"]["classes"]["renamed"] == 1
     assert result["pass"] is True
 
 

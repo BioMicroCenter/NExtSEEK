@@ -42,8 +42,8 @@ The run is recorded in ``graph_sync_run`` (``record``, ``trigger``), best-effort
 highest ``samples.id`` and ``updated_at`` the detection saw as its watermark; the report is written to
 ``reconcile.json`` in the run directory, which also receives the archives the by-id syncs append.
 
-Labels follow R14: only new labels are written unless the operator approves more (``apply_label_changes``), and the
-differences are counted per class and property in each step's report.
+Labels follow R14: only new labels, renames and filled protocols are written unless the operator approves more
+(``apply_label_changes``), and the differences are counted per class and property in each step's report.
 """
 from __future__ import annotations
 

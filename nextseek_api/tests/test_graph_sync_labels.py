@@ -255,7 +255,8 @@ class TestClassify:
         return stored
 
     def test_the_class_names(self):
-        assert labels.CLASSES == ("new", "equal", "plural_missing", "changed", "cleared")
+        assert labels.CLASSES == ("new", "equal", "plural_missing", "renamed", "protocol_filled", "changed", "cleared")
+        assert labels.WRITABLE_WITHOUT_APPROVAL == ("new", "renamed", "protocol_filled")
 
     def test_equal(self):
         assert labels.classify(self._stored(), self.COMPUTED) == "equal"
@@ -287,7 +288,6 @@ class TestClassify:
         assert labels.classify(stored, computed) == "plural_missing"
 
     @pytest.mark.parametrize("changes", [
-        {"internal_assay_title": "Old Title"},                  # a rename left stale
         {"internal_assay_id": 49},
         {"assay_id": 11},
         {"internal_assay_ids": [10]},                            # a list in the SEEK id space
@@ -298,6 +298,39 @@ class TestClassify:
     ])
     def test_changed(self, changes):
         assert labels.classify(self._stored(**changes), self.COMPUTED) == "changed"
+
+    # An internal assay renamed under its id, and a protocol filled where none was stored, need no approval (the
+    # operator's RELABEL ruling); any change of which assay an edge carries still does.
+    NO_PROTOCOL = _labels(10, 50, "Internal Alpha", [50], ["Internal Alpha"])
+
+    @pytest.mark.parametrize("stored, computed, cls", [
+        ({"internal_assay_title": "Old"}, None, "renamed"),                              # the singular title only
+        ({"internal_assay_title": "Old", "internal_assay_titles": ["Old"]}, None, "renamed"),       # and the plural
+        ({"internal_assay_titles": ["Old"]}, None, "renamed"),                            # the plural title only
+        ({"internal_assay_title": "Old", "internal_assay_ids": _ABSENT, "internal_assay_titles": _ABSENT},
+         None, "renamed"),                                                                 # plural lists absent
+        ({"internal_assay_title": "Old", "protocol_id": None, "protocol_title": None}, None, "renamed"),  # + a fill
+        ({"protocol_id": None, "protocol_title": None}, None, "protocol_filled"),          # id and title filled
+        ({"protocol_title": None}, None, "protocol_filled"),                               # the title, under its id
+        ({"protocol_id": 6}, None, "changed"),                                             # a protocol replaced
+        ({}, "no protocol", "cleared"),                                                    # a protocol removed
+        ({"assay_id": 11}, None, "changed"),                    # another SEEK assay of the same internal assay
+        ({"internal_assay_id": 49}, None, "changed"),                                      # another internal assay
+        ({"internal_assay_title": "Old"}, "no title", "cleared"),                          # a title to null
+        ({"internal_assay_titles": ["Old"]}, "empty plural title", "changed"),             # a plural title to ""
+        ({"internal_assay_title": "Old", "internal_assay_ids": [49]}, None, "changed"),    # renamed, ids differ
+        ({"protocol_title": "SOP Five (old)"}, None, "changed"),                           # a SOP retitled
+        ({"assay_id": 12, "internal_assay_id": 60, "internal_assay_title": "IA 60", "internal_assay_ids": [60],
+          "internal_assay_titles": ["IA 60"]}, None, "changed"),                           # an assay not shared
+    ], ids=["singular", "singular and plural", "plural", "plural lists absent", "renamed and filled",
+            "protocol filled", "protocol title filled", "protocol replaced", "protocol removed", "seek assay moved",
+            "internal id moved", "title to null", "plural title to empty", "ids differ", "sop retitled",
+            "unshared assay"])
+    def test_renames_and_filled_protocols_and_what_still_needs_approval(self, stored, computed, cls):
+        wanted = {None: self.COMPUTED, "no protocol": self.NO_PROTOCOL,
+                  "no title": dict(self.COMPUTED, internal_assay_title=None),
+                  "empty plural title": dict(self.COMPUTED, internal_assay_titles=[""])}[computed]
+        assert labels.classify(self._stored(**stored), wanted) == cls
 
     def test_changed_when_a_list_holds_the_same_entries_in_another_order(self):
         computed = _labels(10, 5, "A", [5, 50], ["A", "B"])

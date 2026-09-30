@@ -1849,3 +1849,43 @@ def test_a_new_investigations_project_is_written_before_its_link():
     assert (counts["investigation_projects_written"], counts["investigation_links"]) == (1, 1)
     writes = [c.query for c in g.writes()]
     assert writes.index(q.MERGE_PROJECTS) < writes.index(q.MERGE_INVESTIGATION_IN_PROJECT)
+
+
+# --- renames and filled protocols need no approval (the operator's RELABEL ruling) ---------------------------------
+
+REFRESH_LABELS = {"assay_id": 5, "internal_assay_id": 99, "internal_assay_title": "New name",
+                  "internal_assay_ids": [99], "internal_assay_titles": ["New name"], "protocol_id": 7,
+                  "protocol_title": "SOP 7"}
+
+
+def _refresh_row(**stored):
+    return {"child_id": 11, "parent_id": 10, "labels": dict(REFRESH_LABELS),
+            "stored": dict(REFRESH_LABELS, **stored)}
+
+
+def test_write_edge_label_refreshes_sends_the_compare_and_set_statement():
+    driver = FakeDriver(lambda query, params: [{"matched": 2, "written": 1, "pairs": 2}]
+                        if query == q.WRITE_EDGE_LABELS_CHANGED else [])
+    rows = [_refresh_row(internal_assay_title="Old name", internal_assay_titles=["Old name"]),
+            dict(_refresh_row(protocol_id=None, protocol_title=None), child_id=12)]
+    counts = w.write_edge_label_refreshes(driver, "neo4j", rows)
+    (call,) = driver.calls_of(q.WRITE_EDGE_LABELS_CHANGED)
+    assert [r["stored"]["internal_assay_title"] for r in call.params["rows"]] == ["Old name", "New name"]
+    assert counts == {"labels_refresh_rows": 2, "labels_refreshed": 1, "labels_refresh_skipped_changed": 1,
+                      "labels_refresh_edges_missing": 0}
+
+
+@pytest.mark.parametrize("stored", [{"internal_assay_id": 98}, {"protocol_id": 6}, {}],
+                         ids=["another internal assay", "another protocol", "equal"])
+def test_write_edge_label_refreshes_refuses_any_other_class_before_sending(stored):
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="approval"):
+        w.write_edge_label_refreshes(driver, "neo4j", [_refresh_row(**stored)])
+    assert driver.calls == []
+
+
+def test_write_edge_label_refreshes_needs_the_stored_values():
+    row = _refresh_row(internal_assay_title="Old name")
+    del row["stored"]
+    with pytest.raises(ValueError, match="stored"):
+        w.write_edge_label_refreshes(FakeDriver(), "neo4j", [row])

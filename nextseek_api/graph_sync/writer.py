@@ -39,6 +39,7 @@ from neo4j import RoutingControl
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
 from nextseek_api.graph_sync import cypher as q
+from nextseek_api.graph_sync import labels
 from nextseek_api.graph_sync.catalog import role_for
 from nextseek_api.graph_sync.projection import SampleProjection, label_for
 from nextseek_graph import schema
@@ -799,6 +800,32 @@ def write_edge_labels(driver, db, rows, *, apply_label_changes: bool = False) ->
             "labels_skipped_labelled": 0 if apply_label_changes else skipped,
             "labels_skipped_changed": skipped if apply_label_changes else 0,
             "labels_edges_missing": len(payload) - pairs}
+
+
+def write_edge_label_refreshes(driver, db, rows) -> dict:
+    """Write the labels of an internal assay renamed under its id or a protocol filled where none was stored
+    (``labels.REFRESH_CLASSES``), which need no approval, through the compare-and-set statement, so an edge whose
+    seven stored values moved since the read is skipped. ``rows`` are ``{"child_id", "parent_id", "labels",
+    "stored"}``, ``stored`` required with all seven keys. Every row is classified again before anything is sent, and a
+    row of any other class raises ValueError: this can never write a change of which assay an edge carries. Returns
+    ``labels_refresh_rows``, ``labels_refreshed``, ``labels_refresh_skipped_changed`` and
+    ``labels_refresh_edges_missing``."""
+    payload: dict[tuple, dict] = {}
+    for row in rows:
+        checked = _label_row(row, True)
+        cls = labels.classify(checked["stored"], checked["labels"])
+        if cls not in labels.REFRESH_CLASSES:
+            raise ValueError(f"DERIVED_FROM {(row['child_id'], row['parent_id'])}: a {cls} label needs the "
+                             "operator's approval")
+        payload.setdefault((row["child_id"], row["parent_id"]), checked)
+    matched = written = pairs = 0
+    for batch in _batches(payload.values(), REL_CHUNK):
+        result = _run(driver, db, q.WRITE_EDGE_LABELS_CHANGED, {"rows": batch})
+        matched += _one(result, "matched")
+        written += _one(result, "written")
+        pairs += _one(result, "pairs")
+    return {"labels_refresh_rows": len(payload), "labels_refreshed": written,
+            "labels_refresh_skipped_changed": matched - written, "labels_refresh_edges_missing": len(payload) - pairs}
 
 
 # --- source hashes -------------------------------------------------------------------------------
