@@ -69,6 +69,8 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import safe_fs
+
 logger = logging.getLogger(__name__)
 
 # Reserved top-level name inside the dmac-cc-users volume. ``project_dirname()``
@@ -246,8 +248,12 @@ def _deliver_file_safely(src: Path, scratch_dir: str, rel_dir_parts: tuple[str, 
 
 def staging_root_for(user_root_mount: str) -> Path:
     """The trusted-process view of the sidecar's staging root: the reserved
-    ``_staging`` subpath at the top of the ``dmac-cc-users`` volume mount."""
-    return Path(str(user_root_mount).rstrip("/")) / STAGING_SUBDIR
+    ``_staging`` subpath at the top of the ``dmac-cc-users`` volume mount.
+
+    The sidecar mounts this folder whole and read-write, so it is registered with ``safe_fs`` as an agent root:
+    the user's ``<hash>`` folder below it is sidecar-controlled and is always walked in ``rel``, never used as
+    a root."""
+    return safe_fs.register_agent_root(Path(str(user_root_mount).rstrip("/")) / STAGING_SUBDIR)
 
 
 def sweep_user_staging(

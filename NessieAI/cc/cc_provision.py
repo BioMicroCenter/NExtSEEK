@@ -10,6 +10,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from . import safe_fs
+
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,128}$")
 
@@ -130,7 +132,7 @@ def build_user_dirs(
     user_rel = f"{project_rel}/{user_id}"
     project_mount = f"{mount_root}/{project_rel}"
     user_mount = f"{project_mount}/{user_id}"
-    return UserDirs(
+    dirs = UserDirs(
         input_subpath=f"{user_rel}/input",
         shared_subpath=f"{project_rel}/shared",  # project-scoped: NO user segment
         scratch_subpath=f"{user_rel}/scratch",
@@ -150,6 +152,12 @@ def build_user_dirs(
         previous_turns_mnt=(f"{user_mount}/_memory/{session_id}/previous_turns"
                             if session_id else None),
     )
+    # Step 1: the backing roots of the agent's read-write mounts. safe_fs refuses a root below one, so every
+    # caller passes one of these (or a Django folder above them) and puts the agent's path components in rel.
+    for agent_root in (dirs.cc_state_mnt, dirs.run_scratch_mnt):
+        if agent_root:
+            safe_fs.register_agent_root(agent_root)
+    return dirs
 
 
 class ProjectResolutionError(Exception):
