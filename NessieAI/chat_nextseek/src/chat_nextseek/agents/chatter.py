@@ -195,6 +195,22 @@ def _type_names_block(config: Any, rows: list) -> str:
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
 
 
+def _container_aliases(config: Any) -> list[set[str]]:
+    """One set per row of the projects catalog: its name and alternative names, squashed. The scope check reads
+    "IMPAcTB" and the Investigation title 'Impact' as two names of one row."""
+    rows = getattr(config, "FULL_PROJECTS", None)
+    out: list[set[str]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        names = {re.sub(r"[^a-z0-9]", "", str(n or "").lower())
+                 for n in [row.get("name"), *(row.get("alternative_names") or [])]}
+        names.discard("")
+        if names:
+            out.append(names)
+    return out
+
+
 # The graph-result reviewer's two outputs (graph_review.py, helpers/suggestions.py): the facts the result matched,
 # which the reply states first, and the one next step it offers as a chip, which the reply offers last. The prompt
 # asks for both; these make sure a reply that drops either still carries it.
@@ -583,6 +599,7 @@ def chatter_agent_answer(
         graph_plan=graph_plan,
         extra_notes=query_notes,
         user_query=user_query,
+        container_aliases=_container_aliases(config),
     )
 
     def _fmt_entities(items: Any) -> str:

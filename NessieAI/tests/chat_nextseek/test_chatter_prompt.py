@@ -682,3 +682,34 @@ def test_a_note_the_caller_passed_is_a_qualification(captured):
 
     assert _PERMISSION in text
     assert _PROHIBITION not in text
+
+
+# --------------------------------------------------------------------------
+# GFxRR-4: the projects catalog reaches the scope check
+# --------------------------------------------------------------------------
+
+class _ProjectsConfig(_StubConfig):
+    FULL_PROJECTS = [
+        {"name": "Impact", "alternative_names": ["IMPACT", "IMPAcTb"], "entity_type": "project"},
+        {"name": "Notes", "alternative_names": None},
+        "not a row",
+    ]
+
+
+def test_the_container_aliases_are_one_squashed_set_per_catalog_row():
+    assert chatter_mod._container_aliases(_ProjectsConfig()) == [
+        {"impact", "impactb"}, {"notes"}]
+    assert chatter_mod._container_aliases(_StubConfig()) == []
+
+
+def test_a_project_named_by_an_alias_of_the_compared_title_is_not_reported_as_dropped(captured):
+    chatter_mod.chatter_agent_answer(
+        _ProjectsConfig(), "How many datasets are there across IMPAcTB?",
+        _entity(projects=["IMPAcTB"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}, "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 309, "data": [{"n": 309}]},
+        log_dir="",
+    )
+    assert "NOT APPLIED" not in captured["user_content"]

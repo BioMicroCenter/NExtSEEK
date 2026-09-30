@@ -671,6 +671,15 @@ def _glossed_by_applied(keyword: str, question: str | None, titles: list[str]) -
     return False
 
 
+def _same_catalog_row(value: str, titles: list[str], aliases: list[set[str]] | None) -> bool:
+    """The asked name and a Project, Study or Investigation title the query compared are two names of one row of the
+    projects catalog: "IMPAcTB" and the Investigation 'Impact' (dev run 2026-09-29, tasks 1373 and 1390). ``aliases``
+    is one set per catalog row, its name and alternative names squashed."""
+    key = _squash(value)
+    compared = {_squash(t) for t in titles}
+    return len(key) >= 3 and any(key in names and names & compared for names in aliases or ())
+
+
 def _search_kind(parser_plan: dict, api_plan: dict | None, graph_plan: dict | None) -> str:
     if graph_plan:
         return _GRAPH_SEARCH_KIND
@@ -702,6 +711,7 @@ def describe_query_scope(
     graph_plan: dict | None = None,
     extra_notes: list[str] | None = None,
     user_query: str | None = None,
+    container_aliases: list[set[str]] | None = None,
 ) -> QueryScope:
     """Split the turn's constraints into the ones the query carried and the rest.
 
@@ -770,6 +780,8 @@ def describe_query_scope(
             if not applied:
                 applied = _glossed_by_applied(value, user_query, titles)
             if not applied:
+                applied = _same_catalog_row(value, titles, container_aliases)
+            if not applied:
                 words = _folded(value)
                 applied = len(_squash(value)) >= 3 and any(words in phrase and words != phrase
                                                               for phrase in title_phrases)
@@ -779,6 +791,8 @@ def describe_query_scope(
                 applied = _project_title_is_applied(value, graph_plan, haystack)
             if not applied:
                 applied = _container_title_is_applied(value, titles, held)
+            if not applied:
+                applied = _same_catalog_row(value, titles, container_aliases)
         else:
             applied = _is_applied(value, haystack)
         (scope.applied if applied else scope.not_applied).append(label)
