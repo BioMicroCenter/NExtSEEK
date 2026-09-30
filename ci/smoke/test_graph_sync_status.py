@@ -7,6 +7,11 @@ Two claims, in one file because the second is only meaningful once the first say
     is what CI-5 exists for: a box whose sync loop has stopped, or whose drain has left a row waiting for an hour,
     must not report a green smoke run. A deployed box that has never run a sync answers `never`, which stays green,
     so the surrounding tests assert the vocabulary rather than any particular value.
+    It also fails on an outbox row still failing past its retry (its back-off plus 30 minutes, aged from its first
+    failure, not from its last enqueue), on a full, reconcile, catalog or drift kind whose latest run failed or was
+    abandoned past the same clock, and on a latest drift run that found drift; each prints the error. Failures
+    inside their retry window are only reported, as warnings. The judging is `nextseek_api/graph_sync/health.py`,
+    unit-tested without a box.
   * parity-lite: WHEN the status reports a successful full sync at the writer's schema version, the same small body
     sent to advanced_search and to graph_search reports the same `total`. That condition is the whole point. Before
     the first full sync the graph is at another version and the two are expected to disagree, so the check skips
@@ -19,6 +24,7 @@ the superuser account because nothing else can call the endpoint at all.
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -28,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from ci.smoke.assertions import check_gateway, describe_shape
 from ci.smoke.client import GuardedSession
 from ci.smoke.conftest import _cred
+from nextseek_api.graph_sync import health
 
 pytestmark = pytest.mark.profiles("local", "dev")
 
@@ -139,6 +146,52 @@ def test_nothing_is_dead_in_the_outbox(status_body):
         f"the graph sync outbox holds rows at the attempt limit: {dead}. Their work never happened; read "
         f"last_error on those rows."
     )
+
+
+def test_the_status_carries_the_failure_parts(status_body):
+    missing = health.missing_parts(status_body)
+    assert not missing, (
+        f"the status body lacks {missing}: this box runs an app image older than this check. Rebuild the app "
+        f"image, then run the suite again."
+    )
+
+
+def test_no_outbox_row_has_been_failing_past_its_retry(status_body):
+    """A row that failed, waited its back-off, and is still failing half an hour after its retry came due.
+
+    Aged by failing_since, not enqueued_at: a hot key such as `catalog *` is re-enqueued by every write, which kept
+    the 2026-09-29 production failure younger than the outbox freshness threshold."""
+    lines = health.overdue_rows(status_body)
+    assert not lines, (
+        "graph sync outbox rows are still failing after their retry came due:\n  " + "\n  ".join(lines)
+        + "\nRead the error: the row clears only when its next attempt succeeds."
+    )
+
+
+def test_no_kinds_latest_run_failed(status_body):
+    lines = health.overdue_runs(status_body)
+    assert not lines, (
+        "the latest graph sync run of these kinds failed, and nothing of that kind has succeeded since:\n  "
+        + "\n  ".join(lines)
+        + "\nIt clears when a run of that kind succeeds: the loop's retry, the schedule, or a hand "
+          "`manage.py graph_sync --<kind>`."
+    )
+
+
+def test_the_latest_drift_check_found_no_drift(status_body):
+    lines = health.drift_found(status_body)
+    assert not lines, (
+        "\n".join(lines)
+        + "\nThe drift check reports and never repairs. After the fix, `manage.py graph_sync --drift` in the app "
+          "container records a new run."
+    )
+
+
+def test_failures_inside_their_retry_window_are_reported(status_body):
+    """Reported, never failed: a row inside its back-off may yet succeed, and a rebuild that restarts Neo4j makes
+    exactly such rows."""
+    for line in health.within_grace(status_body):
+        warnings.warn(f"graph sync, not yet overdue: {line}", stacklevel=1)
 
 
 @pytest.fixture(scope="module")

@@ -94,6 +94,7 @@ it with "Server has gone away". Before this, the loop never recovered by itself:
 | `drift` | 02:30 daily | reported, not aged |
 | `full` | Sunday 03:00 | 8 days |
 | the outbox | continuously | the oldest pending row: 1 hour |
+| a failing outbox row, a failed full, reconcile, catalog or drift run | continuously | back-off plus 30 minutes from the first failure: 1 h 30 min, 6 h 30 min for a full sync |
 
 A missed slot runs once at the next pass, not once per slot missed: the run it performs reads everything that
 changed while the loop was down. A full sync satisfies a reconcile. The status endpoint reports those thresholds,
@@ -103,6 +104,9 @@ and the smoke suite fails a box that is outside them.
 
 Migration `0021_graph_sync_outbox_and_run` creates them. An instance that has not applied it still works: a hook
 logs its failure and returns, and the status endpoint answers 503 rather than 500.
+Migration `0023_graph_sync_outbox_failing_since` adds `failing_since`: the first failure since a row last succeeded,
+kept across later failures, re-enqueues and deferrals, cleared when its work succeeds. The status endpoint's
+`failing` part ages a row by it, because `enqueued_at` moves on every re-enqueue and `attempts` resets.
 
 **`graph_sync_outbox`**, one row per unit of work. `(kind, key)` is unique, so repeated hook writes coalesce and a
 scheduled slot is inserted once. A claim is a compare-and-set that counts an attempt; a lease that expires makes
