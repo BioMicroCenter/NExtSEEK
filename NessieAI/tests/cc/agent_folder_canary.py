@@ -90,3 +90,65 @@ def tree_bytes(root: Path) -> bytes:
                 with zipfile.ZipFile(io.BytesIO(data)) as zf:
                     chunks.extend(zf.read(member) for member in zf.namelist())
     return b"\n".join(chunks)
+
+
+# --- fakes for a full run_cc_turn (Task 5 onward) ---------------------------------------------------------
+
+import json  # noqa: E402
+
+TURN_FRAMES = [
+    json.dumps({"type": "system", "subtype": "init", "session_id": "sid-1", "model": "opus"}),
+    json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}}),
+    json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "done",
+                "total_cost_usd": 0.01, "session_id": "sid-1", "num_turns": 1, "duration_ms": 5}),
+]
+
+
+class FakeContainer:
+    """A docker container that records wait/stop/remove in ``calls``; the ``*_ok`` knobs make a call raise."""
+
+    def __init__(self, calls, *, wait_ok=True, stop_ok=True, remove_ok=True):
+        self.calls = calls
+        self.wait_ok, self.stop_ok, self.remove_ok = wait_ok, stop_ok, remove_ok
+
+    def attach_socket(self, params=None):
+        return object()
+
+    def logs(self, **kwargs):
+        return iter(())
+
+    def wait(self, timeout=None):
+        self.calls.append("wait")
+        if not self.wait_ok:
+            raise RuntimeError("wait failed")
+        return {"StatusCode": 0}
+
+    def stop(self, timeout=None):
+        self.calls.append("stop")
+        if not self.stop_ok:
+            raise RuntimeError("stop failed")
+
+    def remove(self, force=False):
+        self.calls.append("remove")
+        if not self.remove_ok:
+            raise RuntimeError("remove failed")
+
+
+class FakeAgent:
+    """Calls ``work()`` once on the first read (the agent writing its files), then returns ``frames``."""
+
+    def __init__(self, work=None, frames=None):
+        self._work = work
+        self._lines = list(TURN_FRAMES if frames is None else frames)
+
+    def send_stdin(self, _data):
+        return None
+
+    def close_stdin(self):
+        return None
+
+    def read_event_line(self):
+        if self._work is not None:
+            work, self._work = self._work, None
+            work()
+        return self._lines.pop(0) if self._lines else None

@@ -104,6 +104,9 @@ _MIN_CC_API_TIMEOUT_MS = 1000
 # for response headers) plus this much slack. Later, the request must be streaming an
 # answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
 _RETRY_WINDOW_SLACK_S = 5.0
+# Step 1: a turn that ended normally gets this long to exit by itself (Claude Code writes its transcript tail
+# before it exits) before it is stopped; nothing reads or writes its scratch until it is gone.
+_EXIT_GRACE_S = 5.0
 # The engine's monotonic clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
@@ -1116,6 +1119,34 @@ def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any
         return client.containers.run(**run_kwargs)
 
 
+def _stop_and_confirm_exit(container: Any, *, grace_s: float = _EXIT_GRACE_S) -> bool:
+    """Stop the agent, and say whether it is gone, before Django touches its folders.
+
+    Gives the container ``grace_s`` to exit by itself, then stops it, then force-removes it. "Gone" is Docker
+    saying it has exited, or no longer knowing it (``auto_remove`` may already have removed it). Anything else
+    is False, and the caller then publishes nothing: an agent that may still be running could change a file
+    between Django's check and its copy.
+    """
+    from docker.errors import NotFound
+
+    try:
+        container.wait(timeout=grace_s)
+        return True
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001 - a wait that timed out or failed falls through to the stop
+        pass
+    for step in (lambda: container.stop(timeout=2), lambda: container.remove(force=True)):
+        try:
+            step()
+            return True
+        except NotFound:
+            return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:
     """docker-py 7.1.0: Mount() has no subpath kwarg — patch VolumeOptions onto Mount dict subclass."""
     m = docker.types.Mount(target=target, source=source, type="volume", read_only=read_only)
@@ -1459,6 +1490,14 @@ def run_cc_turn(
             for event, data in translator.finalize():
                 terminal = (event, data)
 
+        # Step 1: the agent must be gone before Django reads or writes its scratch, so
+        # nothing it does can change a file between Django's check and its copy. The
+        # finally's stop stays for the paths that never get here.
+        agent_gone = _stop_and_confirm_exit(container)
+        if not agent_gone:
+            logger.error("cc: could not confirm the agent container exited (run_id=%s); "
+                         "this turn's files are not published", run_id)
+
         # G7-11 (Task 14): same-turn sidecar staging sweep. Mirrors upstream
         # ws.py:276-293 — sweep this user's ``.complete``-marked staging dirs
         # into their OWN ``{project}/{user}/scratch/nextseek-artifacts/`` subtree
@@ -1468,7 +1507,7 @@ def run_cc_turn(
         # limits the in-turn sweep to THIS turn's markers; older strays are left
         # for the ``cc_sweep_staging`` recovery entrypoint. Never fatal to the
         # turn (upstream _sweep_then_diff swallows sweep errors likewise).
-        if api_user:
+        if api_user and agent_gone:
             try:
                 from . import cc_staging
                 cc_staging.sweep_user_staging(
@@ -1489,22 +1528,26 @@ def run_cc_turn(
                 )
 
         # Post-turn publish: diff scratch, split deliverables from scratch/raw/.
-        try:
-            result = _publish_artifacts(
-                scratch_mount, output_mount,
-                turn_id=str(run_id),
-                output_logical_root=dirs.output_mnt, before=before,
-                # A stopped turn keeps its raw/ files in its own scratch only:
-                # output/raw/ is not per-turn (see _publish_artifacts).
-                include_raw=not timed_out,
-            )
-        except Exception:
-            if not timed_out:
-                raise
-            # A failed salvage must not replace the timeout the user is owed.
-            logger.exception("cc: publishing a timed-out turn's files failed "
-                             "(run_id=%s)", run_id)
-            result = {"artifacts": [], "raw": []}
+        if agent_gone:
+            try:
+                result = _publish_artifacts(
+                    scratch_mount, output_mount,
+                    turn_id=str(run_id),
+                    output_logical_root=dirs.output_mnt, before=before,
+                    # A stopped turn keeps its raw/ files in its own scratch only:
+                    # output/raw/ is not per-turn (see _publish_artifacts).
+                    include_raw=not timed_out,
+                )
+            except Exception:
+                if not timed_out:
+                    raise
+                # A failed salvage must not replace the timeout the user is owed.
+                logger.exception("cc: publishing a timed-out turn's files failed "
+                                 "(run_id=%s)", run_id)
+                result = {"artifacts": [], "raw": []}
+        else:
+            result = {"artifacts": [], "raw": [], "raw_zip": None,
+                      "files_created": [], "files_modified": []}
 
         if timed_out:
             # Always a query_error, never a query_complete: the user is told the turn
