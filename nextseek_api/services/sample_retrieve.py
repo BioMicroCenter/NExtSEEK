@@ -260,16 +260,18 @@ def _verified(candidates):
     return good, stale
 
 
-def _resolve_requested(uids, scope):
-    """({id: uuid} of these UIDs as this caller may see them, whether the graph answered)."""
+def _resolve_requested(uids, scope, use_graph=True):
+    """({id: uuid} of these UIDs as this caller may see them, whether the graph answered).
+
+    ``use_graph=False`` skips the graph (a retry after it already failed) and reports it as not answering."""
     if not scope.is_admin:
         # Everyone else: one scoped statement for every UID (numeric ids are UIDs by now).
         return _scoped_uuids_to_ids(uids, scope), True
     # A superuser sees everything, so how long a lookup takes reveals nothing: the graph's uuid index first,
     # verified against MySQL, and only what it misses by a full uuid scan.
-    graph_ok = True
+    graph_ok = use_graph
     try:
-        mapped = _graph_uuid_ids(uids) if uids else {}
+        mapped = _graph_uuid_ids(uids) if uids and use_graph else {}
     except GraphUnavailable:
         graph_ok, mapped = False, {}
     found, _ = _verified(mapped)
@@ -317,7 +319,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     other = {alt for uid in dict.fromkeys(typed) if uid.casefold() not in stored
              for alt in uid_spellings(uid)[1:] if alt.casefold() not in stored}
     if other:
-        more, ok = _resolve_requested(sorted(other), scope)
+        more, ok = _resolve_requested(sorted(other), scope, use_graph=graph_ok)
         graph_ok = graph_ok and ok
         requested.update(more)
         stored.update({u.casefold(): u for u in more.values()})

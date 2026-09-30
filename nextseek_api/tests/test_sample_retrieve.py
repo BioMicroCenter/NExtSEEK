@@ -386,6 +386,23 @@ def test_a_request_in_another_case_still_finds_the_pub_sample_and_counts_as_answ
     assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
 
 
+def test_a_superuser_retry_does_not_ask_a_dead_graph_again(seek, graph):
+    graph.down = True
+    resp = _post({"identifiers": ["TIS-NOPE"], "include_tree": False}, login=SUPER)
+    assert resp.status_code == 404
+    assert len([c for c in graph.calls if c[0] == "resolve"]) == 1
+
+
+def test_a_superuser_retry_skips_a_spelling_already_answered(seek, graph, monkeypatch):
+    _add(seek, 26, "TIS-4-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False}, login=SUPER)
+    assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+    assert len(scans) == 1
+
+
 def test_a_foreign_pub_sample_still_answers_404_to_a_member(seek, graph, monkeypatch):
     """The other spelling sits in a project the caller cannot see: same 404 as an unknown UID, and the retry stays
     one scoped statement, never the graph or a full scan (#74)."""
