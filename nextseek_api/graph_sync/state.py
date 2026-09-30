@@ -481,6 +481,15 @@ FAILED_RUN_STATUSES = ("failed", "abandoned")
 # The run kinds the loop reruns by itself (a row's back-off, or the next slot: the nightly reconcile runs a catalog
 # step). A hand --samples run or another tool's run kind has no retry, so it is never reported as a failed run.
 FAILED_RUN_KINDS = ("full", "reconcile", "catalog", "drift")
+
+# A full sync or reconcile its data refused (a SampleType title held under another id, a label collision, a sample
+# that cannot be projected) is a failed run too: the loop closes its row as done on exit 2, and every later run meets
+# the same data until someone fixes it. The two refusals that are not the data's fault are told apart by the reason
+# the run recorded, in the words run.py writes (state cannot import run or loop: both import state).
+DATA_REFUSAL_KINDS = ("full", "reconcile")
+LOCK_REFUSAL_TEXT = "graph-write lock was not acquired"      # run._lock_problem; loop.LOCK_REFUSAL
+VERSION_REFUSAL_TEXT = "the graph is at schema "            # run.catalog_sync, a graph below the writer's version
+
 _URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 _IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
 
@@ -533,15 +542,37 @@ def failing_rows(*, now: datetime | None = None, limit: int = FAILING_ROWS_SHOWN
     return {"rows": rows, "total": qs.count(), "overdue": qs.filter(overdue_q).count(), "limit": limit}
 
 
+def data_refusal(kind: str, run: Mapping) -> str | None:
+    """The reason a full sync or reconcile run (``run``, as ``last_runs`` gives it) was refused by the data it read:
+    its first recorded problem, or its ``catalog_error`` (a catalog that does not build records no problem). None
+    for any other run, and for a refusal that is not the data's fault: the graph-write lock, a graph below the
+    writer's schema version, or no recorded reason at all (a reconcile whose guard tripped or that met the lock after
+    its catalog step; a full sync refused for the lock or for want of a run directory)."""
+    if kind not in DATA_REFUSAL_KINDS or run.get("status") != "refused":
+        return None
+    counts = run.get("counts") if isinstance(run.get("counts"), dict) else {}
+    problems = counts.get("problems")
+    problems = [str(p) for p in problems if p] if isinstance(problems, list) else []
+    if any(LOCK_REFUSAL_TEXT in p or VERSION_REFUSAL_TEXT in p for p in problems):
+        return None
+    if problems:
+        return problems[0]
+    if counts.get("catalog_error"):
+        return f"the catalog does not build: {counts['catalog_error']}"
+    return None
+
+
 def failed_runs(runs: Mapping[str, dict], *, now: datetime | None = None) -> list[dict]:
     """Of ``runs`` (``last_runs``: the latest run of each kind), those of a kind in ``FAILED_RUN_KINDS`` that ended
-    ``failed`` or ``abandoned``, by kind. Aged from the run's end (its start when it has none); overdue past
-    ``failing_threshold_s`` of its kind, since the loop reruns that kind on the same back-off or at its next slot."""
+    ``failed`` or ``abandoned``, and a full sync or reconcile its data refused (``data_refusal``), by kind. Aged
+    from the run's end (its start when it has none); overdue past ``failing_threshold_s`` of its kind, since the
+    loop reruns that kind on the same back-off or at its next slot."""
     now = now or timezone.now()
     out = []
     for kind in sorted(runs):
         run = runs[kind]
-        if kind not in FAILED_RUN_KINDS or run.get("status") not in FAILED_RUN_STATUSES:
+        refusal = data_refusal(kind, run)
+        if kind not in FAILED_RUN_KINDS or (run.get("status") not in FAILED_RUN_STATUSES and refusal is None):
             continue
         ended = run.get("finished_at") or run.get("started_at")
         age = _age_s(now, datetime.fromisoformat(ended)) if ended else None
@@ -553,7 +584,7 @@ def failed_runs(runs: Mapping[str, dict], *, now: datetime | None = None) -> lis
             "trigger": None if trigger is None else str(trigger),
             "finished_at": run.get("finished_at"), "age_s": age, "threshold_s": threshold,
             "overdue": age is None or age > threshold,
-            "error": error_excerpt(counts.get("error")),
+            "error": error_excerpt(counts.get("error") if refusal is None else refusal),
         })
     return out
 

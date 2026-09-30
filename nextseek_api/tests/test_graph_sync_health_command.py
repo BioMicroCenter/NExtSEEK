@@ -155,3 +155,17 @@ def test_the_command_writes_nothing():
     writes = [q["sql"] for q in queries.captured_queries
               if q["sql"].lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))]
     assert writes == []
+
+
+@pytest.mark.django_db
+def test_a_nightly_its_data_refused_is_a_problem():
+    """A SampleType title held under another id stops every nightly until someone fixes the data (gap G7)."""
+    problem = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
+    state.start_run("reconcile", trigger="loop", now=LONG_AGO).finish(
+        "refused", counts={"status": "refused", "stopped_at": "catalog", "problems": [problem]}, now=LONG_AGO)
+
+    code, out = run_json()
+
+    assert code == command.EXIT_PROBLEMS
+    assert any(line.startswith("reconcile run ") and " refused (trigger loop" in line and line.endswith(problem)
+               for line in out["problems"])

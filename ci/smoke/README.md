@@ -235,7 +235,7 @@ It also fails when the sync is failing rather than late: an outbox row still fai
 retry (its back-off plus 30 minutes, 1 h 30 min, 6 h 30 min for a full sync, counted from its
 first failure since it last succeeded, so a key re-enqueued by every write cannot look young),
 a full, reconcile, catalog or drift kind whose latest run ended `failed` or `abandoned` past the
-same clock, or a latest drift run that found drift. Each prints the error excerpt the endpoint
+same clock (or a full sync or reconcile its data refused), or a latest drift run that found drift. Each prints the error excerpt the endpoint
 publishes. A failure still inside its retry window is a warning, not a failure. The judging
 lives in `nextseek_api/graph_sync/health.py`, standard library only, and is unit-tested without
 a box (`test_graph_sync_health_unit.py`). A body without the `failing` and `failed_runs` parts

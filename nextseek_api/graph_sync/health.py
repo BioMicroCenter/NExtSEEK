@@ -9,8 +9,8 @@ Each function takes the decoded body of GET /nextseek_api/admin/graph-sync/statu
 lines, one per problem; an empty list means healthy. What counts is decided by the endpoint (``state.py``): a failing
 row is an open outbox row that has failed since it last succeeded and that no worker is retrying; it is overdue once
 it has been failing longer than its back-off plus 30 minutes, when its retry has come due and failed too. A failed run
-is the latest full, reconcile, catalog or drift run when it ended failed or abandoned, overdue on the same clock.
-Drift is the latest drift run's own verdict.
+is the latest full, reconcile, catalog or drift run when it ended failed or abandoned, or a full sync or reconcile
+its data refused, overdue on the same clock. Drift is the latest drift run's own verdict.
 """
 from __future__ import annotations
 

@@ -286,7 +286,7 @@ included, once the app container is up (`startup/steps/validate.py` `check_graph
 the two graph_sync tables through Django, the same body the superuser status endpoint answers, and judges it with
 `nextseek_api/graph_sync/health.py`: a stale full sync, reconcile or outbox; dead outbox rows; rows still failing
 past their retry (the back-off plus 30 minutes); a latest full, reconcile, catalog or drift run that failed or was
-abandoned; a latest drift run that found drift. It needs no login, so it runs where the smoke suite holds no
+abandoned (or a full sync or reconcile its data refused); a latest drift run that found drift. It needs no login, so it runs where the smoke suite holds no
 superuser rights.
 
 A red line fails `rebuild` at the end, after the suite, and fails `ci` after the suite even when the suite passed.

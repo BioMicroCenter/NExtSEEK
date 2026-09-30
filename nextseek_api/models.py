@@ -3099,11 +3099,14 @@ class GraphSyncFailing(BaseModel):
 
 
 class GraphSyncFailedRun(BaseModel):
-    """A full, reconcile, catalog or drift kind whose latest run ended failed or abandoned."""
+    """A full, reconcile, catalog or drift kind whose latest run ended failed or abandoned, or a full sync or
+    reconcile its data refused."""
 
     id: int = Field(..., description="graph_sync_run row id")
     kind: str = Field(..., description="full, reconcile, catalog or drift")
-    status: str = Field(..., description="failed or abandoned")
+    status: str = Field(
+        ..., description="failed or abandoned; refused for a full sync or reconcile that its data refused"
+    )
     trigger: Optional[str] = Field(None, description="What started the run: the command, the loop")
     finished_at: Optional[str] = Field(None, description="ISO 8601")
     age_s: Optional[float] = Field(None, description="Seconds since the run ended (its start when it has no end)")
@@ -3129,7 +3132,9 @@ class GraphSyncStatusResponse(BaseModel):
         ..., description="Outbox rows that have failed and are not being retried right now; overdue past their retry"
     )
     failed_runs: List[GraphSyncFailedRun] = Field(
-        ..., description="The full, reconcile, catalog and drift kinds whose latest run ended failed or abandoned"
+        ...,
+        description="The full, reconcile, catalog and drift kinds whose latest run ended failed or abandoned, "
+        "and a full sync or reconcile its data refused",
     )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)

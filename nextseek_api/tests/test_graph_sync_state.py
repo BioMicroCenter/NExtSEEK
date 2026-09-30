@@ -5,13 +5,14 @@ test depends on the clock. The MySQL half of the lock is checked on a stub conne
 """
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 import pytest
 from django.db import DatabaseError, connection, transaction
 from django.test.utils import CaptureQueriesContext
 
-from nextseek_api.graph_sync import state
+from nextseek_api.graph_sync import loop as sync_loop, run as sync_run, state, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 
 T0 = datetime(2026, 9, 15, 2, 0, tzinfo=dt_timezone.utc)
@@ -1133,3 +1134,67 @@ def test_a_requeued_row_that_fails_again_starts_a_new_failure_time():
     state.finish_failed(state.claim_next("w1", now=now), LOST, 3600, now=now + timedelta(seconds=1))
 
     assert row("catalog", "*").failing_since == now + timedelta(seconds=1)
+
+
+# --- a full sync or reconcile its data refused is a failed run (PLAN-ci-health Task 7b) ------------
+
+TITLE_CONFLICT = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
+
+
+def refused(kind: str, counts: dict | None = None, *, when: datetime = T0) -> state.RunHandle:
+    handle = state.start_run(kind, trigger="loop", now=when)
+    handle.finish("refused", counts=counts, now=when)
+    return handle
+
+
+@pytest.mark.django_db
+def test_a_reconcile_its_data_refused_is_a_failed_run_named_by_its_first_problem():
+    handle = refused("reconcile", {"status": "refused", "stopped_at": "catalog", "problems": [TITLE_CONFLICT]})
+
+    assert state.failed_runs(state.last_runs(), now=at(minutes=91)) == [{
+        "id": handle.id, "kind": "reconcile", "status": "refused", "trigger": "loop",
+        "finished_at": T0.isoformat(), "age_s": 5460.0, "threshold_s": 5400, "overdue": True,
+        "error": TITLE_CONFLICT,
+    }]
+
+
+@pytest.mark.django_db
+def test_a_full_sync_whose_catalog_does_not_build_is_a_failed_run():
+    """run._build_or_refuse records catalog_error and no problems."""
+    refused("full", {"status": "refused", "catalog_error": "label collision: T_A_B"})
+
+    (failed,) = state.failed_runs(state.last_runs(), now=at(hours=7))
+
+    assert (failed["kind"], failed["status"], failed["overdue"]) == ("full", "refused", True)
+    assert failed["error"] == "the catalog does not build: label collision: T_A_B"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("kind, counts", [
+    ("reconcile", {"status": "lock_timeout", "stopped_at": "catalog", "problems": [sync_run._lock_problem(600)]}),
+    ("reconcile", {"status": "refused", "stopped_at": "catalog", "problems": [
+        f"the graph is at schema '1.1', not {writer.SCHEMA_VERSION!r}; run a full sync first, which brings it there"]}),
+    ("reconcile", {"status": "not_at_version", "schema_version": "1.1"}),
+    ("reconcile", {"status": "guard_tripped"}),
+    ("full", {"status": "refused"}),                            # the lock, or no run directory: nothing recorded
+    ("catalog", {"status": "refused", "problems": [TITLE_CONFLICT]}),   # its drain row fails instead (loop._refused)
+], ids=["lock", "version", "not at version", "guard", "full, no reason", "catalog kind"])
+def test_a_refusal_that_is_not_the_datas_fault_is_not_a_failed_run(kind, counts):
+    refused(kind, counts)
+
+    assert state.failed_runs(state.last_runs(), now=at(days=1)) == []
+
+
+@pytest.mark.django_db
+def test_a_later_successful_run_clears_a_data_refusal():
+    refused("reconcile", {"status": "refused", "problems": [TITLE_CONFLICT]})
+    state.start_run("reconcile", trigger="command", now=at(hours=3)).finish("ok", now=at(hours=3))
+
+    assert state.failed_runs(state.last_runs(), now=at(hours=4)) == []
+
+
+def test_the_refusal_texts_are_the_ones_the_sync_writes():
+    """state cannot import loop or run (both import state), so it keeps the two texts; these pin them."""
+    assert state.LOCK_REFUSAL_TEXT == sync_loop.LOCK_REFUSAL
+    assert state.LOCK_REFUSAL_TEXT in sync_run._lock_problem(600)
+    assert state.VERSION_REFUSAL_TEXT in inspect.getsource(sync_run.catalog_sync)
