@@ -1097,6 +1097,34 @@ def test_a_type_name_only_applies_a_keyword_when_the_query_constrained_that_type
     assert 'keyword "methylation"' in scope.not_applied
 
 
+@pytest.mark.parametrize("keyword, code, question", [
+    ("spectroscopy", "D.XRS", "What spectroscopy data do we hold?"),
+    ("flow cytometry", "D.FCS", "How many flow cytometry files are there?"),
+])
+def test_a_keyword_inside_a_longer_type_name_is_not_applied_by_that_type(keyword, code, question):
+    """REVIEW-NS N5: D.SPC is "Spectroscopy Data", D.XRS is "X-Ray Spectroscopy Data": the keyword names the first."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=[keyword]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": f"MATCH (s:T_{code.replace('.', '_')}) RETURN count(s) AS n", "parameters": {}},
+        user_query=question,
+        type_names={"D.SPC": "Spectroscopy Data", "D.XRS": "X-Ray Spectroscopy Data",
+                    "D.FLOW": "Flow Cytometry Data", "D.FCS": "Flow Cytometry Compensation File Data"},
+    )
+    assert f'keyword "{keyword}"' in scope.not_applied
+
+
+def test_a_keyword_equal_to_a_type_name_without_its_generic_words_is_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["GPT"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_GPT) RETURN count(s) AS n", "parameters": {}},
+        user_query="How many GPT results are there?",
+        type_names={"D.GPT": "GPT Assay Data"},
+    )
+    assert 'keyword "GPT"' in scope.applied
+
+
 def test_a_tag_of_a_type_is_not_its_name():
     """B13: "CC" is a Tag of MUS, not a word of its name. The query counted every mouse."""
     scope = describe_query_scope(

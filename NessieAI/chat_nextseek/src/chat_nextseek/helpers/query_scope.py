@@ -683,13 +683,14 @@ def _same_catalog_row(value: str, titles: list[str], aliases: list[set[str]] | N
 def _names_an_applied_type(keyword: str, haystack: str, type_names: dict[str, str] | None) -> bool:
     """The keyword is what a sample type the query constrained is called: "methylation" and ``:T_A_MET``
     (dev run 2026-09-29, task 1413). Every word of the keyword (three or more characters, generic last words
-    dropped) must be a word of that type's catalog NAME, never of its Tags: "CC" is a Tag of MUS (B13)."""
+    dropped) must EQUAL the words of that type's catalog NAME (its generic last words dropped too), not be part of them:
+    "spectroscopy" is not "X-Ray Spectroscopy Data". Never its Tags: "CC" is a Tag of MUS (B13)."""
     wanted = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", keyword) if len(w) >= 3} - _GENERIC_LAST_WORDS
     if not wanted:
         return False
     for code, name in (type_names or {}).items():
         words = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", str(name or "")) if len(w) >= 3}
-        if wanted <= words and _type_is_applied(code, haystack):
+        if wanted == words - _GENERIC_LAST_WORDS and _type_is_applied(code, haystack):
             return True
     return False
 

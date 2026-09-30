@@ -280,6 +280,27 @@ def test_a_word_inside_a_read_property_name_counts_as_applied():
     assert _review("r6-1225").verdict == "suggest"
 
 
+def _plain(question, cypher, catalog, rows=None):
+    inp = ReviewInput(question=question, cypher=cypher, parameters={}, keyword_fields={}, rows=rows or [{"n": 5}],
+                      count=1, total=1, ok=True, error=None)
+    return review_tier1(inp, DictCatalog(catalog))
+
+
+def test_a_property_name_word_never_hides_the_attribute_that_stores_the_named_value():
+    """REVIEW-NS N3: reading DiseaseStage must not remove the attribute Disease from the search, nor OrganDetail
+    the attribute Organ."""
+    pat = {"T_PAT.*": [["Disease", 3], ["DiseaseStage", 3]], "T_PAT.@name": [["Patient", 100]],
+           "T_PAT.Disease": [["Tuberculosis", 40], ["Asthma", 12]], "T_PAT.DiseaseStage": [["Stage 1", 9]]}
+    rv = _plain("How many Tuberculosis patients have a disease stage recorded?",
+                "MATCH (p:T_PAT) WHERE p.DiseaseStage IS NOT NULL RETURN count(p) AS n", pat)
+    assert rv.verdict == "suggest" and "Tuberculosis" in rv.disclosure
+    tis = {"T_TIS.*": [["Organ", 3], ["OrganDetail", 3]], "T_TIS.@name": [["Tissue Sample", 100]],
+           "T_TIS.Organ": [["Lung", 40], ["Liver", 12]], "T_TIS.OrganDetail": [["lower lobe", 9]]}
+    rv = _plain("How many Lung tissues come from the lower lobe?",
+                "MATCH (s:T_TIS) WHERE toLower(s.OrganDetail) CONTAINS 'lower' RETURN count(s) AS n", tis)
+    assert rv.verdict == "suggest" and "Lung" in rv.disclosure
+
+
 def test_the_narrowed_search_names_no_type_when_the_catalog_has_none():
     r = _rec("r6-1225")
     block = {k: v for k, v in r["catalog"].items() if not k.endswith(".@name")}
