@@ -9,7 +9,9 @@ present, carries a few examples. Each name starts with the gate G check it belon
    undeclared pair between two Sample nodes fails; one touching an OrphanSample is only counted. A declared pair
    carried by two edges fails too.
 2. ``scope``: per project, the Samples whose ``project_ids`` hold it equal the distinct ``projects_samples``
-   count; every Sample carries ``project_ids``; for the random samples, ``project_ids`` equals the MySQL list.
+   count; every Sample carries ``project_ids``; for the random samples, ``project_ids`` equals the MySQL list; and
+   per project the Samples with an IN_PROJECT to it are those whose ``project_ids`` hold it, with no IN_PROJECT
+   outside a sample's ``project_ids`` (``in_project_edges_differ``, ``in_project_edges_extra``).
 3. ``catalog``: every property key on a ``T_X`` node, system keys excluded, is the title of an Attribute on
    SampleType X: over the random samples, and in one aggregate per type label.
 4. ``samples``: the Sample count and the OF_TYPE count equal MySQL's sample count; every Sample has exactly one
@@ -44,6 +46,9 @@ present, carries a few examples. Each name starts with the gate G check it belon
     sample's links to studies of its paper's own investigation, and samples SEEK places in no study, excepted).
     Always reported: the switch, id collisions, SEEK-keyed nodes SEEK lacks, samples kept with no SEEK study,
     OrphanSample links and paper samples with the links withheld from them.
+14. ``small``: the small tables follow SEEK: the Project nodes (id and title), the Investigation nodes (id, title and
+    their projects through IN_PROJECT) and every MEMBER_OF (person, project, has_left). An Investigation node SEEK
+    lacks fails, unless a Study still holds it (``investigations_not_in_seek_held``, reported).
 
 Every MySQL side joins ``samples`` and counts distinct sample ids: SEEK's link tables hold rows for samples that are
 gone and rows repeated (``projects_samples``, ``assay_assets``), which would otherwise read as drift. A check whose
@@ -869,6 +874,54 @@ def _check_studies(driver, db, checks: list, stats: dict) -> None:
                         "paper_investigation_unknown": unknown}
 
 
+# --- family 14: the small tables, and check 2's IN_PROJECT edges ----------------------------------------------------
+
+def _check_in_project_edges(driver, db, checks: list, stats: dict) -> None:
+    """Check 2 on the edges: per project, the Samples linked to it by IN_PROJECT equal the distinct ``projects_samples``
+    count check 2 already compared with the ``project_ids`` property (``stats["projects"]``); and no IN_PROJECT links a
+    Sample to a project its ``project_ids`` does not name. A property right and an edge dropped (a Project node
+    missing when the sample was written) read as current everywhere else."""
+    mysql = {int(p): counts["mysql"] for p, counts in (stats.get("projects") or {}).items()}
+    graph = {r["id"]: int(r["n"]) for r in _records(_read(driver, db, q.IN_PROJECT_DEGREES)) if _is_id(r["id"])}
+    differ = [{"project_id": p, "mysql": mysql.get(p, 0), "graph": graph.get(p, 0)}
+              for p in sorted(set(mysql) | set(graph)) if mysql.get(p, 0) != graph.get(p, 0)]
+    _check(checks, "2.scope.in_project_edges_differ", 0, len(differ), detail=differ[:EXAMPLES])
+    _check(checks, "2.scope.in_project_edges_extra", 0, _one(_read(driver, db, q.IN_PROJECT_EXTRA), "n"))
+
+
+def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
+    """Family 14: the Project, Investigation, Person and MEMBER_OF nodes and edges equal SEEK's tables. Every check
+    expects 0 and lists up to ``EXAMPLES``. An Investigation SEEK lacks that a Study still holds is kept by the small
+    tables (a Study node is not deleted in this release) and reported apart."""
+    seek_projects = {int(p["id"]): p.get("title") for p in sources.projects()}
+    graph_projects = {r["id"]: r["title"] for r in _records(_read(driver, db, q.GRAPH_PROJECTS)) if _is_id(r["id"])}
+    projects_differ = [p for p in sorted(set(seek_projects) | set(graph_projects))
+                       if p not in seek_projects or p not in graph_projects or seek_projects[p] != graph_projects[p]]
+    links: dict[int, set] = {}
+    for row in sources.investigation_projects():
+        links.setdefault(int(row["investigation_id"]), set()).add(int(row["project_id"]))
+    seek_invs = {int(i["id"]): (i.get("title"), sorted(links.get(int(i["id"]), ()))) for i in sources.investigations()}
+    graph_rows = [r for r in _records(_read(driver, db, q.GRAPH_INVESTIGATIONS)) if _is_id(r["id"])]
+    graph_invs = {r["id"]: (r["title"], sorted(r["project_ids"] or [])) for r in graph_rows}
+    invs_differ = [i for i in sorted(seek_invs) if graph_invs.get(i) != seek_invs[i]]
+    gone = [r["id"] for r in graph_rows if r["id"] not in seek_invs and not r["held"]]
+    held = [r["id"] for r in graph_rows if r["id"] not in seek_invs and r["held"]]
+    seek_members = {(int(m["person_id"]), int(m["project_id"])): bool(m["has_left"]) for m in sources.memberships()}
+    graph_members = {(r["person_id"], r["project_id"]): bool(r["has_left"])
+                     for r in _records(_read(driver, db, q.GRAPH_MEMBER_OF))}
+    members_differ = sorted((pair for pair in set(seek_members) | set(graph_members)
+                             if seek_members.get(pair) != graph_members.get(pair)),
+                            key=lambda pair: tuple(_sort_key(v) for v in pair))
+    _check(checks, "14.small.projects_differ", 0, len(projects_differ), detail=projects_differ[:EXAMPLES])
+    _check(checks, "14.small.investigations_differ", 0, len(invs_differ), detail=invs_differ[:EXAMPLES])
+    _check(checks, "14.small.investigations_not_in_seek", 0, len(gone), detail=gone[:EXAMPLES])
+    _check(checks, "14.small.investigations_not_in_seek_held", "any", len(held), passed=True, detail=held[:EXAMPLES])
+    _check(checks, "14.small.member_of_differs", 0, len(members_differ),
+           detail=[list(m) for m in members_differ[:EXAMPLES]])
+    stats["small"] = {"projects": len(seek_projects), "investigations": len(seek_invs),
+                      "memberships": len(seek_members), "investigations_not_in_seek_held": len(held)}
+
+
 # --- the gate ------------------------------------------------------------------------------------
 
 def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = None, accounts=GATE_ACCOUNTS,
@@ -910,6 +963,7 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
 
     _timed(timings, "1.lineage", _check_lineage, driver, db, mysql, checks, stats)
     _timed(timings, "2.scope", _check_scope, mysql, groups, sampled, checks, stats)
+    _timed(timings, "2.scope_edges", _check_in_project_edges, driver, db, checks, stats)
     _timed(timings, "3.catalog", _check_catalog, driver, db, graph_catalog, audit, sampled, checks, stats)
     _timed(timings, "4.samples", _check_samples, driver, db, mysql, audit, checks)
     _timed(timings, "5.attributes", _check_attributes, driver, db, checks, stats)
@@ -921,4 +975,5 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
     _timed(timings, "10.samples", _check_type_labels, driver, db, checks)
     _timed(timings, "11.samples", _check_parent_lists, mysql, sampled, checks, stats)
     _timed(timings, "12.studies", _check_studies, driver, db, checks, stats)
+    _timed(timings, "14.small", _check_small_tables, driver, db, checks, stats)
     return {"checks": checks, "pass": all(c["pass"] for c in checks), "stats": stats}

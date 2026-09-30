@@ -144,6 +144,8 @@ def world(monkeypatch):
         "studies": lambda: [],
         "investigations": lambda: [],
         "iter_seek_study_links": lambda: iter(()),
+        "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
+        "investigation_projects": lambda: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -179,6 +181,11 @@ class GateWorld:
         self.types_listed = sorted(verify.EXPECTED_RELATIONSHIP_TYPES)
         self.carried = set(self.labels_listed) | set(self.types_listed)
         self.t_labelled = []   # nodes carrying a T_ label but not :Sample, as {"id", "labels"}
+        # Family 14 and check 2's edges: the small tables as a correct sync writes them for the world.
+        self.projects = [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}]
+        self.investigations = []          # {"id", "title", "project_ids", "held"}
+        self.members = [{"person_id": 1, "project_id": 2, "has_left": False}]
+        self.in_project_extra = 0
         self.catalog = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]},
                         {"id": 33, "title": "D.SEQ", "label": "T_D_SEQ", "titles": ["Parent", "Protocol"]}]
 
@@ -233,6 +240,17 @@ class GateWorld:
             return self.t_labelled[:params["limit"]]
         if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
             return []
+        if query == q.IN_PROJECT_DEGREES:
+            degrees = Counter(p for n in nodes.values() for p in set(n["props"]["project_ids"]))
+            return [{"id": p["id"], "n": degrees.get(p["id"], 0)} for p in self.projects]
+        if query == q.IN_PROJECT_EXTRA:
+            return [{"n": self.in_project_extra}]
+        if query == q.GRAPH_PROJECTS:
+            return [dict(p) for p in self.projects]
+        if query == q.GRAPH_INVESTIGATIONS:
+            return [dict(i) for i in self.investigations]
+        if query == q.GRAPH_MEMBER_OF:
+            return [dict(m) for m in self.members]
         if query == q.ORPHAN_IN_STUDY:
             return [{"n": 0}]
         raise AssertionError(f"unexpected statement: {query}")
@@ -256,7 +274,7 @@ def test_gate_g_passes_with_checks_9_to_11_on_the_graph_a_correct_1_2_sync_write
     result = _gate(GateWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)} | {"14"}
     for name in ("9.lineage.labels", "10.samples.no_t_label_without_sample", "11.samples.parent_lists"):
         check = _named(result, name)
         assert (check["expected"], check["actual"], check["pass"]) == (0, 0, True)
@@ -729,3 +747,69 @@ def test_a_paper_samples_missing_link_to_another_investigations_study_counts(see
     assert after["12.studies.in_study_missing"]["pass"] is True
     paper = after["12.studies.paper_samples"]
     assert (paper["actual"], paper["detail"]["withheld_links"]) == (1, 1)
+
+
+# --- family 14: the small tables, and check 2's IN_PROJECT edges ----------------------------------------------------
+
+def test_the_small_tables_and_the_in_project_edges_pass_on_a_correct_sync(world):
+    result = _gate(GateWorld(_graph_nodes()))
+    for name in ("2.scope.in_project_edges_differ", "2.scope.in_project_edges_extra", "14.small.projects_differ",
+                 "14.small.investigations_differ", "14.small.investigations_not_in_seek",
+                 "14.small.member_of_differs"):
+        check = _named(result, name)
+        assert (check["actual"], check["pass"]) == (0, True), name
+
+
+def test_a_dropped_or_a_stray_in_project_edge_fails_check_2(world):
+    graph = GateWorld(_graph_nodes())
+    graph.projects.append({"id": 5, "title": "Elm"})                  # a node no sample reaches: 0 on both sides
+    graph.nodes[13]["props"] = dict(graph.nodes[13]["props"], project_ids=[16])
+    real = graph.__call__
+
+    def dropped(query, params):
+        if query == q.IN_PROJECT_DEGREES:
+            return [{"id": 2, "n": 2}, {"id": 16, "n": 1}, {"id": 5, "n": 0}]       # 16 lost an edge
+        return real(query, params)
+
+    graph.in_project_extra = 1
+    result = verify.gate_g(FakeDriver(dropped), "neo4j", sample_size=10, seed=7, accounts=())
+    differ = _named(result, "2.scope.in_project_edges_differ")
+    assert (differ["actual"], differ["pass"], differ["detail"]) == (1, False, [{"project_id": 16, "mysql": 2,
+                                                                                "graph": 1}])
+    assert _named(result, "2.scope.in_project_edges_extra")["pass"] is False
+
+
+@pytest.mark.parametrize("change, name", [
+    (lambda g: g.projects.pop(), "14.small.projects_differ"),                                     # a node missing
+    (lambda g: g.projects[0].update(title="Local (old)"), "14.small.projects_differ"),           # a changed title
+    (lambda g: g.investigations.append({"id": 7, "title": "Gone", "project_ids": [], "held": False}),
+     "14.small.investigations_not_in_seek"),
+    (lambda g: g.members.append({"person_id": 9, "project_id": 16, "has_left": False}), "14.small.member_of_differs"),
+    (lambda g: g.members[0].update(has_left=True), "14.small.member_of_differs"),
+], ids=["project missing", "project title", "investigation seek lacks", "stray membership", "has_left differs"])
+def test_family_14_fails_what_differs_from_seek(world, change, name):
+    graph = GateWorld(_graph_nodes())
+    change(graph)
+    check = _named(_gate(graph), name)
+    assert (check["actual"], check["pass"]) == (1, False)
+
+
+def test_an_investigation_seek_lacks_that_a_study_holds_is_reported_not_failed(world):
+    graph = GateWorld(_graph_nodes())
+    graph.investigations.append({"id": 7, "title": "A paper's", "project_ids": [], "held": True})
+    result = _gate(graph)
+    assert _named(result, "14.small.investigations_not_in_seek")["pass"] is True
+    held = _named(result, "14.small.investigations_not_in_seek_held")
+    assert (held["actual"], held["pass"], held["detail"]) == (1, True, [7])
+
+
+def test_an_investigation_whose_project_links_differ_fails(world, monkeypatch):
+    monkeypatch.setattr(sources, "investigations", lambda: [{"id": 3, "title": "TCGA", "description": None}])
+    monkeypatch.setattr(sources, "investigation_projects", lambda: [{"investigation_id": 3, "project_id": 16},
+                                                                    {"investigation_id": 3, "project_id": 16}])
+    graph = GateWorld(_graph_nodes())
+    graph.investigations.append({"id": 3, "title": "TCGA", "project_ids": [16], "held": False})
+    assert _named(_gate(graph), "14.small.investigations_differ")["pass"] is True     # a repeated MySQL row counts once
+    graph.investigations[0]["project_ids"] = []
+    check = _named(_gate(graph), "14.small.investigations_differ")
+    assert (check["actual"], check["detail"]) == (1, [3])

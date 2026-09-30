@@ -564,6 +564,18 @@ class GraphWorld:
             return [{"names": sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})}]
         if query == verify.RELATIONSHIP_TYPES_LISTED:
             return [{"names": sorted(verify.EXPECTED_RELATIONSHIP_TYPES)}]
+        if query == q.IN_PROJECT_DEGREES:
+            degrees = Counter(p for n in self.nodes.values() for p in set(n["props"]["project_ids"]))
+            return [{"id": p, "n": degrees.get(p, 0)} for p in (2, 16)]
+        if query == q.IN_PROJECT_EXTRA:
+            return [{"n": 0}]
+        if query == q.GRAPH_PROJECTS:
+            return [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}]
+        if query == q.GRAPH_INVESTIGATIONS:
+            return [{"id": 3, "title": "TCGA", "project_ids": [16], "held": False}]
+        if query == q.GRAPH_MEMBER_OF:
+            return [{"person_id": m["person_id"], "project_id": m["project_id"], "has_left": m["has_left"]}
+                    for m in MEMBERSHIPS]
         if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
             return []
         if query == q.ORPHAN_IN_STUDY:
@@ -597,7 +609,7 @@ def test_gate_g_passes_on_the_graph_a_correct_sync_writes(world, mysql_scope):
     result = _gate(GraphWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)} | {"14"}
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
     assert result["stats"]["seed"] == 7 and result["stats"]["sampled_ids"] == [10, 11, 12]
     assert result["stats"]["metadata_hash_mysql"] == result["stats"]["metadata_hash_graph"]

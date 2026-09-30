@@ -661,6 +661,25 @@ MERGE (s)-[:IN_STUDY]->(st)
 RETURN count(*) AS restored
 """
 
+# --- gate G's reads of the small tables (family 14) and of IN_PROJECT (check 2) ------------------------------------
+
+GRAPH_PROJECTS = "MATCH (p:Project) RETURN p.id AS id, p.title AS title"
+GRAPH_INVESTIGATIONS = """
+MATCH (i:Investigation)
+RETURN i.id AS id, i.title AS title, [(i)-[:IN_PROJECT]->(p:Project) | p.id] AS project_ids,
+       EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) } AS held
+"""
+GRAPH_MEMBER_OF = """
+MATCH (pe:Person)-[m:MEMBER_OF]->(p:Project)
+RETURN pe.id AS person_id, p.id AS project_id, m.has_left AS has_left
+"""
+# Per Project, the Samples linked to it by IN_PROJECT; and the IN_PROJECT edges a Sample's project_ids do not name.
+IN_PROJECT_DEGREES = "MATCH (p:Project) RETURN p.id AS id, COUNT { (p)<-[:IN_PROJECT]-(:Sample) } AS n"
+IN_PROJECT_EXTRA = """
+MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE NOT p.id IN coalesce(s.project_ids, [])
+RETURN count(*) AS n
+"""
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.
