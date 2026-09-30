@@ -602,9 +602,9 @@ def test_ambiguous_primary_data_reaches_the_reply_through_the_full_dispatch(
     assert gex_a in result["reply"]
     assert gex_b in result["reply"]
     # The envelope shape (Global Constraints: build-upload-xlsx never writes
-    # to NExtSEEK) must stay exactly these four keys -- `ambiguous_primary`
+    # to NExtSEEK) must stay exactly these keys -- `ambiguous_primary`
     # is a local that feeds the reply text, never a key of its own.
-    assert set(result) == {"saved_files", "qa", "reply", "proposals"}
+    assert set(result) == {"saved_files", "qa", "reply", "proposals", "answers_deferred"}
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")
@@ -806,7 +806,8 @@ def test_provenance_sheet_is_written_when_an_attribute_has_a_non_map_origin(rows
     assert "Provenance" in wb.sheetnames
     sheet = wb["Provenance"]
     header = [c.value for c in sheet[1]]
-    assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file"]
+    assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file",
+                      "Answered by"]
     rows_by_attr = {r[1].value: r for r in sheet.iter_rows(min_row=2)}
     assert rows_by_attr["MappedPercent"][3].value == "map"
     assert rows_by_attr["rRNAPercent"][3].value == "parked"

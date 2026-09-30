@@ -26,7 +26,7 @@ def test_provenance_sheet_has_one_row_per_entry(tmp_path):
     sheet = openpyxl.load_workbook(_render(tmp_path))["Provenance"]
     assert sheet.max_row == len(PROV) + 1
     assert [c.value for c in sheet[1]] == [
-        "UID", "Attribute", "Value", "Origin", "Raw key", "Source file"]
+        "UID", "Attribute", "Value", "Origin", "Raw key", "Source file", "Answered by"]
 
 
 def test_an_unapproved_cell_is_visibly_marked_in_the_sheet(tmp_path):

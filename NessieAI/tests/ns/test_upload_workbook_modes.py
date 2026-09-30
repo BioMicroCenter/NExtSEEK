@@ -99,7 +99,8 @@ def test_provenance_sheet_has_the_expected_header_row(tmp_path):
     render_upload_workbook("D.SEQ", UPD_ROWS, str(out), mode=MODE_UPDATE,
                            provenance=PROVENANCE_ROWS)
     header = [c.value for c in openpyxl.load_workbook(out)["Provenance"][1]]
-    assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file"]
+    assert header == ["UID", "Attribute", "Value", "Origin", "Raw key", "Source file",
+                      "Answered by"]
 
 
 def test_field_type_declares_number_for_an_all_numeric_field(tmp_path):

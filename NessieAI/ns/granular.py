@@ -984,6 +984,8 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
     if args.get("manifest_id"):
         return _build_upload_xlsx_from_manifest(args, outputs_dir, session=session)
     if args.get("rows") is not None:
+        if args.get("answers"):
+            raise OpValidationError("answers need manifest_id; the legacy rows path takes none")
         return _build_upload_xlsx_from_rows(args, outputs_dir)
     raise OpValidationError("build-upload-xlsx needs either manifest_id or rows")
 
@@ -1119,8 +1121,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     """
     import datetime
     import re
+    from types import SimpleNamespace
 
     from NessieAI.ns.reingest import mapper, maps, proposals, report as user_report
+    from NessieAI.ns.reingest import answers as answers_mod
     from NessieAI.ns.reingest.notes import compose as compose_notes
     from NessieAI.ns.reingest.store import load_manifest
     from NessieAI.ns.reingest_qa import HARD, HARD_REJECT, Finding, NO_ATTRIBUTES_TO_WRITE, qa_rows
@@ -1143,6 +1147,11 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     mode = str(args.get("mode") or MODE_NEW)
     if mode not in (MODE_NEW, MODE_UPDATE):
         raise OpValidationError(f"mode must be {MODE_NEW!r} or {MODE_UPDATE!r}")
+    # Parsed before any lookup, so a malformed payload costs nothing.
+    try:
+        answers = answers_mod.parse_answers(args.get("answers"))
+    except answers_mod.AnswerRejected as exc:
+        raise OpValidationError(str(exc)) from exc
 
     # manifest_id is user-supplied (comes off the CC turn, not a value this
     # process minted), so an unknown-but-well-formed id must be a caller-visible
@@ -1166,39 +1175,38 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # stays a pure function of manifest + map (same shape as harvest.py's
     # `lookup_by_fastq`). It raises on an unreachable catalog by design: a
     # fabricated "1" is how two A.GEX rows end up sharing a Name.
+    approved = proposals.approved_rules(pipeline)
     result = mapper.apply(run_manifest, pipeline_map,
-                          approved_rules=proposals.approved_rules(pipeline),
+                          approved_rules=approved,
                           context={"user_full_name": full_name,
                                    "next_name_ordinal": next_name_ordinal_strict,
                                    "lab_code_from_uid": lab_code_from_uid,
                                    "lab_for_code": lab_for_code_strict})
 
+    # An entirely empty catalog is an outage signal (proposals.attribute_exists'
+    # own contract, right above), never an answer -- so this must raise here
+    # too, exactly like that function does, rather than quietly substituting a
+    # set derived from the very rows it is supposed to validate (which would
+    # make UNKNOWN_SAMPLETYPE unfireable for the whole duration of an outage).
+    # See NessieAI/ns/granular.py's legacy `_build_upload_xlsx_from_rows` (the
+    # `known = known_sample_types() or set(by_type)` line) for the one place
+    # in this module that still falls back on purpose, and why.
+    known = known_sample_types()
+    if not known:
+        raise RuntimeError(
+            "sample type catalog came back empty; treating this as an "
+            "outage rather than validating this reingest run's sample types "
+            "against an empty schema"
+        )
+    # Every d_seq_uid the manifest resolved is, by construction, a legitimate
+    # Parent target (mapper.py only ever sets Parent from one of these -- see
+    # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
+    # needs this cohort or every new-mode row's Parent would fail resolution
+    # against an empty set and hard-reject the whole batch.
+    existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
+
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
-    saved_files, qa, reports_by_type = {}, {}, {}
-    provenance_by_type: dict[str, list] = {}
-    rows_by_type: dict[str, list] = {}
-    needs_definition: list[dict] = []
-    # Surface 2 of the superuser surfaces: a File_PrimaryData the mapper
-    # picked among two or more same-basename candidates with no checksum to
-    # decisively break the tie (see mapper.py's `MappedAttribute.candidates`
-    # docstring). Collected here, not left in `result.rows`, so it can ride
-    # into `render_qa_for_user`'s reply the same way `needs_definition`
-    # already rides into `proposals` below -- reusing `result.unmapped`
-    # would have been wrong: that channel means "a raw metric key nobody
-    # claimed", a different fact from "an attribute WAS set, but the pick
-    # among ambiguous candidates was not forced by evidence".
-    #
-    # Keyed on (sample_type, attribute, tuple(candidates)) rather than
-    # appended as a flat list: a per_run output rule (e.g. a shared
-    # gene-counts matrix) sets the SAME ambiguous attribute, with the SAME
-    # candidate set, on every one of a run's sample rows, so a flat list
-    # would relay one near-identical entry per sample -- exactly the
-    # enumerate-instead-of-count failure report.py's own module docstring
-    # (rule 1) exists to prevent, and on a 20-sample run it is ~20 entries
-    # for one genuine ambiguity. A true per-sample rule's candidates differ
-    # by sample (the harvested path embeds the sample name), so those stay
-    # distinct entries here, each affecting exactly the samples that hit it.
-    ambiguous_primary_groups: dict[tuple, dict] = {}
+
     # (sample_type, attribute) -> bool, memoised so a 20-sample backfill does
     # not re-query the schema catalog once per sample for the same attribute.
     exists_cache: dict[tuple[str, str], bool] = {}
@@ -1249,153 +1257,212 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             )
         return assay_cache[key]
 
-    # rows carrying at least one parked value, so their Notes can be composed
-    # once existing Notes for their UIDs are known (below, after this loop).
-    dseq_parked: list[tuple[dict, dict, dict]] = []
+    notes_once: dict[str, dict | None] = {}
 
-    for row in result.rows:
-        want_update = row.sample_type == "D.SEQ"
-        if (mode == MODE_UPDATE) != want_update:
-            continue
+    def _assemble(mapped_rows) -> SimpleNamespace:
+        """One pass: row dicts, provenance, parked Notes and QA for this mode.
 
-        meta: dict = {}
-        provenance_entry: dict = {}
-        parked_values: dict = {}
-        parked_attrs: dict = {}
-        for name, attr in row.attributes.items():
-            origin = attr.origin
-            if (want_update and name != "Parent"
-                    and not _attribute_exists(row.sample_type, name)):
-                origin = mapper.ORIGIN_PARKED
-                parked_values[name] = attr.value
-                parked_attrs[name] = attr
-            else:
-                meta[name] = attr.value
-            provenance_entry[name] = {"origin": origin, "raw_key": attr.raw_key}
-            if attr.candidates:
-                group_key = (row.sample_type, name, tuple(attr.candidates))
-                group = ambiguous_primary_groups.setdefault(group_key, {
-                    "sample_type": row.sample_type, "attribute": name,
-                    "chosen": attr.source_file, "candidates": attr.candidates,
-                    "sample_count": 0,
-                })
-                group["sample_count"] += 1
+        Runs once without answers and, when answers are given, again after
+        they are applied. Existing Notes are fetched at most once across both
+        passes: a blip on a second fetch would turn a readable UID into a
+        spurious NOTES_WOULD_CLOBBER (see the comment on the fetch below).
+        """
+        # Surface 2 of the superuser surfaces: a File_PrimaryData the mapper
+        # picked among two or more same-basename candidates with no checksum to
+        # decisively break the tie (see mapper.py's `MappedAttribute.candidates`
+        # docstring). Collected here, not left in `result.rows`, so it can ride
+        # into `render_qa_for_user`'s reply the same way `needs_definition`
+        # already rides into `proposals` below -- reusing `result.unmapped`
+        # would have been wrong: that channel means "a raw metric key nobody
+        # claimed", a different fact from "an attribute WAS set, but the pick
+        # among ambiguous candidates was not forced by evidence".
+        #
+        # Keyed on (sample_type, attribute, tuple(candidates)) rather than
+        # appended as a flat list: a per_run output rule (e.g. a shared
+        # gene-counts matrix) sets the SAME ambiguous attribute, with the SAME
+        # candidate set, on every one of a run's sample rows, so a flat list
+        # would relay one near-identical entry per sample -- exactly the
+        # enumerate-instead-of-count failure report.py's own module docstring
+        # (rule 1) exists to prevent, and on a 20-sample run it is ~20 entries
+        # for one genuine ambiguity. A true per-sample rule's candidates differ
+        # by sample (the harvested path embeds the sample name), so those stay
+        # distinct entries here, each affecting exactly the samples that hit it.
+        ambiguous_primary_groups: dict[tuple, dict] = {}
+        provenance_by_type: dict[str, list] = {}
+        rows_by_type: dict[str, list] = {}
+        mapped_by_type: dict[str, list] = {}
+        needs_definition: list[dict] = []
+        # rows carrying at least one parked value, so their Notes can be composed
+        # once existing Notes for their UIDs are known (below, after this loop).
+        dseq_parked: list[tuple[dict, dict, dict]] = []
 
-        if row.uid:
-            meta["UID"] = row.uid
+        for row in mapped_rows:
+            want_update = row.sample_type == "D.SEQ"
+            if (mode == MODE_UPDATE) != want_update:
+                continue
 
-        row_dict = {"json_metadata": meta,
-                    "assay_ids": _assay_ids(row.sample_type, meta.get("Parent")),
-                    "provenance": provenance_entry}
-        rows_by_type.setdefault(row.sample_type, []).append(row_dict)
-        if parked_values:
-            dseq_parked.append((row_dict, parked_values, parked_attrs))
+            meta: dict = {}
+            provenance_entry: dict = {}
+            parked_values: dict = {}
+            parked_attrs: dict = {}
+            for name, attr in row.attributes.items():
+                origin = attr.origin
+                if (want_update and name != "Parent"
+                        and not _attribute_exists(row.sample_type, name)):
+                    origin = mapper.ORIGIN_PARKED
+                    parked_values[name] = attr.value
+                    parked_attrs[name] = attr
+                else:
+                    meta[name] = attr.value
+                provenance_entry[name] = {"origin": origin, "raw_key": attr.raw_key,
+                                          "answered_by": attr.answered_by}
+                if attr.candidates:
+                    group_key = (row.sample_type, name, tuple(attr.candidates))
+                    group = ambiguous_primary_groups.setdefault(group_key, {
+                        "sample_type": row.sample_type, "attribute": name,
+                        "chosen": attr.source_file, "candidates": attr.candidates,
+                        "sample_count": 0,
+                    })
+                    group["sample_count"] += 1
 
-        provenance_by_type.setdefault(row.sample_type, []).extend(
-            {"uid": row.uid or "", "attribute": a.attribute, "value": a.value,
-             "origin": (mapper.ORIGIN_PARKED if n in parked_values else a.origin),
-             "raw_key": a.raw_key, "source_file": a.source_file}
-            for n, a in row.attributes.items())
+            if row.uid:
+                meta["UID"] = row.uid
 
-    # Existing Notes for D.SEQ's update-mode rows, fetched AT MOST ONCE: the
-    # `want_update` guard above means `rows_by_type` can only ever carry a
-    # "D.SEQ" key when mode == MODE_UPDATE (every other sample type is
-    # `continue`d past whenever mode == MODE_UPDATE), so the Notes-composition
-    # step below (parked values) and qa_rows' own NOTES_WOULD_CLOBBER guard
-    # both need Notes for exactly the same row set -- `rows_by_type["D.SEQ"]`.
-    # Querying it twice was not just wasted work: a transient blip on the
-    # SECOND fetch would drop a UID the first fetch had just proved readable,
-    # turning it into a spurious NOTES_WOULD_CLOBBER hard reject for no
-    # reason. One fetch, reused both places, closes that window.
-    dseq_existing_notes: dict[str, str] | None = None
-    if mode == MODE_UPDATE and rows_by_type.get("D.SEQ"):
-        dseq_existing_notes = _existing_notes(rows_by_type["D.SEQ"])
+            row_dict = {"json_metadata": meta,
+                        "assay_ids": _assay_ids(row.sample_type, meta.get("Parent")),
+                        "provenance": provenance_entry}
+            rows_by_type.setdefault(row.sample_type, []).append(row_dict)
+            mapped_by_type.setdefault(row.sample_type, []).append(row)
+            if parked_values:
+                dseq_parked.append((row_dict, parked_values, parked_attrs))
 
-    # Compose Notes for every D.SEQ row carrying a parked value, gated by the
-    # same existing-Notes fetch the NOTES_WOULD_CLOBBER guard uses: a sample
-    # whose Notes could not be fetched gets no note written at all, per the
-    # design's clobbering guard (section 8) -- guessing here would risk
-    # destroying curator text deep_merge_metadata would overwrite wholesale.
-    # The needs_definition proposal is queued regardless: the schema gap is
-    # real whether or not THIS run could safely write it into Notes, and a
-    # superuser defining the attribute is what stops the parking, not a
-    # successful Notes fetch.
-    if dseq_parked:
-        existing_notes = dseq_existing_notes or {}
-        for row_dict, parked_values, parked_attrs in dseq_parked:
-            uid = row_dict["json_metadata"].get("UID")
-            if uid in existing_notes:
-                row_dict["json_metadata"]["Notes"] = compose_notes(
-                    existing_notes[uid], run_name, parked_values, today)
-            for name, attr in parked_attrs.items():
-                needs_definition.append({
-                    "raw_key": attr.raw_key, "proposed_attribute": name,
-                    # Parking only ever happens on the D.SEQ backfill branch
-                    # (the `want_update` guard above), so the target sample
-                    # type is always D.SEQ here -- never the stale loop `row`
-                    # from the (already-exited) row-construction loop above.
-                    "proposed_target": "D.SEQ", "datatype": "string",
-                    "example_value": attr.value, "source_file": attr.source_file,
-                    "rationale": "mapped by reingest but not defined on D.SEQ (parked in Notes)",
-                    "status": "needs_definition",
-                })
+            provenance_by_type.setdefault(row.sample_type, []).extend(
+                {"uid": row.uid or "", "attribute": a.attribute, "value": a.value,
+                 "origin": (mapper.ORIGIN_PARKED if n in parked_values else a.origin),
+                 "raw_key": a.raw_key, "source_file": a.source_file,
+                 "answered_by": a.answered_by}
+                for n, a in row.attributes.items())
 
-    # An entirely empty catalog is an outage signal (proposals.attribute_exists'
-    # own contract, right above), never an answer -- so this must raise here
-    # too, exactly like that function does, rather than quietly substituting a
-    # set derived from the very rows it is supposed to validate (which would
-    # make UNKNOWN_SAMPLETYPE unfireable for the whole duration of an outage).
-    # See NessieAI/ns/granular.py's legacy `_build_upload_xlsx_from_rows` (the
-    # `known = known_sample_types() or set(by_type)` line) for the one place
-    # in this module that still falls back on purpose, and why.
-    known = known_sample_types()
-    if not known:
-        raise RuntimeError(
-            "sample type catalog came back empty; treating this as an "
-            "outage rather than validating this reingest run's sample types "
-            "against an empty schema"
-        )
-    # Every d_seq_uid the manifest resolved is, by construction, a legitimate
-    # Parent target (mapper.py only ever sets Parent from one of these -- see
-    # its _HAS_PARENT set) -- qa_rows' new-mode Parent-resolvability check
-    # needs this cohort or every new-mode row's Parent would fail resolution
-    # against an empty set and hard-reject the whole batch.
-    existing_parent_uids = {s.d_seq_uid for s in run_manifest.samples if s.d_seq_uid}
-    for sample_type, type_rows in rows_by_type.items():
-        attrs = attributes_for(sample_type)
-        required = [a["title"] for a in attrs if a.get("required")]
-        # See the legacy-rows path above for why the fallback default is the
-        # entry's own "required" rather than False.
-        server_required = [a["title"] for a in attrs if a.get("server_required", a.get("required"))]
-        built = qa_rows(type_rows, sample_type=sample_type, known_sampletypes=known,
-                        required_fields=required, server_required_fields=server_required,
-                        mode=mode,
-                        existing_parent_uids=existing_parent_uids,
-                        existing_notes=dseq_existing_notes if mode == MODE_UPDATE else None,
-                        run_name=run_name)
-        # Every attribute on this sample type's rows may have been parked into
-        # Notes (attribute_exists said none of them are defined on the
-        # schema) -- if the Notes fetch above also failed for every one of
-        # these UIDs, no row even got a Notes column, and json_metadata is
-        # left holding nothing but UID. render_upload_workbook refuses to
-        # render that ("rows carry no json_metadata"): catch the same
-        # condition here as a QA hard-reject instead of letting that
-        # ValueError escape past this op's own VALIDATION/WRITE_BLOCKED/
-        # AGENT_FAILED taxonomy as an opaque 502.
-        if not any(set(row.get("json_metadata") or {}) - {"UID"} for row in type_rows):
-            built.add(Finding(code=NO_ATTRIBUTES_TO_WRITE, severity=HARD,
-                              sample_type=sample_type))
-            built._finalize()
-        reports_by_type[sample_type] = built
-        qa[sample_type] = {"disposition": built.disposition, "hard": built.hard, "soft": built.soft}
+        # Existing Notes for D.SEQ's update-mode rows, fetched AT MOST ONCE: the
+        # `want_update` guard above means `rows_by_type` can only ever carry a
+        # "D.SEQ" key when mode == MODE_UPDATE (every other sample type is
+        # `continue`d past whenever mode == MODE_UPDATE), so the Notes-composition
+        # step below (parked values) and qa_rows' own NOTES_WOULD_CLOBBER guard
+        # both need Notes for exactly the same row set -- `rows_by_type["D.SEQ"]`.
+        # Querying it twice was not just wasted work: a transient blip on the
+        # SECOND fetch would drop a UID the first fetch had just proved readable,
+        # turning it into a spurious NOTES_WOULD_CLOBBER hard reject for no
+        # reason. One fetch, reused both places, closes that window.
+        dseq_existing_notes: dict[str, str] | None = None
+        if mode == MODE_UPDATE and rows_by_type.get("D.SEQ"):
+            if "notes" not in notes_once:
+                notes_once["notes"] = _existing_notes(rows_by_type["D.SEQ"])
+            dseq_existing_notes = notes_once["notes"]
+
+        # Compose Notes for every D.SEQ row carrying a parked value, gated by the
+        # same existing-Notes fetch the NOTES_WOULD_CLOBBER guard uses: a sample
+        # whose Notes could not be fetched gets no note written at all, per the
+        # design's clobbering guard (section 8) -- guessing here would risk
+        # destroying curator text deep_merge_metadata would overwrite wholesale.
+        # The needs_definition proposal is queued regardless: the schema gap is
+        # real whether or not THIS run could safely write it into Notes, and a
+        # superuser defining the attribute is what stops the parking, not a
+        # successful Notes fetch.
+        if dseq_parked:
+            existing_notes = dseq_existing_notes or {}
+            for row_dict, parked_values, parked_attrs in dseq_parked:
+                uid = row_dict["json_metadata"].get("UID")
+                if uid in existing_notes:
+                    row_dict["json_metadata"]["Notes"] = compose_notes(
+                        existing_notes[uid], run_name, parked_values, today)
+                for name, attr in parked_attrs.items():
+                    needs_definition.append({
+                        "raw_key": attr.raw_key, "proposed_attribute": name,
+                        # Parking only ever happens on the D.SEQ backfill branch
+                        # (the `want_update` guard above), so the target sample
+                        # type is always D.SEQ here -- never the stale loop `row`
+                        # from the (already-exited) row-construction loop above.
+                        "proposed_target": "D.SEQ", "datatype": "string",
+                        "example_value": attr.value, "source_file": attr.source_file,
+                        "rationale": "mapped by reingest but not defined on D.SEQ (parked in Notes)",
+                        "status": "needs_definition",
+                    })
+
+        reports_by_type = {}
+        for sample_type, type_rows in rows_by_type.items():
+            attrs = attributes_for(sample_type)
+            required = [a["title"] for a in attrs if a.get("required")]
+            # See the legacy-rows path above for why the fallback default is the
+            # entry's own "required" rather than False.
+            server_required = [a["title"] for a in attrs if a.get("server_required", a.get("required"))]
+            built = qa_rows(type_rows, sample_type=sample_type, known_sampletypes=known,
+                            required_fields=required, server_required_fields=server_required,
+                            mode=mode,
+                            existing_parent_uids=existing_parent_uids,
+                            existing_notes=dseq_existing_notes if mode == MODE_UPDATE else None,
+                            run_name=run_name)
+            # Every attribute on this sample type's rows may have been parked into
+            # Notes (attribute_exists said none of them are defined on the
+            # schema) -- if the Notes fetch above also failed for every one of
+            # these UIDs, no row even got a Notes column, and json_metadata is
+            # left holding nothing but UID. render_upload_workbook refuses to
+            # render that ("rows carry no json_metadata"): catch the same
+            # condition here as a QA hard-reject instead of letting that
+            # ValueError escape past this op's own VALIDATION/WRITE_BLOCKED/
+            # AGENT_FAILED taxonomy as an opaque 502.
+            if not any(set(row.get("json_metadata") or {}) - {"UID"} for row in type_rows):
+                built.add(Finding(code=NO_ATTRIBUTES_TO_WRITE, severity=HARD,
+                                  sample_type=sample_type))
+                built._finalize()
+            reports_by_type[sample_type] = built
+        return SimpleNamespace(
+            ambiguous_primary_groups=ambiguous_primary_groups,
+            provenance_by_type=provenance_by_type, rows_by_type=rows_by_type,
+            mapped_by_type=mapped_by_type, needs_definition=needs_definition,
+            reports_by_type=reports_by_type)
+
+    first = _assemble(result.rows)
+    answers_deferred: list[dict] = []
+    if answers.is_empty():
+        final = first
+    else:
+        this_call = set(first.mapped_by_type)
+        other_call = {r.sample_type for r in result.rows} - this_call
+        user_label = (full_name or getattr(user, "username", "") or "unknown curator")
+        findings_by_type: dict[str, list] = {}
+        try:
+            answers, answers_deferred = answers_mod.split_for_call(
+                answers, this_call=this_call, other_call=other_call)
+            findings_by_type = {st: rep.findings for st, rep in first.reports_by_type.items()}
+            answers_mod.validate(
+                answers, findings_by_type=findings_by_type,
+                mapped_by_type=first.mapped_by_type, unmapped=result.unmapped,
+                groups=list(first.ambiguous_primary_groups.values()),
+                run_sourced_for=lambda st: answers_mod.run_sourced_attributes(
+                    pipeline_map, approved, st),
+                attribute_exists=_attribute_exists)
+        except answers_mod.AnswerRejected as exc:
+            raise OpValidationError(str(exc)) from exc
+        answers_mod.apply_answers(
+            answers, mapped_by_type=first.mapped_by_type,
+            findings_by_type=findings_by_type, run_manifest=run_manifest,
+            answered_by=f"{user_label} on {today}")
+        final = _assemble(result.rows)
+
+    saved_files, qa = {}, {}
+    reports_by_type = final.reports_by_type
+    for sample_type, built in reports_by_type.items():
+        qa[sample_type] = {"disposition": built.disposition, "hard": built.hard,
+                           "soft": built.soft}
         if built.disposition == HARD_REJECT:
             continue
+        type_rows = final.rows_by_type[sample_type]
         safe_name = sample_type.replace("/", "_").replace(" ", "_")
         suffix = "_update" if mode == MODE_UPDATE else ""
         safe_key = f"reingest_{safe_name}{suffix}".replace(".", "_").replace("-", "_")
         path = os.path.join(out_root, f"reingest_{safe_name}{suffix}.xlsx")
         render_upload_workbook(sample_type, type_rows, path, mode=mode,
-                               provenance=provenance_by_type.get(sample_type))
+                               provenance=final.provenance_by_type.get(sample_type))
         saved_files[safe_key] = path
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
@@ -1406,7 +1473,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     # `ambiguous_primary_groups` could possibly hold, since both are built
     # from the same `rows_by_type` sample-type set.
     ambiguous_primary = [
-        group for group in ambiguous_primary_groups.values()
+        group for group in final.ambiguous_primary_groups.values()
         if reports_by_type[group["sample_type"]].disposition != HARD_REJECT
     ]
 
@@ -1433,15 +1500,22 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name,
                                            ambiguous_primary=ambiguous_primary)
 
+    # A key the curator placed is still proposed: the placement covers this
+    # run only, and making it a standing map rule is an admin's call.
+    placed = {p.raw_key: p for p in answers.place}
     pending = [
-        {**entry, "proposed_attribute": "", "proposed_target": "",
+        {**entry,
+         "proposed_attribute": placed[entry["raw_key"]].attribute if entry["raw_key"] in placed else "",
+         "proposed_target": placed[entry["raw_key"]].sample_type if entry["raw_key"] in placed else "",
+         **({"rationale": f"placed by a curator for run {run_name} only; needs admin review"}
+            if entry["raw_key"] in placed else {}),
          "pipeline": pipeline, "manifest_digest": manifest_id,
          "run_dir": run_manifest.run_dir}
         for entry in result.unmapped
     ] + [
         {**entry, "pipeline": pipeline, "manifest_digest": manifest_id,
          "run_dir": run_manifest.run_dir}
-        for entry in needs_definition
+        for entry in final.needs_definition
     ]
 
     return {
@@ -1449,6 +1523,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         "qa": qa,
         "reply": reply,
         "proposals": pending,
+        "answers_deferred": answers_deferred,
     }
 
 

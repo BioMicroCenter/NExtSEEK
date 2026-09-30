@@ -130,11 +130,13 @@ def render_upload_workbook(
     # reads only the four sheets above by name), so it is inert on upload.
     if provenance:
         wp = wb.create_sheet("Provenance")
-        wp.append(["UID", "Attribute", "Value", "Origin", "Raw key", "Source file"])
+        wp.append(["UID", "Attribute", "Value", "Origin", "Raw key", "Source file",
+                   "Answered by"])
         for entry in provenance:
             wp.append([entry.get("uid", ""), entry.get("attribute", ""),
                        _cell(entry.get("value")), entry.get("origin", ""),
-                       entry.get("raw_key", ""), entry.get("source_file", "")])
+                       entry.get("raw_key", ""), entry.get("source_file", ""),
+                       entry.get("answered_by", "")])
 
     wb.save(out_path)
 
