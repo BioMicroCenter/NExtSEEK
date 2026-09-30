@@ -564,6 +564,10 @@ class GraphWorld:
             return [{"names": sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})}]
         if query == verify.RELATIONSHIP_TYPES_LISTED:
             return [{"names": sorted(verify.EXPECTED_RELATIONSHIP_TYPES)}]
+        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
+            return []
+        if query == q.ORPHAN_IN_STUDY:
+            return [{"n": 0}]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -593,7 +597,7 @@ def test_gate_g_passes_on_the_graph_a_correct_sync_writes(world, mysql_scope):
     result = _gate(GraphWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 12)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)}
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
     assert result["stats"]["seed"] == 7 and result["stats"]["sampled_ids"] == [10, 11, 12]
     assert result["stats"]["metadata_hash_mysql"] == result["stats"]["metadata_hash_graph"]

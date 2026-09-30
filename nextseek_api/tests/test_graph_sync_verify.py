@@ -18,8 +18,9 @@ from neo4j import RoutingControl
 
 from nextseek_api.batch_upload.identity import hash_identity
 from nextseek_api.graph_sync import cypher as q
-from nextseek_api.graph_sync import run, sources, verify
+from nextseek_api.graph_sync import run, sources, study_links, verify
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests.graph_sync_study_fakes import StudyGraph
 from nextseek_graph import schema
 
 
@@ -140,6 +141,9 @@ def world(monkeypatch):
         "sample_assay_ids_for": sample_assay_ids_for,
         "parent_identities": parent_identities,
         "recent_sample_ids": recent_sample_ids,
+        "studies": lambda: [],
+        "investigations": lambda: [],
+        "iter_seek_study_links": lambda: iter(()),
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -227,6 +231,10 @@ class GateWorld:
             return [{"n": len(self.t_labelled)}]
         if query == verify.T_LABEL_WITHOUT_SAMPLE_EXAMPLES:
             return self.t_labelled[:params["limit"]]
+        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
+            return []
+        if query == q.ORPHAN_IN_STUDY:
+            return [{"n": 0}]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -248,7 +256,7 @@ def test_gate_g_passes_with_checks_9_to_11_on_the_graph_a_correct_1_2_sync_write
     result = _gate(GateWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 12)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)}
     for name in ("9.lineage.labels", "10.samples.no_t_label_without_sample", "11.samples.parent_lists"):
         check = _named(result, name)
         assert (check["expected"], check["actual"], check["pass"]) == (0, 0, True)
@@ -572,3 +580,152 @@ def test_the_carried_probes_match_a_dynamic_name_and_stop_at_the_first_hit():
         assert statement.lstrip().startswith("CYPHER 25")
         assert pattern in statement and "LIMIT 1" in statement
         assert "WHERE" not in statement and "labels(" not in statement and "type(" not in statement
+
+
+# --- family 12: studies --------------------------------------------------------------------------------------------
+
+FAMILY_12 = ("switch", "seek_study_id_duplicates", "split_pairs", "merge_candidates", "id_collisions",
+             "nodes_differ_from_seek", "nodes_not_in_seek", "seek_studies_without_node", "in_study_missing",
+             "in_study_extra", "no_seek_study_kept", "orphan_in_study", "paper_samples")
+
+
+@pytest.fixture
+def seek_side(monkeypatch):
+    side = SimpleNamespace(studies=[], investigations=[{"id": 101, "title": "Alder Investigation",
+                                                        "description": None}], links=[])
+    monkeypatch.setattr(sources, "studies", lambda: [dict(s) for s in side.studies])
+    monkeypatch.setattr(sources, "investigations", lambda: [dict(i) for i in side.investigations])
+    monkeypatch.setattr(sources, "iter_seek_study_links", lambda: iter(sorted(side.links)))
+    monkeypatch.setattr(sources, "investigation_projects", lambda: [])
+    monkeypatch.setattr(sources, "projects", lambda: [])
+    return side
+
+
+def _family(graph, follow, monkeypatch):
+    if follow:
+        monkeypatch.setenv(study_links.SWITCH_ENV, "follow")
+    else:
+        monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    checks, stats = [], {}
+    verify._check_studies(graph, "neo4j", checks, stats)
+    return {c["name"]: c for c in checks}
+
+
+def _study_world(side):
+    """A split (1), a SEEK-keyed node whose title is not SEEK's (2), one SEEK lacks (77), a collision (8), a paper
+    (9); samples missing a link, holding a stale one, kept with no SEEK study, and on the paper; an orphan's link."""
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    side.studies = [{"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101},
+                    {"id": 2, "title": "Birch Study", "description": None, "investigation_id": 101},
+                    {"id": 8, "title": "Hazel Study", "description": None, "investigation_id": 101}]
+    l1 = g.add_study(id=1, title="Alder Unpublished", DOI="", investigation=inv)
+    k1 = g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=inv)
+    k2 = g.add_study(seek_study_id=2, title="Old Birch title", investigation=inv)
+    g.add_study(seek_study_id=77, title="Gone", investigation=inv)
+    g.add_study(id=8, title="An unrelated paper", DOI="10.9999/p8", investigation=inv)
+    g.add_study(seek_study_id=8, title="Hazel Study", investigation=inv)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
+    for sid in (1001, 1002, 1003, 1004, 1005):
+        g.add_sample(sid)
+    g.link(1001, l1)
+    g.link(1002, k1)
+    g.link(1003, k2)             # SEEK: 1 -> a missing link and a stale one
+    g.link(1004, k2)             # SEEK: none -> kept
+    g.link(1005, paper)          # SEEK: 2 -> a paper sample
+    g.link(g.add_sample(1006, label="OrphanSample"), k1)
+    side.links = [(1001, 1), (1002, 1), (1003, 1), (1005, 2)]
+    return g
+
+
+def test_with_the_switch_off_only_the_duplicate_check_can_fail(seek_side, monkeypatch):
+    checks = _family(_study_world(seek_side), False, monkeypatch)
+    assert set(checks) == {f"12.studies.{name}" for name in FAMILY_12}
+    assert all(c["pass"] for c in checks.values())
+    assert checks["12.studies.switch"]["actual"] == "add"
+    actual = {name: checks[f"12.studies.{name}"]["actual"] for name in FAMILY_12[1:]}
+    assert actual == {"seek_study_id_duplicates": 0, "split_pairs": 1, "merge_candidates": 1, "id_collisions": 1,
+                      "nodes_differ_from_seek": 1, "nodes_not_in_seek": 1, "seek_studies_without_node": 0,
+                      "in_study_missing": 1, "in_study_extra": 1, "no_seek_study_kept": 1, "orphan_in_study": 1,
+                      "paper_samples": 2}
+    assert checks["12.studies.paper_samples"]["detail"]["withheld_links"] == 2
+    assert checks["12.studies.paper_samples"]["detail"]["investigation_unknown"] == 0
+
+
+def test_with_the_switch_on_the_checks_that_expect_0_fail(seek_side, monkeypatch):
+    checks = _family(_study_world(seek_side), True, monkeypatch)
+    assert checks["12.studies.switch"]["actual"] == "follow"
+    assert sorted(name for name, c in checks.items() if not c["pass"]) == [
+        "12.studies.in_study_extra", "12.studies.in_study_missing", "12.studies.merge_candidates",
+        "12.studies.nodes_differ_from_seek", "12.studies.split_pairs"]
+
+
+@pytest.mark.parametrize("follow", [False, True])
+def test_a_duplicate_seek_study_id_fails_whatever_the_switch(seek_side, monkeypatch, follow):
+    g = _study_world(seek_side)
+    g.add_study(seek_study_id=2, title="Birch again")
+    assert not _family(g, follow, monkeypatch)["12.studies.seek_study_id_duplicates"]["pass"]
+
+
+def test_a_graph_that_follows_seek_passes_with_the_switch_on(seek_side, monkeypatch):
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    seek_side.studies = [{"id": 1, "title": "Alder Unpublished", "description": "About", "investigation_id": 101}]
+    merged = g.add_study(id=1, seek_study_id=1, title="Alder Unpublished", description="About", investigation=inv)
+    g.add_sample(1001)
+    g.link(1001, merged)
+    seek_side.links = [(1001, 1)]
+    checks = _family(g, True, monkeypatch)
+    assert all(c["pass"] for c in checks.values())
+
+
+def test_a_study_with_no_investigation_does_not_differ(seek_side, monkeypatch):
+    g = StudyGraph()
+    seek_side.studies = [{"id": 3, "title": "Cedar", "description": None, "investigation_id": None}]
+    g.add_study(seek_study_id=3, title="Cedar")
+    assert _family(g, True, monkeypatch)["12.studies.nodes_differ_from_seek"]["actual"] == 0
+
+
+def test_family_12_only_reads(seek_side, monkeypatch):
+    g = _study_world(seek_side)
+    _family(g, True, monkeypatch)
+    assert g.calls and all(c.read for c in g.calls)
+
+
+def test_a_seek_study_with_no_node_fails_only_with_the_switch_on(seek_side, monkeypatch):
+    g = _study_world(seek_side)
+    seek_side.studies.append({"id": 5, "title": "Elm Study", "description": None, "investigation_id": 101})
+    assert _family(g, False, monkeypatch)["12.studies.seek_studies_without_node"]["pass"] is True
+    check = _family(g, True, monkeypatch)["12.studies.seek_studies_without_node"]
+    assert (check["actual"], check["pass"], check["detail"]) == (1, False, [5])
+
+
+def test_a_seek_keyed_node_whose_investigation_node_is_missing_differs(seek_side, monkeypatch):
+    g = StudyGraph()
+    seek_side.studies = [{"id": 5, "title": "Elm Study", "description": None, "investigation_id": 103}]
+    g.add_study(seek_study_id=5, title="Elm Study")
+    assert _family(g, True, monkeypatch)["12.studies.nodes_differ_from_seek"]["detail"] == [5]
+
+
+def test_a_paper_samples_missing_link_to_another_investigations_study_counts(seek_side, monkeypatch):
+    """Operator ruling SHARED SAMPLES: only the paper's own investigation's studies are excepted."""
+    g = StudyGraph()
+    alder = g.add_investigation(101, "Alder Investigation")
+    birch = g.add_investigation(102, "Birch Investigation")
+    seek_side.investigations.append({"id": 102, "title": "Birch Investigation", "description": None})
+    seek_side.studies = [{"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101},
+                         {"id": 3, "title": "Birch Study", "description": None, "investigation_id": 102}]
+    g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=alder)
+    g.add_study(seek_study_id=3, title="Birch Study", investigation=birch)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=alder)
+    g.add_sample(1003)
+    g.link(1003, paper)
+    seek_side.links = [(1003, 1), (1003, 3)]
+    before = _family(g, True, monkeypatch)
+    missing = before["12.studies.in_study_missing"]
+    assert (missing["actual"], missing["pass"]) == (1, False)
+    study_links.rebuild_in_study(g, "neo4j", remove=True, run_dir=None)
+    after = _family(g, True, monkeypatch)
+    assert after["12.studies.in_study_missing"]["pass"] is True
+    paper = after["12.studies.paper_samples"]
+    assert (paper["actual"], paper["detail"]["withheld_links"]) == (1, 1)

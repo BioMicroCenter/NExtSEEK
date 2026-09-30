@@ -369,6 +369,17 @@ def test_a_failing_gate_g_check_is_drift_under_its_own_name(mysql_rows, gate, ca
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("passed, status", [(True, "ok"), (False, "drift")])
+def test_drift_carries_family_12_and_follows_its_verdict(mysql_rows, gate, catalog, passed, status):
+    _fresh_runs()
+    gate.result = {"checks": [{"name": "12.studies.split_pairs", "expected": "any" if passed else 0, "actual": 2,
+                               "pass": passed}], "pass": passed, "stats": {}}
+    result, _ = _check_drift(DriftGraph())
+    assert _named(result, "12.studies.split_pairs")["actual"] == 2
+    assert result["status"] == status
+
+
+@pytest.mark.django_db
 def test_a_catalog_that_does_not_build_fails_the_detection_and_gate_g_still_runs(mysql_rows, gate, monkeypatch):
     def collide():
         raise ValueError("label collision: T_D_SEQ")

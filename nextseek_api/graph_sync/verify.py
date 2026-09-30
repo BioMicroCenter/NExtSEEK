@@ -37,6 +37,13 @@ present, carries a few examples. Each name starts with the gate G check it belon
 11. ``samples.parent_lists``: for the random samples, ``parent_titles`` and ``parent_title_hashes`` equal batch
     upload's rule over the sample's parent tokens (``projection.parent_lists``), a UID parent named by its stored
     identity; a node without them fails.
+12. ``studies``: the Study layer follows SEEK. No two Study nodes share a ``seek_study_id`` (always enforced).
+    Enforced only where the box's switch ``NEXTSEEK_GRAPH_SYNC_STUDY_LINKS`` says ``follow``, and reported
+    otherwise: no split pair and no merge candidate is left, every SEEK study has a node, every SEEK-keyed node
+    carries SEEK's title, description and investigation, and every Sample's IN_STUDY equals SEEK's studies (a paper
+    sample's links to studies of its paper's own investigation, and samples SEEK places in no study, excepted).
+    Always reported: the switch, id collisions, SEEK-keyed nodes SEEK lacks, samples kept with no SEEK study,
+    OrphanSample links and paper samples with the links withheld from them.
 
 Every MySQL side joins ``samples`` and counts distinct sample ids: SEEK's link tables hold rows for samples that are
 gone and rows repeated (``projects_samples``, ``assay_assets``), which would otherwise read as drift. A check whose
@@ -48,6 +55,7 @@ streams the edges against a set of encoded MySQL pairs. Check 9 streams them onc
 properties and classifies each as it arrives; it holds one assay-id tuple per lineage endpoint (equal tuples shared)
 and one resolved protocol per child that names one. The sampled checks read the random samples plus the
 strata (the constants above): at most about 6,600 samples on a graph of 110 types, 15 projects and a busy week.
+Check 12 reads every Study node once and streams every Sample's IN_STUDY in keyset pages against SEEK's ordered links.
 """
 from __future__ import annotations
 
@@ -68,7 +76,7 @@ from django.db import connections
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope
 from nextseek_api.graph_sync import cypher as q
-from nextseek_api.graph_sync import labels, run, sources, writer
+from nextseek_api.graph_sync import labels, run, sources, study_links, study_merge, writer
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, label_for, parent_lists, project_sample
 from nextseek_api.graph_sync.writer import _one, _records, _run
 from nextseek_graph import schema
@@ -771,11 +779,101 @@ def _check_parent_lists(mysql: _MySQLSide, sampled: dict, checks: list, stats: d
     _check(checks, "11.samples.parent_lists", 0, len(wrong), detail=wrong[:EXAMPLES])
 
 
+# --- family 12: studies (the studies release) ------------------------------------------------------------------------
+
+STUDY_CHECKS_ENFORCED_WHEN_FOLLOWING = ("split_pairs", "merge_candidates", "nodes_differ_from_seek",
+                                        "seek_studies_without_node", "in_study_missing", "in_study_extra")
+
+
+def _example(bucket: list, value) -> None:
+    if len(bucket) < EXAMPLES:
+        bucket.append(value)
+
+
+def _check_studies(driver, db, checks: list, stats: dict) -> None:
+    """Family 12: the Study layer follows SEEK (docs/neo4j-schema.md, v1.2 "Study nodes and IN_STUDY"). The duplicate
+    check always expects 0; the checks of ``STUDY_CHECKS_ENFORCED_WHEN_FOLLOWING`` expect 0 only where the box's
+    switch says ``follow`` and report otherwise, so a box rebuilt before its merge keeps a green drift check; the
+    rest always report. Reads only."""
+    follow = study_links.follows_seek()
+    index = study_merge.read_index(driver, db)
+    selections = [study_merge.classify(index, x) for x in study_merge.study_ids(index)]
+    duplicates = writer.seek_study_id_duplicates(driver, db)
+    split = [s.study_id for s in selections if s.kind in study_merge.SPLIT_KINDS and s.legacy is not None
+             and s.legacy.in_study > 0 and s.seek_keyed is not None and s.seek_keyed.in_study > 0]
+    candidates = [s.study_id for s in selections if s.kind in study_merge.ACTING]
+    collisions = [s.study_id for s in selections if s.kind == study_merge.ID_COLLISION]
+    differ, not_in_seek = [], []
+    keyed = {node.seek_study_id for node in index.nodes if _is_id(node.seek_study_id)}
+    without_node = sorted(x for x in index.seek_studies if x not in keyed)
+    for node in index.nodes:
+        key = node.seek_study_id
+        if not _is_id(key):
+            continue
+        seek = index.seek_studies.get(key)
+        if seek is None:
+            not_in_seek.append(key)
+            continue
+        wanted_inv = [] if seek.get("investigation_id") is None else [seek["investigation_id"]]
+        if (node.title != seek.get("title")
+                or (node.props.get("description") or None) != (seek.get("description") or None)
+                or sorted(i.get("id") for i in node.investigations) != wanted_inv):
+            differ.append(key)
+    missing = extra = kept = paper = withheld = unknown = 0
+    examples = {"missing": [], "extra": [], "kept": [], "paper": []}
+    scope = writer.paper_scope(index.seek_studies.values(), index.seek_investigations.values())
+    for found in study_links.diff_in_study(driver, db, scope=scope):
+        if found.paper:
+            paper += 1
+            withheld += len(found.withheld)
+            unknown += found.investigation_unknown
+            _example(examples["paper"], found.sample_id)
+        if found.add:
+            missing += len(found.add)
+            _example(examples["missing"], [found.sample_id, list(found.add)])
+        if found.remove:
+            extra += len(found.remove)
+            _example(examples["extra"], [found.sample_id, [link["seek_study_id"] for link in found.remove]])
+        if found.no_seek_study:
+            kept += 1
+            _example(examples["kept"], found.sample_id)
+    orphan = writer.orphan_in_study(driver, db)
+
+    def gated(name, actual, detail=None):
+        if follow:
+            _check(checks, f"12.studies.{name}", 0, actual, detail=detail)
+        else:
+            _check(checks, f"12.studies.{name}", "any", actual, passed=True, detail=detail)
+
+    def reported(name, actual, detail=None):
+        _check(checks, f"12.studies.{name}", "any", actual, passed=True, detail=detail)
+
+    reported("switch", study_links.switch_value())
+    _check(checks, "12.studies.seek_study_id_duplicates", 0, len(duplicates), detail=duplicates[:EXAMPLES])
+    gated("split_pairs", len(split), split[:EXAMPLES])
+    gated("merge_candidates", len(candidates), candidates[:EXAMPLES])
+    reported("id_collisions", len(collisions), collisions[:EXAMPLES])
+    gated("nodes_differ_from_seek", len(differ), differ[:EXAMPLES])
+    reported("nodes_not_in_seek", len(not_in_seek), not_in_seek[:EXAMPLES])
+    gated("seek_studies_without_node", len(without_node), without_node[:EXAMPLES])
+    gated("in_study_missing", missing, examples["missing"])
+    gated("in_study_extra", extra, examples["extra"])
+    reported("no_seek_study_kept", kept, examples["kept"])
+    reported("orphan_in_study", orphan)
+    reported("paper_samples", paper, {"withheld_links": withheld, "investigation_unknown": unknown,
+                                      "examples": examples["paper"]})
+    stats["studies"] = {"switch": study_links.switch_value(), "split_pairs": len(split),
+                        "merge_candidates": len(candidates), "id_collisions": len(collisions),
+                        "seek_studies_without_node": len(without_node), "in_study_missing": missing,
+                        "in_study_extra": extra, "paper_samples": paper, "withheld_links": withheld,
+                        "paper_investigation_unknown": unknown}
+
+
 # --- the gate ------------------------------------------------------------------------------------
 
 def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = None, accounts=GATE_ACCOUNTS,
            chunk: int = writer.SAMPLE_CHUNK) -> dict:
-    """Run the eleven gate G checks (module docstring) against MySQL; reads only.
+    """Run the gate G check families (module docstring) against MySQL; reads only.
 
     ``sample_size`` random samples (a reservoir over the MySQL scan, drawn with ``seed``, which is reported), and the
     strata beside them (``STRATUM_SIZE`` per sample type and per project, and every sample of the last
@@ -822,4 +920,5 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
     _timed(timings, "9.lineage", _check_labels, driver, db, mysql, assays, assay_map, checks, stats)
     _timed(timings, "10.samples", _check_type_labels, driver, db, checks)
     _timed(timings, "11.samples", _check_parent_lists, mysql, sampled, checks, stats)
+    _timed(timings, "12.studies", _check_studies, driver, db, checks, stats)
     return {"checks": checks, "pass": all(c["pass"] for c in checks), "stats": stats}
