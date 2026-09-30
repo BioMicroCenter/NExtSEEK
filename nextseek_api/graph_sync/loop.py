@@ -298,6 +298,9 @@ def _child(claim, opts: Options, entry: dict, *, now: datetime, launch) -> dict:
     run_dir = run_dir_for(opts.run_root, claim.kind, now, row_id=claim.id)
     timeout_s = child_timeout_s(claim.kind)
     code = launch(child_argv(claim.kind, run_dir, opts), timeout_s)
+    # The child can have run for hours in a blocking call, and the loop's own connections sat idle all that time:
+    # start the rest of this pass on fresh ones, whatever the child's outcome.
+    refresh_connections()
     entry.update(run_dir=run_dir, exit=code, refused=code == 2)
     found = drift_reported(run_dir) if claim.kind == "drift" and code == DRIFT_FOUND_EXIT else None
     if found is not None:

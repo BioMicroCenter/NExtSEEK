@@ -570,6 +570,47 @@ def test_the_loop_refreshes_every_django_connection_by_default():
     assert loop.refresh_connections.__self__ is connections and loop.refresh_connections.__name__ == "close_all"
 
 
+def test_run_forever_calls_refresh_connections_before_each_pass_when_given_no_refresh(monkeypatch, tmp_path):
+    # The default path: no ``refresh`` argument, so the loop must look up ``refresh_connections`` itself.
+    events = []
+
+    def one(driver, db, worker_id, *, opts, launch=None, now=None):
+        events.append("pass")
+        return {"drained": [], "counts": {loop.DONE: 0}}
+
+    def sleep(seconds):
+        if events.count("pass") == 2:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(loop, "run_pass", one)
+    monkeypatch.setattr(loop, "refresh_connections", lambda: events.append("refresh"))
+    with pytest.raises(KeyboardInterrupt):
+        loop.run_forever(DRIVER, DB, "w1", opts=loop.Options(run_root=str(tmp_path)), interval_s=5, sleep=sleep)
+
+    assert events == ["refresh", "pass"] * 2
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_connections_are_refreshed_right_after_a_child_returns_whether_it_worked_or_not(work, monkeypatch, exit_code):
+    # A child can run for hours inside a blocking subprocess call, and the parent's connections sit idle all that
+    # time; a failed child must not skip the refresh either.
+    events = []
+
+    def launch(argv, timeout_s):
+        events.append(f"child {argv[3]}")
+        return exit_code
+
+    monkeypatch.setattr(loop, "refresh_connections", lambda: events.append("refresh"))
+
+    one_pass(work, launch=launch)
+
+    assert events, "the pass started no child"
+    for i, event in enumerate(events):
+        if event.startswith("child "):
+            assert events[i + 1:i + 2] == ["refresh"], events
+
+
 # --- the flags the loop passes on -----------------------------------------------------------------
 
 @pytest.mark.parametrize("value, approved", [(None, False), ("", False), ("report", False), ("apply", True),

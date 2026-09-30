@@ -85,7 +85,8 @@ that exits 1 having saved a result that reports drift: that check did its job, s
 its run record, never retried into the same answer. The newest 20 run directories per kind are kept. Every pass
 starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
 connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on
-it with "Server has gone away" until the nightly run caught up.
+it with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error
+2006 until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
