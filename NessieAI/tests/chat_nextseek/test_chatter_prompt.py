@@ -870,3 +870,11 @@ def test_the_offered_step_line_sits_after_those_blocks():
 
     assert "a line of its own after those blocks" in text
     assert "a line of its own right after that block" not in text
+
+
+def test_a_breakdown_names_rows_that_are_not_the_thing_asked_about():
+    text = _prompt_text()
+
+    assert ("lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the "
+            "thing the user asked about (another kind of file, a different category), say which, and give the "
+            "total without them.") in text
