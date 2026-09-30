@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -655,3 +656,129 @@ def test_a_read_enqueues_nothing():
     viewset.client.get_assay.return_value = _upstream(_assay_body(), 200)
     assert viewset.retrieve(_request("get"), uid="351").status_code == 200
     assert _rows() == set()
+
+
+# ---------------------------------------------------------------------------------------------------
+# The assay proxy's member rows: an assay created, or moved to another study, or whose samples change,
+# sends its members to a by-id sync, so their IN_STUDY follows SEEK within seconds
+# ---------------------------------------------------------------------------------------------------
+
+from nextseek_api.graph_sync import sources as graph_sources  # noqa: E402
+from nextseek_api.services import assays as assays_module  # noqa: E402
+
+ASSAY_CREATE = {"data": {"type": "assays", "attributes": {
+    "title": "New Assay", "assay_class": {"key": "EXP"},
+    "assay_type": {"uri": "http://jermontology.org/ontology/JERMOntology#Transcriptomics"}},
+    "relationships": {"study": {"data": {"type": "studies", "id": "434"}}}}}
+PATCH_SAMPLES = {"data": {"type": "assays", "id": "351", "relationships": {
+    "samples": {"data": [{"type": "samples", "id": "7"}]}}}}
+PATCH_STUDY = {"data": {"type": "assays", "id": "351", "relationships": {
+    "study": {"data": {"type": "studies", "id": "434"}}}}}
+PATCH_BOTH = {"data": {"type": "assays", "id": "351", "relationships": {
+    "study": {"data": {"type": "studies", "id": "434"}}, "samples": {"data": [{"type": "samples", "id": "7"}]}}}}
+PATCH_TITLE = {"data": {"type": "assays", "id": "351", "attributes": {"description": "Updated"}}}
+
+
+def _assay_body_with_samples(*ids):
+    body = _assay_body()
+    body["data"]["relationships"]["samples"] = {"data": [{"type": "samples", "id": str(i)} for i in ids]}
+    return body
+
+
+def _member_rows():
+    return sorted((key, payload) for kind, key, payload
+                  in GraphSyncOutbox.objects.values_list("kind", "key", "payload") if kind == "samples")
+
+
+def _assay_call(action, request_body, response_body, code=200):
+    viewset = AssayProxyViewSet()
+    viewset.client = MagicMock()
+    method = "create_assay" if action == "create" else "update_assay"
+    getattr(viewset.client, method).return_value = _upstream(response_body, code)
+    if action == "create":
+        return viewset.create(_request("post", request_body))
+    return viewset.partial_update(_request("patch", request_body), uid="351")
+
+
+@pytest.fixture
+def members(monkeypatch):
+    """SEEK's members of assay 351 before the call (``answer``, or ``error`` raised); a clock that ticks 1, 2, ..."""
+    rec = SimpleNamespace(reads=[], answer=[], error=None)
+    stamps = iter(range(1, 1000))
+
+    def read(assay_ids):
+        rec.reads.append(list(assay_ids))
+        if rec.error is not None:
+            raise rec.error
+        return list(rec.answer)
+
+    monkeypatch.setattr(graph_sources, "sample_ids_in_assays", read)
+    monkeypatch.setattr(assays_module, "_stamp", lambda: next(stamps))
+    return rec
+
+
+def test_create_enqueues_the_samples_the_response_names(members):
+    response = _assay_call("create", ASSAY_CREATE, _assay_body_with_samples(6, 5), code=201)
+    assert response.status_code == 201
+    assert _member_rows() == [("batch:assay:351:1:0", [5, 6])]
+    assert members.reads == []
+    assert {("assay_map", "*"), ("isa", "*")} <= _rows()
+
+
+def test_a_patch_of_samples_enqueues_the_members_before_and_after(members):
+    members.answer = [1, 2]
+    _assay_call("partial_update", PATCH_SAMPLES, _assay_body_with_samples(2, 3))
+    assert members.reads == [[351]]
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 2, 3])]
+
+
+def test_a_patch_of_the_study_enqueues_the_members(members):
+    members.answer = [1, 2]
+    _assay_call("partial_update", PATCH_STUDY, _assay_body())
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 2])]
+
+
+def test_a_patch_of_both_reads_the_members_once_and_enqueues_the_union(members):
+    members.answer = [1]
+    _assay_call("partial_update", PATCH_BOTH, _assay_body_with_samples(4))
+    assert members.reads == [[351]]
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 4])]
+
+
+def test_a_patch_of_attributes_only_reads_and_enqueues_no_members(members):
+    _assay_call("partial_update", PATCH_TITLE, _assay_body())
+    assert members.reads == [] and _member_rows() == []
+
+
+def test_a_large_member_set_splits_into_rows_of_the_chunk(members, monkeypatch):
+    monkeypatch.setattr(assays_module, "MEMBER_CHUNK", 2)
+    members.answer = [1, 2, 3, 4, 5]
+    _assay_call("partial_update", PATCH_STUDY, _assay_body())
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 2]), ("batch:assay:351:1:1", [3, 4]),
+                              ("batch:assay:351:1:2", [5])]
+
+
+def test_a_failed_member_read_enqueues_the_response_samples(members, caplog):
+    members.error = OperationalError("(2006, 'MySQL server has gone away')")
+    response = _assay_call("partial_update", PATCH_SAMPLES, _assay_body_with_samples(8))
+    assert response.status_code == 200
+    assert _member_rows() == [("batch:assay:351:1:0", [8])]
+    assert "sample members" in caplog.text
+
+
+def test_a_refused_patch_enqueues_nothing(members):
+    members.answer = [1]
+    _assay_call("partial_update", PATCH_STUDY, _assay_body(), code=422)
+    assert _member_rows() == []
+
+
+def test_two_writes_before_a_drain_keep_both_rows(members):
+    members.answer = [1]
+    _assay_call("partial_update", PATCH_STUDY, _assay_body())
+    _assay_call("partial_update", PATCH_STUDY, _assay_body())
+    assert _member_rows() == [("batch:assay:351:1:0", [1]), ("batch:assay:351:2:0", [1])]
+
+
+def test_the_member_chunk_is_graph_syncs_sample_chunk():
+    from nextseek_api.graph_sync import writer as graph_writer
+    assert assays_module.MEMBER_CHUNK == graph_writer.SAMPLE_CHUNK

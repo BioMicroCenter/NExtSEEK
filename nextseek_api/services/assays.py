@@ -1,6 +1,8 @@
 from typing import Optional
 
 import json
+import logging
+import time
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -8,7 +10,8 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from django.conf import settings
 
 from nextseek_api.helpers import SeekAPIClient
-from nextseek_api.graph_sync import hooks
+from nextseek_api.graph_sync import hooks, sources
+from nextseek_api.graph_sync.writer import SAMPLE_CHUNK
 from nextseek_api.endpoint_descriptions import (
     ASSAY_LIST_DESC,
     ASSAY_FETCH_DESC,
@@ -21,6 +24,49 @@ from nextseek_api.models import (
     AssayCreateRequest,
     AssayUpdateRequest,
 )
+
+
+log = logging.getLogger(__name__)
+
+# An assay's sample members reach the outbox as one ``samples`` row per this many ids, graph_sync's by-id chunk, so
+# the drain holds the graph-write lock for one chunk at a time and other writers get it in between.
+MEMBER_CHUNK = SAMPLE_CHUNK
+
+
+def _stamp() -> int:
+    return time.time_ns()
+
+
+def _members_before(seek_id) -> list[int]:
+    """The Sample members ``assay_assets`` holds for the assay, read before SEEK is called. A failed read is logged
+    and reads as none: the rows then carry the response's samples, and the nightly reconcile finds the rest."""
+    try:
+        return sources.sample_ids_in_assays([int(seek_id)])
+    except Exception:  # noqa: BLE001 (the proxy call goes on whatever the read did)
+        log.exception("assay %s: could not read its sample members before the call; the nightly reconcile covers "
+                      "them", seek_id)
+        return []
+
+
+def _response_samples(data) -> list[int]:
+    """The sample ids a JSON:API assay body names under ``relationships.samples``."""
+    refs = ((((data or {}).get("data") or {}).get("relationships") or {}).get("samples") or {}).get("data") or []
+    return sorted({int(ref["id"]) for ref in refs if isinstance(ref, dict) and str(ref.get("id", "")).isdigit()})
+
+
+def _moves_samples(payload: dict) -> bool:
+    """Whether a PATCH sets the assay's study or its samples: either moves its members' IN_STUDY."""
+    relationships = (payload.get("data") or {}).get("relationships") or {}
+    return "samples" in relationships or "study" in relationships
+
+
+def _enqueue_members(seek_id, ids) -> None:
+    """One ``samples`` row per ``MEMBER_CHUNK`` ids, keyed ``batch:assay:<SEEK id>:<time_ns>:<n>``, so two writes
+    before a drain never overwrite each other's ids."""
+    ids = sorted({int(i) for i in ids})
+    stamp = _stamp()
+    for n, start in enumerate(range(0, len(ids), MEMBER_CHUNK)):
+        hooks.enqueue("samples", f"batch:assay:{seek_id}:{stamp}:{n}", ids[start:start + MEMBER_CHUNK])
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -173,6 +219,10 @@ class AssayProxyViewSet(viewsets.ViewSet):
             # An assay feeds the DERIVED_FROM labels and the ISA nodes (spec 5 E8, E15).
             hooks.enqueue("assay_map", "*")
             hooks.enqueue("isa", "*")
+            # Its samples join the assay's study: their IN_STUDY follows SEEK at the next drain.
+            seek_id = str((data.get("data") or {}).get("id") or "")
+            if seek_id:
+                _enqueue_members(seek_id, _response_samples(data))
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
@@ -224,6 +274,9 @@ class AssayProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Assay not found"}]}', status=404, content_type='application/json')
 
+        # A PATCH that sets the study or the samples moves its members' IN_STUDY: read who they are before SEEK
+        # changes them, so a sample the PATCH removes is synced too.
+        before = _members_before(seek_id) if _moves_samples(payload) else None
         body, code, headers, resp = self.client.update_assay(request, str(seek_id), payload)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
@@ -241,6 +294,8 @@ class AssayProxyViewSet(viewsets.ViewSet):
             # A renamed assay leaves every DERIVED_FROM label it names stale (spec 5 E8, E15).
             hooks.enqueue("assay_map", "*")
             hooks.enqueue("isa", "*")
+            if before is not None:
+                _enqueue_members(seek_id, set(before) | set(_response_samples(data)))
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
