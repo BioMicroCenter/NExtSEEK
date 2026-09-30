@@ -324,6 +324,63 @@ def test_nothing_found_is_404(seek, graph):
     assert resp.status_code == 404 and resp.json() == {"detail": "No samples found for provided UIDs"}
 
 
+# --------------------------------------------------------------------------- -PUB spelling (ruling D2)
+
+
+def _add(seek, sample_id, uuid, project):
+    with seek.cursor() as c:
+        c.execute("INSERT INTO samples VALUES (%s, 7, %s, '{}')", [sample_id, uuid])
+        c.execute("INSERT INTO projects_samples VALUES (%s, %s)", [project, sample_id])
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_uid_written_without_pub_resolves_to_the_pub_sample(seek, graph, login):
+    _add(seek, 20, "TIS-9-PUB", 2)
+    resp = _post({"identifiers": ["TIS-9"], "include_tree": False}, login=login)
+    assert resp.status_code == 200 and _uuids(resp) == ["TIS-9-PUB"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_uid_written_with_pub_resolves_to_the_bare_sample(seek, graph, login):
+    _add(seek, 21, "TIS-8", 2)
+    resp = _post({"identifiers": ["TIS-8-PUB"], "include_tree": False}, login=login)
+    assert resp.status_code == 200 and _uuids(resp) == ["TIS-8"]
+    assert resp.json()["failed_uids"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_the_spelling_as_written_wins_when_both_exist(seek, graph, login):
+    _add(seek, 22, "TIS-7", 2)
+    _add(seek, 23, "TIS-7-PUB", 2)
+    resp = _post({"identifiers": ["TIS-7"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-7"] and resp.json()["failed_uids"] == 0
+
+
+def test_a_hit_and_a_pub_miss_in_one_request(seek, graph):
+    _add(seek, 24, "TIS-5-PUB", 2)
+    resp = _post({"identifiers": ["TIS-2", "TIS-5", "TIS-NOPE"], "include_tree": False})
+    assert _uuids(resp) == ["TIS-2", "TIS-5-PUB"] and resp.json()["failed_uids"] == 1
+
+
+def test_both_spellings_of_one_sample_count_as_one_answered_uid(seek, graph):
+    _add(seek, 26, "TIS-4-PUB", 2)
+    resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False})
+    assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+
+
+def test_a_foreign_pub_sample_still_answers_404_to_a_member(seek, graph, monkeypatch):
+    """The other spelling sits in a project the caller cannot see: same 404 as an unknown UID, and the retry stays
+    one scoped statement, never the graph or a full scan (#74)."""
+    _add(seek, 25, "TIS-6-PUB", 4)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    resp = _post({"identifiers": ["TIS-6"], "include_tree": False})
+    assert resp.status_code == 404 and resp.json() == {"detail": "No samples found for provided UIDs"}
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
 # --------------------------------------------------------------------------- lineage
 
 

@@ -51,6 +51,7 @@ from nextseek_api.endpoint_descriptions import SAMPLE_RETRIEVE_DESC
 from nextseek_api.graph_search.scope import Scope, ScopeUnavailable, resolve_scope
 from nextseek_api.helpers import resolve_seek_auth
 from nextseek_api.models import SampleGroup, SampleRetrieveRequest, SampleRetrieveResponse
+from nextseek_api.services.uid_suffix import uid_spellings
 
 log = logging.getLogger(__name__)
 
@@ -259,6 +260,25 @@ def _verified(candidates):
     return good, stale
 
 
+def _resolve_requested(uids, scope):
+    """({id: uuid} of these UIDs as this caller may see them, whether the graph answered)."""
+    if not scope.is_admin:
+        # Everyone else: one scoped statement for every UID (numeric ids are UIDs by now).
+        return _scoped_uuids_to_ids(uids, scope), True
+    # A superuser sees everything, so how long a lookup takes reveals nothing: the graph's uuid index first,
+    # verified against MySQL, and only what it misses by a full uuid scan.
+    graph_ok = True
+    try:
+        mapped = _graph_uuid_ids(uids) if uids else {}
+    except GraphUnavailable:
+        graph_ok, mapped = False, {}
+    found, _ = _verified(mapped)
+    unmapped = set(uids) - set(found.values())
+    if unmapped:
+        found.update(_uuids_to_ids(unmapped))
+    return found, graph_ok
+
+
 def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveResult:
     """The rows a download of ``identifiers`` contains for this caller. See the module docstring."""
     requested_uids, numeric_ids = [], []
@@ -287,24 +307,20 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
                 requested_uids.append(uuid)
     requested_uids = list(dict.fromkeys(requested_uids))
 
-    graph_ok = True
-    if scope.is_admin:
-        # A superuser sees everything, so how long a lookup takes reveals nothing: the graph's uuid index first,
-        # verified against MySQL, and only what it misses by a full uuid scan.
-        try:
-            mapped = _graph_uuid_ids(requested_uids) if requested_uids else {}
-        except GraphUnavailable:
-            graph_ok, mapped = False, {}
-        good, _ = _verified(mapped)
-        requested.update(good)
-        unmapped = set(requested_uids) - set(requested.values())
-        if unmapped:
-            requested.update(_uuids_to_ids(unmapped))
-        visible = set(requested)
-    else:
-        # Everyone else: one scoped statement for every requested UID (numeric ids are UIDs by now).
-        requested = _scoped_uuids_to_ids(requested_uids, scope)
-        visible = set(requested)
+    found, graph_ok = _resolve_requested(requested_uids, scope)
+    requested = {**requested, **found} if scope.is_admin else found
+    # Ruling D2: a UID resolves with or without its -PUB suffix. As written first, so an exact match is never
+    # displaced by a guess; only a miss tries the other spelling, through the same scoped statement for a member.
+    hit = set(requested.values())
+    other = {alt: uid for uid in requested_uids if uid not in hit for alt in uid_spellings(uid)[1:]}
+    if other:
+        more, ok = _resolve_requested(sorted(other), scope)
+        graph_ok = graph_ok and ok
+        requested.update(more)
+        # Name the resolved spelling as the requested one, so it counts as answered and not as failed.
+        swapped = {other[alt]: alt for alt in more.values() if alt in other}
+        requested_uids = list(dict.fromkeys(swapped.get(u, u) for u in requested_uids))
+    visible = set(requested)
     wanted = set(visible)
 
     lineage_complete = True
