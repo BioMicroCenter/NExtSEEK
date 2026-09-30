@@ -169,17 +169,91 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
     )
 
 
-def _type_names_block(config: Any, rows: list) -> str:
-    """Catalog names for the sample type codes in the rows, so the writer does not invent them
-    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+_VALUE_COLUMNS_MAX = 8
+_VALUE_TOP_MAX = 8
+_VALUE_CLIP = 60
+_VALUE_COUNTS_CHARS_MAX = 3000
+
+
+def _is_identity_key(key: Any) -> bool:
+    k = str(key).lower()
+    return k in ("id", "uuid", "uid") or k.endswith(("_id", "_uuid", "_uid"))
+
+
+def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str:
+    """The values of each returned column across the WHOLE result, not the preview.
+
+    ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
+    and called that strain "the only one" and a field "null throughout". The rows are all in memory, so the counts
+    cost a pass over a list. Sibling of ``_type_histogram_block``.
+
+    Only emitted when the preview is short of the full set. Identity keys and type columns are left out, and so is
+    a column where no value repeats (a column of names): its counts say nothing the preview does not.
+    """
+    if shown >= len(all_rows):
+        return ""
+    rows = [r for r in all_rows if isinstance(r, dict)]
+    keys: list[str] = []
+    for row in rows:
+        for key in row:
+            k = str(key).lower()
+            if key not in keys and not _is_identity_key(key) and not (k == "type" or k.endswith("_type")):
+                keys.append(key)
+    lines: list[str] = []
+    size = 0
+    for key in keys:
+        counts: dict[str, int] = {}
+        empty = 0
+        for row in rows:
+            value = row.get(key)
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, separators=(",", ":"), default=str)
+            text = "" if value is None else str(value).strip()
+            if not text:
+                empty += 1
+                continue
+            text = text[:_VALUE_CLIP - 1] + "…" if len(text) > _VALUE_CLIP else text
+            counts[text] = counts.get(text, 0) + 1
+        if not any(n > 1 for n in counts.values()):
+            continue
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        listed = ", ".join(f"{v} {n:,}" for v, n in ranked[:_VALUE_TOP_MAX])
+        more = f", and {len(ranked) - _VALUE_TOP_MAX} more" if len(ranked) > _VALUE_TOP_MAX else ""
+        line = f"- {key}: {listed}{more}" + (f"; empty {empty:,}" if empty else "")
+        if len(lines) >= _VALUE_COLUMNS_MAX or size + len(line) > _VALUE_COUNTS_CHARS_MAX:
+            break
+        lines.append(line)
+        size += len(line) + 1
+    if not lines:
+        return ""
+    n = f"{len(all_rows):,}"
+    first = (f"Values across the {n} returned rows, not just the preview (each column counted on its own):"
+             if capped else f"Values across ALL {n} rows, not just the preview (each column counted on its own):")
+    return (
+        first + "\n" + "\n".join(lines) + "\n"
+        "The preview is the head of the result and is not representative. When you say which values a field holds, "
+        "or that a field is empty or the same throughout, say it from these counts, never from the preview rows.\n"
+    )
+
+
+def _type_names(config: Any) -> dict[str, str]:
+    """``{SampleType: Name}`` from the catalog's sample type rows."""
     catalog = getattr(config, "MIN_SAMPLETYPES", None)
     if not isinstance(catalog, list):
-        return ""
-    names = {
+        return {}
+    return {
         str(item.get("SampleType")): str(item.get("Name"))
         for item in catalog
         if isinstance(item, dict) and item.get("SampleType") and item.get("Name")
     }
+
+
+def _type_names_block(config: Any, rows: list) -> str:
+    """Catalog names for the sample type codes in the rows, so the writer does not invent them
+    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+    names = _type_names(config)
+    if not names:
+        return ""
     seen: list[str] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -193,6 +267,22 @@ def _type_names_block(config: Any, rows: list) -> str:
         return ""
     return ("Sample type names for the codes in these rows (use these names; never invent one):\n"
             + "\n".join(f"- {code} = {names[code]}" for code in seen) + "\n")
+
+
+def _container_aliases(config: Any) -> list[set[str]]:
+    """One set per row of the projects catalog: its name and alternative names, squashed. The scope check reads
+    "IMPAcTB" and the Investigation title 'Impact' as two names of one row."""
+    rows = getattr(config, "FULL_PROJECTS", None)
+    out: list[set[str]] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        names = {re.sub(r"[^a-z0-9]", "", str(n or "").lower())
+                 for n in [row.get("name"), *(row.get("alternative_names") or [])]}
+        names.discard("")
+        if names:
+            out.append(names)
+    return out
 
 
 # The graph-result reviewer's two outputs (graph_review.py, helpers/suggestions.py): the facts the result matched,
@@ -575,6 +665,15 @@ def chatter_agent_answer(
     # asked for that it did not. That gap is what production issues B7, B8 and B13 all
     # needed and none of them had: a reply cannot avoid misreporting the question if
     # the writer has no way to know what ran. See helpers/query_scope.py.
+    #
+    # On a graph turn the writer is also handed the executed Cypher and its parameters (the operator's
+    # ruling, dev run 2026-09-29). The scope check is a text check and can miss a filter written under
+    # another name (a project asked by an alias of the Investigation title the query compared, a
+    # keyword realised as a sample type label), and the prompt makes its NOT APPLIED line a mandatory
+    # first sentence. The Cypher is there only so the writer can check that line and the reviewer's
+    # notes against what ran (chatter_agent.txt, "ONE EXCEPTION, AND ONLY ONE"). The rule that a reply
+    # never names Cypher, a graph pattern or a query operator is unchanged, and a REST turn still gets
+    # no plumbing: `_scrub_plumbing` above.
     offered_step = _one_line(offered_step) or None
     scope = describe_query_scope(
         entity_result=entity_result,
@@ -583,6 +682,8 @@ def chatter_agent_answer(
         graph_plan=graph_plan,
         extra_notes=query_notes,
         user_query=user_query,
+        container_aliases=_container_aliases(config),
+        type_names=_type_names(config),
     )
 
     def _fmt_entities(items: Any) -> str:
@@ -697,6 +798,9 @@ def chatter_agent_answer(
                "file, so say the full list is available rather than offering to re-run the "
                "query or telling the user to narrow it.\n" if len(records) < len(all_rows) else "")
             + _type_histogram_block(all_rows, len(records))
+            + _value_counts_block(all_rows, len(records),
+                                  capped=graph_truncated or (isinstance(total_matches, int)
+                                                             and total_matches > len(all_rows)))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
@@ -776,6 +880,9 @@ def chatter_agent_answer(
         f"- Projects: {resolved_projects}\n"
         f"- Keywords: {keywords_str}\n\n"
         f"{render_query_scope(scope)}\n\n"
+        + (f"Executed query (for checking NOT APPLIED and notes only; never quote or describe it):\n"
+           f"{graph_plan.get('cypher')}\nParameters: {json.dumps(graph_plan.get('parameters') or {}, default=str)}\n\n"
+           if is_graph and graph_plan.get('cypher') else "")
         + (f"{OFFERED_STEP_LINE.format(step=offered_step)}\n\n" if offered_step else "")
         + f"{data_section}\n\n"
         "Result statistics:\n"
@@ -815,9 +922,10 @@ def chatter_agent_answer(
             if offered_step else ""
         )
         + (
-            "- The query did NOT constrain on everything the user asked for. Say which "
-            "constraint is missing in your FIRST sentence, and do not describe the result "
-            "as though it were restricted to it.\n"
+            "- The scope check says the query did NOT constrain on everything the user asked for. Say which "
+            "constraint is missing in your FIRST sentence, and do not describe the result as though it were "
+            "restricted to it, UNLESS the 'Executed query' plainly filters on that constraint: then it was "
+            "applied and you say nothing about it.\n"
             if scope.not_applied else ""
         )
         + "- If you name a sample type, assay code or keyword, take it from 'Constrained by', never from "

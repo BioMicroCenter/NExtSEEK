@@ -8,29 +8,51 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 
 import pytest
 
 from chat_nextseek.helpers.query_scope import describe_query_scope
 
 HERE = pathlib.Path(__file__).parent
+CONTEXT = HERE.parents[1] / "chat_nextseek" / "src" / "chat_nextseek" / "context"
 FIX = json.loads((HERE / "fixtures" / "query_scope_replay.json").read_text(encoding="utf-8"))
 REVIEWER_IDS = {r["id"] for r in json.loads((HERE / "fixtures" / "graph_review_replay.json").read_text(encoding="utf-8"))}
 KEYS = {"id", "label", "question", "entity_result", "parser_plan", "graph_plan", "api_plan",
         "baseline_not_applied", "clears", "why"}
 FALSE_CAVEATS = {"r5-631", "r5-646", "r5-650", "r5-653", "r5-667", "r5-670", "r5-678",
-                 "r6-1221", "r6-1227", "r7-708", "r7-711"}
-OUT_OF_SCOPE = {"r3-602", "r4-619", "r5-659", "r5-660", "r5-662", "r7-709"}
+                 "r6-1221", "r6-1227", "r7-708", "r7-711", "m1-1349", "m2-1373", "m2-1390"}
+OUT_OF_SCOPE = {"r3-602", "r4-619", "r5-659", "r5-660", "r5-662", "r7-709", "m2-1413"}
 CONVERTER_WORDS = {"mtb", "infection", "positive"}
+
+
+def _aliases():
+    """One squashed set per row of the projects catalog, as the chatter builds it."""
+    out = []
+    for row in json.loads((CONTEXT / "projects_db.json").read_text(encoding="utf-8")):
+        names = {re.sub(r"[^a-z0-9]", "", str(n or "").lower())
+                 for n in [row.get("name"), *(row.get("alternative_names") or [])]}
+        out.append(names - {""})
+    return out
+
+
+def _type_names():
+    rows = json.loads((CONTEXT / "min_sampletypes_db.json").read_text(encoding="utf-8"))
+    return {str(i["SampleType"]): str(i["Name"]) for i in rows if i.get("SampleType") and i.get("Name")}
+
+
+ALIASES = _aliases()
+TYPE_NAMES = _type_names()
 
 
 def _scope(r):
     return describe_query_scope(entity_result=r["entity_result"], parser_plan=r["parser_plan"],
-                                api_plan=r["api_plan"], graph_plan=r["graph_plan"], user_query=r["question"])
+                                api_plan=r["api_plan"], graph_plan=r["graph_plan"], user_query=r["question"],
+                                container_aliases=ALIASES, type_names=TYPE_NAMES)
 
 
 def test_the_fixture_covers_every_reviewer_turn_and_carries_nothing_else():
-    assert len(FIX) == 120
+    assert len(FIX) == 124
     assert REVIEWER_IDS <= {r["id"] for r in FIX}
     for r in FIX:
         assert set(r) == KEYS, r["id"]
@@ -53,7 +75,9 @@ def test_no_turn_gains_a_not_applied_item(r):
 @pytest.mark.parametrize("r", [r for r in FIX if r["label"] == "out_of_scope"], ids=lambda r: r["id"])
 def test_out_of_scope_caveats_are_left_alone(r):
     """-PUB (ruled not an issue), D.FILE (gone upstream), the converter keywords (operator question Q1: false, but
-    fixed in the graph prompt's keyword_fields line, not by query_scope; the recorded plans predate that line)."""
+    fixed in the graph prompt's keyword_fields line, not by query_scope; the recorded plans predate that line),
+    and m2-1413 (dev run 2026-09-29): "methylation" over :T_A_MET stays NOT APPLIED because the catalog has no name
+    for A.MET, the known limit of the type-name route."""
     assert _scope(r).not_applied == r["baseline_not_applied"]
 
 
