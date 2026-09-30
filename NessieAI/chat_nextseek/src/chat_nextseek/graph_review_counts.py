@@ -791,7 +791,7 @@ def _breakdown_variant(cy: str, params: dict, detail: str) -> _Variant | None:
     only inside ``EXISTS {}``: grouping by it was refused by the prover for a member ("the name aln is not bound
     here") and is invalid Cypher on an admin's path, which skips the prover. With no such variable there is no
     variant."""
-    m = re.match(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher never applies it\s*$", detail, re.S)
+    m = re.match(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher (?:never applies it|applies it only as free text)\s*$", detail, re.S)
     if not m or not _ATTR_RE.fullmatch(m.group(2)):
         return None
     label, attr, value = m.groups()
@@ -817,7 +817,7 @@ BREAKDOWN_FACT = "Counted by {attribute}: {values}; one result can fall under mo
 NARROWED_FACT = "With {attribute} '{value}' only, the count is {n:,}."
 BREAKDOWN_SHOWN = 5
 BREAKDOWN_ROWS = 20
-_UNAPPLIED_DETAIL = re.compile(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher never applies it\s*$", re.S)
+_UNAPPLIED_DETAIL = re.compile(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher (?:never applies it|applies it only as free text)\s*$", re.S)
 
 
 def _exists_conjunct(cy: str, mask: str, label: str):
@@ -833,6 +833,8 @@ def _exists_conjunct(cy: str, mask: str, label: str):
         parts = _split_top(body, bmask, r"\bAND\b")
         for i, part in enumerate(parts):
             m = re.fullmatch(r"EXISTS\s*\{(.*)\}", _unwrap(part), re.S | re.I)
+            if m and re.search(r"\b(?:OR|XOR|AND)\b", _mask(_unwrap(part)), re.I):
+                m = None        # EXISTS {..} OR EXISTS {..}: more than one block, no single inside to edit
             bound = m and re.search(rf"\(\s*([A-Za-z_]\w*)\s*:\s*{re.escape(label)}\b", m.group(1))
             if bound:
                 return clause, parts, i, m.group(1), bound.group(1)

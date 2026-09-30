@@ -645,6 +645,44 @@ DEV_1276 = ("MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Inv
             "(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p:T_PAT) } RETURN count(DISTINCT p) AS n")
 
 
+# ----------------------------------- the free-text detail, and a conjunct with more than one EXISTS (25 Sep, tcga) ----
+FREE_TEXT_DETAIL = "question names T_A_ALN.DataType='RNA-Seq', Cypher applies it only as free text"
+FREE_TEXT_CATALOG = {"T_A_ALN.*": [["DataType", 5]], "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]],
+                     "T_A_ALN.DataType": [["RNA-Seq", 33227], ["WGS", 23723], ["miRNA-Seq", 11441]],
+                     "T_PAT.@name": [["Patient", 12108]]}
+ONE_BLOCK_OR = (
+    "MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+    "  WHERE inv.title = $investigation_title\n}\nAND EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
+    "  WHERE EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS 'rna-seq'\n}\n"
+    "RETURN count(s) AS n")
+TWO_BLOCKS_OR = (
+    "MATCH (p:T_PAT)\nWHERE EXISTS { MATCH (p)-[:IN_STUDY]->(:Study) WHERE $investigation = 'TCGA' }\n"
+    "AND (\n  EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(:T_RNA)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n  }\n"
+    "  OR EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n    WHERE toLower(aln.search_text) CONTAINS $rnaseq\n"
+    "  }\n)\nRETURN count(p) AS n")
+
+
+def test_the_free_text_detail_builds_the_click_statement_inside_the_one_exists():
+    inp = _inp(ONE_BLOCK_OR, {"investigation_title": "TCGA"}, rows=[{"n": 10761}],
+               question="How many TCGA patients have at least one RNA-Seq alignment derived from their samples?")
+    review = review_tier1(inp, DictCatalog(FREE_TEXT_CATALOG))
+    assert [c.detail for c in review.checks if c.fired] == [FREE_TEXT_DETAIL]
+    statement, params = g2.rerun_statement(inp, review)
+    assert ("WHERE (EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS "
+            "'rna-seq') AND aln.DataType = $review_value") in statement
+    assert params == {"investigation_title": "TCGA", "review_value": "RNA-Seq"}
+    assert statement.count("{") == statement.count("}")
+
+
+@pytest.mark.parametrize("detail", [FREE_TEXT_DETAIL, ALN_DETAIL])
+def test_a_conjunct_with_two_exists_blocks_gets_no_statement(detail):
+    """``EXISTS {..} OR EXISTS {..}`` is not one block: the old reader swallowed it and edited only one branch."""
+    inp = _inp(TWO_BLOCKS_OR, {"rnaseq": "rna-seq", "investigation": "TCGA"})
+    review = _review(("unapplied_value", detail), suggestion=dict(NARROW))
+    assert g2.rerun_statement(inp, review) is None
+    assert [e for e, _c, _p in g2.relaxed_variants(inp, review) if e.startswith("unapplied_value")] == []
+
+
 def test_a_variable_bound_only_inside_exists_gets_the_split_hoisted_out_of_it():
     """r6-1225: aln is bound only inside EXISTS {}, so grouping by it after the subquery would be invalid Cypher (the
     prover refuses it for a member: "the name aln is not bound here"). The operator's ruling (2026-09-25) wants the
