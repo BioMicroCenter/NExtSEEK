@@ -177,6 +177,8 @@ def open_dir(root: Path, rel_parts: tuple[str, ...] = (), *, create: bool = Fals
     ``create`` makes missing steps below ``root`` (mode 0755), never ``root`` itself. ``root`` must be a trusted
     root (``_check_root``): a folder inside a registered agent root raises ``UnsafePath`` before anything opens.
     """
+    if isinstance(rel_parts, (str, bytes)):
+        raise TypeError("rel_parts is a tuple of names, not one string")
     names = tuple(_check_name(part) for part in rel_parts)
     key = _check_root(root)
     try:

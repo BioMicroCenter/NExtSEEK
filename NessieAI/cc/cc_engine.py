@@ -41,6 +41,7 @@ from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
 from NessieAI.cc import cc_session
+from NessieAI.cc import safe_fs
 
 logger = logging.getLogger(__name__)
 
@@ -634,6 +635,8 @@ class ScrubReport(NamedTuple):
 # #76: the per-session transcript store lives at <cc_state_dir>/projects.
 _TRANSCRIPT_STORE_DIRNAME = "projects"
 _SCRUB_MANIFEST_VERSION = 1
+# A manifest has one line per transcript; anything larger is not one of ours and reads as "nothing verified".
+_SCRUB_MANIFEST_MAX_BYTES = 16 * 1024 * 1024
 
 
 def _scrub_manifest_path(cc_state_dir: Path | str) -> Path:
@@ -668,8 +671,10 @@ def _read_scrub_manifest(cc_state_dir: Path | str) -> dict[str, str]:
     consumer treats an unrecorded file as unscrubbed, so every error path here
     has to fail towards "unknown", never towards "clean".
     """
+    manifest = _scrub_manifest_path(cc_state_dir)
     try:
-        blob = _scrub_manifest_path(cc_state_dir).read_bytes()
+        # One level above the agent's folder, and still never read through a link.
+        blob = safe_fs.read_file(manifest.parent, manifest.name, max_bytes=_SCRUB_MANIFEST_MAX_BYTES)
     except OSError:
         return {}
     try:
@@ -689,7 +694,7 @@ def _write_scrub_manifest(cc_state_dir: Path | str, files: dict[str, str]) -> No
 
     A WHOLE-FILE replace, not a merge: an entry whose transcript has since been
     deleted, or which this pass could not read, must not survive as a stale
-    "clean" claim. tmp + ``os.replace`` so a concurrent reader never sees a
+    "clean" claim. one rename (``safe_fs.write_file_atomic``) so a concurrent reader never sees a
     half-written manifest and read it as ``{}``-on-parse-error.
     """
     path = _scrub_manifest_path(cc_state_dir)
@@ -697,14 +702,9 @@ def _write_scrub_manifest(cc_state_dir: Path | str, files: dict[str, str]) -> No
         {"version": _SCRUB_MANIFEST_VERSION, "files": files},
         sort_keys=True, separators=(",", ":"),
     )
+    # ``cc-state/`` itself is Django's (no agent mounts it), made here as before.
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, path)
-    try:
-        os.chmod(path, 0o644)
-    except OSError:
-        pass
+    safe_fs.write_file_atomic(path.parent, path.name, payload.encode("utf-8"), mode=0o644)
 
 
 def transcript_is_verified_scrubbed(transcript_path: Path | str, raw: bytes) -> bool:
@@ -784,10 +784,11 @@ def scrub_transcript_store(
     read-only into LATER agent containers, and ``cc_sweep`` feeds it verbatim to
     the summarizer whose output lands in the merged ``CLAUDE.md``.
 
-    Rewritten via tmp + ``os.replace`` so a reader never observes a truncated
-    file and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote
-    or backslash, so replacing a value inside a JSON string cannot break the
-    escaping that ``--resume`` parses.
+    Rewritten through ``safe_fs.write_file_atomic`` (a fresh temporary name, one rename, the mode set on the
+    open file), so a reader never observes a truncated file, nothing is written through a link in the agent's
+    folder, and the jsonl stays structurally valid: ``<REDACTED>`` carries no quote or backslash, so replacing
+    a value inside a JSON string cannot break the escaping that ``--resume`` parses. A ``projects`` that is a
+    link, or not a folder, is never entered: it counts as one skipped file and no watermark is written.
 
     Every file it cannot scrub is LOGGED with its path and the error, and
     counted in ``ScrubReport.skipped``. ``cc_sweep`` re-reads these same files
@@ -808,51 +809,42 @@ def scrub_transcript_store(
     survive.
     """
     cc_state_dir = Path(cc_state_dir)
-    root = cc_state_dir / _TRANSCRIPT_STORE_DIRNAME
-    if not root.is_dir():
+    # The trusted root is the session folder (the mount's backing root); projects/ and everything below it
+    # are the agent's, so they are walked in rel and never trusted.
+    try:
+        # Listed in full first: the rewrites below add and rename entries in these folders.
+        listing = list(safe_fs.iter_files(cc_state_dir, (_TRANSCRIPT_STORE_DIRNAME,), suffix=".jsonl"))
+    except FileNotFoundError:
         return ScrubReport(0, 0)
+    except OSError as exc:
+        logger.warning("cc #72: transcript store under %s is not a real folder or cannot be listed, "
+                       "left unscrubbed: %r", cc_state_dir, exc)
+        return ScrubReport(0, 1)
     rewritten = 0
     skipped = 0
     verified: dict[str, str] = {}
-    for path in root.rglob("*.jsonl"):
-        if path.is_symlink() or not path.is_file():
-            continue
+    for rel, _st in listing:
+        key = rel  # already "projects/<path below the store>", the manifest's key
         try:
-            rel = str(path.relative_to(cc_state_dir))
-        except ValueError:  # pragma: no cover - rglob cannot leave its root
-            continue
-        try:
-            raw = path.read_bytes()
+            raw = safe_fs.read_file(cc_state_dir, rel)
         except OSError as exc:
             skipped += 1
-            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r",
-                           path, exc)
+            logger.warning("cc #72: cannot read transcript %s, left unscrubbed: %r", cc_state_dir / rel, exc)
             continue
         clean = _scrub_secret_bytes(raw, environment)
         if clean == raw:
-            verified[rel] = _transcript_digest(raw)
+            verified[key] = _transcript_digest(raw)
             continue
-        tmp = path.with_name(path.name + ".scrub-tmp")
         try:
-            tmp.write_bytes(clean)
-            os.replace(tmp, path)
-            # os.replace installs a NEW inode owned by root (Django); the agent
-            # runs as uid 1001 and must still read/append it on the next turn.
-            # Same world-permission approach as the mount backing dirs above.
-            try:
-                os.chmod(path, 0o666)
-            except OSError:
-                pass
-            rewritten += 1
-            verified[rel] = _transcript_digest(clean)
+            # 0o666: the rename leaves a new inode owned by Django's root, and the agent
+            # (uid 1001) must still read and append it on the next turn.
+            safe_fs.write_file_atomic(cc_state_dir, rel, clean, mode=0o666)
         except OSError as exc:
             skipped += 1
-            logger.warning("cc #72: failed to scrub transcript %s, left "
-                           "unscrubbed: %r", path, exc)
-            try:
-                tmp.unlink()
-            except OSError:
-                pass
+            logger.warning("cc #72: failed to scrub transcript %s, left unscrubbed: %r", cc_state_dir / rel, exc)
+            continue
+        rewritten += 1
+        verified[key] = _transcript_digest(clean)
     try:
         _write_scrub_manifest(cc_state_dir, verified)
     except OSError as exc:
@@ -913,25 +905,31 @@ def scrub_sibling_transcript_stores(
     the next step if this shows up in turn latency.
     """
     root = Path(cc_state_root)
-    if not root.is_dir():
-        return ScrubReport(0, 0)
     skip_name = Path(exclude).name if exclude is not None else None
-    rewritten = 0
-    skipped = 0
     try:
-        entries = sorted(root.iterdir())
+        root_fd = safe_fs.open_dir(root)
+    except FileNotFoundError:
+        return ScrubReport(0, 0)
     except OSError as exc:
         logger.warning("cc #76: cannot list cc-state root %s: %r", root, exc)
         return ScrubReport(0, 0)
-    for child in entries:
-        # Skips the current session, the ".<sid>.scrub.json" manifests that
-        # live at this level, and any symlink (which could point out of the
-        # user's tree entirely).
-        if child.name == skip_name or child.is_symlink() or not child.is_dir():
+    try:
+        with os.scandir(root_fd) as it:
+            # Real session folders only: a link here is never followed, and the
+            # ".<sid>.scrub.json" manifests at this level are files.
+            names = sorted(e.name for e in it if e.is_dir(follow_symlinks=False))
+    except OSError as exc:
+        logger.warning("cc #76: cannot list cc-state root %s: %r", root, exc)
+        return ScrubReport(0, 0)
+    finally:
+        os.close(root_fd)
+    rewritten = 0
+    skipped = 0
+    for name in names:
+        if name == skip_name:
             continue
-        if not (child / _TRANSCRIPT_STORE_DIRNAME).is_dir():
-            continue
-        report = scrub_transcript_store(child, environment)
+        # A session with no projects/ yet reports (0, 0) and writes no watermark.
+        report = scrub_transcript_store(root / name, environment)
         rewritten += report.rewritten
         skipped += report.skipped
     return ScrubReport(rewritten=rewritten, skipped=skipped)
@@ -1348,12 +1346,12 @@ def run_cc_turn(
     # which is safe because the scrub is line-count preserving (see the
     # ``_turn_slice`` block comment).
     #
-    # The root expression MUST match the one ``_read_turn_transcript`` resolves:
+    # The root and rel_parts MUST match the ones ``_read_turn_transcript`` passes (the session folder, then
+    # ``projects``):
     # ``_transcript_line_counts`` keys are un-normalised ``str(path)``, so a
     # different spelling misses every lookup and silently degrades every row
     # back to the whole cumulative session.
-    pre_turn_lines = _transcript_line_counts(
-        Path(dirs.cc_state_mnt) / "projects" if dirs.cc_state_mnt else None)
+    pre_turn_lines = _transcript_line_counts(dirs.cc_state_mnt, (_TRANSCRIPT_STORE_DIRNAME,))
     # #68: whether a CCSessionTranscript row exists for this turn yet. Bound
     # BEFORE the try because the finally reads it: an exception raised between
     # the try and an in-try assignment would make the finally raise
@@ -1894,34 +1892,23 @@ def _write_raw_turn_copy(output_mnt: str | os.PathLike[str], run_id: object,
     return raw_copy
 
 
-def _newest_jsonl_under(root: Path, *, min_mtime: float | None = None) -> Path | None:
-    """Pick newest *.jsonl under root; if min_mtime set, only files with mtime >= min_mtime."""
-    candidates = [p for p in root.rglob("*.jsonl") if p.is_file()]
-    if min_mtime is not None:
-        candidates = [p for p in candidates if p.stat().st_mtime >= min_mtime]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+def _newest_jsonl_under(root: Path, rel_parts: tuple[str, ...] = (), *,
+                        min_mtime: float | None = None) -> Path | None:
+    """Newest ``*.jsonl`` under ``root/rel_parts`` by modification time, never through a link.
 
+    With ``min_mtime``, only files at least that recent. The store is the agent's folder, so ``root`` is the
+    session folder (a trusted root) and ``projects`` is in ``rel_parts``; it is listed with
+    ``safe_fs.iter_files``: a start folder that is missing, a link or not a folder, or a root below a
+    registered agent root, raises ``OSError``, which every caller catches.
+    """
+    best: tuple[float, str] | None = None
+    for rel, st in safe_fs.iter_files(Path(root), rel_parts, suffix=".jsonl"):
+        if min_mtime is not None and st.st_mtime < min_mtime:
+            continue
+        if best is None or st.st_mtime > best[0]:
+            best = (st.st_mtime, rel)
+    return None if best is None else Path(root) / best[1]
 
-# --------------------------------------------------------------------------
-# #68 — the per-turn transcript slice.
-#
-# ``--resume`` appends every turn of a chat to ONE session jsonl, but
-# ``CCSessionTranscript`` rows are keyed per turn, so reading the whole file
-# into each row makes row N hold turns 1..N and the stored bytes grow
-# quadratically in turn count. These three pure helpers let a caller snapshot
-# the store's line counts BEFORE spawn and afterwards keep only the records
-# this turn appended.
-#
-# The boundary is a LINE INDEX and not a byte offset, deliberately.
-# ``_scrub_secret_bytes`` (#72) replaces each secret with the literal
-# ``b"<REDACTED>"``, which contains no newline: the scrub is therefore
-# line-count preserving but NOT length preserving. A byte offset recorded
-# before the turn is measured against the DIRTY bytes and is invalidated the
-# moment the preceding turns' records are scrubbed in place — it would then cut
-# mid-record. A line index survives that rewrite untouched.
-# --------------------------------------------------------------------------
 
 def _jsonl_line_count(raw: bytes) -> int:
     """Count jsonl records in ``raw`` the way this codebase already counts them.
@@ -1969,14 +1956,14 @@ def _turn_slice(raw: bytes, prior_lines: int) -> bytes:
     return b"\n".join(lines[prior_lines:]) + b"\n"
 
 
-def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
+def _transcript_line_counts(store_root: Path | str | None, rel_parts: tuple[str, ...] = ()) -> dict[str, int]:
     """Map ``str(path) -> _jsonl_line_count`` for every ``*.jsonl`` under a store.
 
     The pre-spawn snapshot whose values later feed ``_turn_slice``'s
     ``prior_lines``.
 
-    KEY SPELLING IS THE CALLER'S, not a normal form. Keys are ``str(path)`` for
-    whatever ``root.rglob`` yields, and nothing here calls ``.resolve()``: the
+    KEY SPELLING IS THE CALLER'S, not a normal form. Keys are ``str(root / rel)`` for
+    each file ``safe_fs.iter_files`` lists under ``root/rel_parts``, and nothing here calls ``.resolve()``: the
     spelling of ``store_root`` going in is the spelling coming out. The reader
     (``_read_turn_transcript``) looks its own resolved path up in this mapping,
     so the two must build the root from the SAME expression — and normalising on
@@ -1990,27 +1977,22 @@ def _transcript_line_counts(store_root: Path | str | None) -> dict[str, int]:
 
     Total-function on purpose — it runs on the turn's hot path, before the agent
     is even spawned, and must never be the reason a turn fails. Returns ``{}``
-    for a falsy root or a path that is not a directory; skips symlinks and
-    non-files; skips a file it cannot read rather than raising; and returns
-    whatever it had counted so far if the walk itself dies.
+    for a falsy root, a start folder that is missing, a link or not a folder, or a root below a
+    registered agent root (pass the session folder as ``store_root`` and ``("projects",)`` as ``rel_parts``);
+    never follows a link below it (links, FIFOs and other non-files are skipped); skips a file it cannot read
+    rather than raising; and returns whatever it had counted so far if the walk itself dies.
     """
     if not store_root:
         return {}
     root = Path(store_root)
     counts: dict[str, int] = {}
-    # ``is_dir()`` and ``rglob`` are INSIDE the try, not ahead of it.
-    # ``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but re-raises EACCES, so
-    # an unreadable parent directory would otherwise propagate straight past
-    # this function's "must never be the reason a turn fails" guarantee; and
-    # ``rglob`` is a generator, so anything it raises surfaces at iteration.
+    # safe_fs never follows a link in the store (the agent's folder) and raises for a
+    # root that is missing, a link or unreadable at the first step of the walk; all of
+    # it is inside the try, so none of it can fail the turn.
     try:
-        if not root.is_dir():
-            return {}
-        for path in root.rglob("*.jsonl"):
+        for rel, _st in safe_fs.iter_files(root, rel_parts, suffix=".jsonl"):
             try:
-                if path.is_symlink() or not path.is_file():
-                    continue
-                counts[str(path)] = _jsonl_line_count(path.read_bytes())
+                counts[str(root / rel)] = _jsonl_line_count(safe_fs.read_file(root, rel))
             except OSError:
                 continue
     except OSError:
@@ -2092,45 +2074,38 @@ def _read_turn_transcript(
     paths that are already failing. Returns ``CapturedTranscript(b"", b"")``
     rather than raising when ``cc_state_mnt`` is falsy, the ``projects`` dir does
     not exist (turn 1 of a chat), no recent-enough jsonl appears within
-    ``attempts``, or ANY of the file I/O fails. That last clause covers the
-    DIRECTORY PROBE and the LOCATE step as well as the read: ``Path.is_dir()``
-    re-raises ``EACCES`` (it only swallows ENOENT/ENOTDIR/ELOOP), and
-    ``_newest_jsonl_under`` calls ``p.stat()`` twice per candidate with no
-    handler of its own, so a transcript vanishing between the ``rglob`` and the
-    ``stat`` raises ``OSError`` out of the search — and everything past the
-    guards below is pure byte work that cannot fail.
+    ``attempts``, or ANY of the file I/O fails. That last clause covers the LOCATE step as well as the read:
+    ``safe_fs.iter_files`` raises for a store that is unreadable, a link or not a folder, and ``safe_fs.read_file``
+    for a transcript that vanished or became a link after the listing, and everything past the guards below is pure
+    byte work that cannot fail.
     """
     if not cc_state_mnt:
         return CapturedTranscript(b"", b"")
-    root = Path(cc_state_mnt) / "projects"
+    # The trusted root is the session folder; projects/ is the agent's and goes in rel_parts. The paths built
+    # from it are spelled exactly as _transcript_line_counts(cc_state_mnt, ("projects",)) keys them.
+    root = Path(cc_state_mnt)
 
-    # The LOCATE step is inside the try, not only the read: the store is live —
-    # the agent, a concurrent sweep or a sibling turn can unlink a jsonl between
-    # the rglob and the stat — and this helper is called from run_cc_turn's
-    # finally, where an escape would skip the #72/#76 scrub that follows it.
-    #
-    # ``root.is_dir()`` is inside it too, for the same reason it is inside
-    # ``_transcript_line_counts``': it swallows ENOENT/ENOTDIR/ELOOP but
-    # RE-RAISES EACCES, so an unreadable parent directory would escape a
-    # function whose docstring promises to be total. Both callers happen to
-    # wrap this today, but on the SUCCESS path that escape costs the user the
-    # reply they had already earned.
+    # The whole locate-and-read is inside the try: the store is live (the agent, a sibling
+    # turn or a sweep can remove a jsonl between the listing and the read), and this helper
+    # also runs from run_cc_turn's finally, where an escape would skip the #72/#76 scrub.
+    # safe_fs never follows a link in the store, which is the agent's folder.
     try:
-        # Checked up front rather than left to rglob: on turn 1 the store does
-        # not exist yet, and retrying an absent directory would spend the
-        # back-off budget as pure latency on the user's reply.
-        if not root.is_dir():
-            return CapturedTranscript(b"", b"")
         jsonl_path = None
         for attempt in range(attempts):
-            jsonl_path = _newest_jsonl_under(root, min_mtime=turn_start - 1)
+            try:
+                jsonl_path = _newest_jsonl_under(root, (_TRANSCRIPT_STORE_DIRNAME,),
+                                                 min_mtime=turn_start - 1)
+            except FileNotFoundError:
+                # Turn 1 of a chat: no store yet. Retrying an absent folder would only
+                # spend the back-off as latency on the user's reply.
+                return CapturedTranscript(b"", b"")
             if jsonl_path:
                 break
             if attempt < attempts - 1:
                 time.sleep(0.2)
         if not jsonl_path:
             return CapturedTranscript(b"", b"")
-        raw = jsonl_path.read_bytes()
+        raw = safe_fs.read_file(root, jsonl_path.relative_to(root))
     except OSError:
         logger.warning("cc #68: could not read this turn's transcript under %s",
                        root, exc_info=True)

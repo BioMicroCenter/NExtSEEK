@@ -239,15 +239,16 @@ def test_source_scrub_covers_every_session_in_the_store(tmp_path):
 # a clean store.
 
 
-def _explode_on(name: str, method: str, monkeypatch, exc):
-    real = getattr(Path, method)
+def _fail_safe_fs(monkeypatch, function: str, rel_suffix: str, exc):
+    """Make ``cc_engine.safe_fs.<function>`` raise ``exc`` for one transcript."""
+    real = getattr(cc_engine.safe_fs, function)
 
-    def boom(self, *args, **kwargs):
-        if self.name.startswith(name):
+    def boom(root, rel, *args, **kwargs):
+        if str(rel).endswith(rel_suffix):
             raise exc
-        return real(self, *args, **kwargs)
+        return real(root, rel, *args, **kwargs)
 
-    monkeypatch.setattr(Path, method, boom)
+    monkeypatch.setattr(cc_engine.safe_fs, function, boom)
 
 
 def test_unreadable_transcript_is_logged_and_counted(tmp_path, monkeypatch, caplog):
@@ -255,8 +256,7 @@ def test_unreadable_transcript_is_logged_and_counted(tmp_path, monkeypatch, capl
 
     good = _write_store(tmp_path, "good.jsonl")
     bad = _write_store(tmp_path, "bad.jsonl")
-    _explode_on("bad.jsonl", "read_bytes", monkeypatch,
-                PermissionError(13, "Permission denied"))
+    _fail_safe_fs(monkeypatch, "read_file", "bad.jsonl", PermissionError(13, "Permission denied"))
 
     with caplog.at_level(logging.WARNING,
                          logger="NessieAI.cc.cc_engine"):
@@ -278,8 +278,7 @@ def test_a_failed_rewrite_counts_as_skipped(tmp_path, monkeypatch, caplog):
     import logging
 
     path = _write_store(tmp_path, "sess-a.jsonl")
-    _explode_on("sess-a.jsonl.scrub-tmp", "write_bytes", monkeypatch,
-                OSError(28, "No space left on device"))
+    _fail_safe_fs(monkeypatch, "write_file_atomic", "sess-a.jsonl", OSError(28, "No space left on device"))
 
     with caplog.at_level(logging.WARNING,
                          logger="NessieAI.cc.cc_engine"):

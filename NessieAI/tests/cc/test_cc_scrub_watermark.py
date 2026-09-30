@@ -240,14 +240,14 @@ def test_a_skipped_file_is_not_verified(tmp_path, monkeypatch):
     good = _store(cc_state, "good.jsonl")
     bad = _store(cc_state, "bad.jsonl")
 
-    real_read = pathlib.Path.read_bytes
+    real_read = cc_engine.safe_fs.read_file
 
-    def flaky(self, *a, **kw):
-        if self.name == "bad.jsonl":
+    def flaky(root, rel, *args, **kwargs):
+        if str(rel).endswith("bad.jsonl"):
             raise OSError("EIO")
-        return real_read(self, *a, **kw)
+        return real_read(root, rel, *args, **kwargs)
 
-    monkeypatch.setattr(pathlib.Path, "read_bytes", flaky)
+    monkeypatch.setattr(cc_engine.safe_fs, "read_file", flaky)
     report = cc_engine.scrub_transcript_store(cc_state, ENV)
     monkeypatch.undo()
 

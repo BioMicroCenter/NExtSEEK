@@ -34,6 +34,8 @@ class Canary:
     def state(self) -> dict[str, tuple]:
         """Inode, mode, mtime and bytes of every entry: a write, a rename over, a chmod or a new file shows."""
         out: dict[str, tuple] = {}
+        st = os.lstat(self.dir)  # the folder itself: a chmod or utime through a link shows
+        out["."] = (st.st_ino, st.st_mode, st.st_mtime_ns, None)
         for dirpath, dirnames, filenames in os.walk(self.dir):
             for name in sorted(dirnames + filenames):
                 path = Path(dirpath) / name

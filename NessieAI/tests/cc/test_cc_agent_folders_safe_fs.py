@@ -341,3 +341,11 @@ def test_copy_out_never_reads_through_a_link(root, canary, tmp_path):
     assert not (tmp_path / "out" / "x").exists()
     canary.assert_untouched()
     canary.assert_unread(tmp_path / "out")
+
+
+@pytest.mark.parametrize("bad", ["projects", b"projects"])
+def test_rel_parts_as_one_string_is_a_type_error(root, bad):
+    with pytest.raises(TypeError):
+        safe_fs.open_dir(root, bad)
+    with pytest.raises(TypeError):
+        next(safe_fs.iter_files(root, bad))

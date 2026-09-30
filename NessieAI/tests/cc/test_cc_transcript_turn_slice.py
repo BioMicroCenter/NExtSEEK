@@ -218,36 +218,27 @@ def test_transcript_line_counts_skips_an_unreadable_file(tmp_path, monkeypatch):
     suite runs in is the container, which runs as euid 0, and root reads a
     0o000 file happily — so a permissions fixture here demonstrates nothing:
     it passes just as well against a ``_transcript_line_counts`` with no
-    ``except OSError`` in it at all. Raising from ``Path.read_bytes`` for the
+    ``except OSError`` in it at all. Raising from ``safe_fs.read_file`` for the
     one file exercises the handler itself, and the assertion is exact (the good
     file counted, the bad one absent) rather than a set containment that both
     outcomes satisfy.
 
-    THE WALK ORDER IS PINNED, and that is the point of the ``rglob`` patch.
-    This test has to distinguish the INNER per-file handler from the OUTER
-    whole-walk one, and only the inner one skips-and-continues. Delete the
-    inner handler alone and the outer returns the counts gathered so far — which
-    equals ``{good: 1}`` precisely when the walk reached ``good.jsonl`` first.
-    Real ``rglob`` yields in ``os.scandir`` order, which is neither creation
-    nor sort order, so an unpinned version of this test passes or fails on
-    which name the filesystem happens to hand back first. Yielding ``bad``
-    first makes the inner-handler-only mutant return ``{}`` every time.
+    THE WALK ORDER IS PINNED by ``safe_fs.iter_files``, which lists a folder in name order, so ``bad.jsonl`` is
+    read before ``good.jsonl`` every time and the inner-handler-only mutant returns ``{}``.
     """
     good = tmp_path / "good.jsonl"
     good.write_bytes(_jsonl("1"))
     bad = tmp_path / "bad.jsonl"
     bad.write_bytes(_jsonl("1", "2"))
 
-    monkeypatch.setattr(Path, "rglob", lambda self, pattern: iter([bad, good]))
+    real_read = cc_engine.safe_fs.read_file
 
-    real_read_bytes = Path.read_bytes
+    def _selective(root, rel, *args, **kwargs):
+        if str(rel) == "bad.jsonl":
+            raise PermissionError(13, "Permission denied", "bad.jsonl")
+        return real_read(root, rel, *args, **kwargs)
 
-    def _selective(self, *args, **kwargs):
-        if self == bad:
-            raise PermissionError(13, "Permission denied", str(bad))
-        return real_read_bytes(self, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_bytes", _selective)
+    monkeypatch.setattr(cc_engine.safe_fs, "read_file", _selective)
 
     counts = cc_engine._transcript_line_counts(tmp_path)
 
@@ -257,15 +248,14 @@ def test_transcript_line_counts_skips_an_unreadable_file(tmp_path, monkeypatch):
 
 
 def test_transcript_line_counts_survives_an_unreadable_ROOT(tmp_path, monkeypatch):
-    """``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but RE-RAISES EACCES, so
-    a root whose parent directory cannot be traversed used to escape past the
-    ``{}`` guard entirely — contradicting the docstring's "must never be the
-    reason a turn fails". It runs before the agent is even spawned, so an
-    escape here kills the turn before it starts."""
-    def _denied(self):
-        raise PermissionError(13, "Permission denied", str(self))
+    """A root whose folders cannot be opened (EACCES) raises out of ``safe_fs.iter_files``; the walk sits inside
+    the ``except OSError``, so the snapshot is ``{}`` rather than an escape that would contradict "must never
+    be the reason a turn fails". It runs before the agent is even spawned, so an escape here kills the turn
+    before it starts."""
+    def _denied(root, rel_parts=(), *, suffix=None):
+        raise PermissionError(13, "Permission denied", str(root))
 
-    monkeypatch.setattr(Path, "is_dir", _denied)
+    monkeypatch.setattr(cc_engine.safe_fs, "iter_files", _denied)
 
     assert cc_engine._transcript_line_counts(tmp_path) == {}
 
@@ -449,10 +439,10 @@ def test_read_turn_transcript_swallows_an_unreadable_session(tmp_path, monkeypat
     turn_start = 10_000.0
     mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
 
-    def _boom(self, *args, **kwargs):
+    def _boom(root, rel, *args, **kwargs):
         raise OSError("vanished mid-turn")
 
-    monkeypatch.setattr(Path, "read_bytes", _boom)
+    monkeypatch.setattr(cc_engine.safe_fs, "read_file", _boom)
 
     got = cc_engine._read_turn_transcript(
         mnt, turn_start=turn_start, prior_lines={}, environment=ENV
@@ -506,22 +496,20 @@ def test_an_empty_capture_keeps_its_two_field_spelling():
 def test_read_turn_transcript_swallows_an_unreadable_PROJECTS_ROOT(
     tmp_path, monkeypatch
 ):
-    """The same EACCES hole ``_transcript_line_counts`` had, one function away.
+    """The same EACCES case ``_transcript_line_counts`` covers, one function away.
 
-    ``Path.is_dir()`` swallows ENOENT/ENOTDIR/ELOOP but RE-RAISES EACCES, and
-    the probe sat ahead of the ``try`` — so an unreadable parent directory
-    escaped a function whose docstring promises to return
-    ``CapturedTranscript(b"", b"")`` rather than raise. Contained in practice,
-    since both callers wrap it, but on the SUCCESS path the escape lands in the
-    persist ``try`` and costs the user a reply they had already earned.
+    An unreadable folder raises ``PermissionError`` out of ``safe_fs.iter_files``; it is inside the ``try``,
+    so the function still returns ``CapturedTranscript(b"", b"")`` rather than raising. Both callers wrap it,
+    but on the SUCCESS path an escape lands in the persist ``try`` and costs the user a reply they had already
+    earned.
     """
     turn_start = 10_000.0
     mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
 
-    def _denied(self):
-        raise PermissionError(13, "Permission denied", str(self))
+    def _denied(root, rel_parts=(), *, suffix=None):
+        raise PermissionError(13, "Permission denied", str(root))
 
-    monkeypatch.setattr(Path, "is_dir", _denied)
+    monkeypatch.setattr(cc_engine.safe_fs, "iter_files", _denied)
 
     got = cc_engine._read_turn_transcript(
         mnt, turn_start=turn_start, prior_lines={}, environment=ENV
@@ -546,10 +534,10 @@ def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
     turn_start = 10_000.0
     mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
 
-    def _vanished(self, *args, **kwargs):
+    def _vanished(root, rel_parts=(), *, suffix=None):
         raise OSError("transcript unlinked mid-scan")
 
-    monkeypatch.setattr(Path, "rglob", _vanished)
+    monkeypatch.setattr(cc_engine.safe_fs, "iter_files", _vanished)
 
     got = cc_engine._read_turn_transcript(
         mnt, turn_start=turn_start, prior_lines={}, environment=ENV
@@ -778,9 +766,8 @@ def test_the_pre_spawn_snapshot_uses_the_same_root_expression_as_the_read():
     calls = _calls(_run_cc_turn_ast(), name="_transcript_line_counts")
 
     assert len(calls) == 1
-    assert _arg_src(calls[0], 0) == (
-        "Path(dirs.cc_state_mnt) / 'projects' if dirs.cc_state_mnt else None"
-    )
+    assert _arg_src(calls[0], 0) == "dirs.cc_state_mnt"
+    assert _arg_src(calls[0], 1) == "(_TRANSCRIPT_STORE_DIRNAME,)"
 
 
 def test_the_locals_the_finally_reads_are_bound_before_the_try():
