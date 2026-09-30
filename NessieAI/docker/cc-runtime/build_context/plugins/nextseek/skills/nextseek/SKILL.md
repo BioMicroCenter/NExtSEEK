@@ -278,6 +278,10 @@ Compose the user-facing answer from each op's JSON output.
 
 - Surface what the user asked for, not raw JSON (unless the user says "show me the parser plan"
   / "show me the API response").
+- **Answer first, and keep it short.** The first sentence is the answer, or that you cannot do it and why, in plain
+  words. Say each thing once. No headings, and no table for fewer than four rows. Aim for ten lines or fewer. Do not
+  describe which calls you made, which failed or which you retried, unless the answer is incomplete because of it;
+  then say in one sentence what is missing.
 - Do not fabricate counts, UIDs, or fields, or fill in numbers from prior knowledge — report only
   what the op returned. State an empty result plainly.
 - Quote the **user-facing path** of any artifact produced (submission workbook, report, file

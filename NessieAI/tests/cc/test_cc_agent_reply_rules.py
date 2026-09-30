@@ -126,3 +126,15 @@ def test_how_your_turn_runs_says_a_redacted_earlier_result_is_no_reason_to_retra
         "The user's answer to a question you ask arrives as the next turn, in a new container that "
         "resumes this conversation. " + REDACTED_RULE
     )
+
+
+def test_the_skill_says_to_answer_first_and_keep_it_short():
+    section = _section(SKILL_MD.read_text(encoding="utf-8"), "Composing the reply")
+    flat = _flat(section)
+    surface = flat.index("- Surface what the user asked for")
+    short = flat.index(
+        "- **Answer first, and keep it short.** The first sentence is the answer, or that you cannot do it "
+        "and why, in plain words. Say each thing once. No headings, and no table for fewer than four rows. "
+        "Aim for ten lines or fewer. Do not describe which calls you made, which failed or which you "
+        "retried, unless the answer is incomplete because of it; then say in one sentence what is missing.")
+    assert surface < short < flat.index("- Do not fabricate counts")
