@@ -474,6 +474,20 @@ def test_a_foreign_identifier_answers_as_an_unknown_one(seek, graph, foreign, un
     assert "TIS-FOR-1" not in graph.walked()
 
 
+def test_a_foreign_seek_id_with_a_visible_pub_twin_answers_as_an_unknown_one(seek, graph, monkeypatch):
+    """The -PUB retry is for UIDs the caller typed. A numeric id is exact: the uuid it resolves to must never be
+    retried in its other spelling, or a member learns that a foreign sample exists and gets its twin back (#74)."""
+    _add(seek, 30, "TIS-FOR-1-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    a, b = _post({"identifiers": ["6"]}), _post({"identifiers": ["99"]})
+    assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
+    a, b = _post({"identifiers": ["TIS-2", "6"]}), _post({"identifiers": ["TIS-2", "99"]})
+    assert a.content == b.content and a.json()["failed_uids"] == 1 and "TIS-FOR-1-PUB" not in _uuids(a)
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
 def test_a_mixed_request_answers_as_if_the_foreign_uid_were_unknown(seek, graph):
     a, b = _post({"identifiers": ["TIS-2", "TIS-FOR-1"]}), _post({"identifiers": ["TIS-2", "TIS-NOPE"]})
     assert a.content == b.content and a.json()["failed_uids"] == 1

@@ -288,6 +288,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
             continue
         # ASCII digits only: "²".isdigit() is True and int() refuses it. Anything else is a UID.
         (numeric_ids if text.isascii() and text.isdigit() else requested_uids).append(text)
+    typed = list(requested_uids)  # the UIDs the caller wrote as UIDs: only these may be retried in another spelling
 
     # Numeric identifiers are SEEK sample ids. Any failure counts them all unresolved, as before.
     requested = {}  # id -> uuid, every requested sample MySQL holds, before scope
@@ -312,7 +313,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     # Ruling D2: a UID resolves with or without its -PUB suffix. As written first, so an exact match is never
     # displaced by a guess; only a miss tries the other spelling, through the same scoped statement for a member.
     hit = set(requested.values())
-    other = {alt: uid for uid in requested_uids if uid not in hit for alt in uid_spellings(uid)[1:]}
+    other = {alt: uid for uid in dict.fromkeys(typed) if uid not in hit for alt in uid_spellings(uid)[1:]}
     if other:
         more, ok = _resolve_requested(sorted(other), scope)
         graph_ok = graph_ok and ok
