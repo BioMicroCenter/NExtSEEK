@@ -193,7 +193,7 @@ def test_failures_inside_their_retry_window_are_reported(status_body):
     """Reported, never failed: a row inside its back-off may yet succeed, and a rebuild that restarts Neo4j makes
     exactly such rows."""
     for line in health.within_grace(status_body):
-        warnings.warn(f"graph sync, not yet overdue: {line}", stacklevel=1)
+        warnings.warn(f"graph sync warning: {line}", stacklevel=1)
 
 
 @pytest.fixture(scope="module")

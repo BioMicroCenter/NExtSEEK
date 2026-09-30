@@ -90,7 +90,7 @@ def test_failures_inside_their_window_are_a_warning_listing_each(tmp_path, monke
     result = _check(tmp_path)
 
     assert result.ok is True and result.warn is True
-    assert result.detail == f"{ONE_WAITING}; not yet overdue:{INDENT}{ROW_WAITING}"
+    assert result.detail == f"{ONE_WAITING}; warnings:{INDENT}{ROW_WAITING}"
 
 
 def test_problems_fail_the_line_one_indented_line_each(tmp_path, monkeypatch):
@@ -107,7 +107,7 @@ def test_problems_also_list_what_is_still_waiting(tmp_path, monkeypatch):
 
     result = _check(tmp_path)
 
-    assert result.detail.endswith(f"{INDENT}not yet overdue: {ROW_WAITING}")
+    assert result.detail.endswith(f"{INDENT}warning: {ROW_WAITING}")
 
 
 def test_unreadable_tables_fail_the_line_with_the_fixed_prose(tmp_path, monkeypatch):
@@ -322,7 +322,7 @@ def _health_answer(monkeypatch: pytest.MonkeyPatch, seen: SimpleNamespace,
 _RED = validate.HealthResult("graph sync health", False, f"{ONE_EACH}{INDENT}{ROW_OVERDUE}{INDENT}{RUN_OVERDUE}")
 _GREEN = validate.HealthResult("graph sync health", True, QUIET)
 _WAITING_LINE = validate.HealthResult("graph sync health", True,
-                                      f"{ONE_WAITING}; not yet overdue:{INDENT}{ROW_WAITING}", warn=True)
+                                      f"{ONE_WAITING}; warnings:{INDENT}{ROW_WAITING}", warn=True)
 
 
 def test_ci_on_a_prod_box_fails_on_a_red_line_after_the_suite_passes(repo, monkeypatch, stack):

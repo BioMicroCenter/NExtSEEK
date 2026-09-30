@@ -169,3 +169,18 @@ def test_a_nightly_its_data_refused_is_a_problem():
     assert code == command.EXIT_PROBLEMS
     assert any(line.startswith("reconcile run ") and " refused (trigger loop" in line and line.endswith(problem)
                for line in out["problems"])
+
+
+@pytest.mark.django_db
+def test_label_changes_awaiting_approval_are_a_warning():
+    """Read from the drift run's own record (gate G check 9's classes); never a problem (R14). The run is an hour
+    old, so the drift check's own freshness (Task 7d) stays green."""
+    recorded = {"stats": {"gate_g": {"lineage_labels": {"classes": {"changed": 3, "cleared": 2, "equal": 9}}}}}
+    hour_ago = datetime.now(dt_timezone.utc) - timedelta(hours=1)
+    state.start_run("drift", trigger="loop", now=hour_ago).finish("ok", drift=recorded, now=hour_ago)
+
+    code, out = run_json()
+
+    assert (code, out["problems"]) == (0, [])
+    assert out["warnings"][-1].startswith("drift run ")
+    assert "awaiting approval: changed 3, cleared 2" in out["warnings"][-1]

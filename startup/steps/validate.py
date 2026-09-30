@@ -713,11 +713,11 @@ def _graph_sync_health_result(name: str, returncode: int, stdout: str, stderr: s
     if returncode == 0 and verdict == "ok":
         if warnings:
             return HealthResult(name=name, ok=True, warn=True,
-                                detail=_indented(f"{summary}; not yet overdue:", warnings))
+                                detail=_indented(f"{summary}; warnings:", warnings))
         return HealthResult(name=name, ok=True, detail=summary)
     if returncode == 1 and verdict == "problems":
         return HealthResult(name=name, ok=False,
-                            detail=_indented(summary, problems + [f"not yet overdue: {w}" for w in warnings]))
+                            detail=_indented(summary, problems + [f"warning: {w}" for w in warnings]))
     if returncode == 3 and verdict == "unavailable":
         return HealthResult(name=name, ok=False, detail=summary)
     if returncode == GRAPH_SYNC_HEALTH_NOT_READY:

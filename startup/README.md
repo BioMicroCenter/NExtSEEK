@@ -290,8 +290,9 @@ abandoned (or a full sync or reconcile its data refused); a latest drift run tha
 superuser rights.
 
 A red line fails `rebuild` at the end, after the suite, and fails `ci` after the suite even when the suite passed.
-Failures still inside their retry window print as a warning. Right after a rebuild the container may still be running
-`migrate`; the line asks again every 10 seconds for up to 5 minutes. An app image older than the command prints a
+Failures still inside their retry window print as a warning, and so do the DERIVED_FROM label changes the latest drift
+run counted that await the operator's approval; the warnings section is headed `warnings:`. Right after a rebuild the
+container may still be running `migrate`; the line asks again every 10 seconds for up to 5 minutes. An app image older than the command prints a
 warning to rebuild the app. The line is recorded as a row of the CI record's "Stack health" section.
 
 ## cc-agent context after every rebuild

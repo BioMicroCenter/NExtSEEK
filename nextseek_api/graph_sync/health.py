@@ -17,6 +17,8 @@ from __future__ import annotations
 NEW_PARTS = ("failing", "failed_runs")
 DRIFT_NAMES_SHOWN = 6
 FRESHNESS_JOBS = ("full", "reconcile", "outbox")
+# The DERIVED_FROM label classes only the operator's approval writes (rule R14; labels.CHANGED, labels.CLEARED).
+LABEL_CLASSES_AWAITING_APPROVAL = ("changed", "cleared")
 _HOURS_FROM_S = 2 * 3600          # a duration this long or longer reads in hours
 
 
@@ -104,15 +106,36 @@ def drift_found(body: dict) -> list[str]:
     return [f"drift run {run.get('id')} (finished {run.get('finished_at') or '?'}) found drift in: {shown}"]
 
 
+def _part(value, key):
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def label_changes_awaiting_approval(body: dict) -> list[str]:
+    """One line when the latest drift run counted DERIVED_FROM labels that differ from the rule and that only the
+    operator's approval writes (``LABEL_CLASSES_AWAITING_APPROVAL``), read from that run's own record
+    (``stats.gate_g.lineage_labels.classes``, gate G check 9). None without such counts. Reported, never failed:
+    whether to write them is the operator's decision (R14)."""
+    run = _part(body.get("runs"), "drift") or {}
+    lineage = _part(_part(_part(run.get("drift"), "stats"), "gate_g"), "lineage_labels")
+    classes = _part(lineage, "classes") or {}
+    counts = {name: int(classes.get(name) or 0) for name in LABEL_CLASSES_AWAITING_APPROVAL}
+    if not any(counts.values()):
+        return []
+    shown = ", ".join(f"{name} {n}" for name, n in counts.items())
+    return [f"drift run {run.get('id')} counted DERIVED_FROM labels awaiting approval: {shown} "
+            "(its check 9.lineage.labels_differ_from_rule lists examples)"]
+
+
 def within_grace(body: dict) -> list[str]:
-    """What is failing but not yet overdue, and a drift check that refused to compare: reported, never failed."""
+    """What is failing but not yet overdue, a drift check that refused to compare, and label changes awaiting the
+    operator's approval: reported, never failed."""
     lines = [f"row {_row_line(r)}" for r in (body.get("failing") or {}).get("rows") or [] if not r.get("overdue")]
     lines += [f"run {_run_line(r)}" for r in body.get("failed_runs") or [] if not r.get("overdue")]
     run = (body.get("runs") or {}).get("drift") or {}
     if run.get("status") == "refused":
         lines.append(f"drift run {run.get('id')} refused to compare this graph "
                      "(a graph below the writer's schema version)")
-    return lines
+    return lines + label_changes_awaiting_approval(body)
 
 
 def problems(body: dict) -> list[str]:
