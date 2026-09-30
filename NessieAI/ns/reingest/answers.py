@@ -23,7 +23,7 @@ import hashlib
 import json
 import os
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, MappedAttribute
 from NessieAI.ns.reingest_qa import _value_missing, group_members_for_label
@@ -51,6 +51,14 @@ class FillAnswer(BaseModel):
     attribute: str
     value: str = Field(min_length=1)
     rows: list[int] | None = None
+
+    @field_validator("value")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("a fill value must not be blank")
+        return value
 
 
 class ChooseAnswer(BaseModel):
@@ -159,6 +167,8 @@ def check_fill(answer: FillAnswer, *, findings, rows, run_sourced) -> list[str]:
         return [f"{label}: {answer.attribute} is never set from chat"]
     if answer.attribute in run_sourced:
         return [f"{label}: this value comes from the run data, so it cannot be set from chat"]
+    if answer.rows is not None and not answer.rows:
+        return [f"{label}: rows is empty"]
     flagged = _flagged_rows(answer, findings)
     if not flagged:
         return [f"{label}: QA did not flag this attribute in this run"]
@@ -232,9 +242,41 @@ def split_for_call(bundle: Answers, *, this_call: set[str], other_call: set[str]
     return Answers(**keep), deferred
 
 
+def _conflicts(bundle: Answers, findings_by_type) -> list[str]:
+    """Reasons two answers aim at the same cell; list order must never decide."""
+    reasons: list[str] = []
+    fill_rows: dict[tuple[str, str], set[int]] = {}
+    for answer in bundle.fill:
+        key = (answer.sample_type, answer.attribute)
+        rows = set(fill_targets(answer, findings_by_type.get(answer.sample_type, [])))
+        overlap = sorted(rows & fill_rows.get(key, set()))
+        if overlap:
+            reasons.append(f"fill {key[0]}.{key[1]}: answered twice for rows {overlap}")
+        fill_rows.setdefault(key, set()).update(rows)
+    seen_choose: set[tuple[str, str]] = set()
+    for answer in bundle.choose:
+        key = (answer.sample_type, answer.attribute)
+        if key in seen_choose:
+            reasons.append(f"choose {key[0]}.{key[1]}: answered twice")
+        seen_choose.add(key)
+    seen_place: set[tuple[str, str]] = set()
+    seen_keys: set[str] = set()
+    for answer in bundle.place:
+        key = (answer.sample_type, answer.attribute)
+        if key in seen_place:
+            reasons.append(f"place {key[0]}.{key[1]}: answered twice")
+        if answer.raw_key in seen_keys:
+            reasons.append(f"place {answer.raw_key}: placed twice")
+        if key in fill_rows:
+            reasons.append(f"place {key[0]}.{key[1]}: also set by a fill")
+        seen_place.add(key)
+        seen_keys.add(answer.raw_key)
+    return reasons
+
+
 def validate(bundle: Answers, *, findings_by_type, mapped_by_type, unmapped, groups,
              run_sourced_for, attribute_exists) -> None:
-    reasons: list[str] = []
+    reasons: list[str] = _conflicts(bundle, findings_by_type)
     for answer in bundle.fill:
         reasons += check_fill(answer, findings=findings_by_type.get(answer.sample_type, []),
                               rows=mapped_by_type.get(answer.sample_type, []),
@@ -264,6 +306,9 @@ def apply_answers(bundle: Answers, *, mapped_by_type, findings_by_type, run_mani
             current = row.attributes.get(answer.attribute)
             if current is None or answer.path not in current.candidates:
                 continue
+            # Reingest never produces Link_PrimaryData/Link_SecondaryData (see
+            # mapper._attach_checksum), so the file name and its checksum are
+            # the whole of the chosen file's harvested values.
             row.attributes[answer.attribute] = MappedAttribute(
                 attribute=answer.attribute, value=os.path.basename(answer.path),
                 origin=ORIGIN_CURATOR, source_file=answer.path, answered_by=answered_by)
@@ -281,6 +326,8 @@ def apply_answers(bundle: Answers, *, mapped_by_type, findings_by_type, run_mani
     for answer in bundle.place:
         for row in mapped_by_type.get(answer.sample_type, []):
             sample = samples.get(row.nfcore_sample)
+            # A sample whose metrics lack the key is skipped, exactly as a map
+            # rule skips a sample where its metric is absent.
             if not row.uid or sample is None or answer.raw_key not in sample.metrics:
                 continue
             row.attributes[answer.attribute] = MappedAttribute(

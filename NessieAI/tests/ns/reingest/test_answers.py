@@ -269,3 +269,82 @@ def test_apply_place_takes_the_value_from_the_manifest_not_the_answer():
                           answered_by="c")
     cell = row.attributes["FooRate"]
     assert (cell.value, cell.raw_key, cell.origin) == (4.2, "star-foo_rate", "curator")
+
+
+def test_a_whitespace_only_fill_value_is_refused_and_values_are_stripped():
+    with pytest.raises(answers.AnswerRejected):
+        answers.parse_answers({"fill": [{"sample_type": "A.ALN",
+                                          "attribute": "Protocol", "value": "   "}]})
+    parsed = answers.parse_answers({"fill": [{"sample_type": "A.ALN",
+                                               "attribute": "Protocol", "value": " P-1 "}]})
+    assert parsed.fill[0].value == "P-1"
+
+
+def test_an_explicit_empty_rows_list_is_refused():
+    rows = [MappedRow(sample_type="A.ALN")]
+    findings = [_finding("A.ALN", "Protocol", 0)]
+    errors = answers.check_fill(_fill("A.ALN", "Protocol", rows=[]), findings=findings,
+                                rows=rows, run_sourced=frozenset())
+    assert errors == ["fill A.ALN.Protocol: rows is empty"]
+
+
+def _validate(bundle, findings=None, rows=None, unmapped=(), groups=()):
+    answers.validate(bundle, findings_by_type=findings or {}, mapped_by_type=rows or {},
+                     unmapped=list(unmapped), groups=list(groups),
+                     run_sourced_for=lambda st: frozenset(),
+                     attribute_exists=lambda st, a: True)
+
+
+def test_two_fills_on_overlapping_rows_are_refused():
+    findings = {"A.ALN": [_finding("A.ALN", "Protocol", 0)]}
+    rows = {"A.ALN": [MappedRow(sample_type="A.ALN")]}
+    bundle = answers.Answers(fill=[_fill("A.ALN", "Protocol", "P-1"),
+                                   _fill("A.ALN", "Protocol", "P-2")])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(bundle, findings, rows)
+    assert "fill A.ALN.Protocol: answered twice for rows [0]" in exc.value.reasons
+
+
+def test_two_fills_on_disjoint_rows_are_allowed():
+    findings = {"A.ALN": [_finding("A.ALN", "Protocol", 0), _finding("A.ALN", "Protocol", 1)]}
+    rows = {"A.ALN": [MappedRow(sample_type="A.ALN"), MappedRow(sample_type="A.ALN")]}
+    bundle = answers.Answers(fill=[_fill("A.ALN", "Protocol", "P-1", rows=[0]),
+                                   _fill("A.ALN", "Protocol", "P-2", rows=[1])])
+    _validate(bundle, findings, rows)
+
+
+def test_two_chooses_for_one_cell_are_refused():
+    bundle = answers.Answers(choose=[
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_A),
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_B)])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(bundle, groups=[_group()])
+    assert "choose A.ALN.File_PrimaryData: answered twice" in exc.value.reasons
+
+
+def _place(raw_key="star-foo", attribute="FooRate"):
+    return answers.PlaceAnswer(raw_key=raw_key, sample_type="D.SEQ", attribute=attribute)
+
+
+_SEQ_ROWS = {"D.SEQ": [MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1",
+                                 nfcore_sample="S1")]}
+_UNMAPPED = [{"raw_key": "star-foo"}, {"raw_key": "star-bar"}]
+
+
+def test_two_places_on_one_attribute_or_one_key_are_refused():
+    same_attr = answers.Answers(place=[_place("star-foo"), _place("star-bar")])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(same_attr, rows=_SEQ_ROWS, unmapped=_UNMAPPED)
+    assert "place D.SEQ.FooRate: answered twice" in exc.value.reasons
+    same_key = answers.Answers(place=[_place(attribute="FooRate"), _place(attribute="BarRate")])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(same_key, rows=_SEQ_ROWS, unmapped=_UNMAPPED)
+    assert "place star-foo: placed twice" in exc.value.reasons
+
+
+def test_a_fill_and_a_place_on_one_cell_are_refused():
+    findings = {"D.SEQ": [_finding("D.SEQ", "FooRate", 0)]}
+    bundle = answers.Answers(fill=[_fill("D.SEQ", "FooRate", "1")], place=[_place()])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(bundle, findings, _SEQ_ROWS, _UNMAPPED)
+    assert "place D.SEQ.FooRate: also set by a fill" in exc.value.reasons
