@@ -354,7 +354,8 @@ def test_full_sync_adds_undeclared_attributes_and_the_census_after_the_sample_pa
     assert budget.kwargs["bench_keys"] == frozenset({("TIS", "Organ")})
 
     cat = run.build_catalog()
-    assert rec.of("write_graphmeta")[0].args[2] == catalog.catalog_hash(cat.sample_types, full.args[2])
+    with_values = [key for key, entry in census.items() if entry["sample_count"]]
+    assert rec.of("write_graphmeta")[0].args[2] == catalog.catalog_hash(cat.sample_types, full.args[2], with_values)
     assert report["undeclared_attribute_keys"] == ["33:Lane"]
     assert report["index_budget"] == 1
     assert "33:Lane" in json.loads((tmp_path / run.CENSUS_FILE).read_text())

@@ -92,7 +92,8 @@ class FakeGraph:
         self.types = {26: "TIS", 33: "D.SEQ"}
         self.nodes: dict = {}
         self.edges: dict = {}
-        self.attributes = {"33:Lane": catalog.undeclared_attribute(33, "D.SEQ", "Lane")}
+        # counted by the full sync that wrote this graph: a sample carries it
+        self.attributes = {"33:Lane": dict(catalog.undeclared_attribute(33, "D.SEQ", "Lane"), sample_count=1)}
         self.calls: list = []
         self.before_delete: list = []
         self._next = 0
@@ -105,6 +106,8 @@ class FakeGraph:
             targeted.SET_SAMPLE_TYPE_COUNTS_FOR: lambda p: [{"n": len([i for i in p["ids"] if i in self.types])}],
             targeted.ATTRIBUTE_KEYS_PRESENT: lambda p: [{"key": k} for k in p["keys"] if k in self.attributes],
             targeted.CREATE_UNDECLARED_ATTRIBUTES: self._create_attributes,
+            q.ATTRIBUTES_AT_ZERO: self._attributes_at_zero,
+            q.SET_ATTRIBUTE_COUNTS_FROM_TYPE: self._count_attributes,
             targeted.GRAPH_ASSAY_LABELS: self._assay_labels,
             targeted.GRAPH_PROTOCOL_LABELS: self._protocol_labels,
             targeted.EDGES_WITH_PROTOCOLS: self._edges_with_protocols,
@@ -200,6 +203,22 @@ class FakeGraph:
     def _types_of_samples(self, p):
         found = {self.nodes[i]["type_id"] for i in p["ids"] if self._is_sample(i) and self.nodes[i]["type_id"]}
         return [{"id": t} for t in sorted(found)]
+
+    def _attributes_at_zero(self, p):
+        return [{"type_id": a["sample_type_id"], "key": key, "title": a["title"]}
+                for key, a in sorted(self.attributes.items())
+                if a["sample_type_id"] in p["type_ids"] and not a.get("sample_count")]
+
+    def _count_attributes(self, p):
+        raised = 0
+        for r in p["rows"]:
+            attr = self.attributes.get(r["key"])
+            if attr is None:
+                continue
+            attr["sample_count"] = sum(1 for n in self.nodes.values()
+                                       if n["type_id"] == r["type_id"] and n["props"].get(r["title"]) is not None)
+            raised += attr["sample_count"] > 0
+        return [{"raised": raised}]
 
     def _create_attributes(self, p):
         for r in p["rows"]:
@@ -888,6 +907,51 @@ def test_relabel_for_maps_stamps_the_new_label_maps_hash_and_keeps_the_catalog_h
     assert result["previous_label_maps_hash"] == labels.label_maps_hash(ASSAY_MAP, SOPS)
     assert labelled.graph.meta["label_maps_hash"] == new_hash
     assert labelled.graph.meta["catalog_hash"] == "cat-0"
+
+
+# --- an attribute's count follows the samples that fill it ------------------------------------------------------------
+
+def _declared(env, key, title, count):
+    env.graph.attributes[key] = {"key": key, "sample_type_id": int(key.split(":")[0]), "title": title,
+                                 "declared": True, "sample_count": count}
+
+
+def test_a_declared_attribute_at_zero_that_a_synced_sample_carries_is_counted(env, tmp_path):
+    _declared(env, "26:Organ", "Organ", 0)
+    result = targeted.sync_samples(env.graph, DB, [10, 12], run_dir=str(tmp_path))
+    assert env.graph.attributes["26:Organ"]["sample_count"] == 2
+    assert (result["attribute_counts_raised"], result["catalog_resynced"]) == (1, "ok")
+    assert len(env.catalog_syncs) == 1
+
+
+def test_an_attribute_no_written_sample_carries_is_not_counted(env, tmp_path):
+    _declared(env, "26:Weight", "Weight", 0)
+    result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))
+    assert all("26:Weight" not in [r["key"] for r in call.params["rows"]]
+               for call in env.graph.of(q.SET_ATTRIBUTE_COUNTS_FROM_TYPE))
+    assert env.graph.attributes["26:Weight"]["sample_count"] == 0 and result["attribute_counts_raised"] == 0
+
+
+def test_an_attribute_already_counted_is_left_alone_and_no_catalog_sync_runs(env, tmp_path):
+    _declared(env, "26:Organ", "Organ", 5)
+    result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))
+    assert env.graph.attributes["26:Organ"]["sample_count"] == 5
+    assert env.graph.of(q.SET_ATTRIBUTE_COUNTS_FROM_TYPE) == [] and env.catalog_syncs == []
+    assert result["attribute_counts_raised"] == 0
+
+
+def test_an_undeclared_key_created_in_the_same_sync_is_counted_with_one_catalog_sync(env, tmp_path):
+    del env.graph.attributes["33:Lane"]
+    result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    assert (result["undeclared_attributes_created"], result["attribute_counts_raised"]) == (1, 1)
+    assert env.graph.attributes["33:Lane"]["sample_count"] == 1
+    assert len(env.catalog_syncs) == 1
+
+
+def test_the_count_statements_read_only_attributes_at_zero_and_count_by_title():
+    assert "coalesce(a.sample_count, 0) = 0" in q.ATTRIBUTES_AT_ZERO
+    assert "s[r.title] IS NOT NULL" in q.SET_ATTRIBUTE_COUNTS_FROM_TYPE
+    assert q.SET_ATTRIBUTE_COUNTS_FROM_TYPE.lstrip().startswith("CYPHER 25")
 
 
 # --- a by-id sync writes the Project nodes it links to, and a structural gap keeps it open ----------------------------

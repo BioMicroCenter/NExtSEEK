@@ -840,8 +840,9 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     report["index_budget_names"] = names
     _step(report, "fulltext", writer.ensure_fulltext, driver, db)
     _step(report, "await_indexes", writer.await_indexes, driver, db)
-    _step(report, "graphmeta", writer.write_graphmeta, driver, db, catalog.catalog_hash(cat.sample_types, attributes),
-          label_maps_hash)
+    with_values = [key for key, entry in census.items() if entry["sample_count"]]
+    _step(report, "graphmeta", writer.write_graphmeta, driver, db,
+          catalog.catalog_hash(cat.sample_types, attributes, with_values), label_maps_hash)
     _write_json(os.path.join(run_dir, CENSUS_FILE), dict(sorted(census.items())))
     report["census_path"] = os.path.join(run_dir, CENSUS_FILE)
 
@@ -931,7 +932,8 @@ def _catalog_plan(driver, db, report: dict) -> tuple[Catalog, list[dict], dict[s
             attr = catalog.undeclared_attribute(int(type_id), cat.type_titles[int(type_id)], row["title"])
             kept[attr["key"]] = attr
     attributes = cat.attributes + [kept[k] for k in sorted(kept)]
-    catalog_hash = catalog.catalog_hash(cat.sample_types, attributes)
+    catalog_hash = catalog.catalog_hash(cat.sample_types, attributes,
+                                        [a["key"] for a in attributes if counts.get(a["key"])])
     report.update(sample_types=len(cat.sample_types), attributes_declared=len(cat.attributes),
                   undeclared_attributes_kept=len(kept), label_collisions=0, catalog_hash=catalog_hash,
                   sample_type_title_conflicts=_title_conflicts(driver, db, cat),

@@ -184,6 +184,22 @@ MATCH (a:Attribute) WHERE NOT a.key IN $keys
 SET a.sample_count = 0
 RETURN count(a) AS n
 """
+# A declared attribute starts at sample_count 0 and only a full sync counted it: a by-id sync that writes a sample
+# carrying one of these counts it (targeted._attribute_counts), so Nessie's catalog lists it and its guard allows it.
+ATTRIBUTES_AT_ZERO = """
+UNWIND $type_ids AS tid
+MATCH (t:SampleType {id: tid})-[:HAS_ATTRIBUTE]->(a:Attribute)
+WHERE coalesce(a.sample_count, 0) = 0
+RETURN tid AS type_id, a.key AS key, a.title AS title
+"""
+# Rows are {type_id, key, title}: the attribute's sample_count becomes the number of its type's samples carrying it.
+SET_ATTRIBUTE_COUNTS_FROM_TYPE = """
+CYPHER 25
+UNWIND $rows AS r
+MATCH (t:SampleType {id: r.type_id})-[:HAS_ATTRIBUTE]->(a:Attribute {key: r.key})
+SET a.sample_count = COUNT { (t)<-[:OF_TYPE]-(s:Sample) WHERE s[r.title] IS NOT NULL }
+RETURN sum(CASE WHEN a.sample_count > 0 THEN 1 ELSE 0 END) AS raised
+"""
 SET_SAMPLE_TYPE_COUNTS = """
 MATCH (t:SampleType)
 SET t.sample_count = COUNT { (t)<-[:OF_TYPE]-(:Sample) },

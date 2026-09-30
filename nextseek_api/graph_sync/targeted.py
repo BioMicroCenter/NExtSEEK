@@ -304,7 +304,8 @@ def _lineage(driver, db, rows, tokens, ctx: _Context) -> dict:
 
 def _undeclared_attributes(driver, db, projections, cat) -> dict:
     """A ``declared: false`` Attribute for every key a sample carries that its type does not declare. When one is
-    created, the catalog sync runs to restamp ``GraphMeta.catalog_hash``, which graph_search caches the catalog on."""
+    created, ``_sync_ids`` runs the catalog sync to restamp ``GraphMeta.catalog_hash``, which graph_search caches the
+    catalog on."""
     wanted: dict[str, dict] = {}
     for proj in projections:
         declared = cat.value_types.get(proj.sample_type_id, {})
@@ -322,10 +323,30 @@ def _undeclared_attributes(driver, db, projections, cat) -> dict:
         return {"undeclared_attributes_created": 0}
     for batch in _batches(new, writer.REL_CHUNK):
         _run(driver, db, CREATE_UNDECLARED_ATTRIBUTES, {"rows": batch})
-    log.info("graph_sync: %d undeclared Attribute nodes created; running the catalog sync", len(new))
-    synced = run.catalog_sync(driver, db)
-    return {"undeclared_attributes_created": len(new), "undeclared_attribute_keys": [a["key"] for a in new],
-            "catalog_resynced": synced.get("status")}
+    log.info("graph_sync: %d undeclared Attribute nodes created", len(new))
+    return {"undeclared_attributes_created": len(new), "undeclared_attribute_keys": [a["key"] for a in new]}
+
+
+def _attribute_counts(driver, db, projections) -> dict:
+    """Count the attributes still at 0 that a written sample now carries (a new attribute filled by an upload, or an
+    undeclared key this sync created), from their type's samples. When one rose above 0, ``_sync_ids`` runs the
+    catalog sync: it restamps ``GraphMeta.catalog_hash``, which holds which attributes carry values, so Nessie's
+    catalog snapshot and graph_search's cache re-read. A steady-state sync finds no such attribute and writes
+    nothing."""
+    carried: dict[int, set] = {}
+    for proj in projections:
+        carried.setdefault(proj.sample_type_id, set()).update(proj.props)
+    type_ids = sorted(t for t in carried if _is_id(t))
+    if not type_ids:
+        return {"attribute_counts_raised": 0}
+    rows = [{"type_id": r["type_id"], "key": r["key"], "title": r["title"]}
+            for r in _records(_run(driver, db, q.ATTRIBUTES_AT_ZERO, {"type_ids": type_ids}, read=True))
+            if r["title"] in carried.get(r["type_id"], ())]
+    raised = sum(_one(_run(driver, db, q.SET_ATTRIBUTE_COUNTS_FROM_TYPE, {"rows": batch}), "raised")
+                 for batch in _batches(rows, writer.REL_CHUNK))
+    if raised:
+        log.info("graph_sync: %d attributes now hold values", raised)
+    return {"attribute_counts_raised": raised}
 
 
 def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
@@ -358,7 +379,13 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
             report.update(writer.write_seek_studies(driver, db, links, sorted(written), remove=ctx.follow_seek,
                                                     archive_path=ctx.archive(study_links.ARCHIVE_FILE),
                                                     tables=ctx.seek_tables()))
-            report.update(_undeclared_attributes(driver, db, projections, cat))
+            undeclared = _undeclared_attributes(driver, db, projections, cat)
+            counted = _attribute_counts(driver, db, projections)
+            report.update(undeclared)
+            report.update(counted)
+            if undeclared["undeclared_attributes_created"] or counted["attribute_counts_raised"]:
+                # One catalog sync restamps the catalog hash for both (the lock nests).
+                report["catalog_resynced"] = run.catalog_sync(driver, db).get("status")
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
     parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
