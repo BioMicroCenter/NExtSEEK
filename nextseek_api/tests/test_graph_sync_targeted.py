@@ -17,8 +17,9 @@ import pytest
 from neo4j import RoutingControl
 
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.graph_sync import catalog, labels, projection, run, sources, state, targeted, writer
+from nextseek_api.graph_sync import catalog, labels, projection, run, sources, state, study_links, targeted, writer
 from nextseek_api.graph_sync import cypher as q
+from nextseek_api.tests.graph_sync_study_fakes import StudyGraph
 from nextseek_graph import schema
 
 DB = "neo4j"
@@ -56,8 +57,10 @@ PROJECTS = {10: [2], 11: [2], 12: [16], 13: [2]}
 ASSAYS = {10: [5], 11: [5], 12: [6], 13: [5]}
 ASSAY_MAP = {5: (99, "Patient Visit"), 6: (None, "Seq run")}
 SOPS = {7: "P.SOP-1"}
-STUDY_LINKS = [{"sample_id": 10, "study_id": 70, "study_title": "Study seventy", "investigation_id": 3},
-               {"sample_id": 11, "study_id": 70, "study_title": "Study seventy", "investigation_id": 3}]
+STUDY_LINKS = [{"sample_id": 10, "study_id": 70, "study_title": "Study seventy", "study_description": None,
+                "investigation_id": 3},
+               {"sample_id": 11, "study_id": 70, "study_title": "Study seventy", "study_description": None,
+                "investigation_id": 3}]
 
 # The labels the rule gives the two declared edges: 11 -> 10 (11 names U_T1, protocol P.SOP-1 is SOP 7) and
 # 13 -> 11 (13 names U_D1, no protocol). Both endpoints share assay 5, mapped to internal assay 99.
@@ -90,11 +93,10 @@ class FakeGraph:
         self.nodes: dict = {}
         self.edges: dict = {}
         self.attributes = {"33:Lane": catalog.undeclared_attribute(33, "D.SEQ", "Lane")}
-        self.studies: dict = {}
-        self.in_study: set = set()
         self.calls: list = []
         self.before_delete: list = []
         self._next = 0
+        self.study = StudyGraph(is_sample=self._is_sample)
         self.handlers = {
             q.READ_GRAPHMETA: self._graphmeta,
             q.WRITE_GRAPHMETA_WITH_LABEL_MAPS: self._write_graphmeta,
@@ -106,7 +108,6 @@ class FakeGraph:
             targeted.GRAPH_ASSAY_LABELS: self._assay_labels,
             targeted.GRAPH_PROTOCOL_LABELS: self._protocol_labels,
             targeted.EDGES_WITH_PROTOCOLS: self._edges_with_protocols,
-            targeted.SET_SEEK_STUDY_TITLES: self._study_titles,
             q.WRITE_SAMPLES: self._write_samples,
             q.DERIVED_FROM_ID_FORM: lambda p: [],
             q.WRITE_MISSING_LINEAGE: self._write_missing_lineage,
@@ -115,9 +116,6 @@ class FakeGraph:
             q.EDGES_INCIDENT: self._edges_incident,
             q.WRITE_EDGE_LABELS_NEW: lambda p: self._write_labels(p, approved=False),
             q.WRITE_EDGE_LABELS_CHANGED: lambda p: self._write_labels(p, approved=True),
-            q.SAMPLES_IN_PAPER_STUDIES: lambda p: [],
-            q.MERGE_SEEK_STUDIES: self._merge_studies,
-            q.MERGE_SEEK_IN_STUDY: self._merge_in_study,
             q.RETIRE_CANDIDATES: self._retire_candidates,
             q.DELETE_RETIRED: self._delete_retired,
             q.RELABEL_ORPHANS_BY_ELEMENT_ID: self._orphan,
@@ -131,6 +129,7 @@ class FakeGraph:
             q.MERGE_PEOPLE: lambda p: [],
             q.MERGE_MEMBER_OF: lambda p: [{"linked": len(p["rows"])}],
         }
+        self.handlers.update(self.study.handlers())
 
     # the driver surface
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
@@ -285,27 +284,6 @@ class FakeGraph:
                 written += 1
         return [{"matched": matched, "written": written, "pairs": pairs}]
 
-    def _merge_studies(self, p):
-        for r in p["rows"]:
-            self.studies[r["study_id"]] = r["title"]
-        return []
-
-    def _merge_in_study(self, p):
-        linked = 0
-        for r in p["rows"]:
-            if self._is_sample(r["sample_id"]) and r["study_id"] in self.studies:
-                self.in_study.add((r["sample_id"], r["study_id"]))
-                linked += 1
-        return [{"linked": linked}]
-
-    def _study_titles(self, p):
-        n = 0
-        for r in p["rows"]:
-            if r["study_id"] in self.studies:
-                self.studies[r["study_id"]] = r["title"]
-                n += 1
-        return [{"n": n}]
-
     def _retire_candidates(self, p):
         out = []
         for sid in p["ids"]:
@@ -424,7 +402,8 @@ def mysql(monkeypatch):
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "memberships": lambda: [{"person_id": 144, "project_id": 2, "has_left": False, "time_left_at": None}],
-        "studies": lambda: [{"id": 70, "title": "Study seventy (renamed)", "investigation_id": 3}],
+        "studies": lambda: [{"id": 70, "title": "Study seventy (renamed)", "description": "About seventy",
+                             "investigation_id": 3}],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -628,7 +607,28 @@ def test_adds_a_declared_false_attribute_for_an_undeclared_key(env, tmp_path):
 def test_writes_in_study_for_the_ids_only(env, tmp_path):
     targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
     assert env.mysql.reads["seek_study_links_for"] == [[11]]
-    assert env.graph.in_study == {(11, 70)}
+    assert env.graph.study.seek_links() == {(11, 70)}
+
+
+def test_one_sync_links_a_study_to_an_investigation_the_graph_lacked(env, tmp_path):
+    """SEEK made the investigation and the study directly, then samples were uploaded into it: after ONE by-id sync
+    the Investigation node exists with SEEK's title and its IN_PROJECT, and the Study is linked to it."""
+    env.graph.study.add_project(16, "TCGA")                  # the project exists; the investigation does not
+    result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    inv = env.graph.study.investigation_by_id(3)
+    assert env.graph.study.investigations[inv]["title"] == "TCGA" and env.graph.study.inv_projects[inv] == {16}
+    (node,) = env.graph.study.studies_by_seek(70)
+    assert env.graph.study.in_investigation[node] == [inv]
+    assert (result["investigations_written"], result["seek_study_investigation_missing"]) == (1, 0)
+    assert env.graph.of(q.DELETE_INVESTIGATION_IN_PROJECT) == []     # only the named investigations; no delete
+
+
+def test_the_by_id_path_reads_seeks_small_tables_once_per_call(env, tmp_path, monkeypatch):
+    reads = []
+    real = study_links.seek_tables
+    monkeypatch.setattr(study_links, "seek_tables", lambda: reads.append(1) or real())
+    targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path), chunk=1)
+    assert len(reads) == 1
 
 
 def test_sets_the_sample_counts_of_the_types_it_touched(env, tmp_path):
@@ -888,20 +888,76 @@ def test_relabel_for_maps_stamps_the_new_label_maps_hash_and_keeps_the_catalog_h
 
 # --- sync_small_tables ---------------------------------------------------------------------------
 
-def test_sync_small_tables_rewrites_projects_investigations_people_and_study_titles(env):
-    env.graph.studies[70] = "Study seventy"
+def test_sync_small_tables_rewrites_projects_investigations_people_and_study_nodes(env):
+    node = env.graph.study.add_study(seek_study_id=70, title="Study seventy")
     result = targeted.sync_small_tables(env.graph, DB)
 
     order = [env.graph.first(s) for s in (q.MERGE_PROJECTS, q.MERGE_INVESTIGATIONS, q.MERGE_MEMBER_OF,
-                                            targeted.SET_SEEK_STUDY_TITLES)]
+                                            q.MERGE_SEEK_STUDIES)]
     assert order == sorted(order)
     assert result["status"] == "ok"
     assert result["projects_written"] == 2
     assert result["investigations_written"] == 1
     assert result["memberships_written"] == 1
-    assert result["seek_study_titles_set"] == 1
-    assert env.graph.studies[70] == "Study seventy (renamed)"
-    assert env.graph.of(q.MERGE_SEEK_STUDIES) == []   # no Study node is created for a study with no samples
+    assert (result["seek_studies"], result["seek_study_nodes_written"]) == (1, 1)
+    assert env.graph.study.studies[node] == {"seek_study_id": 70, "title": "Study seventy (renamed)",
+                                             "description": "About seventy"}
+    assert env.graph.study.investigation_ids_of(node) == [3]
+
+
+def test_every_seek_study_gets_a_node_even_with_no_sample(env):
+    result = targeted.sync_small_tables(env.graph, DB)
+    (node,) = env.graph.study.studies_by_seek(70)
+    assert env.graph.study.investigation_ids_of(node) == [3] and result["seek_study_nodes_written"] == 1
+
+
+def test_a_written_sample_with_no_seek_link_still_gets_its_row(env, tmp_path, monkeypatch):
+    """The by-id path skipped IN_STUDY when a sample had no SEEK link, so a sample that left every SEEK study kept
+    its links for ever. SEEK places sample 12 in no study: it gets its row, keeps its link and is counted."""
+    old = env.graph.study.add_study(seek_study_id=71, title="Old study")
+    env.graph.study.link(12, old)
+    monkeypatch.setenv(study_links.SWITCH_ENV, "follow")
+    result = targeted.sync_samples(env.graph, DB, [12], run_dir=str(tmp_path))
+    assert env.graph.of(q.REPLACE_SEEK_IN_STUDY)[0].params["rows"] == [
+        {"sample_id": 12, "study_ids": [], "withhold": [], "paper": False, "remove": []}]
+    assert env.graph.study.keys_of(12) == {("seek", 71)}
+    assert result["in_study_kept_no_seek_study"] == 1
+
+
+@pytest.mark.parametrize("switch", ["follow", "add"])
+def test_a_moved_sample_loses_its_old_link_only_with_the_switch_on(env, tmp_path, monkeypatch, switch):
+    old = env.graph.study.add_study(seek_study_id=71, title="Old study")
+    env.graph.study.link(11, old)                        # SEEK now files 11 under study 70 only
+    monkeypatch.setenv(study_links.SWITCH_ENV, switch)
+    result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    archive = tmp_path / study_links.ARCHIVE_FILE
+    if switch == "follow":
+        assert env.graph.study.keys_of(11) == {("seek", 70)}
+        assert result["in_study_removed"] == 1
+        assert archive.read_text(encoding="utf-8").splitlines()[1].split("\t")[4] == "by_id"
+    else:
+        assert env.graph.study.keys_of(11) == {("seek", 70), ("seek", 71)}
+        assert result["in_study_stale"] == 1 and not archive.exists()
+
+
+def test_the_switch_is_read_once_per_call(env, tmp_path, monkeypatch):
+    reads = []
+    monkeypatch.setattr(study_links, "follows_seek", lambda env=None: reads.append(1) or False)
+    targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path), chunk=1)
+    assert len(reads) == 1
+
+
+def test_a_sample_on_an_unmerged_legacy_node_keeps_it_and_gets_no_seek_link(env, tmp_path, monkeypatch):
+    """A box rebuilt before its merge: the legacy node has no seek_study_id, so its samples are paper samples, and
+    SEEK's study 70 is in the legacy node's own investigation."""
+    inv = env.graph.study.add_investigation(3, "TCGA")
+    legacy = env.graph.study.add_study(id=70, title="Study seventy", investigation=inv)
+    env.graph.study.link(11, legacy)
+    monkeypatch.setenv(study_links.SWITCH_ENV, "follow")
+    result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    assert env.graph.study.keys_of(11) == {("id", 70)}
+    assert result["in_study_withheld"] == 1 and result["in_study_removed"] == 0
+    assert len(env.graph.study.studies_by_seek(70)) == 1
 
 
 # --- the one MySQL reader of its own -------------------------------------------------------------

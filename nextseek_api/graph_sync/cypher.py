@@ -468,19 +468,6 @@ MATCH (x)-[e:IN_STUDY]->(:Study) WHERE NOT x:Sample
 RETURN count(e) AS n
 """
 
-# Samples already placed in a paper-level Study (one with no seek_study_id); SEEK studies are not added to them.
-SAMPLES_IN_PAPER_STUDIES = """
-MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.seek_study_id IS NULL
-RETURN DISTINCT s.id AS id
-"""
-MERGE_SEEK_IN_STUDY = """
-UNWIND $rows AS r
-MATCH (s:Sample {id: r.sample_id})
-MATCH (st:Study {seek_study_id: r.study_id})
-MERGE (s)-[:IN_STUDY]->(st)
-RETURN count(*) AS linked
-"""
-
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.

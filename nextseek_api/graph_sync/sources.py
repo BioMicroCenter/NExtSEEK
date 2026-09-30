@@ -598,25 +598,6 @@ def investigations() -> list[dict]:
                 _seek(), "SELECT id, title, description FROM investigations ORDER BY id")]
 
 
-def seek_study_links() -> list[dict]:
-    """Distinct (sample, SEEK study) links through `assay_assets` (Sample assets) and `assays`."""
-    sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.investigation_id "
-           "FROM assay_assets aa "
-           "JOIN assays a ON a.id = aa.assay_id "
-           "JOIN studies s ON s.id = a.study_id "
-           "WHERE aa.asset_type = %s "
-           "ORDER BY aa.asset_id, s.id")
-    titles: dict[str, str] = {}  # one string object per study title across a million rows
-    links = []
-    for sample_id, study_id, title, inv_id in _rows(_seek(), sql, ["Sample"]):
-        title = _text(title)
-        if title is not None:
-            title = titles.setdefault(title, title)
-        links.append({"sample_id": int(sample_id), "study_id": int(study_id), "study_title": title,
-                      "investigation_id": int(inv_id) if inv_id is not None else None})
-    return links
-
-
 def seek_study_links_for(ids: Iterable[int]) -> list[dict]:
     """(sample, SEEK study) links for these sample ids only, through `assay_assets` (Sample assets), `assays` and
     `studies`, ordered by sample id, then study id. An assay whose study row is gone gives no link."""

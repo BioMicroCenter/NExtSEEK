@@ -9,7 +9,8 @@ in the design's order:
     find_ghosts > delete_ghosts > relabel_orphans > archive_and_drop_child_of > ensure_constraints_v11 >
     write_sample_types > write_attributes > write_projects > write_people_and_memberships >
     write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
-    archive_and_drop_undeclared_derived_from > write_seek_studies > write_attribute_counts >
+    archive_and_drop_undeclared_derived_from > write_seek_studies (the full sync now runs
+    study_links.rebuild_in_study instead) > write_attribute_counts >
     write_sample_type_counts > ensure_index_budget > ensure_fulltext > await_indexes > write_graphmeta
 
 Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule), ``edges_incident`` and
@@ -763,41 +764,6 @@ def sample_hashes(driver, db) -> Iterator[tuple]:
         after = rows[-1]["id"]
 
 
-def write_seek_studies(driver, db, links: list[dict]) -> dict:
-    """Place samples in their SEEK studies, for samples that are in no paper-level Study.
-
-    ``links`` are ``sources.seek_study_links()`` rows (``sample_id``, ``study_id``, ``study_title``,
-    ``investigation_id``). A SEEK study becomes a Study node MERGEd on ``seek_study_id`` (no ``id``: the paper-level
-    Study nodes own graph-local ids), linked to its Investigation; each eligible sample gets IN_STUDY to it. A sample
-    already in a paper-level Study (one with no ``seek_study_id``) is left as it is.
-    """
-    in_paper = {r["id"] for r in _records(_run(driver, db, q.SAMPLES_IN_PAPER_STUDIES, read=True))}
-    studies: dict[int, dict] = {}
-    edges: list[tuple[int, int]] = []
-    skipped = set()
-    for link in links:
-        sample_id, study_id = int(link["sample_id"]), int(link["study_id"])
-        # The study is registered from the link row FIRST, above the skip. The skip suppresses only the
-        # IN_STUDY edge, which is the paper-level rule this function documents; it must not suppress the
-        # node as well. Measured 2026-09-17: with setdefault below the `continue`, a study whose samples
-        # are all in paper-level Study nodes never reached it and got no node at all. SEEK study 14 (568
-        # of 568 samples) and study 55 (23 of 23) were the two live cases.
-        studies.setdefault(study_id, {"study_id": study_id, "title": link.get("study_title"),
-                                      "investigation_id": link.get("investigation_id")})
-        if sample_id in in_paper:
-            skipped.add(sample_id)
-            continue
-        edges.append((sample_id, study_id))
-    for batch in _batches([studies[k] for k in sorted(studies)], REL_CHUNK):
-        _run(driver, db, q.MERGE_SEEK_STUDIES, {"rows": batch})
-    linked = 0
-    for batch in _batches(edges, REL_CHUNK):
-        rows = [{"sample_id": s, "study_id": st} for s, st in batch]
-        linked += _one(_run(driver, db, q.MERGE_SEEK_IN_STUDY, {"rows": rows}), "linked")
-    return {"seek_studies": len(studies), "in_study_written": linked, "in_study_dropped": len(edges) - linked,
-            "samples_skipped_in_paper_study": len(skipped)}
-
-
 # --- SEEK studies and IN_STUDY (the studies release) ---------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -1026,6 +992,31 @@ def replace_seek_in_study(driver, db, rows, *, remove: bool, archive_path: str |
         counts["in_study_studies_missing"] += int(record.get("studies_missing") or 0)
         counts["in_study_samples_missing"] += len(batch) - int(record.get("samples") or 0)
     return counts
+
+
+def write_seek_studies(driver, db, links: list[dict], sample_ids, *, remove: bool, archive_path: str | None,
+                       tables: SeekTables) -> dict:
+    """The by-id path's SEEK studies: the Study node of every study ``links`` names (its Investigation node first,
+    from ``tables``), then ``replace_seek_in_study`` with one row per sample of ``sample_ids``, a sample with no link
+    getting an empty list (it keeps its links and is counted). ``links`` are ``sources.seek_study_links_for`` rows
+    (``sample_id``, ``study_id``, ``study_title``, ``study_description``, ``investigation_id``); ``tables`` is what
+    the caller read once from SEEK (``study_links.seek_tables``), and gives the paper-sample rule its scope. A study
+    is given its node even when every one of its samples is a paper sample: only the edge is withheld."""
+    studies: dict[int, dict] = {}
+    per_sample: dict[int, set[int]] = {int(s): set() for s in sample_ids}
+    for link in links:
+        sample_id, study_id = int(link["sample_id"]), int(link["study_id"])
+        studies.setdefault(study_id, {"id": study_id, "title": link.get("study_title"),
+                                      "description": link.get("study_description"),
+                                      "investigation_id": link.get("investigation_id")})
+        if sample_id in per_sample:
+            per_sample[sample_id].add(study_id)
+    report = write_seek_study_nodes(driver, db, list(studies.values()), tables=tables)
+    report.update(replace_seek_in_study(
+        driver, db, [{"sample_id": s, "study_ids": sorted(found)} for s, found in sorted(per_sample.items())],
+        remove=remove, archive_path=archive_path, scope=paper_scope(tables.studies, tables.investigations),
+        path="by_id"))
+    return report
 
 
 # --- GraphMeta -----------------------------------------------------------------------------------

@@ -131,7 +131,6 @@ def world(monkeypatch):
         "memberships": lambda: copy.deepcopy(MEMBERSHIPS),
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
-        "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
         "iter_seek_study_links": lambda: iter([(11, 7)]),
         # gate G check 9: no assay links in this world (the maps and parent identities are stubbed above)
         "sample_assay_ids_for": lambda ids: {},

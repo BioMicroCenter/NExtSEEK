@@ -675,31 +675,6 @@ def test_write_missing_lineage_follows_the_existing_edge_form(existing, by_uuid)
     assert counts == {"lineage_pairs": 2, "lineage_matched": 2, "lineage_created": 1, "lineage_dropped": 0}
 
 
-def test_write_seek_studies_skips_samples_in_a_paper_level_study():
-    links = [{"sample_id": 1, "study_id": 40, "study_title": "S40", "investigation_id": 30},
-             {"sample_id": 2, "study_id": 40, "study_title": "S40", "investigation_id": 30},
-             {"sample_id": 2, "study_id": 41, "study_title": "S41", "investigation_id": 30},
-             {"sample_id": 3, "study_id": 42, "study_title": "S42", "investigation_id": None}]
-
-    def responder(query, params):
-        if query == q.SAMPLES_IN_PAPER_STUDIES:
-            return [{"id": 1}]
-        if query == q.MERGE_SEEK_IN_STUDY:
-            return [{"linked": len(params["rows"])}]
-        return []
-
-    driver = FakeDriver(responder)
-    counts = w.write_seek_studies(driver, "neo4j", links)
-    studies = driver.calls_of(q.MERGE_SEEK_STUDIES)[0].params["rows"]
-    assert studies == [{"study_id": 40, "title": "S40", "investigation_id": 30},
-                       {"study_id": 41, "title": "S41", "investigation_id": 30},
-                       {"study_id": 42, "title": "S42", "investigation_id": None}]
-    edges = driver.calls_of(q.MERGE_SEEK_IN_STUDY)[0].params["rows"]
-    assert edges == [{"sample_id": 2, "study_id": 40}, {"sample_id": 2, "study_id": 41},
-                     {"sample_id": 3, "study_id": 42}]
-    assert counts == {"seek_studies": 3, "in_study_written": 3, "in_study_dropped": 0,
-                      "samples_skipped_in_paper_study": 1}
-
 
 def test_write_attribute_counts_sets_counts_and_zeroes_the_rest():
     driver = FakeDriver(lambda query, params: [{"n": len(params.get("rows", []))}]
@@ -1404,61 +1379,6 @@ def test_sample_hashes_of_an_empty_graph():
     assert len(driver.calls) == 1
 
 
-class TestAStudyWhoseSamplesAreAllInPaperStudiesStillGetsItsNode:
-    """Node creation must not sit below the paper-study skip.
-
-    Measured 2026-09-17 against the live graph with the graph-evidence POC: SEEK study 14 has 568 of
-    568 samples in paper-level Study nodes and study 55 has 23 of 23, so every link row was skipped,
-    `studies.setdefault` was never reached, and neither study got a node. 81 SEEK studies minus 40 with
-    no sample-bearing assay minus these 2 is the 39 nodes the graph held.
-
-    The skip is meant to suppress only the IN_STUDY edge, which is the documented paper-level rule
-    ("A sample already in a paper-level Study is left as it is"). It must not suppress the node.
-    """
-
-    def _run_write(self, links, in_paper):
-        seen = {"studies": [], "edges": []}
-
-        def respond(query, params):
-            if query == q.SAMPLES_IN_PAPER_STUDIES:
-                return [{"id": i} for i in in_paper]
-            if query == q.MERGE_SEEK_STUDIES:
-                seen["studies"].extend(params["rows"])
-                return []
-            if query == q.MERGE_SEEK_IN_STUDY:
-                seen["edges"].extend(params["rows"])
-                return [{"linked": len(params["rows"])}]
-            raise AssertionError(f"unexpected statement: {query}")
-
-        result = w.write_seek_studies(FakeDriver(respond), "neo4j", links)
-        return result, seen
-
-    def test_the_study_node_is_written_even_when_every_sample_is_skipped(self):
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
-                  "investigation_id": 22},
-                 {"sample_id": 2, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
-                  "investigation_id": 22}]
-        result, seen = self._run_write(links, in_paper={1, 2})
-        assert [s["study_id"] for s in seen["studies"]] == [55], (
-            "the study got no node because every one of its samples was skipped"
-        )
-        assert result["seek_studies"] == 1
-
-    def test_no_in_study_edge_is_written_for_a_skipped_sample(self):
-        """The paper-level rule itself is unchanged: the node appears, the edge does not."""
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22}]
-        result, seen = self._run_write(links, in_paper={1})
-        assert seen["edges"] == []
-        assert result["samples_skipped_in_paper_study"] == 1
-
-    def test_a_mixed_study_writes_the_node_once_and_only_the_unskipped_edge(self):
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22},
-                 {"sample_id": 2, "study_id": 55, "study_title": "S", "investigation_id": 22}]
-        _, seen = self._run_write(links, in_paper={1})
-        assert [s["study_id"] for s in seen["studies"]] == [55]
-        assert [e["sample_id"] for e in seen["edges"]] == [2]
-
-
 # --- the studies release: Study nodes and IN_STUDY -----------------------------------------------------------------
 
 from nextseek_api.tests.graph_sync_study_fakes import StudyGraph  # noqa: E402
@@ -1745,3 +1665,82 @@ def test_a_shared_link_seek_no_longer_holds_is_removed_like_any_other(tmp_path):
     counts = w.replace_seek_in_study(g2, DB, [{"sample_id": 1003, "study_ids": [1]}], remove=False,
                                      archive_path=None, scope=SCOPE)
     assert counts["in_study_stale"] == 1 and g2.keys_of(1003) == {("id", 9), ("seek", 3)}
+
+
+# --- the by-id path: write_seek_studies ----------------------------------------------------------------------------
+
+def _link(sample_id, study_id, title="Alder", description=None, investigation_id=101):
+    return {"sample_id": sample_id, "study_id": study_id, "study_title": title,
+            "study_description": description, "investigation_id": investigation_id}
+
+
+TABLES = w.SeekTables(studies=tuple(SEEK_STUDIES), investigations=tuple(SEEK_INVESTIGATIONS))
+
+
+def test_write_seek_studies_writes_the_nodes_then_one_row_per_written_sample(tmp_path):
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
+    old = g.add_study(seek_study_id=2, title="Birch", investigation=inv)
+    for sid in (1001, 1002, 1003):
+        g.add_sample(sid)
+    g.link(1002, old)           # SEEK now places 1002 in no study: its link is kept and counted
+    g.link(1003, paper)         # a paper sample: its SEEK link to its own investigation's study is withheld
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1, "Alder", "About alder"), _link(1003, 1)],
+                                  [1001, 1002, 1003], remove=True, archive_path=str(tmp_path / "a.tsv"),
+                                  tables=TABLES)
+    (node,) = g.studies_by_seek(1)
+    assert g.studies[node] == {"seek_study_id": 1, "title": "Alder", "description": "About alder"}
+    assert [c.params["rows"] for c in g.of(q.REPLACE_SEEK_IN_STUDY)] == [[
+        {"sample_id": 1001, "study_ids": [1], "withhold": [], "paper": False, "remove": []},
+        {"sample_id": 1002, "study_ids": [], "withhold": [], "paper": False, "remove": []},
+        {"sample_id": 1003, "study_ids": [1], "withhold": [1], "paper": True, "remove": []}]]
+    assert g.keys_of(1001) == {("seek", 1)} and g.keys_of(1002) == {("seek", 2)} and g.keys_of(1003) == {("id", 9)}
+    assert (counts["seek_studies"], counts["in_study_added"], counts["in_study_kept_no_seek_study"],
+            counts["in_study_paper_samples"], counts["in_study_withheld"]) == (1, 1, 1, 1, 1)
+
+
+def test_a_study_whose_samples_are_all_paper_samples_still_gets_its_node():
+    g = StudyGraph()
+    alder = g.add_investigation(101, "Alder Investigation")
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=alder)
+    g.add_sample(1001)
+    g.link(1001, paper)
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1)], [1001], remove=False, archive_path=None, tables=TABLES)
+    assert len(g.studies_by_seek(1)) == 1
+    assert counts["in_study_withheld"] == 1 and g.keys_of(1001) == {("id", 9)}
+
+
+def test_write_seek_studies_removes_a_moved_samples_old_link_when_asked(tmp_path):
+    g = StudyGraph()
+    old = g.add_study(seek_study_id=2, title="Birch")
+    g.add_sample(1001)
+    g.link(1001, old)
+    archive = tmp_path / "in_study_removed.tsv"
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1)], [1001], remove=True, archive_path=str(archive),
+                                  tables=TABLES)
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert counts["in_study_removed"] == 1 and archive.read_text().splitlines()[1].split("\t")[4] == "by_id"
+
+
+def test_one_by_id_sync_links_a_shared_paper_sample_to_the_destination_study_only(tmp_path):
+    """The production shape: a paper sample shared into another investigation's study."""
+    g, _ = _two_investigation_world()
+    w.write_seek_studies(g, DB, [_link(1003, 1, "Alder Unpublished"), _link(1003, 3, "Birch Study",
+                                                                             investigation_id=102)],
+                         [1003], remove=True, archive_path=str(tmp_path / "a.tsv"), tables=TABLES)
+    assert g.keys_of(1003) == {("id", 9), ("seek", 3)}
+
+
+def test_the_by_id_path_writes_a_new_investigation_before_its_study():
+    g = StudyGraph()
+    g.add_project(5, "Poplar")
+    g.add_sample(1001)
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", None, 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},))
+    counts = w.write_seek_studies(g, DB, [_link(1001, 9, "Poplar Study", investigation_id=103)], [1001],
+                                  remove=False, archive_path=None, tables=tables)
+    (node,) = g.studies_by_seek(9)
+    assert g.investigation_ids_of(node) == [103] and g.keys_of(1001) == {("seek", 9)}
+    assert (counts["investigations_written"], counts["seek_study_investigation_missing"]) == (1, 0)

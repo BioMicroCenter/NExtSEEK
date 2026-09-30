@@ -9,7 +9,8 @@ bring part of the graph up to date without a full sync:
 - ``sync_samples_of_type(driver, db, type_id)``: ``sync_samples`` over every sample of a type, one chunk at a time.
 - ``retire_samples(driver, db, ids)``: the deletion rule (section 9) for ids MySQL no longer holds.
 - ``relabel_for_maps(driver, db)``: the labels a change to the resolved assay map or to ``sops`` affects.
-- ``sync_small_tables(driver, db)``: projects, investigations, people and memberships, SEEK Study titles.
+- ``sync_small_tables(driver, db)``: projects, investigations, people and memberships, and every SEEK study's
+  node with its title, description and investigation.
 
 **Every call is one write unit.** It first reads ``GraphMeta.schema_version`` and refuses, writing nothing, unless it
 is the writer's (``status: not_at_version``): a 1.1 graph waits for the operator's first full sync at 1.2. Then it
@@ -24,9 +25,10 @@ types the nodes point at now; retire the ids MySQL did not return; run ``run.cat
 SampleType node or one holding another title; project and write the samples (``source_hash`` and the parent lists
 always, R1, R4); the declared lineage of these samples as children (create what is missing, then archive and delete
 what MySQL does not declare); label every edge incident to them, both directions, the ones just created included;
-IN_STUDY; ``declared: false`` Attribute nodes; the touched types' counts. A sample that cannot be projected is
-counted and skipped whole, its lineage included: its parent tokens could not be read, and reading them as none would
-delete every edge it has.
+IN_STUDY, which follows SEEK (``study_links``: a link SEEK no longer holds is removed only where the box's switch is
+on, archived first); ``declared: false`` Attribute nodes; the touched types' counts. A sample that cannot be projected
+is counted and skipped whole, its lineage included: its parent tokens could not be read, and reading them as none
+would delete every edge it has.
 
 **Labels** (section 7.3). Each edge is labelled by ``labels.edge_labels`` from MySQL and classified against what it
 stores (``labels.classify``). Without the operator's approval only ``new`` edges are written, and the writer's own
@@ -34,7 +36,8 @@ guard skips an edge labelled meanwhile (R14). ``changed``, ``cleared`` and ``plu
 property with a few examples, and written only with ``apply_label_changes=True``, then only where the stored values
 still equal those read. An edge a call creates has no label, so it is ``new`` and labelled in the same call (R15).
 
-**Archives.** ``retired.tsv`` and ``derived_from_undeclared_archive.tsv`` are appended in ``run_dir``; without one,
+**Archives.** ``retired.tsv``, ``derived_from_undeclared_archive.tsv`` and ``in_study_removed.tsv`` are appended
+in ``run_dir``; without one,
 in a new ``targeted-<UTC time>`` directory under ``$GS_RUN_DIR``, else under ``<LOG_DIR>/graph_sync``, created only
 when a row is archived. The writer writes and flushes each archive before the delete it records.
 
@@ -51,7 +54,7 @@ from datetime import datetime, timezone
 from django.conf import settings
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
-from nextseek_api.graph_sync import catalog, labels, run, sources, state, writer
+from nextseek_api.graph_sync import catalog, labels, run, sources, state, study_links, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, parent_lists, project_sample
 from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
@@ -122,16 +125,6 @@ MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
 WHERE e.protocol_id IN $ids
 RETURN c.id AS child_id, p.id AS parent_id, elementId(e) AS element_id, properties(e) AS props
 """
-# sync_small_tables: the title of each SEEK Study node the sample syncs placed. No node is created here: a study
-# gets its node when one of its samples is synced.
-SET_SEEK_STUDY_TITLES = """
-UNWIND $rows AS r
-MATCH (st:Study {seek_study_id: r.study_id})
-SET st.title = r.title
-RETURN count(st) AS n
-"""
-
-
 # --- plumbing ------------------------------------------------------------------------------------
 
 def _ids(ids) -> list[int]:
@@ -180,13 +173,16 @@ def _metadata(raw) -> dict:
 
 class _Context:
     """What one call reads once and reuses across its chunks: where it archives, the operator's approval of label
-    changes, the catalog and the label maps (each read on first use)."""
+    changes, the box's study-link switch, the catalog, the label maps and SEEK's small tables (each read on first
+    use)."""
 
     def __init__(self, run_dir: str | None, apply_label_changes: bool = False):
         self.run_dir = os.path.abspath(run_dir) if run_dir else _default_run_dir()
         self.apply_label_changes = bool(apply_label_changes)
+        self.follow_seek = study_links.follows_seek()   # the box's study-link switch, read once per call
         self._catalog = None
         self._maps = None
+        self._tables = None
 
     def archive(self, name: str) -> str:
         return os.path.join(self.run_dir, name)
@@ -195,6 +191,12 @@ class _Context:
         if self._catalog is None:
             self._catalog = run.build_catalog()
         return self._catalog
+
+    def seek_tables(self):
+        """SEEK's studies, investigations, investigation projects and projects (``study_links.seek_tables``)."""
+        if self._tables is None:
+            self._tables = study_links.seek_tables()
+        return self._tables
 
     def maps(self) -> tuple[dict, dict, dict]:
         """The resolved assay map, ``sops`` and the SOP title index ``labels.resolve_protocol`` takes."""
@@ -343,8 +345,9 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
             report.update(_lineage(driver, db, [r for r in rows if r["id"] in written], tokens, ctx))
             report.update(_label_edges(driver, db, writer.edges_incident(driver, db, sorted(written)), ctx, metas))
             links = sources.seek_study_links_for(sorted(written))
-            if links:
-                report.update(writer.write_seek_studies(driver, db, links))
+            report.update(writer.write_seek_studies(driver, db, links, sorted(written), remove=ctx.follow_seek,
+                                                    archive_path=ctx.archive(study_links.ARCHIVE_FILE),
+                                                    tables=ctx.seek_tables()))
             report.update(_undeclared_attributes(driver, db, projections, cat))
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
@@ -598,14 +601,13 @@ def _small_tables(driver, db) -> dict:
     report.update(writer.write_investigation_projects(driver, db, sources.investigations(),
                                                       sources.investigation_projects()))
     report.update(writer.write_people_and_memberships(driver, db, sources.memberships()))
-    rows = [{"study_id": int(s["id"]), "title": s["title"]} for s in sources.studies()]
-    report["seek_study_titles_set"] = sum(_one(_run(driver, db, SET_SEEK_STUDY_TITLES, {"rows": batch}), "n")
-                                          for batch in _batches(rows, writer.REL_CHUNK))
+    # Every SEEK study gets its node, with no sample yet included; the Investigation nodes were written just above.
+    report.update(writer.write_seek_study_nodes(driver, db, sources.studies()))
     return report
 
 
 def sync_small_tables(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S) -> dict:
     """Rewrite the small tables from MySQL: Project nodes (a project gone from MySQL is deleted), Investigation nodes
-    and their IN_PROJECT, Person nodes and MEMBER_OF, and the title of each SEEK Study node. Tens to hundreds of rows
-    each, so every call rewrites them whole."""
+    and their IN_PROJECT, Person nodes and MEMBER_OF, and the node of every SEEK study (made when missing) with SEEK's
+    title, description and investigation. Tens to hundreds of rows each, so every call rewrites them whole."""
     return _guarded(driver, db, lock_timeout_s, lambda: _small_tables(driver, db))

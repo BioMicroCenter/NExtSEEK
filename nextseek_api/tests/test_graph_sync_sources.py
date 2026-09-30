@@ -271,18 +271,6 @@ def test_investigations_rows(fake_db):
     assert sources.investigations() == [{"id": 1, "title": "Impact", "description": "desc"}]
 
 
-def test_seek_study_links_bind_the_asset_type(fake_db):
-    seek, _ = fake_db(seek_results=[[(100, 7, "Study A", 3), (101, 7, "Study A", 3)]])
-    links = sources.seek_study_links()
-    assert links == [
-        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-        {"sample_id": 101, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-    ]
-    sql, params = seek.executed[0]
-    assert "FROM assay_assets" in sql and "JOIN assays" in sql and "asset_type = %s" in sql
-    assert params == ["Sample"]
-
-
 # --- lineage -----------------------------------------------------------------------------------
 
 def test_uuid_to_ids_groups_duplicates_and_skips_blanks(fake_db):

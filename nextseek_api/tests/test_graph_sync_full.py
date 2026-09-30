@@ -108,7 +108,6 @@ def world(monkeypatch):
         "memberships": lambda: [{"person_id": 144, "project_id": 2, "has_left": False, "time_left_at": None}],
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
-        "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
         "iter_seek_study_links": lambda: iter([(11, 7)]),
     }
     for name, fn in patches.items():
