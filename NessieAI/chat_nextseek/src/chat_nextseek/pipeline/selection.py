@@ -52,15 +52,28 @@ isoforms; a library with no size selection cannot answer a question about
 small RNAs; a species with no reference bundle cannot be run at all. The
 protocol text is often the only place the preparation is described.
 
-Return an empty pipelines list when nothing fits — because the data cannot
-support the question, or because no pipeline in the atlas does what was asked.
-Refusing is a correct, expected answer, not a hedge. Equally, do not refuse
-merely because the pipeline's output would still need downstream analysis;
-that is true of almost every correct answer.
+Return an empty pipelines list when nothing fits, and say which of two
+different things is true in "basis":
+
+  - "data": a pipeline in the atlas does the kind of analysis asked for, but
+    THIS cohort's data cannot support it (the library, the molecule, the
+    species). This is a refusal, and a correct, expected answer, not a hedge.
+  - "atlas": the question asks for an analysis no pipeline in the atlas
+    performs. The atlas covers RNA pipelines only, so DNA variant calling,
+    chromatin, methylation, metagenomics and the like are "atlas", even when
+    an atlas pipeline shares a word with the request (rnavar calls variants
+    from RNA; calling variants on DNA is not what it does). Another part of
+    the system chooses from a wider catalog, so do not refuse on the atlas's
+    behalf.
+
+Equally, do not refuse merely because the pipeline's output would still need
+downstream analysis; that is true of almost every correct answer.
 
 Respond with ONLY a single JSON object, no markdown fence, no text around it:
 
-{"pipelines": ["<atlas key>", ...], "reason": "<one sentence>"}"""
+{"pipelines": ["<atlas key>", ...], "reason": "<one sentence>", "basis": "data" | "atlas"}
+
+"basis" is required when "pipelines" is empty and ignored otherwise."""
 
 USER_TEMPLATE = """{payload}
 
@@ -79,6 +92,9 @@ class Verdict:
     pipelines: list[str] = field(default_factory=list)
     reason: str = ""
     raw: str = ""
+    #: Atlas pipelines the model named that the build path cannot launch. They are
+    #: dropped from `pipelines`, not held against the rest of the answer.
+    dropped: list[str] = field(default_factory=list)
 
 
 def out_of_scope(reason: str, raw: str = "") -> Verdict:
@@ -109,8 +125,15 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 
 
 def decide(*, client, model: str, budget: int | None, payload: str, question: str,
-           atlas_keys: set[str]) -> Verdict:
-    """Ask one model, once, and map its answer onto a verdict. Never raises."""
+           atlas_keys: set[str], launchable_keys: set[str] | None = None) -> Verdict:
+    """Ask one model, once, and map its answer onto a verdict. Never raises.
+
+    `atlas_keys` is every pipeline the payload describes; a name outside it was
+    invented. `launchable_keys` is the subset the build path can run (defaults to
+    all of them); an atlas pipeline outside it is dropped, not fatal.
+    """
+    if launchable_keys is None:
+        launchable_keys = atlas_keys
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_TEMPLATE.format(payload=payload, question=question)},
@@ -137,7 +160,18 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
         # empty list is nothing the agent can relay, so it degrades instead.
         if not reason:
             return out_of_scope("the selection model refused without giving a reason", raw)
-        return Verdict(kind="refused", pipelines=[], reason=reason, raw=raw)
+        # Only a refusal about THIS cohort's data may block the build. "Nothing in the
+        # atlas does this" is a statement about an RNA-only atlas, not about the
+        # question, so it hands the choice back to the agent's full catalog; so does
+        # a missing or unrecognised basis.
+        basis = parsed.get("basis")
+        if basis == "data":
+            return Verdict(kind="refused", pipelines=[], reason=reason, raw=raw)
+        if basis == "atlas":
+            return out_of_scope(f"no pipeline in the atlas does this: {reason}", raw)
+        return out_of_scope(
+            f"the selection model declined without saying whether the data or the atlas "
+            f"was the reason ({basis!r}): {reason}", raw)
 
     invented = [k for k in chosen if k not in atlas_keys]
     if invented:
@@ -149,5 +183,13 @@ def decide(*, client, model: str, budget: int | None, payload: str, question: st
         return out_of_scope(
             f"the selection model named {len(set(chosen))} pipelines, which is not a choice", raw)
 
-    kind = "chosen" if len(set(chosen)) == 1 else "fork"
-    return Verdict(kind=kind, pipelines=list(dict.fromkeys(chosen)), reason=reason, raw=raw)
+    named = list(dict.fromkeys(chosen))
+    kept = [k for k in named if k in launchable_keys]
+    dropped = [k for k in named if k not in launchable_keys]
+    if not kept:
+        return out_of_scope(
+            f"the selection model named {', '.join(dropped)}, which is in the atlas "
+            "but cannot be launched here", raw)
+
+    kind = "chosen" if len(kept) == 1 else "fork"
+    return Verdict(kind=kind, pipelines=kept, reason=reason, raw=raw, dropped=dropped)

@@ -988,6 +988,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     def _verdict_json(verdict, n_uids: int) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
+        if verdict.dropped:
+            state["selection"]["dropped"] = verdict.dropped
         _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
         return json.dumps({
             "ok": True,
@@ -1101,15 +1103,17 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         # AGENT_MODEL_CATALOG. selection.decide itself never raises, but it costs
         # nothing to keep it inside this guard too.
         client, model_name, budget = config.get_agent_model("pipeline_agent")
-        # Restrict to atlas keys that are also in the build-path catalog: every
-        # downstream tool (resolve_samples, write_samplesheet, configure_run)
+        # Only atlas keys that are also in the build-path catalog may be chosen:
+        # every downstream tool (resolve_samples, write_samplesheet, configure_run)
         # validates against NFCORE_PIPELINE_CATALOG, not the atlas, and the two
         # sets are not nested — differentialabundance is atlas-only. Choosing it
         # would pass selection's own invented-key check and then fail every tool
         # after it. differentialabundance stays in the atlas payload itself
-        # (its versus.rnaseq entry is load-bearing for disambiguation) — it is
-        # only excluded from what the model may choose.
-        atlas_keys = set(atlas.get("pipelines") or {}) & set(NFCORE_PIPELINE_CATALOG)
+        # (its versus.rnaseq entry is load-bearing for disambiguation), and a
+        # verdict naming it alongside a launchable pipeline keeps that pipeline:
+        # decide() drops the unlaunchable key rather than the whole answer.
+        atlas_keys = set(atlas.get("pipelines") or {})
+        launchable_keys = atlas_keys & set(NFCORE_PIPELINE_CATALOG)
         # decide() itself never raises, but its Bedrock call has no ceiling of
         # its own — botocore's read_timeout (600s) times its retries is the only
         # other bound, on a daemon thread gunicorn will not reap. Bound it the
@@ -1121,7 +1125,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         try:
             future = pool.submit(selection.decide, client=client, model=model_name,
                                  budget=budget, payload=payload, question=question,
-                                 atlas_keys=atlas_keys)
+                                 atlas_keys=atlas_keys, launchable_keys=launchable_keys)
             try:
                 verdict = future.result(timeout=SELECTION_MODEL_TIMEOUT_SECONDS)
             except concurrent.futures.TimeoutError:
