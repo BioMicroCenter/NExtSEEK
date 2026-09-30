@@ -778,7 +778,6 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     in and offers the narrowed search (2026-09-25)."""
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
-    blob |= _name_words(t.cy)   # Treatment1Route -> treatment, 1, route
     by_spelling = t.catalog.holds_by_spelling()
     free = _free_text_terms(t.cy, t.params)
     cy_strict, params_strict = t.cy, dict(t.params)
@@ -788,7 +787,10 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
         else:
             cy_strict = cy_strict.replace(tok, "''")
     strict = _tokens(re.sub(r"\bT_\w+", " ", cy_strict) + " " + json.dumps(params_strict, default=str))
-    strict |= _name_words(cy_strict)
+    # the words inside the property names the query reads (Treatment1Route -> treatment, 1, route) only tell that a
+    # stored VALUE is already applied; they never drop an attribute from the search or from the spelling list
+    named = blob | _name_words(t.cy)
+    strict_named = strict | _name_words(cy_strict)
     for var, lab in t.vl.items():
         terms = [term for v, _tok, term in free if v == var]
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))
@@ -808,11 +810,11 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                     continue
                 if f" {vn} " not in qn or _named_alias_applied(t.q, vn.split(), blob):
                     continue
-                if not _tokens(vn) <= blob:
+                if not _tokens(vn) <= named:
                     fact = f"The question names '{v}', but the search did not filter on it."
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it", fact,
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
-                if _tokens(vn) <= strict:
+                if _tokens(vn) <= strict_named:
                     continue                # a filter of its own applies it
                 hit = [term for term in terms if term in str(v).lower()]
                 # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
