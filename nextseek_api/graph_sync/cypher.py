@@ -603,6 +603,64 @@ FOREACH (_ IN CASE WHEN l.PMID = '' THEN [1] ELSE [] END | REMOVE l.PMID)
 RETURN count(l) AS merged
 """
 
+# Undo, step 1, one transaction: while L is the only node carrying seek_study_id $study_id, restore L's journaled
+# properties (seek_study_id goes with them) and its journaled IN_INVESTIGATION, and re-create K with its journaled
+# properties and IN_INVESTIGATION when the journal holds one. Returns no row when L is not in that state; otherwise
+# how many IN_INVESTIGATION L holds after it (0 when its journaled Investigation node is gone).
+UNMERGE_STUDY_NODES = """
+CYPHER 25
+MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id = $study_id
+  AND NOT EXISTS { MATCH (o:Study {seek_study_id: $study_id}) WHERE o <> l }
+SET l = $l_props
+WITH l
+CALL (l) {
+  MATCH (l)-[old:IN_INVESTIGATION]->()
+  DELETE old
+}
+CALL (l) {
+  MATCH (i:Investigation) WHERE elementId(i) = $l_investigation
+  MERGE (l)-[:IN_INVESTIGATION]->(i)
+}
+CALL () {
+  UNWIND CASE WHEN $k_props IS NULL THEN [] ELSE [$k_props] END AS kp
+  CREATE (k:Study)
+  SET k = kp
+  WITH k
+  CALL (k) {
+    MATCH (i:Investigation) WHERE elementId(i) = $k_investigation
+    MERGE (k)-[:IN_INVESTIGATION]->(i)
+  }
+  RETURN collect(elementId(k)) AS new_k
+}
+RETURN elementId(l) AS l, new_k, COUNT { (l)-[:IN_INVESTIGATION]->() } AS l_investigations
+"""
+# Undo, step 2: rows are {source, on_both}. A source journaled "on both" gets its edge to K and keeps its edge to L;
+# one journaled "only on K" that still links to L gets its edge to K and loses its edges to L; any other is skipped.
+UNMERGE_MOVE_BACK = """
+UNWIND $rows AS r
+MATCH (x) WHERE elementId(x) = r.source
+MATCH (k:Study) WHERE elementId(k) = $k
+MATCH (l:Study) WHERE elementId(l) = $l
+OPTIONAL MATCH (x)-[e:IN_STUDY]->(l)
+WITH x, k, r, collect(e) AS on_l
+WHERE r.on_both OR size(on_l) > 0
+MERGE (x)-[:IN_STUDY]->(k)
+FOREACH (e IN CASE WHEN r.on_both THEN [] ELSE on_l END | DELETE e)
+RETURN count(x) AS restored
+"""
+# Re-create archived IN_STUDY links: rows are {sample_id, study_id, seek_study_id} as in_study_removed.tsv holds
+# them. A Study is found by id when the archive names one, else by seek_study_id on a node with no id; a sample or a
+# Study that is gone restores nothing.
+RESTORE_IN_STUDY = """
+UNWIND $rows AS r
+MATCH (s:Sample {id: r.sample_id})
+OPTIONAL MATCH (a:Study {id: r.study_id})
+OPTIONAL MATCH (b:Study {seek_study_id: r.seek_study_id}) WHERE r.study_id IS NULL AND b.id IS NULL
+WITH s, coalesce(a, b) AS st WHERE st IS NOT NULL
+MERGE (s)-[:IN_STUDY]->(st)
+RETURN count(*) AS restored
+"""
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.

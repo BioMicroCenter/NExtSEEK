@@ -449,3 +449,132 @@ def test_an_approved_rekey_that_now_reads_merge_still_stops(world, tmp_path):
     world.graph.link(1001, keyed)
     result = study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path))
     assert (result["status"], result["stopped_at"]) == ("failed", 6) and world.graph.writes() == []
+
+
+# --- undo ----------------------------------------------------------------------------------------------------------
+
+def _snapshot(g):
+    """The graph's Study layer by content, element ids aside: each node's properties and Investigation ids, and each
+    IN_STUDY as (source id, label, target properties)."""
+    studies = sorted((json.dumps(p, sort_keys=True), tuple(sorted(g.investigation_ids_of(e))))
+                     for e, p in g.studies.items())
+    links = sorted((g.sources[s]["id"], sorted(g.sources[s]["labels"])[0], json.dumps(g.studies[st], sort_keys=True))
+                   for s, st in g.in_study.values())
+    return studies, links
+
+
+def test_undo_restores_a_split_exactly(world, tmp_path):
+    _split(world)
+    world.graph.link(world.graph.add_sample(1005, label="OrphanSample"), world.graph.studies_by_seek(1)[0])
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "ok" and result["refused"] == []
+    assert _snapshot(world.graph) == before
+
+
+def test_undo_re_creates_an_empty_seek_keyed_node_and_the_legacy_investigation(world, tmp_path):
+    legacy_inv = world.graph.add_investigation(901, "Alder Investigation")
+    _seek(world, 3, "Cedar Unpublished", inv=101)
+    world.graph.add_study(id=3, title="Cedar Unpublished", DOI="", investigation=legacy_inv)
+    world.graph.add_study(seek_study_id=3, title="Cedar Unpublished", investigation=world.inv[101])
+    _seek(world, 5, "Elm paper")
+    world.graph.add_study(id=5, title="Elm paper", DOI="10.9999/e5", investigation=world.inv[101])
+    world.graph.add_study(seek_study_id=5, title="Elm paper", investigation=world.inv[101])
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {3: "merge_other_investigation", 5: "rekey_in_place"},
+                      run_dir=str(tmp_path / "m1"))
+    study_merge.undo(world.graph, DB, [str(tmp_path / "m1" / study_merge.JOURNAL_FILE)])
+    assert _snapshot(world.graph) == before
+
+
+def test_undo_gathers_a_crash_and_its_rerun_from_two_run_directories(world, tmp_path):
+    _split(world, on_l=(1001,), on_k=(1002, 1004), on_both=(1003,))
+    before = _snapshot(world.graph)
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"), batch=1)
+    world.graph.fail_moves_after = None
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m2"), batch=1)
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(tmp_path / "m2")])
+    assert result["status"] == "ok"
+    assert _snapshot(world.graph) == before
+
+
+def test_undo_restores_a_link_studies_removed_from_a_merged_node(world, tmp_path):
+    """1005 sat only on the seek-keyed node; after the merge it sat on L, and --studies removed that link because
+    SEEK files it under study 12. Undo re-creates it on L from the archive, then moves it back to the re-created K."""
+    _split(world, on_l=(1001,), on_k=(1005,), on_both=())
+    _seek(world, 12, "Larch Study")
+    world.graph.add_study(seek_study_id=12, title="Larch Study", investigation=world.inv[101])
+    world.links = [(1001, 1), (1005, 12)]
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    study_links.rebuild_in_study(world.graph, DB, remove=True, run_dir=str(tmp_path / "s1"))
+    assert world.graph.keys_of(1005) == {("seek", 12)}
+
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(tmp_path / "s1")])
+    assert result["archive_rows"] == 1 and result["archive_restored"] == 1
+    assert world.graph.keys_of(1005) == {("seek", 1), ("seek", 12)}       # its link to 12 was added, not restored
+    assert world.graph.keys_of(1001) == {("id", 1)}
+    studies, links = _snapshot(world.graph)
+    before_studies, before_links = before
+    assert studies == before_studies
+    assert sorted(set(links) - set(before_links)) == [
+        (1005, "Sample", json.dumps({"seek_study_id": 12, "title": "Larch Study"}, sort_keys=True))]
+    assert set(before_links) <= set(links)
+
+
+def test_undo_refuses_an_id_another_node_now_carries(world, tmp_path):
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    world.graph.add_study(seek_study_id=1, title="Someone else", investigation=world.inv[101])
+    writes = len(world.graph.writes())
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "partial" and [r["study_id"] for r in result["refused"]] == [1]
+    assert len(world.graph.writes()) == writes
+
+
+def test_an_undo_dry_run_writes_nothing(world, tmp_path):
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    writes = len(world.graph.writes())
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")], dry_run=True)
+    assert result["status"] == "dry_run" and result["studies"][0]["state"] == "merged"
+    assert len(world.graph.writes()) == writes
+
+
+def test_undo_restores_non_ascii_titles_exactly(world, tmp_path):
+    title = "Érable Unpublished "
+    _seek(world, 1, title)
+    legacy = world.graph.add_study(id=1, title=title, DOI="", investigation=world.inv[101])
+    world.graph.add_study(seek_study_id=1, title=title, investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    writer.write_seek_study_nodes(world.graph, DB, [{"id": 1, "title": "Maple Unpublished", "description": None,
+                                                     "investigation_id": 101}])
+    study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert world.graph.studies[legacy]["title"] == title
+    text = (tmp_path / "m1" / study_merge.JOURNAL_FILE).read_text(encoding="utf-8")
+    assert all(ord(ch) < 128 for ch in text)
+
+
+def test_undo_refuses_a_path_that_holds_no_journal_or_archive(world, tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="journal"):
+        study_merge.undo(world.graph, DB, [str(tmp_path / "empty")])
+    assert world.graph.calls == []
+
+
+def test_undo_reports_a_legacy_investigation_that_is_gone(world, tmp_path):
+    """The nightly deletes an Investigation node SEEK lacks once no Study holds it, so the legacy Investigation a
+    merge_other_investigation left empty can be gone by the time of an undo: L comes back with no IN_INVESTIGATION,
+    and the undo says so."""
+    legacy_inv = world.graph.add_investigation(901, "Alder Investigation")
+    _seek(world, 3, "Cedar Unpublished", inv=101)
+    legacy = world.graph.add_study(id=3, title="Cedar Unpublished", DOI="", investigation=legacy_inv)
+    world.graph.add_study(seek_study_id=3, title="Cedar Unpublished", investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {3: "merge_other_investigation"}, run_dir=str(tmp_path / "m1"))
+    del world.graph.investigations[legacy_inv]
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "ok" and result["investigation_not_restored"] == [3]
+    assert world.graph.in_investigation[legacy] == []

@@ -149,6 +149,9 @@ class StudyGraph:
             q.STUDY_SOURCES_BATCH: self._sources_batch,
             q.MOVE_IN_STUDY: self._move,
             q.FINISH_STUDY_MERGE: self._finish,
+            q.UNMERGE_STUDY_NODES: self._unmerge,
+            q.UNMERGE_MOVE_BACK: self._move_back,
+            q.RESTORE_IN_STUDY: self._restore,
         }
 
     # --- Project and Investigation nodes --------------------------------------------------------------------
@@ -348,3 +351,53 @@ class StudyGraph:
             if legacy.get(key) == "":
                 del legacy[key]
         return [{"merged": 1}]
+
+    def _unmerge(self, p):
+        legacy = self.studies.get(p["l"])
+        if legacy is None or legacy.get("seek_study_id") != p["study_id"]:
+            return []
+        if any(e != p["l"] and props.get("seek_study_id") == p["study_id"] for e, props in self.studies.items()):
+            return []
+        self.studies[p["l"]] = {k: v for k, v in p["l_props"].items() if v is not None}
+        self.in_investigation[p["l"]] = [p["l_investigation"]] if p["l_investigation"] in self.investigations else []
+        new_k = []
+        if p["k_props"] is not None:
+            eid = self.add_study(**p["k_props"])
+            if p["k_investigation"] in self.investigations:
+                self.in_investigation[eid] = [p["k_investigation"]]
+            new_k.append(eid)
+        return [{"l": p["l"], "new_k": new_k, "l_investigations": len(self.in_investigation[p["l"]])}]
+
+    def _move_back(self, p):
+        restored = 0
+        for r in p["rows"]:
+            src = r["source"]
+            if src not in self.sources or p["k"] not in self.studies or p["l"] not in self.studies:
+                continue
+            on_l = [e for e, (s, st) in self.in_study.items() if s == src and st == p["l"]]
+            if not (r["on_both"] or on_l):
+                continue
+            if not any(s == src and st == p["k"] for s, st in self.in_study.values()):
+                self.link(src, p["k"])
+            if not r["on_both"]:
+                for e in on_l:
+                    del self.in_study[e]
+            restored += 1
+        return [{"restored": restored}]
+
+    def _restore(self, p):
+        restored = 0
+        for r in p["rows"]:
+            src = f"s:{r['sample_id']}"
+            if src not in self.sources:
+                continue
+            if r["study_id"] is not None:
+                targets = [e for e, props in self.studies.items() if props.get("id") == r["study_id"]]
+            else:
+                targets = [e for e, props in self.studies.items()
+                           if props.get("seek_study_id") == r["seek_study_id"] and props.get("id") is None]
+            for st in targets:
+                if not any(s == src and t == st for s, t in self.in_study.values()):
+                    self.link(src, st)
+                restored += 1
+        return [{"restored": restored}]

@@ -377,3 +377,146 @@ def apply(driver, db, expected: dict, *, run_dir: str, batch: int = writer.REL_C
         _merge_one(driver, db, sel, journal, batch)
         result["merged"].append({"study_id": x, "kind": sel.kind})
     return result
+
+
+# --- undo ----------------------------------------------------------------------------------------------------------
+
+def _opt_int(text: str):
+    return int(text) if text not in ("", None) else None
+
+
+def read_journals(paths) -> tuple[dict, list]:
+    """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
+    and/or ``in_study_removed.tsv``), and the archives found. The first ``plan`` line of an id wins (a crash and its
+    rerun journal the same nodes); sources are merged by element id. Raises ValueError for a path that is neither."""
+    per_id: dict[int, dict] = {}
+    archives: list[str] = []
+    for raw in paths:
+        path = os.path.abspath(raw)
+        journal = None
+        if os.path.isdir(path):
+            candidate, archive = os.path.join(path, JOURNAL_FILE), os.path.join(path, study_links.ARCHIVE_FILE)
+            if os.path.isfile(archive):
+                archives.append(archive)
+            if os.path.isfile(candidate):
+                journal = candidate
+            elif not os.path.isfile(archive):
+                raise ValueError(f"{path} holds no journal ({JOURNAL_FILE}) and no archive "
+                                 f"({study_links.ARCHIVE_FILE})")
+        elif os.path.isfile(path):
+            journal = path
+        else:
+            raise ValueError(f"not a journal or a run directory: {path}")
+        if journal is None:
+            continue
+        with open(journal, encoding="utf-8") as fh:
+            if fh.readline() != JOURNAL_HEADER:
+                raise ValueError(f"{journal} is not a study merge journal")
+            for line in fh:
+                study_id, record, payload = line.rstrip("\n").split("\t", 2)
+                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}})
+                data = json.loads(payload)
+                if record == "plan" and entry["plan"] is None:
+                    entry["plan"] = data
+                elif record == "source":
+                    entry["sources"].setdefault(data["element_id"], data)
+    return per_id, archives
+
+
+def _read_archives(paths) -> list[dict]:
+    rows, seen = [], set()
+    for path in paths:
+        with open(path, encoding="utf-8") as fh:
+            if fh.readline() != writer.IN_STUDY_ARCHIVE_HEADER:
+                raise ValueError(f"{path} is not an IN_STUDY archive")
+            for line in fh:
+                fields = line.rstrip("\n").split("\t")
+                if len(fields) < 3 or not fields[0]:
+                    continue
+                key = (int(fields[0]), _opt_int(fields[1]), _opt_int(fields[2]))
+                if key not in seen:
+                    seen.add(key)
+                    rows.append({"sample_id": key[0], "seek_study_id": key[1], "study_id": key[2]})
+    return rows
+
+
+def _undo_state(index: Index, x: int, plan_payload: dict):
+    """("merged", None), ("nodes_restored", K's element id or None), or (None, reason)."""
+    legacy_eid = plan_payload["legacy"]["element_id"]
+    legacy = next((n for n in index.nodes if n.element_id == legacy_eid), None)
+    if legacy is None:
+        return None, "the legacy node is gone"
+    keyed = [n for n in index.nodes if n.seek_study_id == x]
+    if legacy.seek_study_id == x and keyed == [legacy]:
+        return "merged", None
+    if legacy.seek_study_id is None:
+        if plan_payload["seek_keyed"] is None and not keyed:
+            return "nodes_restored", None
+        if plan_payload["seek_keyed"] is not None and len(keyed) == 1 and keyed[0].id is None:
+            return "nodes_restored", keyed[0].element_id
+    return None, "the legacy node and the nodes carrying this seek_study_id are not as the merge left them"
+
+
+def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK) -> dict:
+    """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
+    section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
+    carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
+    step finds it done and goes on); then every archived link whose sample and Study still exist is re-created; then
+    each journaled source goes back to K ("on both" keeps its link to L too). ``dry_run`` reports each id's state and
+    writes nothing."""
+    journals, archives = read_journals(paths)
+    archive_rows = _read_archives(archives)
+    index = read_index(driver, db)
+    report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
+              "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": []}
+    todo = []
+    for x in sorted(journals):
+        entry = journals[x]
+        if entry["plan"] is None:
+            report["refused"].append({"study_id": x, "reason": "no plan line in the journals given"})
+            continue
+        state_, found = _undo_state(index, x, entry["plan"])
+        if state_ is None:
+            report["refused"].append({"study_id": x, "reason": found})
+            continue
+        todo.append([x, entry, state_, found])
+        report["studies"].append({"study_id": x, "state": state_, "sources": len(entry["sources"]),
+                                  "moved_back": 0, "skipped": 0})
+    if dry_run:
+        return report
+    for item in todo:
+        x, entry, state_, _ = item
+        if state_ != "merged":
+            continue
+        plan_payload = entry["plan"]
+        keyed = plan_payload["seek_keyed"]
+        records = _records(_run(driver, db, q.UNMERGE_STUDY_NODES, {
+            "l": plan_payload["legacy"]["element_id"], "study_id": x, "l_props": plan_payload["legacy"]["props"],
+            "l_investigation": plan_payload["legacy"]["investigation"]["element_id"],
+            "k_props": None if keyed is None else keyed["props"],
+            "k_investigation": None if keyed is None else keyed["investigation"]["element_id"]}))
+        if not records:
+            report["refused"].append({"study_id": x, "reason": "the legacy node changed between the read and the "
+                                                               "write"})
+            item[2] = None
+            continue
+        new_k = list(records[0]["new_k"] or [])
+        item[3] = new_k[0] if new_k else None
+        if not records[0]["l_investigations"]:
+            report["investigation_not_restored"].append(x)
+    for rows in _batches(archive_rows, batch):
+        report["archive_restored"] += _one(_run(driver, db, q.RESTORE_IN_STUDY, {"rows": rows}), "restored")
+    by_id = {s["study_id"]: s for s in report["studies"]}
+    for x, entry, state_, keyed_eid in todo:
+        if state_ is None or keyed_eid is None:
+            continue
+        rows = [{"source": eid, "on_both": s["place"] == "on_both"} for eid, s in sorted(entry["sources"].items())]
+        moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
+                                                                "k": keyed_eid, "rows": part}), "restored")
+                    for part in _batches(rows, batch))
+        by_id[x].update(moved_back=moved, skipped=len(rows) - moved)
+    refused = {r["study_id"] for r in report["refused"]}
+    report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
+    if report["refused"]:
+        report["status"] = PARTIAL
+    return report
