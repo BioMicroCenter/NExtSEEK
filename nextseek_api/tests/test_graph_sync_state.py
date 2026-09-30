@@ -448,6 +448,87 @@ def test_mark_done_before_does_not_touch_a_row_already_done():
     assert row("samples", "sample:1").done_at == at(seconds=2)
 
 
+# --- failing_since: how long a row has been failing (SPEC-ci-health D1, D2) -----------------------
+
+@pytest.mark.django_db
+def test_a_failure_records_when_the_row_started_failing():
+    state.enqueue("catalog", "*", now=T0)
+    claim = state.claim_next("w1", now=at(seconds=1))
+    state.finish_failed(claim, "boom", 3600, now=at(seconds=2))
+    assert row("catalog", "*").failing_since == at(seconds=2)
+
+
+@pytest.mark.django_db
+def test_a_later_failure_keeps_the_first_failure_time():
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 60, now=at(seconds=2))
+    state.finish_failed(state.claim_next("w1", now=at(minutes=5)), "boom again", 60, now=at(minutes=5, seconds=1))
+    r = row("catalog", "*")
+    assert r.failing_since == at(seconds=2)
+    assert r.last_error == "boom again"
+
+
+@pytest.mark.django_db
+def test_a_re_enqueue_keeps_the_failure_time():
+    """A hot key is re-enqueued by every write; that must not hide that it keeps failing."""
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 3600, now=at(seconds=2))
+    state.enqueue("catalog", "*", now=at(minutes=10))
+    r = row("catalog", "*")
+    assert r.failing_since == at(seconds=2)
+    assert r.attempts == 0
+
+
+@pytest.mark.django_db
+def test_success_clears_the_failure_time():
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 60, now=at(seconds=2))
+    assert state.finish_done(state.claim_next("w1", now=at(minutes=5)), now=at(minutes=5, seconds=1))
+    r = row("catalog", "*")
+    assert r.failing_since is None
+    assert r.last_error is None
+
+
+@pytest.mark.django_db
+def test_a_success_on_a_row_re_enqueued_meanwhile_still_clears_the_failure_time():
+    """The retry worked; the newer write only sends the row round again, so the row is not failing (D1)."""
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 60, now=at(seconds=2))
+    claim = state.claim_next("w1", now=at(minutes=5))
+    state.enqueue("catalog", "*", now=at(minutes=5, seconds=1))
+    assert state.finish_done(claim, now=at(minutes=5, seconds=2)) is False
+    r = row("catalog", "*")
+    assert r.done_at is None
+    assert r.failing_since is None
+
+
+@pytest.mark.django_db
+def test_a_full_sync_closing_a_failing_row_clears_the_failure_time():
+    state.enqueue("samples", "sample:7", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 3600, now=at(seconds=2))
+    assert state.mark_done_before(at(minutes=5), now=at(minutes=30)) == 1
+    assert row("samples", "sample:7").failing_since is None
+
+
+@pytest.mark.django_db
+def test_a_deferral_records_no_failure_time():
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "lock_timeout", 60, now=at(seconds=2),
+                        failure=False)
+    r = row("catalog", "*")
+    assert r.failing_since is None
+    assert r.last_error == "lock_timeout"
+
+
+@pytest.mark.django_db
+def test_a_deferral_keeps_an_earlier_failure_time():
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 60, now=at(seconds=2))
+    state.finish_failed(state.claim_next("w1", now=at(minutes=5)), "lock_timeout", 60,
+                        now=at(minutes=5, seconds=1), failure=False)
+    assert row("catalog", "*").failing_since == at(seconds=2)
+
+
 # --- run records -----------------------------------------------------------------------------------
 
 @pytest.mark.django_db

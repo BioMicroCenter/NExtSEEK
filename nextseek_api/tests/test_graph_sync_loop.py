@@ -453,6 +453,20 @@ def test_a_catalog_sync_refused_for_any_other_reason_backs_off(work):
     assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("catalog"))
 
 
+@pytest.mark.django_db
+def test_a_deferred_row_is_not_failing_and_a_failed_row_is(work):
+    """A deferral is not the row's fault (loop docstring), so only the real failure starts the clock."""
+    state.enqueue("samples", "sample:7", now=before(minutes=2))
+    state.enqueue("samples_of_type", "type:3", now=before(minutes=1))
+    work.sync = {"status": targeted.LOCK_TIMEOUT}
+    work.of_type = RuntimeError("OperationalError: (2006, 'Server has gone away')")
+
+    one_pass(work)
+
+    assert row("samples", "sample:7").failing_since is None
+    assert row("samples_of_type", "type:3").failing_since == T0
+
+
 # --- the two runs that meet in the outbox ---------------------------------------------------------
 
 @pytest.mark.django_db

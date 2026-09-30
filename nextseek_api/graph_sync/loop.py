@@ -269,7 +269,7 @@ def _defer(claim, reason: str, entry: dict, *, now: datetime) -> dict:
         state.enqueue(claim.kind, claim.key, claim.payload, now=now)
     except (DatabaseError, ValueError) as exc:
         log.warning("graph_sync: could not put %s %s back after %s: %s", claim.kind, claim.key, reason, exc)
-    state.finish_failed(claim, reason, DEFER_BACKOFF_S, now=now)
+    state.finish_failed(claim, reason, DEFER_BACKOFF_S, now=now, failure=False)
     log.info("graph_sync: %s %s waits: %s", claim.kind, claim.key, reason)
     entry["outcome"] = DEFERRED
     return entry

@@ -106,3 +106,19 @@ def test_0021_sits_on_the_single_chain_of_the_app():
     assert loader.get_migration("nextseek_api", "0021_graph_sync_outbox_and_run").dependencies == [
         ("nextseek_api", "0020_assayregistrationjob")
     ]
+
+
+@pytest.mark.django_db
+def test_a_new_outbox_row_is_not_failing():
+    assert GraphSyncOutbox.objects.create(kind="catalog", key="*").failing_since is None
+
+
+def test_0023_adds_failing_since_on_the_single_chain_of_the_app():
+    """0023 follows 0022 and sits on the app's one chain (SPEC-ci-health D1). Not "0023 is the leaf": a later
+    migration must not break this test."""
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    leaves = loader.graph.leaf_nodes("nextseek_api")
+    assert len(leaves) == 1, leaves
+    assert ("nextseek_api", "0023_graph_sync_outbox_failing_since") in loader.graph.forwards_plan(leaves[0])
+    migration = loader.get_migration("nextseek_api", "0023_graph_sync_outbox_failing_since")
+    assert migration.dependencies == [("nextseek_api", "0022_turn_ledger_query_task")]

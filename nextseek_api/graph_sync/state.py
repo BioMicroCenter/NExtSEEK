@@ -13,6 +13,9 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 - ``finish_done`` marks the row done only if ``enqueued_at`` is unchanged since the claim. A row re-enqueued meanwhile
   carries a write the worker may not have read, so it goes back to pending instead.
 - ``finish_failed`` releases the claim with a back-off (``backoff_s``: 6 h for a full sync, 1 h otherwise).
+- ``failing_since`` is the first failure since the row last succeeded: ``finish_failed`` sets it once, a later
+  failure, a re-enqueue and a deferral keep it, and ``finish_done`` and ``mark_done_before`` clear it. It is what the
+  status endpoint ages a failing row by, since ``enqueued_at`` moves on every re-enqueue and ``attempts`` resets.
 - ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
   row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
 
@@ -45,7 +48,8 @@ from typing import Any, Iterable, Iterator, Mapping
 
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connections, transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, DateTimeField, F, Max, Q, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
@@ -269,12 +273,13 @@ def _held(claim: Claim):
 
 def finish_done(claim: Claim, *, now: datetime | None = None) -> bool:
     """Mark the row done if this worker still holds it and nothing re-enqueued it since the claim. Otherwise release
-    the claim, so a re-enqueued row goes back to pending, and return False."""
+    the claim, so a re-enqueued row goes back to pending, and return False. Either way the work succeeded, so the row
+    is no longer failing: ``failing_since`` is cleared on both branches."""
     done = _held(claim).filter(enqueued_at=claim.enqueued_at, done_at__isnull=True).update(
-        done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+        done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None, failing_since=None)
     if done == 1:
         return True
-    _held(claim).update(claimed_by=None, lease_expires_at=None)
+    _held(claim).update(claimed_by=None, lease_expires_at=None, failing_since=None)
     return False
 
 
@@ -284,12 +289,19 @@ def _error_text(error: BaseException | str) -> str:
 
 
 def finish_failed(claim: Claim, error: BaseException | str, backoff_s: float, *,
-                  now: datetime | None = None) -> bool:
+                  now: datetime | None = None, failure: bool = True) -> bool:
     """Release the claim with ``error`` recorded; no worker claims the row again for ``backoff_s`` seconds. The
     back-off applies even when the row was re-enqueued meanwhile: what failed will likely fail again. False when this
-    worker no longer holds the row."""
-    until = (now or timezone.now()) + timedelta(seconds=max(0.0, backoff_s))
-    return _held(claim).update(claimed_by=None, lease_expires_at=until, last_error=_error_text(error)) == 1
+    worker no longer holds the row.
+
+    The first failure since the row last succeeded sets ``failing_since``; a later one keeps it. ``failure`` False is
+    a deferral (``loop._defer``): not the row's fault, so ``failing_since`` is left as it is."""
+    moment = now or timezone.now()
+    fields = {"claimed_by": None, "lease_expires_at": moment + timedelta(seconds=max(0.0, backoff_s)),
+              "last_error": _error_text(error)}
+    if failure:
+        fields["failing_since"] = Coalesce("failing_since", Value(moment, output_field=DateTimeField()))
+    return _held(claim).update(**fields) == 1
 
 
 def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: datetime | None = None) -> int:
@@ -306,7 +318,8 @@ def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: d
                    | Q(lease_expires_at__lte=ts))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
-    return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+    return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None,
+                     failing_since=None)
 
 
 # --- run records ---------------------------------------------------------------------------------
