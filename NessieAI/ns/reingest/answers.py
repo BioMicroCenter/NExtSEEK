@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, MappedAttribute
 from NessieAI.ns.reingest_qa import _value_missing, group_members_for_label
 
 # Keys the row structure owns. Never set from chat, whatever QA says: UID and
@@ -168,3 +170,120 @@ def check_fill(answer: FillAnswer, *, findings, rows, run_sourced) -> list[str]:
     if held:
         return [f"{label}: rows {held} already hold a value; a fill never overwrites"]
     return []
+
+
+_CHECKSUM_FOR = {"File_PrimaryData": "Checksum_PrimaryData",
+                 "File_SecondaryData": "Checksum_SecondaryData"}
+
+
+def check_choose(answer: ChooseAnswer, *, groups: list[dict]) -> list[str]:
+    label = f"choose {answer.sample_type}.{answer.attribute}"
+    if answer.attribute not in _CHECKSUM_FOR:
+        return [f"{label}: only a data file can be chosen"]
+    matches = [g for g in groups
+               if g["sample_type"] == answer.sample_type and g["attribute"] == answer.attribute]
+    if not matches:
+        return [f"{label}: this run has no ambiguous pick for it"]
+    if not any(answer.path in g["candidates"] for g in matches):
+        listed = sorted({c for g in matches for c in g["candidates"]})
+        return [f"{label}: {answer.path!r} is not one of the candidates {listed}"]
+    return []
+
+
+def check_place(answer: PlaceAnswer, *, unmapped: list[dict], rows, attribute_exists) -> list[str]:
+    label = f"place {answer.raw_key} -> {answer.sample_type}.{answer.attribute}"
+    if answer.raw_key not in {u.get("raw_key") for u in unmapped}:
+        return [f"{label}: not an uncovered key in this run"]
+    if answer.attribute in NEVER_FILLABLE:
+        return [f"{label}: {answer.attribute} is never set from chat"]
+    existing = [r for r in rows if r.uid]
+    if not existing:
+        return [f"{label}: no existing {answer.sample_type} rows in this run carry per-sample metrics"]
+    if any(not _is_empty(r.attributes.get(answer.attribute)) for r in existing):
+        return [f"{label}: {answer.attribute} is already set from the run by the map"]
+    if not attribute_exists(answer.sample_type, answer.attribute):
+        return [f"{label}: {answer.attribute} is not defined on {answer.sample_type}; "
+                "the upload would reject the row"]
+    return []
+
+
+def split_for_call(bundle: Answers, *, this_call: set[str], other_call: set[str]):
+    """Answers for this call's sample types, plus the deferred rest.
+
+    The agent sends every answer on every call; a new-mode call renders the
+    analysis children and an update-mode call the backfill, so an answer about
+    the other call's types is deferred, not refused. A type in neither is a typo.
+    """
+    keep: dict[str, list] = {"fill": [], "choose": [], "place": []}
+    deferred: list[dict] = []
+    unknown: list[str] = []
+    for kind in ("fill", "choose", "place"):
+        for answer in getattr(bundle, kind):
+            if answer.sample_type in this_call:
+                keep[kind].append(answer)
+            elif answer.sample_type in other_call:
+                deferred.append({"kind": kind, "sample_type": answer.sample_type,
+                                 "attribute": answer.attribute})
+            else:
+                unknown.append(f"{kind} {answer.sample_type}.{answer.attribute}: "
+                               f"{answer.sample_type} is not produced by this run")
+    if unknown:
+        raise AnswerRejected(unknown)
+    return Answers(**keep), deferred
+
+
+def validate(bundle: Answers, *, findings_by_type, mapped_by_type, unmapped, groups,
+             run_sourced_for, attribute_exists) -> None:
+    reasons: list[str] = []
+    for answer in bundle.fill:
+        reasons += check_fill(answer, findings=findings_by_type.get(answer.sample_type, []),
+                              rows=mapped_by_type.get(answer.sample_type, []),
+                              run_sourced=run_sourced_for(answer.sample_type))
+    for answer in bundle.choose:
+        reasons += check_choose(answer, groups=groups)
+    for answer in bundle.place:
+        reasons += check_place(answer, unmapped=unmapped,
+                               rows=mapped_by_type.get(answer.sample_type, []),
+                               attribute_exists=attribute_exists)
+    if reasons:
+        raise AnswerRejected(reasons)
+
+
+def apply_answers(bundle: Answers, *, mapped_by_type, findings_by_type, run_manifest,
+                  answered_by: str) -> None:
+    """Apply an already-validated set. Call ``validate`` first."""
+    for answer in bundle.fill:
+        rows = mapped_by_type.get(answer.sample_type, [])
+        for index in fill_targets(answer, findings_by_type.get(answer.sample_type, [])):
+            rows[index].attributes[answer.attribute] = MappedAttribute(
+                attribute=answer.attribute, value=answer.value, origin=ORIGIN_CURATOR,
+                answered_by=answered_by)
+    for answer in bundle.choose:
+        checksum_attr = _CHECKSUM_FOR[answer.attribute]
+        for row in mapped_by_type.get(answer.sample_type, []):
+            current = row.attributes.get(answer.attribute)
+            if current is None or answer.path not in current.candidates:
+                continue
+            row.attributes[answer.attribute] = MappedAttribute(
+                attribute=answer.attribute, value=os.path.basename(answer.path),
+                origin=ORIGIN_CURATOR, source_file=answer.path, answered_by=answered_by)
+            checksum = run_manifest.checksums.get(answer.path)
+            if checksum:
+                row.attributes[checksum_attr] = MappedAttribute(
+                    attribute=checksum_attr, value=checksum, origin=ORIGIN_CURATOR,
+                    raw_key=f"$checksums.{answer.path}", source_file=answer.path,
+                    answered_by=answered_by)
+            else:
+                # The old checksum hashed the file that was NOT chosen.
+                row.attributes.pop(checksum_attr, None)
+    samples = {s.nfcore_sample: s for s in run_manifest.samples}
+    metrics_source = run_manifest.sources.get("metrics", "")
+    for answer in bundle.place:
+        for row in mapped_by_type.get(answer.sample_type, []):
+            sample = samples.get(row.nfcore_sample)
+            if not row.uid or sample is None or answer.raw_key not in sample.metrics:
+                continue
+            row.attributes[answer.attribute] = MappedAttribute(
+                attribute=answer.attribute, value=sample.metrics[answer.raw_key],
+                origin=ORIGIN_CURATOR, raw_key=answer.raw_key,
+                source_file=metrics_source, answered_by=answered_by)

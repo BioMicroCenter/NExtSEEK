@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from NessieAI.ns.reingest import answers, maps
+from NessieAI.ns.reingest import answers, manifest as manifest_mod, maps
 from NessieAI.ns.reingest.mapper import MappedAttribute, MappedRow
 from NessieAI.ns.reingest_qa import (
     CATALOG_REQUIRED_MISSING, HARD, MISSING_REQUIRED, SOFT, Finding)
@@ -126,3 +126,146 @@ def test_a_fill_value_must_not_be_blank():
     with pytest.raises(answers.AnswerRejected):
         answers.parse_answers({"fill": [{"sample_type": "A.ALN",
                                           "attribute": "Protocol", "value": ""}]})
+
+
+BAM_A = "star_salmon/S1.markdup.sorted.bam"
+BAM_B = "hisat2/S1.markdup.sorted.bam"
+
+
+def _group(sample_type="A.ALN", attribute="File_PrimaryData", candidates=(BAM_A, BAM_B)):
+    return {"sample_type": sample_type, "attribute": attribute,
+            "chosen": candidates[0], "candidates": list(candidates), "sample_count": 1}
+
+
+def _manifest(metrics=None, checksums=None):
+    return manifest_mod.RunManifest(
+        run_dir="/net/cluster/runs/r1",
+        pipeline=manifest_mod.PipelineInfo(name="nf-core/rnaseq", version="3.18.0",
+                                           run_name="r1"),
+        samples=[manifest_mod.SampleRecord(
+            nfcore_sample="S1", d_seq_uid="D.SEQ-EXAMPLE-1",
+            uid_resolution=manifest_mod.RESOLUTION_LAUNCH_RECORD,
+            parent_sample_type="D.SEQ", metrics=metrics or {})],
+        checksums=checksums or {},
+        sources={"metrics": "multiqc/general_stats.txt"})
+
+
+def test_choose_accepts_only_a_listed_candidate():
+    ok = answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_B)
+    bad = answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData",
+                               path="elsewhere/S1.bam")
+    assert answers.check_choose(ok, groups=[_group()]) == []
+    assert "not one of the candidates" in answers.check_choose(bad, groups=[_group()])[0]
+
+
+def test_choose_without_an_ambiguous_pick_is_refused():
+    ok = answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_B)
+    assert answers.check_choose(ok, groups=[])
+
+
+def test_place_needs_an_uncovered_key_and_a_defined_attribute():
+    rows = [MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1", nfcore_sample="S1")]
+    unmapped = [{"raw_key": "star-foo_rate", "example_value": 1.0}]
+    place = answers.PlaceAnswer(raw_key="star-foo_rate", sample_type="D.SEQ",
+                                attribute="FooRate")
+    assert answers.check_place(place, unmapped=unmapped, rows=rows,
+                               attribute_exists=lambda st, a: True) == []
+    assert "not defined" in answers.check_place(
+        place, unmapped=unmapped, rows=rows, attribute_exists=lambda st, a: False)[0]
+    assert "not an uncovered key" in answers.check_place(
+        place, unmapped=[], rows=rows, attribute_exists=lambda st, a: True)[0]
+
+
+def test_place_onto_a_mapped_attribute_is_refused():
+    rows = [MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1", nfcore_sample="S1",
+                      attributes={"MappedPercent": MappedAttribute(
+                          attribute="MappedPercent", value=91.0, origin="map")})]
+    place = answers.PlaceAnswer(raw_key="star-foo", sample_type="D.SEQ",
+                                attribute="MappedPercent")
+    assert answers.check_place(place, unmapped=[{"raw_key": "star-foo"}], rows=rows,
+                               attribute_exists=lambda st, a: True)
+
+
+def test_place_onto_a_type_without_existing_rows_is_refused():
+    place = answers.PlaceAnswer(raw_key="star-foo", sample_type="A.ALN", attribute="X")
+    rows = [MappedRow(sample_type="A.ALN")]   # new rows carry no per-sample metrics
+    assert answers.check_place(place, unmapped=[{"raw_key": "star-foo"}], rows=rows,
+                               attribute_exists=lambda st, a: True)
+
+
+def test_one_bad_answer_rejects_the_whole_set_with_every_reason():
+    bundle = answers.Answers(
+        fill=[_fill("A.ALN", "Protocol", "P-9"), _fill("A.ALN", "Genome", "hg19")],
+        choose=[answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData",
+                                     path="nope")])
+    rows = {"A.ALN": [MappedRow(sample_type="A.ALN")]}
+    findings = {"A.ALN": [_finding("A.ALN", "Protocol", 0), _finding("A.ALN", "Genome", 0)]}
+    with pytest.raises(answers.AnswerRejected) as exc:
+        answers.validate(bundle, findings_by_type=findings, mapped_by_type=rows,
+                         unmapped=[], groups=[_group()],
+                         run_sourced_for=lambda st: answers.run_sourced_attributes(RNASEQ, {}, st),
+                         attribute_exists=lambda st, a: True)
+    assert len(exc.value.reasons) == 2   # Genome (run-sourced) and the bad path
+
+
+def test_split_defers_the_other_calls_types_and_rejects_unknown_ones():
+    bundle = answers.Answers(fill=[_fill("A.ALN", "Protocol")],
+                             place=[answers.PlaceAnswer(raw_key="k", sample_type="D.SEQ",
+                                                        attribute="X")])
+    mine, deferred = answers.split_for_call(bundle, this_call={"A.ALN"},
+                                            other_call={"D.SEQ"})
+    assert [f.attribute for f in mine.fill] == ["Protocol"] and not mine.place
+    assert deferred == [{"kind": "place", "sample_type": "D.SEQ", "attribute": "X"}]
+    with pytest.raises(answers.AnswerRejected):
+        answers.split_for_call(answers.Answers(fill=[_fill("A.XYZ", "Protocol")]),
+                               this_call={"A.ALN"}, other_call={"D.SEQ"})
+
+
+def test_apply_fill_marks_the_cell_as_curator_supplied():
+    rows = {"A.ALN": [MappedRow(sample_type="A.ALN"), MappedRow(sample_type="A.ALN")]}
+    findings = {"A.ALN": [_finding("A.ALN", "Protocol", 1)]}
+    answers.apply_answers(answers.Answers(fill=[_fill("A.ALN", "Protocol", "P-9")]),
+                          mapped_by_type=rows, findings_by_type=findings,
+                          run_manifest=_manifest(), answered_by="A. Curator on 2026-09-30")
+    assert "Protocol" not in rows["A.ALN"][0].attributes
+    cell = rows["A.ALN"][1].attributes["Protocol"]
+    assert (cell.value, cell.origin, cell.answered_by) == (
+        "P-9", "curator", "A. Curator on 2026-09-30")
+
+
+def test_apply_choose_swaps_file_and_checksum_and_drops_a_stale_checksum():
+    row = MappedRow(sample_type="A.ALN", nfcore_sample="S1", attributes={
+        "File_PrimaryData": MappedAttribute(attribute="File_PrimaryData",
+                                            value="S1.markdup.sorted.bam", origin="map",
+                                            source_file=BAM_A, candidates=[BAM_A, BAM_B]),
+        "Checksum_PrimaryData": MappedAttribute(attribute="Checksum_PrimaryData",
+                                                value="aaa", origin="map")})
+    rows = {"A.ALN": [row]}
+    choose = answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData",
+                                  path=BAM_B)
+    answers.apply_answers(answers.Answers(choose=[choose]), mapped_by_type=rows,
+                          findings_by_type={}, run_manifest=_manifest(),
+                          answered_by="c")
+    picked = row.attributes["File_PrimaryData"]
+    assert (picked.source_file, picked.origin, picked.candidates) == (BAM_B, "curator", [])
+    assert "Checksum_PrimaryData" not in row.attributes   # "aaa" was BAM_A's
+
+    row2 = MappedRow(sample_type="A.ALN", nfcore_sample="S1", attributes={
+        "File_PrimaryData": MappedAttribute(attribute="File_PrimaryData", value="x",
+                                            origin="map", candidates=[BAM_A, BAM_B])})
+    answers.apply_answers(answers.Answers(choose=[choose]),
+                          mapped_by_type={"A.ALN": [row2]}, findings_by_type={},
+                          run_manifest=_manifest(checksums={BAM_B: "bbb"}),
+                          answered_by="c")
+    assert row2.attributes["Checksum_PrimaryData"].value == "bbb"
+
+
+def test_apply_place_takes_the_value_from_the_manifest_not_the_answer():
+    row = MappedRow(sample_type="D.SEQ", uid="D.SEQ-EXAMPLE-1", nfcore_sample="S1")
+    place = answers.PlaceAnswer(raw_key="star-foo_rate", sample_type="D.SEQ",
+                                attribute="FooRate")
+    answers.apply_answers(answers.Answers(place=[place]), mapped_by_type={"D.SEQ": [row]},
+                          findings_by_type={}, run_manifest=_manifest({"star-foo_rate": 4.2}),
+                          answered_by="c")
+    cell = row.attributes["FooRate"]
+    assert (cell.value, cell.raw_key, cell.origin) == (4.2, "star-foo_rate", "curator")
