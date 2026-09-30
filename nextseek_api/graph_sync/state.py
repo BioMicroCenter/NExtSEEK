@@ -16,6 +16,8 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 - ``failing_since`` is the first failure since the row last succeeded: ``finish_failed`` sets it once, a later
   failure, a re-enqueue and a deferral keep it, and ``finish_done`` and ``mark_done_before`` clear it. It is what the
   status endpoint ages a failing row by, since ``enqueued_at`` moves on every re-enqueue and ``attempts`` resets.
+- ``requeue_dead`` is the operator's retry of dead rows once their cause is fixed: pending, claimable at once, no
+  failure time; ``manage.py graph_sync --requeue-dead``.
 - ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
   row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
 
@@ -553,6 +555,39 @@ def failed_runs(runs: Mapping[str, dict], *, now: datetime | None = None) -> lis
             "overdue": age is None or age > threshold,
             "error": error_excerpt(counts.get("error")),
         })
+    return out
+
+
+def requeue_dead(kind: str | None = None, *, dry_run: bool = False, now: datetime | None = None) -> list[dict]:
+    """Put every dead outbox row (of ``kind``, when given) back to pending, claimable at once, and return one
+    ``{"kind", "key", "attempts", "error"}`` per row, ``attempts`` as it was and ``error`` its ``error_excerpt``.
+
+    Dead is ``outbox_summary``'s test: open, at ``MAX_ATTEMPTS``, and in no worker's hands (a claim whose lease has
+    not run out keeps its row: that worker's outcome decides it). The operator's retry once the cause is fixed: the
+    attempts go to 0, the back-off and any expired claim are cleared, ``enqueued_at`` moves to ``now`` as a
+    re-enqueue moves it, and ``failing_since`` is cleared, so the row fails afresh if it fails again. ``payload`` and
+    ``last_error`` are kept. Each row is a compare-and-set on the row as read, so a row a new write reset meanwhile is
+    left to that write and not listed. ``dry_run`` lists and writes nothing. Raises ValueError on an unknown kind."""
+    if kind is not None and kind not in KINDS:
+        raise ValueError(f"not a graph_sync outbox kind: {kind!r}")
+    now = now or timezone.now()
+    not_live = Q(claimed_by__isnull=True) | Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)
+    qs = _outbox().filter(done_at__isnull=True, attempts__gte=MAX_ATTEMPTS).filter(not_live)
+    if kind is not None:
+        qs = qs.filter(kind=kind)
+    out = []
+    for r in qs.order_by("enqueued_at", "id").values("id", "kind", "key", "attempts", "enqueued_at", "claimed_by",
+                                                      "lease_expires_at", "last_error"):
+        if not dry_run:
+            won = _outbox().filter(
+                pk=r["id"], done_at__isnull=True, attempts=r["attempts"], enqueued_at=r["enqueued_at"],
+                claimed_by=r["claimed_by"], lease_expires_at=r["lease_expires_at"],
+            ).update(attempts=0, enqueued_at=max(now, r["enqueued_at"] + _TICK), claimed_by=None,
+                     lease_expires_at=None, failing_since=None)
+            if won != 1:
+                continue
+        out.append({"kind": r["kind"], "key": r["key"], "attempts": r["attempts"],
+                    "error": error_excerpt(r["last_error"])})
     return out
 
 

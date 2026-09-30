@@ -1,7 +1,7 @@
 """Keep the Neo4j sample graph in step with MySQL, or check that it is (graph schema v1.2).
 
     manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once
-                          | --investigation-counts --instance {local,dev,prod})
+                          | --investigation-counts --instance {local,dev,prod} | --requeue-dead [--kind KIND])
                          [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--seed N]
                          [--bench-keys FILE] [--apply-label-changes] [--no-record] [--trigger NAME]
                          [--interval S] [--i-mean-the-live-graph]
@@ -17,6 +17,7 @@
 | ``--loop`` | the schedule and the outbox drain, pass after pass, for ever (``graph_sync/loop.py``) | yes |
 | ``--once`` | one pass of that loop | yes |
 | ``--investigation-counts`` | every Investigation title with its nodes and samples, the counts file that ``scripts/context_gen.py --emit capabilities --counts`` reads; ``--instance`` names where it was measured and has no default | no |
+| ``--requeue-dead`` | dead outbox rows back to pending, claimable at once (``--kind``, ``--dry-run``) | no |
 
 ``--dry-run`` makes ``--full``, ``--catalog`` and ``--reconcile`` read without writing and print their counts.
 ``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``) is the operator's approval to write the
@@ -27,7 +28,8 @@ takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``
 ``--verify``, ``--drift``, ``--investigation-counts`` and ``--loop`` run against the live stack's Neo4j without
 ``--i-mean-the-live-graph``: the first three only read, and the loop is what the app container runs against its own
 graph. Every other mode still
-needs the flag by hand, and the loop passes it to its children.
+needs the flag by hand, and the loop passes it to its children. ``--requeue-dead`` writes the dmac outbox only and
+opens no Neo4j connection at all.
 
 Exit status: 0 on success; 1 when a check fails, a run failed part way, or ``--full``, ``--catalog`` or
 ``--reconcile`` could not take the graph-write lock, which another write held past its wait (the loop retries it);
@@ -55,7 +57,8 @@ from nextseek_api.graph_sync import drift, loop, reconcile, run, state, targeted
 LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
-MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts")
+MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts",
+         "requeue_dead")
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples"})
@@ -177,12 +180,17 @@ class Command(BaseCommand):
         mode.add_argument("--investigation-counts", action="store_true",
                           help="Print every Investigation title with its nodes and samples (read-only), as the "
                                "counts file scripts/context_gen.py --emit capabilities --counts reads.")
+        mode.add_argument("--requeue-dead", action="store_true",
+                          help="Put dead outbox rows (at the attempt limit) back to pending, claimable at once, "
+                               "once their cause is fixed. Writes the dmac outbox only, never the graph.")
+        parser.add_argument("--kind", metavar="KIND",
+                            help="--requeue-dead: only the dead rows of this outbox kind.")
         parser.add_argument("--instance", choices=drift.INSTANCES,
                             help="--investigation-counts: the instance this graph is (no default).")
         parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
         parser.add_argument("--dry-run", action="store_true",
                             help="With --full, --catalog or --reconcile: read MySQL and the graph, write nothing, "
-                                 "print the counts.")
+                                 "print the counts. With --requeue-dead: list the dead rows, change nothing.")
         parser.add_argument("--chunk", type=_positive_int, default=writer.SAMPLE_CHUNK,
                             help="Samples per MySQL page and per write transaction (default %(default)s).")
         parser.add_argument("--run-dir", metavar="PATH",
@@ -221,6 +229,11 @@ class Command(BaseCommand):
             raise CommandError(
                 "--apply-label-changes belongs to " + ", ".join(f"--{m}" for m in sorted(LABEL_CHANGE_MODES))
                 + f"; the loop takes that approval from {loop.LABEL_CHANGES_ENV}={loop.APPROVED} instead")
+        if options["kind"] is not None and mode != "requeue_dead":
+            raise CommandError("--kind belongs to --requeue-dead")
+        if mode == "requeue_dead":
+            # The dmac outbox only: no Neo4j settings are read and no driver is opened.
+            return self._requeue_dead(options)
         config = getattr(settings, "NEO4J_DATABASE", None)
         refusal = live_graph_refusal(config, options["i_mean_the_live_graph"] or mode in LIVE_OK_MODES)
         if refusal:
@@ -335,6 +348,24 @@ class Command(BaseCommand):
         self.stdout.write(f"measured on {result['measured_on']} at {result['measured_at']}")
         for title, counts in sorted(result["investigations"].items()):
             self.stdout.write(f"{title}  nodes {counts['nodes']}  samples {counts['samples']}")
+
+    # --- the outbox by hand -----------------------------------------------------------------------
+
+    def _requeue_dead(self, options):
+        """``--requeue-dead``: the dmac outbox only; never a Neo4j connection (``state.requeue_dead``)."""
+        kind, dry_run = options["kind"], options["dry_run"]
+        if kind is not None and kind not in state.KINDS:
+            raise CommandError(f"--kind: not a graph_sync outbox kind: {kind!r}; one of {', '.join(state.KINDS)}",
+                               returncode=2)
+        rows = state.requeue_dead(kind, dry_run=dry_run)
+        if options["json"]:
+            self.stdout.write(json.dumps({"dry_run": dry_run, "kind": kind, "requeued": len(rows), "rows": rows},
+                                         indent=2, sort_keys=True))
+            return
+        for r in rows:
+            self.stdout.write(f"{r['kind']} {r['key']}: attempts {r['attempts']}: {r['error'] or 'no error recorded'}")
+        verb = "would put back" if dry_run else "put back"
+        self.stdout.write(f"{verb} to pending: {len(rows)} dead rows")
 
     # --- the loop ---------------------------------------------------------------------------------
 

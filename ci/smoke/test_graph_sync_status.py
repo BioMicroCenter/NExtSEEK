@@ -145,7 +145,8 @@ def test_nothing_is_dead_in_the_outbox(status_body):
     dead = status_body["outbox"]["dead"]
     assert not dead, (
         f"the graph sync outbox holds rows at the attempt limit: {dead}. Their work never happened; read "
-        f"last_error on those rows."
+        f"last_error on those rows. Once the cause is fixed, `manage.py graph_sync --requeue-dead` in the app "
+        f"container puts them back to pending."
     )
 
 

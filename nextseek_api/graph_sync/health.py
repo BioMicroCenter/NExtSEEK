@@ -62,7 +62,8 @@ def stale_jobs(body: dict) -> list[str]:
 def dead_rows(body: dict) -> list[str]:
     """One line per kind with rows at the attempt limit: work tried to the end and never done."""
     dead = (body.get("outbox") or {}).get("dead") or {}
-    return [f"{count} {kind} rows are dead (at the attempt limit, their work never done)"
+    return [f"{count} {kind} rows are dead (at the attempt limit, their work never done); once the cause is fixed, "
+            "`manage.py graph_sync --requeue-dead` puts them back"
             for kind, count in sorted(dead.items())]
 
 

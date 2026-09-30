@@ -36,9 +36,10 @@ The management command `graph_sync`, plus the read-only status endpoint
 only).
 
 ```
-manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --drift | --verify | --samples IDS)
+manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --drift | --verify | --samples IDS
+                      | --requeue-dead)
                      [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--interval S]
-                     [--no-record] [--apply-label-changes] [--seed N] [--bench-keys FILE]
+                     [--no-record] [--apply-label-changes] [--seed N] [--bench-keys FILE] [--kind KIND]
                      [--i-mean-the-live-graph]
 ```
 
@@ -52,6 +53,7 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
+| `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |
 
 Options that apply to more than one mode: `--json` puts only the JSON result on stdout and sends progress to
 stderr; `--dry-run` makes `--full` and `--catalog` read everything and write nothing; `--chunk` is the page and
@@ -111,10 +113,11 @@ kept across later failures, re-enqueues and deferrals, cleared when its work suc
 **`graph_sync_outbox`**, one row per unit of work. `(kind, key)` is unique, so repeated hook writes coalesce and a
 scheduled slot is inserted once. A claim is a compare-and-set that counts an attempt; a lease that expires makes
 the row claimable again; a failure backs off (6 hours for a full sync, an hour otherwise); a row at
-`state.MAX_ATTEMPTS` is dead until a new write resets it. A writer that cannot tell whether its write has landed yet
-enqueues with a delay (`delay_s`), which holds the row back the way a back-off does. A successful full sync closes
-every row enqueued before it started, because it read them all, except a row still inside its delay when the sync
-started: the sync may have read MySQL before that write landed.
+`state.MAX_ATTEMPTS` is dead until a new write resets it, or `graph_sync --requeue-dead` puts it back once its cause
+is fixed. A writer that cannot tell whether its write has landed yet enqueues with a delay (`delay_s`), which holds
+the row back the way a back-off does. A successful full sync closes every row enqueued before it started, because it
+read them all, except a row still inside its delay when the sync started: the sync may have read MySQL before that
+write landed.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|

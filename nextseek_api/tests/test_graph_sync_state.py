@@ -1018,3 +1018,118 @@ def test_a_batch_row_closed_by_the_orchestrator_is_not_failing_when_the_key_is_w
     state.enqueue("samples", key, [7], now=at(days=3))
 
     assert state.failing_rows(now=at(days=3, seconds=5))["total"] == 0
+
+
+# --- requeue_dead: dead rows back to pending by hand (PLAN-ci-health Task 7a) ----------------------
+
+def dead(kind: str, key: str, *, error: str = LOST, payload=None) -> None:
+    """Enqueue a row and fail it MAX_ATTEMPTS times, each claim an hour after the last failure."""
+    state.enqueue(kind, key, payload, now=T0)
+    for n in range(state.MAX_ATTEMPTS):
+        when = at(hours=2 * n, seconds=1)
+        claim = state.claim_next("w1", now=when, kinds=[kind])
+        assert claim is not None and claim.key == key
+        state.finish_failed(claim, error, 3600, now=when)
+
+
+@pytest.mark.django_db
+def test_requeue_dead_puts_a_dead_row_back_to_pending_and_claimable_at_once():
+    dead("catalog", "*")
+    assert state.outbox_summary(now=at(days=2))["dead"] == {"catalog": 1}
+    now = at(hours=2 * (state.MAX_ATTEMPTS - 1), minutes=5)       # inside the last failure's hour of back-off
+
+    out = state.requeue_dead(now=now)
+
+    assert out == [{"kind": "catalog", "key": "*", "attempts": state.MAX_ATTEMPTS, "error": LOST}]
+    r = row("catalog", "*")
+    assert (r.attempts, r.done_at, r.claimed_by, r.lease_expires_at, r.failing_since) == (0, None, None, None, None)
+    assert r.enqueued_at == now
+    assert r.last_error == LOST
+    summary = state.outbox_summary(now=now)
+    assert summary["dead"] == {} and summary["pending"] == {"catalog": 1}
+    assert state.failing_rows(now=now)["total"] == 0
+    assert state.claim_next("w2", now=now) is not None
+
+
+@pytest.mark.django_db
+def test_requeue_dead_keeps_a_batch_rows_sample_ids():
+    dead("samples", "batch:job7:0", payload=[1001, 1002])
+
+    state.requeue_dead(now=at(days=2))
+
+    assert row("samples", "batch:job7:0").payload == [1001, 1002]
+
+
+@pytest.mark.django_db
+def test_requeue_dead_leaves_a_row_at_the_limit_under_a_live_claim():
+    """The claim that reached the limit is still running: its worker decides the row, not the operator."""
+    state.enqueue("catalog", "*", now=T0)
+    for n in range(state.MAX_ATTEMPTS - 1):
+        when = at(hours=2 * n, seconds=1)
+        state.finish_failed(state.claim_next("w1", now=when), LOST, 3600, now=when)
+    last = state.claim_next("w1", now=at(days=1))
+    assert last.attempts == state.MAX_ATTEMPTS
+
+    assert state.requeue_dead(now=at(days=1, minutes=1)) == []
+    assert state.finish_done(last, now=at(days=1, minutes=2)) is True
+
+
+@pytest.mark.django_db
+def test_requeue_dead_never_touches_a_done_or_a_live_row():
+    dead("catalog", "*")
+    state.mark_done_before(at(days=3), now=at(days=3))                  # done while dead
+    state.enqueue("samples", "sample:7", now=at(days=3))                # pending, never failed
+
+    assert state.requeue_dead(now=at(days=3, minutes=1)) == []
+    assert row("catalog", "*").done_at is not None
+    assert row("samples", "sample:7").attempts == 0
+
+
+@pytest.mark.django_db
+def test_requeue_dead_of_one_kind_leaves_the_others_dead():
+    dead("catalog", "*")
+    dead("samples_of_type", "type:3")
+
+    out = state.requeue_dead("samples_of_type", now=at(days=2))
+
+    assert [(r["kind"], r["key"]) for r in out] == [("samples_of_type", "type:3")]
+    assert state.outbox_summary(now=at(days=2))["dead"] == {"catalog": 1}
+
+
+@pytest.mark.django_db
+def test_requeue_dead_dry_run_lists_and_writes_nothing():
+    dead("catalog", "*")
+    before = row("catalog", "*")
+
+    with CaptureQueriesContext(connection) as queries:
+        out = state.requeue_dead(dry_run=True, now=at(days=2))
+
+    assert [(r["kind"], r["key"]) for r in out] == [("catalog", "*")]
+    assert [q["sql"] for q in queries.captured_queries if q["sql"].lstrip().upper().startswith("UPDATE")] == []
+    after = row("catalog", "*")
+    assert (after.attempts, after.lease_expires_at) == (before.attempts, before.lease_expires_at)
+
+
+@pytest.mark.django_db
+def test_requeue_dead_publishes_the_error_as_an_excerpt():
+    dead("catalog", "*", error="ServiceUnavailable: bolt://neo4j.example:7687\nTraceback ...")
+
+    (out,) = state.requeue_dead(dry_run=True, now=at(days=2))
+
+    assert out["error"] == "ServiceUnavailable: <url>"
+
+
+def test_requeue_dead_refuses_a_kind_that_is_not_an_outbox_kind():
+    with pytest.raises(ValueError, match="not a graph_sync outbox kind"):
+        state.requeue_dead("merge_studies")
+
+
+@pytest.mark.django_db
+def test_a_requeued_row_that_fails_again_starts_a_new_failure_time():
+    dead("catalog", "*")
+    now = at(days=2)
+    state.requeue_dead(now=now)
+
+    state.finish_failed(state.claim_next("w1", now=now), LOST, 3600, now=now + timedelta(seconds=1))
+
+    assert row("catalog", "*").failing_since == now + timedelta(seconds=1)

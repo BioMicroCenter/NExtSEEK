@@ -136,7 +136,9 @@ def test_stale_jobs_and_dead_rows_name_what_they_count():
                         "outbox": {"status": "stale", "age_s": 7860.0, "threshold_s": 3600}},
              outbox={"dead": {"samples": 2}})
     assert health.stale_jobs(b) == ["outbox is stale: 2.2 h old against 60 min"]
-    assert health.dead_rows(b) == ["2 samples rows are dead (at the attempt limit, their work never done)"]
+    assert health.dead_rows(b) == [
+        "2 samples rows are dead (at the attempt limit, their work never done); once the cause is fixed, "
+        "`manage.py graph_sync --requeue-dead` puts them back"]
 
 
 def test_problems_lists_every_kind_of_problem_in_order():

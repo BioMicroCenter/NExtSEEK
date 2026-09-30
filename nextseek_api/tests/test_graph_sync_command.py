@@ -11,7 +11,7 @@ import json
 import os
 from collections import Counter
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone as dt_timezone
 from importlib import import_module
 from inspect import isgenerator
 from io import StringIO
@@ -27,6 +27,7 @@ from nextseek_api.graph_sync import (
     catalog, drift, loop, reconcile, run, sources, state as sync_state, targeted, verify, writer,
 )
 from nextseek_api.graph_sync import cypher as q
+from nextseek_api.graph_sync.models_db import GraphSyncOutbox
 from nextseek_api.graph_sync.projection import project_sample
 from nextseek_graph import schema
 
@@ -1106,3 +1107,77 @@ def test_apply_label_changes_and_the_run_record_reach_the_full_sync(graphdb, mod
     call_command("graph_sync", "--full", "--apply-label-changes", "--no-record", "--trigger", "loop",
                  stdout=StringIO(), stderr=StringIO())
     assert modes["apply_label_changes"] is True and modes["record"] is False and modes["trigger"] == "loop"
+
+
+# --- --requeue-dead -------------------------------------------------------------------------------
+
+def _dead_row(kind="catalog", key="*", error="OperationalError: (2006, 'Server has gone away')"):
+    """A row at the attempt limit, its last failure long ago (the command reads the real clock)."""
+    long_ago = datetime(2026, 9, 1, 12, 0, tzinfo=dt_timezone.utc)
+    return GraphSyncOutbox.objects.create(kind=kind, key=key, attempts=sync_state.MAX_ATTEMPTS, last_error=error,
+                                          enqueued_at=long_ago, lease_expires_at=long_ago)
+
+
+@pytest.mark.django_db
+def test_requeue_dead_puts_dead_rows_back_and_says_how_many(graphdb):
+    _dead_row()
+    _dead_row("samples_of_type", "type:3")
+    out = StringIO()
+
+    call_command("graph_sync", "--requeue-dead", stdout=out, stderr=StringIO())
+
+    lines = out.getvalue().splitlines()
+    assert "catalog *: attempts 8: OperationalError: (2006, 'Server has gone away')" in lines
+    assert lines[-1] == "put back to pending: 2 dead rows"
+    assert sync_state.outbox_summary()["dead"] == {}
+
+
+@pytest.mark.django_db
+def test_requeue_dead_json_dry_run_and_kind(graphdb):
+    _dead_row()
+    _dead_row("samples_of_type", "type:3")
+    out = StringIO()
+
+    call_command("graph_sync", "--requeue-dead", "--kind", "catalog", "--dry-run", "--json",
+                 stdout=out, stderr=StringIO())
+
+    assert json.loads(out.getvalue()) == {
+        "dry_run": True, "kind": "catalog", "requeued": 1,
+        "rows": [{"kind": "catalog", "key": "*", "attempts": 8,
+                  "error": "OperationalError: (2006, 'Server has gone away')"}]}
+    assert sync_state.outbox_summary()["dead"] == {"catalog": 1, "samples_of_type": 1}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("config", [dict(LIVE), {}], ids=["live graph, no flag", "no Neo4j at all"])
+def test_requeue_dead_never_connects_to_neo4j(graphdb, settings, config):
+    """It writes the dmac outbox only, so neither the live-graph rule nor a missing URI applies to it."""
+    settings.NEO4J_DATABASE = config
+    _dead_row()
+
+    call_command("graph_sync", "--requeue-dead", stdout=StringIO(), stderr=StringIO())
+
+    assert graphdb.uris == []
+    assert sync_state.outbox_summary()["dead"] == {}
+
+
+@pytest.mark.django_db
+def test_requeue_dead_with_nothing_dead_says_so(graphdb):
+    out = StringIO()
+    call_command("graph_sync", "--requeue-dead", stdout=out, stderr=StringIO())
+    assert out.getvalue().splitlines() == ["put back to pending: 0 dead rows"]
+
+
+@pytest.mark.parametrize("args, code", [(("--requeue-dead", "--kind", "merge_studies"), 2),
+                                        (("--verify", "--kind", "catalog"), 1),
+                                        (("--requeue-dead", "--apply-label-changes"), 1)])
+def test_requeue_dead_refuses_a_bad_kind_and_kind_belongs_to_it(graphdb, args, code):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == code
+    assert graphdb.uris == []
+
+
+def test_requeue_dead_is_a_mode_of_its_own():
+    assert "requeue_dead" in command.MODES
+    assert "requeue_dead" not in command.LIVE_OK_MODES      # it never reaches a graph, live or not
