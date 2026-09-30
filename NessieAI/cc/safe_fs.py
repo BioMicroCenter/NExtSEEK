@@ -237,7 +237,7 @@ def read_file(root: Path, rel: str | Path, *, max_bytes: int | None = None) -> b
             return fh.read()
         if st.st_size > max_bytes:
             raise OSError(errno.EFBIG, f"larger than {max_bytes} bytes", os.fspath(rel))
-        data = fh.read(max_bytes + 1)
+        data = fh.read(min(st.st_size, max_bytes) + 1)
     if len(data) > max_bytes:
         raise OSError(errno.EFBIG, f"larger than {max_bytes} bytes", os.fspath(rel))
     return data

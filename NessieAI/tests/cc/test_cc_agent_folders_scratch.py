@@ -136,19 +136,22 @@ def test_the_sweep_walks_the_users_folder_from_the_staging_root(tmp_path):
 
 
 def test_a_staged_file_over_the_size_cap_is_left_in_place(tmp_path, monkeypatch):
-    """Over the cap is delivered by no path (the in-turn sweep and cc_sweep_staging share it): it stays where
-    the sidecar put it, with its marker."""
+    """Over the cap is delivered by no path (the in-turn sweep and cc_sweep_staging share it): the whole request
+    stays where the sidecar put it, with its marker, and its small files are not delivered on any sweep."""
     monkeypatch.setattr(cc_staging, "_MAX_STAGED_BYTES", 4)
     scratch = _scratch(tmp_path)
     base = _staging(tmp_path)
     (base / REQ).mkdir()
     (base / REQ / "big.csv").write_bytes(b"0123456789")
+    (base / REQ / "a.csv").write_bytes(b"a\n")
     (base / f"{REQ}.complete").write_text("")
 
-    result = _sweep(tmp_path, scratch)
-
-    assert result.delivered == []
-    assert (base / f"{REQ}.complete").exists() and (base / REQ / "big.csv").exists()
+    for _ in range(2):
+        result = _sweep(tmp_path, scratch)
+        assert result.delivered == []
+        assert not (scratch / "nextseek-artifacts").exists() or not list((scratch / "nextseek-artifacts").iterdir())
+        assert (base / f"{REQ}.complete").exists() and (base / REQ / "big.csv").exists()
+        assert (base / REQ / "a.csv").exists()
 
 
 def test_the_sweep_still_delivers_and_cleans_up(tmp_path):

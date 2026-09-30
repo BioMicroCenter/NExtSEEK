@@ -29,7 +29,8 @@ in the staging flow — never the agent, never the sidecar):
   ``api_user`` only. Cross-user delivery is impossible by construction.
 * Path safety (defense in depth, independent of the sidecar's own key
   sanitization): ``_staging/<hash>`` and the user's scratch are read, listed and written only through
-  ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``, the turn's scratch) with the folders
+  ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``; the scratch being delivered into: the turn's in-turn, the user's
+  ``scratch_mnt`` on a recovery sweep) with the folders
   below it in ``rel``, so no link on either side is followed; relative components are rejected if absolute or
   containing ``..``, and every destination is asserted to stay within the user's scratch subtree. A staged
   file over ``_MAX_STAGED_BYTES`` is left in place, by the in-turn sweep and ``cc_sweep_staging`` alike.
@@ -63,6 +64,7 @@ op-result strings (doing so would couple it to the sidecar's internal
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import itertools
 import logging
@@ -173,7 +175,8 @@ class _DestUnsafe(RuntimeError):
 
 _FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 
-# Staged files are read whole (the sidecar held each in memory to stage it); a larger one is never delivered by
+# Staged files are read whole (the sidecar's stage_bytes held each in memory; make_stage streams, so a file can
+# be larger than this); a larger one is never delivered by
 # any path (the sweep and cc_sweep_staging share this cap) and is left in place.
 _MAX_STAGED_BYTES = 256 * 1024 * 1024
 _MAX_NAME_ATTEMPTS = 1000
@@ -329,6 +332,12 @@ def sweep_user_staging(
                 pass
             continue
 
+        if any(st.st_size > _MAX_STAGED_BYTES for _, st in staged.get(req_id, [])):
+            # One oversized file: the whole request stays in place, nothing from it is delivered, on this
+            # sweep or any later one (its marker is kept).
+            logger.warning("cc staging sweep: leaving request %s in place, a file is over the size cap", req_id)
+            continue
+
         swept_ok = True
         for tail, st in sorted(staged.get(req_id, []), key=lambda item: item[0]):
             rel = Path(tail)
@@ -342,8 +351,10 @@ def sweep_user_staging(
                 data = safe_fs.read_file(staging_root, f"{user_hash}/{req_id}/{tail}",
                                          max_bytes=_MAX_STAGED_BYTES)
             except OSError as exc:
-                swept_ok = False  # includes a file over the cap: left in place, marker kept
+                swept_ok = False
                 logger.warning("cc staging sweep: copy failed for %r (%s)", tail, type(exc).__name__)
+                if exc.errno == errno.EFBIG:
+                    break  # grew past the cap after the listing: deliver nothing further from this request
                 continue
             try:
                 final_name = _deliver_file_safely(data, scratch_dir, rel.parent.parts, rel.name,
@@ -355,6 +366,7 @@ def sweep_user_staging(
                 logger.warning("cc staging sweep: refusing request %s, unsafe destination for %r (%s)",
                                req_id, tail, exc)
                 break
+            del data  # one file in memory at a time
             result.delivered.append(str(Path(ARTIFACTS_SUBDIR) / rel.parent / final_name))
 
         # Cleanup after a successful sweep; on failure keep the marker so a later sweep retries.
