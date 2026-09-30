@@ -28,9 +28,11 @@ in the staging flow — never the agent, never the sidecar):
   subtree, and the hashed staging dir it reads is keyed by the current
   ``api_user`` only. Cross-user delivery is impossible by construction.
 * Path safety (defense in depth, independent of the sidecar's own key
-  sanitization): symlinks are skipped, relative components are rejected if
-  absolute or containing ``..``, and every destination is asserted to stay
-  within the user's scratch subtree.
+  sanitization): ``_staging/<hash>`` and the user's scratch are read, listed and written only through
+  ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``, the turn's scratch) with the folders
+  below it in ``rel``, so no link on either side is followed; relative components are rejected if absolute or
+  containing ``..``, and every destination is asserted to stay within the user's scratch subtree. A staged
+  file over ``_MAX_STAGED_BYTES`` is left in place, by the in-turn sweep and ``cc_sweep_staging`` alike.
 
 Same-turn vs. recovery (``since_ts``):
 
@@ -62,6 +64,7 @@ op-result strings (doing so would couple it to the sidecar's internal
 from __future__ import annotations
 
 import hashlib
+import itertools
 import logging
 import os
 import re
@@ -168,82 +171,77 @@ class _DestUnsafe(RuntimeError):
     preserve the marker, never deliver cross-user (fix round 2, reviewer C1)."""
 
 
-# ``os.open`` flags for a directory step that MUST NOT traverse a symlink and
-# MUST be a real directory (openat semantics via ``dir_fd``).
-_DIR_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY
 _FILE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 
+# Staged files are read whole (the sidecar held each in memory to stage it); a larger one is never delivered by
+# any path (the sweep and cc_sweep_staging share this cap) and is left in place.
+_MAX_STAGED_BYTES = 256 * 1024 * 1024
+_MAX_NAME_ATTEMPTS = 1000
 
-def _deliver_file_safely(src: Path, scratch_dir: str, rel_dir_parts: tuple[str, ...],
-                         leaf_name: str) -> str:
-    """Copy ``src`` bytes to ``{scratch_dir}/nextseek-artifacts/<rel_dir>/<name>``
-    WITHOUT ever following a symlink in the destination path, and return the
-    final basename actually written (``__N``-disambiguated on collision).
 
-    The destination subtree is AGENT-CONTROLLED (the CC agent's own scratch on
-    the shared ``dmac-cc-users`` volume), so it is treated as adversarial: the
-    trusted Django sweep must not be redirected through a planted directory
-    symlink into a FOREIGN user's tree (reviewer C1 PoC). Every directory step
-    is opened with ``O_NOFOLLOW | O_DIRECTORY`` relative to the previous step's
-    fd (openat chain — TOCTOU-safe, unlike a realpath-check-then-write), and the
-    leaf is created ``O_CREAT | O_EXCL | O_NOFOLLOW`` so a raced/planted symlink
-    at the final component cannot redirect the write either. Any symlink /
-    non-directory / escape in the chain raises ``_DestUnsafe``.
+def _deliver_file_safely(data: bytes, scratch_dir: str, rel_dir_parts: tuple[str, ...],
+                         leaf_name: str, *, times_ns: tuple[int, int] | None = None) -> str:
+    """Write ``data`` to ``{scratch_dir}/nextseek-artifacts/<rel_dir>/<name>`` without ever following a link,
+    and return the basename actually written (``__N``-disambiguated on collision).
 
-    ``scratch_dir`` is the trusted, identity-derived per-user scratch root (from
-    ``build_user_dirs``); it is opened ``O_NOFOLLOW`` too (paranoia: if the mount
-    root itself were a symlink the whole subtree is compromised → refuse)."""
-    steps = (ARTIFACTS_SUBDIR, *rel_dir_parts)
-    open_fds: list[int] = []
+    The destination subtree is the agent's own scratch, so every folder step is opened with
+    ``safe_fs.open_dir`` (``O_NOFOLLOW | O_DIRECTORY``, relative to the step before) and the leaf is created
+    ``O_CREAT | O_EXCL | O_NOFOLLOW`` in that opened folder: a link at any step, or at the name, never
+    redirects the write. Any unsafe step raises ``_DestUnsafe``. ``times_ns`` (atime, mtime) is set on the new
+    file's fd. The staged source is read by the caller through ``safe_fs`` too.
+    """
     try:
-        try:
-            root_fd = os.open(scratch_dir, _DIR_FLAGS)
-        except OSError as exc:
-            raise _DestUnsafe(f"scratch root not a real directory: {type(exc).__name__}") from exc
-        open_fds.append(root_fd)
-        cur = root_fd
-        for name in steps:
+        dir_fd = safe_fs.open_dir(Path(scratch_dir), (ARTIFACTS_SUBDIR, *rel_dir_parts), create=True)
+    except OSError as exc:
+        raise _DestUnsafe(f"unsafe destination folder: {type(exc).__name__}") from exc
+    try:
+        for candidate in itertools.islice(_disambiguate_names(leaf_name), _MAX_NAME_ATTEMPTS):
             try:
-                nxt = os.open(name, _DIR_FLAGS, dir_fd=cur)
-            except FileNotFoundError:
-                # Component absent: create it (mkdirat) then open O_NOFOLLOW.
-                try:
-                    os.mkdir(name, 0o755, dir_fd=cur)
-                    nxt = os.open(name, _DIR_FLAGS, dir_fd=cur)
-                except OSError as exc:
-                    raise _DestUnsafe(f"cannot create dir step {name!r}: {type(exc).__name__}") from exc
-            except OSError as exc:
-                # ELOOP (symlink under O_NOFOLLOW) / ENOTDIR (a file) → adversarial.
-                raise _DestUnsafe(f"unsafe dir step {name!r}: {type(exc).__name__}") from exc
-            open_fds.append(nxt)
-            cur = nxt
-
-        # Leaf: O_EXCL|O_NOFOLLOW create, disambiguating with __N on EEXIST.
-        for candidate in _disambiguate_names(leaf_name):
-            try:
-                leaf_fd = os.open(candidate, _FILE_FLAGS, 0o644, dir_fd=cur)
+                leaf_fd = os.open(candidate, _FILE_FLAGS, 0o644, dir_fd=dir_fd)
             except FileExistsError:
-                continue  # name (or a planted symlink at that name) taken → next __N
+                continue  # name (or a link at that name) taken -> next __N
             except OSError as exc:
                 raise _DestUnsafe(f"unsafe leaf {candidate!r}: {type(exc).__name__}") from exc
             try:
-                with os.fdopen(leaf_fd, "wb") as out, open(src, "rb") as inp:
-                    shutil.copyfileobj(inp, out)
-                # Preserve mtime/atime on the just-created fd (no path re-lookup,
-                # so no symlink re-traversal). Mode is fixed 0o644 by _FILE_FLAGS.
-                st = os.stat(src)
-                os.utime(candidate, ns=(st.st_atime_ns, st.st_mtime_ns), dir_fd=cur,
-                         follow_symlinks=False)
+                with os.fdopen(leaf_fd, "wb") as out:
+                    out.write(data)
+                    out.flush()
+                    if times_ns is not None:
+                        os.utime(out.fileno(), ns=times_ns)
             except OSError as exc:
                 raise _DestUnsafe(f"write failed for {candidate!r}: {type(exc).__name__}") from exc
             return candidate
         raise _DestUnsafe("no free disambiguated name")
     finally:
-        for fd in reversed(open_fds):
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        os.close(dir_fd)
+
+
+def _request_dir_state(staging_root: Path, user_hash: str, req_id: str) -> str:
+    """``"dir"``, ``"missing"`` or ``"unsafe"`` for ``staging_root/user_hash/req_id``, never following a link."""
+    try:
+        fd = safe_fs.open_dir(staging_root, (user_hash, req_id))
+    except FileNotFoundError:
+        return "missing"
+    except OSError:
+        return "unsafe"
+    os.close(fd)
+    return "dir"
+
+
+def _remove_request(staging_root: Path, user_hash: str, req_id: str, *, dir_too: bool) -> None:
+    """Delete the request folder (with ``dir_too``) and its ``.complete`` marker inside the user's opened
+    staging folder, walked from the sidecar's mount root: ``rmtree`` and ``unlink`` relative to its fd, so no
+    link on the way is followed."""
+    base_fd = safe_fs.open_dir(staging_root, (user_hash,))
+    try:
+        if dir_too:
+            shutil.rmtree(req_id, dir_fd=base_fd)
+        try:
+            os.unlink(f"{req_id}.complete", dir_fd=base_fd)
+        except FileNotFoundError:
+            pass
+    finally:
+        os.close(base_fd)
 
 
 def staging_root_for(user_root_mount: str) -> Path:
@@ -284,98 +282,88 @@ def sweep_user_staging(
     """
     _validate_identity(api_user, user_id, project_dirname)
 
-    src_base = staging_root_for(user_root_mount) / _user_hash(api_user)
+    # The sidecar's mount root is the trusted root (registered by staging_root_for); the sidecar controls
+    # everything below it, the user's <hash> folder included, so that folder is a step in rel and is never
+    # trusted as part of a root.
+    staging_root = staging_root_for(user_root_mount)
+    user_hash = _user_hash(api_user)
     result = SweepResult()
-    if not src_base.is_dir():
+    try:
+        # One listing of this user's staging folder, never through a link: the sidecar writes it.
+        listing = list(safe_fs.iter_files(staging_root, (user_hash,)))
+    except FileNotFoundError:
         return result
+    except OSError as exc:
+        logger.warning("cc staging sweep: refusing the staging folder (%s)", type(exc).__name__)
+        return result
+    markers: dict[str, os.stat_result] = {}
+    staged: dict[str, list[tuple[str, os.stat_result]]] = {}
+    for rel_from_root, st in listing:
+        head, sep, tail = rel_from_root.removeprefix(f"{user_hash}/").partition("/")
+        if not sep:
+            if head.endswith(".complete"):
+                markers[head[: -len(".complete")]] = st
+            continue
+        staged.setdefault(head, []).append((tail, st))
 
     dst_base = Path(scratch_dir) / ARTIFACTS_SUBDIR
 
-    for marker in sorted(src_base.glob("*.complete")):
-        req_id = marker.stem
-        # Fix round 1: req_id becomes a path segment — pin it to the canonical
-        # UUID form the sidecar contract guarantees BEFORE any use (including
-        # deferral bookkeeping). A ``..``/separator-bearing or otherwise
-        # non-canonical marker stem is refused, never interpolated.
+    for req_id in sorted(markers):
+        # Fix round 1: req_id becomes a path segment; pin it to the canonical UUID form the sidecar contract
+        # guarantees BEFORE any use. A non-canonical marker stem is refused, never interpolated.
         if not _REQUEST_ID_RE.fullmatch(req_id):
-            logger.warning(
-                "cc staging sweep: refusing non-canonical request id %r", req_id
-            )
+            logger.warning("cc staging sweep: refusing non-canonical request id %r", req_id)
             continue
-        req_dir = src_base / req_id
-
-        # In-turn mode: skip OLDER strays (not this turn) so they are not
-        # attributed to the current turn's publish set. They remain as
-        # breadcrumbs for the recovery (since_ts=None) sweep.
-        if since_ts is not None:
-            try:
-                if marker.stat().st_mtime < since_ts:
-                    result.deferred_markers.append(req_id)
-                    continue
-            except OSError:
-                continue
-
-        # Defense in depth: a completed marker whose backing dir is a symlink or
-        # escapes the hashed base is refused (never followed).
-        if req_dir.is_symlink() or not _is_within(src_base, req_dir):
+        # In-turn mode: skip OLDER strays (not this turn); they stay as breadcrumbs for the recovery sweep.
+        if since_ts is not None and markers[req_id].st_mtime < since_ts:
+            result.deferred_markers.append(req_id)
+            continue
+        state = _request_dir_state(staging_root, user_hash, req_id)
+        if state == "unsafe":
             logger.warning("cc staging sweep: refusing non-canonical request dir %r", req_id)
             continue
-        if not req_dir.is_dir():
-            marker.unlink(missing_ok=True)  # stray marker with no dir
+        if state == "missing":
+            try:
+                _remove_request(staging_root, user_hash, req_id, dir_too=False)  # stray marker with no dir
+            except OSError:
+                pass
             continue
 
         swept_ok = True
-        for src in sorted(req_dir.rglob("*")):
-            if src.is_symlink() or not src.is_file():
-                continue
-            rel = src.relative_to(req_dir)
+        for tail, st in sorted(staged.get(req_id, []), key=lambda item: item[0]):
+            rel = Path(tail)
             if not _safe_rel(rel):
-                logger.warning("cc staging sweep: refusing unsafe staged relpath %r", str(rel))
+                logger.warning("cc staging sweep: refusing unsafe staged relpath %r", tail)
                 continue
-            # Lexical fast-reject (cheap), then the authoritative symlink-safe
-            # delivery. The destination subtree is AGENT-CONTROLLED, so the
-            # openat chain (O_NOFOLLOW dir steps + O_EXCL|O_NOFOLLOW leaf) is what
-            # actually prevents a planted directory symlink from redirecting the
-            # trusted sweep into a FOREIGN user's tree (reviewer C1).
-            dst = dst_base / rel
-            if not _is_within(dst_base, dst):
-                logger.warning("cc staging sweep: refusing out-of-subtree dest for %r", str(rel))
+            if not _is_within(dst_base, dst_base / rel):
+                logger.warning("cc staging sweep: refusing out-of-subtree dest for %r", tail)
                 continue
             try:
-                final_name = _deliver_file_safely(
-                    src, scratch_dir, rel.parent.parts, rel.name
-                )
-            except _DestUnsafe as exc:
-                # Adversarial / compromised destination — refuse the WHOLE request
-                # dir (fail closed): preserve the marker for a later retry, never
-                # deliver cross-user. Stop processing this req_dir.
-                swept_ok = False
-                logger.warning(
-                    "cc staging sweep: refusing request %s — unsafe destination for %r (%s)",
-                    req_id, str(rel), exc,
-                )
-                break
+                data = safe_fs.read_file(staging_root, f"{user_hash}/{req_id}/{tail}",
+                                         max_bytes=_MAX_STAGED_BYTES)
             except OSError as exc:
-                swept_ok = False
-                logger.warning(
-                    "cc staging sweep: copy failed for %r (%s)", str(rel), type(exc).__name__
-                )
+                swept_ok = False  # includes a file over the cap: left in place, marker kept
+                logger.warning("cc staging sweep: copy failed for %r (%s)", tail, type(exc).__name__)
                 continue
-            out_rel = Path(ARTIFACTS_SUBDIR) / rel.parent / final_name
-            result.delivered.append(str(out_rel))
+            try:
+                final_name = _deliver_file_safely(data, scratch_dir, rel.parent.parts, rel.name,
+                                                  times_ns=(st.st_atime_ns, st.st_mtime_ns))
+            except _DestUnsafe as exc:
+                # Unsafe destination: refuse the WHOLE request dir (fail closed), keep the marker for a
+                # later retry, never deliver elsewhere.
+                swept_ok = False
+                logger.warning("cc staging sweep: refusing request %s, unsafe destination for %r (%s)",
+                               req_id, tail, exc)
+                break
+            result.delivered.append(str(Path(ARTIFACTS_SUBDIR) / rel.parent / final_name))
 
-        # Cleanup after a successful sweep; on failure keep the marker so a later
-        # sweep retries (upstream staging_sweep.py:67-78).
+        # Cleanup after a successful sweep; on failure keep the marker so a later sweep retries.
         if not swept_ok:
             continue
         try:
-            shutil.rmtree(req_dir)
+            _remove_request(staging_root, user_hash, req_id, dir_too=True)
         except OSError as exc:
-            logger.warning(
-                "cc staging sweep: cleanup of %r failed (%s); keeping marker for retry",
-                req_id, type(exc).__name__,
-            )
-            continue
-        marker.unlink(missing_ok=True)
+            logger.warning("cc staging sweep: cleanup of %r failed (%s); keeping marker for retry",
+                           req_id, type(exc).__name__)
 
     return result

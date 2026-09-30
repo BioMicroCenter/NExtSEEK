@@ -1849,20 +1849,20 @@ def _time_limit_message(seconds: float) -> str:
 
 
 def _snapshot_tree(root: Path) -> dict[str, tuple[int, int]]:
-    """Return regular, non-symlink file versions under root, keyed by relpath."""
+    """Regular files under ``root``, keyed by relpath: ``(size, mtime_ns)``.
+
+    ``root`` is the turn's scratch, the agent's folder: listed with ``safe_fs.iter_files``, so a link, a FIFO
+    or a folder that is a link is never listed or entered. A missing root is an empty snapshot.
+    """
     out: dict[str, tuple[int, int]] = {}
-    if not root.is_dir():
+    try:
+        for rel, st in safe_fs.iter_files(Path(root)):
+            out[rel] = (st.st_size, st.st_mtime_ns)
+    except FileNotFoundError:
         return out
-    for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
-        for filename in filenames:
-            full = Path(dirpath) / filename
-            if full.is_symlink():
-                continue
-            try:
-                st = full.stat()
-            except OSError:
-                continue
-            out[str(full.relative_to(root))] = (st.st_size, st.st_mtime_ns)
+    except OSError as exc:
+        logger.warning("cc: cannot list %s (%r); nothing in it is published", root, exc)
+        return out
     return out
 
 
@@ -2206,13 +2206,13 @@ def _publish_artifacts(
             if not _safe_relpath(rel):
                 logger.warning("CC: refusing unsafe artifact relpath %r", rel)
                 continue
-            src = scratch_mount / rel
-            if src.is_symlink() or not src.is_file():
-                continue
             out_rel = rel.removeprefix("raw/") if strip_raw_prefix else rel
             dst = dest_root / out_rel
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            try:
+                # Scratch is the agent's folder: every step re-walked, never through a link.
+                safe_fs.copy_out(scratch_mount, rel, dst)
+            except (safe_fs.UnsafePath, FileNotFoundError):
+                continue
             written.append(dst)
         return written
 
