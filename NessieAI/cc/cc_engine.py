@@ -1910,6 +1910,25 @@ def _newest_jsonl_under(root: Path, rel_parts: tuple[str, ...] = (), *,
     return None if best is None else Path(root) / best[1]
 
 
+# --------------------------------------------------------------------------
+# #68 — the per-turn transcript slice.
+#
+# ``--resume`` appends every turn of a chat to ONE session jsonl, but
+# ``CCSessionTranscript`` rows are keyed per turn, so reading the whole file
+# into each row makes row N hold turns 1..N and the stored bytes grow
+# quadratically in turn count. These three pure helpers let a caller snapshot
+# the store's line counts BEFORE spawn and afterwards keep only the records
+# this turn appended.
+#
+# The boundary is a LINE INDEX and not a byte offset, deliberately.
+# ``_scrub_secret_bytes`` (#72) replaces each secret with the literal
+# ``b"<REDACTED>"``, which contains no newline: the scrub is therefore
+# line-count preserving but NOT length preserving. A byte offset recorded
+# before the turn is measured against the DIRTY bytes and is invalidated the
+# moment the preceding turns' records are scrubbed in place — it would then cut
+# mid-record. A line index survives that rewrite untouched.
+# --------------------------------------------------------------------------
+
 def _jsonl_line_count(raw: bytes) -> int:
     """Count jsonl records in ``raw`` the way this codebase already counts them.
 

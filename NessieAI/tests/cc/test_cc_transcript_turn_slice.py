@@ -365,7 +365,7 @@ def test_read_turn_transcript_slices_a_resumed_session(tmp_path):
     prior = _jsonl("turn-1 a", "turn-1 b")
     mnt, path = _store(tmp_path, body=prior, mtime=turn_start - 50)
 
-    pre = cc_engine._transcript_line_counts(Path(mnt) / "projects")
+    pre = cc_engine._transcript_line_counts(mnt, ("projects",))
     assert pre == {str(path): 2}
 
     new = b'{"type":"user","n":9,"content":"turn-2 only"}\n'
@@ -521,23 +521,20 @@ def test_read_turn_transcript_swallows_an_unreadable_PROJECTS_ROOT(
 def test_read_turn_transcript_swallows_a_failure_in_the_LOCATE_step(
     tmp_path, monkeypatch
 ):
-    """Not just the read (#68 Task 4). ``_newest_jsonl_under`` walks the store
-    with ``rglob`` and then calls ``p.stat()`` twice per candidate, none of it
-    under a handler of its own — so a transcript unlinked between the walk and
-    the stat (the agent's own rotation, a concurrent sweep, a sibling turn)
-    raises ``OSError`` out of the SEARCH rather than out of the read.
+    """Not just the listing (#68 Task 4). The store is live: a transcript unlinked (or swapped for a link)
+    between ``safe_fs.iter_files`` listing it and ``safe_fs.read_file`` opening it (the agent's own rotation,
+    a concurrent sweep, a sibling turn) raises ``OSError`` AFTER the locate step succeeded.
 
-    This helper is called from ``run_cc_turn``'s ``finally``, where an escape
-    would skip the #72/#76 transcript scrub that follows it, so the guard has to
-    cover the whole locate-and-read, not only the last step of it.
+    This helper is called from ``run_cc_turn``'s ``finally``, where an escape would skip the #72/#76 transcript
+    scrub that follows it, so the guard has to cover the whole locate-and-read.
     """
     turn_start = 10_000.0
     mnt, _ = _store(tmp_path, body=_jsonl("a"), mtime=turn_start + 1)
 
-    def _vanished(root, rel_parts=(), *, suffix=None):
-        raise OSError("transcript unlinked mid-scan")
+    def _vanished(root, rel, *args, **kwargs):
+        raise FileNotFoundError(2, "transcript unlinked after the listing", str(rel))
 
-    monkeypatch.setattr(cc_engine.safe_fs, "iter_files", _vanished)
+    monkeypatch.setattr(cc_engine.safe_fs, "read_file", _vanished)
 
     got = cc_engine._read_turn_transcript(
         mnt, turn_start=turn_start, prior_lines={}, environment=ENV

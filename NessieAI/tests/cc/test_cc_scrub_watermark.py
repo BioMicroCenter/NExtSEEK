@@ -31,7 +31,6 @@ import ast
 import base64
 import hashlib
 import json
-import pathlib
 from pathlib import Path
 
 import pytest

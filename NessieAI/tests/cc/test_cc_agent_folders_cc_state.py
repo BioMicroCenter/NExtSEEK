@@ -42,7 +42,7 @@ def test_the_scrub_never_follows_a_linked_store(tmp_path, canary):
     cc_state = _cc_state(tmp_path)
     canary.link_dir(cc_state / "projects")
     report = cc_engine.scrub_transcript_store(cc_state, ENV_MARK)
-    assert report.rewritten == 0
+    assert (report.rewritten, report.skipped) == (0, 1)
     canary.assert_untouched()
     assert not (cc_state.parent / ".sess.scrub.json").exists(), "nothing is watermarked for a store that is a link"
 
@@ -76,7 +76,7 @@ def test_the_sibling_scrub_never_follows_a_linked_store(tmp_path, canary):
     sibling.mkdir()
     canary.link_dir(sibling / "projects")
     report = cc_engine.scrub_sibling_transcript_stores(current.parent, ENV_MARK, exclude=current)
-    assert report.rewritten == 0
+    assert (report.rewritten, report.skipped) == (0, 1)
     canary.assert_untouched()
 
 
