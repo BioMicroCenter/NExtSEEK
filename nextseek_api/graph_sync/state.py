@@ -105,8 +105,12 @@ DEFAULT_RUN_MAX_S = 2 * 3600
 
 RUN_STATUSES = ("ok", "failed", "refused", "abandoned", "drift")    # the outcomes ``finish`` records
 # The spec's freshness rules, in seconds: a full sync within 8 days, a reconcile (or a full sync) within 26 hours,
-# the oldest waiting outbox row within 1 hour.
-DEFAULT_THRESHOLDS: Mapping[str, int] = MappingProxyType({"full": 8 * 86400, "reconcile": 26 * 3600, "outbox": 3600})
+# the oldest waiting outbox row within 1 hour; and a drift check that compared the graph within 26 hours, since the
+# status reports the latest drift run's verdict whatever its age.
+DEFAULT_THRESHOLDS: Mapping[str, int] = MappingProxyType({"full": 8 * 86400, "reconcile": 26 * 3600, "outbox": 3600,
+                                                          "drift": 26 * 3600})
+# A drift run that found drift compared the graph as much as one that found none (schedule._SATISFIED_BY, loop).
+DRIFT_FRESH_STATUSES = ("ok", "drift")
 
 
 def lease_s(kind: str) -> int:
@@ -414,8 +418,8 @@ def last_runs() -> dict[str, dict]:
 
 # --- freshness and the outbox summary ------------------------------------------------------------
 
-def _last_ok(kinds: tuple[str, ...]) -> dict | None:
-    return (_runs().filter(kind__in=kinds, status="ok").order_by("-started_at", "-id")
+def _last_ok(kinds: tuple[str, ...], statuses: tuple[str, ...] = ("ok",)) -> dict | None:
+    return (_runs().filter(kind__in=kinds, status__in=statuses).order_by("-started_at", "-id")
             .values("kind", "started_at", "finished_at").first())
 
 
@@ -430,9 +434,10 @@ def _run_freshness(run: dict | None, now: datetime, threshold: int) -> dict:
 
 
 def freshness(*, now: datetime | None = None, thresholds: Mapping[str, int] = DEFAULT_THRESHOLDS) -> dict[str, dict]:
-    """Each job's freshness: ``full`` and ``reconcile`` (``ok``, ``stale`` or ``never``) and ``outbox`` (``ok`` or
-    ``stale``). A run counts from its start, the moment it began reading MySQL, and only when it ended ``ok``. A full
-    sync counts for the reconcile: it does everything a reconcile does. ``thresholds`` overrides some of
+    """Each job's freshness: ``full``, ``reconcile`` and ``drift`` (``ok``, ``stale`` or ``never``) and ``outbox``
+    (``ok`` or ``stale``). A run counts from its start, the moment it began reading MySQL, and only when it ended
+    ``ok``, or for ``drift`` ``ok`` or ``drift`` (``DRIFT_FRESH_STATUSES``). A full sync counts for the reconcile: it
+    does everything a reconcile does; nothing stands in for a drift check. ``thresholds`` overrides some of
     ``DEFAULT_THRESHOLDS``."""
     now = now or timezone.now()
     limits = {**DEFAULT_THRESHOLDS, **thresholds}
@@ -441,6 +446,7 @@ def freshness(*, now: datetime | None = None, thresholds: Mapping[str, int] = DE
     return {
         "full": _run_freshness(_last_ok(("full",)), now, limits["full"]),
         "reconcile": _run_freshness(_last_ok(("reconcile", "full")), now, limits["reconcile"]),
+        "drift": _run_freshness(_last_ok(("drift",), DRIFT_FRESH_STATUSES), now, limits["drift"]),
         "outbox": {"status": "ok" if age is None or age <= limits["outbox"] else "stale",
                    "oldest_enqueued_at": None if oldest is None else oldest["enqueued_at"],
                    "age_s": age, "threshold_s": limits["outbox"]},

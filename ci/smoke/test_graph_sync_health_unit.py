@@ -190,3 +190,9 @@ def test_only_the_classes_that_need_approval_are_counted():
     b = body(runs={"drift": drift_run("ok", drift=labels_recorded(renamed=55_307, protocol_filled=23,
                                                                     plural_missing=712_705))})
     assert health.label_changes_awaiting_approval(b) == []
+
+
+def test_a_drift_check_that_stopped_running_is_a_stale_job():
+    b = body(freshness={"drift": {"status": "stale", "age_s": 100_000.0, "threshold_s": 93_600}})
+    assert health.stale_jobs(b) == ["drift is stale: 27.8 h old against 26.0 h"]
+    assert health.problems(b) == health.stale_jobs(b)

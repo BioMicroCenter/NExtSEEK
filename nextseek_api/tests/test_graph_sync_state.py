@@ -1198,3 +1198,35 @@ def test_the_refusal_texts_are_the_ones_the_sync_writes():
     assert state.LOCK_REFUSAL_TEXT == sync_loop.LOCK_REFUSAL
     assert state.LOCK_REFUSAL_TEXT in sync_run._lock_problem(600)
     assert state.VERSION_REFUSAL_TEXT in inspect.getsource(sync_run.catalog_sync)
+
+
+# --- the drift check's own freshness (PLAN-ci-health Task 7d) --------------------------------------
+
+@pytest.mark.django_db
+def test_the_drift_check_has_a_freshness_of_its_own():
+    f = state.freshness(now=T0)
+    assert (f["drift"]["status"], f["drift"]["age_s"], f["drift"]["threshold_s"]) == ("never", None, 26 * 3600)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status, hours_ago, expected", [("ok", 27, "stale"), ("ok", 25, "ok"), ("drift", 1, "ok")])
+def test_a_drift_run_that_compared_the_graph_is_a_fresh_check(status, hours_ago, expected):
+    """A run that found drift did its job: it reports and does not repair (schedule._SATISFIED_BY, loop)."""
+    state.start_run("drift", trigger="loop", now=at(hours=-hours_ago)).finish(status, now=at(hours=-hours_ago,
+                                                                                               minutes=20))
+    f = state.freshness(now=T0)
+    assert (f["drift"]["status"], f["drift"]["satisfied_by"], f["drift"]["age_s"]) == (
+        expected, "drift", hours_ago * 3600)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", ["failed", "refused", "abandoned"])
+def test_a_drift_run_that_did_not_compare_the_graph_is_not_a_fresh_check(status):
+    state.start_run("drift", trigger="loop", now=at(hours=-1)).finish(status, now=at(minutes=-50))
+    assert state.freshness(now=T0)["drift"]["status"] == "never"
+
+
+@pytest.mark.django_db
+def test_a_full_sync_does_not_stand_in_for_a_drift_check():
+    state.start_run("full", trigger="loop", now=at(hours=-1)).finish("ok", now=at(minutes=-50))
+    assert state.freshness(now=T0)["drift"]["status"] == "never"

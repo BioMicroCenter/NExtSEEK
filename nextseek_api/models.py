@@ -3029,10 +3029,13 @@ class GraphSyncOutboxFreshness(BaseModel):
 
 
 class GraphSyncFreshness(BaseModel):
-    """Freshness per job: the weekly full sync, the nightly reconcile and the outbox."""
+    """Freshness per job: the weekly full sync, the nightly reconcile, the nightly drift check and the outbox."""
 
     full: GraphSyncJobFreshness
     reconcile: GraphSyncJobFreshness
+    drift: GraphSyncJobFreshness = Field(
+        ..., description="The nightly drift check: its newest run that compared the graph, ending ok or drift"
+    )
     outbox: GraphSyncOutboxFreshness
 
     model_config = ConfigDict(extra='forbid', validate_default=True)

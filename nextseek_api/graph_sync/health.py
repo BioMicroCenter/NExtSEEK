@@ -16,7 +16,7 @@ from __future__ import annotations
 
 NEW_PARTS = ("failing", "failed_runs")
 DRIFT_NAMES_SHOWN = 6
-FRESHNESS_JOBS = ("full", "reconcile", "outbox")
+FRESHNESS_JOBS = ("full", "reconcile", "drift", "outbox")
 # The DERIVED_FROM label classes only the operator's approval writes (rule R14; labels.CHANGED, labels.CLEARED).
 LABEL_CLASSES_AWAITING_APPROVAL = ("changed", "cleared")
 _HOURS_FROM_S = 2 * 3600          # a duration this long or longer reads in hours
@@ -50,7 +50,8 @@ def missing_parts(body: dict) -> list[str]:
 
 
 def stale_jobs(body: dict) -> list[str]:
-    """One line per job the status reports stale: a sync that stopped, or a drain that left a row waiting an hour."""
+    """One line per job the status reports stale: a sync or a drift check that stopped, or a drain that left a row
+    waiting an hour."""
     freshness = body.get("freshness") or {}
     lines = []
     for job in FRESHNESS_JOBS:

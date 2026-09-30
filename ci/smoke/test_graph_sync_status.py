@@ -120,7 +120,8 @@ def test_no_job_is_stale(status_body):
     different: the run happened once and has not happened since, so the graph is drifting away from MySQL.
     """
     freshness = status_body["freshness"]
-    behind = {job: freshness[job] for job in ("full", "reconcile", "outbox") if freshness[job]["status"] == "stale"}
+    behind = {job: freshness[job] for job in health.FRESHNESS_JOBS
+              if (freshness.get(job) or {}).get("status") == "stale"}
     assert not behind, (
         "the graph sync is behind: "
         + "; ".join(f"{job} is {part['age_s']} s old against a {part['threshold_s']} s threshold"

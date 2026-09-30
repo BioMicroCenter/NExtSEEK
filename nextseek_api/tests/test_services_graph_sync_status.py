@@ -283,3 +283,12 @@ def test_the_path_and_the_response_model_are_in_the_openapi_schema():
         assert name in schema["components"]["schemas"], name
     examples = operation["responses"]["200"]["content"]["application/json"]["examples"]
     assert len(examples) >= 2
+
+
+@pytest.mark.django_db
+def test_the_freshness_part_carries_the_drift_check():
+    state.start_run("drift", trigger="loop", now=at(hours=-27)).finish("drift", now=at(hours=-26))
+
+    fresh = graph_sync_status.build_status(now=T0)["freshness"]["drift"]
+
+    assert (fresh["status"], fresh["satisfied_by"], fresh["threshold_s"]) == ("stale", "drift", 26 * 3600)

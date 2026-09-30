@@ -7,8 +7,9 @@ says so, which is the condition an operator most often needs it for.
 Six parts, all from ``graph_sync/state.py``:
 
 * ``runs``: the latest run of each kind, whatever its status (``state.last_runs``);
-* ``freshness``: whether the weekly full sync, the nightly reconcile and the outbox are within their thresholds
-  (``state.freshness``), each reported as ``ok``, ``stale`` or, before the first run, ``never``;
+* ``freshness``: whether the weekly full sync, the nightly reconcile, the nightly drift check and the outbox are
+  within their thresholds (``state.freshness``), each reported as ``ok``, ``stale`` or, before the first run,
+  ``never``;
 * ``outbox``: the open rows by kind, and the oldest one still waiting (``state.outbox_summary``);
 * ``drift``: the result the latest drift run recorded, read from that run's own row rather than by a fresh check.
 * ``failing``: the outbox rows that have failed since they last succeeded and that no worker is retrying, oldest
@@ -151,6 +152,14 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
                             "age_s": 1800.0,
                             "threshold_s": 93_600,
                         },
+                        "drift": {
+                            "status": "ok",
+                            "satisfied_by": "drift",
+                            "last_ok_started_at": "2026-09-14T02:30:00+00:00",
+                            "last_ok_finished_at": "2026-09-14T02:52:40+00:00",
+                            "age_s": 86_400.0,
+                            "threshold_s": 93_600,
+                        },
                         "outbox": {
                             "status": "ok",
                             "oldest_enqueued_at": "2026-09-15T02:29:31+00:00",
@@ -210,6 +219,14 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
                             "last_ok_started_at": "2026-09-29T02:00:00+00:00",
                             "last_ok_finished_at": "2026-09-29T02:01:00+00:00",
                             "age_s": 61_200.0,
+                            "threshold_s": 93_600,
+                        },
+                        "drift": {
+                            "status": "ok",
+                            "satisfied_by": "drift",
+                            "last_ok_started_at": "2026-09-29T02:30:00+00:00",
+                            "last_ok_finished_at": "2026-09-29T02:52:00+00:00",
+                            "age_s": 59_400.0,
                             "threshold_s": 93_600,
                         },
                         "outbox": {

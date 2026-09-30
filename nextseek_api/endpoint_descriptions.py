@@ -1392,7 +1392,7 @@ GRAPH_SYNC_STATUS_DESC = (
     "caller wants sample records, which is a sample endpoint.\n\n"
     "**ACCEPTS:** No parameters.\n\n"
     "**RETURNS:** `200` with `generated_at`, `schema_version` (the version this instance's writer produces), `runs` "
-    "(the latest run of each kind, keyed by kind), `freshness` (`full`, `reconcile` and `outbox`, each `ok`, "
+    "(the latest run of each kind, keyed by kind), `freshness` (`full`, `reconcile`, `drift` and `outbox`, each `ok`, "
     "`stale`, or `never` before a first successful run), `outbox` (open rows counted by kind as `pending`, `dead` "
     "and `claimed`, plus the oldest row still waiting and its age), `drift` (what the latest drift run "
     "recorded), `failing` (up to 20 outbox rows that have failed and are not being retried right now, oldest "

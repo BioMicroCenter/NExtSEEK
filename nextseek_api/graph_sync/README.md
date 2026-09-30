@@ -93,7 +93,7 @@ it with "Server has gone away". Before this, the loop never recovered by itself:
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
 | `reconcile` | 02:00 daily | 26 hours |
-| `drift` | 02:30 daily | reported, not aged |
+| `drift` | 02:30 daily | 26 hours (a run that ended `ok` or `drift`) |
 | `full` | Sunday 03:00 | 8 days |
 | the outbox | continuously | the oldest pending row: 1 hour |
 | a failing outbox row, a failed full, reconcile, catalog or drift run | continuously | back-off plus 30 minutes from the first failure: 1 h 30 min, 6 h 30 min for a full sync |
