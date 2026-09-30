@@ -181,7 +181,8 @@ def test_a_reset_that_cannot_finish_stops_the_container_start(tmp_path):
     empty.mkdir()
     res = _start(tmp_path, "must-not-exist", ENTRYPOINT_BAKED_HOME=str(empty))
     assert res.returncode != 0
-    assert "refusing to start" in res.stderr
+    assert "could not rebuild ~/.claude from the image; refusing to start" in res.stderr
+    assert "differ from the image" not in res.stderr, "the reset refuses before the start check runs"
     assert not (tmp_path / "must-not-exist").exists()
 
 
