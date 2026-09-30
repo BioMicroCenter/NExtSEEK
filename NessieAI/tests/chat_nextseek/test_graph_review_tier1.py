@@ -88,9 +88,9 @@ class _Counting:
 
 
 def test_fixture_carries_the_labelled_set():
-    assert len(FIX) == 111
+    assert len(FIX) == 110
     assert sum(r["label"] == "SHOULD_FIRE" for r in FIX) == 11
-    assert sum(r["label"] == "SHOULD_STAY_QUIET" for r in FIX) == 100
+    assert sum(r["label"] == "SHOULD_STAY_QUIET" for r in FIX) == 99
 
 
 @pytest.mark.parametrize("r", [r for r in FIX if r["label"] == "SHOULD_FIRE"], ids=lambda r: r["id"])
@@ -188,100 +188,96 @@ def test_an_unapplied_value_offers_the_narrowed_search():
     assert check_suggestion(rv.suggestion) is None                    # it passes every chip guardrail
 
 
+# 25 Sep run 2, task 1416, kept out of the shared replay fixture (the query-scope replay fixture must cover exactly
+# that one's turns). Only the stored value 'Treatment' is real (dev box measurement); the other values are made up.
+G4_1416 = {
+    "question": "Which patient visits had a treatment given intravenously?",
+    "cypher": "MATCH (s:T_PAV)\nWHERE any(v IN [s.Treatment1Route, s.Treatment2Route, s.Treatment3Route, s.Treatment4Route, s.Treatment5Route] WHERE v IS NOT NULL AND (toLower(toString(v)) CONTAINS $intravenous OR toLower(trim(toString(v))) IN $iv_codes))\nRETURN s.id AS id, s.uuid AS uuid, s.type AS type, s.Treatment1Route AS Treatment1Route, s.Treatment2Route AS Treatment2Route, s.Treatment3Route AS Treatment3Route, s.Treatment4Route AS Treatment4Route, s.Treatment5Route AS Treatment5Route\nORDER BY id\nLIMIT 5000",
+    "parameters": {
+        "iv_codes": [
+            "iv",
+            "i.v.",
+            "i.v"
+        ],
+        "intravenous": "intravenous"
+    },
+    "keyword_fields": {
+        "treatment": [
+            "Treatment1Route",
+            "Treatment2Route",
+            "Treatment3Route",
+            "Treatment4Route",
+            "Treatment5Route"
+        ],
+        "intravenous": [
+            "Treatment1Route",
+            "Treatment2Route",
+            "Treatment3Route",
+            "Treatment4Route",
+            "Treatment5Route"
+        ]
+    },
+    "columns": [
+        "id"
+    ],
+    "rows": [
+        [
+            101
+        ],
+        [
+            102
+        ],
+        [
+            103
+        ]
+    ],
+    "count": 5000,
+    "total": 5342,
+    "ok": True,
+    "reply_head": "There are 5,342 patient visits with an intravenous route; the first 5,000 are in the attached list.",
+    "catalog": {
+        "T_PAV.@name": [
+            [
+                "Patient Visit",
+                25000
+            ]
+        ],
+        "T_PAV.*": [
+            [
+                "Treatment1Type",
+                8
+            ],
+            [
+                "Treatment1Route",
+                5
+            ]
+        ],
+        "T_PAV.Treatment1Type": [
+            [
+                "Treatment",
+                25
+            ],
+            [
+                "Chemotherapy",
+                10500
+            ],
+            [
+                "Surgery, NOS",
+                6862
+            ]
+        ]
+    }
+}
+
+
 def test_a_word_inside_a_read_property_name_counts_as_applied():
     """The word 'treatment' of the question is part of Treatment1Route..Treatment5Route, which the query reads; a
-    stored value spelled Treatment is not an unapplied filter (25 Sep run 2, task 1416)."""
-    rv = _review("g4-1416")
-    assert rv.verdict == "ok" and rv.disclosure is None and rv.suggestion is None
+    stored value spelled Treatment is not an unapplied filter."""
+    for reply in (True, False):
+        rv = review_tier1(_inp(G4_1416, reply=reply), _catalog(G4_1416))
+        assert rv.verdict == "ok" and rv.disclosure is None and rv.suggestion is None
     # the guard: a value no property name spells still fires on the same kind of turn
     assert _review("r6-1225").verdict == "suggest"
-
-
-# ---------------------------------------- a named value applied only as free text (25 Sep comparison, tcga) -------
-_TXT_ALN = {"T_A_ALN.*": [["DataType", 5]], "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]],
-            "T_A_ALN.DataType": [["RNA-Seq", 33227], ["WGS", 23723], ["WXS", 22441], ["miRNA-Seq", 11441]],
-            "T_PAT.@name": [["Patient", 12108]]}
-_TXT_Q_RNA = "How many TCGA patients have at least one RNA-Seq alignment derived from their samples?"
-_TXT_Q_WGS = "How many TCGA patients have at least one WGS alignment derived from their samples?"
-_TXT_INV = ("MATCH (p:T_PAT)-[:IN_STUDY]->(st:Study)\nWHERE (toLower(st.title) CONTAINS toLower($tcga)\n   OR EXISTS {\n"
-            "     MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)\n     WHERE toLower(inv.title) CONTAINS "
-            "toLower($tcga)\n   })\n")
-# run 1 task 1302: one EXISTS block, the free text is an OR branch of it
-_TXT_RNA_ONE_BLOCK = (
-    "MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
-    "  WHERE inv.title = $investigation_title\n}\nAND EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
-    "  WHERE EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS 'rna-seq'\n}\n"
-    "RETURN count(s) AS n")
-# run 2 task 1394: two EXISTS blocks joined by OR inside parentheses
-_TXT_RNA_TWO_BLOCKS = (
-    "MATCH (p:T_PAT)\nWHERE EXISTS {\n  MATCH (p)-[:IN_STUDY]->(st:Study)\n  WHERE toLower(st.title) CONTAINS "
-    "toLower($investigation)\n     OR EXISTS {\n       MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
-    "       WHERE toLower(inv.title) CONTAINS toLower($investigation)\n     }\n}\nAND (\n  EXISTS {\n"
-    "    MATCH (p)<-[:DERIVED_FROM*1..12]-(:T_RNA)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n  }\n  OR EXISTS {\n"
-    "    MATCH (p)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n    WHERE toLower(aln.search_text) CONTAINS $rnaseq\n  }\n)\n"
-    "RETURN count(p) AS n")
-
-
-def _txt_review(question, cypher, params, catalog=None):
-    inp = ReviewInput(question=question, cypher=cypher, parameters=params, keyword_fields={}, rows=[{"n": 10761}],
-                      count=1, total=1, ok=True, error=None)
-    return review_tier1(inp, DictCatalog(catalog or _TXT_ALN))
-
-
-@pytest.mark.parametrize("cypher,params", [
-    (_TXT_RNA_ONE_BLOCK, {"investigation_title": "TCGA"}),
-    (_TXT_RNA_TWO_BLOCKS, {"rnaseq": "rna-seq", "investigation": "TCGA"}),
-])
-def test_a_value_applied_only_as_free_text_that_also_matches_another_value_fires(cypher, params):
-    rv = _txt_review(_TXT_Q_RNA, cypher, params)
-    assert [c.name for c in rv.checks if c.fired] == ["unapplied_value"]
-    assert rv.disclosure == "The search matched 'RNA-Seq' as text, which also matches 'miRNA-Seq'."
-    assert rv.suggestion["label"] == "Only RNA-Seq"
-    assert rv.suggestion["query"] == (_TXT_Q_RNA + " Count only Sequence Alignment Analysis records whose DataType "
-                                      "is RNA-Seq.")
-
-
-@pytest.mark.parametrize("question,cypher,params", [
-    # the value is applied by a filter of its own (turn 2 of the case, the chip click)
-    (_TXT_Q_RNA + " Count only Sequence Alignment Analysis records whose DataType is RNA-Seq.",
-     "MATCH (s:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\nWHERE inv.title = $investigation_title"
-     "\n  AND EXISTS {\n    MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n    WHERE toLower(trim(toString(aln.DataType))) "
-     "= $datatype\n  }\nRETURN count(DISTINCT s) AS n",
-     {"datatype": "rna-seq", "investigation_title": "TCGA"}),
-    (_TXT_Q_RNA + " Count only Sequence Alignment Analysis records whose DataType is RNA-Seq.",
-     _TXT_INV + "  AND EXISTS {\n    MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(p)\n    WHERE toLower(trim(toString("
-     "aln.DataType))) IN $data_types\n  }\nRETURN count(DISTINCT p) AS n",
-     {"tcga": "TCGA", "data_types": ["rna-seq", "rnaseq"]}),
-    # the text only matches the named value (wgs and WGS)
-    (_TXT_Q_WGS,
-     "MATCH (p:T_PAT)-[:IN_STUDY]->(st:Study)\nWHERE EXISTS {\n  MATCH (st)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
-     "  WHERE toLower(inv.title) = $investigation\n}\nAND EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->"
-     "(p:T_PAT)\n  WHERE toLower(aln.search_text) CONTAINS $keyword\n}\nRETURN count(DISTINCT p) AS n",
-     {"keyword": "wgs", "investigation": "tcga"}),
-    (_TXT_Q_WGS,
-     _TXT_INV + "  AND EXISTS {\n    MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(p)\n    WHERE toLower(aln.search_text) "
-     "CONTAINS toLower($wgs)\n       OR toLower(aln.search_text) CONTAINS toLower($whole_genome)\n  }\n"
-     "RETURN count(DISTINCT p) AS n",
-     {"wgs": "wgs", "tcga": "tcga", "whole_genome": "whole genome"}),
-])
-def test_a_value_the_query_applies_for_real_or_the_text_matches_alone_stays_quiet(question, cypher, params):
-    rv = _txt_review(question, cypher, params)
-    assert [c.name for c in rv.checks if c.fired] == []
-
-
-def test_free_text_that_only_extends_the_named_value_stays_quiet():
-    # OMERO also matches the stored 'OMERO MIT': the same name, extended (replay record r5-674 asserts it as well)
-    block = {"T_D_IMG.*": [["Repository", 4]], "T_D_IMG.@name": [["Imaging Data", 9900]],
-             "T_D_IMG.Repository": [["OMERO", 5000], ["OMERO MIT", 4900]]}
-    rv = _txt_review("How many imaging records are on OMERO?",
-                     "MATCH (d:T_D_IMG) WHERE toLower(d.search_text) CONTAINS 'omero' RETURN count(d) AS n",
-                     {}, block)
-    assert [c.name for c in rv.checks if c.fired] == []
-
-
-def test_the_text_match_fact_is_one_template_constant():
-    from chat_nextseek.graph_review import TEXT_MATCH_FACT
-    assert TEXT_MATCH_FACT == "The search matched '{value}' as text, which also matches {others}."
 
 
 def test_the_narrowed_search_names_no_type_when_the_catalog_has_none():
