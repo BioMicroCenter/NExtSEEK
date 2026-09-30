@@ -293,3 +293,7 @@ ci.env
 
 # CI write-lane run file (startup ci), never committed
 startup/.ci-write-run.xml
+
+# The checkout's log directory (LOG_DIR=./logs in docker-compose.yml): graph_sync's run directories, journals and
+# archives are written there.
+/logs/
