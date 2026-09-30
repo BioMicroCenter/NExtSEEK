@@ -90,7 +90,9 @@ def test_entrypoint_registers_hook_in_user_settings():
     """Headless `claude --print` does not load local-plugin hooks, so the entrypoint
     must register the UserPromptSubmit hook in ~/.claude/settings.json at startup."""
     entrypoint = _entrypoint_text()
-    assert "UserPromptSubmit" in entrypoint
+    hook_program = (paths.CC_RUNTIME_DIR / "container" / "claude-home" / "entity-hook.jq").read_text(encoding="utf-8")
+    assert "UserPromptSubmit" in hook_program
+    assert "entity-hook.jq" in entrypoint
     assert "entity_preamble.sh" in entrypoint
     assert "settings.json" in entrypoint
 

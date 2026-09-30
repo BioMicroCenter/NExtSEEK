@@ -14,6 +14,7 @@ Each is enforced from outside this folder. Breaking one is a security regression
 - **The fd-shuffle in `cc-runtime/container/runner_ns.py` stays its first executable statement.**
 - **`cc-runtime/container/CLAUDE.md` stays committed.** It is a required Dockerfile `COPY` input. Only its marked blocks (`PLAN005-GEN`, `NEXTSEEK-DOCS`) are generated; everything else is hand-written.
 - **`cc-runtime/` holds no BAML sources.** Its Dockerfile COPYs the Compose named context `dmac_assistant_baml` (the canonical `NessieAI/dmac_assistant/baml_src/`) to `/app/baml_src/`; a copy added here is refused by `NessieAI/tests/router/test_baml_single_source.py`. A BAML edit therefore needs a cc-agent rebuild as well as the app rebuild.
+- **The agent's `~/.claude` is rebuilt at every container start.** `cc-runtime/container/entrypoint.sh` deletes everything there except the memory `CLAUDE.md` and the `--resume` store (`projects/<cwd>/<uuid>.jsonl` and `<uuid>/`), installs `cc-runtime/container/claude-home/` and the plugin link, and runs `setup.sh`, which replaces the allow list; a start that cannot rebuild it refuses to run, and so does a start whose installed allow list or hooks differ from the image's baked copy (`/app/claude-home/expected-settings.json`, built by the Dockerfile from the same `setup.sh` and `entity-hook.jq`; a correctness check, since a missing allow list only adds permission prompts). Pinned by `NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py` and the opt-in `NessieAI/tests/cc/test_cc_resume_after_reset.py`.
 
 ## Landmines
 
@@ -21,7 +22,7 @@ Each is enforced from outside this folder. Breaking one is a security regression
 - **A bare `pytest` inside `cc-runtime/` exits 1 even when every test passes**: the declared coverage targets name trees this port lacks. Pass `-o addopts=""`.
 - **`docker build` on `cc-runtime/` alone fails.** The named contexts `chat_nextseek` and `dmac_assistant_baml` exist only through compose; a manual build must pass both as `--build-context`, exactly as the generated `additional_contexts` block in `docker-compose.yml` declares them.
 - **A cc-agent build bakes the chat_nextseek context files as they are on disk.** The config rewrites three of them in place when it runs against a checkout (`NessieAI/chat_nextseek/CLAUDE.md`); check `git status` there before a cc-agent rebuild.
-- **The plugin `hooks/hooks.json` is inert in the image.** The container entrypoint re-registers the hook; edit that block.
+- **The plugin `hooks/hooks.json` is inert in the image.** The container entrypoint re-registers the hook from `cc-runtime/container/claude-home/entity-hook.jq`; edit that file.
 - **`cc-runtime/container/runner_ns.py` ships but nothing calls it.** Do not read it as how a turn runs.
 - **`cc-runtime/build_context/docs/nextseek-api/` ships empty on purpose**: a placeholder keeps its `COPY` working.
 - **`ns-sidecar/app/contract.py` and the plugin's `cc-runtime/build_context/plugins/nextseek/bin/_ws_contract.py` are one contract in two copies.** `NessieAI/tests/cc/test_ws_contract_parity.py` fails when they stop being byte-identical; change both, then re-pin the sidecar copy's digest.

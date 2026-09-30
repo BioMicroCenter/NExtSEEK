@@ -72,6 +72,17 @@ COPY docs/nextseek/ /app/docs/nextseek/
 COPY container/CLAUDE.md /app/CLAUDE.md
 COPY container/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
+# The files the entrypoint installs into ~/.claude at every start (it deletes what a turn left there), and
+# the baked copy of the allow list and hooks every start must end with: the baked settings.json, then
+# setup.sh, then the entity hook, exactly as the entrypoint installs them. The entrypoint refuses to start
+# when what it installed differs.
+COPY container/claude-home/ /app/claude-home/
+RUN cp /app/claude-home/settings.json /app/claude-home/expected-settings.json \
+ && SETTINGS_FILE=/app/claude-home/expected-settings.json sh /app/plugins/nextseek/scripts/setup.sh \
+ && jq --arg cmd /app/plugins/nextseek/hooks/entity_preamble.sh -f /app/claude-home/entity-hook.jq \
+      /app/claude-home/expected-settings.json > /tmp/expected-settings.json \
+ && mv /tmp/expected-settings.json /app/claude-home/expected-settings.json \
+ && chmod -R a+rX /app/claude-home
 COPY container/runner_ns.py /opt/dmac/runner_ns.py
 RUN chmod 0755 /opt/dmac/runner_ns.py
 # runner_ns.py is a thin client of the sidecar/viewset; its sibling helper

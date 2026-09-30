@@ -1,5 +1,6 @@
 #!/bin/sh
-# Layer 1 — install permission allowlist into ~/.claude/settings.json (idempotent).
+# Layer 1 — install the permission allowlist into ~/.claude/settings.json (idempotent; the list is replaced,
+# never merged, so an entry a turn added does not survive the next start).
 # Pre-allows GET-only nextseek-* shims and structurally-safe shims (including the
 # read-only nextseek-batch-upload build/validate shims, which each hard-refuse
 # --start/--upload/--confirmed-write internally and never write to NExtSEEK).
@@ -36,8 +37,7 @@ ALLOW='[
 
 jq --argjson new "$ALLOW" '
   .permissions //= {} |
-  .permissions.allow //= [] |
-  .permissions.allow = (.permissions.allow + $new | unique)
+  .permissions.allow = $new
 ' "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
 
 echo "nextseek allowlist installed at $SETTINGS"
