@@ -674,6 +674,22 @@ def test_the_free_text_detail_builds_the_click_statement_inside_the_one_exists()
     assert statement.count("{") == statement.count("}")
 
 
+def test_a_free_text_match_the_query_itself_narrows_with_not_contains_stays_quiet():
+    """REVIEW-NS N4: the text match also hits miRNA-Seq, but the query leaves 'mirna' out on the same variable."""
+    cy = ("MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
+          "  WHERE toLower(aln.search_text) CONTAINS toLower($rnaseq)\n"
+          "  AND NOT toLower(aln.search_text) CONTAINS 'mirna'\n}\nRETURN count(s) AS n")
+    inp = _inp(cy, {"rnaseq": "RNA-Seq"}, rows=[{"n": 10517}],
+               question="How many TCGA patients have at least one RNA-Seq alignment derived from their samples?")
+    review = review_tier1(inp, DictCatalog(FREE_TEXT_CATALOG))
+    assert review.verdict == "ok" and review.suggestion is None and review.disclosure is None
+    # the guard: an exclusion of another word still leaves the miRNA-Seq mix disclosed
+    other = cy.replace("'mirna'", "'wgs'")
+    review = review_tier1(_inp(other, {"rnaseq": "RNA-Seq"}, rows=[{"n": 10761}], question=inp.question),
+                          DictCatalog(FREE_TEXT_CATALOG))
+    assert [c.detail for c in review.checks if c.fired] == [FREE_TEXT_DETAIL]
+
+
 @pytest.mark.parametrize("detail", [FREE_TEXT_DETAIL, ALN_DETAIL])
 def test_a_conjunct_with_two_exists_blocks_gets_no_statement(detail):
     """``EXISTS {..} OR EXISTS {..}`` is not one block: the old reader swallowed it and edited only one branch."""

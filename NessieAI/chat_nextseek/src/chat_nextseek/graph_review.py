@@ -792,7 +792,8 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     named = blob | _name_words(t.cy)
     strict_named = strict | _name_words(cy_strict)
     for var, lab in t.vl.items():
-        terms = [term for v, _tok, term in free if v == var]
+        excl = [x for v2, _a, x in t.neg if v2 == var]      # what the query itself leaves out on this variable
+        terms = [term for v, _tok, term in free if v == var and term not in excl]
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))
         attrs = [a for a in (t.catalog.attributes(lab) or []) if a.lower() not in blob]
         if by_spelling and attrs:
@@ -820,7 +821,8 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                 # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
                 # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended
                 others = [str(w) for w, _n in stored
-                          if any(term in str(w).lower() for term in hit) and not _tokens(vn) <= _tokens(str(w))]
+                          if any(term in str(w).lower() for term in hit) and not _tokens(vn) <= _tokens(str(w))
+                          and not any(x in str(w).lower() for x in excl)]
                 if others:                  # applied only as free text, and that text matches another stored value too
                     fact = TEXT_MATCH_FACT.format(value=v, others=_quoted(others[:3]))
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher applies it only as free text", fact,
