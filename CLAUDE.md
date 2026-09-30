@@ -73,6 +73,7 @@ Personal and external tools (session handoff, the parallel fix lane, the dmac-cu
 | `docker/` | nginx config, app-container scripts, env docs; AI images are in `NessieAI/docker/` | `docker/README.md` | `deployment` |
 | `docs/` | cross-cutting docs only; folder docs live beside their code | `docs/INDEX.md` | by subject |
 | `nextseek_api/` | the Django app behind every `/nextseek_api/` URL, and the API half of the assistant | `nextseek_api/README.md` | `nextseek_api` |
+| `nextseek_graph/` | the graph contract: schema versions, labels, relationships, properties, constraint and index names, shared by the writer and every reader; standard library only | `nextseek_graph/README.md` | `graph-neo4j` |
 | `scripts/` | validators, the macOS/worktree test runner, one-off programs | `scripts/README.md`, `scripts/CLAUDE.md` | by subject |
 | `seek/` | Django app over SEEK's tables: table layer, search, the NExtSEEK pages | `seek/README.md` | `ui`, `sample-search` |
 | `startup/` | the `./startup.sh` Typer CLI (its own uv project) and the seed data | `startup/README.md` | `installer` |

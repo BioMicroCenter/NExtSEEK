@@ -1,8 +1,9 @@
 """The DERIVED_FROM label rule: batch upload's, moved into graph_sync and fed from MySQL (sync design 7.3).
 
-Pure: no database, no Neo4j. The rule is `nextseek_api/batch_upload/neo4j_sync.py::build_derived_from_payloads_from_db`
-Steps 1 to 3, and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function
-returns for the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py`):
+Pure: no database, no Neo4j. The rule is batch upload's former `build_derived_from_payloads_from_db` Steps 1 to 3,
+and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function returned for
+the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py` against its frozen outputs,
+`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`):
 
 - **Assays.** The SEEK assays both endpoints share in `assay_assets`, each resolved through the map `sources` reads
   (SEEK assay id to `(internal assay id or None, title)`, the smallest internal id on 1:N). An assay with no internal
@@ -27,12 +28,13 @@ import json
 from collections.abc import Iterable, Mapping
 
 from nextseek_api.batch_upload.helpers import parse_protocol_value
+from nextseek_graph import schema
 
-SINGULAR_ASSAY_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title")
-PLURAL_ASSAY_KEYS = ("internal_assay_ids", "internal_assay_titles")
-ASSAY_KEYS = SINGULAR_ASSAY_KEYS + PLURAL_ASSAY_KEYS
-PROTOCOL_KEYS = ("protocol_id", "protocol_title")
-LABEL_KEYS = ASSAY_KEYS + PROTOCOL_KEYS
+SINGULAR_ASSAY_KEYS = schema.DERIVED_FROM_SINGULAR_ASSAY_KEYS
+PLURAL_ASSAY_KEYS = schema.DERIVED_FROM_PLURAL_ASSAY_KEYS
+ASSAY_KEYS = schema.DERIVED_FROM_ASSAY_KEYS
+PROTOCOL_KEYS = schema.DERIVED_FROM_PROTOCOL_KEYS
+LABEL_KEYS = schema.DERIVED_FROM_LABEL_KEYS
 
 NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED = "new", "equal", "plural_missing", "changed", "cleared"
 CLASSES = (NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED)

@@ -13,8 +13,6 @@ import pytest
 
 from chat_nextseek import graph_context as gc
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_DOC = REPO_ROOT / "docs" / "neo4j-schema.md"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -460,71 +458,8 @@ def test_vocabulary_omits_empty_blocks():
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# The structure file against docs/neo4j-schema.md v1.1
+# The structure file (its names against the graph contract: nextseek_api/tests/test_graph_sync_contract.py)
 # ---------------------------------------------------------------------------------------------------------------
-
-def _doc_section(title_prefix):
-    text = SCHEMA_DOC.read_text(encoding="utf-8")
-    start = text.index(f"\n## {title_prefix}")
-    end = text.find("\n## ", start + 1)
-    return text[start:end if end != -1 else len(text)]
-
-
-def _doc_node_table(section):
-    """label -> backticked property names, from a section's Nodes table."""
-    table, in_nodes, props_col = {}, False, None
-    for line in section.splitlines():
-        if line.startswith("### "):
-            in_nodes = line.strip() == "### Nodes"
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if in_nodes and line.startswith("| Label"):
-            props_col = cells.index("Properties")
-            continue
-        if not in_nodes or props_col is None or not line.startswith("| `"):
-            continue
-        labels = re.findall(r"`([^`]+)`", cells[0])
-        props = set(re.findall(r"`([^`]+)`", cells[props_col]))
-        for label in labels:
-            for single in label.split(","):
-                table.setdefault(single.strip(), set()).update(props)
-    return table
-
-
-def _doc_labels_and_relationships():
-    v11 = _doc_section("v1.1")
-    labels = set(_doc_node_table(v11))
-    relationships = set(re.findall(r"\[:([A-Z_]+)", v11))
-    return labels, relationships
-
-
-def _structure_labels(text):
-    labels = set()
-    for chain in re.findall(r"\(\s*[A-Za-z_]*\s*((?::[A-Za-z_][A-Za-z0-9_<>]*)+)", text):
-        labels.update(part for part in chain.split(":") if part)
-    labels.update(re.findall(r"(?<![A-Za-z0-9_`'\"\[(]):([A-Za-z_][A-Za-z0-9_<>]*)", text))
-    return labels
-
-
-def test_structure_names_only_v11_labels():
-    doc_labels, _ = _doc_labels_and_relationships()
-    assert {"Sample", "T_<code>", "SampleType", "Attribute", "Study", "Project"} <= doc_labels  # the parse works
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    labels = _structure_labels(text)
-    assert {"Sample", "SampleType", "Attribute", "Study", "Investigation", "Project", "Person"} <= labels
-    unknown = {lab for lab in labels if lab not in doc_labels and not lab.startswith("T_")}
-    assert not unknown, unknown
-
-
-def test_structure_names_only_v11_relationships():
-    _, doc_relationships = _doc_labels_and_relationships()
-    assert "CHILD_OF" not in doc_relationships and "DERIVED_FROM" in doc_relationships
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    used = set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
-    assert used == doc_relationships, used ^ doc_relationships
-    shouted = {tok for tok in re.findall(r"\b[A-Z]+(?:_[A-Z]+)+\b", text) if not tok.startswith("T_")}
-    assert shouted - {"CHILD_OF"} <= doc_relationships
-
 
 def test_structure_mentions_child_of_only_as_absent():
     text = " ".join(gc.STRUCTURE_PATH.read_text(encoding="utf-8").split())
@@ -532,29 +467,6 @@ def test_structure_mentions_child_of_only_as_absent():
     mentions = [s for s in sentences if "CHILD_OF" in s]
     assert mentions, "the structure should say CHILD_OF does not exist"
     assert all("does not exist" in s for s in mentions), mentions
-
-
-def test_structure_node_properties_are_in_the_doc():
-    doc = _doc_node_table(_doc_section("v1.0"))
-    for label, props in _doc_node_table(_doc_section("v1.1")).items():
-        doc.setdefault(label, set()).update(props)
-    doc["Study"].add("seek_study_id")  # the v1.1 row names it in prose, next to "as v1.0"
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    for label, body in re.findall(r"\(:([A-Za-z]+) \{([^}]*)\}\)", " ".join(text.split())):
-        props = {p.split(":")[0].strip() for p in body.split(",") if p.strip()}
-        assert props <= doc[label], (label, props - doc[label])
-
-
-def test_structure_derived_from_properties_are_the_v12_labels():
-    # An edge several assays share names one in internal_assay_title and all in internal_assay_titles, so the
-    # plural has to be in the structure or the agent filters on the singular and misses the others.
-    labels = _doc_section("v1.2")
-    labels = labels[labels.index("### DERIVED_FROM labels"):labels.index("\nRules:")]
-    doc = {name for row in labels.splitlines() if row.startswith("| `") for name in re.findall(r"`([^`]+)`", row)}
-    text = " ".join(gc.STRUCTURE_PATH.read_text(encoding="utf-8").split())
-    (body,) = re.findall(r"\[:DERIVED_FROM \{([^}]*)\}\]", text)
-    props = {p.strip() for p in body.split(",")}
-    assert {"internal_assay_title", "internal_assay_titles", "protocol_title"} <= props <= doc, (props, doc)
 
 
 def test_structure_is_compact():

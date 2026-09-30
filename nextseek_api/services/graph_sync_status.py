@@ -44,6 +44,7 @@ from nextseek_api.endpoint_descriptions import GRAPH_SYNC_STATUS_DESC
 from nextseek_api.graph_sync import state, writer
 from nextseek_api.models import GraphSyncStatusResponse, JsonApiErrorResponse
 from nextseek_api.services.users import IsDjangoSuperuser
+from nextseek_graph import schema
 
 log = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
                 name="A synced instance with one sample waiting",
                 value={
                     "generated_at": "2026-09-15T02:30:00+00:00",
-                    "schema_version": "1.2",
+                    "schema_version": schema.SCHEMA_VERSION,
                     "runs": {
                         "full": {
                             "id": 412,
@@ -129,7 +130,7 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
                             "finished_at": "2026-09-13T03:41:22+00:00",
                             "watermark_from": None,
                             "watermark_to": "1308453",
-                            "counts": {"trigger": "loop", "schema_version": "1.2", "samples": 1084754},
+                            "counts": {"trigger": "loop", "schema_version": schema.SCHEMA_VERSION, "samples": 1084754},
                             "drift": None,
                         },
                     },

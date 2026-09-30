@@ -40,6 +40,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from .graph_contract import schema
 from .graph_scope import HIDDEN_SAMPLE_PROPERTIES, RESERVED_PREFIX, SCOPE_PARAM, GraphScope
 
 SCOPE_CLAUSE_TEMPLATE = "any({element} IN {var}.project_ids WHERE {element} IN ${param})"
@@ -57,15 +58,17 @@ REFUSAL_CODES = (
     "function_not_allowed",
 )
 
-# The node and relationship tables of spec section 5.4.
-SAMPLE_LABEL = "Sample"
-SAMPLE_TYPE_LABEL_PREFIX = "T_"
-PROJECT_LABEL = "Project"
-JOINED_LABELS = frozenset({"Study", "Investigation", "Person"})
-LINEAGE_RELATIONSHIP = "DERIVED_FROM"
-FIXED_RELATIONSHIPS = frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
+# The node and relationship tables of spec section 5.4. The names are the graph contract's; JOINED_LABELS and
+# FIXED_RELATIONSHIPS are this prover's policy, spelled with the contract's names and never derived from its groups,
+# so a label or relationship a later schema version adds joins neither until it is added here.
+SAMPLE_LABEL = schema.SAMPLE
+SAMPLE_TYPE_LABEL_PREFIX = schema.TYPE_LABEL_PREFIX
+PROJECT_LABEL = schema.PROJECT
+JOINED_LABELS = frozenset({schema.STUDY, schema.INVESTIGATION, schema.PERSON})
+LINEAGE_RELATIONSHIP = schema.DERIVED_FROM
+FIXED_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.IN_INVESTIGATION, schema.IN_PROJECT, schema.MEMBER_OF})
 FULLTEXT_PROCEDURE = "db.index.fulltext.queryNodes"
-FULLTEXT_INDEX = "sample_search_text"
+FULLTEXT_INDEX = schema.FULLTEXT_INDEX
 
 # Functions a statement may call (case-insensitive): none of them fetches or walks the graph, so every node or
 # relationship value in a row came from a pattern the prover scoped (spec section 5.4, "the invariant").

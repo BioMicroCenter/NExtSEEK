@@ -24,7 +24,6 @@ from sqlalchemy.pool import StaticPool
 
 from nextseek_api.batch_upload import insert as insert_mod
 from nextseek_api.batch_upload import orchestrator as orch
-from nextseek_api.batch_upload import neo4j_sync
 from nextseek_api.batch_upload.errors import ErrorCollector
 from nextseek_api.batch_upload.models import InsertableSample, RowOutcome
 from nextseek_api.graph_sync import hooks, state
@@ -472,9 +471,10 @@ def _deleted_names_used(path: Path) -> set:
 
 class TestTheV10WritersAreGone:
 
-    def test_none_of_them_is_defined_any_more(self):
-        present = [name for name in DELETED if hasattr(neo4j_sync, name)]
-        assert present == []
+    def test_the_module_is_gone(self):
+        import importlib.util
+
+        assert importlib.util.find_spec("nextseek_api.batch_upload.neo4j_sync") is None
 
     def test_no_module_imports_or_calls_one(self):
         """The graph writes are graph_sync's now, so nothing may reach for the v1.0 ones.

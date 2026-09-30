@@ -1727,51 +1727,6 @@ class ChatConfig:
         print("[CONFIG][SCHEMA] Validation OK for endpoint", endpoint)
         return True, None
 
-    # ======================================================
-    # Neo4j / Graph DB helpers
-    # ======================================================
-
-    def _connect_neo4j(self):
-        """
-        Return a connected neo4j Driver, or None when unconfigured or unavailable.
-        Caller is responsible for closing the driver after use.
-        """
-        try:
-            from neo4j import GraphDatabase  # type: ignore
-        except ImportError:
-            print("[CONFIG][GRAPHDB] neo4j driver not installed; run 'uv add neo4j'.")
-            return None
-
-        if not getattr(self, "NEO4J_PASSWORD", None):
-            print("[CONFIG][GRAPHDB] NEO4J_PASSWORD not set; skipping Neo4j connection.")
-            return None
-
-        try:
-            try:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                    notifications_min_severity="OFF",
-                )
-            except TypeError:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                )
-            driver.verify_connectivity()
-            print(f"[CONFIG][GRAPHDB] Connected to Neo4j at {self.NEO4J_URI}")
-            return driver
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to connect to Neo4j: {e!r}")
-            return None
-
-    def _close_neo4j_driver(self, driver) -> None:
-        """Close a Neo4j driver instance without surfacing cleanup errors."""
-        try:
-            driver.close()
-        except Exception:
-            pass
-
     def get_config_snapshot(self) -> dict[str, object]:
         """
         Return a sanitized snapshot of key configuration values for logging.

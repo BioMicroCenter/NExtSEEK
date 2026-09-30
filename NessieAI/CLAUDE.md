@@ -15,6 +15,7 @@ Test commands live only in `NessieAI/tests/README.md`.
   - `nextseek_api.models`, from `NessieAI/schema_rag/`
   - `nextseek_api.assistant.excel_export`, lazily and behind a guard, from `NessieAI/chat_nextseek/src/chat_nextseek/orchestrator.py`
   - `nextseek_api.conftest` (its fixtures), from `NessieAI/tests/nessie_tests/tests_container/`
+- `nextseek_graph` (the graph contract, `nextseek_graph/README.md`) is a shared root package, not the API side: engine modules and chat_nextseek may import it (chat_nextseek through `NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`), and it is not a back-edge.
 - No engine module imports `nextseek_api.services`: that would be the API calling itself through the engine. The ViewSets there call the engine (`NessieAI/router/policy.py`, `NessieAI/cc/turn.py`, `NessieAI/ns/{turn,artifacts,retry}.py`) and hand in the host seams (the session adapter, the event callback, the SEEK credentials). `policy.py` and `artifacts.py` have no back-edge at all.
 - Importing the router does not load `NessieAI/hibayes/`: `NessieAI/router/posterior_selector.py` imports the generation store only inside `get_active_snapshot` (guard: `NessieAI/tests/router/test_router_import_is_lazy.py`). `NessieAI/router/route_monitoring.py` still imports HiBayes at module scope; nothing on the router's import path imports it.
 - Three engine-to-harness imports are frozen, and no new one may be added:

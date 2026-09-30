@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -607,19 +608,20 @@ def test_resolved_assay_map_falls_back_everywhere_without_the_dmac_tables(fake_d
     assert dmac.executed == []
 
 
+# The junction rows batch upload's resolver was given, and what it returned for SEEK assays 10, 20 and 30, frozen before
+# that resolver was deleted (fixtures/graph_sync_batch_upload_parity.json, "resolved_internal_assays").
+RESOLVER_JUNCTION = [(200, 10, "IA 200"), (50, 10, "IA 50"), (60, 20, "IA 60")]
+RESOLVER_ASSAY_IDS = (10, 20, 30)
+
+
 def test_resolved_assay_map_equals_batch_upload_resolution(fake_db, monkeypatch):
-    """The same rows through batch upload's resolver give the same (internal id, title)."""
-    from unittest.mock import MagicMock
-
-    from nextseek_api.batch_upload.neo4j_sync import _resolve_internal_assays
-
-    junction = [(200, 10, "IA 200"), (50, 10, "IA 50"), (60, 20, "IA 60")]
+    """The same rows through batch upload's resolver gave the same (internal id, title)."""
     fake_db(seek_results=[[(10, "Seek Ten"), (20, "Seek Twenty"), (30, "Seek Thirty")]],
-            dmac_tables=["assays_internal_assays", "internal_assays"], dmac_results=[junction])
+            dmac_tables=["assays_internal_assays", "internal_assays"], dmac_results=[RESOLVER_JUNCTION])
     ours = sources.resolved_assay_map()
-    conn = MagicMock()
-    conn.execute.return_value.fetchall.return_value = junction
-    theirs = _resolve_internal_assays({10, 20, 30}, conn)
+    frozen = json.loads((Path(__file__).resolve().parent / "fixtures"
+                         / "graph_sync_batch_upload_parity.json").read_text(encoding="utf-8"))
+    theirs = {int(k): tuple(v) for k, v in frozen["resolved_internal_assays"].items()}
     assert {a: ours[a] for a in theirs} == theirs
     assert ours[30] == (None, "Seek Thirty")
 

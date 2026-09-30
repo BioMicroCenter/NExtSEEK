@@ -12,38 +12,40 @@ from __future__ import annotations
 import hashlib
 import re
 
+from nextseek_graph import schema
+
 # --- schema --------------------------------------------------------------------------------------
 
-CONSTRAINTS_V11 = [
-    "CREATE CONSTRAINT sample_id_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.id IS UNIQUE",
-    "CREATE CONSTRAINT sample_type_id_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.id IS UNIQUE",
-    "CREATE CONSTRAINT sample_type_title_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.title IS UNIQUE",
-    "CREATE CONSTRAINT sample_type_label_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.label IS UNIQUE",
-    "CREATE CONSTRAINT attribute_key_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.key IS UNIQUE",
-    "CREATE CONSTRAINT attribute_id_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.id IS UNIQUE",
-    "CREATE CONSTRAINT project_id_unique IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE",
-    "CREATE CONSTRAINT person_id_unique IF NOT EXISTS FOR (p:Person) REQUIRE p.id IS UNIQUE",
-    "CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (s:Study) REQUIRE s.id IS UNIQUE",
-    "CREATE CONSTRAINT investigation_id_unique IF NOT EXISTS FOR (i:Investigation) REQUIRE i.id IS UNIQUE",
-    "CREATE INDEX sample_uuid IF NOT EXISTS FOR (s:Sample) ON (s.uuid)",
-    "CREATE INDEX sample_type IF NOT EXISTS FOR (s:Sample) ON (s.type)",
-    "CREATE INDEX study_seek_study_id IF NOT EXISTS FOR (s:Study) ON (s.seek_study_id)",
-]
+# The schema DDL, rendered from the contract's 1.1 triples (nextseek_graph/schema.py), one template per shape. The
+# variable is the label's first letter, lowercased (SampleType's is t), so every statement reads as it always has.
+_UNIQUE_DDL = "CREATE CONSTRAINT {name} IF NOT EXISTS FOR ({var}:{label}) REQUIRE {var}.{prop} IS UNIQUE"
+_RANGE_DDL = "CREATE INDEX {name} IF NOT EXISTS FOR ({var}:{label}) ON ({var}.{prop})"
+_FULLTEXT_DDL = "CREATE FULLTEXT INDEX {name} IF NOT EXISTS FOR ({var}:{label}) ON EACH [{var}.{prop}]"
+
+
+def _ddl_var(label: str) -> str:
+    return "t" if label == schema.SAMPLE_TYPE else label[0].lower()
+
+
+def _ddl(template: str, name: str, label: str, prop: str) -> str:
+    return template.format(name=name, var=_ddl_var(label), label=label, prop=prop)
+
+
+CONSTRAINTS_V11 = ([_ddl(_UNIQUE_DDL, *triple) for triple in schema.UNIQUE_CONSTRAINTS_V11]
+                   + [_ddl(_RANGE_DDL, *triple) for triple in schema.RANGE_INDEXES_V11])
 # v1.0's batch-upload writer asks for a unique Sample.uuid; v1.1 stores MySQL's duplicate uuids, so a graph that
 # carries that constraint (the dev box's does) would refuse the sample pass.
 DROP_V10_CONSTRAINTS = [
     "DROP CONSTRAINT sample_uuid_unique IF EXISTS",
 ]
-FULLTEXT_INDEX = "sample_search_text"
-FULLTEXT = ("CREATE FULLTEXT INDEX sample_search_text IF NOT EXISTS "
-            "FOR (s:Sample) ON EACH [s.search_text]")
+FULLTEXT_INDEX = schema.FULLTEXT_INDEX
+FULLTEXT = _ddl(_FULLTEXT_DDL, schema.FULLTEXT_INDEX, *schema.FULLTEXT_INDEX_ON)
 INDEX_STATES = "SHOW INDEXES YIELD name, state, populationPercent RETURN name, state, populationPercent"
 GS_INDEX_NAMES = "SHOW INDEXES YIELD name WHERE name STARTS WITH 'gs_' RETURN name"
 DROP_INDEX = "DROP INDEX {name} IF EXISTS"
 BUDGET_INDEX = "CREATE INDEX {name} IF NOT EXISTS FOR (s:`{label}`) ON (s.{prop})"
 
-_LABEL_RE = re.compile(r"T_[A-Za-z0-9_]+")
-_INDEX_NAME_RE = re.compile(r"gs_[A-Za-z0-9_]+")
+_INDEX_NAME_RE = re.compile(re.escape(schema.BUDGET_INDEX_PREFIX) + r"[A-Za-z0-9_]+")
 
 
 def quote(name: str) -> str:
@@ -57,9 +59,9 @@ def budget_index(label: str, title: str) -> tuple[str, str]:
     The name is ``gs_<label>_<first 10 hex of sha1(title)>``. Raises ValueError for a label outside the ``T_`` rule,
     the one place text from data could otherwise reach a statement unquoted.
     """
-    if not _LABEL_RE.fullmatch(label or ""):
+    if not schema.is_type_label(label):
         raise ValueError(f"not a sample type label: {label!r}")
-    name = f"gs_{label}_{hashlib.sha1(title.encode('utf-8')).hexdigest()[:10]}"
+    name = f"{schema.BUDGET_INDEX_PREFIX}{label}_{hashlib.sha1(title.encode('utf-8')).hexdigest()[:10]}"
     return name, BUDGET_INDEX.format(name=name, label=label, prop=quote(title))
 
 
@@ -303,9 +305,8 @@ RETURN c.id AS child_id, p.id AS parent_id, c.uuid AS child_uuid, p.uuid AS pare
 
 # What graph_sync writes on a DERIVED_FROM edge, always all seven together (the sync design, section 7.3): the five
 # assay properties and the protocol pair. The three singular assay fields decide whether an edge is labelled.
-EDGE_SINGULAR_ASSAY_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title")
-EDGE_LABEL_KEYS = EDGE_SINGULAR_ASSAY_KEYS + ("internal_assay_ids", "internal_assay_titles", "protocol_id",
-                                              "protocol_title")
+EDGE_SINGULAR_ASSAY_KEYS = schema.DERIVED_FROM_SINGULAR_ASSAY_KEYS
+EDGE_LABEL_KEYS = schema.DERIVED_FROM_LABEL_KEYS
 _EDGE_LABEL_MAP = "e {" + ", ".join("." + key for key in EDGE_LABEL_KEYS) + "}"
 _EDGE_LABEL_LIST = "[" + ", ".join(f"'{key}'" for key in EDGE_LABEL_KEYS) + "]"
 

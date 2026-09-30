@@ -19,6 +19,7 @@ from neo4j import RoutingControl
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.graph_sync import catalog, labels, projection, run, sources, state, targeted, writer
 from nextseek_api.graph_sync import cypher as q
+from nextseek_graph import schema
 
 DB = "neo4j"
 KEYS = q.EDGE_LABEL_KEYS
@@ -82,7 +83,7 @@ class FakeGraph:
     what the Cypher does; any other statement fails the test. ``before_delete`` hooks run when an edge or node delete
     arrives, so a test can check what already happened by then."""
 
-    def __init__(self, version="1.2"):
+    def __init__(self, version=schema.SCHEMA_VERSION):
         self.meta = None if version is None else {"schema_version": version, "catalog_hash": "cat-0",
                                                   "label_maps_hash": None}
         self.types = {26: "TIS", 33: "D.SEQ"}
@@ -499,7 +500,7 @@ def test_refuses_a_graph_not_at_the_writer_version_and_writes_nothing(env, name,
     result = ENTRY_POINTS[name](env.graph)
     assert result["status"] == "not_at_version"
     assert result["schema_version"] == version
-    assert result["writer_version"] == writer.SCHEMA_VERSION == "1.2"
+    assert result["writer_version"] == writer.SCHEMA_VERSION == schema.SCHEMA_VERSION
     assert env.graph.writes() == []
     assert env.lock.timeouts == []
     assert "samples_by_ids" not in env.mysql.reads

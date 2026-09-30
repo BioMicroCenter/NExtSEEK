@@ -17,6 +17,7 @@ import pytest
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import drift, reconcile, run, sources, state, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
+from nextseek_graph import schema
 
 DB = "neo4j"
 T0 = datetime(2026, 9, 15, 2, 0, tzinfo=dt_timezone.utc)
@@ -26,7 +27,7 @@ CAT = run.Catalog(sample_types=[], attributes=[], type_titles={26: "TIS"}, value
 class FakeDriver:
     """Answers the GraphMeta read and fails on every other statement."""
 
-    def __init__(self, schema_version="1.2"):
+    def __init__(self, schema_version=schema.SCHEMA_VERSION):
         self.version = schema_version
         self.calls = []
 
@@ -141,7 +142,7 @@ def test_runs_every_step_in_the_designs_order(steps, tmp_path):
     assert _names(steps) == ["catalog", "small_tables", "relabel", "build_catalog", "detect",
                              "sync_samples", "retire", "samples_naming", "sync_samples"]
     assert result["mode"] == "reconcile"
-    assert result["schema_version"] == writer.SCHEMA_VERSION == "1.2"
+    assert result["schema_version"] == writer.SCHEMA_VERSION == schema.SCHEMA_VERSION
     assert set(result["steps"]) == {"catalog", "small_tables", "relabel", "samples", "retire", "new_parents"}
     assert result["timings_s"]["detection"] >= 0
 

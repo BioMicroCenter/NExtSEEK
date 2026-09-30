@@ -416,12 +416,16 @@ class TestListEdgeAttributes:
             MagicMock(),
             ["source", "target", "annotation", "internal_assay_id"],
         )
-        mock_sql.return_value = [
-            {
-                "internal_assay_id": 16,
-                "description": "Visit data",
-                "study_titles": "MIT_SRP",
-            }
+        mock_sql.side_effect = [
+            # the internal_assays read: id 16 holds this row's title, so the row keeps it
+            [{"id": 16, "internal_assay_title": "Patient Visit"}],
+            [
+                {
+                    "internal_assay_id": 16,
+                    "description": "Visit data",
+                    "study_titles": "MIT_SRP",
+                }
+            ],
         ]
         resp = vs.list_edge_attributes(_auth_request())
         assert resp.status_code == 200
@@ -557,6 +561,142 @@ class TestListEdgeAttributes:
         assert resp.status_code == 200
         inner = _get_inner(resp)
         assert inner["edges"][0]["internal_assay_id"] is None
+
+
+# ============================================================================
+# The type-pair statements read every assay an edge carries
+# ============================================================================
+
+
+def _driver_returning(mock_gd, records):
+    mock_driver = MagicMock()
+    mock_gd.driver.return_value.__enter__ = Mock(return_value=mock_driver)
+    mock_gd.driver.return_value.__exit__ = Mock(return_value=False)
+    mock_driver.execute_query.return_value = (records, MagicMock(), [])
+    return mock_driver
+
+
+def _attr(source, target, annotation, internal_assay_id):
+    return {"source": source, "target": target, "annotation": annotation, "internal_assay_id": internal_assay_id}
+
+
+class TestEdgeStatements:
+    @pytest.mark.parametrize("name", ["_EDGES_CYPHER", "_EDGE_ATTRIBUTES_CYPHER"])
+    def test_both_statements_unwind_the_plural_list_and_keep_a_null_singular_edge(self, name):
+        from nextseek_api.services import entity_tree
+        text = " ".join(getattr(entity_tree, name).split())
+        # an edge whose singular title is null but whose plural list is not empty is kept
+        assert ("WHERE r.internal_assay_title IS NOT NULL OR size(coalesce(r.internal_assay_titles, [])) > 0"
+                in text)
+        assert "CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0" in text
+        assert "UNWIND" in text
+        # an empty title makes no row
+        assert "<> ''" in text
+
+    def test_the_attributes_statement_pairs_each_title_with_its_own_id_and_orders_by_it(self):
+        from nextseek_api.services import entity_tree
+        text = " ".join(entity_tree._EDGE_ATTRIBUTES_CYPHER.split())
+        assert "{title: r.internal_assay_titles[i], id: coalesce(r.internal_assay_ids, [])[i]}" in text
+        assert text.endswith("ORDER BY source, target, annotation, internal_assay_id")
+
+
+class TestEdgesReadEveryAssay:
+    def _viewset(self):
+        from nextseek_api.services.entity_tree import EntityTreeViewSet
+        vs = EntityTreeViewSet()
+        vs.kwargs = {}
+        vs.format_kwarg = None
+        return vs
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    def test_edges_sends_its_constant_and_lists_two_assays_of_one_type_pair(self, mock_gd, _):
+        from nextseek_api.services import entity_tree
+        driver = _driver_returning(mock_gd, [{"source": "NHP", "target": "PAV", "annotation": "A"},
+                                             {"source": "NHP", "target": "PAV", "annotation": "B"}])
+        resp = self._viewset().list_edges(_auth_request())
+        assert driver.execute_query.call_args[0][0] is entity_tree._EDGES_CYPHER
+        edges = _get_inner(resp)["edges"]
+        assert [(e["source"], e["target"], e["annotation"]) for e in edges] == [("NHP", "PAV", "A"),
+                                                                                ("NHP", "PAV", "B")]
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_each_title_keeps_its_own_validated_id(self, mock_sql, mock_gd, _):
+        from nextseek_api.services import entity_tree
+        driver = _driver_returning(mock_gd, [_attr("NHP", "PAV", "A", 1), _attr("NHP", "PAV", "B", 2)])
+        mock_sql.side_effect = [[{"id": 1, "internal_assay_title": "A"}, {"id": 2, "internal_assay_title": "B"}],
+                                []]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        assert driver.execute_query.call_args[0][0] is entity_tree._EDGE_ATTRIBUTES_CYPHER
+        edges = _get_inner(resp)["edges"]
+        assert [(e["annotation"], e["internal_assay_id"]) for e in edges] == [("A", "1"), ("B", "2")]
+        query, params = mock_sql.call_args_list[0][0]
+        assert "FROM dmac.internal_assays" in query and "id IN (%s, %s)" in query
+        assert "internal_assay_title IN (%s, %s)" in query
+        assert params == [1, 2, "A", "B"]
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_an_id_whose_title_differs_is_dropped_and_the_title_looked_up(self, mock_sql, mock_gd, _):
+        # An unmapped entry holds a SEEK assay id and title: SEEK assay 7 "Seek Seven", while internal assay 7 is
+        # "Other" and "Seek Seven" is internal assay 9.
+        _driver_returning(mock_gd, [_attr("NHP", "PAV", "Seek Seven", 7)])
+        mock_sql.side_effect = [[{"id": 7, "internal_assay_title": "Other"},
+                                 {"id": 9, "internal_assay_title": "Seek Seven"}],
+                                [{"internal_assay_id": 9, "description": "Nine", "study_titles": "S9"}]]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        (edge,) = _get_inner(resp)["edges"]
+        assert (edge["internal_assay_id"], edge["description"]) == ("9", "Nine")
+        assert "IN (9)" in mock_sql.call_args_list[1][0][0]
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_an_unmapped_id_with_no_internal_title_gets_no_id_and_no_enrichment(self, mock_sql, mock_gd, _):
+        _driver_returning(mock_gd, [_attr("NHP", "PAV", "Seek Seven", 7)])
+        mock_sql.side_effect = [[{"id": 7, "internal_assay_title": "Other"}]]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        (edge,) = _get_inner(resp)["edges"]
+        assert edge["internal_assay_id"] is None and edge["description"] is None
+        assert mock_sql.call_count == 1
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_a_null_id_is_looked_up_by_title(self, mock_sql, mock_gd, _):
+        _driver_returning(mock_gd, [_attr("NHP", "PAV", "Patient Visit", None)])
+        mock_sql.side_effect = [[{"id": 16, "internal_assay_title": "Patient Visit"}], []]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        (edge,) = _get_inner(resp)["edges"]
+        assert edge["internal_assay_id"] == "16"
+        query, params = mock_sql.call_args_list[0][0]
+        assert "id IN" not in query and params == ["Patient Visit"]
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_rows_are_deduplicated_after_the_mapping(self, mock_sql, mock_gd, _):
+        # (A, 1) and (A, null) on one type pair: the null one maps to 1 and is the same row.
+        _driver_returning(mock_gd, [_attr("NHP", "PAV", "A", 1), _attr("NHP", "PAV", "A", None)])
+        mock_sql.side_effect = [[{"id": 1, "internal_assay_title": "A"}], []]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        inner = _get_inner(resp)
+        assert inner["total"] == 1
+        assert [(e["annotation"], e["internal_assay_id"]) for e in inner["edges"]] == [("A", "1")]
+
+    @patch("nextseek_api.services.entity_tree.resolve_seek_auth", return_value=(("u", "p"), {}))
+    @patch("nextseek_api.services.entity_tree.GraphDatabase")
+    @patch("nextseek_api.services.entity_tree._run_sql_query")
+    def test_nothing_is_enriched_when_the_internal_assays_read_fails(self, mock_sql, mock_gd, _):
+        _driver_returning(mock_gd, [_attr("NHP", "PAV", "A", 1)])
+        mock_sql.side_effect = [RuntimeError("dmac down")]
+        resp = self._viewset().list_edge_attributes(_auth_request())
+        (edge,) = _get_inner(resp)["edges"]
+        assert edge["internal_assay_id"] is None and edge["description"] is None
+        assert mock_sql.call_count == 1
 
 
 # ============================================================================

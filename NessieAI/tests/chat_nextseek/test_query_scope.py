@@ -1131,3 +1131,22 @@ def test_a_gpt_keyword_over_the_gpt_type_label_is_applied():
         type_names={"D.GPT": "GPT Assay Data"},
     )
     assert scope.not_applied == []
+
+
+def test_the_graph_names_are_the_contracts():
+    # The Sample system properties and the type label rule are the graph contract's (nextseek_graph/schema.py). A
+    # restated literal would give equal values, so the assignments themselves must read the contract.
+    import ast
+    import inspect
+
+    from chat_nextseek.graph_contract import schema
+    from chat_nextseek.helpers import query_scope
+
+    assert query_scope._SYSTEM_PROPERTIES == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
+    for code in ("RNA", "D.SEQ", "X Y-1"):
+        assert query_scope._type_label(code) == schema.type_label(code)
+    bound = {target.id: ast.unparse(node.value) for node in ast.parse(inspect.getsource(query_scope)).body
+             if isinstance(node, ast.Assign) for target in node.targets if isinstance(target, ast.Name)}
+    assert bound["_SYSTEM_PROPERTIES"] == "schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12"
+    assert "schema.TYPE_LABEL_PATTERN" in bound["_GRAPH_LABEL"]
+    assert "return schema.type_label(code)" in inspect.getsource(query_scope._type_label)

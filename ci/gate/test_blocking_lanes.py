@@ -33,6 +33,14 @@ def test_the_sample_search_page_tests_block():
     assert "seek/tests/test_sample_search_page.py" in paths
 
 
+def test_the_entity_tree_tests_block():
+    assert "nextseek_api/tests/test_services_entity_tree.py" in blocking_lanes.BLOCKING_GLOBS
+    assert "nextseek_api/tests/test_entity_tree_read_routing.py" in blocking_lanes.BLOCKING_GLOBS
+    paths = blocking_lanes.expand(ROOT)
+    assert "nextseek_api/tests/test_services_entity_tree.py" in paths
+    assert "nextseek_api/tests/test_entity_tree_read_routing.py" in paths
+
+
 def test_the_expansion_is_sorted_relative_test_modules():
     paths = blocking_lanes.expand(ROOT)
     assert paths == sorted(set(paths))

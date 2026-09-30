@@ -9,7 +9,6 @@ Both functions are pure: they read the Cypher text and a catalog snapshot, never
 """
 
 import re
-from pathlib import Path
 from types import MappingProxyType
 
 import pytest
@@ -17,6 +16,7 @@ import pytest
 from chat_nextseek import cypher_text
 from chat_nextseek import graph_catalog as gcat
 from chat_nextseek.agents.graph import (
+    V11_NODE_PROPERTIES,
     V11_RELATIONSHIP_PROPERTIES,
     V11_SYSTEM_PROPERTIES,
     V12_SYSTEM_PROPERTIES,
@@ -24,11 +24,7 @@ from chat_nextseek.agents.graph import (
     catalog_unknown_properties,
     whole_node_returns,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_DOC = (REPO_ROOT / "docs" / "neo4j-schema.md").read_text(encoding="utf-8")
-V10_DOC = SCHEMA_DOC.split("\n## v1.1", 1)[0]
-V11_DOC = SCHEMA_DOC.split("\n## v1.1", 1)[1]
+from chat_nextseek.graph_contract import schema
 
 
 def _row(title, sample_count=10):
@@ -52,35 +48,24 @@ def unknown(cypher):
     return catalog_unknown_properties(cypher, SNAPSHOT)
 
 
-# --- the v1.1 constants follow the document of record ---------------------------------------------------------------
+# --- the guard's names are the graph contract's (nextseek_api/tests/test_graph_sync_contract.py holds the doc) -----
 
 
 def test_mask_is_the_shared_cypher_text_mask():
     assert _mask_cypher is cypher_text.mask_cypher
 
 
-def test_system_properties_are_the_v11_sample_system_properties():
-    row = next(line for line in V11_DOC.splitlines() if line.startswith("| `Sample` + "))
-    system = row.split("system:", 1)[1].split("metadata:", 1)[0]
-    assert V11_SYSTEM_PROPERTIES == frozenset(re.findall(r"`([a-z_]+)`", system))
-
-
-def test_relationship_types_are_the_v11_relationships():
-    section = V11_DOC.split("### Relationships", 1)[1].split("\n###", 1)[0]
-    table = [line for line in section.splitlines() if line.startswith("| `(")]
-    assert set(V11_RELATIONSHIP_PROPERTIES) == {t for line in table for t in re.findall(r"\[:([A-Z_]+)", line)}
-    assert "CHILD_OF" not in V11_RELATIONSHIP_PROPERTIES
-
-
-def test_derived_from_keeps_its_v10_properties_and_member_of_its_v11_ones():
-    # The v1.0 relationship table's row: the one that lists the properties (the measured-counts table above it has
-    # a DERIVED_FROM row too, with only a count).
-    row = next(line for line in V10_DOC.splitlines()
-               if "[:DERIVED_FROM]" in line and line.startswith("| `(") and "Properties" in line)
-    assert V11_RELATIONSHIP_PROPERTIES["DERIVED_FROM"] == frozenset(
-        re.findall(r"`([a-z_]+)`", row.split("Properties", 1)[1]))
-    member = re.search(r"MEMBER_OF \{([^}]*)\}", V11_DOC).group(1)
-    assert V11_RELATIONSHIP_PROPERTIES["MEMBER_OF"] == frozenset(p.strip() for p in member.split(","))
+def test_the_guard_names_are_the_contract_groups():
+    # A single name is the contract's own object; a composed one equals the groups it names, and keeps its type.
+    assert V11_SYSTEM_PROPERTIES is schema.SAMPLE_SYSTEM_PROPERTIES_V11
+    assert V12_SYSTEM_PROPERTIES == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
+    assert type(V11_RELATIONSHIP_PROPERTIES) is dict
+    assert V11_RELATIONSHIP_PROPERTIES == dict(schema.RELATIONSHIPS_V11)
+    assert type(V11_NODE_PROPERTIES) is dict
+    assert V11_NODE_PROPERTIES == {
+        label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
+        | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
+        for label, props in schema.NODE_PROPERTIES_V11.items()}
 
 
 # --- per-label property guard ---------------------------------------------------------------------------------------
@@ -236,17 +221,6 @@ def test_named_properties_and_counts_are_not_whole_node_returns(cypher):
 # --- v1.2: the sync's own properties must not be refused -------------------------------------------------------------
 # The live graph is at schema 1.2. A guard that only knows v1.1 refuses correct Cypher reading the properties
 # graph_sync writes, and the agent sees that as its own query being wrong: it repairs once, then is refused again.
-
-
-def test_the_v12_sample_system_properties_follow_the_document_of_record():
-    section = SCHEMA_DOC.split("\n## v1.2", 1)[1]
-    added = set()
-    for line in section.splitlines():
-        if line.startswith("| `Sample`"):
-            added |= set(re.findall(r"`([a-z_]+)`", line))
-    assert {"source_hash", "parent_titles", "parent_title_hashes"} <= added
-    assert {"source_hash", "parent_titles", "parent_title_hashes"} <= V12_SYSTEM_PROPERTIES
-    assert V11_SYSTEM_PROPERTIES < V12_SYSTEM_PROPERTIES
 
 
 def test_a_sample_may_read_source_hash():

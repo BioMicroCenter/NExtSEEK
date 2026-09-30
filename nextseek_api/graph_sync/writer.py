@@ -36,11 +36,13 @@ from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.catalog import role_for
 from nextseek_api.graph_sync.projection import SampleProjection, label_for
+from nextseek_graph import schema
 
 log = logging.getLogger(__name__)
 
-# Written to GraphMeta.schema_version; bumped with docs/neo4j-schema.md in the same commit.
-SCHEMA_VERSION = "1.2"
+# Written to GraphMeta.schema_version: the contract's, which moves with a docs/neo4j-schema.md section's Versioning
+# subsection (nextseek_graph/README.md).
+SCHEMA_VERSION = schema.SCHEMA_VERSION
 
 SAMPLE_CHUNK = 5_000          # samples per write transaction (the design's default)
 REL_CHUNK = 10_000            # relationship rows per write transaction
@@ -52,8 +54,8 @@ RETIRED_ARCHIVE_HEADER = "id\tuuid\ttype\tincident_edges\n"
 
 # The seven DERIVED_FROM label properties, always written together (cypher.EDGE_LABEL_KEYS).
 EDGE_LABEL_KEYS = q.EDGE_LABEL_KEYS
-PLURAL_LABEL_KEYS = ("internal_assay_ids", "internal_assay_titles")
-GRAPHMETA_KEYS = ("schema_version", "catalog_hash", "label_maps_hash", "synced_at")
+PLURAL_LABEL_KEYS = schema.DERIVED_FROM_PLURAL_ASSAY_KEYS
+GRAPHMETA_KEYS = schema.GRAPHMETA_KEYS
 
 _INT64_MIN = -(2 ** 63)  # below every Sample id, the first keyset bound
 _TRANSIENT_ERRORS = (TransientError, ServiceUnavailable, SessionExpired)

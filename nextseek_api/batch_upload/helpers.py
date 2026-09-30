@@ -55,8 +55,8 @@ def collect_parent_tokens(meta: dict) -> List[str]:
 # A sample's ``Protocol`` metadata field names the SOP that produced it, and
 # the DERIVED_FROM edge records that as protocol_id / protocol_title. There is
 # exactly ONE definition of how a Protocol value maps to a SOP, and this is it:
-# neo4j_sync (ingest), orphan_resolution (late-arriving parents) and models
-# (sheet validation) all read it from here.
+# graph_sync's label rule (ingest), orphan_resolution (late-arriving parents) and
+# models (sheet validation) all read it from here.
 #
 # Production stores three shapes, measured across 163,393 samples:
 #

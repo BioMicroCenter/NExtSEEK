@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
 from .. import cypher_text, graph_catalog, graph_context
+from ..graph_contract import schema
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured
 from ..schemas import (
@@ -302,48 +303,30 @@ def repair_optional_match_filters(cypher: str | None) -> tuple[str | None, list[
 
 CONTEXT_CATALOG, CONTEXT_FALLBACK = "catalog", "fallback"
 
-# docs/neo4j-schema.md "v1.1", Nodes: the system properties every Sample carries.
-V11_SYSTEM_PROPERTIES = frozenset({"id", "uuid", "type", "title", "project_ids", "search_text", "synced_at"})
+# docs/neo4j-schema.md "v1.1", Nodes: the system properties every Sample carries (the contract's 1.1 group).
+V11_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11
 
 # docs/neo4j-schema.md "v1.2: what the sync adds". graph_sync writes three more system properties on every Sample:
 # `source_hash` (the digest it re-syncs on) and the projection-owned `parent_titles` / `parent_title_hashes`. The
 # guard must allow them or it refuses correct Cypher against the graph that is actually deployed, and the agent
 # reads that refusal as its own query being wrong: it repairs once, then is refused again. V11_SYSTEM_PROPERTIES
-# stays as the v1.1 record because a test pins it to the v1.1 section of the document.
-V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | {"source_hash", "parent_titles", "parent_title_hashes"}
+# stays the v1.1 group on its own; this adds the contract's 1.2 group.
+V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
-# docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties.
-V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = {
-    "DERIVED_FROM": frozenset({"child_id", "parent_id", "assay_id", "internal_assay_id", "internal_assay_title",
-                               "protocol_id", "protocol_title", "internal_assay_ids", "internal_assay_titles"}),
-    "OF_TYPE": frozenset(),
-    "HAS_ATTRIBUTE": frozenset(),
-    "IN_PROJECT": frozenset(),
-    "MEMBER_OF": frozenset({"has_left", "time_left_at"}),
-    "IN_STUDY": frozenset(),
-    "IN_INVESTIGATION": frozenset(),
-}
+# docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties (the contract's 1.1 group).
+V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = dict(schema.RELATIONSHIPS_V11)
 
 # docs/neo4j-schema.md "v1.1", Nodes, for every label but Sample (whose metadata is the catalog's) and
 # OrphanSample (which keeps whatever the former Sample carried, so it is checked against everything). Attribute also
-# carries the statistics graph_catalog.TYPES_ADMIN reads when present (graph_search follow-up 2 writes them).
+# carries the statistics graph_catalog.TYPES_ADMIN reads when present (the contract's LEGACY_ATTRIBUTE_STATS), and
+# GraphMeta the 1.2 label_maps_hash: the contract's 1.1 groups, widened by its 1.2 groups.
 V11_NODE_PROPERTIES: dict[str, frozenset[str]] = {
-    "SampleType": frozenset({"id", "title", "label", "uuid", "seek_description", "deprecated", "sample_count",
-                             "attribute_count", "has_context", "name", "summary", "tags", "curated_parents",
-                             "curated_children", "clade"}),
-    "Attribute": frozenset({"key", "id", "sample_type_id", "sample_type", "title", "pos", "required", "is_title",
-                            "base_type", "value_type", "declared", "seek_description", "meaning", "role", "unit_key",
-                            "needs_backticks", "sample_count", "top_values", "top_counts", "num_min", "num_max",
-                            "date_min", "date_max"}),
-    "Project": frozenset({"id", "title"}),
-    "Person": frozenset({"id"}),
-    "Study": frozenset({"id", "title", "description", "DOI", "PMID", "seek_study_id"}),
-    "Investigation": frozenset({"id", "title", "description", "project_id"}),
-    # v1.2 adds label_maps_hash here; writer.GRAPHMETA_KEYS is the source of truth for this node.
-    "GraphMeta": frozenset({"schema_version", "catalog_hash", "label_maps_hash", "synced_at"}),
+    label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
+    | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
+    for label, props in schema.NODE_PROPERTIES_V11.items()
 }
 
-_KNOWN_LABELS = frozenset({"Sample", "OrphanSample"}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
+_KNOWN_LABELS = frozenset({schema.SAMPLE, schema.ORPHAN_SAMPLE}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
     V11_RELATIONSHIP_PROPERTIES)
 _ALL_V11_PROPERTIES = (V12_SYSTEM_PROPERTIES.union(*V11_NODE_PROPERTIES.values())
                        .union(*V11_RELATIONSHIP_PROPERTIES.values()))
@@ -373,7 +356,7 @@ _NOT_A_PROJECTION = frozenset({
     "CASE", "WHEN", "DISTINCT", "YIELD", "UNWIND", "AS", "SET", "MERGE", "CREATE", "MATCH", "OPTIONAL", "UNION",
 })
 # Relationships whose source node is a Sample (DERIVED_FROM: both ends).
-_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({"IN_STUDY", "OF_TYPE"})
+_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE})
 _WHOLE_NODE_ALTERNATIVE = (
     "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
 
@@ -2100,9 +2083,8 @@ def _fallback_schema_snapshot(config: ChatConfig, question: str, requested: list
     }
 
 
-# SCH-F13: the committed schema in the live schema's shape. graph_catalog's rules for a row with no label and for a
-# property name that must be backticked, copied rather than imported across a module's private names.
-_COMMITTED_LABEL_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
+# SCH-F13: the committed schema in the live schema's shape. graph_catalog's rule for a property name that must be
+# backticked, copied rather than imported across a module's private names; a type's label is the contract's rule.
 _COMMITTED_PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COMMITTED_PROPERTIES_HEADING = "## Sample properties (names only)"
 
@@ -2150,7 +2132,7 @@ def _render_committed_schema(config) -> str:
     # is render_type_index's own, and each line is its shape without that claim: code, :label, and the sample count
     # a row with no count renders ("sample count unknown"). The label is graph_catalog's rule for a row with none.
     lines = [graph_context.render_type_index(())]
-    lines += [f"{code} :T_{_COMMITTED_LABEL_UNSAFE.sub('_', code)}, sample count unknown" for code in codes]
+    lines += [f"{code} :{schema.type_label(code)}, sample count unknown" for code in codes]
     if not codes:
         lines.append("The committed capture lists no sample types.")
     parts = [structure, "\n".join(lines)]
