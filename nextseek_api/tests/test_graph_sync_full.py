@@ -17,7 +17,7 @@ import pytest
 from django.utils import timezone
 
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.graph_sync import labels, projection, run, sources, state, writer
+from nextseek_api.graph_sync import labels, projection, run, sources, state, study_links, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 from nextseek_graph import schema
@@ -109,6 +109,7 @@ def world(monkeypatch):
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
+        "iter_seek_study_links": lambda: iter([(11, 7)]),
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -128,6 +129,7 @@ class Graph:
         self.studies: list[dict] = []
         self.graphmeta: dict = {}
         self.attribute_state: list[dict] = []
+        self.study_duplicates: list[dict] = []
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -177,7 +179,7 @@ class Graph:
             moved = 0
             for s in self.studies:
                 if s["element_id"] in params["element_ids"] and s.get("seek_study_id") is None:
-                    s["seek_study_id"], s["id"] = s["id"], None
+                    s["seek_study_id"] = s["id"]
                     moved += 1
             return [{"n": moved}], {}
         if query in (q.WRITE_GRAPHMETA, q.WRITE_GRAPHMETA_WITH_LABEL_MAPS):
@@ -187,6 +189,8 @@ class Graph:
             return ([{"props": dict(self.graphmeta)}] if self.graphmeta else []), {}
         if query == run.ATTRIBUTE_STATE:
             return list(self.attribute_state), {}
+        if query == q.STUDY_SEEK_ID_DUPLICATES:
+            return list(self.study_duplicates), {}
         return [], {}
 
     def _write_labels(self, query, rows):
@@ -240,7 +244,6 @@ class Writers:
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
                 "derived_from_between_samples": 0, "derived_from_undeclared": 0, "derived_from_deleted": 0,
                 "derived_from_archive_path": None},
-            "write_seek_studies": lambda d, db, links: {"in_study_written": len(links), "in_study_dropped": 0},
             "write_attribute_counts": lambda d, db, counts: {"attribute_counts_set": len(counts)},
             "write_sample_type_counts": lambda d, db: {"sample_type_counts_set": 2},
             "ensure_index_budget": lambda d, db, census, bench_keys=frozenset(): [],
@@ -251,6 +254,12 @@ class Writers:
             monkeypatch.setattr(writer, name, self._recording(name, fn))
         for name in self.REAL:
             monkeypatch.setattr(writer, name, self._recording(name, getattr(writer, name)))
+        monkeypatch.setattr(study_links, "rebuild_in_study", self._recording("rebuild_in_study", self._rebuild))
+
+    @staticmethod
+    def _rebuild(d, db, **kwargs):
+        return {"status": "ok", "dry_run": False, "remove": kwargs["remove"], "in_study_added": 1,
+                "in_study_removed": 0}
 
     def _recording(self, name, fn):
         def call(*args, **kwargs):
@@ -335,12 +344,12 @@ def test_full_sync_runs_the_schema_1_2_steps_in_order(world, monkeypatch, tmp_pa
         "ensure_constraints_v11", "write_sample_types", "write_attributes", "write_projects",
         "write_people_and_memberships", "write_investigation_projects", "write_samples", "write_samples",
         "write_missing_lineage", "archive_and_drop_undeclared_derived_from", "write_edge_labels",
-        "write_seek_studies", "write_attributes", "write_attribute_counts", "write_sample_type_counts",
+        "rebuild_in_study", "write_attributes", "write_attribute_counts", "write_sample_type_counts",
         "ensure_index_budget", "ensure_fulltext", "await_indexes", "write_graphmeta"]
     events = graph.events
     # The label step reads every edge after the lineage steps; the Study re-key is read before the SEEK studies.
     assert (events.index("archive_and_drop_undeclared_derived_from") < events.index("label_stream")
-            < events.index("write_edge_labels") < events.index("study_read") < events.index("write_seek_studies"))
+            < events.index("write_edge_labels") < events.index("study_read") < events.index("rebuild_in_study"))
     # relabel_orphans is left with the id-less nodes only; the graph-only ids go to the deletion rule.
     (relabel,) = writers.of("relabel_orphans")
     assert list(relabel.args[2]) == []
@@ -578,7 +587,7 @@ def test_a_failed_run_records_failed_and_marks_no_outbox_row(world, monkeypatch,
     def boom(*args, **kwargs):
         raise RuntimeError("neo4j went away")
 
-    monkeypatch.setattr(writer, "write_seek_studies", boom)
+    monkeypatch.setattr(study_links, "rebuild_in_study", boom)
     with pytest.raises(RuntimeError):
         _full(Graph(), tmp_path)
     assert _one_run().status == "failed"
@@ -600,6 +609,7 @@ def test_a_dry_run_takes_no_lock_records_nothing_and_writes_nothing(world, monke
     report = run.full_sync(graph, "neo4j", dry_run=True)
 
     assert report["status"] == "dry_run"
+    assert report["study_links_preview"]["dry_run"] is True and report["study_links_preview"]["status"] == "ok"
     assert lock.timeouts == [] and not GraphSyncRun.objects.exists()
     assert writers.names() == ["find_ghosts"]
     assert all(c.kwargs.get("routing_") is not None for c in graph.calls)
@@ -608,21 +618,22 @@ def test_a_dry_run_takes_no_lock_records_nothing_and_writes_nothing(world, monke
 
 # --- SEEK Study nodes keyed on id ----------------------------------------------------------------
 
-def test_seek_study_nodes_keyed_by_id_move_to_seek_study_id(world, monkeypatch, tmp_path, lock):
+def test_the_rekey_moves_every_node_whose_id_and_title_are_seeks_and_keeps_its_id(world, monkeypatch, tmp_path,
+                                                                                   lock):
     graph = Graph()
     graph.studies = [
-        {"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},             # a SEEK study batch upload keyed
-        {"element_id": "4:st:8", "id": 8, "title": "Paper", "paper": True},          # carries a DOI or PMID
-        {"element_id": "4:st:9", "id": 9, "title": "Another study", "paper": False},  # SEEK's title differs
-        {"element_id": "4:st:50", "id": 50, "title": "Local", "paper": False}]       # no SEEK study 50
+        {"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},              # a SEEK study batch upload keyed
+        {"element_id": "4:st:8", "id": 8, "title": " Paper ", "paper": True},         # SEEK's title, with a DOI: moves
+        {"element_id": "4:st:9", "id": 9, "title": "Another study", "paper": False},  # SEEK's title differs: left
+        {"element_id": "4:st:50", "id": 50, "title": "Local", "paper": False}]        # no SEEK study 50: not listed
     Writers(monkeypatch, graph)
     report = _full(graph, tmp_path)
 
     (rekey,) = [c for c in graph.calls if c.query == run.REKEY_STUDY]
-    assert rekey.params["element_ids"] == ["4:st:7"]
-    assert graph.studies[0]["seek_study_id"] == 7 and graph.studies[0]["id"] is None
-    assert graph.events.index("study_rekey") < graph.events.index("write_seek_studies")
-    assert report["studies_rekeyed"] == 1 and report["study_ids_left_keyed_by_id"] == [8, 9]
+    assert rekey.params["element_ids"] == ["4:st:7", "4:st:8"]
+    assert [(s["id"], s.get("seek_study_id")) for s in graph.studies] == [(7, 7), (8, 8), (9, None), (50, None)]
+    assert graph.events.index("study_rekey") < graph.events.index("rebuild_in_study")
+    assert report["studies_rekeyed"] == 2 and report["study_ids_left_keyed_by_id"] == [9]
 
 
 def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(world, monkeypatch, tmp_path,
@@ -635,6 +646,73 @@ def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(
 
     assert run.REKEY_STUDY not in graph.queries() and run.STUDIES_KEYED_BY_ID not in graph.queries()
     assert report["studies_rekeyed"] == 0
+
+
+def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():
+    assert "REMOVE" not in run.REKEY_STUDY and "SET st.seek_study_id = st.id" in run.REKEY_STUDY
+    assert "coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''" in run.STUDIES_KEYED_BY_ID
+
+
+@pytest.mark.parametrize("switch, remove", [(None, False), ("add", False), ("follow", True)])
+def test_the_seek_studies_step_rebuilds_in_study_with_the_boxs_switch(world, monkeypatch, tmp_path, lock, switch,
+                                                                      remove):
+    if switch is None:
+        monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    else:
+        monkeypatch.setenv(study_links.SWITCH_ENV, switch)
+    graph = Graph()
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+
+    (call,) = writers.of("rebuild_in_study")
+    assert call.kwargs == {"remove": remove, "run_dir": str(tmp_path), "lock": None, "path": "full"}
+    assert report["steps"]["seek_studies"] == {"in_study_added": 1, "in_study_removed": 0}
+    assert report["status"] == "ok" and report["dry_run"] is False
+
+
+@pytest.mark.parametrize("graphmeta", [{}, {"schema_version": "1.1", "catalog_hash": "old"}])
+def test_the_seek_studies_step_runs_before_graphmeta_whatever_the_graphs_version(world, monkeypatch, tmp_path, lock,
+                                                                                 graphmeta):
+    """A fresh install's first sync (no GraphMeta) and an upgrade or rollback sync (another version) run the step."""
+    graph = Graph()
+    graph.graphmeta = dict(graphmeta)
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    names = writers.names()
+    assert report["status"] == "ok"
+    assert names.index("rebuild_in_study") < names.index("write_graphmeta")
+
+
+def test_a_seek_studies_step_that_does_not_answer_ok_fails_the_run(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    Writers(monkeypatch, graph)
+    monkeypatch.setattr(study_links, "rebuild_in_study",
+                        lambda d, db, **kw: {"status": "refused", "problems": ["two nodes"]})
+    with pytest.raises(RuntimeError, match="refused"):
+        _full(graph, tmp_path)
+
+
+def test_the_preflight_refuses_two_study_nodes_sharing_a_seek_study_id(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.study_duplicates = [{"seek_study_id": 7, "nodes": 2}]
+    writers = Writers(monkeypatch, graph)
+    with pytest.raises(run.PreflightError, match="seek_study_id"):
+        _full(graph, tmp_path)
+    assert writers.names() == ["find_ghosts"]
+    saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
+    assert saved["seek_study_id_duplicates"] == [{"seek_study_id": 7, "nodes": 2}]
+
+
+def test_an_unmerged_split_is_left_in_place_and_makes_no_duplicate(world, monkeypatch, tmp_path, lock):
+    """A box rebuilt before its merge: a legacy node keeps its id alone, the SEEK-keyed node exists, the rekey is a
+    no-op (the graph already holds a SEEK-keyed node) and the preflight finds no duplicate."""
+    graph = Graph()
+    graph.studies = [{"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},
+                     {"element_id": "4:st:k7", "id": None, "seek_study_id": 7, "title": "S", "paper": False}]
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert report["status"] == "ok" and report["studies_rekeyed"] == 0
+    assert run.REKEY_STUDY not in graph.queries()
 
 
 # --- catalog_sync --------------------------------------------------------------------------------

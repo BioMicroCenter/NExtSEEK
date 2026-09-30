@@ -7,8 +7,9 @@
     delete CHILD_OF > constraints > SampleType > Attribute (declared) > Project, Person, MEMBER_OF > Investigation
     IN_PROJECT > samples (per chunk, with the census, the source hash and the parent lists) > missing lineage >
     archive and delete undeclared DERIVED_FROM > DERIVED_FROM labels > re-key SEEK Study nodes > SEEK studies and
-    IN_STUDY > Attribute (declared plus undeclared) > attribute and sample type counts > the index budget > the
-    fulltext index > await indexes > GraphMeta (with the label maps hash)
+    IN_STUDY (``study_links.rebuild_in_study``: IN_STUDY follows SEEK, removal only where the box's switch is on) >
+    Attribute (declared plus undeclared) > attribute and sample type counts > the index budget > the fulltext index >
+    await indexes > GraphMeta (with the label maps hash)
 
 The whole run, preflight included, holds the graph-write lock (``state.graph_write_lock``), so no other graph_sync
 writer can add a sample between the MySQL scan and the graph read. A run that is not a dry run records itself in
@@ -33,10 +34,11 @@ per property in the report and written only with ``apply_label_changes``, and th
 still equal the ones read just before the write.
 
 The preflight writes nothing. It builds the catalog (which enforces the label rule), scans every MySQL sample once
-(projecting it, collecting ids and the declared lineage), reads the ghost list and checks SampleType titles against
-the graph. A problem it finds raises ``PreflightError`` before the first write; a dry run reports the same numbers,
-plus previews of the CHILD_OF archive, the index budget and the Study re-key, and stops there. A dry run takes no
-lock and records no run.
+(projecting it, collecting ids and the declared lineage), reads the ghost list, checks SampleType titles against the
+graph and refuses a graph where two Study nodes share a ``seek_study_id``. A problem it finds raises
+``PreflightError`` before the first write; a dry run reports the same numbers, plus previews of the CHILD_OF archive,
+the index budget and the Study re-key, and the IN_STUDY rebuild's counts, and stops there. A dry run takes no lock
+and records no run.
 
 Undeclared Attribute nodes are known only once every sample has been projected, so the Attribute catalog is written
 twice: the declared attributes before the sample pass (the design's order) and the full catalog after it. The
@@ -69,7 +71,7 @@ from django.db import DatabaseError
 from django.utils import timezone as dj_timezone
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
-from nextseek_api.graph_sync import catalog, labels, projection, sources, state, writer
+from nextseek_api.graph_sync import catalog, labels, projection, sources, state, study_links, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, project_sample
 from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
@@ -116,20 +118,22 @@ MATCH (:Sample {id: r[0]})-[e:DERIVED_FROM]->(:Sample {id: r[1]})
 RETURN r[0] AS child_id, r[1] AS parent_id, {stored} AS stored
 """.replace("{stored}", _STORED_LABELS)
 
-# SEEK Study nodes keyed on `id` (R8). Batch upload keys a SEEK study on its SEEK id; schema 1.1 keys it on
-# seek_study_id and leaves `id` to the paper-level studies. A graph where any Study carries seek_study_id was
-# written by graph_sync, so its id-keyed Study nodes are paper-level and none moves.
+# SEEK Study nodes keyed on `id` (R8). A graph loaded from the installer's seed or a pre-1.2 backup keys a SEEK study
+# on its SEEK id; schema 1.2 finds it by seek_study_id. On a graph where no Study carries seek_study_id yet, a node
+# whose id is a SEEK study and whose title is that study's is given seek_study_id in place, whatever its DOI and PMID
+# (a paper that is also a SEEK study is that study), and keeps its id, DOI and PMID, so a reader matching Study.id
+# still finds it. A graph where any Study carries seek_study_id was written by graph_sync: nothing moves here, and
+# graph_sync --merge-studies does that box's work.
 SEEK_KEYED_STUDIES = "MATCH (st:Study) WHERE st.seek_study_id IS NOT NULL RETURN count(st) AS n"
 STUDIES_KEYED_BY_ID = """
 MATCH (st:Study) WHERE st.id IS NOT NULL AND st.seek_study_id IS NULL
 RETURN elementId(st) AS element_id, st.id AS id, st.title AS title,
-       st.DOI IS NOT NULL OR st.PMID IS NOT NULL AS paper
+       coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> '' AS paper
 """
 REKEY_STUDY = """
 UNWIND $element_ids AS eid
 MATCH (st:Study) WHERE elementId(st) = eid AND st.id IS NOT NULL AND st.seek_study_id IS NULL
 SET st.seek_study_id = st.id
-REMOVE st.id
 RETURN count(st) AS n
 """
 
@@ -657,11 +661,11 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
 # --- SEEK Study nodes keyed on id ----------------------------------------------------------------
 
 def _study_rekey_plan(driver, db) -> dict:
-    """Which Study nodes carry a SEEK study on ``id`` and move to ``seek_study_id`` (R8). Read-only.
+    """Which Study nodes carry a SEEK study on ``id`` and are given ``seek_study_id`` in place (R8). Read-only.
 
-    Only on a graph where no Study carries ``seek_study_id`` yet (graph_sync never wrote its Study nodes), and only
-    a node whose ``id`` is a SEEK study, whose title is that study's (surrounding whitespace aside) and which carries
-    no DOI or PMID (the paper-level markers). A node whose id is a SEEK study but fails a test is left and listed.
+    Only on a graph where no Study carries ``seek_study_id`` yet, and only a node whose ``id`` is a SEEK study and
+    whose title is that study's (surrounding whitespace aside), whatever its DOI and PMID. A node whose id is a SEEK
+    study but whose title is not is left and listed.
     """
     if _one(_run(driver, db, SEEK_KEYED_STUDIES, read=True), "n"):
         return {"element_ids": [], "left_ids": []}
@@ -671,8 +675,7 @@ def _study_rekey_plan(driver, db) -> dict:
         study_id = record["id"]
         if not (_is_packable(study_id) and study_id in seek_titles):
             continue
-        same_title = (record["title"] or "").strip() == (seek_titles[study_id] or "").strip()
-        if same_title and not record["paper"]:
+        if (record["title"] or "").strip() == (seek_titles[study_id] or "").strip():
             move.append(record["element_id"])
         else:
             left.append(study_id)
@@ -680,11 +683,22 @@ def _study_rekey_plan(driver, db) -> dict:
 
 
 def rekey_seek_studies(driver, db, plan: dict) -> dict:
-    """Move the planned Study nodes' key from ``id`` to ``seek_study_id``, so ``write_seek_studies`` finds them."""
+    """Give the planned Study nodes ``seek_study_id`` equal to their ``id``, which they keep, so the SEEK studies
+    step finds them."""
     moved = 0
     for batch in _batches(plan["element_ids"], writer.REL_CHUNK):
         moved += _one(_run(driver, db, REKEY_STUDY, {"element_ids": batch}), "n")
     return {"studies_rekeyed": moved, "study_ids_left_keyed_by_id": _cap(plan["left_ids"])}
+
+
+def _seek_studies(driver, db, run_dir: str) -> dict:
+    """The SEEK studies step: ``study_links.rebuild_in_study`` inside the full sync's own hold of the lock, removal
+    as the box's switch says, archived in the run directory. It checks no schema version: GraphMeta is written last."""
+    out = study_links.rebuild_in_study(driver, db, remove=study_links.follows_seek(), run_dir=run_dir, lock=None,
+                                       path="full")
+    if out.get("status") != study_links.OK:
+        raise RuntimeError(f"the seek_studies step answered {out.get('status')!r}: {out.get('problems')}")
+    return {k: v for k, v in out.items() if k not in ("status", "dry_run", "remove")}
 
 
 # --- the full sync -------------------------------------------------------------------------------
@@ -724,6 +738,8 @@ def _preflight(driver, db, chunk: int, report: dict) -> _Preflight:
                   unresolved_duplicate_ids=_cap(ghosts["unresolved_duplicate_ids"]))
     conflicts = _title_conflicts(driver, db, cat)
     report["sample_type_title_conflicts"] = conflicts
+    duplicates = _timed(report, "study_seek_id_duplicates", writer.seek_study_id_duplicates, driver, db)
+    report["seek_study_id_duplicates"] = _cap(duplicates)
 
     problems = []
     if scan.errors:
@@ -734,6 +750,9 @@ def _preflight(driver, db, chunk: int, report: dict) -> _Preflight:
     if conflicts:
         problems.append(f"{len(conflicts)} SampleType titles are held under other ids in the graph "
                         "(sample_type_title_conflicts)")
+    if duplicates:
+        problems.append(f"{len(duplicates)} seek_study_id values are held by more than one Study node "
+                        "(seek_study_id_duplicates); a write keyed on seek_study_id would reach them all")
     report["problems"] = problems
     return _Preflight(cat, uuid_index, scan, ghosts, problems)
 
@@ -760,6 +779,7 @@ def _preview(driver, db, state_: _Preflight, report: dict, bench_keys) -> None:
     plan = _timed(report, "study_rekey_preview", _study_rekey_plan, driver, db)
     report["studies_to_rekey"] = len(plan["element_ids"])
     report["study_ids_left_keyed_by_id"] = _cap(plan["left_ids"])
+    report["study_links_preview"] = _timed(report, "study_links_preview", study_links.preview_in_study, driver, db)
 
 
 def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight, report: dict,
@@ -806,7 +826,7 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     del label_sources
     plan = _timed(report, "study_rekey_plan", _study_rekey_plan, driver, db)
     _step(report, "study_rekey", rekey_seek_studies, driver, db, plan)
-    _step(report, "seek_studies", writer.write_seek_studies, driver, db, sources.seek_study_links())
+    _step(report, "seek_studies", _seek_studies, driver, db, run_dir)
 
     census = written.census
     attributes = cat.attributes + undeclared_attributes(cat, census)

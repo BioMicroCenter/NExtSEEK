@@ -24,7 +24,7 @@ from neo4j import RoutingControl
 from neo4j.time import Date as Neo4jDate
 
 from nextseek_api.graph_sync import (
-    catalog, drift, loop, reconcile, run, sources, state as sync_state, targeted, verify, writer,
+    catalog, drift, loop, reconcile, run, sources, state as sync_state, study_links, targeted, verify, writer,
 )
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox
@@ -132,6 +132,7 @@ def world(monkeypatch):
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
+        "iter_seek_study_links": lambda: iter([(11, 7)]),
         # gate G check 9: no assay links in this world (the maps and parent identities are stubbed above)
         "sample_assay_ids_for": lambda ids: {},
         # gate G's recent stratum: nothing created or updated lately in this world
@@ -176,7 +177,6 @@ class WriterRecorder:
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
                 "derived_from_between_samples": 2, "derived_from_undeclared": 1, "derived_from_deleted": 1,
                 "derived_from_archive_path": path},
-            "write_seek_studies": lambda d, db, links: {"in_study_written": len(links), "in_study_dropped": 0},
             "write_attribute_counts": lambda d, db, counts: {"attribute_counts_set": len(counts)},
             "write_sample_type_counts": lambda d, db: {"sample_type_counts_set": 2},
             "ensure_index_budget": lambda d, db, census, bench_keys=frozenset(): ["gs_T_TIS_0123456789"],
@@ -187,6 +187,8 @@ class WriterRecorder:
         }
         for name, fn in fakes.items():
             monkeypatch.setattr(writer, name, self._recording(name, fn))
+        monkeypatch.setattr(study_links, "rebuild_in_study", self._recording(
+            "rebuild_in_study", lambda d, db, **kw: {"status": "ok", "in_study_added": 1}))
 
     def _recording(self, name, fn):
         def call(*args, **kwargs):
@@ -250,7 +252,7 @@ def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
         "ensure_constraints_v11",
         "write_sample_types", "write_attributes", "write_projects", "write_people_and_memberships",
         "write_investigation_projects", "write_samples", "write_samples", "write_missing_lineage",
-        "archive_and_drop_undeclared_derived_from", "write_seek_studies", "write_attributes",
+        "archive_and_drop_undeclared_derived_from", "rebuild_in_study", "write_attributes",
         "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget", "ensure_fulltext",
         "await_indexes", "write_graphmeta"]
     assert [len(c.args[2]) for c in rec.of("write_samples")] == [2, 1]
@@ -329,7 +331,7 @@ def test_full_sync_hands_the_preflight_findings_to_the_writer(world, monkeypatch
     assert df_path == str(tmp_path / run.DERIVED_FROM_ARCHIVE_FILE)
     assert (11, 10) in df_declared
     assert (10, 11) not in df_declared and (12, 10) not in df_declared and (11, 11) not in df_declared
-    assert rec.of("write_seek_studies")[0].args[2][0]["sample_id"] == 11
+    assert rec.of("rebuild_in_study")[0].kwargs["run_dir"] == str(tmp_path)
 
 
 def test_full_sync_adds_undeclared_attributes_and_the_census_after_the_sample_pass(world, monkeypatch, tmp_path):
@@ -427,7 +429,7 @@ def test_full_sync_records_a_failure_part_way(world, monkeypatch, tmp_path):
     def boom(*args, **kwargs):
         raise RuntimeError("neo4j went away")
 
-    monkeypatch.setattr(writer, "write_seek_studies", boom)
+    monkeypatch.setattr(study_links, "rebuild_in_study", boom)
     with pytest.raises(RuntimeError):
         run.full_sync(FakeDriver(), "neo4j", run_dir=str(tmp_path))
     saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
