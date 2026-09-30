@@ -166,8 +166,9 @@ GRAPHMETA = "MATCH (m:GraphMeta) RETURN m.schema_version AS schema_version"
 LABELS_LISTED = "CALL db.labels() YIELD label RETURN collect(label) AS names"
 RELATIONSHIP_TYPES_LISTED = ("CALL db.relationshipTypes() YIELD relationshipType "
                              "RETURN collect(relationshipType) AS names")
-LABEL_CARRIED = "MATCH (n) WHERE $name IN labels(n) RETURN 1 AS found LIMIT 1"
-RELATIONSHIP_TYPE_CARRIED = "MATCH ()-[r]->() WHERE type(r) = $name RETURN 1 AS found LIMIT 1"
+# Cypher 25 dynamic labels and types stop at the first hit (two db hits); a WHERE on labels(n) or type(r) scans them all.
+LABEL_CARRIED = "CYPHER 25 MATCH (n:$($name)) RETURN 1 AS found LIMIT 1"
+RELATIONSHIP_TYPE_CARRIED = "CYPHER 25 MATCH ()-[r:$($name)]->() RETURN 1 AS found LIMIT 1"
 # The names the graph's schema version allows, from the contract (every T_ label besides). Graph 1.3 adds its groups.
 EXPECTED_LABELS = schema.LABELS_V11
 EXPECTED_RELATIONSHIP_TYPES = frozenset(schema.RELATIONSHIPS_V11)

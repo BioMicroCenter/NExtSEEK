@@ -7,6 +7,7 @@ part of that graph.
 from __future__ import annotations
 
 import copy
+import random
 import json
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -525,3 +526,47 @@ def test_the_census_ignores_a_listed_name_nothing_carries(world):
     graph = GateWorld(_graph_nodes())
     graph.types_listed.append("CHILD_OF")          # the token outlived its last edge
     assert _named(_gate(graph), "8.schema.unknown_relationship_types")["pass"] is True
+
+
+def _crowded(world, monkeypatch, n=30):
+    """A world with n more samples of type 26, all in project 2: far more than STRATUM_SIZE under one type and project."""
+    for sample_id in range(100, 100 + n):
+        uid = f"TIS-2601{sample_id:02d}LAU-{sample_id}"
+        world["samples"].append(_sample(sample_id, f"00000000-0000-0000-0000-{sample_id:012d}", 26,
+                                        {"UID": uid, "Organ": "Lung"}))
+    links = {**PROJECT_LINKS, **{i: [2] for i in range(100, 100 + n)}}
+    monkeypatch.setattr(sources, "sample_projects", lambda: {k: sorted(set(v)) for k, v in links.items()})
+
+
+def test_the_main_random_draw_does_not_depend_on_the_strata(world, monkeypatch):
+    """The strata use their own generator: the same seed draws the same random samples with or without them."""
+    _crowded(world, monkeypatch)
+    monkeypatch.setattr(verify, "STRATUM_SIZE", 0)
+    bare = _gate(GateWorld(_graph_nodes()), sample_size=3, seed=5)["stats"]["sampled_ids"]
+    monkeypatch.setattr(verify, "STRATUM_SIZE", 5)
+    full = _gate(GateWorld(_graph_nodes()), sample_size=3, seed=5)["stats"]["sampled_ids"]
+    assert len(bare) == 3 and set(bare) <= set(full)
+
+
+def test_a_stratum_fuller_than_its_size_is_drawn_to_its_size_and_reproducibly(world, monkeypatch):
+    _crowded(world, monkeypatch)
+    monkeypatch.setattr(verify, "STRATUM_SIZE", 5)
+
+    def scan(seed):
+        return verify._scan_mysql(1000, 1, random.Random(0), strata_rng=random.Random(seed))
+
+    side = scan(1)
+    # type 26 holds 32 samples and project 2 holds 32; type 33 and project 16 hold 2 each
+    assert side.strata["per_type"] == 5 + 2 and side.strata["per_project"] == 5 + 2
+    assert [r["id"] for r in scan(1).sampled] == [r["id"] for r in side.sampled]
+    first_five = {10, 12, 100, 101, 102}
+    assert any({r["id"] for r in scan(seed).sampled if r["sample_type_id"] == 26} != first_five
+               for seed in range(1, 6))
+
+
+def test_the_carried_probes_match_a_dynamic_name_and_stop_at_the_first_hit():
+    """A WHERE on labels(n) or type(r) scans every node or relationship; a dynamic label or type does not."""
+    for statement, pattern in ((verify.LABEL_CARRIED, "(n:$($name))"), (verify.RELATIONSHIP_TYPE_CARRIED, "[r:$($name)]")):
+        assert statement.lstrip().startswith("CYPHER 25")
+        assert pattern in statement and "LIMIT 1" in statement
+        assert "WHERE" not in statement and "labels(" not in statement and "type(" not in statement
