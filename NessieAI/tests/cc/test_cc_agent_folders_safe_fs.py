@@ -263,6 +263,12 @@ def test_write_file_atomic_writes_with_the_exact_mode(root):
     assert sorted(p.name for p in path.parent.iterdir()) == ["t.jsonl"], "no temporary file is left"
 
 
+@pytest.mark.parametrize("special", [0o4755, 0o2755, 0o1755])
+def test_write_file_atomic_drops_special_mode_bits(root, special):
+    safe_fs.write_file_atomic(root, "s.txt", b"x", mode=special)
+    assert stat.S_IMODE(os.lstat(root / "s.txt").st_mode) == 0o755
+
+
 def test_write_file_atomic_replaces_a_link_instead_of_writing_through_it(root, canary):
     target = canary.link_file(root / "a" / "CLAUDE.md")
     safe_fs.write_file_atomic(root, "a/CLAUDE.md", b"memory\n")

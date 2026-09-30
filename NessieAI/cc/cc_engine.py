@@ -104,8 +104,8 @@ _MIN_CC_API_TIMEOUT_MS = 1000
 # for response headers) plus this much slack. Later, the request must be streaming an
 # answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
 _RETRY_WINDOW_SLACK_S = 5.0
-# Step 1: after the agent is stopped, how long to wait for Docker to confirm it has exited (an exited
-# container answers at once); nothing reads or writes its scratch until that is confirmed.
+# Step 1: after a FAILED stop and a force-remove, how long to wait for Docker to confirm the agent has exited
+# (an exited container answers at once); nothing reads or writes its scratch until that is confirmed.
 _CONFIRM_EXIT_WAIT_S = 5.0
 # The engine's monotonic clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
@@ -1120,14 +1120,14 @@ def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any
         return client.containers.run(**run_kwargs)
 
 
-def _stop_and_confirm_exit(container: Any, *, grace_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
+def _stop_and_confirm_exit(container: Any, *, confirm_wait_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
     """Stop the agent, and say whether it is gone, before Django touches its folders.
 
     Claude Code keeps reading stdin, so waiting for a self-exit would cost the wait on every turn: the
     container is stopped first. Docker's stop returns success only once the container has stopped (an
     already-stopped one answers 304, which docker-py does not raise), so a successful ``stop`` returns True
     at once, with no wait. If the stop fails, the container is force-removed and then
-    ``wait(timeout=grace_s)`` confirms it. ``NotFound`` from the stop, the remove or the wait means Docker no
+    ``wait(timeout=confirm_wait_s)`` confirms it. ``NotFound`` from the stop, the remove or the wait means Docker no
     longer knows it (``auto_remove``), which is gone too; from the stop or the remove it returns before any
     wait. False only when neither the stop nor the remove plus wait confirms, and the caller then publishes
     nothing: an agent that may still be running could change a file between Django's check and its copy.
@@ -1149,7 +1149,7 @@ def _stop_and_confirm_exit(container: Any, *, grace_s: float = _CONFIRM_EXIT_WAI
     except Exception:  # noqa: BLE001 - the confirm below decides
         pass
     try:
-        container.wait(timeout=grace_s)
+        container.wait(timeout=confirm_wait_s)
         return True
     except NotFound:
         return True
@@ -1233,8 +1233,8 @@ def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None
     """Put this turn's memory ``CLAUDE.md`` in the agent's ``~/.claude``, or remove last turn's.
 
     ``cc_state_dir`` is the agent's own folder, so both go through ``safe_fs``: the new file is renamed over
-    whatever is at ``CLAUDE.md`` (a link included) and nothing is written through a link. On a turn with no
-    memory the old file is deleted, so a file the agent left at that name is never read as memory later.
+    whatever is at ``CLAUDE.md`` (a link included) and nothing is written through a link. The old file is deleted
+    on every turn before the new one is written, so a file the agent left at that name is never read as memory.
     """
     # Remove last turn's file FIRST on every turn, so a failed write below never leaves an
     # agent-rewritten CLAUDE.md to be read as memory.
@@ -1371,7 +1371,7 @@ def run_cc_turn(
         # /home/user/.claude/CLAUDE.md and MERGES with the baked project
         # /home/user/CLAUDE.md. Replaces the dropped RO file bind; the agent may
         # transiently overwrite it within a turn (replaced, or removed, next turn).
-        # Step 1: every turn, through safe_fs; on a turn with no memory, last turn's file goes.
+        # Step 1: every turn, through safe_fs; last turn's file is removed first, then the new one is written.
         try:
             _stage_memory_file(cc_state_dir, memory_claude_md)
         except OSError:

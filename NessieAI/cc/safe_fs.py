@@ -259,7 +259,7 @@ def write_file_atomic(root: Path, rel: str | Path, data: bytes, *, mode: int = 0
     """Replace ``root/rel`` with ``data`` in one rename, never writing through a link.
 
     The temporary file is created ``O_EXCL | O_NOFOLLOW`` under a random name in the same opened folder, its
-    mode is set with ``fchmod`` and it is synced before the rename. A link at ``rel`` is replaced, not
+    mode is set with ``fchmod`` (special setuid/setgid/sticky bits are dropped) and it is synced before the rename. A link at ``rel`` is replaced, not
     followed; a folder there raises ``UnsafePath``. Missing folders on the way raise ``FileNotFoundError``.
     """
     parts = _parts(rel)
@@ -270,7 +270,7 @@ def write_file_atomic(root: Path, rel: str | Path, data: bytes, *, mode: int = 0
             with os.fdopen(fd, "wb") as fh:
                 fh.write(data)
                 fh.flush()
-                os.fchmod(fh.fileno(), mode)
+                os.fchmod(fh.fileno(), mode & 0o777)
                 os.fsync(fh.fileno())
             try:
                 os.replace(tmp, parts[-1], src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
