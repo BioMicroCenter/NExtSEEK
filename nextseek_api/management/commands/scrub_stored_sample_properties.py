@@ -75,6 +75,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+from NessieAI.cc import safe_fs
 from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession, QueryTask
 
 NAMES = tuple(sorted(name.lower() for name in HIDDEN_SAMPLE_PROPERTIES))
@@ -691,11 +692,49 @@ class TranscriptBlobStore:
 # =============================================================================================== file stores
 
 
+def _cc_split(path: Path) -> tuple[Path, str] | None:
+    """``(CC user root, path below it)`` when ``path`` is in the CC user tree, else None.
+
+    That tree holds the agents' own folders (``cc-state/<session>/``), so a file there is read and rewritten
+    through ``safe_fs`` from the root down: no folder on the way may be a link.
+    """
+    from NessieAI.cc.cc_config import CCPaths
+
+    root = Path(CCPaths.from_env().user_root_mount)
+    try:
+        rel = Path(path).relative_to(root)
+    except ValueError:
+        return None
+    return (root, rel.as_posix()) if rel.parts else None
+
+
+def _cc_dir_fd(root: Path, rel: str) -> tuple[int, str]:
+    """``(fd of the folder holding rel, the file's name)``, every step no-follow; the caller closes the fd."""
+    *folders, name = rel.split("/")
+    return safe_fs.open_dir(root, tuple(folders)), name
+
+
 def _replace_file(path: Path, data: bytes, *, mode: int, uid: int, gid: int, atime_ns: int, mtime_ns: int) -> None:
     """Write ``data`` to ``path`` atomically, with the given mode, owner and times.
 
     The times matter as much as the bytes: the CC turn picks a session's newest transcript by modification time.
+    In the CC user tree the file is replaced through ``safe_fs`` and its owner and times are set on the new file
+    without following a link; elsewhere (the NS outputs roots, which no agent writes) as before.
     """
+    split = _cc_split(path)
+    if split is not None:
+        root, rel = split
+        safe_fs.write_file_atomic(root, rel, data, mode=stat.S_IMODE(mode))
+        dir_fd, name = _cc_dir_fd(root, rel)
+        try:
+            try:
+                os.chown(name, uid, gid, dir_fd=dir_fd, follow_symlinks=False)
+            except OSError:
+                pass  # not root: the file is already ours
+            os.utime(name, ns=(atime_ns, mtime_ns), dir_fd=dir_fd, follow_symlinks=False)
+        finally:
+            os.close(dir_fd)
+        return
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".scrub")
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -718,9 +757,19 @@ def _replace_file(path: Path, data: bytes, *, mode: int, uid: int, gid: int, ati
 
 
 def _read_regular(path: Path, max_bytes: int | None = None) -> tuple[os.stat_result, bytes] | str:
-    """(stat, bytes) of a regular file, or why it was not read."""
+    """(stat, bytes) of a regular file, or why it was not read. In the CC user tree, never through a link."""
+    split = _cc_split(path)
     try:
-        st = os.lstat(path)
+        if split is None:
+            st = os.lstat(path)
+        else:
+            dir_fd, name = _cc_dir_fd(*split)
+            try:
+                st = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+            finally:
+                os.close(dir_fd)
+    except safe_fs.UnsafePath:
+        return "not_a_regular_file"
     except FileNotFoundError:
         return "gone"
     except OSError:
@@ -730,7 +779,13 @@ def _read_regular(path: Path, max_bytes: int | None = None) -> tuple[os.stat_res
     if max_bytes is not None and st.st_size > max_bytes:
         return "too_large"
     try:
-        return st, path.read_bytes()
+        if split is None:
+            return st, path.read_bytes()
+        return st, safe_fs.read_file(*split, max_bytes=max_bytes)
+    except safe_fs.UnsafePath:
+        return "not_a_regular_file"
+    except FileNotFoundError:
+        return "gone"
     except OSError:
         return "unreadable"
 
@@ -906,9 +961,14 @@ def _cc_files(*tops: Callable[[Path], list[Path]]) -> Callable[[Run, Tally], Ite
         for root, user_dir, admin in _cc_user_dirs(run, tally):
             for pick in tops:
                 for top in pick(user_dir):
-                    if top.is_dir() and not top.is_symlink():
-                        for path in _walk(top):
-                            yield path, admin, str(path.relative_to(root))
+                    try:
+                        # Walked from the CC user root (Django's, the trusted root), every step
+                        # no-follow: plain files only, and never into a linked folder (safe_fs).
+                        listing = list(safe_fs.iter_files(root, top.relative_to(root).parts))
+                    except (OSError, ValueError):  # missing, a link, not a folder, or outside the root
+                        continue
+                    for rel, _st in listing:
+                        yield root / rel, admin, rel
     return files
 
 
@@ -932,9 +992,15 @@ def _carry_transcript_marks(path: Path, old: bytes, new: bytes) -> None:
     files = _read_scrub_manifest(cc_state_dir)
     if files.get(rel) == sha256(old):
         manifest = cc_state_dir.parent / f".{cc_state_dir.name}.scrub.json"
-        times = os.stat(manifest)
-        _write_scrub_manifest(cc_state_dir, {**files, rel: sha256(new)})
-        os.utime(manifest, ns=(times.st_atime_ns, times.st_mtime_ns))
+        # From the CC user root down (every step no-follow), like every other CC-tree call here.
+        root, manifest_rel = _cc_split(manifest) or (manifest.parent, manifest.name)
+        dir_fd, name = _cc_dir_fd(root, manifest_rel)
+        try:
+            times = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+            _write_scrub_manifest(cc_state_dir, {**files, rel: sha256(new)})
+            os.utime(name, ns=(times.st_atime_ns, times.st_mtime_ns), dir_fd=dir_fd, follow_symlinks=False)
+        finally:
+            os.close(dir_fd)
     try:
         with transaction.atomic():
             rows = list(ChatSession.objects.select_for_update().filter(pk=cc_state_dir.name).order_by()
@@ -955,6 +1021,15 @@ def _session_dirs(parent: Path, *tail: str) -> list[Path]:
     return [Path(d, *tail) for d in sorted(parent.iterdir()) if d.is_dir() and not d.is_symlink()]
 
 
+def _agent_session_dirs(user_dir: Path) -> list[Path]:
+    """The user's ``cc-state/<session>`` folders, each registered with ``safe_fs`` as an agent mount root.
+
+    Each is the backing root of an agent's read-write ``~/.claude``, so no folder inside one is ever used as a
+    ``safe_fs`` root in this process (the scrub manifest's folder is derived from these paths).
+    """
+    return [safe_fs.register_agent_root(d) for d in _session_dirs(user_dir / "cc-state")]
+
+
 STORES = {
     "sessions": JsonFieldStore("sessions", ChatSession, ("results_history", "last_debug", "extra_state"), "user_id"),
     "tasks": JsonFieldStore("tasks", QueryTask, ("result", "progress"), "user_id"),
@@ -968,7 +1043,7 @@ STORES = {
         _cc_files(lambda u: [u / "output" / "artifacts"])),
     "cc_transcript_files": FileStore(
         "cc_transcript_files", "<CC user root>/<project>/<user>/cc-state/<session> and _memory/<session>/transcripts",
-        _cc_files(lambda u: _session_dirs(u / "cc-state"),
+        _cc_files(_agent_session_dirs,
                   lambda u: _session_dirs(u / "_memory", "transcripts")),
         live=True, after_write=_carry_transcript_marks),
 }
