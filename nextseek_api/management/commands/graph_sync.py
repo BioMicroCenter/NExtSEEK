@@ -2,7 +2,7 @@
 
     manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once
                           | --investigation-counts --instance {local,dev,prod} | --requeue-dead [--kind KIND]
-                          | --labels)
+                          | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...] | --studies)
                          [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--seed N]
                          [--bench-keys FILE] [--apply-label-changes] [--no-record] [--trigger NAME]
                          [--interval S] [--i-mean-the-live-graph]
@@ -20,13 +20,18 @@
 | ``--investigation-counts`` | every Investigation title with its nodes and samples, the counts file that ``scripts/context_gen.py --emit capabilities --counts`` reads; ``--instance`` names where it was measured and has no default | no |
 | ``--requeue-dead`` | dead outbox rows back to pending, claimable at once (``--kind``, ``--dry-run``) | no |
 | ``--labels`` | every DERIVED_FROM label against the rule, the whole graph (``run.relabel_all``): new ones, renames and filled protocols written, the rest counted unless approved | yes |
+| ``--merge-studies [IDS]`` | merge each listed SEEK study's legacy and seek-keyed Study nodes, or rekey a legacy node in place, journaled to ``study_merge.tsv``; bare or ``all`` only with ``--dry-run`` | yes |
+| ``--unmerge-studies PATH[,PATH...]`` | reverse those journals' merges and re-create the IN_STUDY links their archives hold | yes |
+| ``--studies`` | make every sample's IN_STUDY follow SEEK once, removal included whatever the switch says | yes |
 
-``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile`` and ``--labels`` read without writing and print their
-counts. ``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``, ``--labels``) is the operator's approval
-to write the DERIVED_FROM labels that change which assay an edge carries, which are otherwise only counted (the sync
-design, R14; a rename or a filled protocol is written without it); the loop takes that approval from
-``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record`` keeps the run out of
-``graph_sync_run``, and ``--trigger`` names who started it there (the loop passes ``loop``).
+``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile``, ``--labels``, ``--merge-studies``,
+``--unmerge-studies`` and ``--studies`` read without writing and print their counts. A written ``--full`` and the
+three study modes make their own run directory, ``<kind>-<UTC time>`` under the loop's run root, when neither
+``--run-dir`` nor ``GS_RUN_DIR`` names one, and print it. ``--apply-label-changes`` (``--full``, ``--reconcile``,
+``--samples``, ``--labels``) is the operator's approval to write the DERIVED_FROM labels that change which assay an
+edge carries, which are otherwise only counted (the sync design, R14; a rename or a filled protocol is written
+without it); the loop takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record``
+keeps the run out of ``graph_sync_run``, and ``--trigger`` names who started it there (the loop passes ``loop``).
 
 ``--verify``, ``--drift``, ``--investigation-counts`` and ``--loop`` run against the live stack's Neo4j without
 ``--i-mean-the-live-graph``: the first three only read, and the loop is what the app container runs against its own
@@ -36,9 +41,12 @@ opens no Neo4j connection at all.
 
 Exit status: 0 on success; 1 when a check fails, a run failed part way, or ``--full``, ``--catalog`` or
 ``--reconcile`` could not take the graph-write lock, which another write held past its wait (the loop retries it);
-2 on a refusal, which means nothing was written; 3 when ``--drift`` could not complete. With ``--json`` stdout holds
-only the JSON result; progress goes to stderr. The package, its modules and the graph it writes:
-``nextseek_api/graph_sync/README.md`` and ``docs/neo4j-schema.md`` section "v1.2".
+2 on a refusal, which means nothing was written; 3 when ``--drift`` could not complete. ``--merge-studies``,
+``--unmerge-studies`` and ``--studies`` exit 1 when they stop part way or find the graph-write lock busy, and 2 on a
+refusal (the graph's version, an id the merge does not act on, two Study nodes sharing a ``seek_study_id``, a path
+that holds no journal). With ``--json`` stdout holds only the JSON result; progress goes to stderr. The package, its
+modules and the graph it writes: ``nextseek_api/graph_sync/README.md`` and ``docs/neo4j-schema.md`` section
+"v1.2".
 """
 from __future__ import annotations
 
@@ -54,14 +62,16 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from neo4j import GraphDatabase
 
-from nextseek_api.graph_sync import drift, loop, reconcile, run, state, targeted, verify, writer
+from nextseek_api.graph_sync import (
+    drift, loop, reconcile, run, state, study_links, study_merge, targeted, verify, writer,
+)
 
 # The live stack's Neo4j: its compose service and container name.
 LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
 MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts",
-         "requeue_dead", "labels")
+         "requeue_dead", "labels", "merge_studies", "unmerge_studies", "studies")
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples", "labels"})
@@ -72,6 +82,7 @@ TRIGGER_CHARS = 64
 _SAMPLES_EXIT = MappingProxyType({targeted.OK: 0, targeted.NOT_AT_VERSION: 2, targeted.LOCK_TIMEOUT: 2})
 # A reconcile is several write units, so a lock lost part way is exit 1, not a refusal: earlier steps may have
 # written, and the loop's child must be retried rather than marked done.
+_STUDIES_EXIT = MappingProxyType({study_links.OK: 0, study_links.LOCK_TIMEOUT: 1, study_links.REFUSED: 2})
 _RECONCILE_EXIT = MappingProxyType({reconcile.OK: 0, reconcile.DRY_RUN: 0, reconcile.GUARD_TRIPPED: 0,
                                     reconcile.LOCK_TIMEOUT: 1, reconcile.NOT_AT_VERSION: 2, reconcile.REFUSED: 2})
 
@@ -103,6 +114,32 @@ def _sample_ids(text: str) -> list[int]:
     if not ids:
         raise argparse.ArgumentTypeError("--samples: needs at least one sample id")
     return ids
+
+
+def _merge_ids(text: str):
+    """``--merge-studies``: ``all``, or a comma-separated list of SEEK study ids, in the order given and without
+    repeats."""
+    text = (text or "").strip()
+    if text.lower() == "all":
+        return "all"
+    ids: list[int] = []
+    for part in text.split(","):
+        part = part.strip()
+        if not part.isdigit():
+            raise argparse.ArgumentTypeError(f"--merge-studies: not a SEEK study id: {part!r}")
+        if int(part) not in ids:
+            ids.append(int(part))
+    if not ids:
+        raise argparse.ArgumentTypeError("--merge-studies: needs at least one SEEK study id, or all")
+    return ids
+
+
+def _paths(text: str) -> list[str]:
+    """``--unmerge-studies``: a comma-separated list of journals or run directories."""
+    paths = [part.strip() for part in text.split(",") if part.strip()]
+    if not paths:
+        raise argparse.ArgumentTypeError("--unmerge-studies: needs at least one journal or run directory")
+    return paths
 
 
 def _trigger_name(text: str) -> str:
@@ -190,14 +227,26 @@ class Command(BaseCommand):
                           help="Classify every DERIVED_FROM label against the rule and write the new ones, the "
                                "renames and the filled protocols (every class with --apply-label-changes); for a "
                                "backlog the by-id and nightly paths do not reach.")
+        mode.add_argument("--merge-studies", nargs="?", const="all", type=_merge_ids, metavar="IDS",
+                          help="Merge each listed SEEK study's legacy and seek-keyed Study nodes, or give a legacy "
+                               "node its seek_study_id in place, journaled to study_merge.tsv (comma-separated "
+                               "ids). Bare, or all, only with --dry-run, which prints each id's kind and the line "
+                               "to approve.")
+        mode.add_argument("--unmerge-studies", type=_paths, metavar="PATH[,PATH...]",
+                          help="Reverse the merges journaled in these run directories or journals, and re-create "
+                               "the IN_STUDY links their in_study_removed.tsv archives hold.")
+        mode.add_argument("--studies", action="store_true",
+                          help="Make every sample's IN_STUDY follow SEEK once, removing stale links whatever "
+                               f"{study_links.SWITCH_ENV} says, each archived to in_study_removed.tsv first.")
         parser.add_argument("--kind", metavar="KIND",
                             help="--requeue-dead: only the dead rows of this outbox kind.")
         parser.add_argument("--instance", choices=drift.INSTANCES,
                             help="--investigation-counts: the instance this graph is (no default).")
         parser.add_argument("--json", action="store_true", help="Print the result as JSON on stdout.")
         parser.add_argument("--dry-run", action="store_true",
-                            help="With --full, --catalog, --reconcile or --labels: read MySQL and the graph, write "
-                                 "nothing, print the counts. With --requeue-dead: list the dead rows, change nothing.")
+                            help="With --full, --catalog, --reconcile, --labels, --merge-studies, --unmerge-studies or "
+                                 "--studies: read MySQL and the graph, write nothing, print the counts. With "
+                                 "--requeue-dead: list the dead rows, change nothing.")
         parser.add_argument("--chunk", type=_positive_int, default=writer.SAMPLE_CHUNK,
                             help="Samples per MySQL page and per write transaction (default %(default)s).")
         parser.add_argument("--run-dir", metavar="PATH",
@@ -236,6 +285,9 @@ class Command(BaseCommand):
             raise CommandError(
                 "--apply-label-changes belongs to " + ", ".join(f"--{m}" for m in sorted(LABEL_CHANGE_MODES))
                 + f"; the loop takes that approval from {loop.LABEL_CHANGES_ENV}={loop.APPROVED} instead")
+        if mode == "merge_studies" and options["merge_studies"] == "all" and not options["dry_run"]:
+            raise CommandError("--merge-studies without ids, or with all, runs only with --dry-run: the merge acts on "
+                               "the explicit list of SEEK study ids the operator approved", returncode=2)
         if options["kind"] is not None and mode != "requeue_dead":
             raise CommandError("--kind belongs to --requeue-dead")
         if mode == "requeue_dead":
@@ -268,6 +320,12 @@ class Command(BaseCommand):
             return self._reconcile(driver, db, options)
         if mode == "labels":
             return self._labels(driver, db, options)
+        if mode == "merge_studies":
+            return self._merge_studies(driver, db, options)
+        if mode == "unmerge_studies":
+            return self._unmerge_studies(driver, db, options)
+        if mode == "studies":
+            return self._studies(driver, db, options)
         return self._sync(driver, db, mode, options, bench_keys)
 
     # --- the modes that write ---------------------------------------------------------------------
@@ -281,6 +339,8 @@ class Command(BaseCommand):
                 if run_dir and not options["dry_run"]:
                     _save(run_dir, "catalog_sync.json", result)
             else:
+                if not options["dry_run"]:
+                    run_dir = self._manual_run_dir(options, "full")
                 result = run.full_sync(driver, db, chunk=options["chunk"], dry_run=options["dry_run"],
                                        run_dir=run_dir, bench_keys=bench_keys,
                                        apply_label_changes=options["apply_label_changes"],
@@ -328,6 +388,115 @@ class Command(BaseCommand):
             handle.finish("ok" if status == targeted.OK else "refused", counts=_scalars(result))
         self._emit(result, options["json"])
         self._exit_by_status(_SAMPLES_EXIT, status, "--samples")
+
+    # --- the studies release ----------------------------------------------------------------------
+
+    def _merge_studies(self, driver, db, options):
+        """The study merge (``study_merge``): a dry run plans; otherwise refusals first (the graph's version, an id
+        whose kind the merge does not act on), then the apply under the graph-write lock, recorded as a run."""
+        wanted, as_json = options["merge_studies"], options["json"]
+        ids = None if wanted == "all" else wanted
+        if options["dry_run"]:
+            report = study_merge.plan(driver, db, ids)
+            report.update(mode="merge_studies", status=study_merge.DRY_RUN)
+            self._emit(report, as_json)
+            return
+        refusal = targeted._refusal(driver, db)
+        if refusal is not None:
+            self._emit(dict(refusal, mode="merge_studies"), as_json)
+            raise CommandError(f"graph_sync --merge-studies: {refusal['status']}", returncode=2)
+        report = study_merge.plan(driver, db, ids)
+        bad = {x: kind for x, kind in report["kinds"].items() if kind not in study_merge.APPROVABLE}
+        if bad:
+            problems = [f"study {x} reads {kind}, which the merge does not act on" for x, kind in sorted(bad.items())]
+            report.update(mode="merge_studies", status="refused", problems=problems)
+            self._emit(report, as_json)
+            raise CommandError("graph_sync --merge-studies: refused, nothing written: " + "; ".join(problems),
+                               returncode=2)
+        run_dir = self._manual_run_dir(options, "merge_studies")
+        handle = None if options["no_record"] else state.start_run("merge_studies", trigger=options["trigger"])
+        result = {"mode": "merge_studies", "run_dir": run_dir, "plan": report}
+        try:
+            with state.graph_write_lock(targeted.LOCK_WAIT_S) as held:
+                if held:
+                    result.update(study_merge.apply(driver, db, report["kinds"], run_dir=run_dir))
+                else:
+                    result.update(status="lock_timeout", lock_timeout_s=targeted.LOCK_WAIT_S)
+        except Exception as exc:
+            result.update(status=study_merge.FAILED, error=_text(exc))
+        _save(run_dir, study_merge.REPORT_FILE, result)
+        if handle is not None:
+            handle.finish("ok" if result["status"] == study_merge.OK else "failed", counts=_scalars(result))
+        self._emit(result, as_json)
+        if result["status"] != study_merge.OK:
+            why = result.get("problem") or result.get("error") or "the graph-write lock was busy"
+            raise CommandError(f"graph_sync --merge-studies: {result['status']}: {why}", returncode=1)
+
+    def _unmerge_studies(self, driver, db, options):
+        """Undo merges from their journals (``study_merge.undo``); every path is checked before anything is read or
+        written, and the undo runs under the graph-write lock, recorded as a run."""
+        paths, as_json = options["unmerge_studies"], options["json"]
+        try:
+            study_merge.read_journals(paths)
+        except ValueError as exc:
+            raise CommandError(f"graph_sync --unmerge-studies: {exc}", returncode=2) from exc
+        if options["dry_run"]:
+            result = study_merge.undo(driver, db, paths, dry_run=True)
+            result["mode"] = "unmerge_studies"
+            self._emit(result, as_json)
+            return
+        handle = None if options["no_record"] else state.start_run("unmerge_studies", trigger=options["trigger"])
+        try:
+            with state.graph_write_lock(targeted.LOCK_WAIT_S) as held:
+                result = (study_merge.undo(driver, db, paths) if held
+                          else {"status": "lock_timeout", "lock_timeout_s": targeted.LOCK_WAIT_S})
+        except Exception as exc:
+            if handle is not None:
+                handle.finish("failed", counts={"error": _text(exc)})
+            raise CommandError(f"graph_sync --unmerge-studies failed part way: {_text(exc)}", returncode=1) from exc
+        result["mode"] = "unmerge_studies"
+        if handle is not None:
+            handle.finish("ok" if result["status"] == study_merge.OK else "failed", counts=_scalars(result))
+        self._emit(result, as_json)
+        if result["status"] != study_merge.OK:
+            raise CommandError(f"graph_sync --unmerge-studies: {result['status']}", returncode=1)
+
+    def _studies(self, driver, db, options):
+        """Every sample's IN_STUDY follows SEEK once (``study_links.rebuild_in_study``), removal included whatever
+        the switch says, under the graph-write lock for the whole run, recorded as a ``study_links`` run."""
+        as_json = options["json"]
+        refusal = targeted._refusal(driver, db)
+        if refusal is not None:
+            self._emit(dict(refusal, mode="studies"), as_json)
+            raise CommandError(f"graph_sync --studies: {refusal['status']}", returncode=2)
+        duplicates = writer.seek_study_id_duplicates(driver, db)
+        if duplicates:
+            self._emit({"mode": "studies", "status": study_links.REFUSED, "seek_study_id_duplicates": duplicates},
+                       as_json)
+            raise CommandError("graph_sync --studies: refused, nothing written: two Study nodes share a "
+                               "seek_study_id", returncode=2)
+        if options["dry_run"]:
+            report = study_links.rebuild_in_study(driver, db, remove=True, run_dir=None, dry_run=True)
+            report["mode"] = "studies"
+            self._emit(report, as_json)
+            return
+        run_dir = self._manual_run_dir(options, "study_links")
+        handle = None if options["no_record"] else state.start_run("study_links", trigger=options["trigger"])
+        try:
+            with state.graph_write_lock(targeted.LOCK_WAIT_S) as held:
+                report = (study_links.rebuild_in_study(driver, db, remove=True, run_dir=run_dir, lock=None,
+                                                       path="studies")
+                          if held else {"status": study_links.LOCK_TIMEOUT, "lock_timeout_s": targeted.LOCK_WAIT_S})
+        except Exception as exc:
+            if handle is not None:
+                handle.finish("failed", counts={"error": _text(exc)})
+            raise CommandError(f"graph_sync --studies failed part way: {_text(exc)}", returncode=1) from exc
+        report.update(mode="studies", run_dir=run_dir)
+        _save(run_dir, study_links.REPORT_FILE, report)
+        if handle is not None:
+            handle.finish("ok" if report["status"] == study_links.OK else "refused", counts=_scalars(report))
+        self._emit(report, as_json)
+        self._exit_by_status(_STUDIES_EXIT, report.get("status"), "--studies")
 
     # --- the modes that only read -----------------------------------------------------------------
 
@@ -405,6 +574,18 @@ class Command(BaseCommand):
     @staticmethod
     def _run_dir(options, kind: str) -> str:
         return options["run_dir"] or loop.run_dir_for(options["run_root"] or loop.default_run_root(), kind)
+
+    def _manual_run_dir(self, options, kind: str) -> str:
+        """The run directory of a writing mode run by hand: ``--run-dir``, else ``<kind>-<UTC time>`` under the loop's
+        run root (``--run-root``, ``$GS_RUN_DIR``, else ``graph_sync`` under the log directory), made now and named on
+        stderr. One that cannot be made refuses, exit 2, before anything is read, written or recorded."""
+        path = self._run_dir(options, kind)
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as exc:
+            raise CommandError(f"graph_sync: cannot make the run directory {path}: {exc}", returncode=2) from exc
+        self.stderr.write(f"run directory: {path}")
+        return path
 
     @staticmethod
     def _exit_by_status(codes, status, mode: str) -> None:

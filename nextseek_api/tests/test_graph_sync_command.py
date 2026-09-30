@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone as dt_timezone
 from importlib import import_module
 from inspect import isgenerator
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -24,7 +25,8 @@ from neo4j import RoutingControl
 from neo4j.time import Date as Neo4jDate
 
 from nextseek_api.graph_sync import (
-    catalog, drift, loop, reconcile, run, sources, state as sync_state, study_links, targeted, verify, writer,
+    catalog, drift, loop, reconcile, run, sources, state as sync_state, study_links, study_merge, targeted, verify,
+    writer,
 )
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox
@@ -1247,3 +1249,243 @@ def test_labels_needs_the_live_flag_even_for_a_dry_run(graphdb, settings, relabe
 def test_labels_is_a_mode_that_takes_the_approval():
     assert "labels" in command.MODES and "labels" in command.LABEL_CHANGE_MODES
     assert "labels" not in command.LIVE_OK_MODES
+
+
+# --- the studies release: --merge-studies, --unmerge-studies, --studies -----------------------------------------
+
+@pytest.fixture
+def studies_cmd(monkeypatch):
+    """The three modes' workers replaced by recorders; ``calls`` holds them in order, ``runs`` the run kinds started."""
+    rec = SimpleNamespace(
+        calls=[], runs=[], refusal=None, duplicates=[], lock=True,
+        plan={"ids": [3, 4], "kinds": {3: "merge", 4: "already_merged"}, "counts": {}, "studies": [],
+              "approval_line": "3"},
+        apply={"status": "ok", "merged": [{"study_id": 3, "kind": "merge"}], "already_merged": [4],
+               "stopped_at": None},
+        undo={"status": "ok", "studies": [], "refused": []},
+        rebuild={"status": "ok", "in_study_removed": 2})
+
+    def plan(driver, db, ids=None, **kwargs):
+        rec.calls.append(("plan", ids))
+        return copy.deepcopy(rec.plan)
+
+    def apply(driver, db, expected, *, run_dir, **kwargs):
+        rec.calls.append(("apply", dict(expected), run_dir))
+        return dict(copy.deepcopy(rec.apply), run_dir=run_dir)
+
+    def undo(driver, db, paths, *, dry_run=False, **kwargs):
+        rec.calls.append(("undo", list(paths), dry_run))
+        return copy.deepcopy(rec.undo)
+
+    def rebuild(driver, db, **kwargs):
+        rec.calls.append(("rebuild", kwargs))
+        return copy.deepcopy(rec.rebuild)
+
+    @contextmanager
+    def lock(timeout_s):
+        rec.calls.append(("lock", timeout_s))
+        yield rec.lock
+
+    def start_run(kind, *, trigger, now=None):
+        rec.runs.append(kind)
+        return sync_state.RunHandle(None, kind, trigger, now)
+
+    monkeypatch.setattr(study_merge, "plan", plan)
+    monkeypatch.setattr(study_merge, "apply", apply)
+    monkeypatch.setattr(study_merge, "undo", undo)
+    monkeypatch.setattr(study_links, "rebuild_in_study", rebuild)
+    monkeypatch.setattr(targeted, "_refusal", lambda driver, db: rec.refusal)
+    monkeypatch.setattr(writer, "seek_study_id_duplicates", lambda driver, db: list(rec.duplicates))
+    monkeypatch.setattr(sync_state, "graph_write_lock", lock)
+    monkeypatch.setattr(sync_state, "start_run", start_run)
+    monkeypatch.delenv("GS_RUN_DIR", raising=False)
+    return rec
+
+
+def _names_of(rec):
+    return [c[0] for c in rec.calls]
+
+
+def _journal_dir(tmp_path, name):
+    path = tmp_path / name
+    path.mkdir()
+    (path / study_merge.JOURNAL_FILE).write_text(study_merge.JOURNAL_HEADER, encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.parametrize("args", [("--merge-studies", "--dry-run"), ("--merge-studies", "all", "--dry-run")])
+def test_merge_studies_dry_run_plans_every_id_and_takes_no_lock(graphdb, studies_cmd, args):
+    out = StringIO()
+    call_command("graph_sync", *args, "--json", stdout=out, stderr=StringIO())
+    assert json.loads(out.getvalue())["status"] == "dry_run"
+    assert studies_cmd.calls == [("plan", None)] and studies_cmd.runs == []
+
+
+def test_merge_studies_dry_run_of_ids_plans_those(graphdb, studies_cmd):
+    call_command("graph_sync", "--merge-studies", "4,3,4", "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls == [("plan", [4, 3])]
+
+
+@pytest.mark.parametrize("args", [("--merge-studies",), ("--merge-studies", "all")])
+def test_all_is_refused_without_dry_run_before_connecting(graphdb, studies_cmd, args):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_applies_the_approved_ids_under_the_lock(graphdb, studies_cmd, tmp_path):
+    out = StringIO()
+    call_command("graph_sync", "--merge-studies", "3,4", "--run-root", str(tmp_path), "--json", stdout=out,
+                 stderr=StringIO())
+    assert _names_of(studies_cmd) == ["plan", "lock", "apply"]
+    assert studies_cmd.calls[1] == ("lock", targeted.LOCK_WAIT_S)
+    _, expected, run_dir = studies_cmd.calls[2]
+    assert expected == {3: "merge", 4: "already_merged"}
+    assert run_dir.startswith(os.path.join(str(tmp_path), "merge_studies-"))
+    assert json.loads((Path(run_dir) / study_merge.REPORT_FILE).read_text())["status"] == "ok"
+    assert json.loads(out.getvalue())["status"] == "ok"
+    assert studies_cmd.runs == ["merge_studies"]
+
+
+def test_merge_studies_refuses_an_id_the_merge_does_not_act_on(graphdb, studies_cmd):
+    studies_cmd.plan["kinds"] = {3: "merge", 8: "id_collision"}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3,8", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and _names_of(studies_cmd) == ["plan"] and studies_cmd.runs == []
+
+
+def test_merge_studies_refuses_a_graph_not_at_the_writers_version(graphdb, studies_cmd):
+    studies_cmd.refusal = {"status": "not_at_version", "schema_version": "1.1", "writer_version": "1.2"}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == []
+
+
+@pytest.mark.parametrize("field, value", [
+    ("apply", {"status": "failed", "stopped_at": 3, "problem": "study 3 reads paper now", "merged": [],
+               "already_merged": []}),
+    ("lock", False)])
+def test_a_merge_that_stops_part_way_or_finds_the_lock_busy_exits_1(graphdb, studies_cmd, tmp_path, field, value):
+    setattr(studies_cmd, field, value)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3", "--run-root", str(tmp_path), stdout=StringIO(),
+                     stderr=StringIO())
+    assert exc.value.returncode == 1
+    if field == "lock":
+        assert "apply" not in _names_of(studies_cmd)
+
+
+def test_studies_removes_whatever_the_switch_says(graphdb, studies_cmd, tmp_path, monkeypatch):
+    monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert _names_of(studies_cmd) == ["lock", "rebuild"]
+    kwargs = studies_cmd.calls[1][1]
+    assert kwargs["remove"] is True and kwargs["lock"] is None and kwargs["path"] == "studies"
+    assert kwargs["run_dir"].startswith(os.path.join(str(tmp_path), "study_links-"))
+    assert json.loads((Path(kwargs["run_dir"]) / study_links.REPORT_FILE).read_text())["in_study_removed"] == 2
+    assert studies_cmd.runs == ["study_links"]
+
+
+def test_studies_dry_run_reads_and_takes_no_lock(graphdb, studies_cmd):
+    call_command("graph_sync", "--studies", "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert _names_of(studies_cmd) == ["rebuild"]
+    kwargs = studies_cmd.calls[0][1]
+    assert kwargs["dry_run"] is True and kwargs["remove"] is True and kwargs["run_dir"] is None
+    assert studies_cmd.runs == []
+
+
+@pytest.mark.parametrize("field, value", [
+    ("refusal", {"status": "not_at_version", "schema_version": "1.1", "writer_version": "1.2"}),
+    ("duplicates", [{"seek_study_id": 4, "nodes": 2}])])
+def test_studies_refuses_before_writing(graphdb, studies_cmd, field, value):
+    setattr(studies_cmd, field, value)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--studies", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "rebuild" not in _names_of(studies_cmd)
+
+
+@pytest.mark.parametrize("status, code", [("lock_timeout", 1), ("refused", 2)])
+def test_studies_exits_by_the_rebuilds_status(graphdb, studies_cmd, tmp_path, status, code):
+    studies_cmd.rebuild = {"status": status}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == code
+
+
+def test_unmerge_studies_reads_every_path_and_writes_under_the_lock(graphdb, studies_cmd, tmp_path):
+    first, second = _journal_dir(tmp_path, "m1"), _journal_dir(tmp_path, "m2")
+    call_command("graph_sync", "--unmerge-studies", f"{first},{second}", stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls == [("lock", targeted.LOCK_WAIT_S), ("undo", [first, second], False)]
+    assert studies_cmd.runs == ["unmerge_studies"]
+
+
+def test_unmerge_studies_dry_run_takes_no_lock(graphdb, studies_cmd, tmp_path):
+    first = _journal_dir(tmp_path, "m1")
+    call_command("graph_sync", "--unmerge-studies", first, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls == [("undo", [first], True)] and studies_cmd.runs == []
+
+
+def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", str(tmp_path / "empty"), stdout=StringIO(),
+                     stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == []
+
+
+def test_an_undo_that_refused_an_id_exits_1(graphdb, studies_cmd, tmp_path):
+    studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}]}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), stdout=StringIO(),
+                     stderr=StringIO())
+    assert exc.value.returncode == 1
+
+
+@pytest.mark.parametrize("args", [("--merge-studies", "3", "--dry-run"), ("--studies", "--dry-run"),
+                                  ("--unmerge-studies", "somewhere", "--dry-run")])
+def test_the_studies_modes_need_the_live_flag_even_for_a_dry_run(graphdb, settings, studies_cmd, args):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == []
+
+
+def test_a_bad_merge_id_is_an_error_before_connecting(graphdb, studies_cmd):
+    with pytest.raises(CommandError):
+        call_command("graph_sync", "--merge-studies", "3,x", stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == []
+
+
+# --- a hand run's default run directory ------------------------------------------------------------------------------
+
+def test_a_hand_full_sync_makes_and_names_its_run_directory_under_the_run_root(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    err = StringIO()
+    call_command("graph_sync", "--full", "--run-root", str(tmp_path), stdout=StringIO(), stderr=err)
+    assert seen["run_dir"].startswith(os.path.join(str(tmp_path), "full-")) and os.path.isdir(seen["run_dir"])
+    assert f"run directory: {seen['run_dir']}" in err.getvalue()
+
+
+def test_an_explicit_run_dir_still_wins(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    call_command("graph_sync", "--full", "--run-dir", str(tmp_path / "mine"), stdout=StringIO(), stderr=StringIO())
+    assert seen["run_dir"] == str(tmp_path / "mine")
+
+
+def test_a_run_root_that_cannot_be_written_refuses_before_anything_runs(graphdb, monkeypatch, tmp_path):
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x")
+    monkeypatch.setattr(run, "full_sync", lambda *a, **k: pytest.fail("the full sync ran"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--full", "--run-root", str(blocker), stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "run directory" in str(exc.value)
+
+
+def test_a_full_dry_run_makes_no_directory(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
+    call_command("graph_sync", "--full", "--dry-run", "--run-root", str(tmp_path), stdout=StringIO(),
+                 stderr=StringIO())
+    assert seen["run_dir"] is None and list(tmp_path.iterdir()) == []
