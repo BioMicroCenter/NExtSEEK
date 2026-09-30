@@ -636,3 +636,14 @@ def test_studies_rows(fake_db):
     fake_db(seek_results=[[(7, "Study A", 3), (8, b"Study B", None)]])
     assert sources.studies() == [{"id": 7, "title": "Study A", "investigation_id": 3},
                                  {"id": 8, "title": "Study B", "investigation_id": None}]
+
+
+# --- recent_sample_ids (gate G's recent stratum, PLAN-ci-health Task 7e) ---------------------------
+
+def test_recent_sample_ids_reads_created_or_updated_since_newest_first(fake_db):
+    seek, _ = fake_db(seek_results=[[(1007,), (1003,)]])
+    since = datetime(2026, 9, 23, 0, 0)
+
+    assert sources.recent_sample_ids(since, 5000) == [1007, 1003]
+    assert seek.executed == [("SELECT id FROM samples WHERE created_at >= %s OR updated_at >= %s "
+                              "ORDER BY id DESC LIMIT %s", [since, since, 5000])]

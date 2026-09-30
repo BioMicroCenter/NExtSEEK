@@ -134,6 +134,8 @@ def world(monkeypatch):
         "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
         # gate G check 9: no assay links in this world (the maps and parent identities are stubbed above)
         "sample_assay_ids_for": lambda ids: {},
+        # gate G's recent stratum: nothing created or updated lately in this world
+        "recent_sample_ids": lambda since, limit: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -538,6 +540,8 @@ class GraphWorld:
                     for i in params["ids"] if i in nodes]
         if query in (verify.SAMPLE_COUNT, verify.OF_TYPE_COUNT):
             return [{"n": len(nodes)}]
+        if query == verify.TYPE_TITLE_DIFFERS:
+            return [{"n": 0}]
         if query == verify.TYPE_LABEL_AUDIT:
             return [{"samples": len(nodes), "not_one_type_label": 0, "not_one_of_type": 0, "label_differs": 0,
                      "label_sets": [[label] for label in sorted({n["label"] for n in nodes.values()})]}]
@@ -595,9 +599,10 @@ def test_gate_g_only_reads(world, mysql_scope):
 
 
 def test_gate_g_draws_a_reproducible_random_sample(world, mysql_scope):
-    first = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]["sampled_ids"]
-    again = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]["sampled_ids"]
-    assert first == again and len(first) == 2
+    """The per-type and per-project strata (Task 7e) add every sample of this small world; the random draw is 2."""
+    first = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    again = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    assert first["sampled_ids"] == again["sampled_ids"] and first["sample_strata"]["random"] == 2
 
 
 def test_gate_g_fails_a_missing_declared_edge(world, mysql_scope):

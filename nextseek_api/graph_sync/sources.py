@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Iterable, Iterator
 
 from django.conf import settings
@@ -195,6 +196,15 @@ def samples_by_ids(ids: Iterable[int]) -> list[dict]:
                f"WHERE id IN ({_placeholders(len(chunk))}) ORDER BY id")
         rows.extend(_sample_row(*row) for row in _rows(_seek(), sql, chunk))
     return rows
+
+
+def recent_sample_ids(since: datetime, limit: int) -> list[int]:
+    """The ids of the samples created or updated at or after ``since`` (naive UTC, as SEEK stores its times),
+    newest id first, at most ``limit``: the samples gate G compares whatever its random draw."""
+    sql = "SELECT id FROM samples WHERE created_at >= %s OR updated_at >= %s ORDER BY id DESC LIMIT %s"
+    return [int(sample_id) for (sample_id,) in _rows(_seek(), sql, [since, since, int(limit)])]
+
+
 
 
 def _links_for(sql_head: str, ids: Iterable[int], lead: list) -> dict[int, list[int]]:

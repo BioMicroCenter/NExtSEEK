@@ -12,14 +12,15 @@ present, carries a few examples. Each name starts with the gate G check it belon
 3. ``catalog``: every property key on a ``T_X`` node, system keys excluded, is the title of an Attribute on
    SampleType X: over the random samples, and in one aggregate per type label.
 4. ``samples``: the Sample count and the OF_TYPE count equal MySQL's sample count; every Sample has exactly one
-   ``T_`` label and one OF_TYPE, and the label is its SampleType's.
+   ``T_`` label and one OF_TYPE, and the label is its SampleType's; every Sample's ``type`` is its SampleType's
+   title.
 5. ``attributes``: the Attribute nodes with an ``id`` are ``sample_attributes`` by id, titles byte-exact.
 6. ``scope`` (people): for every person with a membership, the samples the graph shows them equal the SQL
    ``EXISTS projects_samples`` count. The named accounts are resolved by graph_search's own scope resolver and
    counted with the endpoint's Cypher predicate.
 7. ``metadata``: for the random samples, the node's properties minus system keys equal the projection of the
    sample's ``json_metadata`` (canonical JSON; a date is ``{"$date": "<ISO date>"}``, so a date stored as a
-   string does not pass for one).
+   string does not pass for one). Their ``uuid``, ``type``, ``title`` and ``search_text`` equal the projection's too.
 8. ``schema``, ``catalog``, ``graphmeta``: every v1.1 constraint and index exists and every index is ONLINE; the
    catalog builds with no label collision in MySQL or the graph; no SampleType lacks ``id`` or ``label``; one
    GraphMeta node, at the writer's schema version.
@@ -37,7 +38,8 @@ Sized for about 1.08M samples: every full-graph read returns a few rows (the two
 ``project_ids`` grouped by value), the key aggregate runs one type label per transaction, and the lineage check
 streams the edges against a set of encoded MySQL pairs. Check 9 streams them once more with their seven label
 properties and classifies each as it arrives; it holds one assay-id tuple per lineage endpoint (equal tuples shared)
-and one resolved protocol per child that names one.
+and one resolved protocol per child that names one. The sampled checks read the random samples plus the
+strata (the constants above): at most about 6,600 samples on a graph of 110 types, 15 projects and a busy week.
 """
 from __future__ import annotations
 
@@ -49,7 +51,7 @@ import random
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from django.conf import settings
@@ -66,6 +68,16 @@ from nextseek_graph import schema
 log = logging.getLogger(__name__)
 
 SAMPLE_SIZE = 1_000
+# Beside the random samples, checks 2, 3, 7 and 11 also read up to STRATUM_SIZE samples of every sample type and of
+# every project (drawn with their own generator, so a seed's random draw is unchanged), and every sample created or
+# updated in the last RECENT_DAYS days, newest first, at most RECENT_CAP: a small type, a small project or a new
+# upload is then always inspected, where a draw of 1,000 in about a million would see a 43-sample upload one night
+# in 25.
+STRATUM_SIZE = 5
+RECENT_DAYS = 7
+RECENT_CAP = 5_000
+# The sample properties check 7 compares with the projection beside the metadata (projection.project_sample).
+IDENTITY_KEYS = ("uuid", "type", "title", "search_text")
 # The gating accounts of the merged dataset (design, section 4): a TCGA member and a non-member control.
 GATE_ACCOUNTS = ("tcgamember", "user")
 EXAMPLES = 10
@@ -112,6 +124,12 @@ RETURN s.id AS id, properties(s) AS props, [l IN labels(s) WHERE l STARTS WITH '
 """
 SAMPLE_COUNT = "MATCH (s:Sample) RETURN count(s) AS n"
 OF_TYPE_COUNT = "MATCH (:Sample)-[r:OF_TYPE]->() RETURN count(r) AS n"
+# Every Sample whose ``type`` property is not the title of the SampleType it has OF_TYPE to (exhaustive).
+TYPE_TITLE_DIFFERS = """
+MATCH (s:Sample)-[:OF_TYPE]->(t:SampleType)
+WHERE s.type IS NULL OR t.title IS NULL OR s.type <> t.title
+RETURN count(s) AS n
+"""
 TYPE_LABEL_AUDIT = """
 MATCH (s:Sample)
 WITH [l IN labels(s) WHERE l STARTS WITH 'T_'] AS type_labels,
@@ -243,6 +261,7 @@ class _MySQLSide:
     sampled: list = field(default_factory=list)    # a uniform random sample of rows, ordered by id
     projects: dict = field(default_factory=dict)   # sample id to its sorted distinct project ids
     protocols: dict = field(default_factory=dict)  # child id to its resolved (protocol id, title), when it has one
+    strata: dict = field(default_factory=dict)     # how many samples each stratum drew (stats.sample_strata)
 
 
 def _protocol_reader(sops: dict):
@@ -269,11 +288,30 @@ def _protocol_reader(sops: dict):
     return protocol_of
 
 
-def _scan_mysql(chunk: int, sample_size: int, rng: random.Random, protocol_of=None) -> _MySQLSide:
+def _draw(pools: dict, seen: Counter, key, row: dict, rng: random.Random) -> None:
+    """Reservoir-sample ``row`` into ``pools[key]``, at most ``STRATUM_SIZE`` rows per key."""
+    seen[key] += 1
+    pool = pools.setdefault(key, [])
+    if len(pool) < STRATUM_SIZE:
+        pool.append(row)
+    else:
+        slot = rng.randrange(seen[key])
+        if slot < STRATUM_SIZE:
+            pool[slot] = row
+
+
+def _scan_mysql(chunk: int, sample_size: int, rng: random.Random, protocol_of=None, *,
+                strata_rng: random.Random | None = None, recent_ids=frozenset()) -> _MySQLSide:
     """One pass over MySQL's samples: the count, the ids, the declared lineage, each child's resolved protocol (with
-    ``protocol_of``) and a reservoir sample."""
+    ``protocol_of``) and a reservoir sample. With ``strata_rng``, ``sampled`` also takes up to ``STRATUM_SIZE``
+    samples per sample type and per project, and every row whose id is in ``recent_ids``; ``strata`` counts each."""
     side = _MySQLSide(projects=sources.sample_projects())
     uuid_index = sources.uuid_to_ids()
+    by_type: dict = {}
+    by_project: dict = {}
+    seen_types: Counter = Counter()
+    seen_projects: Counter = Counter()
+    recent: dict = {}
     for page in sources.iter_samples(chunk=chunk):
         children = set()
         for child, parent in sources.declared_lineage(page, uuid_index):
@@ -292,7 +330,23 @@ def _scan_mysql(chunk: int, sample_size: int, rng: random.Random, protocol_of=No
                 if slot < sample_size:
                     side.sampled[slot] = row
             side.count += 1
-    side.sampled.sort(key=lambda r: r["id"])
+            if strata_rng is not None:
+                _draw(by_type, seen_types, row["sample_type_id"], row, strata_rng)
+                for project_id in side.projects.get(row["id"], ()):
+                    _draw(by_project, seen_projects, project_id, row, strata_rng)
+            if row["id"] in recent_ids:
+                recent[row["id"]] = row
+    chosen = {row["id"]: row for row in side.sampled}
+    side.strata = {"random": len(chosen),
+                   "per_type": sum(len(pool) for pool in by_type.values()),
+                   "per_project": sum(len(pool) for pool in by_project.values()),
+                   "recent": len(recent), "recent_ids_read": len(recent_ids)}
+    for pools in (by_type, by_project):
+        for pool in pools.values():
+            chosen.update((row["id"], row) for row in pool)
+    chosen.update(recent)
+    side.sampled = sorted(chosen.values(), key=lambda r: r["id"])
+    side.strata["compared"] = len(side.sampled)
     return side
 
 
@@ -452,6 +506,7 @@ def _check_samples(driver, db, mysql: _MySQLSide, audit: dict, checks: list) -> 
     _check(checks, "4.samples.not_exactly_one_type_label", 0, audit.get("not_one_type_label") or 0)
     _check(checks, "4.samples.not_exactly_one_of_type", 0, audit.get("not_one_of_type") or 0)
     _check(checks, "4.samples.type_label_differs_from_sample_type", 0, audit.get("label_differs") or 0)
+    _check(checks, "4.samples.type_differs_from_sample_type", 0, _one(_read(driver, db, TYPE_TITLE_DIFFERS), "n"))
 
 
 def _check_attributes(driver, db, checks: list, stats: dict) -> None:
@@ -502,11 +557,11 @@ def _check_metadata(cat, catalog_error, mysql: _MySQLSide, sampled: dict, checks
     missing = [row["id"] for row in mysql.sampled if row["id"] not in sampled]
     _check(checks, "7.metadata.sampled_missing_in_graph", 0, len(missing), detail=missing[:EXAMPLES])
     if cat is None:
-        _check(checks, "7.metadata.sampled_mismatched", 0, "not compared: the catalog does not build",
-               passed=False, detail=catalog_error)
+        for name in ("7.metadata.sampled_mismatched", "7.metadata.sampled_identity_mismatched"):
+            _check(checks, name, 0, "not compared: the catalog does not build", passed=False, detail=catalog_error)
         return
     mysql_hash, graph_hash = hashlib.sha256(), hashlib.sha256()
-    compared, wrong = 0, []
+    compared, wrong, wrong_identity = 0, [], []
     for row in mysql.sampled:
         node = sampled.get(row["id"])
         if node is None:
@@ -518,6 +573,9 @@ def _check_metadata(cat, catalog_error, mysql: _MySQLSide, sampled: dict, checks
         except (KeyError, ValueError, TypeError) as exc:
             wrong.append({"id": row["id"], "error": f"cannot project: {exc}"})
             continue
+        identity = [key for key in IDENTITY_KEYS if proj.props.get(key) != node["props"].get(key)]
+        if identity:
+            wrong_identity.append({"id": row["id"], "keys": identity})
         want, got = _metadata(proj.props), _metadata(node["props"])
         want_text, got_text = _canonical(want), _canonical(got)
         mysql_hash.update(f"{row['id']}\t{want_text}\n".encode("utf-8"))
@@ -530,6 +588,8 @@ def _check_metadata(cat, catalog_error, mysql: _MySQLSide, sampled: dict, checks
     stats.update(metadata_compared=compared, metadata_hash_mysql=mysql_hash.hexdigest(),
                  metadata_hash_graph=graph_hash.hexdigest())
     _check(checks, "7.metadata.sampled_mismatched", 0, len(wrong), detail=wrong[:EXAMPLES])
+    _check(checks, "7.metadata.sampled_identity_mismatched", 0, len(wrong_identity),
+           detail=wrong_identity[:EXAMPLES])
 
 
 def _check_schema(driver, db, types: list, catalog_error, checks: list) -> None:
@@ -656,8 +716,10 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
            chunk: int = writer.SAMPLE_CHUNK) -> dict:
     """Run the eleven gate G checks (module docstring) against MySQL; reads only.
 
-    ``sample_size`` random samples (a reservoir over the MySQL scan, drawn with ``seed``, which is reported) feed
-    checks 2, 3, 7 and 11. ``accounts`` are the SEEK logins check 6 resolves by name. ``chunk`` is the MySQL page size.
+    ``sample_size`` random samples (a reservoir over the MySQL scan, drawn with ``seed``, which is reported), and the
+    strata beside them (``STRATUM_SIZE`` per sample type and per project, and every sample of the last
+    ``RECENT_DAYS`` days), feed checks 2, 3, 7 and 11. ``accounts`` are the SEEK logins check 6 resolves by name.
+    ``chunk`` is the MySQL page size.
     """
     if sample_size <= 0:
         raise ValueError(f"sample_size must be positive, got {sample_size}")
@@ -674,9 +736,12 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
         cat, catalog_error = None, str(exc)
     sops = sources.sops_map()
     assay_map = sources.resolved_assay_map()
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RECENT_DAYS)
+    recent_ids = frozenset(sources.recent_sample_ids(since, RECENT_CAP))
     mysql = _timed(timings, "mysql_scan", _scan_mysql, chunk, sample_size, random.Random(seed),
-                   _protocol_reader(sops))
-    stats.update(mysql_samples=mysql.count, sampled_ids=[row["id"] for row in mysql.sampled])
+                   _protocol_reader(sops), strata_rng=random.Random(seed + 1), recent_ids=recent_ids)
+    stats.update(mysql_samples=mysql.count, sampled_ids=[row["id"] for row in mysql.sampled],
+                 sample_strata=mysql.strata)
 
     sampled = _timed(timings, "sampled_nodes", _sampled_nodes, driver, db, stats["sampled_ids"])
     groups = _timed(timings, "project_id_groups", _project_groups, driver, db)

@@ -187,8 +187,10 @@ Three families, and they answer different questions.
 - **Samples.** `samples.missing_in_graph`, `samples.not_in_mysql`, `samples.source_hash_mismatch`: MySQL's digest
   stream against the graph's `source_hash` values. `samples.new_uuids` is reported, never failed.
 - **Catalog.** `catalog.sample_types` and `catalog.types_with_attribute_set_diff`: what MySQL declares against what
-  the graph holds. Gate G's `3.catalog.*` checks the catalog against the graph's own sample nodes, which is
-  internal consistency and cannot see that MySQL has moved; these are the other direction. Only the declared side
+  the graph holds. `catalog.type_properties_differ`, `catalog.attribute_properties_differ` and
+  `catalog.type_counts_stale` compare what the catalog sync writes besides titles, by id: a type's label and
+  deprecated flag, an attribute's value type, required flag and position, and each type's stored sample count. Gate G's `3.catalog.*` checks the catalog against the graph's own
+  sample nodes, which is internal consistency and cannot see that MySQL has moved; these are the other direction. Only the declared side
   is compared, because an Attribute with `declared` false is an observed key and a normal state.
   `stats.catalog.types_without_context` counts sample types with no `sample_types_context` row. It is a stat and
   never a check: a missing context row is legal, so any threshold would be invented, but the number makes a type

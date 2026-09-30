@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -95,7 +96,12 @@ PARENT_LISTS = {
 def world(monkeypatch):
     """Install the fixed MySQL world into ``sources``; tests may change the returned state before a run."""
     state = {"assay_links": copy.deepcopy(ASSAY_LINKS), "identities": dict(IDENTITIES),
-             "samples": copy.deepcopy(SAMPLES), "assay_requests": [], "identity_requests": []}
+             "samples": copy.deepcopy(SAMPLES), "assay_requests": [], "identity_requests": [],
+             "recent": [], "recent_requests": []}
+
+    def recent_sample_ids(since, limit):
+        state["recent_requests"].append((since, limit))
+        return sorted(state["recent"], reverse=True)[:limit]
 
     def iter_samples(chunk=5000, after_id=0):
         rows = [dict(r) for r in sorted(state["samples"], key=lambda r: r["id"]) if r["id"] > after_id]
@@ -131,6 +137,7 @@ def world(monkeypatch):
         "sops_map": lambda: dict(SOPS),
         "sample_assay_ids_for": sample_assay_ids_for,
         "parent_identities": parent_identities,
+        "recent_sample_ids": recent_sample_ids,
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -157,6 +164,7 @@ class GateWorld:
     def __init__(self, nodes):
         self.nodes = nodes
         self.edges = {pair: dict(stored) for pair, stored in LABELS.items()}   # (child, parent) to stored labels
+        self.type_title_differs = 0   # Samples whose type is not their SampleType's title
         self.t_labelled = []   # nodes carrying a T_ label but not :Sample, as {"id", "labels"}
         self.catalog = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]},
                         {"id": 33, "title": "D.SEQ", "label": "T_D_SEQ", "titles": ["Parent", "Protocol"]}]
@@ -184,6 +192,8 @@ class GateWorld:
                     for i in params["ids"] if i in nodes]
         if query in (verify.SAMPLE_COUNT, verify.OF_TYPE_COUNT):
             return [{"n": len(nodes)}]
+        if query == verify.TYPE_TITLE_DIFFERS:
+            return [{"n": self.type_title_differs}]
         if query == verify.TYPE_LABEL_AUDIT:
             return [{"samples": len(nodes), "not_one_type_label": 0, "not_one_of_type": 0, "label_differs": 0,
                      "label_sets": [[label] for label in sorted({n["label"] for n in nodes.values()})]}]
@@ -395,3 +405,49 @@ def test_check_11_ignores_a_sampled_sample_missing_from_the_graph(world):
     assert _named(result, "7.metadata.sampled_missing_in_graph")["detail"] == [13]
     assert _named(result, "11.samples.parent_lists")["actual"] == 0
     assert result["stats"]["parent_lists_compared"] == 3
+
+
+# --- what the sampled checks read beside the random draw (PLAN-ci-health Task 7e) ------------------
+
+def test_every_small_type_and_project_is_compared_beside_the_random_draw(world):
+    result = _gate(GateWorld(_graph_nodes()), sample_size=1)
+    assert result["stats"]["sampled_ids"] == [10, 11, 12, 13]
+    assert result["stats"]["sample_strata"] == {"random": 1, "per_type": 4, "per_project": 4, "recent": 0,
+                                                "recent_ids_read": 0, "compared": 4}
+    assert result["stats"]["parent_lists_compared"] == 4
+
+
+def test_every_recent_sample_is_compared(world, monkeypatch):
+    monkeypatch.setattr(verify, "STRATUM_SIZE", 0)
+    world["recent"] = [13]
+    result = _gate(GateWorld(_graph_nodes()), sample_size=1, seed=7)
+    assert 13 in result["stats"]["sampled_ids"]
+    assert result["stats"]["sample_strata"]["recent"] == 1
+    ((since, limit),) = world["recent_requests"]
+    assert limit == verify.RECENT_CAP
+    assert timedelta(days=verify.RECENT_DAYS - 1) < datetime.now(timezone.utc).replace(tzinfo=None) - since
+
+
+def test_the_strata_leave_a_seeds_random_draw_as_it_was(world):
+    with_strata = _gate(GateWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    assert with_strata["sample_strata"]["random"] == 2
+    again = _gate(GateWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    assert with_strata["sampled_ids"] == again["sampled_ids"]
+
+
+def test_check_7_fails_a_sampled_node_whose_uuid_type_title_or_search_text_differs(world):
+    nodes = _graph_nodes()
+    nodes[11]["props"]["search_text"] = "a stale line"
+    nodes[12]["props"]["type"] = "D.SEQ"
+    result = _gate(GateWorld(nodes))
+    check = _named(result, "7.metadata.sampled_identity_mismatched")
+    assert (check["actual"], check["pass"]) == (2, False)
+    assert check["detail"] == [{"id": 11, "keys": ["search_text"]}, {"id": 12, "keys": ["type"]}]
+    assert _named(result, "7.metadata.sampled_mismatched")["pass"] is True
+
+
+def test_check_4_fails_samples_whose_type_is_not_their_sample_types_title(world):
+    graph = GateWorld(_graph_nodes())
+    graph.type_title_differs = 3
+    check = _named(_gate(graph), "4.samples.type_differs_from_sample_type")
+    assert (check["expected"], check["actual"], check["pass"]) == (0, 3, False)

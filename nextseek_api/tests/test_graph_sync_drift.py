@@ -115,6 +115,12 @@ class DriftGraph:
             return self.meta
         if query == verify.GRAPH_CATALOG:
             return self.catalog
+        if query == drift.GRAPH_TYPE_PROPERTIES:
+            return [{"id": r["id"], "label": r["label"], "deprecated": r.get("deprecated")} for r in self.catalog]
+        if query == drift.GRAPH_DECLARED_ATTRIBUTES:
+            return []
+        if query == drift.TYPE_COUNTS_STALE:
+            return [{"n": 0, "examples": []}]
         if query == drift.ASSISTANT_INVESTIGATIONS:
             # Every name the assistant is told to use resolves in this world, so the check passes and
             # these cases stay about what they are named for. The real repository's capabilities.md is
@@ -280,6 +286,8 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
     assert names == ["samples.missing_in_graph", "samples.not_in_mysql", "samples.source_hash_mismatch",
                      "samples.new_uuids",
                      "catalog.sample_types", "catalog.types_with_attribute_set_diff",
+                     "catalog.type_properties_differ", "catalog.attribute_properties_differ",
+                     "catalog.type_counts_stale",
                      "catalog.assistant_investigations",
                      "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
@@ -428,18 +436,25 @@ def _catalog(sample_types, attributes):
     return run.Catalog(sample_types=sample_types, attributes=attributes, type_titles=titles, value_types={})
 
 
-def _graph_catalog_reader(rows):
-    """A responder answering only verify.GRAPH_CATALOG, which is all _check_catalog reads."""
+def _graph_catalog_reader(rows, attributes=(), stale=0):
+    """A responder answering what _check_catalog reads: the type rows (``rows``, which may carry ``deprecated``),
+    the declared attributes' properties (``attributes``) and the stale-count read (``stale`` types)."""
     def respond(query, params):
         if query == verify.GRAPH_CATALOG:
             return rows
+        if query == drift.GRAPH_TYPE_PROPERTIES:
+            return [{"id": r["id"], "label": r["label"], "deprecated": r.get("deprecated")} for r in rows]
+        if query == drift.GRAPH_DECLARED_ATTRIBUTES:
+            return list(attributes)
+        if query == drift.TYPE_COUNTS_STALE:
+            return [{"n": stale, "examples": [r["title"] for r in rows][:stale]}]
         raise AssertionError(f"unexpected statement: {query}")
     return FakeDriver(respond)
 
 
-def _run_catalog_checks(cat, graph_rows):
+def _run_catalog_checks(cat, graph_rows, attributes=(), stale=0):
     checks, stats = [], {}
-    drift._check_catalog(_graph_catalog_reader(graph_rows), "neo4j", cat, checks, stats)
+    drift._check_catalog(_graph_catalog_reader(graph_rows, attributes, stale), "neo4j", cat, checks, stats)
     return {c["name"]: c for c in checks}, stats
 
 
@@ -489,6 +504,47 @@ class TestTheCatalogIsComparedAgainstMySQL:
         rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ", "ObservedOnly"]}]
         checks, _ = _run_catalog_checks(cat, rows)
         assert checks["catalog.types_with_attribute_set_diff"]["pass"]
+
+
+class TestTheCatalogPropertiesAreComparedById:
+    """Gap review G18: what the catalog sync writes besides titles (PLAN-ci-health Task 7e)."""
+
+    TYPES = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False}]
+    ATTRS = [{"id": 1, "sample_type_id": 26, "title": "Organ", "value_type": "string", "required": False, "pos": 1}]
+    GRAPH_ATTRS = [{"id": 1, "value_type": "string", "required": False, "pos": 1}]
+
+    def test_a_matching_catalog_passes_all_three(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        checks, stats = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS)
+        for name in ("catalog.type_properties_differ", "catalog.attribute_properties_differ",
+                     "catalog.type_counts_stale"):
+            assert checks[name]["pass"], checks[name]
+        assert stats["catalog"]["types_with_stale_count"] == 0
+
+    def test_a_deprecated_flag_the_graph_does_not_carry_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": True, "titles": ["Organ"]}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS)
+        check = checks["catalog.type_properties_differ"]
+        assert (check["actual"], check["pass"]) == (1, False)
+        assert check["detail"] == [{"id": 26, "mysql": {"label": "T_TIS", "deprecated": False},
+                                    "graph": {"label": "T_TIS", "deprecated": True}}]
+
+    def test_an_attribute_value_type_the_graph_does_not_carry_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        graph_attrs = [{"id": 1, "value_type": "number", "required": False, "pos": 1}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, graph_attrs)
+        check = checks["catalog.attribute_properties_differ"]
+        assert (check["actual"], check["pass"]) == (1, False)
+        assert check["detail"][0]["graph"]["value_type"] == "number"
+
+    def test_a_stale_sample_count_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS, stale=1)
+        check = checks["catalog.type_counts_stale"]
+        assert (check["actual"], check["pass"], check["detail"]) == (1, False, ["TIS"])
+
+    def test_the_stale_count_statement_counts_a_type_never_counted(self):
+        assert "coalesce(t.sample_count, -1) <> n" in drift.TYPE_COUNTS_STALE
 
 
 class TestContextCoverageIsReportedNotEnforced:
