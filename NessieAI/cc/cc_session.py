@@ -12,6 +12,9 @@ from typing import Any
 
 from NessieAI.cc import safe_fs
 
+# The one store-name constant: the transcript store folder inside a session's ~/.claude.
+TRANSCRIPT_STORE_DIRNAME = "projects"
+
 SendEvent = Callable[[str, dict[str, Any]], None]
 
 
@@ -46,12 +49,6 @@ def make_session_sniffer(
     return _wrapped
 
 
-def _store_dirname() -> str:
-    # The one store-name constant lives in cc_engine (which imports this module), so it is read lazily.
-    from NessieAI.cc.cc_engine import _TRANSCRIPT_STORE_DIRNAME
-    return _TRANSCRIPT_STORE_DIRNAME
-
-
 def store_has_transcripts(store_dir: Path | str) -> bool:
     """True if the per-session ``.claude`` store already holds at least one
     transcript (``projects/**/*.jsonl``). Used to skip ``--resume`` when the
@@ -61,7 +58,7 @@ def store_has_transcripts(store_dir: Path | str) -> bool:
     folder, reads as no store and the turn starts fresh.
     """
     # The session folder is the trusted root; projects/ is the agent's and is walked in rel_parts.
-    files = safe_fs.iter_files(Path(store_dir), (_store_dirname(),), suffix=".jsonl")
+    files = safe_fs.iter_files(Path(store_dir), (TRANSCRIPT_STORE_DIRNAME,), suffix=".jsonl")
     try:
         return next(files, None) is not None
     except OSError:
@@ -82,7 +79,7 @@ def split_store_path(transcript_path: str | Path) -> tuple[Path, str] | None:
     ``cc_engine.transcript_is_verified_scrubbed`` uses). Raises ``safe_fs.UnsafePath`` for a path that is not
     absolute or holds an empty, ``.`` or ``..`` step.
     """
-    name = _store_dirname()
+    name = TRANSCRIPT_STORE_DIRNAME
     path = Path(transcript_path)
     registered = safe_fs.agent_root_of(path)
     if registered is not None:

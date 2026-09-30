@@ -633,7 +633,7 @@ class ScrubReport(NamedTuple):
 
 
 # #76: the per-session transcript store lives at <cc_state_dir>/projects.
-_TRANSCRIPT_STORE_DIRNAME = "projects"
+_TRANSCRIPT_STORE_DIRNAME = cc_session.TRANSCRIPT_STORE_DIRNAME
 _SCRUB_MANIFEST_VERSION = 1
 # A manifest has one line per transcript; anything larger is not one of ours and reads as "nothing verified".
 _SCRUB_MANIFEST_MAX_BYTES = 16 * 1024 * 1024
