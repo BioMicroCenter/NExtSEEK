@@ -699,3 +699,47 @@ def test_a_row_written_during_a_long_child_fails_at_the_time_it_failed_not_at_th
     assert r.attempts == 1
     assert r.failing_since == during
     assert r.lease_expires_at == during + timedelta(seconds=state.backoff_s("samples_of_type"))
+
+
+@pytest.mark.django_db
+def test_rows_archived_across_several_seconds_of_one_pass_share_one_drain_directory(work, monkeypatch):
+    # A bulk delete is one retire row per sample; each archives a retired.tsv into the drain directory, and the next
+    # pass keeps only the newest KEEP_RUN_DIRS of them. The directory is named from the pass start, one per pass.
+    clock = [T0]
+
+    def tick():
+        clock[0] += timedelta(seconds=1)
+        return clock[0]
+
+    monkeypatch.setattr(loop.dj_timezone, "now", tick)
+    for n in range(30):
+        state.enqueue("retire", f"sample:{n + 1}", now=before(minutes=5))
+    work.opts = loop.Options(run_root=work.opts.run_root, cadences=())
+
+    loop.run_pass(DRIVER, DB, "w1", opts=work.opts, launch=work.launch)
+
+    dirs = [c.kwargs["run_dir"] for c in work.calls if c.name == "retire"]
+    assert len(dirs) == 30
+    assert len(set(dirs)) == 1
+
+
+@pytest.mark.django_db
+def test_a_child_that_fails_is_backed_off_from_the_time_it_ended(work, monkeypatch):
+    # The outcome of a child that ran for hours is stamped when it ended, not when it was claimed: its failing_since
+    # is the failure time and its back-off runs from there.
+    clock = [T0]
+    ended = T0 + timedelta(hours=2)
+    monkeypatch.setattr(loop.dj_timezone, "now", lambda: clock[0])
+
+    def launch(argv, timeout_s):
+        if argv[3] == "--reconcile":
+            clock[0] = ended
+        return 1
+
+    loop.run_pass(DRIVER, DB, "w1", opts=work.opts, launch=launch)
+
+    r = GraphSyncOutbox.objects.get(kind="reconcile")
+    assert r.failing_since == ended
+    assert r.lease_expires_at == ended + timedelta(seconds=state.backoff_s("reconcile"))
+    backoff = timedelta(seconds=state.backoff_s("reconcile"))
+    assert state.claim_next("w2", now=ended + backoff - timedelta(seconds=1), kinds=["reconcile"]) is None

@@ -125,9 +125,10 @@ def run_dir_for(run_root: str, kind: str, now: datetime | None = None, row_id: i
     """``<run root>/<kind>-<UTC time>``, and ``-<row id>`` for a child the drain launches. The stamp sorts as it
     runs, which is what ``prune_run_dirs`` counts on.
 
-    The row id is what keeps two children of one pass apart: ``run_pass`` fixes its time once, so two slots of one
-    kind drained in the same pass would otherwise share a directory, write over each other's files, and a drift
-    child that saved nothing would be judged on the other one's result (``drift_reported``)."""
+    The row id is what keeps two children of one pass apart: ``run_pass`` names every directory of a pass from the
+    pass start, so two slots of one kind drained in the same pass would otherwise share a directory, write over each
+    other's files, and a drift child that saved nothing would be judged on the other one's result
+    (``drift_reported``)."""
     stamp = (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
     return os.path.join(run_root, f"{kind}-{stamp}" + ("" if row_id is None else f"-{row_id}"))
 
@@ -294,13 +295,16 @@ def drift_reported(run_dir: str) -> list[str] | None:
     return [str(c.get("name", "?")) for c in result.get("checks") or [] if isinstance(c, dict) and not c.get("pass")]
 
 
-def _child(claim, opts: Options, entry: dict, *, now: datetime, launch) -> dict:
-    run_dir = run_dir_for(opts.run_root, claim.kind, now, row_id=claim.id)
+def _child(claim, opts: Options, entry: dict, *, started: datetime, clock, launch) -> dict:
+    run_dir = run_dir_for(opts.run_root, claim.kind, started, row_id=claim.id)
     timeout_s = child_timeout_s(claim.kind)
     code = launch(child_argv(claim.kind, run_dir, opts), timeout_s)
     # The child can have run for hours in a blocking call, and the loop's own connections sat idle all that time:
     # start the rest of this pass on fresh ones, whatever the child's outcome.
     refresh_connections()
+    # The child's outcome is stamped when it ended, not when it was claimed: a child that ran for hours and failed
+    # has been failing since now, and its back-off runs from now.
+    now = clock()
     entry.update(run_dir=run_dir, exit=code, refused=code == 2)
     found = drift_reported(run_dir) if claim.kind == "drift" and code == DRIFT_FOUND_EXIT else None
     if found is not None:
@@ -333,12 +337,18 @@ def _refused(claim, exc, entry: dict, *, now: datetime) -> dict:
     return _fail(claim, exc, entry, now=now)
 
 
-def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch) -> dict:
+def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, started: datetime | None = None,
+               clock=None) -> dict:
+    """Drain one claimed row. ``now`` is the time of the claim and stamps an in process row's outcome; ``started``
+    (the pass start, ``now`` when not given) names the run directories, so a pass makes one drain directory; ``clock``
+    gives the time a child ended (``now`` when not given)."""
+    started = started or now
+    clock = clock or (lambda: now)
     entry = {"kind": claim.kind, "key": claim.key}
     if claim.kind in CHILD_KINDS:
-        return _child(claim, opts, entry, now=now, launch=launch)
+        return _child(claim, opts, entry, started=started, clock=clock, launch=launch)
     try:
-        result = _apply(driver, db, claim, opts, run_dir_for(opts.run_root, DRAIN_DIR_KIND, now))
+        result = _apply(driver, db, claim, opts, run_dir_for(opts.run_root, DRAIN_DIR_KIND, started))
     except run.PreflightError as exc:
         return _refused(claim, exc, entry, now=now)
     except Exception as exc:                       # noqa: BLE001
@@ -370,6 +380,7 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
     opts = opts or Options()
     pinned = now is not None
     now = now or dj_timezone.now()
+    started = now
     launch = launch or launch_child
     report = {"worker_id": worker_id, "started_at": _iso(now), "drained": [],
               "counts": {DONE: 0, DEFERRED: 0, FAILED: 0}}
@@ -393,7 +404,8 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
         claim = state.claim_next(worker_id, now=tick, kinds=kinds)
         if claim is None:
             break
-        entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch)
+        entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
+                           clock=(lambda: now) if pinned else dj_timezone.now)
         report["drained"].append(entry)
         report["counts"][entry["outcome"]] += 1
     report["finished_at"] = _iso(dj_timezone.now())
