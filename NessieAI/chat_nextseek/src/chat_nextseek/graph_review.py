@@ -361,6 +361,12 @@ def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def _name_words(cy: str) -> set[str]:
+    """The words inside the property names a query reads, split at case changes and digits (Treatment1Route)."""
+    return {p.lower() for name in re.findall(r"\b\w+\.(\w+)", cy)
+            for p in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", name)}
+
+
 def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
     """{(var, attr, term)} for every ``NOT ...var.attr...) CONTAINS term`` (or STARTS WITH): what the query leaves out."""
     out = set()
@@ -758,6 +764,7 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     in and offers the narrowed search (2026-09-25)."""
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
+    blob |= _name_words(t.cy)   # Treatment1Route -> treatment, 1, route
     by_spelling = t.catalog.holds_by_spelling()
     for _var, lab in t.vl.items():
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))

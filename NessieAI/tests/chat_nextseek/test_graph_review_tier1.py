@@ -88,9 +88,9 @@ class _Counting:
 
 
 def test_fixture_carries_the_labelled_set():
-    assert len(FIX) == 110
+    assert len(FIX) == 111
     assert sum(r["label"] == "SHOULD_FIRE" for r in FIX) == 11
-    assert sum(r["label"] == "SHOULD_STAY_QUIET" for r in FIX) == 99
+    assert sum(r["label"] == "SHOULD_STAY_QUIET" for r in FIX) == 100
 
 
 @pytest.mark.parametrize("r", [r for r in FIX if r["label"] == "SHOULD_FIRE"], ids=lambda r: r["id"])
@@ -186,6 +186,15 @@ def test_an_unapplied_value_offers_the_narrowed_search():
         "rerun": {"change": "keep only Sequence Alignment Analysis records whose DataType is 'RNA-Seq'."}}
     from chat_nextseek.helpers.suggestions import check_suggestion
     assert check_suggestion(rv.suggestion) is None                    # it passes every chip guardrail
+
+
+def test_a_word_inside_a_read_property_name_counts_as_applied():
+    """The word 'treatment' of the question is part of Treatment1Route..Treatment5Route, which the query reads; a
+    stored value spelled Treatment is not an unapplied filter (25 Sep run 2, task 1416)."""
+    rv = _review("g4-1416")
+    assert rv.verdict == "ok" and rv.disclosure is None and rv.suggestion is None
+    # the guard: a value no property name spells still fires on the same kind of turn
+    assert _review("r6-1225").verdict == "suggest"
 
 
 def test_the_narrowed_search_names_no_type_when_the_catalog_has_none():
