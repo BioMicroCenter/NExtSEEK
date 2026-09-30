@@ -45,6 +45,7 @@ largest module here and holds several concerns; read the part you need.
 | `cc_config.py` | `CCPaths` (the external volume and its mount point, read from env) and `CCMemoryConfig` |
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |
 | `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
+| `safe_fs.py` | every file operation Django makes in a folder an agent or the sidecar can write (`cc-state`, `scratch`, `_staging`): no link followed, no path trusted, and a root must be a registered mount root or a Django folder above one |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
 | `op_registry/` | the inventory of the plugin commands the agent may call (below) |
 

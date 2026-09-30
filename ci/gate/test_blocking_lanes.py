@@ -33,6 +33,13 @@ def test_the_sample_search_page_tests_block():
     assert "seek/tests/test_sample_search_page.py" in paths
 
 
+def test_the_agent_folder_tests_block():
+    assert "NessieAI/tests/cc/test_cc_agent_folders_*.py" in blocking_lanes.BLOCKING_GLOBS
+    paths = blocking_lanes.expand(ROOT)
+    assert "NessieAI/tests/cc/test_cc_agent_folders_every_folder.py" in paths
+    assert "NessieAI/tests/cc/test_cc_agent_folders_entrypoint.py" in paths
+
+
 def test_the_expansion_is_sorted_relative_test_modules():
     paths = blocking_lanes.expand(ROOT)
     assert paths == sorted(set(paths))

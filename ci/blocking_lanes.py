@@ -7,8 +7,9 @@ The rest of the application suite is informational: it is scored against
 ci/pytest-baseline.txt and never fails the job. The modules these globs expand
 to run a second time, in the workflow's "Blocking unit tests
 (ci/blocking_lanes.py)" step, where any failure fails it. A new test module joins by its name, with no
-edit here: the graph_sync and graph_search tests under nextseek_api/tests/, and
-the Sample Search page's view and JavaScript tests under seek/tests/.
+edit here: the graph_sync and graph_search tests under nextseek_api/tests/, the Sample
+Search page's view and JavaScript tests under seek/tests/, and the Container-CC
+agent-folder tests under NessieAI/tests/cc/.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
 passes the output to pytest as its paths, and pytest given no path walks the
@@ -34,6 +35,10 @@ BLOCKING_GLOBS = (
     # glob seek/tests/test_graph_search_*.py when the separate Graph Search page
     # was retired and its tests went with it.
     "seek/tests/test_sample_search_*.py",
+    # The Container-CC agent-folder tests: Django never follows a link in a folder an agent
+    # or the sidecar can write (NessieAI/cc/CLAUDE.md). The entrypoint module needs jq, which
+    # the workflow step checks for.
+    "NessieAI/tests/cc/test_cc_agent_folders_*.py",
 )
 
 
