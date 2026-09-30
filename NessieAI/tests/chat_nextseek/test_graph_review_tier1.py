@@ -458,6 +458,59 @@ def test_a_count_whose_term_also_matches_its_negation_fires():
     assert "expected_count" not in rv.suggestion
 
 
+_ETH_BASE = "MATCH (p:T_PAT) WHERE toLower(toString(p.Ethnicity)) CONTAINS toLower($e)"
+_ETH_QUESTION = "How many TCGA patients are Hispanic?"
+
+
+def _eth_review(tail, rows, params=None, catalog=ETHNICITY):
+    inp = ReviewInput(question=_ETH_QUESTION, cypher=_ETH_BASE + tail, parameters={"e": "hispanic", **(params or {})},
+                      keyword_fields={}, rows=rows, count=len(rows), total=len(rows), ok=True, error=None)
+    return review_tier1(inp, DictCatalog(catalog))
+
+
+def test_a_count_that_excludes_the_negation_stays_quiet():
+    # run 2 of the 25 Sep comparison: the query's own NOT ... CONTAINS 'not' already removes the negated value
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'not' RETURN count(DISTINCT p) AS n",
+                     [{"n": 401}])
+    assert [c.name for c in rv.checks if c.fired] == []
+    assert rv.disclosure is None
+    assert rv.suggestion is None
+
+
+@pytest.mark.parametrize("tail,params", [
+    (" AND NOT toLower(trim(toString(p.Ethnicity))) CONTAINS $x RETURN count(p) AS n", {"x": "not"}),
+    (" AND NOT (toLower(p.Ethnicity) CONTAINS 'not') RETURN count(p) AS n", {}),
+    (" AND NOT toLower(p.Ethnicity) STARTS WITH 'not' RETURN count(p) AS n", {}),
+])
+def test_an_exclusion_is_read_through_functions_parentheses_parameters_and_starts_with(tail, params):
+    rv = _eth_review(tail, [{"n": 401}], params)
+    assert [c.name for c in rv.checks if c.fired] == []
+
+
+def test_the_same_count_without_the_exclusion_still_fires():
+    rv = _eth_review(" RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_an_exclusion_of_another_word_still_fires():
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'unknown' RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_not_exists_is_not_read_as_an_exclusion():
+    rv = _eth_review(" AND NOT EXISTS { MATCH (p)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS 'not' }"
+                     " RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_the_exclusion_term_itself_never_fires_a_split():
+    third = {**ETHNICITY, "T_PAT.Ethnicity": [["not hispanic or latino", 8491], ["not reported", 2000],
+                                              ["hispanic or latino", 401]]}
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'not' RETURN count(DISTINCT p) AS n",
+                     [{"n": 401}], catalog=third)
+    assert [c.name for c in rv.checks if c.fired] == []
+
+
 def test_a_count_whose_term_matches_several_values_fires():
     rv = _count_review("How many TCGA alignments were made with STAR?",
                        "MATCH (a:T_A_ALN) WHERE toLower(a.Aligner) CONTAINS 'star' RETURN count(a) AS n",

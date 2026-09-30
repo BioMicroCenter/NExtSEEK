@@ -361,6 +361,17 @@ def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
+    """{(var, attr, term)} for every ``NOT ...var.attr...) CONTAINS term`` (or STARTS WITH): what the query leaves out."""
+    out = set()
+    for var, attr, tok in re.findall(r"\bNOT\s*\(?\s*(?:\w+\(\s*)*(\w+)\.(\w+)\s*\)*\s+(?:CONTAINS|STARTS\s+WITH)\s+"
+                                     + TERM, cy):
+        term = _resolve(tok, params)
+        if term:
+            out.add((var, attr, term.lower()))
+    return out
+
+
 def _equality_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     out = []
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s*=\s*" + TERM, cy):
@@ -447,6 +458,7 @@ class _Turn:
     cols: dict
     grouped: bool
     count_only: bool
+    neg: set = field(default_factory=set)
 
     def vals(self, label: str | None, attr: str) -> list[tuple[str, int]]:
         if not label:
@@ -476,7 +488,8 @@ def _prepare(inp: ReviewInput, catalog: _Memo) -> _Turn:
     rows = [r for r in (inp.rows or []) if isinstance(r, dict)]
     return _Turn(inp=inp, catalog=catalog, cy=cy, params=params, q=inp.question or "", rows=rows,
                  vl=_var_labels(cy), cf=_contains_filters(cy, params), eq=_equality_filters(cy, params),
-                 cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy))
+                 cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy),
+                 neg=_excluded_terms(cy, params))
 
 
 # A finding: what fired, the facts to disclose, and (for three checks) one concrete next query.
@@ -556,10 +569,14 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
     for var, attr, term in t.cf:
         if attr in ("search_text", "title"):  # free text; a partial title is the Tier 2 title gate's business
             continue
+        if (var, attr, term) in t.neg:        # an exclusion, not a match
+            continue
+        excluded = [x for v2, a2, x in t.neg if (v2, a2) == (var, attr)]
         lab = t.vl.get(var)
         stored = t.vals(lab, attr)
         names = [str(v) for v, _n in stored]
-        matched = [(str(v), n) for v, n in stored if term in str(v).lower()]
+        matched = [(str(v), n) for v, n in stored
+                   if term in str(v).lower() and not any(x in str(v).lower() for x in excluded)]
         alias = next((a for a, va in t.cols.items() if va == (var, attr)), None)
         counter = None
         if alias and t.rows and any(alias in r for r in t.rows):
