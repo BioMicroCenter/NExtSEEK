@@ -449,7 +449,7 @@ def test_stale_plaintext_is_replaced_even_when_the_scrub_is_length_neutral(tmp_p
     change and never overwrites it, so the plaintext is republished to every
     later agent forever.
     """
-    source = tmp_path / "state" / "sess-a.jsonl"
+    source = tmp_path / "state" / "projects" / "-home-user" / "sess-a.jsonl"
     source.parent.mkdir(parents=True)
     source.write_bytes(TRANSCRIPT10)
     staging = tmp_path / "staging"
@@ -477,7 +477,8 @@ def test_stale_unscrubbed_copy_is_replaced_when_the_source_changes_in_place(tmp_
     without necessarily changing its size, so this is the very same event seen
     from the ``scrub=None`` branch.
     """
-    source = tmp_path / "sess-a.jsonl"
+    source = tmp_path / "state" / "projects" / "-home-user" / "sess-a.jsonl"
+    source.parent.mkdir(parents=True)
     source.write_bytes(b'{"content":"AAAA"}\n')
     staging = tmp_path / "staging"
     cc_memory_io.stage_transcripts([_Meta("sess-a", source)], staging)

@@ -1188,6 +1188,30 @@ def _build_volumes(
     return mounts
 
 
+def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None:
+    """Put this turn's memory ``CLAUDE.md`` in the agent's ``~/.claude``, or remove last turn's.
+
+    ``cc_state_dir`` is the agent's own folder, so both go through ``safe_fs``: the new file is renamed over
+    whatever is at ``CLAUDE.md`` (a link included) and nothing is written through a link. On a turn with no
+    memory the old file is deleted, so a file the agent left at that name is never read as memory later.
+    """
+    if memory_claude_md:
+        source = Path(memory_claude_md)  # Django's own _memory/<session>/CLAUDE.md
+        data = safe_fs.read_file(source.parent, source.name)
+        safe_fs.write_file_atomic(cc_state_dir, _CONTAINER_MEMORY_CLAUDE_MD, data, mode=0o644)
+        return
+    dir_fd = safe_fs.open_dir(cc_state_dir)
+    try:
+        try:
+            os.unlink(_CONTAINER_MEMORY_CLAUDE_MD, dir_fd=dir_fd)
+        except FileNotFoundError:
+            pass
+        except IsADirectoryError:
+            shutil.rmtree(_CONTAINER_MEMORY_CLAUDE_MD, dir_fd=dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
 def _preflight_subpath_dirs(user_root_mount: str, mounts: list[dict]) -> None:
     """Fail closed BEFORE spawn if any mount's backing subpath dir is absent in
     the volume. The Engine's ``VolumeOptions.Subpath`` refuses to start a
@@ -1304,12 +1328,12 @@ def run_cc_turn(
         # subpath (mounts to /home/user/.claude) so it lands at
         # /home/user/.claude/CLAUDE.md and MERGES with the baked project
         # /home/user/CLAUDE.md. Replaces the dropped RO file bind; the agent may
-        # transiently overwrite it within a turn (re-copied next turn — accepted).
-        if memory_claude_md:
-            try:
-                shutil.copyfile(memory_claude_md, cc_state_dir / _CONTAINER_MEMORY_CLAUDE_MD)
-            except OSError:
-                logger.warning("cc-1c: failed to stage merged CLAUDE.md into cc-state")
+        # transiently overwrite it within a turn (replaced, or removed, next turn).
+        # Step 1: every turn, through safe_fs; on a turn with no memory, last turn's file goes.
+        try:
+            _stage_memory_file(cc_state_dir, memory_claude_md)
+        except OSError:
+            logger.warning("cc-1c: failed to stage merged CLAUDE.md into cc-state")
 
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)

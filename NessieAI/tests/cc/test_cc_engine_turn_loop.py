@@ -114,7 +114,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     def boom_copy(*a, **k):
         raise OSError("copy failed")
 
-    monkeypatch.setattr(cc_engine.shutil, "copyfile", boom_copy)
+    monkeypatch.setattr(cc_engine.safe_fs, "write_file_atomic", boom_copy)
 
     def boom_sweep(**kw):
         raise RuntimeError("sweep boom")

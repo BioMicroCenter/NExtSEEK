@@ -59,6 +59,7 @@ from NessieAI.cc.cc_turn_complete import (
 )
 from NessieAI.cc import cc_turn_complete
 from NessieAI.cc import cc_transcript_store
+from NessieAI.cc import safe_fs
 
 logger = logging.getLogger(__name__)
 
@@ -194,19 +195,23 @@ def _session_metas(user, current_id, paths, mem_cfg, project_dirname=None):
         if not session_project:
             continue
         dirs = build_user_dirs(paths, session_project, user.username, session_id=sid)
-        store = Path(dirs.cc_state_mnt) / "projects"
-        jsonls = sorted(store.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime,
-                        reverse=True) if store.is_dir() else []
+        # The session folder (registered by build_user_dirs) is the trusted root; projects/ is the
+        # agent's and is listed and read below it without following a link.
+        cc_state = Path(dirs.cc_state_mnt)
+        try:
+            newest = cc_engine._newest_jsonl_under(cc_state, (cc_engine._TRANSCRIPT_STORE_DIRNAME,))
+        except OSError:
+            newest = None
         # G7-10: transcript_path is the nextseek-container MOUNT path (under
         # user_root_mount, inside the dmac-cc-users volume) — no host bind exists
         # any more, so cc_sweep / the sync summarizer read it directly with no
         # mount->host translation.
-        transcript_mount_path = str(jsonls[0]) if jsonls else None
+        transcript_mount_path = str(newest) if newest else None
         prev_fp = es.get("summary_fingerprint")
         changed = False
-        if transcript_mount_path:
+        if newest:
             try:
-                raw = Path(transcript_mount_path).read_bytes()
+                raw = safe_fs.read_file(cc_state, newest.relative_to(cc_state))
                 changed = cc_summary.is_changed(prev_fp, cc_summary.fingerprint(raw))
             except OSError:
                 changed = False
@@ -245,9 +250,9 @@ def _summarize_sync_target(user, tgt, mem_cfg, scrub) -> bool:
     from django.utils import timezone
 
     try:
-        # G7-10: transcript_path is already the mount path inside the volume —
-        # read directly, no host translation.
-        raw = Path(tgt.transcript_path).read_bytes()
+        # G7-10: transcript_path is the mount path inside the volume. Read from its
+        # store down, never through a link: the store is another session's agent folder.
+        raw = cc_session.read_store_transcript(tgt.transcript_path)
         prov = cc_summary.SummaryProvenance(
             chat_session_id=tgt.session_id,
             claude_session_id=(tgt.summary or {}).get("claude_session_id"),

@@ -31,10 +31,9 @@ def select_sweep_targets(metas, now_ts: float, idle_seconds: int):
 
 def _run_sweep():
     """Django/Celery body — imported lazily so module import stays hermetic."""
-    from pathlib import Path
     from django.contrib.auth.models import User
     from django.utils import timezone
-    from NessieAI.cc import cc_summary, cc_config, cc_engine
+    from NessieAI.cc import cc_summary, cc_config, cc_engine, cc_session
     from NessieAI.router import router as cc_router
     from NessieAI.cc.turn import _session_metas, _persist_summary_standalone
 
@@ -49,9 +48,10 @@ def _run_sweep():
             if not tgt.transcript_path:
                 continue
             try:
-                # G7-10: transcript_path is already the mount path inside the
-                # dmac-cc-users volume — read it directly (no host translation).
-                raw = Path(tgt.transcript_path).read_bytes()
+                # G7-10: transcript_path is the mount path inside the dmac-cc-users
+                # volume. Read from its store down, never through a link (the store
+                # is an agent's folder).
+                raw = cc_session.read_store_transcript(tgt.transcript_path)
                 # #76: fail closed. These bytes go to a third-party summarizer
                 # and from there into the merged CLAUDE.md mounted into later
                 # agent containers. This task has no credential to scrub them
