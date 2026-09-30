@@ -626,7 +626,8 @@ def _mark_outbox_done(job_id: str, before) -> int:
             GraphSyncOutbox.objects.using(alias)
             .filter(kind="samples", key__startswith=f"batch:{job_id}:",
                     done_at__isnull=True, enqueued_at__lte=before)
-            .update(done_at=timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+            .update(done_at=timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None,
+                    failing_since=None)
         )
     except Exception:  # noqa: BLE001
         log.warning("GRAPH SYNC: could not close this job's outbox rows; the sync loop will redo them",

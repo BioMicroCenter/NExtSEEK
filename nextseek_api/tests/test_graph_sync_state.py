@@ -1001,3 +1001,20 @@ def test_a_failed_run_of_a_kind_the_sync_never_reruns_is_not_reported():
     state.start_run("merge_studies", trigger="command", now=T0).finish("failed", counts={"error": LOST}, now=T0)
 
     assert state.failed_runs(state.last_runs(), now=at(days=1)) == []
+
+
+@pytest.mark.django_db
+def test_a_batch_row_closed_by_the_orchestrator_is_not_failing_when_the_key_is_written_again():
+    """Stage 6 of a batch upload closes its rows itself (orchestrator._mark_outbox_done); that close must clear the
+    failure time too, or a later write to the same key reopens a row that looks like it has failed for days."""
+    from nextseek_api.batch_upload import orchestrator
+
+    key = "batch:job7:0"
+    state.enqueue("samples", key, [7], now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 3600, now=at(seconds=2))
+    assert orchestrator._mark_outbox_done("job7", at(minutes=1)) == 1
+    assert row("samples", key).failing_since is None
+
+    state.enqueue("samples", key, [7], now=at(days=3))
+
+    assert state.failing_rows(now=at(days=3, seconds=5))["total"] == 0

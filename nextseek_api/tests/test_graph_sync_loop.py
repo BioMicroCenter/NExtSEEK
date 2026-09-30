@@ -675,3 +675,27 @@ def test_the_worker_id_names_the_loop_and_fits_its_column():
     assert first.startswith(f"{loop.TRIGGER}:") and len(first) <= state.WORKER_CHARS
     # A nonce, so two loops restarted into the same pid on the same host are two workers, never one.
     assert first != second
+
+
+@pytest.mark.django_db
+def test_a_row_written_during_a_long_child_fails_at_the_time_it_failed_not_at_the_pass_start(work, monkeypatch):
+    # With no ``now`` given, each claim and its outcome use the clock as it is then. A row a write enqueued while a 2 h
+    # child ran must not get a failing_since from before it was written (it would be overdue after one failure).
+    clock = [T0]
+    during = T0 + timedelta(hours=2)
+    monkeypatch.setattr(loop.dj_timezone, "now", lambda: clock[0])
+
+    def launch(argv, timeout_s):
+        if argv[3] == "--reconcile":
+            clock[0] = during
+            state.enqueue("samples_of_type", "type:3", now=during)
+        return 0
+
+    work.of_type = RuntimeError("OperationalError: (2006, 'Server has gone away')")
+
+    loop.run_pass(DRIVER, DB, "w1", opts=work.opts, launch=launch)
+
+    r = row("samples_of_type", "type:3")
+    assert r.attempts == 1
+    assert r.failing_since == during
+    assert r.lease_expires_at == during + timedelta(seconds=state.backoff_s("samples_of_type"))

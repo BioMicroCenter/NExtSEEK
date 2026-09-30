@@ -368,6 +368,7 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
     ``launch`` runs one child (``launch_child`` by default) and answers its exit status, or None for a timeout.
     """
     opts = opts or Options()
+    pinned = now is not None
     now = now or dj_timezone.now()
     launch = launch or launch_child
     report = {"worker_id": worker_id, "started_at": _iso(now), "drained": [],
@@ -386,10 +387,13 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
 
     kinds = None if at_version else list(READ_ONLY_KINDS)
     for _ in range(MAX_ROWS_PER_PASS):
-        claim = state.claim_next(worker_id, now=now, kinds=kinds)
+        # A child can run for hours, so a caller that pinned no time gets the clock as it is at each claim: a row a
+        # write enqueued meanwhile must not be stamped (claim, failure time, back-off) with the pass's start.
+        tick = now if pinned else dj_timezone.now()
+        claim = state.claim_next(worker_id, now=tick, kinds=kinds)
         if claim is None:
             break
-        entry = _drain_one(driver, db, claim, opts, now=now, launch=launch)
+        entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch)
         report["drained"].append(entry)
         report["counts"][entry["outcome"]] += 1
     report["finished_at"] = _iso(dj_timezone.now())
