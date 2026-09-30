@@ -188,6 +188,98 @@ def test_an_unapplied_value_offers_the_narrowed_search():
     assert check_suggestion(rv.suggestion) is None                    # it passes every chip guardrail
 
 
+# 25 Sep run 2, task 1416, kept out of the shared replay fixture (the query-scope replay fixture must cover exactly
+# that one's turns). Only the stored value 'Treatment' is real (dev box measurement); the other values are made up.
+G4_1416 = {
+    "question": "Which patient visits had a treatment given intravenously?",
+    "cypher": "MATCH (s:T_PAV)\nWHERE any(v IN [s.Treatment1Route, s.Treatment2Route, s.Treatment3Route, s.Treatment4Route, s.Treatment5Route] WHERE v IS NOT NULL AND (toLower(toString(v)) CONTAINS $intravenous OR toLower(trim(toString(v))) IN $iv_codes))\nRETURN s.id AS id, s.uuid AS uuid, s.type AS type, s.Treatment1Route AS Treatment1Route, s.Treatment2Route AS Treatment2Route, s.Treatment3Route AS Treatment3Route, s.Treatment4Route AS Treatment4Route, s.Treatment5Route AS Treatment5Route\nORDER BY id\nLIMIT 5000",
+    "parameters": {
+        "iv_codes": [
+            "iv",
+            "i.v.",
+            "i.v"
+        ],
+        "intravenous": "intravenous"
+    },
+    "keyword_fields": {
+        "treatment": [
+            "Treatment1Route",
+            "Treatment2Route",
+            "Treatment3Route",
+            "Treatment4Route",
+            "Treatment5Route"
+        ],
+        "intravenous": [
+            "Treatment1Route",
+            "Treatment2Route",
+            "Treatment3Route",
+            "Treatment4Route",
+            "Treatment5Route"
+        ]
+    },
+    "columns": [
+        "id"
+    ],
+    "rows": [
+        [
+            101
+        ],
+        [
+            102
+        ],
+        [
+            103
+        ]
+    ],
+    "count": 5000,
+    "total": 5342,
+    "ok": True,
+    "reply_head": "There are 5,342 patient visits with an intravenous route; the first 5,000 are in the attached list.",
+    "catalog": {
+        "T_PAV.@name": [
+            [
+                "Patient Visit",
+                25000
+            ]
+        ],
+        "T_PAV.*": [
+            [
+                "Treatment1Type",
+                8
+            ],
+            [
+                "Treatment1Route",
+                5
+            ]
+        ],
+        "T_PAV.Treatment1Type": [
+            [
+                "Treatment",
+                25
+            ],
+            [
+                "Chemotherapy",
+                10500
+            ],
+            [
+                "Surgery, NOS",
+                6862
+            ]
+        ]
+    }
+}
+
+
+def test_a_word_inside_a_read_property_name_counts_as_applied():
+    """The word 'treatment' of the question is part of Treatment1Route..Treatment5Route, which the query reads; a
+    stored value spelled Treatment is not an unapplied filter."""
+    for reply in (True, False):
+        rv = review_tier1(_inp(G4_1416, reply=reply), _catalog(G4_1416))
+        assert rv.verdict == "ok" and rv.disclosure is None and rv.suggestion is None
+    # the guard: a value no property name spells still fires on the same kind of turn
+    assert _review("r6-1225").verdict == "suggest"
+
+
 def test_the_narrowed_search_names_no_type_when_the_catalog_has_none():
     r = _rec("r6-1225")
     block = {k: v for k, v in r["catalog"].items() if not k.endswith(".@name")}
@@ -456,6 +548,59 @@ def test_a_count_whose_term_also_matches_its_negation_fires():
     assert rv.suggestion["label"] == "Only hispanic or latino"
     assert rv.suggestion["query"] == "How many TCGA patients are hispanic or latino?"
     assert "expected_count" not in rv.suggestion
+
+
+_ETH_BASE = "MATCH (p:T_PAT) WHERE toLower(toString(p.Ethnicity)) CONTAINS toLower($e)"
+_ETH_QUESTION = "How many TCGA patients are Hispanic?"
+
+
+def _eth_review(tail, rows, params=None, catalog=ETHNICITY):
+    inp = ReviewInput(question=_ETH_QUESTION, cypher=_ETH_BASE + tail, parameters={"e": "hispanic", **(params or {})},
+                      keyword_fields={}, rows=rows, count=len(rows), total=len(rows), ok=True, error=None)
+    return review_tier1(inp, DictCatalog(catalog))
+
+
+def test_a_count_that_excludes_the_negation_stays_quiet():
+    # run 2 of the 25 Sep comparison: the query's own NOT ... CONTAINS 'not' already removes the negated value
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'not' RETURN count(DISTINCT p) AS n",
+                     [{"n": 401}])
+    assert [c.name for c in rv.checks if c.fired] == []
+    assert rv.disclosure is None
+    assert rv.suggestion is None
+
+
+@pytest.mark.parametrize("tail,params", [
+    (" AND NOT toLower(trim(toString(p.Ethnicity))) CONTAINS $x RETURN count(p) AS n", {"x": "not"}),
+    (" AND NOT (toLower(p.Ethnicity) CONTAINS 'not') RETURN count(p) AS n", {}),
+    (" AND NOT toLower(p.Ethnicity) STARTS WITH 'not' RETURN count(p) AS n", {}),
+])
+def test_an_exclusion_is_read_through_functions_parentheses_parameters_and_starts_with(tail, params):
+    rv = _eth_review(tail, [{"n": 401}], params)
+    assert [c.name for c in rv.checks if c.fired] == []
+
+
+def test_the_same_count_without_the_exclusion_still_fires():
+    rv = _eth_review(" RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_an_exclusion_of_another_word_still_fires():
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'unknown' RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_not_exists_is_not_read_as_an_exclusion():
+    rv = _eth_review(" AND NOT EXISTS { MATCH (p)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS 'not' }"
+                     " RETURN count(p) AS n", [{"n": 8892}])
+    assert [c.name for c in rv.checks if c.fired] == ["negated_value"]
+
+
+def test_the_exclusion_term_itself_never_fires_a_split():
+    third = {**ETHNICITY, "T_PAT.Ethnicity": [["not hispanic or latino", 8491], ["not reported", 2000],
+                                              ["hispanic or latino", 401]]}
+    rv = _eth_review(" AND NOT toLower(toString(p.Ethnicity)) CONTAINS 'not' RETURN count(DISTINCT p) AS n",
+                     [{"n": 401}], catalog=third)
+    assert [c.name for c in rv.checks if c.fired] == []
 
 
 def test_a_count_whose_term_matches_several_values_fires():

@@ -645,6 +645,44 @@ DEV_1276 = ("MATCH (p:T_PAT)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Inv
             "(rna:T_RNA)-[:DERIVED_FROM*1..12]->(p:T_PAT) } RETURN count(DISTINCT p) AS n")
 
 
+# ----------------------------------- the free-text detail, and a conjunct with more than one EXISTS (25 Sep, tcga) ----
+FREE_TEXT_DETAIL = "question names T_A_ALN.DataType='RNA-Seq', Cypher applies it only as free text"
+FREE_TEXT_CATALOG = {"T_A_ALN.*": [["DataType", 5]], "T_A_ALN.@name": [["Sequence Alignment Analysis", 91323]],
+                     "T_A_ALN.DataType": [["RNA-Seq", 33227], ["WGS", 23723], ["miRNA-Seq", 11441]],
+                     "T_PAT.@name": [["Patient", 12108]]}
+ONE_BLOCK_OR = (
+    "MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+    "  WHERE inv.title = $investigation_title\n}\nAND EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
+    "  WHERE EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS 'rna-seq'\n}\n"
+    "RETURN count(s) AS n")
+TWO_BLOCKS_OR = (
+    "MATCH (p:T_PAT)\nWHERE EXISTS { MATCH (p)-[:IN_STUDY]->(:Study) WHERE $investigation = 'TCGA' }\n"
+    "AND (\n  EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(:T_RNA)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n  }\n"
+    "  OR EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n    WHERE toLower(aln.search_text) CONTAINS $rnaseq\n"
+    "  }\n)\nRETURN count(p) AS n")
+
+
+def test_the_free_text_detail_builds_the_click_statement_inside_the_one_exists():
+    inp = _inp(ONE_BLOCK_OR, {"investigation_title": "TCGA"}, rows=[{"n": 10761}],
+               question="How many TCGA patients have at least one RNA-Seq alignment derived from their samples?")
+    review = review_tier1(inp, DictCatalog(FREE_TEXT_CATALOG))
+    assert [c.detail for c in review.checks if c.fired] == [FREE_TEXT_DETAIL]
+    statement, params = g2.rerun_statement(inp, review)
+    assert ("WHERE (EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS "
+            "'rna-seq') AND aln.DataType = $review_value") in statement
+    assert params == {"investigation_title": "TCGA", "review_value": "RNA-Seq"}
+    assert statement.count("{") == statement.count("}")
+
+
+@pytest.mark.parametrize("detail", [FREE_TEXT_DETAIL, ALN_DETAIL])
+def test_a_conjunct_with_two_exists_blocks_gets_no_statement(detail):
+    """``EXISTS {..} OR EXISTS {..}`` is not one block: the old reader swallowed it and edited only one branch."""
+    inp = _inp(TWO_BLOCKS_OR, {"rnaseq": "rna-seq", "investigation": "TCGA"})
+    review = _review(("unapplied_value", detail), suggestion=dict(NARROW))
+    assert g2.rerun_statement(inp, review) is None
+    assert [e for e, _c, _p in g2.relaxed_variants(inp, review) if e.startswith("unapplied_value")] == []
+
+
 def test_a_variable_bound_only_inside_exists_gets_the_split_hoisted_out_of_it():
     """r6-1225: aln is bound only inside EXISTS {}, so grouping by it after the subquery would be invalid Cypher (the
     prover refuses it for a member: "the name aln is not bound here"). The operator's ruling (2026-09-25) wants the
@@ -951,11 +989,33 @@ def test_the_base_count_and_the_breakdown_are_disclosed(monkeypatch):
     assert out.suggestion is None
 
 
-def test_a_breakdown_of_one_value_is_not_disclosed(monkeypatch):
+def test_a_breakdown_of_one_value_withdraws_the_finding(monkeypatch):
+    """25 Sep run 2, task 1412: one distinct Organ value in the 1,057 matched rows, so the chip would return the
+    same 1,057: the caveat and the chip go, the second look stays recorded."""
     _counting(monkeypatch, [1])
-    rv = _review(("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
+    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
+                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
     out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
-    assert out.disclosure == "d" and out.variants[0]["total"] == 1
+    assert out.variants[0]["total"] == 1
+    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
+    assert [c.name for c in out.checks if c.fired] == []
+
+
+def test_a_breakdown_of_two_values_keeps_the_finding(monkeypatch):
+    _counting(monkeypatch, [2])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
+                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
+    assert out.verdict == "suggest" and out.suggestion == NARROW
+    assert [c.name for c in out.checks if c.fired] == ["unapplied_value"]
+
+
+def test_a_one_value_breakdown_keeps_a_finding_that_has_another_check_beside_it(monkeypatch):
+    _counting(monkeypatch, [1])
+    rv = _review(("stem_miss", "misses ['tif']"),
+                 ("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
+    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
+    assert out.verdict == "suggest" and [c.name for c in out.checks if c.fired] == ["stem_miss", "unapplied_value"]
 
 
 def test_a_refused_variant_is_recorded_and_counts_against_the_cap(monkeypatch):
@@ -1052,11 +1112,19 @@ def test_the_fallback_counts_against_the_cap(monkeypatch):
     assert counts == [] and len(out.variants) == 1
 
 
-def test_a_split_of_one_value_names_nothing_but_still_gives_the_count(monkeypatch):
+def test_a_split_that_holds_only_the_named_value_withdraws_the_finding(monkeypatch):
     _rows(monkeypatch, [[{"value": "RNA-Seq", "n": 10761}]])
     rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
     out = g2.run_tier2(object(), _r6(), rv)
-    assert out.disclosure == TIER1_FACT and out.suggestion["expected_count"] == 10761
+    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
+    assert out.variants[0]["edit"] == "unapplied_value: split by DataType"
+
+
+def test_a_split_that_holds_only_another_value_keeps_the_finding_and_the_count(monkeypatch):
+    _rows(monkeypatch, [[{"value": "miRNA-Seq", "n": 10761}]])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv)
+    assert out.verdict == "suggest" and out.disclosure == TIER1_FACT
 
 
 def test_the_old_distinct_count_breakdown_never_sets_an_expected_count(monkeypatch):
