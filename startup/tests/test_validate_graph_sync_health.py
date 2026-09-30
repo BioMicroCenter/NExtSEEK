@@ -430,3 +430,6 @@ def test_a_stack_that_is_down_is_not_asked(repo, monkeypatch, stack):
 
     assert result.exit_code == 1
     assert stack.health == []
+    compact = "".join(result.output.split())
+    assert "Norollbackisneeded" not in compact
+    assert "DEPLOYMENT.mdsection5" in compact

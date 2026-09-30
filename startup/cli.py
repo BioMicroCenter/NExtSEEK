@@ -873,8 +873,13 @@ def rebuild(
             ("graph drift", graph_drift is not None and not graph_drift.ok),
             ("graph sync health", graph_sync_health is not None and not graph_sync_health.ok),
         ) if bad]
-        ui.fail(f"Rebuild finished but is red: {', '.join(red)}. No rollback is needed: the build and "
-                "restart succeeded, only the health judgement is red.")
+        if health.testable:
+            ending = ("No rollback is needed: the build and restart succeeded, only the health "
+                      "judgement is red.")
+        else:
+            # The app or the front door is not up: a rollback may be what is needed.
+            ending = "The app or front door is not up; see DEPLOYMENT.md section 5 (Rollback)."
+        ui.fail(f"Rebuild finished but is red: {', '.join(red)}. {ending}")
         raise typer.Exit(code=1)
 
 
@@ -1100,8 +1105,9 @@ def ci(
         raise typer.Exit(code=1)
 
     # Step 1b: does the graph still equal MySQL (CI-4)? Printed and recorded here
-    # and no more than that. `rebuild` is the command that exits red on drift;
-    # `ci` exits red on the graph sync health line below, not on this one.
+    # and no more than that: this line itself never fails `ci`. `rebuild` is the command that exits red on it.
+    # But on local and dev this run records itself as the latest drift run, and the graph sync health line
+    # below (step 1c) fails `ci` on a latest drift run that found drift.
     graph_drift = _graph_drift(state)
     if graph_drift is not None:
         _print_health_results([graph_drift])
