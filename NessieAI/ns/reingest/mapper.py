@@ -21,6 +21,10 @@ ORIGIN_MAP = "map"
 ORIGIN_APPROVED = "approved"
 ORIGIN_PROPOSED = "proposed"
 ORIGIN_PARKED = "parked"
+# A value a curator supplied in chat (a fill), a file they picked among
+# ambiguous candidates (a choose), or an uncovered key they placed for this
+# run only (a place). See NessieAI/ns/reingest/answers.py.
+ORIGIN_CURATOR = "curator"
 
 # A sample whose UID resolved this way cannot carry a QC backfill row.
 _NO_BACKFILL = {
@@ -94,6 +98,9 @@ class MappedAttribute(BaseModel):
     # candidate, or a checksum uniquely picked the winner: an ordinary,
     # non-ambiguous pick is not something to flag.
     candidates: list[str] = Field(default_factory=list)
+    # Who answered, and when, for an ORIGIN_CURATOR cell; empty otherwise.
+    # Rendered as the Provenance sheet's "Answered by" column.
+    answered_by: str = ""
 
 
 class MappedRow(BaseModel):
