@@ -73,16 +73,17 @@ def steps(monkeypatch):
     rec = SimpleNamespace(calls=[], detection=_detection(), naming=[],
                           catalog=None, small=None, relabel=None, sync=None, retire=None, study_links=None)
 
-    def catalog_sync(driver, db, dry_run=False, *, record=True, trigger="command", **kwargs):
-        rec.calls.append(SimpleNamespace(name="catalog", dry_run=dry_run, record=record, trigger=trigger))
+    def catalog_sync(driver, db, dry_run=False, *, record=True, trigger="command", run_dir=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="catalog", dry_run=dry_run, record=record, trigger=trigger,
+                                         run_dir=run_dir))
         return _answer(rec.catalog, {"mode": "catalog", "status": "ok", "sample_types": 3})
 
     def build_catalog():
         rec.calls.append(SimpleNamespace(name="build_catalog"))
         return CAT
 
-    def sync_small_tables(driver, db, **kwargs):
-        rec.calls.append(SimpleNamespace(name="small_tables"))
+    def sync_small_tables(driver, db, *, run_dir=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="small_tables", run_dir=run_dir))
         return _answer(rec.small, {"status": "ok", "projects_written": 2})
 
     def relabel_for_maps(driver, db, *, apply_label_changes=False, **kwargs):
@@ -285,6 +286,12 @@ def test_no_old_row_names_a_new_uuid_so_nothing_more_is_synced(steps, tmp_path):
     assert [c.ids for c in steps.calls if c.name == "sync_samples"] == [[11]]
     assert result["new_parent_pass"]["to_sync"] == 0
     assert "new_parents" not in result["steps"]
+
+
+def test_the_catalog_and_small_tables_steps_archive_into_the_run_directory(steps, tmp_path):
+    run_dir = str(tmp_path / "nightly")
+    _reconcile(tmp_path, run_dir=run_dir)
+    assert _one(steps, "catalog").run_dir == _one(steps, "small_tables").run_dir == os.path.abspath(run_dir)
 
 
 # --- the study_links step (the studies release) ------------------------------------------------------------------

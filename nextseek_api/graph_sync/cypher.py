@@ -143,11 +143,33 @@ RETURN count(*) AS deleted
 
 # --- the catalog ---------------------------------------------------------------------------------
 
+# A SampleType holding a MySQL title under another id. A node whose id SEEK no longer has and that no Sample reaches is
+# not a conflict: the catalog step deletes it first (SAMPLE_TYPES_GONE), so a type deleted and recreated in SEEK under
+# the same title passes. $ids are every MySQL sample type id.
 SAMPLE_TYPE_TITLE_CONFLICTS = """
 UNWIND $rows AS r
 MATCH (t:SampleType {title: r.title})
-WHERE t.id IS NOT NULL AND t.id <> r.id
+WHERE t.id IS NOT NULL AND t.id <> r.id AND (t.id IN $ids OR EXISTS { (t)<-[:OF_TYPE]-(:Sample) })
 RETURN t.title AS title, t.id AS graph_id, r.id AS mysql_id
+"""
+# The SampleType nodes whose id SEEK no longer has and that no Sample reaches, with what their archive records.
+SAMPLE_TYPES_GONE = """
+MATCH (t:SampleType) WHERE t.id IS NOT NULL AND NOT t.id IN $ids AND NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }
+RETURN elementId(t) AS element_id, t.id AS id, t.title AS title, t.label AS label,
+       [(t)-[:HAS_ATTRIBUTE]->(a:Attribute) | a.key] AS attribute_keys
+ORDER BY id
+"""
+# Delete those types and their Attribute nodes, only while still no Sample reaches them.
+DELETE_SAMPLE_TYPES = """
+CYPHER 25
+UNWIND $element_ids AS eid
+MATCH (t:SampleType) WHERE elementId(t) = eid AND NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }
+CALL (t) {
+  MATCH (t)-[:HAS_ATTRIBUTE]->(a:Attribute)
+  DETACH DELETE a
+}
+DETACH DELETE t
+RETURN count(*) AS deleted
 """
 BACKFILL_SAMPLE_TYPE_ID = """
 UNWIND $rows AS r
@@ -238,6 +260,21 @@ MERGE (i:Investigation {id: r.id})
 SET i.title = r.title, i.description = r.description, i.project_id = r.project_id
 """
 DELETE_INVESTIGATION_IN_PROJECT = "MATCH (:Investigation)-[e:IN_PROJECT]->(:Project) DELETE e"
+# Investigation nodes whose id SEEK no longer has: those no Study holds, with what their archive records, are deleted;
+# the others are counted (a Study node is never deleted here, so its Investigation stays).
+INVESTIGATIONS_GONE = """
+MATCH (i:Investigation) WHERE i.id IS NOT NULL AND NOT i.id IN $ids
+RETURN elementId(i) AS element_id, i.id AS id, i.title AS title,
+       [(i)-[:IN_PROJECT]->(p:Project) | p.id] AS project_ids,
+       EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) } AS held
+ORDER BY id
+"""
+DELETE_INVESTIGATIONS = """
+UNWIND $element_ids AS eid
+MATCH (i:Investigation) WHERE elementId(i) = eid AND NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) }
+DETACH DELETE i
+RETURN count(*) AS deleted
+"""
 MERGE_INVESTIGATION_IN_PROJECT = """
 UNWIND $rows AS r
 MATCH (i:Investigation {id: r.investigation_id})

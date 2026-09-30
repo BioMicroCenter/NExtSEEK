@@ -163,13 +163,14 @@ class WriterRecorder:
             "archive_and_drop_child_of": lambda d, db, path, declared: {
                 "child_of_pairs": 0, "child_of_undeclared": 0, "child_of_deleted": 0, "archive_path": None},
             "ensure_constraints_v11": lambda d, db: {"schema_statements": 14},
-            "write_sample_types": lambda d, db, rows: {"sample_types_written": len(rows),
+            "write_sample_types": lambda d, db, rows, archive_path=None: {"sample_types_written": len(rows),
                                                        "graph_only_sample_types": []},
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows),
                                                                  "memberships_dropped": 0},
-            "write_investigation_projects": lambda d, db, invs, links: {"investigations_written": len(invs)},
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+                "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "write_missing_lineage": lambda d, db, pairs, chunk=10_000: {
                 "lineage_pairs": len(pairs), "lineage_created": len(pairs), "lineage_dropped": 0},

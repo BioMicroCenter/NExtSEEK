@@ -634,19 +634,21 @@ def relabel_for_maps(driver, db, *, apply_label_changes: bool = False, lock_time
 
 # --- sync_small_tables ---------------------------------------------------------------------------
 
-def _small_tables(driver, db) -> dict:
+def _small_tables(driver, db, ctx: _Context) -> dict:
     report = {"status": OK}
     report.update(writer.write_projects(driver, db, sources.projects()))
     report.update(writer.write_investigation_projects(driver, db, sources.investigations(),
-                                                      sources.investigation_projects()))
+                                                      sources.investigation_projects(),
+                                                      archive_path=ctx.archive(writer.INVESTIGATIONS_DELETED_FILE)))
     report.update(writer.write_people_and_memberships(driver, db, sources.memberships()))
     # Every SEEK study gets its node, with no sample yet included; the Investigation nodes were written just above.
     report.update(writer.write_seek_study_nodes(driver, db, sources.studies()))
     return report
 
 
-def sync_small_tables(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S) -> dict:
+def sync_small_tables(driver, db, *, lock_timeout_s: float = LOCK_WAIT_S, run_dir: str | None = None) -> dict:
     """Rewrite the small tables from MySQL: Project nodes (a project gone from MySQL is deleted), Investigation nodes
     and their IN_PROJECT, Person nodes and MEMBER_OF, and the node of every SEEK study (made when missing) with SEEK's
     title, description and investigation. Tens to hundreds of rows each, so every call rewrites them whole."""
-    return _guarded(driver, db, lock_timeout_s, lambda: _small_tables(driver, db))
+    ctx = _Context(run_dir)
+    return _guarded(driver, db, lock_timeout_s, lambda: _small_tables(driver, db, ctx))

@@ -56,6 +56,10 @@ CHILD_OF_DELETE_BATCH = 50_000
 DERIVED_FROM_DELETE_BATCH = 10_000
 DERIVED_FROM_ARCHIVE_HEADER = "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n"
 RETIRED_ARCHIVE_HEADER = "id\tuuid\ttype\tincident_edges\n"
+SAMPLE_TYPES_DELETED_FILE = "sample_types_deleted.tsv"
+SAMPLE_TYPES_ARCHIVE_HEADER = "id\ttitle\tlabel\tattribute_keys\n"
+INVESTIGATIONS_DELETED_FILE = "investigations_deleted.tsv"
+INVESTIGATIONS_ARCHIVE_HEADER = "id\ttitle\tproject_ids\n"
 IN_STUDY_ARCHIVE_HEADER = "sample_id\tseek_study_id\tstudy_id\tedge_element_id\tpath\n"
 # replace_seek_in_study's counts, always all present.
 IN_STUDY_COUNTS = ("in_study_rows", "in_study_added", "in_study_removed", "in_study_stale",
@@ -388,29 +392,44 @@ def await_indexes(driver, db, timeout_s: float = 3600, poll_s: float = 5) -> dic
 
 # --- the catalog ---------------------------------------------------------------------------------
 
-def write_sample_types(driver, db, rows: list[dict]) -> dict:
+def write_sample_types(driver, db, rows: list[dict], *, archive_path: str | None = None) -> dict:
     """MERGE every SampleType on ``id`` and replace its property map with the row (``catalog.build_sample_types``).
 
     An id-less node from v1.0 first takes the id of the type with its title. A node that holds a title under a
-    different id raises ValueError before anything is written. SampleType nodes left without a MySQL id are
-    reported, not deleted. ``sample_count`` and ``attribute_count`` are wiped by the replace: write them afterwards
-    with ``write_sample_type_counts``.
+    different id raises ValueError before anything is written, unless SEEK no longer has its id and no Sample reaches
+    it: with ``archive_path`` every such node (and its Attribute nodes) is appended to that archive, flushed, and
+    deleted before the write, so a type deleted and recreated in SEEK under its old title is written. A node left
+    without a MySQL id that still holds samples is reported, not deleted (the samples' own retire path handles them).
+    ``sample_count`` and ``attribute_count`` are wiped by the replace: write them afterwards with
+    ``write_sample_type_counts``.
     """
     rows = list(rows)
     keys = [{"id": int(r["id"]), "title": r["title"]} for r in rows]
-    conflicts = _records(_run(driver, db, q.SAMPLE_TYPE_TITLE_CONFLICTS, {"rows": keys}, read=True))
+    ids = [k["id"] for k in keys]
+    conflicts = _records(_run(driver, db, q.SAMPLE_TYPE_TITLE_CONFLICTS, {"rows": keys, "ids": ids}, read=True))
     if conflicts:
         detail = "; ".join(f"{c['title']!r} is id {c['graph_id']} in the graph, {c['mysql_id']} in MySQL"
                            for c in conflicts)
         raise ValueError(f"SampleType titles are held under other ids: {detail}")
+    deleted = 0
+    if archive_path:
+        gone = _records(_run(driver, db, q.SAMPLE_TYPES_GONE, {"ids": ids}, read=True))
+        if gone:
+            _append_rows(archive_path, SAMPLE_TYPES_ARCHIVE_HEADER,
+                         ["\t".join(_tsv_field(v) for v in (g["id"], g["title"], g["label"],
+                                                             ",".join(sorted(g["attribute_keys"] or []))))
+                          + "\n" for g in gone])
+            deleted = _one(_run(driver, db, q.DELETE_SAMPLE_TYPES,
+                                {"element_ids": [g["element_id"] for g in gone]}), "deleted")
     _run(driver, db, q.BACKFILL_SAMPLE_TYPE_ID, {"rows": keys})
     for batch in _batches(rows, SAMPLE_CHUNK):
         _run(driver, db, q.MERGE_SAMPLE_TYPES, {"rows": batch})
     leftover = _records(_run(driver, db, q.SAMPLE_TYPES_NOT_IN, {"ids": [k["id"] for k in keys]}, read=True))
     graph_only = sorted((r["title"] for r in leftover), key=str)
     if graph_only:
-        log.warning("SampleType nodes with no MySQL sample type: %s", graph_only)
-    return {"sample_types_written": len(rows), "graph_only_sample_types": graph_only}
+        log.warning("SampleType nodes with no MySQL sample type that still hold samples: %s", graph_only)
+    return {"sample_types_written": len(rows), "graph_only_sample_types": graph_only,
+            "sample_types_deleted": deleted}
 
 
 def write_attributes(driver, db, rows: list[dict]) -> dict:
@@ -493,12 +512,31 @@ def write_people_and_memberships(driver, db, rows: list[dict]) -> dict:
     return {"people_written": len(ids), "memberships_written": linked, "memberships_dropped": len(rows) - linked}
 
 
-def write_investigation_projects(driver, db, investigations: list[dict], links: list[dict]) -> dict:
+def write_investigation_projects(driver, db, investigations: list[dict], links: list[dict], *,
+                                 archive_path: str | None = None) -> dict:
     """MERGE every SEEK Investigation on ``id`` and replace every ``(:Investigation)-[:IN_PROJECT]->(:Project)``.
 
     ``Investigation.project_id`` (read by ``services/sampletype_connections.py``) is the investigation's lowest linked
-    project id, and absent when it has none.
+    project id, and absent when it has none. With ``archive_path`` an Investigation node whose id SEEK no longer has
+    and that no Study holds is appended to that archive (id, title, project ids), flushed, and deleted; one a Study
+    still holds is kept and counted in ``investigations_not_in_seek_held``. An empty ``investigations`` with nodes to
+    delete raises ValueError before anything is written, as ``write_projects`` refuses an empty project list.
     """
+    deleted = held = 0
+    if archive_path:
+        ids = sorted({int(i["id"]) for i in investigations})
+        gone = _records(_run(driver, db, q.INVESTIGATIONS_GONE, {"ids": ids}, read=True))
+        deletable = [g for g in gone if not g["held"]]
+        held = len(gone) - len(deletable)
+        if deletable and not ids:
+            raise ValueError("no Investigation rows; refusing to delete every Investigation")
+        if deletable:
+            _append_rows(archive_path, INVESTIGATIONS_ARCHIVE_HEADER,
+                         ["\t".join(_tsv_field(v) for v in (g["id"], g["title"],
+                                                             ",".join(str(p) for p in sorted(g["project_ids"] or []))))
+                          + "\n" for g in deletable])
+            deleted = _one(_run(driver, db, q.DELETE_INVESTIGATIONS,
+                                {"element_ids": [g["element_id"] for g in deletable]}), "deleted")
     project_of: dict[int, int] = {}
     link_rows, seen = [], set()
     for link in links:
@@ -517,7 +555,8 @@ def write_investigation_projects(driver, db, investigations: list[dict], links: 
     for batch in _batches(link_rows, REL_CHUNK):
         linked += _one(_run(driver, db, q.MERGE_INVESTIGATION_IN_PROJECT, {"rows": batch}), "linked")
     return {"investigations_written": len(rows), "investigation_links": linked,
-            "investigation_links_dropped": len(link_rows) - linked}
+            "investigation_links_dropped": len(link_rows) - linked, "investigations_deleted": deleted,
+            "investigations_not_in_seek_held": held}
 
 
 # --- samples, lineage, studies -------------------------------------------------------------------

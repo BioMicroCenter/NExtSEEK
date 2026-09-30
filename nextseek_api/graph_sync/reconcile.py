@@ -179,7 +179,8 @@ def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> bool:
     run there, as it does at every other step."""
     catalog_ok = False
     try:
-        catalog_ok = _step(report, "catalog", run.catalog_sync, driver, db, record=opts.record, trigger=opts.trigger)
+        catalog_ok = _step(report, "catalog", run.catalog_sync, driver, db, record=opts.record, trigger=opts.trigger,
+                           run_dir=opts.run_dir)
     except run.PreflightError as exc:
         # A busy lock stops the run as it does at every other step, not as a refusal of this graph.
         status = LOCK_TIMEOUT if isinstance(exc, run.LockTimeout) else REFUSED
@@ -191,7 +192,7 @@ def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> bool:
     if report.get("status") == LOCK_TIMEOUT:
         return False
     catalog_stop = {key: report[key] for key in ("status", "stopped_at") if key in report}
-    if not _step(report, "small_tables", targeted.sync_small_tables, driver, db):
+    if not _step(report, "small_tables", targeted.sync_small_tables, driver, db, run_dir=opts.run_dir):
         return False
     if not _step(report, "relabel", targeted.relabel_for_maps, driver, db,
                  apply_label_changes=opts.apply_label_changes):

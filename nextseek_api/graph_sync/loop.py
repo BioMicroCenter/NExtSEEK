@@ -248,11 +248,11 @@ def _apply(driver, db, claim, opts: Options, run_dir: str) -> dict:
     if kind == "retire":
         return targeted.retire_samples(driver, db, _ids_of(claim), run_dir=run_dir)
     if kind == "catalog":
-        return run.catalog_sync(driver, db, record=opts.record, trigger=opts.trigger)
+        return run.catalog_sync(driver, db, record=opts.record, trigger=opts.trigger, run_dir=run_dir)
     if kind in ("assay_map", "protocol_map"):
         return targeted.relabel_for_maps(driver, db, apply_label_changes=opts.apply_label_changes)
     if kind in ("isa", "membership"):
-        return targeted.sync_small_tables(driver, db)
+        return targeted.sync_small_tables(driver, db, run_dir=run_dir)
     raise ValueError(f"the drain has no entry point for outbox kind {kind!r}")
 
 

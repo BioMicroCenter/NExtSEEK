@@ -233,12 +233,13 @@ class Writers:
             "archive_and_drop_child_of": lambda d, db, path, declared: {
                 "child_of_pairs": 0, "child_of_undeclared": 0, "child_of_deleted": 0, "archive_path": None},
             "ensure_constraints_v11": lambda d, db: {"schema_statements": 14},
-            "write_sample_types": lambda d, db, rows: {"sample_types_written": len(rows),
+            "write_sample_types": lambda d, db, rows, archive_path=None: {"sample_types_written": len(rows),
                                                        "graph_only_sample_types": []},
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows)},
-            "write_investigation_projects": lambda d, db, invs, links: {"investigations_written": len(invs)},
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+                "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
                 "derived_from_between_samples": 0, "derived_from_undeclared": 0, "derived_from_deleted": 0,
@@ -645,6 +646,17 @@ def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(
 
     assert run.REKEY_STUDY not in graph.queries() and run.STUDIES_KEYED_BY_ID not in graph.queries()
     assert report["studies_rekeyed"] == 0
+
+
+def test_the_sample_types_and_investigations_steps_archive_what_they_delete_in_the_run_directory(world, monkeypatch,
+                                                                                               tmp_path, lock):
+    graph = Graph()
+    writers = Writers(monkeypatch, graph)
+    _full(graph, tmp_path)
+    (types,) = writers.of("write_sample_types")
+    (invs,) = writers.of("write_investigation_projects")
+    assert types.kwargs == {"archive_path": str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE)}
+    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE)}
 
 
 def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():

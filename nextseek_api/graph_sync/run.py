@@ -45,9 +45,11 @@ twice: the declared attributes before the sample pass (the design's order) and t
 counts follow the second write, because ``writer.write_attributes`` replaces each node's properties.
 
 ``catalog_sync`` rewrites the catalog nodes only: SampleType, Attribute and HAS_ATTRIBUTE, their counts and GraphMeta.
-It keeps the undeclared Attribute nodes and the attribute sample counts a full sync wrote. It holds the lock, records
-a run, and refuses a graph that is not at the writer's schema version: stamping GraphMeta would otherwise turn a
-graph into 1.2 without the full sync that makes one.
+It keeps the undeclared Attribute nodes and the attribute sample counts a full sync wrote. A SampleType SEEK no
+longer has and no Sample reaches is deleted with its Attributes, archived first to ``sample_types_deleted.tsv`` in
+the run directory; one that still holds samples is kept and reported. It holds the lock, records a run, and refuses
+a graph that is not at the writer's schema version: stamping GraphMeta would otherwise turn a graph into 1.2 without
+the full sync that makes one.
 
 What is held across a run is one entry per sample in three indexes (sample ids, uuids and declared lineage pairs),
 and, from the sample pass to the label step, each sample's assay and SOP ids packed 8 bytes a link; the sample data
@@ -60,6 +62,7 @@ import heapq
 import json
 import logging
 import os
+import tempfile
 import time
 from array import array
 from bisect import bisect_left
@@ -67,6 +70,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from django.conf import settings
 from django.db import DatabaseError
 from django.utils import timezone as dj_timezone
 
@@ -514,8 +518,19 @@ def _resolve_run_dir(run_dir: str | None, report: dict | None = None) -> str:
 
 def _title_conflicts(driver, db, cat: Catalog) -> list[dict]:
     keys = [{"id": int(t["id"]), "title": t["title"]} for t in cat.sample_types]
+    params = {"rows": keys, "ids": [k["id"] for k in keys]}
     return [{"title": r["title"], "graph_id": r["graph_id"], "mysql_id": r["mysql_id"]}
-            for r in _records(_run(driver, db, q.SAMPLE_TYPE_TITLE_CONFLICTS, {"rows": keys}, read=True))]
+            for r in _records(_run(driver, db, q.SAMPLE_TYPE_TITLE_CONFLICTS, params, read=True))]
+
+
+def _archive_dir(run_dir: str | None) -> str:
+    """Where a catalog sync appends its archive: ``run_dir``, else a new ``catalog-<UTC time>`` directory under
+    ``$GS_RUN_DIR``, else under ``<LOG_DIR>/graph_sync``, made only when a row is archived (as targeted's is)."""
+    if run_dir:
+        return os.path.abspath(run_dir)
+    base = os.environ.get("GS_RUN_DIR") or os.path.join(
+        getattr(settings, "LOG_DIR", None) or tempfile.gettempdir(), "graph_sync")
+    return os.path.join(base, "catalog-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
 
 
 def _summarize_census(report: dict, census: dict, cat: Catalog) -> None:
@@ -793,12 +808,13 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     _step(report, "archive_child_of", writer.archive_and_drop_child_of, driver, db,
           os.path.join(run_dir, ARCHIVE_FILE), DeclaredUuidPairs(state_.scan.lineage, state_.uuid_index))
     _step(report, "constraints", writer.ensure_constraints_v11, driver, db)
-    _step(report, "sample_types", writer.write_sample_types, driver, db, cat.sample_types)
+    _step(report, "sample_types", writer.write_sample_types, driver, db, cat.sample_types,
+          archive_path=os.path.join(run_dir, writer.SAMPLE_TYPES_DELETED_FILE))
     _step(report, "attributes_declared", writer.write_attributes, driver, db, cat.attributes)
     _step(report, "projects", writer.write_projects, driver, db, sources.projects())
     _step(report, "people", writer.write_people_and_memberships, driver, db, sources.memberships())
     _step(report, "investigations", writer.write_investigation_projects, driver, db, sources.investigations(),
-          sources.investigation_projects())
+          sources.investigation_projects(), archive_path=os.path.join(run_dir, writer.INVESTIGATIONS_DELETED_FILE))
 
     label_sources = _timed(report, "read_label_maps", LabelSources.read)
     label_maps_hash = label_sources.maps_hash()
@@ -942,12 +958,14 @@ def _catalog_plan(driver, db, report: dict) -> tuple[Catalog, list[dict], dict[s
 
 
 def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = CATALOG_LOCK_TIMEOUT_S,
-                 record: bool = True, trigger: str = "command") -> dict:
+                 record: bool = True, trigger: str = "command", run_dir: str | None = None) -> dict:
     """Rewrite the catalog nodes only: SampleType, Attribute, HAS_ATTRIBUTE, their counts and GraphMeta.
 
     Undeclared Attribute nodes a full sync wrote are kept while their type exists and does not now declare the
     key, and every Attribute keeps its ``sample_count`` (a new one gets 0). GraphMeta keeps its ``label_maps_hash``.
-    ``dry_run`` reads and writes nothing, takes no lock and records no run.
+    ``dry_run`` reads and writes nothing, takes no lock and records no run. A SampleType node SEEK no longer has that
+    no Sample reaches is archived to ``sample_types_deleted.tsv`` in ``run_dir`` (else a new ``catalog-<UTC time>``
+    directory, made only when a row is archived) and deleted.
 
     Holds the graph-write lock (``lock_timeout_s``) and records a ``graph_sync_run`` row (``record``, ``trigger``).
     Raises PreflightError, before any write, when a SampleType title is held under another id in the graph, or the
@@ -980,7 +998,8 @@ def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = C
             if problems:
                 report["problems"] = problems
                 raise PreflightError(problems, report)
-            _step(report, "sample_types", writer.write_sample_types, driver, db, cat.sample_types)
+            _step(report, "sample_types", writer.write_sample_types, driver, db, cat.sample_types,
+                  archive_path=os.path.join(_archive_dir(run_dir), writer.SAMPLE_TYPES_DELETED_FILE))
             _step(report, "attributes", writer.write_attributes, driver, db, attributes)
             _step(report, "attribute_counts", writer.write_attribute_counts, driver, db,
                   {a["key"]: counts.get(a["key"], 0) for a in attributes})

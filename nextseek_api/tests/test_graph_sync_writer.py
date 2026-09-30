@@ -608,7 +608,9 @@ def test_write_sample_types_backfills_by_title_then_merges_by_id():
     assert driver.calls_of(q.BACKFILL_SAMPLE_TYPE_ID)[0].params["rows"] == [{"id": 26, "title": "TIS"},
                                                                           {"id": 33, "title": "D.SEQ"}]
     assert driver.calls_of(q.MERGE_SAMPLE_TYPES)[0].params["rows"] == rows
-    assert counts == {"sample_types_written": 2, "graph_only_sample_types": ["OLD"]}
+    assert counts == {"sample_types_written": 2, "graph_only_sample_types": ["OLD"], "sample_types_deleted": 0}
+    assert driver.calls_of(q.SAMPLE_TYPE_TITLE_CONFLICTS)[0].params["ids"] == [26, 33]
+    assert q.SAMPLE_TYPES_GONE not in queries                    # no archive path: nothing is deleted
 
 
 def test_write_sample_types_refuses_a_title_held_by_another_id():
@@ -617,6 +619,68 @@ def test_write_sample_types_refuses_a_title_held_by_another_id():
     with pytest.raises(ValueError, match="TIS"):
         w.write_sample_types(driver, "neo4j", [{"id": 26, "title": "TIS", "label": "T_TIS"}])
     assert q.MERGE_SAMPLE_TYPES not in driver.queries()
+
+
+def test_a_gone_sample_type_no_sample_reaches_is_archived_then_deleted(tmp_path):
+    gone = [{"element_id": "4:t:9", "id": 9, "title": "OLD", "label": "T_OLD", "attribute_keys": ["9:Organ"]}]
+    archive = tmp_path / w.SAMPLE_TYPES_DELETED_FILE
+    seen = []
+
+    def responder(query, params):
+        if query == q.SAMPLE_TYPES_GONE:
+            return gone
+        if query == q.DELETE_SAMPLE_TYPES:
+            seen.append(archive.read_text(encoding="utf-8").splitlines())
+            return [{"deleted": len(params["element_ids"])}]
+        return []
+
+    driver = FakeDriver(responder)
+    counts = w.write_sample_types(driver, "neo4j", [{"id": 26, "title": "TIS", "label": "T_TIS"}],
+                                  archive_path=str(archive))
+    assert seen == [[w.SAMPLE_TYPES_ARCHIVE_HEADER.rstrip("\n"), "9\tOLD\tT_OLD\t9:Organ"]]
+    assert driver.calls_of(q.DELETE_SAMPLE_TYPES)[0].params["element_ids"] == ["4:t:9"]
+    queries = driver.queries()
+    assert queries.index(q.DELETE_SAMPLE_TYPES) < queries.index(q.MERGE_SAMPLE_TYPES)
+    assert counts["sample_types_deleted"] == 1
+
+
+def test_a_title_held_by_a_gone_empty_type_is_no_conflict():
+    """A type deleted and recreated in SEEK under its old title: the old node (its id gone, no sample) is not a
+    conflict, so the catalog step deletes it and writes the new one instead of refusing every night."""
+    text = q.SAMPLE_TYPE_TITLE_CONFLICTS
+    assert "t.id IN $ids OR EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in text
+    assert "NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in q.SAMPLE_TYPES_GONE
+    assert "NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in q.DELETE_SAMPLE_TYPES
+
+
+def test_a_gone_investigation_no_study_holds_is_archived_then_deleted_and_a_held_one_kept(tmp_path):
+    gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [5, 3], "held": False},
+            {"element_id": "4:i:8", "id": 8, "title": "Still held", "project_ids": [], "held": True}]
+    archive = tmp_path / w.INVESTIGATIONS_DELETED_FILE
+
+    def responder(query, params):
+        if query == q.INVESTIGATIONS_GONE:
+            return gone
+        if query == q.DELETE_INVESTIGATIONS:
+            return [{"deleted": len(params["element_ids"])}]
+        return [{"linked": 0}] if query == q.MERGE_INVESTIGATION_IN_PROJECT else []
+
+    driver = FakeDriver(responder)
+    counts = w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                            archive_path=str(archive))
+    assert archive.read_text(encoding="utf-8").splitlines() == [w.INVESTIGATIONS_ARCHIVE_HEADER.rstrip("\n"),
+                                                                "7\tGone\t3,5"]
+    assert driver.calls_of(q.DELETE_INVESTIGATIONS)[0].params["element_ids"] == ["4:i:7"]
+    assert (counts["investigations_deleted"], counts["investigations_not_in_seek_held"]) == (1, 1)
+    assert "NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) }" in q.DELETE_INVESTIGATIONS
+
+
+def test_an_empty_investigation_list_refuses_to_delete_every_investigation(tmp_path):
+    driver = FakeDriver(lambda query, params: [{"element_id": "4:i:7", "id": 7, "title": "x", "project_ids": [],
+                                                "held": False}] if query == q.INVESTIGATIONS_GONE else [])
+    with pytest.raises(ValueError, match="every Investigation"):
+        w.write_investigation_projects(driver, "neo4j", [], [], archive_path=str(tmp_path / "a.tsv"))
+    assert q.DELETE_INVESTIGATIONS not in driver.queries() and q.MERGE_INVESTIGATIONS not in driver.queries()
 
 
 def test_write_projects_drops_none_and_deletes_gone_projects():
@@ -652,7 +716,9 @@ def test_write_investigation_projects_sets_the_lowest_project_id():
                     {"id": 30, "title": "TCGA", "description": "d", "project_id": 16}]
     queries = driver.queries()
     assert queries.index(q.DELETE_INVESTIGATION_IN_PROJECT) < queries.index(q.MERGE_INVESTIGATION_IN_PROJECT)
-    assert counts == {"investigations_written": 2, "investigation_links": 3, "investigation_links_dropped": 0}
+    assert counts == {"investigations_written": 2, "investigation_links": 3, "investigation_links_dropped": 0,
+                      "investigations_deleted": 0, "investigations_not_in_seek_held": 0}
+    assert q.INVESTIGATIONS_GONE not in queries                  # no archive path: nothing is deleted
 
 
 # --- lineage, studies, counts, GraphMeta ----------------------------------------------------------

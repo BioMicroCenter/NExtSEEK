@@ -134,6 +134,8 @@ class StudyGraph:
             q.PROJECT_IDS_PRESENT: lambda p: [{"id": i} for i in p["ids"] if i in self.projects],
             q.MERGE_PROJECTS: self._merge_projects,
             q.MERGE_INVESTIGATIONS: self._merge_investigations,
+            q.INVESTIGATIONS_GONE: self._investigations_gone,
+            q.DELETE_INVESTIGATIONS: self._delete_investigations,
             q.MERGE_INVESTIGATION_IN_PROJECT: self._merge_investigation_in_project,
             q.SAMPLE_STUDIES_OF: self._studies_of,
             q.SAMPLE_STUDIES_PAGE: self._studies_page,
@@ -161,6 +163,23 @@ class StudyGraph:
                 else:
                     props[key] = r[key]
         return []
+
+    def _held(self, inv_eid) -> bool:
+        return any(inv_eid in invs for invs in self.in_investigation.values())
+
+    def _investigations_gone(self, p):
+        return [{"element_id": e, "id": i["id"], "title": i.get("title"), "project_ids": sorted(self.inv_projects[e]),
+                 "held": self._held(e)}
+                for e, i in sorted(self.investigations.items(), key=lambda kv: kv[1]["id"])
+                if i["id"] is not None and i["id"] not in p["ids"]]
+
+    def _delete_investigations(self, p):
+        deleted = 0
+        for eid in p["element_ids"]:
+            if eid in self.investigations and not self._held(eid):
+                del self.investigations[eid], self.inv_projects[eid]
+                deleted += 1
+        return [{"deleted": deleted}]
 
     def _merge_investigation_in_project(self, p):
         linked = 0

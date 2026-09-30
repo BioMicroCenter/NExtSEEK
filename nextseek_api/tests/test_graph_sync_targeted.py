@@ -1084,6 +1084,17 @@ def test_a_sample_on_an_unmerged_legacy_node_keeps_it_and_gets_no_seek_link(env,
     assert len(env.graph.study.studies_by_seek(70)) == 1
 
 
+def test_small_tables_archive_then_delete_an_investigation_seek_lost_that_no_study_holds(env, tmp_path):
+    gone = env.graph.study.add_investigation(9, "Gone")
+    held = env.graph.study.add_investigation(8, "Still held")
+    env.graph.study.add_study(id=40, title="A paper", investigation=held)
+    result = targeted.sync_small_tables(env.graph, DB, run_dir=str(tmp_path))
+    assert gone not in env.graph.study.investigations and held in env.graph.study.investigations
+    assert (result["investigations_deleted"], result["investigations_not_in_seek_held"]) == (1, 1)
+    lines = (tmp_path / writer.INVESTIGATIONS_DELETED_FILE).read_text(encoding="utf-8").splitlines()
+    assert lines[1].split("\t")[:2] == ["9", "Gone"]
+
+
 # --- the one MySQL reader of its own -------------------------------------------------------------
 
 class _Cursor:

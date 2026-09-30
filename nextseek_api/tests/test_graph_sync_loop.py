@@ -525,8 +525,19 @@ def test_the_drain_says_the_loop_started_the_runs_it_records(work):
     one_pass(work)
 
     (catalog,) = [c for c in work.calls if c.name == "catalog"]
-    assert catalog.kwargs == {"record": True, "trigger": loop.TRIGGER}
+    assert catalog.kwargs == {"record": True, "trigger": loop.TRIGGER,
+                              "run_dir": loop.run_dir_for(work.opts.run_root, loop.DRAIN_DIR_KIND, T0)}
     assert all(c.argv[c.argv.index("--trigger") + 1] == loop.TRIGGER for c in work.launched)
+
+
+@pytest.mark.django_db
+def test_the_small_tables_drain_archives_into_the_drain_directory(work):
+    state.enqueue("isa", "*", now=before(minutes=1))
+
+    one_pass(work)
+
+    (small,) = [c for c in work.calls if c.name == "small"]
+    assert small.kwargs == {"run_dir": loop.run_dir_for(work.opts.run_root, loop.DRAIN_DIR_KIND, T0)}
 
 
 # --- housekeeping ---------------------------------------------------------------------------------
