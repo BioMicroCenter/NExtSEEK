@@ -4,13 +4,18 @@ Native, read-only and superuser. It reads the two dmac tables and nothing else: 
 and no MySQL outside ``graph_sync_outbox`` and ``graph_sync_run``, so it answers while the graph itself is down and
 says so, which is the condition an operator most often needs it for.
 
-Four parts, all from ``graph_sync/state.py``:
+Six parts, all from ``graph_sync/state.py``:
 
 * ``runs``: the latest run of each kind, whatever its status (``state.last_runs``);
 * ``freshness``: whether the weekly full sync, the nightly reconcile and the outbox are within their thresholds
   (``state.freshness``), each reported as ``ok``, ``stale`` or, before the first run, ``never``;
 * ``outbox``: the open rows by kind, and the oldest one still waiting (``state.outbox_summary``);
 * ``drift``: the result the latest drift run recorded, read from that run's own row rather than by a fresh check.
+* ``failing``: the outbox rows that have failed since they last succeeded and that no worker is retrying, oldest
+  failure first, at most ``state.FAILING_ROWS_SHOWN`` with counts over all of them (``state.failing_rows``);
+* ``failed_runs``: the full, reconcile, catalog and drift kinds whose latest run failed (``state.failed_runs``).
+
+Errors in those two parts are ``state.error_excerpt``: one line, URLs and addresses replaced, 240 characters at most.
 
 ``schema_version`` is the writer's, so a caller can tell a graph the current writer built from one an older version
 left. Comparing it with the last full sync's own recorded version is what the smoke suite's parity check keys on
@@ -68,6 +73,10 @@ def build_status(*, now: datetime | None = None) -> dict:
         # The drift run's own recorded result. Running a check here would make a read-only status endpoint open a
         # Neo4j session on every call.
         "drift": (runs.get("drift") or {}).get("drift"),
+        # Rows failing past their retry and the latest run of a kind that failed: what the CI health checks fail on
+        # (nextseek_api/graph_sync/health.py). failing_since, not enqueued_at, ages a row: a re-enqueue moves the latter.
+        "failing": state.failing_rows(now=now),
+        "failed_runs": state.failed_runs(runs, now=now),
     }
     return GraphSyncStatusResponse.model_validate(payload).model_dump()
 
@@ -161,6 +170,111 @@ class GraphSyncStatusViewSet(viewsets.ViewSet):
                         "max_attempts": 8,
                     },
                     "drift": None,
+                    "failing": {"rows": [], "total": 0, "overdue": 0, "limit": 20},
+                    "failed_runs": [],
+                },
+                response_only=True,
+            ),
+            OpenApiExample(
+                name="A drain failing on a lost database connection",
+                value={
+                    "generated_at": "2026-09-29T19:00:00+00:00",
+                    "schema_version": writer.SCHEMA_VERSION,
+                    "runs": {
+                        "catalog": {
+                            "id": 7,
+                            "kind": "catalog",
+                            "status": "failed",
+                            "started_at": "2026-09-29T17:00:00+00:00",
+                            "finished_at": "2026-09-29T17:00:01+00:00",
+                            "watermark_from": None,
+                            "watermark_to": None,
+                            "counts": {"trigger": "loop", "status": "failed",
+                                       "error": "OperationalError: (2006, 'Server has gone away')"},
+                            "drift": None,
+                        },
+                    },
+                    "freshness": {
+                        "full": {
+                            "status": "ok",
+                            "satisfied_by": "full",
+                            "last_ok_started_at": "2026-09-27T03:00:00+00:00",
+                            "last_ok_finished_at": "2026-09-27T03:10:00+00:00",
+                            "age_s": 230_400.0,
+                            "threshold_s": 691_200,
+                        },
+                        "reconcile": {
+                            "status": "ok",
+                            "satisfied_by": "reconcile",
+                            "last_ok_started_at": "2026-09-29T02:00:00+00:00",
+                            "last_ok_finished_at": "2026-09-29T02:01:00+00:00",
+                            "age_s": 61_200.0,
+                            "threshold_s": 93_600,
+                        },
+                        "outbox": {
+                            "status": "stale",
+                            "oldest_enqueued_at": "2026-09-29T16:50:00+00:00",
+                            "age_s": 7800.0,
+                            "threshold_s": 3600,
+                        },
+                    },
+                    "outbox": {
+                        "pending": {"catalog": 1, "samples_of_type": 1},
+                        "dead": {},
+                        "claimed": {},
+                        "oldest_pending": {
+                            "kind": "samples_of_type",
+                            "key": "type:3",
+                            "enqueued_at": "2026-09-29T16:50:00+00:00",
+                            "age_s": 7800.0,
+                        },
+                        "max_attempts": 8,
+                    },
+                    "drift": None,
+                    "failing": {
+                        "rows": [
+                            {
+                                "kind": "catalog",
+                                "key": "*",
+                                "attempts": 0,
+                                "dead": False,
+                                "failing_since": "2026-09-29T17:00:01+00:00",
+                                "age_s": 7199.0,
+                                "threshold_s": 5400,
+                                "overdue": True,
+                                "next_retry_at": "2026-09-29T19:00:02+00:00",
+                                "error": "OperationalError: (2006, 'Server has gone away')",
+                            },
+                            {
+                                "kind": "samples_of_type",
+                                "key": "type:3",
+                                "attempts": 1,
+                                "dead": False,
+                                "failing_since": "2026-09-29T17:05:00+00:00",
+                                "age_s": 6900.0,
+                                "threshold_s": 5400,
+                                "overdue": True,
+                                "next_retry_at": "2026-09-29T19:05:00+00:00",
+                                "error": "OperationalError: (2006, 'Server has gone away')",
+                            },
+                        ],
+                        "total": 2,
+                        "overdue": 2,
+                        "limit": 20,
+                    },
+                    "failed_runs": [
+                        {
+                            "id": 7,
+                            "kind": "catalog",
+                            "status": "failed",
+                            "trigger": "loop",
+                            "finished_at": "2026-09-29T17:00:01+00:00",
+                            "age_s": 7199.0,
+                            "threshold_s": 5400,
+                            "overdue": True,
+                            "error": "OperationalError: (2006, 'Server has gone away')",
+                        },
+                    ],
                 },
                 response_only=True,
             ),

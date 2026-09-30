@@ -3065,6 +3065,55 @@ class GraphSyncOutboxSummary(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+class GraphSyncFailingRow(BaseModel):
+    """An open outbox row that has failed since it last succeeded and that no worker is retrying right now."""
+
+    kind: str = Field(..., description="The outbox kind, which says what to do")
+    key: str = Field(..., description="What to do it to")
+    attempts: int = Field(
+        ..., description="Claims since the row was last enqueued. A re-enqueue or a deferral resets it, so it does "
+                         "not say how long the row has been failing; failing_since does"
+    )
+    dead: bool = Field(..., description="At the attempt limit: no worker claims it until a new write resets it")
+    failing_since: str = Field(..., description="ISO 8601; the first failure since the row last succeeded")
+    age_s: float = Field(..., description="Seconds since failing_since")
+    threshold_s: int = Field(..., description="The kind's back-off plus 30 minutes: past it, its retry failed too")
+    overdue: bool = Field(..., description="age_s is over threshold_s")
+    next_retry_at: Optional[str] = Field(None, description="ISO 8601; when a worker may claim it again; null when dead")
+    error: Optional[str] = Field(
+        None, description="The first line of last_error, URLs and IP addresses replaced, at most 240 characters"
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFailing(BaseModel):
+    """The failing outbox rows: a bounded list, oldest failure first, and counts over all of them."""
+
+    rows: List[GraphSyncFailingRow] = Field(..., description="At most `limit` rows, oldest failure first")
+    total: int = Field(..., description="Every failing row, listed or not")
+    overdue: int = Field(..., description="Every overdue failing row, listed or not")
+    limit: int = Field(..., description="The most rows the list holds")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFailedRun(BaseModel):
+    """A full, reconcile, catalog or drift kind whose latest run ended failed or abandoned."""
+
+    id: int = Field(..., description="graph_sync_run row id")
+    kind: str = Field(..., description="full, reconcile, catalog or drift")
+    status: str = Field(..., description="failed or abandoned")
+    trigger: Optional[str] = Field(None, description="What started the run: the command, the loop")
+    finished_at: Optional[str] = Field(None, description="ISO 8601")
+    age_s: Optional[float] = Field(None, description="Seconds since the run ended (its start when it has no end)")
+    threshold_s: int = Field(..., description="The kind's back-off plus 30 minutes")
+    overdue: bool = Field(..., description="age_s is over threshold_s")
+    error: Optional[str] = Field(None, description="The run's recorded error as a bounded, redacted excerpt")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 class GraphSyncStatusResponse(BaseModel):
     """Response model for `GET /nextseek_api/admin/graph-sync/status/`."""
 
@@ -3076,6 +3125,12 @@ class GraphSyncStatusResponse(BaseModel):
     freshness: GraphSyncFreshness
     outbox: GraphSyncOutboxSummary
     drift: Optional[Dict[str, Any]] = Field(None, description="What the latest drift run recorded, if any")
+    failing: GraphSyncFailing = Field(
+        ..., description="Outbox rows that have failed and are not being retried right now; overdue past their retry"
+    )
+    failed_runs: List[GraphSyncFailedRun] = Field(
+        ..., description="The full, reconcile, catalog and drift kinds whose latest run ended failed or abandoned"
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 

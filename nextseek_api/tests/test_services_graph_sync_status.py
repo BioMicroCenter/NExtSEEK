@@ -22,7 +22,8 @@ from nextseek_api.services import graph_sync_status
 PATH = "/nextseek_api/admin/graph-sync/status/"
 T0 = datetime(2026, 9, 15, 2, 0, tzinfo=dt_timezone.utc)
 
-PARTS = ("generated_at", "schema_version", "runs", "freshness", "outbox", "drift")
+PARTS = ("generated_at", "schema_version", "runs", "freshness", "outbox", "drift", "failing", "failed_runs")
+LOST = "OperationalError: (2006, 'Server has gone away')"
 
 
 def at(**delta) -> datetime:
@@ -148,6 +149,44 @@ def test_the_drift_part_is_null_when_no_drift_run_has_recorded_one():
 
 
 @pytest.mark.django_db
+def test_a_quiet_instance_reports_no_failures():
+    body = as_superuser().get(PATH).json()
+
+    assert body["failing"] == {"rows": [], "total": 0, "overdue": 0, "limit": state.FAILING_ROWS_SHOWN}
+    assert body["failed_runs"] == []
+
+
+@pytest.mark.django_db
+def test_a_failing_row_and_a_failed_run_are_reported():
+    """The 2026-09-29 shape: a drain row retrying on a lost database connection, and the run it failed."""
+    state.enqueue("catalog", "*", now=T0)
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), LOST, 3600, now=at(seconds=2))
+    state.start_run("catalog", trigger="loop", now=T0).finish("failed", counts={"error": LOST}, now=at(seconds=1))
+
+    body = graph_sync_status.build_status(now=at(hours=2))
+
+    assert (body["failing"]["total"], body["failing"]["overdue"]) == (1, 1)
+    row = body["failing"]["rows"][0]
+    assert (row["kind"], row["key"], row["overdue"], row["error"]) == ("catalog", "*", True, LOST)
+    (run,) = body["failed_runs"]
+    assert (run["kind"], run["status"], run["overdue"], run["error"]) == ("catalog", "failed", True, LOST)
+
+
+@pytest.mark.django_db
+def test_the_published_error_is_one_bounded_redacted_line():
+    """The body reaches CI logs: no traceback, no URL, never the whole 4,000-character last_error."""
+    state.enqueue("catalog", "*", now=T0)
+    raw = "ServiceUnavailable: bolt://neo4j.example:7687 refused " + "x" * 10_000 + "\nTraceback ..."
+    state.finish_failed(state.claim_next("w1", now=at(seconds=1)), raw, 3600, now=at(seconds=2))
+
+    error = as_superuser().get(PATH).json()["failing"]["rows"][0]["error"]
+
+    assert error.startswith("ServiceUnavailable: <url> refused ")
+    assert "\n" not in error and "bolt://" not in error
+    assert len(error) <= state.ERROR_EXCERPT_CHARS
+
+
+@pytest.mark.django_db
 def test_the_endpoint_writes_nothing():
     """Read-only: reading the status must not touch either table (the spec's 13)."""
     a_full_run()
@@ -240,5 +279,7 @@ def test_the_path_and_the_response_model_are_in_the_openapi_schema():
     assert operation["operationId"] == "Admin: Graph Sync Status"
     assert "admin" in operation["tags"]
     assert "GraphSyncStatusResponse" in schema["components"]["schemas"]
+    for name in ("GraphSyncStatusResponse", "GraphSyncFailing", "GraphSyncFailingRow", "GraphSyncFailedRun"):
+        assert name in schema["components"]["schemas"], name
     examples = operation["responses"]["200"]["content"]["application/json"]["examples"]
-    assert len(examples) >= 1
+    assert len(examples) >= 2
