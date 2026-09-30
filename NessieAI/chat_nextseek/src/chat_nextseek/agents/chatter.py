@@ -169,17 +169,24 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
     )
 
 
-def _type_names_block(config: Any, rows: list) -> str:
-    """Catalog names for the sample type codes in the rows, so the writer does not invent them
-    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+def _type_names(config: Any) -> dict[str, str]:
+    """``{SampleType: Name}`` from the catalog's sample type rows."""
     catalog = getattr(config, "MIN_SAMPLETYPES", None)
     if not isinstance(catalog, list):
-        return ""
-    names = {
+        return {}
+    return {
         str(item.get("SampleType")): str(item.get("Name"))
         for item in catalog
         if isinstance(item, dict) and item.get("SampleType") and item.get("Name")
     }
+
+
+def _type_names_block(config: Any, rows: list) -> str:
+    """Catalog names for the sample type codes in the rows, so the writer does not invent them
+    (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
+    names = _type_names(config)
+    if not names:
+        return ""
     seen: list[str] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -600,6 +607,7 @@ def chatter_agent_answer(
         extra_notes=query_notes,
         user_query=user_query,
         container_aliases=_container_aliases(config),
+        type_names=_type_names(config),
     )
 
     def _fmt_entities(items: Any) -> str:

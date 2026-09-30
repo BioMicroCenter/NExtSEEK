@@ -713,3 +713,27 @@ def test_a_project_named_by_an_alias_of_the_compared_title_is_not_reported_as_dr
         log_dir="",
     )
     assert "NOT APPLIED" not in captured["user_content"]
+
+
+def test_the_type_names_are_the_catalogs_sample_type_names():
+    class _Cfg:
+        MIN_SAMPLETYPES = [{"SampleType": "A.MET", "Name": "Methylation Analysis"},
+                           {"SampleType": "MUS", "Name": None}, {"Name": "x"}, "junk"]
+
+    assert chatter_mod._type_names(_Cfg()) == {"A.MET": "Methylation Analysis"}
+    assert chatter_mod._type_names(_StubConfig()) == {}
+
+
+def test_a_keyword_that_names_a_constrained_type_is_not_reported_as_dropped(captured):
+    class _Cfg(_StubConfig):
+        MIN_SAMPLETYPES = [{"SampleType": "A.MET", "Name": "Methylation Analysis"}]
+
+    chatter_mod.chatter_agent_answer(
+        _Cfg(), "How many of those have methylation data?",
+        _entity(keywords=["methylation"]), _plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) WHERE EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:T_A_MET) } "
+                              "RETURN count(DISTINCT s) AS n", "parameters": {}, "explanation": ""},
+        graph_result={"ok": True, "count": 1, "total": 539, "data": [{"n": 539}]},
+        log_dir="",
+    )
+    assert "NOT APPLIED" not in captured["user_content"]

@@ -680,6 +680,20 @@ def _same_catalog_row(value: str, titles: list[str], aliases: list[set[str]] | N
     return len(key) >= 3 and any(key in names and names & compared for names in aliases or ())
 
 
+def _names_an_applied_type(keyword: str, haystack: str, type_names: dict[str, str] | None) -> bool:
+    """The keyword is what a sample type the query constrained is called: "methylation" and ``:T_A_MET``
+    (dev run 2026-09-29, task 1413). Every word of the keyword (three or more characters, generic last words
+    dropped) must be a word of that type's catalog NAME, never of its Tags: "CC" is a Tag of MUS (B13)."""
+    wanted = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", keyword) if len(w) >= 3} - _GENERIC_LAST_WORDS
+    if not wanted:
+        return False
+    for code, name in (type_names or {}).items():
+        words = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", str(name or "")) if len(w) >= 3}
+        if wanted <= words and _type_is_applied(code, haystack):
+            return True
+    return False
+
+
 def _search_kind(parser_plan: dict, api_plan: dict | None, graph_plan: dict | None) -> str:
     if graph_plan:
         return _GRAPH_SEARCH_KIND
@@ -712,6 +726,7 @@ def describe_query_scope(
     extra_notes: list[str] | None = None,
     user_query: str | None = None,
     container_aliases: list[set[str]] | None = None,
+    type_names: dict[str, str] | None = None,
 ) -> QueryScope:
     """Split the turn's constraints into the ones the query carried and the rest.
 
@@ -781,6 +796,8 @@ def describe_query_scope(
                 applied = _glossed_by_applied(value, user_query, titles)
             if not applied:
                 applied = _same_catalog_row(value, titles, container_aliases)
+            if not applied:
+                applied = _names_an_applied_type(value, haystack, type_names)
             if not applied:
                 words = _folded(value)
                 applied = len(_squash(value)) >= 3 and any(words in phrase and words != phrase
