@@ -989,11 +989,33 @@ def test_the_base_count_and_the_breakdown_are_disclosed(monkeypatch):
     assert out.suggestion is None
 
 
-def test_a_breakdown_of_one_value_is_not_disclosed(monkeypatch):
+def test_a_breakdown_of_one_value_withdraws_the_finding(monkeypatch):
+    """25 Sep run 2, task 1412: one distinct Organ value in the 1,057 matched rows, so the chip would return the
+    same 1,057: the caveat and the chip go, the second look stays recorded."""
     _counting(monkeypatch, [1])
-    rv = _review(("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
+    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
+                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
     out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
-    assert out.disclosure == "d" and out.variants[0]["total"] == 1
+    assert out.variants[0]["total"] == 1
+    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
+    assert [c.name for c in out.checks if c.fired] == []
+
+
+def test_a_breakdown_of_two_values_keeps_the_finding(monkeypatch):
+    _counting(monkeypatch, [2])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
+                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
+    assert out.verdict == "suggest" and out.suggestion == NARROW
+    assert [c.name for c in out.checks if c.fired] == ["unapplied_value"]
+
+
+def test_a_one_value_breakdown_keeps_a_finding_that_has_another_check_beside_it(monkeypatch):
+    _counting(monkeypatch, [1])
+    rv = _review(("stem_miss", "misses ['tif']"),
+                 ("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
+    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
+    assert out.verdict == "suggest" and [c.name for c in out.checks if c.fired] == ["stem_miss", "unapplied_value"]
 
 
 def test_a_refused_variant_is_recorded_and_counts_against_the_cap(monkeypatch):
@@ -1090,11 +1112,19 @@ def test_the_fallback_counts_against_the_cap(monkeypatch):
     assert counts == [] and len(out.variants) == 1
 
 
-def test_a_split_of_one_value_names_nothing_but_still_gives_the_count(monkeypatch):
+def test_a_split_that_holds_only_the_named_value_withdraws_the_finding(monkeypatch):
     _rows(monkeypatch, [[{"value": "RNA-Seq", "n": 10761}]])
     rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
     out = g2.run_tier2(object(), _r6(), rv)
-    assert out.disclosure == TIER1_FACT and out.suggestion["expected_count"] == 10761
+    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
+    assert out.variants[0]["edit"] == "unapplied_value: split by DataType"
+
+
+def test_a_split_that_holds_only_another_value_keeps_the_finding_and_the_count(monkeypatch):
+    _rows(monkeypatch, [[{"value": "miRNA-Seq", "n": 10761}]])
+    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
+    out = g2.run_tier2(object(), _r6(), rv)
+    assert out.verdict == "suggest" and out.disclosure == TIER1_FACT
 
 
 def test_the_old_distinct_count_breakdown_never_sets_an_expected_count(monkeypatch):
