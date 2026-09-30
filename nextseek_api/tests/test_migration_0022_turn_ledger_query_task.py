@@ -18,9 +18,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 LEAF = ("nextseek_api", "0022_turn_ledger_query_task")
 
 
-def test_0022_is_the_single_leaf_and_sits_on_0021():
+def test_0022_sits_on_0021_and_the_graph_has_one_leaf():
     loader = MigrationLoader(None, ignore_no_migrations=True)
-    assert loader.graph.leaf_nodes("nextseek_api") == [LEAF]
+    assert len(loader.graph.leaf_nodes("nextseek_api")) == 1  # 0022 was the leaf until 0023 landed on it
+    assert LEAF in loader.graph.nodes
     assert loader.get_migration(*LEAF).dependencies == [("nextseek_api", "0021_graph_sync_outbox_and_run")]
 
 
