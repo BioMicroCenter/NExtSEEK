@@ -148,7 +148,7 @@ def seek(monkeypatch):
     """SEEK's tables, as much of them as the endpoint and resolve_scope read, shaped as in SEEK's MySQL."""
     conn = sqlite3.connect(":memory:")
     c = conn.cursor()
-    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT, json_metadata TEXT)")
+    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT COLLATE NOCASE, json_metadata TEXT)")  # MySQL compares uuids case-insensitively
     c.execute("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
     c.execute("CREATE TABLE users (login TEXT, person_id INTEGER)")
     c.execute("CREATE TABLE work_groups (id INTEGER, project_id INTEGER)")
@@ -369,6 +369,40 @@ def test_both_spellings_of_one_sample_count_as_one_answered_uid(seek, graph):
     assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
 
 
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_returns_only_the_exact_spelling_and_counts_as_answered(seek, graph, login):
+    _add(seek, 22, "TIS-7", 2)
+    _add(seek, 23, "TIS-7-PUB", 2)
+    resp = _post({"identifiers": ["tis-7"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-7"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_still_finds_the_pub_sample_and_counts_as_answered(seek, graph, login):
+    _add(seek, 20, "TIS-9-PUB", 2)
+    resp = _post({"identifiers": ["tis-9"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-9-PUB"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+def test_a_superuser_retry_does_not_ask_a_dead_graph_again(seek, graph):
+    graph.down = True
+    resp = _post({"identifiers": ["TIS-NOPE"], "include_tree": False}, login=SUPER)
+    assert resp.status_code == 404
+    assert len([c for c in graph.calls if c[0] == "resolve"]) == 1
+
+
+def test_a_superuser_retry_skips_a_spelling_already_answered(seek, graph, monkeypatch):
+    _add(seek, 26, "TIS-4-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False}, login=SUPER)
+    assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+    assert len(scans) == 1
+
+
 def test_a_foreign_pub_sample_still_answers_404_to_a_member(seek, graph, monkeypatch):
     """The other spelling sits in a project the caller cannot see: same 404 as an unknown UID, and the retry stays
     one scoped statement, never the graph or a full scan (#74)."""
@@ -472,6 +506,20 @@ def test_a_foreign_identifier_answers_as_an_unknown_one(seek, graph, foreign, un
     a, b = _post({"identifiers": [foreign]}), _post({"identifiers": [unknown]})
     assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
     assert "TIS-FOR-1" not in graph.walked()
+
+
+def test_a_foreign_seek_id_with_a_visible_pub_twin_answers_as_an_unknown_one(seek, graph, monkeypatch):
+    """The -PUB retry is for UIDs the caller typed. A numeric id is exact: the uuid it resolves to must never be
+    retried in its other spelling, or a member learns that a foreign sample exists and gets its twin back (#74)."""
+    _add(seek, 30, "TIS-FOR-1-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    a, b = _post({"identifiers": ["6"]}), _post({"identifiers": ["99"]})
+    assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
+    a, b = _post({"identifiers": ["TIS-2", "6"]}), _post({"identifiers": ["TIS-2", "99"]})
+    assert a.content == b.content and a.json()["failed_uids"] == 1 and "TIS-FOR-1-PUB" not in _uuids(a)
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
 
 
 def test_a_mixed_request_answers_as_if_the_foreign_uid_were_unknown(seek, graph):
