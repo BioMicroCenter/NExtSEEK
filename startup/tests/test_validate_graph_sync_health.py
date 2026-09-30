@@ -374,6 +374,25 @@ def test_rebuild_on_a_prod_box_exits_1_at_the_end_on_a_red_line(repo, monkeypatc
     compact = "".join(result.output.split())
     assert "CIpassed" in compact and "catalogrun7failed" in compact
     assert stack.report[0]["health"][-1] == ("graph sync health", False, _RED.detail)
+    # The last thing said is the reason for the exit, not the green suite line above it.
+    assert result.output.index("CI passed") < result.output.index("Rebuild finished but is red")
+    assert "".join(result.output.split()).endswith(
+        "Rebuildfinishedbutisred:graphsynchealth.Norollbackisneeded:thebuildandrestartsucceeded,"
+        "onlythehealthjudgementisred.")
+
+
+def test_rebuild_no_ci_with_a_red_line_exits_1_with_the_closing_reason(repo, monkeypatch, stack):
+    _saved_state(repo, "prod")
+    _stack_is_up(monkeypatch)
+    _health_answer(monkeypatch, stack, _RED)
+
+    result = cli_runner_.invoke(cli.app, ["rebuild", "--no-ci"])
+
+    assert result.exit_code == 1, result.output
+    assert stack.ci == [], "--no-ci must not run the suite"
+    assert "".join(result.output.split()).endswith(
+        "Rebuildfinishedbutisred:graphsynchealth.Norollbackisneeded:thebuildandrestartsucceeded,"
+        "onlythehealthjudgementisred.")
 
 
 def test_rebuild_asks_after_the_drift_line_and_before_the_suite(repo, monkeypatch, stack):

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 NEW_PARTS = ("failing", "failed_runs")
 DRIFT_NAMES_SHOWN = 6
+DRIFT_REMEDY = (". It stays red until a newer drift run: after the cause is fixed, run "
+                "`manage.py graph_sync --drift` in the app container")
 FRESHNESS_JOBS = ("full", "reconcile", "drift", "outbox")
 # The DERIVED_FROM label classes only the operator's approval writes (rule R14; labels.CHANGED, labels.CLEARED).
 LABEL_CLASSES_AWAITING_APPROVAL = ("changed", "cleared")
@@ -104,7 +106,8 @@ def drift_found(body: dict) -> list[str]:
     shown = ", ".join(names[:DRIFT_NAMES_SHOWN]) or "no named check"
     if len(names) > DRIFT_NAMES_SHOWN:
         shown += f" and {len(names) - DRIFT_NAMES_SHOWN} more"
-    return [f"drift run {run.get('id')} (finished {run.get('finished_at') or '?'}) found drift in: {shown}"]
+    return [f"drift run {run.get('id')} (finished {run.get('finished_at') or '?'}) found drift in: {shown}"
+            + DRIFT_REMEDY]
 
 
 def _part(value, key):

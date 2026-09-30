@@ -116,13 +116,15 @@ def test_drift_found_names_the_failed_checks_six_at_most():
     b = body(runs={"drift": drift_run("drift", counts={"trigger": "loop", "failed_checks": names})})
     assert health.drift_found(b) == [
         "drift run 6 (finished 2026-09-29T02:32:00+00:00) found drift in: "
-        "check.0, check.1, check.2, check.3, check.4, check.5 and 2 more"]
+        "check.0, check.1, check.2, check.3, check.4, check.5 and 2 more"
+        + health.DRIFT_REMEDY]
 
 
 def test_drift_found_falls_back_to_the_recorded_checks():
     recorded = {"checks": [{"name": "detection.changed", "pass": False}, {"name": "gate_g", "pass": True}]}
     (line,) = health.drift_found(body(runs={"drift": drift_run("drift", drift=recorded)}))
-    assert line.endswith("found drift in: detection.changed")
+    assert line.endswith("found drift in: detection.changed" + health.DRIFT_REMEDY)
+    assert "manage.py graph_sync --drift" in health.DRIFT_REMEDY
 
 
 def test_a_refused_drift_check_is_a_warning_not_a_failure():

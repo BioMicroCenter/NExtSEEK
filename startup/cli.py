@@ -867,6 +867,14 @@ def rebuild(
         # service, or the front door, which only a user would otherwise report,
         # or its graph no longer matches MySQL, which nobody would report at all,
         # or its graph sync is failing, which on production nothing else would report.
+        # Said last, after the suite's green line, so a terminal ends on the reason for the exit.
+        red = [name for name, bad in (
+            ("stack health", not health.ok),
+            ("graph drift", graph_drift is not None and not graph_drift.ok),
+            ("graph sync health", graph_sync_health is not None and not graph_sync_health.ok),
+        ) if bad]
+        ui.fail(f"Rebuild finished but is red: {', '.join(red)}. No rollback is needed: the build and "
+                "restart succeeded, only the health judgement is red.")
         raise typer.Exit(code=1)
 
 
@@ -1082,7 +1090,7 @@ def ci(
         confirm_force = True
 
     # Step 1: stack health. Only a down app or front door stops the run; the
-    # rest is printed and recorded, but `ci` answers what the suite says.
+    # rest is printed and recorded; only the graph sync line (Step 1c) also fails `ci`.
     health = validate.stack_health(REPO_ROOT, state.compose_env(),
                                    state.compose_project_name)
     _report_health(health)
@@ -1092,8 +1100,8 @@ def ci(
         raise typer.Exit(code=1)
 
     # Step 1b: does the graph still equal MySQL (CI-4)? Printed and recorded here
-    # and no more than that. `ci` answers one question, what the suite says;
-    # `rebuild` is the command that exits red on drift.
+    # and no more than that. `rebuild` is the command that exits red on drift;
+    # `ci` exits red on the graph sync health line below, not on this one.
     graph_drift = _graph_drift(state)
     if graph_drift is not None:
         _print_health_results([graph_drift])

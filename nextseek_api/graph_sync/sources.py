@@ -205,8 +205,6 @@ def recent_sample_ids(since: datetime, limit: int) -> list[int]:
     return [int(sample_id) for (sample_id,) in _rows(_seek(), sql, [since, since, int(limit)])]
 
 
-
-
 def _links_for(sql_head: str, ids: Iterable[int], lead: list) -> dict[int, list[int]]:
     """Sample id to its sorted distinct linked ids, for `sql_head ... IN (ids)` in chunks."""
     pairs: dict[int, set[int]] = {}
