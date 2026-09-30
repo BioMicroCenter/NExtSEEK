@@ -53,6 +53,23 @@ def enqueue(kind: str, key: str, payload: Any = None, *, delay_s: float = 0) -> 
         return False
 
 
+#: How long a row waits after a write SEEK did not confirm (a 5xx, a timeout, a lost connection): long enough for
+#: Rails to finish a write that outran the proxy. The drain then syncs what MySQL holds, so a write that never landed
+#: costs one sync that changes nothing (A10).
+UNCONFIRMED_DELAY_S = 300
+
+
+def write_delay(code) -> float | None:
+    """The delay of a proxy's rows after SEEK answered a write with ``code``: 0 for a 2xx (committed),
+    ``UNCONFIRMED_DELAY_S`` for a 5xx (SEEK may have committed it anyway), None for anything else (SEEK refused it:
+    no row). A proxy whose call raised uses ``UNCONFIRMED_DELAY_S`` too."""
+    if isinstance(code, int) and 200 <= code < 300:
+        return 0
+    if isinstance(code, int) and code >= 500:
+        return UNCONFIRMED_DELAY_S
+    return None
+
+
 def failure_counts() -> dict[str, int]:
     """Enqueue failures in this process since it started (or since ``reset_failure_counts``), by kind."""
     with _failures_lock:

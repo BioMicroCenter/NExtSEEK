@@ -3,6 +3,8 @@ from typing import Optional
 import json
 import logging
 import time
+
+import requests
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -60,13 +62,14 @@ def _moves_samples(payload: dict) -> bool:
     return "samples" in relationships or "study" in relationships
 
 
-def _enqueue_members(seek_id, ids) -> None:
+def _enqueue_members(seek_id, ids, *, delay_s: float = 0) -> None:
     """One ``samples`` row per ``MEMBER_CHUNK`` ids, keyed ``batch:assay:<SEEK id>:<time_ns>:<n>``, so two writes
-    before a drain never overwrite each other's ids."""
+    before a drain never overwrite each other's ids; held back ``delay_s`` seconds (A10)."""
     ids = sorted({int(i) for i in ids})
     stamp = _stamp()
     for n, start in enumerate(range(0, len(ids), MEMBER_CHUNK)):
-        hooks.enqueue("samples", f"batch:assay:{seek_id}:{stamp}:{n}", ids[start:start + MEMBER_CHUNK])
+        hooks.enqueue("samples", f"batch:assay:{seek_id}:{stamp}:{n}", ids[start:start + MEMBER_CHUNK],
+                      delay_s=delay_s)
 
 
 def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
@@ -205,7 +208,18 @@ class AssayProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        body, code, headers, resp = self.client.create_assay(request, payload)
+        try:
+            body, code, headers, resp = self.client.create_assay(request, payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("assay_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("assay_map", "*", delay_s=delay)
+            hooks.enqueue("isa", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -216,9 +230,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
         if 200 <= code < 300:
-            # An assay feeds the DERIVED_FROM labels and the ISA nodes (spec 5 E8, E15).
-            hooks.enqueue("assay_map", "*")
-            hooks.enqueue("isa", "*")
+            # An assay feeds the DERIVED_FROM labels and the ISA nodes (spec 5 E8, E15), enqueued above.
             # Its samples join the assay's study: their IN_STUDY follows SEEK at the next drain.
             seek_id = str((data.get("data") or {}).get("id") or "")
             if seek_id:
@@ -277,7 +289,23 @@ class AssayProxyViewSet(viewsets.ViewSet):
         # A PATCH that sets the study or the samples moves its members' IN_STUDY: read who they are before SEEK
         # changes them, so a sample the PATCH removes is synced too.
         before = _members_before(seek_id) if _moves_samples(payload) else None
-        body, code, headers, resp = self.client.update_assay(request, str(seek_id), payload)
+        try:
+            body, code, headers, resp = self.client.update_assay(request, str(seek_id), payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("assay_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            if before is not None:
+                _enqueue_members(seek_id, before, delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("assay_map", "*", delay_s=delay)
+            hooks.enqueue("isa", "*", delay_s=delay)
+            if before is not None and delay:
+                # SEEK may have moved them: the members it held before are synced once it has had time.
+                _enqueue_members(seek_id, before, delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -291,9 +319,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
         if 200 <= code < 300:
-            # A renamed assay leaves every DERIVED_FROM label it names stale (spec 5 E8, E15).
-            hooks.enqueue("assay_map", "*")
-            hooks.enqueue("isa", "*")
+            # A renamed assay leaves every DERIVED_FROM label it names stale (spec 5 E8, E15): enqueued above.
             if before is not None:
                 _enqueue_members(seek_id, set(before) | set(_response_samples(data)))
 

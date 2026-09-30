@@ -263,7 +263,16 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        body, code, headers, resp = self.client.create_sample_type(request, payload)
+        try:
+            body, code, headers, resp = self.client.create_sample_type(request, payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("catalog", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -274,8 +283,8 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
         if 200 <= code < 300:
-            # A new type is a catalog entry, and its samples take their T_ label from it (spec 5 E4, E10).
-            hooks.enqueue("catalog", "*")
+            # A new type is a catalog entry (enqueued above), and its samples take their T_ label from it (spec 5
+            # E4, E10).
             type_id = _graph_sync_type_id(data)
             if type_id is not None:
                 hooks.enqueue("samples_of_type", f"type:{type_id}")
@@ -318,7 +327,19 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"SampleType not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.update_sample_type(request, str(seek_id), payload)
+        try:
+            body, code, headers, resp = self.client.update_sample_type(request, str(seek_id), payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("catalog", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            hooks.enqueue("samples_of_type", f"type:{seek_id}", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("catalog", "*", delay_s=delay)
+            # SEEK re-saves a renamed type's samples in a later job: their sync always waits (A10).
+            hooks.enqueue("samples_of_type", f"type:{seek_id}", delay_s=hooks.UNCONFIRMED_DELAY_S)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -330,13 +351,6 @@ class SampleTypeProxyViewSet(viewsets.ViewSet):
             SampleTypeSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-
-        if 200 <= code < 300:
-            # A rename moves the catalog and every sample's T_ label, so the whole type is re-synced (spec 5 E4, E10).
-            hooks.enqueue("catalog", "*")
-            type_id = _graph_sync_type_id(data, seek_id)
-            if type_id is not None:
-                hooks.enqueue("samples_of_type", f"type:{type_id}")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

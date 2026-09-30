@@ -1,6 +1,7 @@
 from typing import Optional
 
 import json
+import requests
 from django.http import HttpResponse
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -155,7 +156,16 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        body, code, headers, resp = self.client.create_investigation(request, payload)
+        try:
+            body, code, headers, resp = self.client.create_investigation(request, payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("isa", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -164,10 +174,6 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
             InvestigationSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-
-        if 200 <= code < 300:
-            # The drain rewrites the ISA nodes wholesale (spec 5 E14).
-            hooks.enqueue("isa", "*")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
@@ -220,7 +226,16 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Investigation not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.update_investigation(request, str(seek_id), payload)
+        try:
+            body, code, headers, resp = self.client.update_investigation(request, str(seek_id), payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            hooks.enqueue("isa", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -232,10 +247,6 @@ class InvestigationProxyViewSet(viewsets.ViewSet):
             InvestigationSingleResponse.model_validate(data)
         except Exception:
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-
-        if 200 <= code < 300:
-            # A rename or a project move leaves the node stale until the drain rewrites it (spec 5 E14).
-            hooks.enqueue("isa", "*")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

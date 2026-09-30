@@ -3,7 +3,8 @@
 Rails commits the row, the proxy validates what came back, and then one outbox row says what the graph owes: the
 sample it wrote, the catalog a sample type moved, the maps an assay or a SOP moved, the ISA nodes, the memberships.
 Nothing here calls Neo4j, and nothing here may turn a committed SEEK write into an error, so every method is pinned
-three ways: the row on a 2xx, no row on a 4xx or a 5xx, and a failing enqueue that never reaches the caller.
+four ways: the row on a 2xx, no row on a 4xx, the rows it can name without the body held back when SEEK answered a
+5xx or never answered (SEEK may have committed it anyway, A10), and a failing enqueue that never reaches the caller.
 
 The proxies hold their upstream client as a class attribute (`nextseek_api/CLAUDE.md`: one SEEK session shared by
 every caller), so each test replaces it on its own instance rather than patching the class.
@@ -17,12 +18,13 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from django.db import OperationalError
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from nextseek_api.graph_sync import state
+from nextseek_api.graph_sync import hooks, state
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox
 from nextseek_api.models import UserAdminRecord
 from nextseek_api.services.assays import AssayProxyViewSet
@@ -183,12 +185,17 @@ class Proxy:
     method: str = "post"
     kwargs: dict = field(default_factory=dict)
     ok_code: int = 200
+    unconfirmed: frozenset = frozenset()   # the rows it can name without SEEK's body: a 5xx or a raise holds them back
+    held: frozenset = frozenset()          # the rows held back even on a 2xx
 
-    def call(self, code: int | None = None, body: Any = None):
+    def call(self, code: int | None = None, body: Any = None, raises: BaseException | None = None):
         viewset = self.viewset()
         viewset.client = MagicMock()
         answer = _upstream(self.response_body if body is None else body, code or self.ok_code)
-        getattr(viewset.client, self.client_method).return_value = answer
+        if raises is not None:
+            getattr(viewset.client, self.client_method).side_effect = raises
+        else:
+            getattr(viewset.client, self.client_method).return_value = answer
         request = _request(self.method, self.request_body)
         return getattr(viewset, self.action)(request, **self.kwargs)
 
@@ -205,6 +212,7 @@ PROXIES = [
         client_method="update_sample", method="patch", kwargs={"uid": "321"},
         request_body={"data": {"type": "samples", "id": "321", "attributes": {"title": "Revised"}}},
         response_body=_sample_body(), rows=frozenset({("samples", "sample:321")}),
+        unconfirmed=frozenset({("samples", "sample:321")}),
     ),
     Proxy(
         id="sample_type.create", viewset=SampleTypeProxyViewSet, action="create",
@@ -215,6 +223,7 @@ PROXIES = [
             "relationships": {"projects": {"data": [{"type": "projects", "id": "1"}]}}}},
         response_body=_sample_type_body(),
         rows=frozenset({("catalog", "*"), ("samples_of_type", "type:12")}), ok_code=201,
+        unconfirmed=frozenset({("catalog", "*")}),
     ),
     Proxy(
         id="sample_type.partial_update", viewset=SampleTypeProxyViewSet, action="partial_update",
@@ -222,6 +231,8 @@ PROXIES = [
         request_body={"data": {"id": "12", "type": "sample_types", "attributes": {"title": "Revised"}}},
         response_body=_sample_type_body(),
         rows=frozenset({("catalog", "*"), ("samples_of_type", "type:12")}),
+        unconfirmed=frozenset({("catalog", "*"), ("samples_of_type", "type:12")}),
+        held=frozenset({("samples_of_type", "type:12")}),
     ),
     Proxy(
         id="assay.create", viewset=AssayProxyViewSet, action="create", client_method="create_assay",
@@ -229,54 +240,72 @@ PROXIES = [
             "title": "New Assay", "assay_class": {"key": "EXP"},
             "assay_type": {"uri": "http://jermontology.org/ontology/JERMOntology#Transcriptomics"}},
             "relationships": {"study": {"data": {"type": "studies", "id": "434"}}}}},
-        response_body=_assay_body(), rows=frozenset({("assay_map", "*"), ("isa", "*")}), ok_code=201,
+        response_body=_assay_body(), rows=frozenset({("assay_map", "*"), ("isa", "*")}),
+        unconfirmed=frozenset({("assay_map", "*"), ("isa", "*")}), ok_code=201,
     ),
     Proxy(
         id="assay.partial_update", viewset=AssayProxyViewSet, action="partial_update",
         client_method="update_assay", method="patch", kwargs={"uid": "351"},
         request_body={"data": {"type": "assays", "id": "351", "attributes": {"description": "Updated"}}},
         response_body=_assay_body(), rows=frozenset({("assay_map", "*"), ("isa", "*")}),
+        unconfirmed=frozenset({("assay_map", "*"), ("isa", "*")}),
     ),
     Proxy(
         id="study.create", viewset=StudyProxyViewSet, action="create", client_method="create_study",
         request_body={"data": {"type": "studies", "attributes": {"title": "Vaccine Dose Response"},
                                "relationships": {"investigation": {"data": {"id": "763",
                                                                             "type": "investigations"}}}}},
-        response_body=_study_body(), rows=frozenset({("isa", "*")}), ok_code=201,
+        response_body=_study_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}), ok_code=201,
     ),
     Proxy(
         id="study.partial_update", viewset=StudyProxyViewSet, action="partial_update",
         client_method="update_study", method="patch", kwargs={"uid": "746"},
         request_body={"data": {"type": "studies", "id": "746", "attributes": {"title": "Revised"}}},
         response_body=_study_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}),
     ),
     Proxy(
         id="investigation.create", viewset=InvestigationProxyViewSet, action="create",
         client_method="create_investigation",
         request_body={"data": {"type": "investigations", "attributes": {"title": "New Investigation"},
                                "relationships": {"projects": {"data": [{"type": "projects", "id": "4475"}]}}}},
-        response_body=_investigation_body(), rows=frozenset({("isa", "*")}), ok_code=201,
+        response_body=_investigation_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}), ok_code=201,
     ),
     Proxy(
         id="investigation.partial_update", viewset=InvestigationProxyViewSet, action="partial_update",
         client_method="update_investigation", method="patch", kwargs={"uid": "763"},
         request_body={"data": {"type": "investigations", "id": "763", "attributes": {"title": "Updated"}}},
         response_body=_investigation_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}),
     ),
     Proxy(
         id="project.create", viewset=ProjectProxyViewSet, action="create", client_method="create_project",
         request_body={"data": {"type": "projects", "attributes": {"title": "New Project"}}},
-        response_body=_project_body(), rows=frozenset({("isa", "*")}), ok_code=201,
+        response_body=_project_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}), ok_code=201,
     ),
     Proxy(
         id="project.partial_update", viewset=ProjectProxyViewSet, action="partial_update",
         client_method="update_project", method="patch", kwargs={"uid": "2558"},
         request_body={"data": {"type": "projects", "id": "2558", "attributes": {"title": "Updated"}}},
         response_body=_project_body(), rows=frozenset({("isa", "*")}),
+        unconfirmed=frozenset({("isa", "*")}),
     ),
 ]
 
 _BY_ID = {proxy.id: proxy for proxy in PROXIES}
+
+
+def _delays() -> dict[tuple[str, str], float]:
+    """How long each outbox row is held back from the drain, in whole seconds."""
+    return {(r.kind, r.key): round((r.lease_expires_at - r.enqueued_at).total_seconds()) if r.lease_expires_at else 0
+            for r in GraphSyncOutbox.objects.all()}
+
+
+def _held(rows, held=frozenset()) -> dict[tuple[str, str], float]:
+    return {row: hooks.UNCONFIRMED_DELAY_S if row in held else 0 for row in rows}
 
 
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
@@ -284,22 +313,49 @@ def test_a_2xx_enqueues_the_rows_the_element_table_names(proxy):
     response = proxy.call()
     assert response.status_code == proxy.ok_code
     assert _rows() == set(proxy.rows)
+    assert _delays() == _held(proxy.rows, proxy.held)
 
 
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
-@pytest.mark.parametrize("code", [400, 404, 409, 422, 500, 502])
-def test_a_4xx_or_a_5xx_enqueues_nothing(proxy, code):
+@pytest.mark.parametrize("code", [400, 404, 409, 422])
+def test_a_4xx_enqueues_nothing(proxy, code):
     """SEEK refused the write, so the graph owes nothing."""
     proxy.call(code=code)
     assert _rows() == set()
 
 
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
-def test_an_unreadable_response_enqueues_nothing(proxy):
-    """A 2xx whose body does not validate is answered 502: the proxy never learned what SEEK wrote."""
+@pytest.mark.parametrize("code", [500, 502, 503])
+def test_a_5xx_enqueues_the_rows_it_can_name_held_back(proxy, code):
+    """SEEK may have committed the write before it failed (a SOP create answers 500 after creating the record), so
+    the rows the proxy can name without the body wait for Rails, then sync what MySQL holds (A10)."""
+    proxy.call(code=code)
+    assert _delays() == _held(proxy.unconfirmed, proxy.unconfirmed)
+
+
+@pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
+@pytest.mark.parametrize("error", [requests.ReadTimeout("read timed out"), requests.ConnectionError("reset")],
+                         ids=["timeout", "connection"])
+def test_a_call_that_raises_enqueues_the_rows_it_can_name_held_back_and_still_raises(proxy, error):
+    with pytest.raises(type(error)):
+        proxy.call(raises=error)
+    assert _delays() == _held(proxy.unconfirmed, proxy.unconfirmed)
+
+
+@pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
+def test_a_call_that_raises_still_raises_its_own_error_when_the_outbox_is_down(proxy, monkeypatch):
+    _broken_enqueue(monkeypatch)
+    with pytest.raises(requests.ReadTimeout):
+        proxy.call(raises=requests.ReadTimeout("read timed out"))
+
+
+@pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
+def test_an_unreadable_2xx_enqueues_the_rows_it_can_name(proxy):
+    """A 2xx whose body does not validate is answered 502, but SEEK committed it: the rows the proxy can name
+    without the body go in as on any 2xx; a create's own id stays the nightly's."""
     response = proxy.call(body={"data": {"id": "1"}})
     assert response.status_code == 502
-    assert _rows() == set()
+    assert _delays() == _held(proxy.unconfirmed, proxy.held)
 
 
 @pytest.mark.parametrize("proxy", PROXIES, ids=[p.id for p in PROXIES])
@@ -470,12 +526,13 @@ def _sop_json(body: dict) -> Request:
     return request
 
 
-def _sop_create(code: int = 201, body: Any = None):
+def _sop_create(code: int = 201, body: Any = None, raises: BaseException | None = None):
     """The JSON-only create. Its success path raises UnboundLocalError before it can answer (spec 20: this create
     returns 500 after Rails has committed), so the hook is what must have run by then."""
     viewset = SopProxyViewSet()
     viewset.client = MagicMock()
     viewset.client.create_sop.return_value = _upstream(_sop_body() if body is None else body, code)
+    viewset.client.create_sop.side_effect = raises
     try:
         return viewset.create(_sop_multipart(_SOP_METADATA))
     except UnboundLocalError:
@@ -487,16 +544,27 @@ def test_sop_create_enqueues_the_protocol_map():
     assert _rows() == {("protocol_map", "*")}
 
 
-@pytest.mark.parametrize("code", [400, 404, 422, 500])
+@pytest.mark.parametrize("code", [400, 404, 422])
 def test_sop_create_enqueues_nothing_when_seek_refuses(code):
     _sop_create(code=code)
     assert _rows() == set()
 
 
-def test_sop_create_enqueues_nothing_on_an_unreadable_response():
+def test_sop_create_holds_the_protocol_map_back_on_a_5xx():
+    _sop_create(code=500)
+    assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
+
+
+def test_sop_create_holds_the_protocol_map_back_when_the_call_raises():
+    with pytest.raises(requests.ReadTimeout):
+        _sop_create(raises=requests.ReadTimeout("read timed out"))
+    assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
+
+
+def test_sop_create_enqueues_the_protocol_map_on_an_unreadable_2xx():
     response = _sop_create(body={"data": {"id": "1"}})
     assert response is not None and response.status_code == 502
-    assert _rows() == set()
+    assert _delays() == {("protocol_map", "*"): 0}
 
 
 def test_sop_create_survives_a_failed_enqueue(monkeypatch):
@@ -505,10 +573,11 @@ def test_sop_create_survives_a_failed_enqueue(monkeypatch):
     assert _rows() == set()
 
 
-def _sop_patch(code: int = 200, body: Any = None):
+def _sop_patch(code: int = 200, body: Any = None, raises: BaseException | None = None):
     viewset = SopProxyViewSet()
     viewset.client = MagicMock()
     viewset.client.update_sop.return_value = _upstream(_sop_body() if body is None else body, code)
+    viewset.client.update_sop.side_effect = raises
     metadata = {"data": {"type": "sops", "id": "42", "attributes": {"title": "Patched"}}}
     with patch("nextseek_api.services.sops._resolve_uid_to_seek_id", return_value="42"):
         return viewset.partial_update(_sop_json(metadata), uid="42")
@@ -519,15 +588,26 @@ def test_sop_patch_enqueues_the_protocol_map():
     assert _rows() == {("protocol_map", "*")}
 
 
-@pytest.mark.parametrize("code", [400, 404, 422, 500])
+@pytest.mark.parametrize("code", [400, 404, 422])
 def test_sop_patch_enqueues_nothing_when_seek_refuses(code):
     _sop_patch(code=code)
     assert _rows() == set()
 
 
-def test_sop_patch_enqueues_nothing_on_an_unreadable_response():
+def test_sop_patch_holds_the_protocol_map_back_on_a_5xx():
+    _sop_patch(code=500)
+    assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
+
+
+def test_sop_patch_holds_the_protocol_map_back_when_the_call_raises():
+    with pytest.raises(requests.ConnectionError):
+        _sop_patch(raises=requests.ConnectionError("reset"))
+    assert _delays() == {("protocol_map", "*"): hooks.UNCONFIRMED_DELAY_S}
+
+
+def test_sop_patch_enqueues_the_protocol_map_on_an_unreadable_2xx():
     assert _sop_patch(body={"data": {"id": "1"}}).status_code == 502
-    assert _rows() == set()
+    assert _delays() == {("protocol_map", "*"): 0}
 
 
 def test_sop_patch_survives_a_failed_enqueue(monkeypatch):
@@ -690,11 +770,12 @@ def _member_rows():
                   in GraphSyncOutbox.objects.values_list("kind", "key", "payload") if kind == "samples")
 
 
-def _assay_call(action, request_body, response_body, code=200):
+def _assay_call(action, request_body, response_body, code=200, raises=None):
     viewset = AssayProxyViewSet()
     viewset.client = MagicMock()
     method = "create_assay" if action == "create" else "update_assay"
     getattr(viewset.client, method).return_value = _upstream(response_body, code)
+    getattr(viewset.client, method).side_effect = raises
     if action == "create":
         return viewset.create(_request("post", request_body))
     return viewset.partial_update(_request("patch", request_body), uid="351")
@@ -770,6 +851,25 @@ def test_a_refused_patch_enqueues_nothing(members):
     members.answer = [1]
     _assay_call("partial_update", PATCH_STUDY, _assay_body(), code=422)
     assert _member_rows() == []
+
+
+@pytest.mark.parametrize("failure", ["5xx", "timeout"])
+def test_an_unconfirmed_patch_holds_the_members_before_back(members, failure):
+    """SEEK may have moved them before it failed: the members it held before are synced once Rails had time (A10)."""
+    members.answer = [1, 2]
+    if failure == "5xx":
+        _assay_call("partial_update", PATCH_STUDY, _assay_body(), code=500)
+    else:
+        with pytest.raises(requests.ReadTimeout):
+            _assay_call("partial_update", PATCH_STUDY, _assay_body(), raises=requests.ReadTimeout("slow"))
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 2])]
+    assert _delays()[("samples", "batch:assay:351:1:0")] == hooks.UNCONFIRMED_DELAY_S
+
+
+def test_an_unconfirmed_create_names_no_members(members):
+    _assay_call("create", ASSAY_CREATE, _assay_body_with_samples(5), code=500)
+    assert _member_rows() == []
+    assert _rows() == {("assay_map", "*"), ("isa", "*")}
 
 
 def test_two_writes_before_a_drain_keep_both_rows(members):
