@@ -291,3 +291,161 @@ def test_a_plan_without_detail_reads_no_members(world):
     _plan_world(world)
     report = study_merge.plan(world.graph, DB, detail=False)
     assert world.graph.of(q.STUDY_SOURCES) == [] and "samples" not in report["studies"][0]
+
+
+# --- apply ---------------------------------------------------------------------------------------------------------
+
+def _split(world, sid=1, on_l=(1001,), on_k=(1002,), on_both=(1003,), doi="", pmid=""):
+    _seek(world, sid, "Alder Unpublished")
+    g = world.graph
+    legacy = g.add_study(id=sid, title="Alder Unpublished", DOI=doi, PMID=pmid, investigation=world.inv[101])
+    keyed = g.add_study(seek_study_id=sid, title="Alder Unpublished", investigation=world.inv[101])
+    for s in on_l + on_k + on_both:
+        g.add_sample(s)
+    for s in on_l + on_both:
+        g.link(s, legacy)
+    for s in on_k + on_both:
+        g.link(s, keyed)
+    return legacy, keyed
+
+
+def _journal(run_dir):
+    lines = (run_dir / study_merge.JOURNAL_FILE).read_text(encoding="utf-8").splitlines()
+    assert lines[0] == study_merge.JOURNAL_HEADER.rstrip("\n")
+    return [(int(a), b, json.loads(c)) for a, b, c in (line.split("\t", 2) for line in lines[1:])]
+
+
+def test_apply_merges_a_split_and_journals_each_step_before_its_write(world, tmp_path):
+    legacy, keyed = _split(world)
+    at_write = []
+    world.graph.before_write = lambda query, params: at_write.append(len(_journal(tmp_path)))
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+
+    assert result["status"] == "ok" and result["merged"] == [{"study_id": 1, "kind": "merge"}]
+    assert keyed not in world.graph.studies
+    assert world.graph.studies[legacy] == {"id": 1, "title": "Alder Unpublished", "seek_study_id": 1}
+    for sample_id in (1001, 1002, 1003):
+        assert world.graph.keys_of(sample_id) == {("seek", 1)}
+    assert sum(1 for s, _ in world.graph.in_study.values() if s == "s:1003") == 1
+    assert [record for _, record, _ in _journal(tmp_path)] == ["plan", "source", "source", "done"]
+    assert at_write == [3, 3]
+    places = {p["id"]: p["place"] for _, record, p in _journal(tmp_path) if record == "source"}
+    assert places == {1002: "only_on_k", 1003: "on_both"}
+    plan = _journal(tmp_path)[0][2]
+    assert plan["legacy"]["props"] == {"id": 1, "title": "Alder Unpublished", "DOI": "", "PMID": ""}
+    assert plan["seek_keyed"]["props"] == {"seek_study_id": 1, "title": "Alder Unpublished"}
+
+
+def test_a_rekey_in_place_keeps_a_non_empty_doi_and_deletes_the_empty_seek_keyed_node(world, tmp_path):
+    _seek(world, 5, "Elm paper")
+    legacy = world.graph.add_study(id=5, title="Elm paper", DOI="10.9999/e5", PMID="5", investigation=world.inv[101])
+    keyed = world.graph.add_study(seek_study_id=5, title="Elm paper", investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {5: "rekey_in_place"}, run_dir=str(tmp_path))
+    assert world.graph.studies[legacy] == {"id": 5, "title": "Elm paper", "DOI": "10.9999/e5", "PMID": "5",
+                                           "seek_study_id": 5}
+    assert keyed not in world.graph.studies and world.graph.of(q.MOVE_IN_STUDY) == []
+
+
+def test_merge_other_investigation_moves_the_legacy_nodes_investigation(world, tmp_path):
+    legacy_inv = world.graph.add_investigation(901, "Alder Investigation")
+    _seek(world, 3, "Cedar Unpublished", inv=101)
+    legacy = world.graph.add_study(id=3, title="Cedar Unpublished", DOI="", investigation=legacy_inv)
+    world.graph.add_study(seek_study_id=3, title="Cedar Unpublished", investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {3: "merge_other_investigation"}, run_dir=str(tmp_path))
+    assert world.graph.in_investigation[legacy] == [world.inv[101]]
+
+
+def test_apply_moves_in_batches(world, tmp_path):
+    _split(world, on_l=(), on_k=(1002, 1004, 1005), on_both=())
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path), batch=1)
+    assert len(world.graph.of(q.MOVE_IN_STUDY)) == 3
+
+
+def test_a_source_with_parallel_edges_moves_once(world, tmp_path):
+    _, keyed = _split(world, on_l=(), on_k=(1002,), on_both=())
+    world.graph.link(1002, keyed)
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok"
+    assert [c.params["sources"] for c in world.graph.of(q.MOVE_IN_STUDY)] == [["s:1002"]]
+    assert world.graph.keys_of(1002) == {("seek", 1)}
+
+
+def test_a_crash_between_batches_is_finished_by_a_rerun_into_the_same_journal(world, tmp_path):
+    _split(world, on_l=(), on_k=(1002, 1004), on_both=())
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path), batch=1)
+    assert _kind(world, 1).kind == "merge"
+    world.graph.fail_moves_after = None
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path), batch=1)
+    assert result["status"] == "ok"
+    assert [record for _, record, _ in _journal(tmp_path)] == ["plan", "source", "source", "plan", "source", "done"]
+    assert world.graph.keys_of(1002) == world.graph.keys_of(1004) == {("seek", 1)}
+
+
+def test_an_already_merged_id_is_counted_and_not_written(world, tmp_path):
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "first"))
+    writes = len(world.graph.writes())
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "second"))
+    assert result["already_merged"] == [1] and result["merged"] == []
+    assert len(world.graph.writes()) == writes and not (tmp_path / "second" / study_merge.JOURNAL_FILE).exists()
+
+
+def test_an_id_whose_kind_changed_stops_the_run_before_its_first_write(world, tmp_path):
+    _split(world)
+    result = study_merge.apply(world.graph, DB, {1: "rekey_in_place"}, run_dir=str(tmp_path))
+    assert (result["status"], result["stopped_at"]) == ("failed", 1)
+    assert world.graph.writes() == []
+
+
+def test_the_last_step_refuses_a_seek_keyed_node_that_gained_a_relationship(world, tmp_path):
+    _, keyed = _split(world)
+
+    def meanwhile(query, params):
+        if query == q.FINISH_STUDY_MERGE:
+            world.graph.other_rels[keyed] = ["HAS_NOTE"]
+
+    world.graph.before_write = meanwhile
+    with pytest.raises(RuntimeError, match="last step"):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert keyed in world.graph.studies
+
+
+def test_a_match_merge_that_moved_every_source_before_a_crash_is_finished_by_a_rerun(world, tmp_path):
+    """A paper that is also a SEEK study, split. After its last move and before its last step the seek-keyed node
+    holds no IN_STUDY, so the id reads rekey_in_place; the rerun of the approved merge finishes it with the same last
+    step."""
+    _seek(world, 6, "Fir paper")
+    legacy = world.graph.add_study(id=6, title="Fir paper", DOI="10.9999/f6", investigation=world.inv[101])
+    keyed = world.graph.add_study(seek_study_id=6, title="Fir paper", investigation=world.inv[101])
+    world.graph.add_sample(1001)
+    world.graph.link(1001, keyed)
+    assert _kind(world, 6).kind == "merge"
+
+    def lost_at_the_last_step(query, params):
+        if query == q.FINISH_STUDY_MERGE:
+            raise RuntimeError("the connection to Neo4j was lost")
+
+    world.graph.before_write = lost_at_the_last_step
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path))
+    assert _kind(world, 6).kind == "rekey_in_place"
+    world.graph.before_write = None
+    result = study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok" and result["merged"] == [{"study_id": 6, "kind": "rekey_in_place"}]
+    assert keyed not in world.graph.studies and world.graph.studies[legacy]["seek_study_id"] == 6
+    assert world.graph.keys_of(1001) == {("seek", 6)}
+    assert [record for _, record, _ in _journal(tmp_path)] == ["plan", "source", "plan", "done"]
+
+
+def test_an_approved_rekey_that_now_reads_merge_still_stops(world, tmp_path):
+    """Only the one direction is finished: a rekey approved while K was empty that now finds K holding samples is a
+    different operation, and stops for the operator."""
+    _seek(world, 6, "Fir paper")
+    world.graph.add_study(id=6, title="Fir paper", DOI="10.9999/f6", investigation=world.inv[101])
+    keyed = world.graph.add_study(seek_study_id=6, title="Fir paper", investigation=world.inv[101])
+    world.graph.add_sample(1001)
+    world.graph.link(1001, keyed)
+    result = study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path))
+    assert (result["status"], result["stopped_at"]) == ("failed", 6) and world.graph.writes() == []

@@ -31,6 +31,8 @@ class StudyGraph:
         self.before_write = None                          # called with (query, params) before each write
         self._seq = itertools.count(1)
         self._is_sample = is_sample
+        self.fail_moves_after = None
+        self._moves = 0
 
     # --- building ----------------------------------------------------------------------------------------
 
@@ -144,6 +146,9 @@ class StudyGraph:
             q.ORPHAN_IN_STUDY: self._orphan_count,
             q.STUDY_NODES: self._study_nodes,
             q.STUDY_SOURCES: self._study_sources,
+            q.STUDY_SOURCES_BATCH: self._sources_batch,
+            q.MOVE_IN_STUDY: self._move,
+            q.FINISH_STUDY_MERGE: self._finish,
         }
 
     # --- Project and Investigation nodes --------------------------------------------------------------------
@@ -302,3 +307,44 @@ class StudyGraph:
         found = sorted({s for s, st in self.in_study.values() if st == p["element_id"]})
         return [{"element_id": s, "labels": sorted(self.sources[s]["labels"]), "id": self.sources[s]["id"]}
                 for s in found]
+
+    def _sources_batch(self, p):
+        rows = self._study_sources({"element_id": p["k"]})[: p["limit"]]
+        for row in rows:
+            row["on_l"] = any(s == row["element_id"] and st == p["l"] for s, st in self.in_study.values())
+        return rows
+
+    def _move(self, p):
+        self._moves += 1
+        if self.fail_moves_after is not None and self._moves > self.fail_moves_after:
+            raise RuntimeError("the connection to Neo4j was lost")
+        moved = 0
+        for src in p["sources"]:
+            edges = [e for e, (s, st) in self.in_study.items() if s == src and st == p["k"]]
+            if not edges:
+                continue
+            if not any(s == src and st == p["l"] for s, st in self.in_study.values()):
+                self.link(src, p["l"])
+            for e in edges:
+                del self.in_study[e]
+            moved += 1
+        return [{"moved": moved}]
+
+    def _finish(self, p):
+        legacy = self.studies.get(p["l"])
+        if legacy is None or legacy.get("seek_study_id") is not None or legacy.get("id") != p["study_id"]:
+            return [{"merged": 0}]
+        k = p["k"]
+        if k is not None:
+            if (k not in self.studies or any(st == k for _, st in self.in_study.values()) or self.other_rels[k]
+                    or len(self.in_investigation[k]) > 1):
+                return [{"merged": 0}]
+        if p["new_investigation"] is not None:
+            self.in_investigation[p["l"]] = [p["new_investigation"]]
+        if k is not None:
+            del self.studies[k], self.in_investigation[k], self.other_rels[k]
+        legacy["seek_study_id"] = p["study_id"]
+        for key in ("DOI", "PMID"):
+            if legacy.get(key) == "":
+                del legacy[key]
+        return [{"merged": 1}]

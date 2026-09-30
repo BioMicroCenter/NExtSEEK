@@ -303,3 +303,77 @@ def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
     report["legacy_only"] = [s.study_id for s in selections if s.kind == LEGACY_ONLY]
     report["investigations_left_empty"] = _left_empty(index, selections)
     return report
+
+
+# --- apply ---------------------------------------------------------------------------------------------------------
+
+def _journal(path: str, study_id: int, record: str, payloads) -> None:
+    """Append one journal line per payload and flush it to disk, before the write it describes."""
+    lines = [f"{int(study_id)}\t{record}\t{json.dumps(p, sort_keys=True, ensure_ascii=True, default=str)}\n"
+             for p in payloads]
+    writer._append_rows(path, JOURNAL_HEADER, lines)
+
+
+def _journaled_node(node: StudyNode | None) -> dict | None:
+    if node is None:
+        return None
+    return {"element_id": node.element_id, "props": node.props, "investigation": node.investigations[0]}
+
+
+def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
+    x, legacy, keyed = sel.study_id, sel.legacy, sel.seek_keyed
+    _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
+                                   "seek_keyed": _journaled_node(keyed)}])
+    if keyed is not None and sel.kind != REKEY_IN_PLACE:
+        while True:
+            rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
+                                 {"k": keyed.element_id, "l": legacy.element_id, "limit": batch}, read=True))
+            if not rows:
+                break
+            _journal(journal, x, "source", [{"element_id": r["element_id"], "labels": list(r["labels"] or []),
+                                             "id": r["id"], "place": "on_both" if r["on_l"] else "only_on_k"}
+                                            for r in rows])
+            moved = _one(_run(driver, db, q.MOVE_IN_STUDY, {"k": keyed.element_id, "l": legacy.element_id,
+                                                            "sources": [r["element_id"] for r in rows]}), "moved")
+            if moved != len(rows):
+                raise RuntimeError(f"study {x}: {len(rows)} sources read on the seek-keyed node but {moved} moved; "
+                                   "a rerun with the same run directory finishes it")
+    new_investigation = (keyed.investigations[0]["element_id"]
+                         if sel.kind == MERGE_OTHER_INVESTIGATION and keyed is not None else None)
+    merged = _one(_run(driver, db, q.FINISH_STUDY_MERGE,
+                       {"l": legacy.element_id, "k": None if keyed is None else keyed.element_id, "study_id": x,
+                        "new_investigation": new_investigation}), "merged")
+    if merged != 1:
+        raise RuntimeError(f"study {x}: the last step found the seek-keyed node still holding a relationship, or the "
+                           "legacy node changed since it was read; that step wrote nothing")
+    _journal(journal, x, "done", [{"kind": sel.kind}])
+
+
+def apply(driver, db, expected: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
+    """Merge or rekey each id of ``expected`` (id to the kind the operator approved, from ``plan``), in id order,
+    under the caller's hold of the graph-write lock (the spec's section 5.3). Each id is read again first: an
+    ``already_merged`` id is counted and not written; an id whose kind changed stops the run before its first write,
+    ids done before it staying done (``status: failed``). Every step is journaled to ``study_merge.tsv`` in
+    ``run_dir`` before its write; a rerun given the same ``run_dir`` appends to it and finishes a merge a crash
+    stopped. Raises RuntimeError when a move or the last step does not do what was read."""
+    run_dir = os.path.abspath(run_dir)
+    journal = os.path.join(run_dir, JOURNAL_FILE)
+    result = {"status": OK, "run_dir": run_dir, "journal": journal, "merged": [], "already_merged": [],
+              "stopped_at": None}
+    for x in sorted(int(i) for i in expected):
+        sel = classify(read_index(driver, db), x)
+        if sel.kind == ALREADY_MERGED:
+            result["already_merged"].append(x)
+            continue
+        if expected[x] == MERGE and sel.kind == REKEY_IN_PLACE and sel.seek_keyed is not None:
+            # A merge by the match whose every source moved before a crash stopped it: K holds no IN_STUDY now, so
+            # the id reads rekey_in_place, whose last step is the merge's own. Finish it as that.
+            log.info("study %s: its merge moved every source before it stopped; finishing it", x)
+        elif sel.kind != expected[x] or sel.kind not in ACTING:
+            result.update(status=FAILED, stopped_at=x,
+                          problem=f"study {x} reads {sel.kind} now, not {expected[x]}; it and every later id are "
+                                  "left as they are")
+            return result
+        _merge_one(driver, db, sel, journal, batch)
+        result["merged"].append({"study_id": x, "kind": sel.kind})
+    return result

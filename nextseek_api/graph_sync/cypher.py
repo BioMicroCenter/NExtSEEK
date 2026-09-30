@@ -553,6 +553,56 @@ RETURN elementId(x) AS element_id, labels(x) AS labels, x.id AS id
 ORDER BY element_id
 """
 
+# The next batch of distinct sources with an IN_STUDY to the seek-keyed node K, and whether each already has one to L.
+STUDY_SOURCES_BATCH = """
+MATCH (k:Study) WHERE elementId(k) = $k
+MATCH (x)-[:IN_STUDY]->(k)
+WITH DISTINCT x
+ORDER BY elementId(x)
+LIMIT $limit
+RETURN elementId(x) AS element_id, labels(x) AS labels, x.id AS id,
+       EXISTS { MATCH (x)-[:IN_STUDY]->(l:Study) WHERE elementId(l) = $l } AS on_l
+"""
+# Move these sources' IN_STUDY from K to L, whatever their label: MERGE the link to L, then delete every edge to K.
+MOVE_IN_STUDY = """
+UNWIND $sources AS xid
+MATCH (x) WHERE elementId(x) = xid
+MATCH (k:Study) WHERE elementId(k) = $k
+MATCH (l:Study) WHERE elementId(l) = $l
+MATCH (x)-[e:IN_STUDY]->(k)
+WITH x, l, collect(e) AS edges
+MERGE (x)-[:IN_STUDY]->(l)
+FOREACH (e IN edges | DELETE e)
+RETURN count(x) AS moved
+"""
+# The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION and
+# L is still the legacy node of $study_id. For a merge_other_investigation, L's IN_INVESTIGATION moves to
+# $new_investigation. K is deleted, L gains seek_study_id, and a DOI or PMID that is '' goes.
+FINISH_STUDY_MERGE = """
+CYPHER 25
+MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id IS NULL AND l.id = $study_id
+OPTIONAL MATCH (k:Study) WHERE elementId(k) = $k
+WITH l, k
+WHERE ($k IS NULL AND k IS NULL)
+   OR (k IS NOT NULL AND NOT EXISTS { (k)<-[:IN_STUDY]-() }
+       AND COUNT { (k)--() } = COUNT { (k)-[:IN_INVESTIGATION]->() }
+       AND COUNT { (k)-[:IN_INVESTIGATION]->() } <= 1)
+CALL (l) {
+  MATCH (l)-[old:IN_INVESTIGATION]->(i)
+  WHERE $new_investigation IS NOT NULL AND elementId(i) <> $new_investigation
+  DELETE old
+}
+CALL (l) {
+  MATCH (i:Investigation) WHERE elementId(i) = $new_investigation
+  MERGE (l)-[:IN_INVESTIGATION]->(i)
+}
+FOREACH (_ IN CASE WHEN k IS NULL THEN [] ELSE [1] END | DETACH DELETE k)
+SET l.seek_study_id = $study_id
+FOREACH (_ IN CASE WHEN l.DOI = '' THEN [1] ELSE [] END | REMOVE l.DOI)
+FOREACH (_ IN CASE WHEN l.PMID = '' THEN [1] ELSE [] END | REMOVE l.PMID)
+RETURN count(l) AS merged
+"""
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.
