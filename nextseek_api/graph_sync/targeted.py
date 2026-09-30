@@ -68,6 +68,13 @@ DERIVED_FROM_ARCHIVE_FILE = "derived_from_undeclared_archive.tsv"   # the full s
 EXAMPLES = 20             # examples kept per report list
 LIST_CAP = 1_000          # longest id list copied into a report
 
+# The counts of a by-id sync that mean a structural link was left unwritten: the sample's OF_TYPE or an IN_PROJECT,
+# its IN_STUDY row, a Study node for one of its SEEK studies, or a Study's IN_INVESTIGATION. A row that reports any is
+# not done (the drain fails it, and the sample's source_hash stays null for the nightly). A parent not yet uploaded
+# (lineage_dropped) and an edge gone before its label was written (labels_edges_missing) are expected states instead.
+STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missing", "in_study_studies_missing",
+                       "seek_study_investigation_missing")
+
 _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0,
                     "labels_skipped_changed": 0, "labels_edges_missing": 0}
 
@@ -340,6 +347,9 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
         report.update(projected=len(projections), projection_errors=len(errors),
                       projection_error_examples=errors[:EXAMPLES])
         if projections:
+            report.update(writer.merge_missing_projects(
+                driver, db, {pid for proj in projections for pid in proj.props.get("project_ids") or ()},
+                ctx.seek_tables().projects))
             report.update(writer.write_samples(driver, db, projections))
             written = {p.id for p in projections}
             report.update(_lineage(driver, db, [r for r in rows if r["id"] in written], tokens, ctx))
@@ -351,6 +361,8 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
             report.update(_undeclared_attributes(driver, db, projections, cat))
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
+    parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
+    report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
     return report
 
 

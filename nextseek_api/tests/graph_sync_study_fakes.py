@@ -131,6 +131,8 @@ class StudyGraph:
     def handlers(self) -> dict:
         return {
             q.MERGE_SEEK_STUDIES: self._follow,
+            q.PROJECT_IDS_PRESENT: lambda p: [{"id": i} for i in p["ids"] if i in self.projects],
+            q.MERGE_PROJECTS: self._merge_projects,
             q.MERGE_INVESTIGATIONS: self._merge_investigations,
             q.MERGE_INVESTIGATION_IN_PROJECT: self._merge_investigation_in_project,
             q.SAMPLE_STUDIES_OF: self._studies_of,
@@ -140,7 +142,12 @@ class StudyGraph:
             q.ORPHAN_IN_STUDY: self._orphan_count,
         }
 
-    # --- Investigation nodes ------------------------------------------------------------------------------
+    # --- Project and Investigation nodes --------------------------------------------------------------------
+
+    def _merge_projects(self, p):
+        for r in p["rows"]:
+            self.projects[r["id"]] = dict(r)
+        return []
 
     def _merge_investigations(self, p):
         for r in p["rows"]:

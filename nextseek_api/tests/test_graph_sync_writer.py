@@ -1744,3 +1744,42 @@ def test_the_by_id_path_writes_a_new_investigation_before_its_study():
     (node,) = g.studies_by_seek(9)
     assert g.investigation_ids_of(node) == [103] and g.keys_of(1001) == {("seek", 9)}
     assert (counts["investigations_written"], counts["seek_study_investigation_missing"]) == (1, 0)
+
+
+# --- missing Project nodes, and a sample that is not fully linked -------------------------------------------------
+
+def test_write_samples_leaves_the_hash_of_a_half_linked_sample_null():
+    assert ("SET s.source_hash = CASE WHEN typed = 0 OR linked < size(coalesce(r.props.project_ids, [])) THEN null"
+            in q.WRITE_SAMPLES)
+    assert q.WRITE_SAMPLES.index("AS linked") < q.WRITE_SAMPLES.index("SET s.source_hash") < \
+        q.WRITE_SAMPLES.index("RETURN count(s) AS written")
+
+
+def test_merge_missing_projects_writes_only_the_missing_ones_and_counts_the_ones_seek_lacks():
+    g = StudyGraph()
+    g.add_project(2, "Kept")
+    counts = w.merge_missing_projects(g, DB, [2, 5, 77, 5], [{"id": 2, "title": "Alder"}, {"id": 5, "title": "Birch"}])
+    assert counts == {"projects_written_for_links": 1, "project_ids_not_in_seek": 1}
+    assert g.projects == {2: {"id": 2, "title": "Kept"}, 5: {"id": 5, "title": "Birch"}}
+    assert [c.query for c in g.writes()] == [q.MERGE_PROJECTS]
+    assert q.DELETE_GONE_PROJECTS not in [c.query for c in g.calls]
+
+
+def test_merge_missing_projects_reads_nothing_for_no_id():
+    g = StudyGraph()
+    assert w.merge_missing_projects(g, DB, [], []) == {"projects_written_for_links": 0, "project_ids_not_in_seek": 0}
+    assert g.calls == []
+
+
+def test_a_new_investigations_project_is_written_before_its_link():
+    g = StudyGraph()
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", None, 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},),
+                          projects=({"id": 5, "title": "Poplar"},))
+    counts = w.write_seek_study_nodes(g, DB, tables.studies, tables=tables)
+    inv = g.investigation_by_id(103)
+    assert g.inv_projects[inv] == {5} and g.projects[5] == {"id": 5, "title": "Poplar"}
+    assert (counts["investigation_projects_written"], counts["investigation_links"]) == (1, 1)
+    writes = [c.query for c in g.writes()]
+    assert writes.index(q.MERGE_PROJECTS) < writes.index(q.MERGE_INVESTIGATION_IN_PROJECT)

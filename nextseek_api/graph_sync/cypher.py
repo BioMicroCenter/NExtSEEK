@@ -199,6 +199,12 @@ MERGE (p:Project {id: r.id})
 SET p = r
 """
 DELETE_GONE_PROJECTS = "MATCH (p:Project) WHERE NOT p.id IN $ids DETACH DELETE p"
+# The Project nodes among these ids: a by-id sync writes a missing one before it links a sample or an investigation.
+PROJECT_IDS_PRESENT = """
+UNWIND $ids AS id
+MATCH (p:Project {id: id})
+RETURN p.id AS id
+"""
 DELETE_MEMBER_OF = "MATCH (:Person)-[m:MEMBER_OF]->() DELETE m"
 DELETE_GONE_PEOPLE = "MATCH (pe:Person) WHERE NOT pe.id IN $ids DETACH DELETE pe"
 MERGE_PEOPLE = "UNWIND $ids AS id MERGE (:Person {id: id})"
@@ -230,7 +236,8 @@ RETURN count(*) AS linked
 # MySQL leaves the node). parent_titles and parent_title_hashes come from the props when the projection supplies them
 # (schema 1.2: projection-owned); a row without them keeps the node's own. OF_TYPE and IN_PROJECT are rebuilt from
 # the row. The two counting subqueries always return one row, so a sample whose type or project node is missing is
-# still written and shows up as a shortfall in the counts.
+# still written and shows up as a shortfall in the counts; its source_hash is then left null, so the nightly
+# reconcile reads it as changed and syncs it again rather than treating the half-linked node as current.
 WRITE_SAMPLES = """
 CYPHER 25
 UNWIND $rows AS r
@@ -257,6 +264,8 @@ CALL (s, r) {
   MERGE (s)-[:IN_PROJECT]->(p)
   RETURN count(p) AS linked
 }
+SET s.source_hash = CASE WHEN typed = 0 OR linked < size(coalesce(r.props.project_ids, [])) THEN null
+                         ELSE s.source_hash END
 RETURN count(s) AS written, sum(typed) AS typed, sum(linked) AS linked
 """
 

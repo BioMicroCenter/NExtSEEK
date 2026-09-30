@@ -461,6 +461,24 @@ def write_projects(driver, db, rows: list[dict]) -> dict:
     return {"projects_written": len(clean)}
 
 
+def merge_missing_projects(driver, db, project_ids, project_rows) -> dict:
+    """MERGE the Project node of each of ``project_ids`` that has none, from ``project_rows`` (``sources.projects()``),
+    before anything links to it: ``WRITE_SAMPLES`` and ``MERGE_INVESTIGATION_IN_PROJECT`` MATCH the Project, so a link
+    to a missing one is dropped. Nothing is deleted (the whole-table write owns the deletes). A missing id with no
+    ``projects`` row is counted in ``project_ids_not_in_seek`` and written nowhere: SEEK data to fix."""
+    wanted = sorted({int(p) for p in project_ids})
+    if not wanted:
+        return {"projects_written_for_links": 0, "project_ids_not_in_seek": 0}
+    present = {r["id"] for r in _records(_run(driver, db, q.PROJECT_IDS_PRESENT, {"ids": wanted}, read=True))}
+    rows = {int(r["id"]): r for r in project_rows}
+    missing = [p for p in wanted if p not in present]
+    new = [{k: v for k, v in rows[p].items() if v is not None} for p in missing if p in rows]
+    if new:
+        _run(driver, db, q.MERGE_PROJECTS, {"rows": new})
+    return {"projects_written_for_links": len(new),
+            "project_ids_not_in_seek": sum(1 for p in missing if p not in rows)}
+
+
 def write_people_and_memberships(driver, db, rows: list[dict]) -> dict:
     """Replace every MEMBER_OF from ``sources.memberships()`` rows (``person_id``, ``project_id``, ``has_left``,
     ``time_left_at``). Person nodes carry ``id`` only; a person with no membership left is deleted."""
@@ -860,11 +878,14 @@ def write_study_investigations(driver, db, studies, tables: SeekTables) -> dict:
              "project_id": project_of.get(inv_id)} for inv_id in sorted(wanted & set(known))]
     for batch in _batches(rows, REL_CHUNK):
         _run(driver, db, q.MERGE_INVESTIGATIONS, {"rows": batch})
+    projects = merge_missing_projects(driver, db, [r["project_id"] for r in link_rows], tables.projects)
     linked = sum(_one(_run(driver, db, q.MERGE_INVESTIGATION_IN_PROJECT, {"rows": batch}), "linked")
                  for batch in _batches(link_rows, REL_CHUNK))
     return {"investigations_written": len(rows), "investigation_links": linked,
             "investigation_links_dropped": len(link_rows) - linked,
-            "investigation_ids_not_in_seek": len(wanted - set(known))}
+            "investigation_ids_not_in_seek": len(wanted - set(known)),
+            "investigation_projects_written": projects["projects_written_for_links"],
+            "investigation_project_ids_not_in_seek": projects["project_ids_not_in_seek"]}
 
 
 def write_seek_study_nodes(driver, db, studies, *, tables: SeekTables | None = None) -> dict:

@@ -467,6 +467,31 @@ def test_a_deferred_row_is_not_failing_and_a_failed_row_is(work):
     assert row("samples_of_type", "type:3").failing_since == T0
 
 
+@pytest.mark.django_db
+def test_a_sync_that_left_a_structural_link_unwritten_fails_its_row_naming_the_parts(work):
+    state.enqueue("samples", "sample:7", now=before(minutes=2))
+    work.sync = {"status": targeted.OK, "structural_gaps": 2,
+                 "structural_gap_parts": {"in_project_missing": 1, "seek_study_investigation_missing": 1}}
+
+    report = one_pass(work)
+
+    r = row("samples", "sample:7")
+    assert r.done_at is None and r.failing_since == T0 and r.attempts == 1
+    assert "in_project_missing 1, seek_study_investigation_missing 1" in r.last_error
+    assert report["counts"]["failed"] == 1
+
+
+@pytest.mark.django_db
+def test_a_parent_not_yet_uploaded_alone_still_closes_the_row(work):
+    state.enqueue("samples", "sample:7", now=before(minutes=2))
+    work.sync = {"status": targeted.OK, "lineage_dropped": 3, "labels_edges_missing": 1, "structural_gaps": 0,
+                 "structural_gap_parts": {}}
+
+    one_pass(work)
+
+    assert row("samples", "sample:7").done_at is not None
+
+
 # --- the two runs that meet in the outbox ---------------------------------------------------------
 
 @pytest.mark.django_db

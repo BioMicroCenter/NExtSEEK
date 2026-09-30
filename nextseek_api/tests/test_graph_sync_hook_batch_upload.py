@@ -266,6 +266,15 @@ class TestStageSixCallsSyncSamples:
         assert seen["kwargs"]["lock_timeout_s"] == orch.GRAPH_LOCK_WAIT_S == 60
         assert seen["driver"] is fake
 
+    def test_a_sync_with_structural_gaps_answers_structural_gaps(self, monkeypatch):
+        from nextseek_api.graph_sync import targeted
+        monkeypatch.setattr(targeted, "sync_samples", lambda driver, db, ids, **kw: {
+            "status": "ok", "structural_gaps": 1, "structural_gap_parts": {"in_project_missing": 1}})
+        monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: _config()))
+        with pytest.MonkeyPatch.context() as mp:
+            _fake_driver(mp)
+            assert orch._run_graph_sync([10]) == "structural_gaps"
+
     def test_a_graph_that_is_not_configured_is_never_connected_to(self, monkeypatch):
         disabled = _config(enabled=False)
         monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: disabled))
@@ -344,6 +353,11 @@ class TestStageSixMarksTheJobsRowsDone:
     def test_a_graph_below_the_writers_version_reports_pending(self, monkeypatch):
         self._enqueue_rows()
         assert self._run(monkeypatch, "not_at_version") == "pending (3)"
+        assert GraphSyncOutbox.objects.filter(done_at__isnull=False).count() == 0
+
+    def test_a_sync_that_left_a_structural_link_unwritten_reports_pending_and_leaves_every_row(self, monkeypatch):
+        self._enqueue_rows()
+        assert self._run(monkeypatch, "structural_gaps") == "pending (3)"
         assert GraphSyncOutbox.objects.filter(done_at__isnull=False).count() == 0
 
     def test_an_error_reports_pending(self, monkeypatch):

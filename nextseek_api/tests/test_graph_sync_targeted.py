@@ -219,8 +219,12 @@ class FakeGraph:
             node["labels"] = {label for label in node["labels"] if not label.startswith("T_")} | {"Sample", r["label"]}
             node["type_id"] = r["sample_type_id"] if r["sample_type_id"] in self.types else None
             written += 1
-            typed += node["type_id"] is not None
-            linked += len(props.get("project_ids") or ())
+            row_typed = node["type_id"] is not None
+            row_linked = sum(1 for pid in props.get("project_ids") or () if pid in self.study.projects)
+            if not row_typed or row_linked < len(props.get("project_ids") or ()):
+                props["source_hash"] = None          # WRITE_SAMPLES leaves a half-linked node for the nightly
+            typed += row_typed
+            linked += row_linked
         return [{"written": written, "typed": typed, "linked": linked}]
 
     def _write_missing_lineage(self, p):
@@ -884,6 +888,62 @@ def test_relabel_for_maps_stamps_the_new_label_maps_hash_and_keeps_the_catalog_h
     assert result["previous_label_maps_hash"] == labels.label_maps_hash(ASSAY_MAP, SOPS)
     assert labelled.graph.meta["label_maps_hash"] == new_hash
     assert labelled.graph.meta["catalog_hash"] == "cat-0"
+
+
+# --- a by-id sync writes the Project nodes it links to, and a structural gap keeps it open ----------------------------
+
+def test_a_sample_of_a_project_with_no_node_gets_the_node_and_its_link(env, tmp_path):
+    result = targeted.sync_samples(env.graph, DB, [12], run_dir=str(tmp_path))       # sample 12 is in project 16
+    assert env.graph.study.projects[16] == {"id": 16, "title": "TCGA"}
+    assert (result["projects_written_for_links"], result["in_project_missing"], result["structural_gaps"]) == (1, 0, 0)
+    assert env.graph.first(q.MERGE_PROJECTS) < env.graph.first(q.WRITE_SAMPLES)
+    assert env.graph.nodes[12]["props"]["source_hash"] is not None
+    assert env.graph.of(q.DELETE_GONE_PROJECTS) == []
+
+
+def test_a_new_investigation_of_a_new_project_is_linked_in_one_sync(env, tmp_path):
+    """The chain Sample, IN_STUDY, Study, IN_INVESTIGATION, Investigation, IN_PROJECT, Project after ONE by-id sync."""
+    targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    inv = env.graph.study.investigation_by_id(3)
+    (node,) = env.graph.study.studies_by_seek(70)
+    assert env.graph.study.keys_of(11) == {("seek", 70)}
+    assert env.graph.study.in_investigation[node] == [inv] and env.graph.study.inv_projects[inv] == {16}
+    assert 16 in env.graph.study.projects
+
+
+def test_existing_project_nodes_are_neither_rewritten_nor_deleted(env, tmp_path):
+    env.graph.study.projects[2] = {"id": 2, "title": "Kept as it is"}
+    result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))       # sample 10 is in project 2
+    assert env.graph.study.projects[2] == {"id": 2, "title": "Kept as it is"}
+    assert result["projects_written_for_links"] == 0
+    assert env.graph.of(q.DELETE_GONE_PROJECTS) == []
+
+
+def test_a_project_id_seek_lacks_is_counted_and_keeps_the_sample_open(env, tmp_path):
+    env.mysql.projects[10] = [2, 77]                        # a projects_samples row for a project SEEK lacks
+    result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))
+    assert 77 not in env.graph.study.projects
+    assert (result["project_ids_not_in_seek"], result["in_project_missing"]) == (1, 1)
+    assert result["structural_gaps"] == 1 and result["structural_gap_parts"] == {"in_project_missing": 1}
+    assert env.graph.nodes[10]["props"]["source_hash"] is None
+
+
+def test_a_sync_whose_type_and_project_links_fail_reports_the_parts_and_leaves_the_hash_null(env, tmp_path,
+                                                                                            monkeypatch):
+    monkeypatch.setattr(writer, "merge_missing_projects",
+                        lambda d, db, ids, rows: {"projects_written_for_links": 0, "project_ids_not_in_seek": 0})
+    env.graph.types.pop(26)                                 # no SampleType node for sample 10's type
+    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: [])
+    result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))
+    assert result["structural_gap_parts"] == {"untyped": 1, "in_project_missing": 1}
+    assert result["structural_gaps"] == 2 and result["status"] == "ok"
+    assert env.graph.nodes[10]["props"]["source_hash"] is None
+
+
+def test_a_clean_sync_reports_no_gap_and_keeps_the_hash(env, tmp_path):
+    result = targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path))
+    assert (result["structural_gaps"], result["structural_gap_parts"]) == (0, {})
+    assert all(env.graph.nodes[i]["props"]["source_hash"] for i in (10, 11, 12, 13))
 
 
 # --- sync_small_tables ---------------------------------------------------------------------------

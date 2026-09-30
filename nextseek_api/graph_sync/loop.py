@@ -360,6 +360,13 @@ def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, start
         return _defer(claim, f"{claim.kind} {claim.key}: {status}", entry, now=now)
     if status not in (targeted.OK, "dry_run"):
         return _fail(claim, f"{claim.kind} {claim.key}: {status}", entry, now=now)
+    gaps = (result or {}).get("structural_gaps") or 0
+    if gaps:
+        # A sync that left a structural link unwritten is not done: the row retries on its back-off and, if it never
+        # heals, shows in the health line's failing rows and dies at the attempt limit.
+        parts = ", ".join(f"{k} {v}" for k, v in sorted(((result or {}).get("structural_gap_parts") or {}).items()))
+        return _fail(claim, f"{claim.kind} {claim.key}: {gaps} structural links left unwritten ({parts})", entry,
+                     now=now)
     state.finish_done(claim, now=now)
     entry["outcome"] = DONE
     return entry

@@ -602,6 +602,10 @@ def _run_graph_sync(sample_ids: List[int]) -> str:
                 driver, neo4j_config.NEO4J_DB, sample_ids, lock_timeout_s=GRAPH_LOCK_WAIT_S,
             )
         log.info("GRAPH SYNC: %s", report)
+        if report.get("status") == "ok" and report.get("structural_gaps"):
+            # Written, but a type, project, study or investigation link is missing: the job's outbox rows stay open
+            # for the loop, which retries them (graph_sync.targeted.STRUCTURAL_GAP_KEYS).
+            return "structural_gaps"
         return str(report.get("status"))
     except Exception as exc:  # noqa: BLE001 - the upload stands; the sync loop catches the graph up
         log.warning("GRAPH SYNC failed for %d sample(s) (the outbox keeps the work): %s",
