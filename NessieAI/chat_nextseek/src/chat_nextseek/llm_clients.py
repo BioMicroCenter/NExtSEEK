@@ -340,7 +340,11 @@ class GeminiClient(BaseLLMClient):
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             generation_config["response_mime_type"] = "application/json"
         if thinking_budget is not None:
-            generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
+            if model.startswith("gemini-3"):
+                # Gemini 3 models take a level, not a token budget: the catalog's level is sent as it is.
+                generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
+            else:
+                generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
 
         try:
             resp = self.client.models.generate_content(
