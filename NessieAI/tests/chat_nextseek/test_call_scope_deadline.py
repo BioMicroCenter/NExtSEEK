@@ -123,8 +123,8 @@ def test_a_gemini_stall_inside_a_graph_op_moves_and_answers_inside_55_s(run, clo
         assert _call(config, "parser", OPUS).mode == OPUS
         assert _call(config, "graph", FLASH).mode == SONNET
     assert clock.now - start < 55
-    assert windows[0] == (FLASH, 20), "the entity's own 20 s first try fits: 55 - 20 = 35 is more"
-    assert windows[1] == (SONNET, 35), "the move gets what is left, not its full 90 s"
+    assert windows[0] == (FLASH, 30), "the entity's own 30 s first try fits: 55 - 20 = 35 is more"
+    assert windows[1] == (SONNET, 25), "the move gets what is left after the 30 s stall, not its full 90 s"
     assert [m for m, _ in windows] == [FLASH, SONNET, OPUS, SONNET], "the graph agent skips the stalled Gemini"
 
 
@@ -215,7 +215,7 @@ def test_a_timeout_on_a_window_the_deadline_did_not_cut_is_still_an_outage(run, 
     with _op_scope(1000):
         with pytest.raises(LLMFatalError) as excinfo:
             _call(_Config(), "entity", FLASH)
-    assert windows == [(FLASH, 20), (SONNET, 90)]
+    assert windows == [(FLASH, 30), (SONNET, 90)]
     assert excinfo.value.reason == "timeout" and excinfo.value.unavailable is True
 
 
