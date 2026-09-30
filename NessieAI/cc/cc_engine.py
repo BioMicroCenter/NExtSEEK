@@ -104,9 +104,9 @@ _MIN_CC_API_TIMEOUT_MS = 1000
 # for response headers) plus this much slack. Later, the request must be streaming an
 # answer, and Claude Code prints nothing while it streams: the turn just ran out of time.
 _RETRY_WINDOW_SLACK_S = 5.0
-# Step 1: a turn that ended normally gets this long to exit by itself (Claude Code writes its transcript tail
-# before it exits) before it is stopped; nothing reads or writes its scratch until it is gone.
-_EXIT_GRACE_S = 5.0
+# Step 1: after the agent is stopped, how long to wait for Docker to confirm it has exited (an exited
+# container answers at once); nothing reads or writes its scratch until that is confirmed.
+_CONFIRM_EXIT_WAIT_S = 5.0
 # The engine's monotonic clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
 # Claude Code 2.1.282's auto-mode classifier asks a Sonnet model about each tool call,
@@ -1081,8 +1081,9 @@ def _run_kwargs(
         # F15: reap the sibling even when the parent Django worker dies mid-turn
         # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
         # container on dmac-cc-net with an rw mount and live spend). Safe here:
-        # the code never container.wait()s or inspects post-exit, and the now-
-        # redundant finally remove(force=True) is already guarded by except pass.
+        # the exit confirm (_stop_and_confirm_exit) treats a wait on an already
+        # removed container (404 NotFound) as gone, and the now-redundant finally
+        # remove(force=True) is already guarded by except pass.
         "auto_remove": True,
     }
 
@@ -1119,32 +1120,36 @@ def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any
         return client.containers.run(**run_kwargs)
 
 
-def _stop_and_confirm_exit(container: Any, *, grace_s: float = _EXIT_GRACE_S) -> bool:
+def _stop_and_confirm_exit(container: Any, *, grace_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
     """Stop the agent, and say whether it is gone, before Django touches its folders.
 
-    Gives the container ``grace_s`` to exit by itself, then stops it, then force-removes it. "Gone" is Docker
-    saying it has exited, or no longer knowing it (``auto_remove`` may already have removed it). Anything else
-    is False, and the caller then publishes nothing: an agent that may still be running could change a file
-    between Django's check and its copy.
+    Stops it first (SIGTERM, SIGKILL after 2 s; Claude Code keeps reading stdin, so waiting for a
+    self-exit would cost the wait on every turn). Only if the stop fails is it force-removed. Then
+    ``container.wait(timeout=grace_s)`` confirms: it returns at once for an exited container, and
+    ``NotFound`` means Docker no longer knows it (``auto_remove``), which is gone too. Anything else is
+    False, and the caller then publishes nothing: an agent that may still be running could change a file
+    between Django's check and its copy. Never raises.
     """
     from docker.errors import NotFound
 
+    try:
+        container.stop(timeout=2)
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001 - a failed stop is followed by a force-remove
+        try:
+            container.remove(force=True)
+        except NotFound:
+            return True
+        except Exception:  # noqa: BLE001 - the confirm below decides
+            pass
     try:
         container.wait(timeout=grace_s)
         return True
     except NotFound:
         return True
-    except Exception:  # noqa: BLE001 - a wait that timed out or failed falls through to the stop
-        pass
-    for step in (lambda: container.stop(timeout=2), lambda: container.remove(force=True)):
-        try:
-            step()
-            return True
-        except NotFound:
-            return True
-        except Exception:  # noqa: BLE001
-            continue
-    return False
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _mount_volume_subpath(source: str, target: str, subpath: str, *, read_only: bool = False) -> dict:

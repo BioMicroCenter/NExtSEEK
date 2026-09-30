@@ -130,6 +130,9 @@ class _FakeContainer:
     def logs(self, **kwargs):
         return self._script(self)
 
+    def wait(self, timeout=None):
+        return {"StatusCode": 0}
+
     def stop(self, timeout=None):
         self.stop_calls += 1
         self.stopped.set()

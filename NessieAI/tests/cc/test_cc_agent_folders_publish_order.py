@@ -69,11 +69,29 @@ def test_the_sweep_and_the_publish_wait_for_the_agent_to_exit(tmp_path, monkeypa
     assert event == "query_complete" and data["artifacts"], data
 
 
-def test_a_turn_that_ended_is_given_time_to_exit_before_it_is_stopped(tmp_path, monkeypatch):
+def test_the_agent_is_stopped_first_then_confirmed_with_a_bounded_wait(tmp_path, monkeypatch):
+    # Claude Code keeps reading stdin, so waiting for a self-exit would cost the grace on every turn.
     calls: list[str] = []
-    _turn(tmp_path, monkeypatch, FakeContainer(calls), calls)
+    container = FakeContainer(calls)
+    _turn(tmp_path, monkeypatch, container, calls)
     before_publish = calls[: calls.index("publish")]
-    assert before_publish[0] == "wait" and "stop" not in before_publish, calls
+    assert before_publish[0] == "stop" and "wait" in before_publish and "remove" not in before_publish, calls
+    assert container.wait_timeouts[0] == cc_engine._CONFIRM_EXIT_WAIT_S
+
+
+@pytest.mark.parametrize("knobs", [{"wait_gone": True}, {"stop_gone": True}])
+def test_a_container_docker_no_longer_knows_counts_as_gone(tmp_path, monkeypatch, knobs):
+    calls: list[str] = []
+    events = _turn(tmp_path, monkeypatch, FakeContainer(calls, **knobs), calls)
+    assert "publish" in calls, calls
+    [(event, data)] = _terminals(events)
+    assert event == "query_complete" and data["artifacts"], data
+
+
+def test_a_failed_stop_is_followed_by_a_force_remove_and_a_confirm(tmp_path, monkeypatch):
+    calls: list[str] = []
+    _turn(tmp_path, monkeypatch, FakeContainer(calls, stop_ok=False), calls)
+    assert calls[:4] == ["stop", "remove", "wait", "sweep"] and "publish" in calls, calls
 
 
 def test_nothing_is_published_when_the_agent_cannot_be_confirmed_gone(tmp_path, monkeypatch):

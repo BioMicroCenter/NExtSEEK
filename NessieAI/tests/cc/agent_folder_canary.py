@@ -7,6 +7,7 @@ bytes reached none of Django's sinks. Not a test module (no test_ prefix). Stand
 from __future__ import annotations
 
 import io
+import json
 import os
 import zipfile
 from pathlib import Path
@@ -94,8 +95,6 @@ def tree_bytes(root: Path) -> bytes:
 
 # --- fakes for a full run_cc_turn (Task 5 onward) ---------------------------------------------------------
 
-import json  # noqa: E402
-
 TURN_FRAMES = [
     json.dumps({"type": "system", "subtype": "init", "session_id": "sid-1", "model": "opus"}),
     json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}}),
@@ -107,9 +106,13 @@ TURN_FRAMES = [
 class FakeContainer:
     """A docker container that records wait/stop/remove in ``calls``; the ``*_ok`` knobs make a call raise."""
 
-    def __init__(self, calls, *, wait_ok=True, stop_ok=True, remove_ok=True):
+    def __init__(self, calls, *, wait_ok=True, stop_ok=True, remove_ok=True,
+                 wait_gone=False, stop_gone=False):
         self.calls = calls
         self.wait_ok, self.stop_ok, self.remove_ok = wait_ok, stop_ok, remove_ok
+        # *_gone: raise docker's NotFound (auto_remove already removed the container).
+        self.wait_gone, self.stop_gone = wait_gone, stop_gone
+        self.wait_timeouts: list = []
 
     def attach_socket(self, params=None):
         return object()
@@ -119,12 +122,19 @@ class FakeContainer:
 
     def wait(self, timeout=None):
         self.calls.append("wait")
+        self.wait_timeouts.append(timeout)
+        if self.wait_gone:
+            from docker.errors import NotFound
+            raise NotFound("gone")
         if not self.wait_ok:
             raise RuntimeError("wait failed")
         return {"StatusCode": 0}
 
     def stop(self, timeout=None):
         self.calls.append("stop")
+        if self.stop_gone:
+            from docker.errors import NotFound
+            raise NotFound("gone")
         if not self.stop_ok:
             raise RuntimeError("stop failed")
 

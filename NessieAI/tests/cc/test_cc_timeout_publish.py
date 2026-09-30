@@ -49,6 +49,9 @@ class _Container:
     def logs(self, **kwargs):
         return iter(())
 
+    def wait(self, timeout=None):
+        return {"StatusCode": 0}
+
     def stop(self, timeout=None):
         self.stopped = True
 
