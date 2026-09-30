@@ -169,6 +169,10 @@ class GateWorld:
         self.edges = {pair: dict(stored) for pair, stored in LABELS.items()}   # (child, parent) to stored labels
         self.type_title_differs = 0   # Samples whose type is not their SampleType's title
         self.doubled = []             # (child, parent) pairs whose DERIVED_FROM edge is there twice
+        # The census (Task 7g): what db.labels() and db.relationshipTypes() list, and what something still carries.
+        self.labels_listed = sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})
+        self.types_listed = sorted(verify.EXPECTED_RELATIONSHIP_TYPES)
+        self.carried = set(self.labels_listed) | set(self.types_listed)
         self.t_labelled = []   # nodes carrying a T_ label but not :Sample, as {"id", "labels"}
         self.catalog = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]},
                         {"id": 33, "title": "D.SEQ", "label": "T_D_SEQ", "titles": ["Parent", "Protocol"]}]
@@ -212,6 +216,12 @@ class GateWorld:
             return [{"n": 0}]
         if query == verify.GRAPHMETA:
             return [{"schema_version": schema.SCHEMA_VERSION}]
+        if query == verify.LABELS_LISTED:
+            return [{"names": list(self.labels_listed)}]
+        if query == verify.RELATIONSHIP_TYPES_LISTED:
+            return [{"names": list(self.types_listed)}]
+        if query in (verify.LABEL_CARRIED, verify.RELATIONSHIP_TYPE_CARRIED):
+            return [{"found": 1}] if params["name"] in self.carried else []
         if query == verify.T_LABEL_WITHOUT_SAMPLE:
             return [{"n": len(self.t_labelled)}]
         if query == verify.T_LABEL_WITHOUT_SAMPLE_EXAMPLES:
@@ -489,3 +499,29 @@ def test_check_1_fails_a_doubled_declared_edge(world):
     check = _named(result, "1.lineage.duplicate_edges")
     assert (check["actual"], check["pass"], check["detail"]) == (1, False, [[11, 10]])
     assert _named(result, "1.lineage.undeclared_pairs_between_samples")["pass"] is True
+
+
+# --- the census: no label or relationship type the contract does not name (Task 7g) -----------------
+
+def test_the_census_passes_the_contracts_names_and_every_type_label(world):
+    result = _gate(GateWorld(_graph_nodes()))
+    for name in ("8.schema.unknown_labels", "8.schema.unknown_relationship_types"):
+        assert _named(result, name)["pass"] is True
+
+
+def test_the_census_fails_a_stray_label_and_a_stray_relationship_type(world):
+    graph = GateWorld(_graph_nodes())
+    graph.labels_listed.append("Legacy")
+    graph.types_listed.append("CHILD_OF")
+    graph.carried |= {"Legacy", "CHILD_OF"}
+    result = _gate(graph)
+    labels_check = _named(result, "8.schema.unknown_labels")
+    types_check = _named(result, "8.schema.unknown_relationship_types")
+    assert (labels_check["actual"], labels_check["detail"]) == (1, ["Legacy"])
+    assert (types_check["actual"], types_check["detail"]) == (1, ["CHILD_OF"])
+
+
+def test_the_census_ignores_a_listed_name_nothing_carries(world):
+    graph = GateWorld(_graph_nodes())
+    graph.types_listed.append("CHILD_OF")          # the token outlived its last edge
+    assert _named(_gate(graph), "8.schema.unknown_relationship_types")["pass"] is True

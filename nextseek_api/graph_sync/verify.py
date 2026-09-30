@@ -25,7 +25,8 @@ present, carries a few examples. Each name starts with the gate G check it belon
    string does not pass for one). Their ``uuid``, ``type``, ``title`` and ``search_text`` equal the projection's too.
 8. ``schema``, ``catalog``, ``graphmeta``: every v1.1 constraint and index exists and every index is ONLINE; the
    catalog builds with no label collision in MySQL or the graph; no SampleType lacks ``id`` or ``label``; one
-   GraphMeta node, at the writer's schema version.
+   GraphMeta node, at the writer's schema version; and no label or relationship type outside the contract's sets for
+   the graph (``nextseek_graph.schema``; every ``T_`` label is allowed).
 9. ``lineage.labels``: every declared DERIVED_FROM between two Sample nodes is compared with batch upload's label
    rule fed from MySQL (``labels.edge_labels``) and classified (``labels.classify``). It fails on an edge whose
    endpoints share an assay the rule resolves and whose three singular assay fields are all null: the gap that got
@@ -160,6 +161,16 @@ RETURN count(*) AS n
 """
 SAMPLE_TYPES_WITHOUT_ID_OR_LABEL = "MATCH (t:SampleType) WHERE t.id IS NULL OR t.label IS NULL RETURN count(t) AS n"
 GRAPHMETA = "MATCH (m:GraphMeta) RETURN m.schema_version AS schema_version"
+# The census: every label and relationship type the database lists, and whether a node or relationship still carries
+# one it lists (a name can outlive the last thing that carried it). Only an unexpected name is looked up.
+LABELS_LISTED = "CALL db.labels() YIELD label RETURN collect(label) AS names"
+RELATIONSHIP_TYPES_LISTED = ("CALL db.relationshipTypes() YIELD relationshipType "
+                             "RETURN collect(relationshipType) AS names")
+LABEL_CARRIED = "MATCH (n) WHERE $name IN labels(n) RETURN 1 AS found LIMIT 1"
+RELATIONSHIP_TYPE_CARRIED = "MATCH ()-[r]->() WHERE type(r) = $name RETURN 1 AS found LIMIT 1"
+# The names the graph's schema version allows, from the contract (every T_ label besides). Graph 1.3 adds its groups.
+EXPECTED_LABELS = schema.LABELS_V11
+EXPECTED_RELATIONSHIP_TYPES = frozenset(schema.RELATIONSHIPS_V11)
 # Nodes carrying a type label without :Sample: an OrphanSample that kept one, or a node nothing should have typed.
 T_LABEL_WITHOUT_SAMPLE = """
 MATCH (n) WHERE NOT n:Sample AND any(l IN labels(n) WHERE l STARTS WITH 'T_')
@@ -630,6 +641,25 @@ def _check_schema(driver, db, types: list, catalog_error, checks: list) -> None:
     _check(checks, "8.graphmeta.nodes", 1, len(versions))
     _check(checks, "8.graphmeta.schema_version", writer.SCHEMA_VERSION,
            versions[0] if len(versions) == 1 else versions)
+    _check_census(driver, db, checks)
+
+
+def _carried_but_unexpected(driver, db, listed: str, carried: str, expected) -> list[str]:
+    """The names ``listed`` returns that ``expected(name)`` rejects and that something still carries."""
+    names = _one(_read(driver, db, listed), "names", []) or []
+    return [name for name in sorted(n for n in names if not expected(n))
+            if _records(_read(driver, db, carried, {"name": name}))]
+
+
+def _check_census(driver, db, checks: list) -> None:
+    """Gap review G37: no label or relationship type the contract does not name (a restore or an old writer can bring
+    back what a cleanup removed, as the 742,534 CHILD_OF edges were until 2026-09-23)."""
+    labels_found = _carried_but_unexpected(driver, db, LABELS_LISTED, LABEL_CARRIED,
+                                           lambda n: n in EXPECTED_LABELS or schema.is_type_label(n))
+    types_found = _carried_but_unexpected(driver, db, RELATIONSHIP_TYPES_LISTED, RELATIONSHIP_TYPE_CARRIED,
+                                          lambda n: n in EXPECTED_RELATIONSHIP_TYPES)
+    _check(checks, "8.schema.unknown_labels", 0, len(labels_found), detail=labels_found[:EXAMPLES])
+    _check(checks, "8.schema.unknown_relationship_types", 0, len(types_found), detail=types_found[:EXAMPLES])
 
 
 @dataclass

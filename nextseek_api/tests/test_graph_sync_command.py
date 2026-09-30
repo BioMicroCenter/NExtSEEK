@@ -557,6 +557,10 @@ class GraphWorld:
             return self.graphmeta
         if query == verify.T_LABEL_WITHOUT_SAMPLE:
             return [{"n": 0}]
+        if query == verify.LABELS_LISTED:
+            return [{"names": sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})}]
+        if query == verify.RELATIONSHIP_TYPES_LISTED:
+            return [{"names": sorted(verify.EXPECTED_RELATIONSHIP_TYPES)}]
         raise AssertionError(f"unexpected statement: {query}")
 
 
