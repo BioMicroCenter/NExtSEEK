@@ -279,6 +279,21 @@ On a graph that `graph_sync --full` has not yet written at the writer's schema v
 After the first full sync it reports no drift, or names the checks that failed. The check families are in
 `nextseek_api/graph_sync/README.md` "What the drift check compares".
 
+## Graph sync health on every box
+
+`rebuild` and `ci` ask the app container `manage.py graph_sync_health --json` on every profile, production
+included, once the app container is up (`startup/steps/validate.py` `check_graph_sync_health`). The command reads
+the two graph_sync tables through Django, the same body the superuser status endpoint answers, and judges it with
+`nextseek_api/graph_sync/health.py`: a stale full sync, reconcile or outbox; dead outbox rows; rows still failing
+past their retry (the back-off plus 30 minutes); a latest full, reconcile, catalog or drift run that failed or was
+abandoned; a latest drift run that found drift. It needs no login, so it runs where the smoke suite holds no
+superuser rights.
+
+A red line fails `rebuild` at the end, after the suite, and fails `ci` after the suite even when the suite passed.
+Failures still inside their retry window print as a warning. Right after a rebuild the container may still be running
+`migrate`; the line asks again every 10 seconds for up to 5 minutes. An app image older than the command prints a
+warning to rebuild the app. The line is recorded as a row of the CI record's "Stack health" section.
+
 ## cc-agent context after every rebuild
 
 The six chat_nextseek context files listed in `startup/lib/layout.py` are baked into both

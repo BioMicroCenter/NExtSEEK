@@ -225,6 +225,7 @@ One concern each; `git ls-files nextseek_api/graph_sync` lists which have landed
 | `sources.py` | MySQL readers: keyset-paged samples, by-id readers, project and assay links, the digest stream, the resolved assay and SOP maps |
 | `models_db.py` | the two dmac tables, re-exported from `nextseek_api/models.py` so Django registers them |
 | `state.py` | the outbox, the run records and the graph-write lock |
+| `health.py` | pure, standard library only: the judgement of a status body (stale jobs, dead and failing rows, failed runs, drift) that the smoke suite and `manage.py graph_sync_health` share |
 | `hooks.py` | what every NExtSEEK writer calls after it writes; it never raises into its caller |
 | `cypher.py`, `writer.py` | the Neo4j statements and the chunked writer |
 | `targeted.py` | the by-id entry points: sync, retire, relabel, the small tables |
@@ -248,7 +249,10 @@ The pure modules, the state machine, the hooks and the command are unit-tested i
 (`ci/README.md` "Running and testing"), test files `nextseek_api/tests/test_graph_sync_*.py`. Those globs block CI,
 so a test added there fails a job from the commit that adds it. `./startup.sh rebuild` runs `--drift` afterwards and
 writes a `## Graph drift` section into the CI record; the smoke suite reads the status endpoint
-(`ci/smoke/test_graph_sync_status.py`). A run against real data happens only in the throwaway lane, never against
+(`ci/smoke/test_graph_sync_status.py`).
+Every `./startup.sh ci` and `rebuild`, production included, also asks `manage.py graph_sync_health` in the app
+container, which judges the same body with `health.py` (`startup/README.md` "Graph sync health on every box").
+A run against real data happens only in the throwaway lane, never against
 the live stack: `scripts/graph_search/lane.sh app graph_sync ...` (see
 [`scripts/graph_search/README.md`](../../scripts/graph_search/README.md)).
 

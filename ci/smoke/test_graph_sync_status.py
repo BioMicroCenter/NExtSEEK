@@ -17,9 +17,10 @@ Two claims, in one file because the second is only meaningful once the first say
     the first full sync the graph is at another version and the two are expected to disagree, so the check skips
     rather than failing a box that is simply not synced yet.
 
-Local and dev only, like the route: production runs a v1.0 graph with no migration 0021, so the tables this endpoint
-reads are not there. It only ever sends GET and two searches, so it carries no `write` marker; it authenticates as
-the superuser account because nothing else can call the endpoint at all.
+Local and dev only, like the route: the production sweep never holds superuser rights (test_registry_contents.py),
+and nobody else can call this endpoint. Production gets the same judgement from the startup health line,
+`manage.py graph_sync_health` in the app container. It only ever sends GET and two searches, so it carries no `write`
+marker; it authenticates as the superuser account because nothing else can call the endpoint at all.
 """
 from __future__ import annotations
 

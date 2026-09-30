@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import typer
+from rich.markup import escape
 
 from startup.lib import layout, ui
 from startup.lib.env import read_env
@@ -119,7 +120,8 @@ def _disk_preflight_or_exit(
 def _print_health_results(results: list[validate.HealthResult]) -> None:
     for r in results:
         printer = ui.warn if getattr(r, "warn", False) else (ui.ok if r.ok else ui.fail)
-        printer(f"{r.name}: {r.detail}")
+        # Escaped: a detail can carry an error text, and rich reads "[/x]" in one as a closing tag and raises.
+        printer(escape(f"{r.name}: {r.detail}"))
 
 
 def _reject_leaked_option_defaults(received: dict[str, object]) -> None:
@@ -778,6 +780,12 @@ def rebuild(
     if graph_drift is not None:
         _print_health_results([graph_drift])
 
+    # How is the graph sync itself doing (SPEC-ci-health)? Every profile, production included, where nothing else
+    # checks it. Advisory, like drift: the suite still runs, and the rebuild exits red on it at the end.
+    graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)
+    if graph_sync_health is not None:
+        _print_health_results([graph_sync_health])
+
     # Off-box rollback baselines (DEPLOYMENT.md §5.2). Non-fatal by contract,
     # and belt-and-braces guarded: the deploy is never hostage to the registry.
     if registry_push:
@@ -831,7 +839,7 @@ def rebuild(
                 label=prepared[0].tag if prepared else None,
                 image_ref=image_ref, image_id=image_id,
                 profile=state.ci_profile,
-                health=_health_rows(health),
+                health=_health_rows(health) + _result_rows(graph_sync_health),
                 graph_drift=_graph_drift_row(graph_drift),
                 # nessie_ran as well as the summary: a lane that died before its
                 # summary still left evidence for the record to file.
@@ -853,10 +861,12 @@ def rebuild(
                 raise typer.Exit(code=rc)
             ui.ok(f"CI passed: {outcome}")
 
-    if not health.ok or (graph_drift is not None and not graph_drift.ok):
+    if (not health.ok or (graph_drift is not None and not graph_drift.ok)
+            or (graph_sync_health is not None and not graph_sync_health.ok)):
         # The build itself succeeded; the box is nonetheless short an image, a
         # service, or the front door, which only a user would otherwise report,
-        # or its graph no longer matches MySQL, which nobody would report at all.
+        # or its graph no longer matches MySQL, which nobody would report at all,
+        # or its graph sync is failing, which on production nothing else would report.
         raise typer.Exit(code=1)
 
 
@@ -889,6 +899,22 @@ def _graph_drift(state: InstanceState, *, app_rebuild: bool = True,
 def _graph_drift_row(result) -> tuple[str, bool, str] | None:
     """The drift check as the plain tuple the CI record takes."""
     return None if result is None else (result.name, result.ok, result.detail)
+
+
+def _graph_sync_health(state: InstanceState, *, stack_is_up: bool = True) -> "validate.HealthResult | None":
+    """Ask the app container how the graph sync is doing (SPEC-ci-health D12), or None.
+
+    None only when the app container is down, which the health report has already said. Every profile and every
+    component: it reads two tables through manage.py, needs no login, and on production is the only check of the sync.
+    """
+    if not stack_is_up:
+        return None
+    return validate.check_graph_sync_health(REPO_ROOT, state.compose_env())
+
+
+def _result_rows(result) -> list[tuple[str, bool, str]]:
+    """A health line as rows of the CI record's stack health: none when it was not asked."""
+    return [] if result is None else [(result.name, result.ok, result.detail)]
 
 
 # The profiles the Nessie lane may run under. It writes (a chat) and pays for model
@@ -1072,6 +1098,13 @@ def ci(
     if graph_drift is not None:
         _print_health_results([graph_drift])
 
+    # Step 1c: how is the graph sync itself doing (SPEC-ci-health)? Unlike drift above this one is part of the
+    # answer: a red line fails `ci` after the suite, even a suite that passed, since on production nothing else
+    # checks the sync.
+    graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)
+    if graph_sync_health is not None:
+        _print_health_results([graph_sync_health])
+
     # Step 2, with the Nessie lane on: its own prerequisites, which unlike the
     # advisory CC checks above do stop the run (spec decision 6).
     nessie_on = _nessie_active(state, nessie, profile=profile)
@@ -1091,7 +1124,7 @@ def ci(
     image_ref, image_id = runner.running_image()
     record = runner.write_report(REPO_ROOT, image_ref=image_ref, image_id=image_id,
                                  profile=state.ci_profile, command=cmd,
-                                 health=_health_rows(health),
+                                 health=_health_rows(health) + _result_rows(graph_sync_health),
                                  graph_drift=_graph_drift_row(graph_drift),
                                  nessie_ran=nessie_on,
                                  nessie_summary=(runner.read_nessie_summary(REPO_ROOT)
@@ -1103,6 +1136,10 @@ def ci(
         if runner.junit_path(REPO_ROOT).is_file():
             ui.info(f"report: {runner.junit_path(REPO_ROOT)}")
         raise typer.Exit(code=rc)
+    if graph_sync_health is not None and not graph_sync_health.ok:
+        ui.fail(f"CI failed: the suite passed ({outcome}), but the graph sync health line failed "
+                "(see the ✗ above).")
+        raise typer.Exit(code=1)
     ui.ok(f"CI passed: {outcome}")
 
 

@@ -60,7 +60,10 @@ Breaking one is a regression, not a refactor.
   (`startup/lib/rebuild_policy.py:66`), the smoke suite never requests the Container-CC
   routes (`ci/routes.py` declares both `path=None`), and `cc-agent` has no container for
   a compose healthcheck to watch. An advisory failure never stops the run; `rebuild`
-  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. Moving an
+  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. One
+  exception: `ci` also exits non-zero, after the suite, on a red graph sync health line,
+  since on production nothing else checks the sync
+  (`startup/README.md` "Graph sync health on every box"). Moving an
   advisory check to blocking throws away a suite run whose result was still true.
   `doctor` runs the same checks except the cc-agent context, but its exit code is read
   by nothing while the rebuild hook's is. The Nessie lane is a separate

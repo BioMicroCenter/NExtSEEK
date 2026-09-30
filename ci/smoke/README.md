@@ -240,6 +240,8 @@ publishes. A failure still inside its retry window is a warning, not a failure. 
 lives in `nextseek_api/graph_sync/health.py`, standard library only, and is unit-tested without
 a box (`test_graph_sync_health_unit.py`). A body without the `failing` and `failed_runs` parts
 fails with a rebuild message: the box runs an older image.
+Production gets the same judgement from the startup health line
+(`startup/README.md` "Graph sync health on every box").
 
 It also carries the parity-lite check: when the status reports a successful full sync at the
 writer's schema version, the same small body sent to `samples/advanced_search/` and to
