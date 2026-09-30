@@ -1,8 +1,8 @@
 """A turn's files are published only after its container has exited (step 1, requirement 3).
 
 Publishing reads the agent's scratch; while the agent still runs it can change a file between Django's check and
-its copy. The stop now comes before the staging sweep and the publish, a turn that ended normally is first given
-a few seconds to exit by itself, and a turn whose container cannot be confirmed gone publishes nothing.
+its copy. The stop now comes first, before the staging sweep and the publish (a successful stop means the
+container has exited), and a turn whose container cannot be confirmed gone publishes nothing.
 """
 from __future__ import annotations
 
@@ -69,17 +69,22 @@ def test_the_sweep_and_the_publish_wait_for_the_agent_to_exit(tmp_path, monkeypa
     assert event == "query_complete" and data["artifacts"], data
 
 
-def test_the_agent_is_stopped_first_then_confirmed_with_a_bounded_wait(tmp_path, monkeypatch):
-    # Claude Code keeps reading stdin, so waiting for a self-exit would cost the grace on every turn.
+def test_the_agent_is_stopped_first_and_a_successful_stop_needs_no_wait(tmp_path, monkeypatch):
+    # Claude Code keeps reading stdin, so waiting for a self-exit would cost the wait on every turn.
     calls: list[str] = []
     container = FakeContainer(calls)
     _turn(tmp_path, monkeypatch, container, calls)
-    before_publish = calls[: calls.index("publish")]
-    assert before_publish[0] == "stop" and "wait" in before_publish and "remove" not in before_publish, calls
-    assert container.wait_timeouts[0] == cc_engine._CONFIRM_EXIT_WAIT_S
+    assert calls[0] == "stop" and "wait" not in calls and "remove" not in calls[: calls.index("publish")], calls
 
 
-@pytest.mark.parametrize("knobs", [{"wait_gone": True}, {"stop_gone": True}])
+def test_a_successful_stop_publishes_even_if_a_wait_would_fail(tmp_path, monkeypatch):
+    calls: list[str] = []
+    container = FakeContainer(calls, wait_ok=False)
+    _turn(tmp_path, monkeypatch, container, calls)
+    assert "publish" in calls and "wait" not in calls, calls
+
+
+@pytest.mark.parametrize("knobs", [{"stop_gone": True}, {"stop_ok": False, "wait_gone": True}])
 def test_a_container_docker_no_longer_knows_counts_as_gone(tmp_path, monkeypatch, knobs):
     calls: list[str] = []
     events = _turn(tmp_path, monkeypatch, FakeContainer(calls, **knobs), calls)
@@ -90,8 +95,11 @@ def test_a_container_docker_no_longer_knows_counts_as_gone(tmp_path, monkeypatch
 
 def test_a_failed_stop_is_followed_by_a_force_remove_and_a_confirm(tmp_path, monkeypatch):
     calls: list[str] = []
-    _turn(tmp_path, monkeypatch, FakeContainer(calls, stop_ok=False), calls)
+    container = FakeContainer(calls, stop_ok=False)
+    _turn(tmp_path, monkeypatch, container, calls)
     assert calls[:4] == ["stop", "remove", "wait", "sweep"] and "publish" in calls, calls
+    assert container.wait_timeouts == [cc_engine._CONFIRM_EXIT_WAIT_S]
+    assert 0 < cc_engine._CONFIRM_EXIT_WAIT_S < float("inf")
 
 
 def test_nothing_is_published_when_the_agent_cannot_be_confirmed_gone(tmp_path, monkeypatch):

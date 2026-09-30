@@ -1081,8 +1081,8 @@ def _run_kwargs(
         # F15: reap the sibling even when the parent Django worker dies mid-turn
         # (a SIGKILL/worker-recycle skips the finally-block remove, orphaning the
         # container on dmac-cc-net with an rw mount and live spend). Safe here:
-        # the exit confirm (_stop_and_confirm_exit) treats a wait on an already
-        # removed container (404 NotFound) as gone, and the now-redundant finally
+        # _stop_and_confirm_exit treats a NotFound on an already
+        # removed container (404) as gone, and the now-redundant finally
         # remove(force=True) is already guarded by except pass.
         "auto_remove": True,
     }
@@ -1123,26 +1123,31 @@ def _spawn_with_stale_name_retry(client: Any, run_kwargs: dict[str, Any]) -> Any
 def _stop_and_confirm_exit(container: Any, *, grace_s: float = _CONFIRM_EXIT_WAIT_S) -> bool:
     """Stop the agent, and say whether it is gone, before Django touches its folders.
 
-    Stops it first (SIGTERM, SIGKILL after 2 s; Claude Code keeps reading stdin, so waiting for a
-    self-exit would cost the wait on every turn). Only if the stop fails is it force-removed. Then
-    ``container.wait(timeout=grace_s)`` confirms: it returns at once for an exited container, and
-    ``NotFound`` means Docker no longer knows it (``auto_remove``), which is gone too. Anything else is
-    False, and the caller then publishes nothing: an agent that may still be running could change a file
-    between Django's check and its copy. Never raises.
+    Claude Code keeps reading stdin, so waiting for a self-exit would cost the wait on every turn: the
+    container is stopped first. Docker's stop returns success only once the container has stopped (an
+    already-stopped one answers 304, which docker-py does not raise), so a successful ``stop`` returns True
+    at once, with no wait. If the stop fails, the container is force-removed and then
+    ``wait(timeout=grace_s)`` confirms it. ``NotFound`` from the stop, the remove or the wait means Docker no
+    longer knows it (``auto_remove``), which is gone too; from the stop or the remove it returns before any
+    wait. False only when neither the stop nor the remove plus wait confirms, and the caller then publishes
+    nothing: an agent that may still be running could change a file between Django's check and its copy.
+    Never raises.
     """
     from docker.errors import NotFound
 
     try:
         container.stop(timeout=2)
+        return True
     except NotFound:
         return True
-    except Exception:  # noqa: BLE001 - a failed stop is followed by a force-remove
-        try:
-            container.remove(force=True)
-        except NotFound:
-            return True
-        except Exception:  # noqa: BLE001 - the confirm below decides
-            pass
+    except Exception:  # noqa: BLE001 - a failed stop is followed by a force-remove and a confirm
+        pass
+    try:
+        container.remove(force=True)
+    except NotFound:
+        return True
+    except Exception:  # noqa: BLE001 - the confirm below decides
+        pass
     try:
         container.wait(timeout=grace_s)
         return True

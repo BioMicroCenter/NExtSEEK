@@ -116,7 +116,10 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cc_engine, "_stage_memory_file", boom_copy)
 
+    sweep_calls = []
+
     def boom_sweep(**kw):
+        sweep_calls.append(kw)
         raise RuntimeError("sweep boom")
 
     monkeypatch.setattr(
@@ -174,6 +177,7 @@ def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     kinds = [e for e, _ in events]
     assert "agent_started" in kinds
     assert "query_complete" in kinds
+    assert sweep_calls, "the sweep must be reached so the boom check is real"
     assert container.stopped is True
 
 

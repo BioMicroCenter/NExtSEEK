@@ -77,9 +77,6 @@ def _stopped_turn(tmp_path, monkeypatch, frames, *, write=None, clock=None):
         def logs(self, **kwargs):
             return iter(())
 
-        def wait(self, timeout=None):
-            return {"StatusCode": 0}
-
         def stop(self, timeout=None):
             _Container.stopped = True
 
