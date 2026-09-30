@@ -361,6 +361,33 @@ def _contains_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def _name_words(cy: str) -> set[str]:
+    """The words inside the property names a query reads, split at case changes and digits (Treatment1Route)."""
+    return {p.lower() for name in re.findall(r"\b\w+\.(\w+)", cy)
+            for p in re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", name)}
+
+
+def _excluded_terms(cy: str, params: dict) -> set[tuple[str, str, str]]:
+    """{(var, attr, term)} for every ``NOT ...var.attr...) CONTAINS term`` (or STARTS WITH): what the query leaves out."""
+    out = set()
+    for var, attr, tok in re.findall(r"\bNOT\s*\(?\s*(?:\w+\(\s*)*(\w+)\.(\w+)\s*\)*\s+(?:CONTAINS|STARTS\s+WITH)\s+"
+                                     + TERM, cy):
+        term = _resolve(tok, params)
+        if term:
+            out.add((var, attr, term.lower()))
+    return out
+
+
+def _free_text_terms(cy: str, params: dict) -> list[tuple[str, str, str]]:
+    """[(var, the term as written, term)] for every ``var.search_text CONTAINS term``."""
+    out = []
+    for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s+CONTAINS\s+" + TERM, cy):
+        term = _resolve(tok, params)
+        if attr == "search_text" and term:
+            out.append((var, tok.strip(), term.lower()))
+    return out
+
+
 def _equality_filters(cy: str, params: dict) -> list[tuple[str, str, str]]:
     out = []
     for var, attr, tok in re.findall(r"(\w+)\.(\w+)\s*\)*\s*=\s*" + TERM, cy):
@@ -447,6 +474,7 @@ class _Turn:
     cols: dict
     grouped: bool
     count_only: bool
+    neg: set = field(default_factory=set)
 
     def vals(self, label: str | None, attr: str) -> list[tuple[str, int]]:
         if not label:
@@ -476,7 +504,8 @@ def _prepare(inp: ReviewInput, catalog: _Memo) -> _Turn:
     rows = [r for r in (inp.rows or []) if isinstance(r, dict)]
     return _Turn(inp=inp, catalog=catalog, cy=cy, params=params, q=inp.question or "", rows=rows,
                  vl=_var_labels(cy), cf=_contains_filters(cy, params), eq=_equality_filters(cy, params),
-                 cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy))
+                 cols=_returned_columns(cy), grouped=_is_grouped(cy), count_only=_is_count_only(cy),
+                 neg=_excluded_terms(cy, params))
 
 
 # A finding: what fired, the facts to disclose, and (for three checks) one concrete next query.
@@ -556,10 +585,14 @@ def _value_checks(t: _Turn) -> dict[str, _Finding]:
     for var, attr, term in t.cf:
         if attr in ("search_text", "title"):  # free text; a partial title is the Tier 2 title gate's business
             continue
+        if (var, attr, term) in t.neg:        # an exclusion, not a match
+            continue
+        excluded = [x for v2, a2, x in t.neg if (v2, a2) == (var, attr)]
         lab = t.vl.get(var)
         stored = t.vals(lab, attr)
         names = [str(v) for v, _n in stored]
-        matched = [(str(v), n) for v, n in stored if term in str(v).lower()]
+        matched = [(str(v), n) for v, n in stored
+                   if term in str(v).lower() and not any(x in str(v).lower() for x in excluded)]
         alias = next((a for a, va in t.cols.items() if va == (var, attr)), None)
         counter = None
         if alias and t.rows and any(alias in r for r in t.rows):
@@ -713,6 +746,10 @@ NARROW_QUERY = "{question} Count only {type_name} records whose {attribute} is {
 NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {value}."
 
 
+#: The fact for a named value the query matched only as free text, when that text also matches other stored values.
+TEXT_MATCH_FACT = "The search matched '{value}' as text, which also matches {others}."
+
+
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
     """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``;
     ``rerun`` holds the change a click asks the graph agent for when no statement of its own can be built."""
@@ -741,25 +778,50 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     in and offers the narrowed search (2026-09-25)."""
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
+    blob |= _name_words(t.cy)   # Treatment1Route -> treatment, 1, route
     by_spelling = t.catalog.holds_by_spelling()
-    for _var, lab in t.vl.items():
+    free = _free_text_terms(t.cy, t.params)
+    cy_strict, params_strict = t.cy, dict(t.params)
+    for _v, tok, _term in free:             # what the query applies outside a free-text search
+        if tok.startswith("$"):
+            params_strict.pop(tok[1:], None)
+        else:
+            cy_strict = cy_strict.replace(tok, "''")
+    strict = _tokens(re.sub(r"\bT_\w+", " ", cy_strict) + " " + json.dumps(params_strict, default=str))
+    strict |= _name_words(cy_strict)
+    for var, lab in t.vl.items():
+        terms = [term for v, _tok, term in free if v == var]
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))
         attrs = [a for a in (t.catalog.attributes(lab) or []) if a.lower() not in blob]
         if by_spelling and attrs:
-            spellings = value_spellings(t.q, blob=blob, type_words=type_words)
+            spellings = value_spellings(t.q, blob=strict if terms else blob, type_words=type_words)
             if not spellings:
                 continue
             held = t.catalog.attributes_holding(lab, attrs, spellings)
             if held is not None:
                 attrs = [a for a in attrs if a in held]
         for attr in attrs:
-            for v, _c in t.vals(lab, attr):
+            stored = t.vals(lab, attr)
+            for v, _c in stored:
                 vn = re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
                 if len(vn) < 3 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
                     continue
-                if f" {vn} " in qn and not _tokens(vn) <= blob and not _named_alias_applied(t.q, vn.split(), blob):
+                if f" {vn} " not in qn or _named_alias_applied(t.q, vn.split(), blob):
+                    continue
+                if not _tokens(vn) <= blob:
                     fact = f"The question names '{v}', but the search did not filter on it."
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it", fact,
+                                    _narrow_suggestion(t, lab, attr, str(v), fact))
+                if _tokens(vn) <= strict:
+                    continue                # a filter of its own applies it
+                hit = [term for term in terms if term in str(v).lower()]
+                # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
+                # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended
+                others = [str(w) for w, _n in stored
+                          if any(term in str(w).lower() for term in hit) and not _tokens(vn) <= _tokens(str(w))]
+                if others:                  # applied only as free text, and that text matches another stored value too
+                    fact = TEXT_MATCH_FACT.format(value=v, others=_quoted(others[:3]))
+                    return _Finding(f"question names {lab}.{attr}='{v}', Cypher applies it only as free text", fact,
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
     return None
 

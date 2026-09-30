@@ -59,7 +59,7 @@ def _config(flash, sonnet=None):
 
 
 def test_a_stalled_primary_is_asked_once_and_the_fallback_answers():
-    flash = _Client("gcp", [LLMTimeoutError("20 s"), ANSWER])
+    flash = _Client("gcp", [LLMTimeoutError("30 s"), ANSWER])
     sonnet = _Client("bedrock", [ANSWER])
     out = entity_mod.entity_agent(_config(flash, sonnet), "mice treated with NDMA", [], [], [])
     assert "NDMA" in out.keywords
@@ -68,8 +68,8 @@ def test_a_stalled_primary_is_asked_once_and_the_fallback_answers():
 
 
 def test_both_stalled_ends_the_turn_after_one_call_each():
-    """It used to be 780 s and a turn with no entities; now 20 + 90 s and the plain text."""
-    flash = _Client("gcp", [LLMTimeoutError("20 s"), ANSWER, ANSWER])
+    """It used to be 780 s and a turn with no entities; now 30 + 90 s and the plain text."""
+    flash = _Client("gcp", [LLMTimeoutError("30 s"), ANSWER, ANSWER])
     sonnet = _Client("bedrock", [LLMTimeoutError("90 s"), ANSWER])
     with pytest.raises(LLMFatalError) as excinfo:
         entity_mod.entity_agent(_config(flash, sonnet), "mice treated with NDMA", [], [], [])

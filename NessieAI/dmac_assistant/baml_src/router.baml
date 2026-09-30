@@ -121,6 +121,13 @@ function RouteQuery(input: RouterInput) -> RouterDecision {
     or "what is X", which asks what a project is; and a plain count or breakdown
     ("how many samples are in SRP", "break SRP down by sample type").
 
+    Catalog counts stay `nextseek_query`. How many sample types, assays,
+    projects, investigations, studies or protocols NExtSEEK defines is a lookup
+    NExtSEEK answers itself, and so is how many sample types have samples or
+    have none. The graph holds every sample type with its sample count, so a
+    question that asks for both numbers is one query over one source, not a
+    join of two.
+
     {{ ctx.output_format }}
   "#
 }

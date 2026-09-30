@@ -340,7 +340,11 @@ class GeminiClient(BaseLLMClient):
         if isinstance(response_format, dict) and response_format.get("type") == "json_object":
             generation_config["response_mime_type"] = "application/json"
         if thinking_budget is not None:
-            generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
+            if model.startswith("gemini-3"):
+                # Gemini 3 models take a level, not a token budget: the catalog's level is sent as it is.
+                generation_config["thinking_config"] = {"thinking_level": _BUDGET_TO_EFFORT.get(thinking_budget, "high")}
+            else:
+                generation_config["thinking_config"] = {"thinking_budget": thinking_budget}
 
         try:
             resp = self.client.models.generate_content(
@@ -760,10 +764,10 @@ def model_traits(model: str | None) -> ModelTraits:
     From the claude-api reference (Anthropic's current model documentation, "Thinking & Effort" and "Migrating to
     Claude Opus 5.5", read 2026-09-28):
 
-    * adaptive only: Opus 4.7 and later, Sonnet 5, every Fable and Mythos;
-    * always thinks: Opus 5 and later, Sonnet 5, every Fable and Mythos (Opus 5.5, Fable and Mythos cannot disable
-      it: thinking ``disabled`` and ``budget_tokens`` are 400s at every effort);
-    * refuses a forced tool: Opus 5.5 and later, Fable 5.1 and later, Mythos 5.1 and later.
+    * adaptive only: Opus 4.7 and later, Sonnet 5 and later, every Fable and Mythos;
+    * always thinks: Opus 5 and later, Sonnet 5 and later, every Fable and Mythos (Opus 5.5, Fable and Mythos cannot
+      disable it: thinking ``disabled`` and ``budget_tokens`` are 400s at every effort);
+    * refuses a forced tool: Opus 5.5 and later, Sonnet 5.5 and later, Fable 5.1 and later, Mythos 5.1 and later.
 
     Any id that is not a Claude family gets the plain traits, as every model did before this helper. It replaces
     the substring test ``"opus-4-7" in model or "mythos" in model``: every id that test matched is still adaptive
@@ -786,7 +790,8 @@ def model_traits(model: str | None) -> ModelTraits:
         return ModelTraits(adaptive_only=version >= (4, 7), always_thinks=version >= (5, 0),
                            forced_tool_ok=version < (5, 5))
     if family == "sonnet":
-        return ModelTraits(adaptive_only=version >= (5, 0), always_thinks=version >= (5, 0))
+        return ModelTraits(adaptive_only=version >= (5, 0), always_thinks=version >= (5, 0),
+                           forced_tool_ok=version < (5, 5))
     return ModelTraits()
 
 
@@ -1207,9 +1212,11 @@ class BedrockClient(BaseLLMClient):
             else:
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
         if not (traits.always_thinks or thinking_budget is not None):
-            # A model that is not thinking is not handed another model's reasoning (the tool loops' Sonnet 4.6
-            # fallback after an Opus 5.5 step). Removing every reasoning block is the documented way to send such
-            # a history on; the text and tool calls stay.
+            # A model that is not thinking is not handed another model's reasoning (an Opus 5.5 step's blocks
+            # sent on to a Sonnet 4.6 or older). Removing every reasoning block is the documented way to send such
+            # a history on; the text and tool calls stay. Sonnet 5.5 always thinks, so a tool loop moved to it
+            # keeps Opus 5.5's blocks in the request: the documentation says the API drops what the target cannot
+            # read; not yet proven on Converse (a one-call check on dev).
             converse_messages = without_reasoning_blocks(converse_messages)
 
         # Translate tools: anthropic-style -> Bedrock toolConfig shape.

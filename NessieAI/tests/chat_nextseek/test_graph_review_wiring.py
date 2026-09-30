@@ -654,3 +654,31 @@ def test_the_rna_seq_turn_names_the_mix_and_offers_only_rna_seq(graph_turn_harne
     assert "turn_age_s" in review["lookups"]
     # the reply's answer is untouched: the note only adds what the result matched
     assert out.reply.startswith("reply") and out.reply_without_reviewer == "reply"
+
+
+# The two shapes the graph agent wrote on 25 Sep for the same question: the free text applied as an OR branch in
+# one EXISTS block (a click runs its own statement) or in an OR of two EXISTS blocks (a click goes to the graph agent).
+_TXT_ONE_BLOCK = (
+    "MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (s)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(inv:Investigation)\n"
+    "  WHERE inv.title = $investigation_title\n}\nAND EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
+    "  WHERE EXISTS { (aln)-[:DERIVED_FROM*1..12]->(:T_RNA) }\n     OR toLower(aln.search_text) CONTAINS 'rna-seq'\n}\n"
+    "RETURN count(s) AS n")
+_TXT_TWO_BLOCKS = (
+    "MATCH (p:T_PAT)\nWHERE EXISTS { MATCH (p)-[:IN_STUDY]->(:Study) WHERE $investigation = 'TCGA' }\n"
+    "AND (\n  EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(:T_RNA)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n  }\n"
+    "  OR EXISTS {\n    MATCH (p)<-[:DERIVED_FROM*1..12]-(aln:T_A_ALN)\n    WHERE toLower(aln.search_text) CONTAINS $rnaseq\n"
+    "  }\n)\nRETURN count(p) AS n")
+
+
+@pytest.mark.parametrize("cypher,params,mode", [
+    (_TXT_ONE_BLOCK, {"investigation_title": "TCGA"}, "direct"),
+    (_TXT_TWO_BLOCKS, {"rnaseq": "rna-seq", "investigation": "TCGA"}, "graph_agent"),
+])
+def test_a_free_text_match_offers_a_chip_whose_click_is_direct_or_the_graph_agents(graph_turn_harness, cypher,
+                                                                                    params, mode):
+    out = graph_turn_harness(question=RNA_Q, cypher=cypher, rows=[{"n": 10761}], parameters=params,
+                             catalog=RNA_CATALOG, count_tool=_split_tool([]))
+    review = out.debug["graph_review"]
+    assert review["fired"] == ["unapplied_value"]
+    assert review["suggestion"]["label"] == "Only RNA-Seq"
+    assert review["suggestion"]["rerun"]["mode"] == mode

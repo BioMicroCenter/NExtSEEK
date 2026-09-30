@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import graph_catalog
-from .graph_review import (DISCLOSURE_MAX, TERM, VALUES_CAP, CatalogProvider, GraphReview, ReviewInput, _resolve,
+from .graph_review import (DISCLOSURE_MAX, TERM, VALUES_CAP, CatalogProvider, Check, GraphReview, ReviewInput, _resolve,
                            _var_labels)
 from .graph_scope import scope_of
 from .helpers.tools.neo4j import split_trailing_limit, tool_neo4j_query
@@ -791,7 +791,7 @@ def _breakdown_variant(cy: str, params: dict, detail: str) -> _Variant | None:
     only inside ``EXISTS {}``: grouping by it was refused by the prover for a member ("the name aln is not bound
     here") and is invalid Cypher on an admin's path, which skips the prover. With no such variable there is no
     variant."""
-    m = re.match(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher never applies it\s*$", detail, re.S)
+    m = re.match(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher (?:never applies it|applies it only as free text)\s*$", detail, re.S)
     if not m or not _ATTR_RE.fullmatch(m.group(2)):
         return None
     label, attr, value = m.groups()
@@ -817,7 +817,7 @@ BREAKDOWN_FACT = "Counted by {attribute}: {values}; one result can fall under mo
 NARROWED_FACT = "With {attribute} '{value}' only, the count is {n:,}."
 BREAKDOWN_SHOWN = 5
 BREAKDOWN_ROWS = 20
-_UNAPPLIED_DETAIL = re.compile(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher never applies it\s*$", re.S)
+_UNAPPLIED_DETAIL = re.compile(r"question names (T_[A-Z0-9_]+)\.(.+?)='(.*)', Cypher (?:never applies it|applies it only as free text)\s*$", re.S)
 
 
 def _exists_conjunct(cy: str, mask: str, label: str):
@@ -833,6 +833,8 @@ def _exists_conjunct(cy: str, mask: str, label: str):
         parts = _split_top(body, bmask, r"\bAND\b")
         for i, part in enumerate(parts):
             m = re.fullmatch(r"EXISTS\s*\{(.*)\}", _unwrap(part), re.S | re.I)
+            if m and re.search(r"\b(?:OR|XOR|AND)\b", _mask(_unwrap(part)), re.I):
+                m = None        # EXISTS {..} OR EXISTS {..}: more than one block, no single inside to edit
             bound = m and re.search(rf"\(\s*([A-Za-z_]\w*)\s*:\s*{re.escape(label)}\b", m.group(1))
             if bound:
                 return clause, parts, i, m.group(1), bound.group(1)
@@ -1043,6 +1045,34 @@ def _suggestion_owner(review: GraphReview) -> str | None:
     return "stem_miss" if "stem_miss" in fired else "all_question_narrowed"
 
 
+def _one_distinct_value(out: GraphReview, value: str) -> bool:
+    """True when a recorded ``unapplied_value`` look found exactly one distinct value among the matched records: the
+    count of distinct values was 1, or the split held one row and it is the named value."""
+    for v in out.variants:
+        edit = str(v.get("edit") or "")
+        if edit.startswith("unapplied_value: distinct") and v.get("ok") and v.get("total") == 1:
+            return True
+        if edit.startswith("unapplied_value: split by") and v.get("ok"):
+            values = {r.get("value") for r in v.get("rows") or [] if isinstance(r, dict) and r.get("value") is not None}
+            if values == {value}:
+                return True
+    return False
+
+
+def _withdraw_if_one_value(out: GraphReview) -> None:
+    """The second look found one distinct value, so the "Only <value>" chip would return the same records: when
+    ``unapplied_value`` is the only finding, withdraw it (no caveat, no chip) and keep the look in ``variants``."""
+    fired = [c for c in out.checks if c.fired]
+    if [c.name for c in fired] != ["unapplied_value"]:
+        return
+    m = _UNAPPLIED_DETAIL.match(fired[0].detail or "")
+    if not m or not _one_distinct_value(out, m.group(3)):
+        return
+    out.checks = [Check(c.name, False, "withdrawn: the matched records hold one distinct value")
+                  if c.name == "unapplied_value" else c for c in out.checks]
+    out.verdict, out.disclosure, out.suggestion = "ok", None, None
+
+
 def run_tier2(config, inp: ReviewInput, review: GraphReview, *, budget_s: float = 8.0,
               max_variants: int = 2) -> GraphReview:
     """Run the fired checks' count variants in order, at most ``max_variants``, inside ``budget_s`` of wall clock.
@@ -1113,6 +1143,7 @@ def run_tier2(config, inp: ReviewInput, review: GraphReview, *, budget_s: float 
             if ran < max_variants and budget_s - (_clock() - t0) >= MIN_START_S:
                 ran += 1
                 apply(variant.fallback)
+        _withdraw_if_one_value(out)
     except Exception as exc:
         out.error = out.error or f"tier2: {type(exc).__name__}: {exc}"[:200]
     out.elapsed_ms = (review.elapsed_ms or 0) + int((_clock() - t0) * 1000)

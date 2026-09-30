@@ -45,7 +45,7 @@ _CURRENT: contextvars.ContextVar["CallScope | None"] = contextvars.ContextVar(
 #: The clock, one name so tests can stand in for it.
 _monotonic = time.monotonic
 
-#: Under a deadline, what a first try leaves for the one move: enough for a Sonnet 4.6 call on these prompts.
+#: Under a deadline, what a first try leaves for the one move: enough for a Sonnet 5.5 call on these prompts.
 MOVE_RESERVE_S = 20.0
 #: Under a deadline, the shortest first try: a nearly spent op must not cut every healthy call.
 MIN_FIRST_TRY_S = 5.0

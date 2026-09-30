@@ -17,7 +17,6 @@
     },
     "rev.unapplied_wgs_alignment": {
       "locals": [
-        11171,
         9447
       ],
       "mode": "any",
@@ -152,7 +151,7 @@
           "family": "reviewer_live",
           "id": "rev.unapplied_wgs_alignment",
           "name": "unapplied_value: a WGS alignment question the query answers for every alignment type",
-          "_why": "The same omission on another value. Dev: TCGA patients with any alignment derived from their samples 11,171, with a WGS one 9,447 (by DataType: WXS 10,610, miRNA-Seq 10,561, RNA-Seq 10,517, WGS 9,447, ATAC-Seq 404). The chip's expected count depends on the Cypher shape (set when the alignment is bound only inside an EXISTS), so only the chip label is asserted.",
+          "_why": "The same omission on another value. Dev: TCGA patients with any alignment derived from their samples 11,171, with a WGS one 9,447 (by DataType: WXS 10,610, miRNA-Seq 10,561, RNA-Seq 10,517, WGS 9,447, ATAC-Seq 404). The question names WGS, so 9,447 is the right, narrowed answer and the reviewer is right to stay quiet; only the number is asserted.",
           "tags": [
             "nessie",
             "probe",
@@ -177,17 +176,7 @@
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?<![\\w.,/-])(11,?171|9,?447)(?![\\w]|[.,]\\d|[-/]\\d)"
-                },
-                {
-                  "field": "graph_review.fired",
-                  "op": "contains",
-                  "value": "unapplied_value"
-                },
-                {
-                  "field": "suggestions",
-                  "op": "matches_re",
-                  "value": "'label': 'Only WGS'"
+                  "value": "(?<![\\w.,/-])9,?447(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }
@@ -197,7 +186,7 @@
           "family": "reviewer_live",
           "id": "rev.negated_hispanic_count",
           "name": "negated_value: a count of 'Hispanic' also counts 'not hispanic or latino'",
-          "_why": "Dev T_PAT.Ethnicity: 'not hispanic or latino' 8,491, 'hispanic or latino' 401, so CONTAINS 'hispanic' counts 8,892. A count with no grouping column fires since 3422cb1c (before it, a count counted as already stating the split). The chip 'Only hispanic or latino' carries no expected count (no Tier 2 count for this check); a click on it goes to the graph agent with the turn's statement and the one change.",
+          "_why": "Dev T_PAT.Ethnicity: 'not hispanic or latino' 8,491, 'hispanic or latino' 401, so CONTAINS 'hispanic' counts 8,892. After the reviewer fixes a right turn answers 401 with no reviewer fire, no 'not hispanic' sentence and no chip; the 8,892 path, where negated_value fires, is covered by the unit tests.",
           "tags": [
             "nessie",
             "probe",
@@ -215,19 +204,9 @@
                   "value": null
                 },
                 {
-                  "field": "graph_review.fired",
-                  "op": "contains",
-                  "value": "negated_value"
-                },
-                {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "(?i)not hispanic"
-                },
-                {
-                  "field": "suggestions",
-                  "op": "matches_re",
-                  "value": "'label': 'Only hispanic or latino'"
+                  "value": "(?<![\\w.,/-])401(?![\\w]|[.,]\\d|[-/]\\d)"
                 }
               ]
             }

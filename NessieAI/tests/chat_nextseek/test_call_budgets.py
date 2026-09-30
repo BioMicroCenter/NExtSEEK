@@ -36,7 +36,7 @@ from chat_nextseek.schemas.schema_helper import call_llm_structured, call_llm_te
 # --------------------------------------------------------------------------
 
 RULED = {
-    "entity": (20, 90),
+    "entity": (30, 90),
     "api": (30, 90),
     "chatter": (30, 90),
     "reporter": (30, 90),
@@ -82,7 +82,7 @@ def test_an_agent_the_table_does_not_name_keeps_the_old_budgets():
 # time). Laptop ledger dev/logs/llm_calls.jsonl, 3,018 successful calls 2026-09-11 to 09-22; the entity batch of
 # 2026-09-16 (1,224 calls); F345-PROPOSAL.md appendix A. A first try below one of these would move a healthy call.
 LARGEST_GENUINE_SUCCESS_S = {
-    "entity": 16.8,        # batch, 178 output tokens; every laptop entity call over 20 s was a stall
+    "entity": 27.0,        # 2026-09-30 entity-only test at medium thinking, 84 questions (p95 12.5 s); run 2 max was 17.3 s; every laptop entity call over 20 s on 3.5 Flash was a stall
     "graph": 51.0,         # 4,351 output tokens
     "api": 25.3,
     "chatter": 13.9,
@@ -215,7 +215,7 @@ def test_the_ledger_records_the_window_each_attempt_had(tmp_path, windows, reaso
     fallback = _Client("bedrock", ['{"mode": "graph_query"}'])
     _structured(_Config(primary, fallback, "entity", tmp_path), primary, agent_label="entity")
     entries = [json.loads(line) for line in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
-    assert [e["timeout_seconds"] for e in entries if e["model"] == "primary-model"][-1] == 20
+    assert [e["timeout_seconds"] for e in entries if e["model"] == "primary-model"][-1] == 30
     (moved,) = [e for e in entries if e["model"] == "fallback-1"]
     assert moved["timeout_seconds"] == 90 and moved["fallback_reason"] == reason
 
@@ -234,7 +234,7 @@ def test_a_timeout_with_no_chain_retries_the_same_model_on_the_moved_budget(tmp_
     config.LLM_CLIENTS = {"gcp": primary}
     config.AGENT_MODEL_CATALOG = {}
     assert _structured(config, primary, agent_label="entity").mode == "graph_query"
-    assert windows == [("primary-model", 20), ("primary-model", 90)]
+    assert windows == [("primary-model", 30), ("primary-model", 90)]
 
 
 # --------------------------------------------------------------------------

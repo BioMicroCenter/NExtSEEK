@@ -12,7 +12,7 @@ them had no wall clock at all (operator ruling 2026-09-25, fix 5):
 Each is now ``call_llm_text`` under its catalog key, so the primary model and client are
 the ones ``get_agent_model(<key>)`` returns, as before, and each has a wall clock. Since
 2026-09-28 the entity and the two memory calls pass no window of their own: they run on
-their catalog key's row of ``call_budgets.CALL_BUDGETS`` (the entity 20 s then 90 s, the
+their catalog key's row of ``call_budgets.CALL_BUDGETS`` (the entity 30 s then 90 s, the
 memory coder's reply the chatter's 30 s then 90 s, the legacy memory agent 60 s then 90 s).
 The context engineer's short extraction still passes its own 60 s and 60 s.
 """
@@ -94,9 +94,9 @@ def test_the_entity_raw_fallback_goes_through_the_ladder_on_the_entity_row(monke
     out = entity_mod.entity_agent(_entity_config(), "mice treated with NDMA", [], [], [])
 
     (call,) = capture.calls
-    # The entity's own row, like its structured call: 20 s, then 90 s for the move.
+    # The entity's own row, like its structured call: 30 s, then 90 s for the move.
     _assert_on_the_ladder(call, key="entity")
-    assert _row("entity") == (20, 90)
+    assert _row("entity") == (30, 90)
     assert "NDMA" in out.keywords
 
 

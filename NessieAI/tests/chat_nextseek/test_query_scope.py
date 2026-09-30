@@ -1020,3 +1020,114 @@ def test_a_gloss_of_a_sample_type_keeps_the_narrowing_terms_gap(keyword, code, n
         **query,
     )
     assert f'keyword "{keyword}"' in scope.not_applied
+
+
+# --- GFxRR-4 (dev run 2026-09-29): two names of one catalog row, and a keyword that is a type's name ---
+
+_IMPACT_ROWS = [{"impact", "impactb", "hiimpactb", "fortune", "impactbinvestigation"}]
+
+
+def test_a_project_scoped_by_an_alias_of_its_catalog_row_is_applied():
+    """Asked "IMPAcTB", the query compared the Investigation title 'Impact': two names of one projects row."""
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["IMPAcTB"], keywords=["IMPAcTB"],
+                              sampletypes=[EntityItem(code="D.SEQ", name="Sequencing Data")]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}},
+        user_query="How many single cell datasets are there across IMPAcTB?",
+        container_aliases=_IMPACT_ROWS,
+    )
+    assert "project IMPAcTB" in scope.applied
+    assert scope.not_applied == []
+
+
+def test_the_alias_route_needs_the_catalog_rows():
+    """Without the rows the check is what it was: 'Impact' does not hold "IMPAcTB"."""
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["IMPAcTB"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}},
+        user_query="How many datasets are there across IMPAcTB?",
+    )
+    assert "project IMPAcTB" in scope.not_applied
+
+
+def test_a_title_inside_the_asked_name_still_does_not_apply_without_a_catalog_row():
+    """"TCGA GBM" against inv.title = 'TCGA' stays NOT APPLIED: no catalog row names both."""
+    rows = [{"tcga", "thecancergenomeatlas"}, {"impact", "impactb"}]
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["TCGA GBM"], keywords=["TCGA GBM"],
+                              sampletypes=[EntityItem(code="PAT", name="Patient")]),
+        parser_plan=_plan(mode="graph_query", filters={"sampletype_code": "PAT"}),
+        graph_plan={"cypher": "MATCH (s:T_PAT)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE inv.title = 'TCGA' RETURN count(DISTINCT s) AS n", "parameters": {}},
+        user_query=_TCGA_GBM,
+        container_aliases=rows,
+    )
+    assert "project TCGA GBM" in scope.not_applied
+
+
+def test_a_keyword_that_names_a_constrained_type_is_applied():
+    """Task 1413: "methylation" is realised as the label :T_A_MET, and the entity step listed no type for it."""
+    scope = describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code="TIS", name="Tissue Sample")], keywords=["methylation"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS)-[:IN_STUDY]->(st:Study) WHERE toLower(st.title) CONTAINS $study "
+                              "AND EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:T_A_MET) } RETURN count(DISTINCT s) AS n",
+                    "parameters": {"study": "kirc"}},
+        user_query="How many of those have methylation data?",
+        type_names={"A.MET": "Methylation Analysis", "TIS": "Tissue Sample"},
+    )
+    assert 'keyword "methylation"' in scope.applied
+    assert scope.not_applied == []
+
+
+def test_a_type_name_only_applies_a_keyword_when_the_query_constrained_that_type():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["methylation"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) RETURN count(DISTINCT s) AS n", "parameters": {}},
+        user_query="How many have methylation data?",
+        type_names={"A.MET": "Methylation Analysis"},
+    )
+    assert 'keyword "methylation"' in scope.not_applied
+
+
+def test_a_tag_of_a_type_is_not_its_name():
+    """B13: "CC" is a Tag of MUS, not a word of its name. The query counted every mouse."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["CC"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_MUS) RETURN count(DISTINCT s) AS n", "parameters": {}},
+        user_query="How many CC mice are there?",
+        type_names={"MUS": "Mouse"},
+    )
+    assert 'keyword "CC"' in scope.not_applied
+
+
+def test_a_keyword_with_a_word_the_type_name_lacks_is_not_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["methylation array"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_TIS) WHERE EXISTS { (s)<-[:DERIVED_FROM*1..12]-(:T_A_MET) } "
+                              "RETURN count(DISTINCT s) AS n", "parameters": {}},
+        user_query="How many have methylation array data?",
+        type_names={"A.MET": "Methylation Analysis"},
+    )
+    assert 'keyword "methylation array"' in scope.not_applied
+
+
+def test_a_gpt_keyword_over_the_gpt_type_label_is_applied():
+    """Run 1 task 1349: "Find the gpt mutation assay data" over MATCH (s:T_D_GPT)."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["GPT"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_GPT) RETURN count(DISTINCT s) AS n", "parameters": {}},
+        user_query="Find the gpt mutation assay data",
+        type_names={"D.GPT": "GPT Assay Data"},
+    )
+    assert scope.not_applied == []

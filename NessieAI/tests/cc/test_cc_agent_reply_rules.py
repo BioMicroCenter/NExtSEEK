@@ -110,3 +110,31 @@ def test_how_your_turn_runs_says_the_model_can_switch():
     section = _section(CLAUDE_MD.read_text(encoding="utf-8"), "How your turn runs")
     assert MODEL_RULE in section.splitlines()
     assert "The model is fixed" not in section
+
+
+REDACTED_RULE = (
+    "In the resumed conversation an earlier tool result can show `<REDACTED>`: NExtSEEK masked it "
+    "after that turn ended, and you saw the real value when you ran the command. It is never a "
+    "reason to take back what you told the user. A path you gave for a file you handed over stays valid."
+)
+
+
+def test_how_your_turn_runs_says_a_redacted_earlier_result_is_no_reason_to_retract():
+    section = _section(CLAUDE_MD.read_text(encoding="utf-8"), "How your turn runs")
+    bullet = next(line for line in section.splitlines() if line.startswith("- **Each turn is a new container.**"))
+    assert bullet.endswith(
+        "The user's answer to a question you ask arrives as the next turn, in a new container that "
+        "resumes this conversation. " + REDACTED_RULE
+    )
+
+
+def test_the_skill_says_to_answer_first_and_keep_it_short():
+    section = _section(SKILL_MD.read_text(encoding="utf-8"), "Composing the reply")
+    flat = _flat(section)
+    surface = flat.index("- Surface what the user asked for")
+    short = flat.index(
+        "- **Answer first, and keep it short.** The first sentence is the answer, or that you cannot do it "
+        "and why, in plain words. Say each thing once. No headings, and no table for fewer than four rows. "
+        "Aim for ten lines or fewer. Do not describe which calls you made, which failed or which you "
+        "retried, unless the answer is incomplete because of it; then say in one sentence what is missing.")
+    assert surface < short < flat.index("- Do not fabricate counts")
