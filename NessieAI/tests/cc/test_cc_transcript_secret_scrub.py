@@ -511,12 +511,12 @@ def test_sweep_reads_clean_bytes_after_the_source_scrub(tmp_path):
     """cc_sweep has no credentials of its own (it iterates every user with no
     request in scope), so it CANNOT scrub at its own read point. Its safety
     comes entirely from the source being clean on disk — this asserts exactly
-    the read cc_sweep._run_sweep performs: Path(transcript_path).read_bytes().
+    the read cc_sweep._run_sweep performs: cc_session.read_store_transcript(path).
     """
     path = _write_store(tmp_path)
     cc_engine.scrub_transcript_store(tmp_path, ENV)
 
-    raw = Path(path).read_bytes()  # the literal cc_sweep.py:39 read
+    raw = cc_engine.cc_session.read_store_transcript(path)  # the read cc_sweep performs
 
     assert _leaks(raw) == []
     assert b"<REDACTED>" in raw

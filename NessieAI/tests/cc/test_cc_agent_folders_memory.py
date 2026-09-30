@@ -80,6 +80,17 @@ def test_a_turn_without_memory_removes_the_last_memory_file(tmp_path, monkeypatc
     assert not os.path.lexists(cc_state / "CLAUDE.md")
 
 
+def test_a_failed_memory_write_still_removes_the_last_memory_file(tmp_path, monkeypatch):
+    (_cc_state(tmp_path) / "CLAUDE.md").write_bytes(b"# the agent rewrote this\n")
+
+    def _boom(*a, **k):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(safe_fs, "write_file_atomic", _boom)
+    cc_state = _turn_until_spawn(tmp_path, monkeypatch, b"# memory for this turn\n")
+    assert not os.path.lexists(cc_state / "CLAUDE.md")
+
+
 def test_removing_the_memory_file_never_follows_a_link(tmp_path, canary, monkeypatch):
     canary.link_file(_cc_state(tmp_path) / "CLAUDE.md")
     cc_state = _turn_until_spawn(tmp_path, monkeypatch, None)

@@ -1195,11 +1195,8 @@ def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None
     whatever is at ``CLAUDE.md`` (a link included) and nothing is written through a link. On a turn with no
     memory the old file is deleted, so a file the agent left at that name is never read as memory later.
     """
-    if memory_claude_md:
-        source = Path(memory_claude_md)  # Django's own _memory/<session>/CLAUDE.md
-        data = safe_fs.read_file(source.parent, source.name)
-        safe_fs.write_file_atomic(cc_state_dir, _CONTAINER_MEMORY_CLAUDE_MD, data, mode=0o644)
-        return
+    # Remove last turn's file FIRST on every turn, so a failed write below never leaves an
+    # agent-rewritten CLAUDE.md to be read as memory.
     dir_fd = safe_fs.open_dir(cc_state_dir)
     try:
         try:
@@ -1210,6 +1207,10 @@ def _stage_memory_file(cc_state_dir: Path, memory_claude_md: str | None) -> None
             shutil.rmtree(_CONTAINER_MEMORY_CLAUDE_MD, dir_fd=dir_fd)
     finally:
         os.close(dir_fd)
+    if memory_claude_md:
+        source = Path(memory_claude_md)  # Django's own _memory/<session>/CLAUDE.md
+        data = safe_fs.read_file(source.parent, source.name)
+        safe_fs.write_file_atomic(cc_state_dir, _CONTAINER_MEMORY_CLAUDE_MD, data, mode=0o644)
 
 
 def _preflight_subpath_dirs(user_root_mount: str, mounts: list[dict]) -> None:
