@@ -6,7 +6,8 @@ check either counts violations (expected 0) or compares a graph number with its 
 present, carries a few examples. Each name starts with the gate G check it belongs to:
 
 1. ``lineage``: every DERIVED_FROM pair MySQL's parent tokens declare exists between the two Sample nodes. An
-   undeclared pair between two Sample nodes fails; one touching an OrphanSample is only counted.
+   undeclared pair between two Sample nodes fails; one touching an OrphanSample is only counted. A declared pair
+   carried by two edges fails too.
 2. ``scope``: per project, the Samples whose ``project_ids`` hold it equal the distinct ``projects_samples``
    count; every Sample carries ``project_ids``; for the random samples, ``project_ids`` equals the MySQL list.
 3. ``catalog``: every property key on a ``T_X`` node, system keys excluded, is the title of an Attribute on
@@ -17,7 +18,8 @@ present, carries a few examples. Each name starts with the gate G check it belon
 5. ``attributes``: the Attribute nodes with an ``id`` are ``sample_attributes`` by id, titles byte-exact.
 6. ``scope`` (people): for every person with a membership, the samples the graph shows them equal the SQL
    ``EXISTS projects_samples`` count. The named accounts are resolved by graph_search's own scope resolver and
-   counted with the endpoint's Cypher predicate.
+   counted with the endpoint's Cypher predicate. No membership read while MySQL holds samples fails (it would
+   compare nothing).
 7. ``metadata``: for the random samples, the node's properties minus system keys equal the projection of the
    sample's ``json_metadata`` (canonical JSON; a date is ``{"$date": "<ISO date>"}``, so a date stored as a
    string does not pass for one). Their ``uuid``, ``type``, ``title`` and ``search_text`` equal the projection's too.
@@ -27,12 +29,17 @@ present, carries a few examples. Each name starts with the gate G check it belon
 9. ``lineage.labels``: every declared DERIVED_FROM between two Sample nodes is compared with batch upload's label
    rule fed from MySQL (``labels.edge_labels``) and classified (``labels.classify``). It fails on an edge whose
    endpoints share an assay the rule resolves and whose three singular assay fields are all null: the gap that got
-   past this gate and gate E. A label that differs from the rule (``changed``, ``cleared``) and one lacking only the
+   past this gate and gate E. It also fails when the lineage endpoints carry assay links and the assay map read
+   empty. A label that differs from the rule (``changed``, ``cleared``) and one lacking only the
    plural lists (``plural_missing``) are reported, never failed (R14). An undeclared edge is check 1's.
 10. ``samples``: no node carries a ``T_`` label without ``:Sample`` (an OrphanSample keeps none: the deletion rule).
 11. ``samples.parent_lists``: for the random samples, ``parent_titles`` and ``parent_title_hashes`` equal batch
     upload's rule over the sample's parent tokens (``projection.parent_lists``), a UID parent named by its stored
     identity; a node without them fails.
+
+Every MySQL side joins ``samples`` and counts distinct sample ids: SEEK's link tables hold rows for samples that are
+gone and rows repeated (``projects_samples``, ``assay_assets``), which would otherwise read as drift. A check whose
+input read returns nothing while MySQL holds rows fails rather than comparing nothing with nothing.
 
 Sized for about 1.08M samples: every full-graph read returns a few rows (the two scope checks share one scan of
 ``project_ids`` grouped by value), the key aggregate runs one type label per transaction, and the lineage check
@@ -397,8 +404,8 @@ def _check_lineage(driver, db, mysql: _MySQLSide, checks: list, stats: dict) -> 
 
     def compare(result):
         remaining = set(declared)  # built here, so a retried read starts clean
-        edges = extra = 0
-        examples = []
+        edges = extra = doubled = 0
+        examples, doubled_examples = [], []
         for record in result:
             edges += 1
             child, parent = record["child"], record["parent"]
@@ -409,20 +416,27 @@ def _check_lineage(driver, db, mysql: _MySQLSide, checks: list, stats: dict) -> 
                 except ValueError:
                     code = None
             if code is not None and code in declared:
-                remaining.discard(code)
+                if code in remaining:
+                    remaining.discard(code)
+                else:   # a second edge for a declared pair
+                    doubled += 1
+                    if len(doubled_examples) < EXAMPLES:
+                        doubled_examples.append([child, parent])
             else:
                 extra += 1
                 if len(examples) < EXAMPLES:
                     examples.append([child, parent])
-        return edges, extra, examples, remaining
+        return edges, extra, examples, remaining, doubled, doubled_examples
 
-    edges, extra, extra_examples, remaining = _read(driver, db, LINEAGE_PAIRS, transformer=compare)
+    edges, extra, extra_examples, remaining, doubled, doubled_examples = _read(driver, db, LINEAGE_PAIRS,
+                                                                               transformer=compare)
     on_orphans = _one(_read(driver, db, LINEAGE_ON_ORPHANS), "n")
     stats.update(lineage_declared_pairs=len(declared), lineage_edges_between_samples=edges,
                  lineage_edges_touching_orphans=on_orphans)
     missing = [list(run.decode_pair(code)) for code in heapq.nsmallest(EXAMPLES, remaining)]
     _check(checks, "1.lineage.declared_pairs_missing", 0, len(remaining), detail=missing)
     _check(checks, "1.lineage.undeclared_pairs_between_samples", 0, extra, detail=extra_examples)
+    _check(checks, "1.lineage.duplicate_edges", 0, doubled, detail=doubled_examples)
     _check(checks, "1.lineage.pairs_touching_orphans", "any", on_orphans, passed=True)
 
 
@@ -524,10 +538,12 @@ def _check_attributes(driver, db, checks: list, stats: dict) -> None:
     _check(checks, "5.attributes.title_or_type_differs", 0, len(differ), detail=differ[:EXAMPLES])
 
 
-def _check_people(driver, db, groups: list, accounts, checks: list, stats: dict) -> None:
+def _check_people(driver, db, groups: list, accounts, checks: list, stats: dict, samples: int = 0) -> None:
     people: dict[int, set] = defaultdict(set)
     for membership in sources.memberships():
         people[int(membership["person_id"])].add(int(membership["project_id"]))
+    # No membership read while MySQL holds samples would compare nothing with nothing and pass.
+    _check(checks, "6.scope.people_compared", "at least 1", len(people), passed=bool(people) or samples == 0)
     account_scopes = {login: _account_scope(login) for login in accounts}
     scopes: Counter = Counter(frozenset(pids) for pids in people.values())
     for scope in account_scopes.values():
@@ -676,6 +692,11 @@ def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, 
     stats["lineage_labels"] = {"edges_compared": tally.edges,
                                "classes": {kind: tally.classes[kind] for kind in labels.CLASSES},
                                "new_without_assay": tally.new_without_assay, "by_property": by_property}
+    # With assay links on the endpoints but no assay map, the rule resolves no assay and every label reads as
+    # cleared: reported, never failed, so the check would pass on an empty read of SEEK's assays.
+    map_read = bool(assay_map) or not assays
+    _check(checks, "9.lineage.assay_map_read", True, map_read,
+           detail=None if map_read else "lineage endpoints carry assay links but the assay map read empty")
     _check(checks, "9.lineage.labels", 0, tally.unlabelled, detail=tally.unlabelled_examples)
     differ = None
     if changed or cleared:
@@ -754,7 +775,7 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
     _timed(timings, "3.catalog", _check_catalog, driver, db, graph_catalog, audit, sampled, checks, stats)
     _timed(timings, "4.samples", _check_samples, driver, db, mysql, audit, checks)
     _timed(timings, "5.attributes", _check_attributes, driver, db, checks, stats)
-    _timed(timings, "6.people", _check_people, driver, db, groups, accounts, checks, stats)
+    _timed(timings, "6.people", _check_people, driver, db, groups, accounts, checks, stats, mysql.count)
     _timed(timings, "7.metadata", _check_metadata, cat, catalog_error, mysql, sampled, checks, stats)
     _timed(timings, "8.schema", _check_schema, driver, db, types, catalog_error, checks)
     assays = _timed(timings, "lineage_assays", _endpoint_assays, mysql.lineage)

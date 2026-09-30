@@ -764,3 +764,14 @@ def test_the_committed_block_lists_exactly_the_investigation_rows():
                       for r in rows if r["entity_type"] == "investigation")
     assert drift.assistant_investigation_entries(drift._capabilities_text()) == expected
     assert ("TCGA", False) in expected
+
+
+@pytest.mark.django_db
+def test_an_unreadable_capabilities_file_fails_the_check_it_would_feed(mysql_rows, gate, catalog, monkeypatch):
+    """Gap review G25: the check used to be skipped, which read as a pass."""
+    monkeypatch.setattr(drift, "_capabilities_text", lambda repo_root=None: None)
+    _fresh_runs()
+    result, _ = _check_drift(DriftGraph())
+    check = _named(result, "catalog.assistant_investigations")
+    assert (check["actual"], check["pass"]) == ("unreadable", False)
+    assert result["status"] == "drift"

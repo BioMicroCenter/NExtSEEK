@@ -27,6 +27,9 @@ with a ``reason``; nothing else is read). Its checks, under these names:
   ``catalog.type_counts_stale``: the graph's catalog against the one MySQL declares, each expecting 0;
 - gate G's checks under their own names (``verify.gate_g``), without the named accounts of the merged dataset.
 
+An input that cannot be read fails its check rather than skipping it (capabilities.md for
+``catalog.assistant_investigations``); every MySQL side joins ``samples`` and counts distinct ids, as gate G's does.
+
 Nothing is written to the graph. With a ``trigger`` the run is recorded in ``graph_sync_run`` (best-effort, as every
 run record); without one nothing is written at all.
 """
@@ -528,7 +531,11 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
     if cat is not None:
         _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
     text = _capabilities_text()
-    if text is not None:
+    if text is None:
+        # Unreadable is a failure, not a skip: a skipped check reads as a passing one (gap review G25).
+        _check(checks, "catalog.assistant_investigations", "readable", "unreadable", passed=False,
+               detail="/".join(ASSISTANT_CAPABILITIES))
+    else:
         _timed(timings, "assistant_investigations", _check_assistant_investigations,
                driver, db, assistant_investigation_entries(text), checks, stats)
     _timed(timings, "freshness", _check_freshness, now, checks, stats)

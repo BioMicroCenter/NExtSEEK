@@ -132,7 +132,8 @@ def world(monkeypatch):
         "attribute_meanings": lambda: {},
         "iter_samples": iter_samples, "uuid_to_ids": uuid_to_ids,
         "sample_projects": lambda: {k: sorted(set(v)) for k, v in PROJECT_LINKS.items()},
-        "memberships": lambda: [],
+        # one member of project 2, so check 6 compares a scope (an empty list fails 6.scope.people_compared)
+        "memberships": lambda: [{"person_id": 1, "project_id": 2, "has_left": False, "time_left_at": None}],
         "resolved_assay_map": lambda: dict(ASSAY_MAP),
         "sops_map": lambda: dict(SOPS),
         "sample_assay_ids_for": sample_assay_ids_for,
@@ -141,6 +142,8 @@ def world(monkeypatch):
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
+    monkeypatch.setattr(verify, "_sql_scope_count",
+                        lambda project_ids: sum(1 for pids in PROJECT_LINKS.values() if set(project_ids) & set(pids)))
     return state
 
 
@@ -165,6 +168,7 @@ class GateWorld:
         self.nodes = nodes
         self.edges = {pair: dict(stored) for pair, stored in LABELS.items()}   # (child, parent) to stored labels
         self.type_title_differs = 0   # Samples whose type is not their SampleType's title
+        self.doubled = []             # (child, parent) pairs whose DERIVED_FROM edge is there twice
         self.t_labelled = []   # nodes carrying a T_ label but not :Sample, as {"id", "labels"}
         self.catalog = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]},
                         {"id": 33, "title": "D.SEQ", "label": "T_D_SEQ", "titles": ["Parent", "Protocol"]}]
@@ -172,7 +176,7 @@ class GateWorld:
     def __call__(self, query, params):
         nodes = self.nodes
         if query == verify.LINEAGE_PAIRS:
-            return [{"child": c, "parent": p} for c, p in self.edges]
+            return [{"child": c, "parent": p} for c, p in [*self.edges, *self.doubled]]
         if query == verify.LINEAGE_LABELS:
             return [{"child": c, "parent": p, "stored": {k: stored.get(k) for k in q.EDGE_LABEL_KEYS}}
                     for (c, p), stored in self.edges.items()]
@@ -451,3 +455,37 @@ def test_check_4_fails_samples_whose_type_is_not_their_sample_types_title(world)
     graph.type_title_differs = 3
     check = _named(_gate(graph), "4.samples.type_differs_from_sample_type")
     assert (check["expected"], check["actual"], check["pass"]) == (0, 3, False)
+
+
+# --- no check passes on empty input (PLAN-ci-health Task 7f) ---------------------------------------
+
+def test_check_6_fails_when_no_membership_is_read_while_mysql_holds_samples(world, monkeypatch):
+    monkeypatch.setattr(sources, "memberships", lambda: [])
+    check = _named(_gate(GateWorld(_graph_nodes())), "6.scope.people_compared")
+    assert (check["actual"], check["pass"]) == (0, False)
+
+
+def test_check_6_compares_at_least_one_person(world):
+    check = _named(_gate(GateWorld(_graph_nodes())), "6.scope.people_compared")
+    assert (check["actual"], check["pass"]) == (1, True)
+
+
+def test_check_9_fails_when_endpoints_carry_assays_and_the_assay_map_reads_empty(world, monkeypatch):
+    monkeypatch.setattr(sources, "resolved_assay_map", lambda: {})
+    check = _named(_gate(GateWorld(_graph_nodes())), "9.lineage.assay_map_read")
+    assert check["pass"] is False
+
+
+def test_check_9_needs_no_assay_map_when_no_endpoint_carries_an_assay(world, monkeypatch):
+    monkeypatch.setattr(sources, "resolved_assay_map", lambda: {})
+    world["assay_links"].clear()
+    assert _named(_gate(GateWorld(_graph_nodes())), "9.lineage.assay_map_read")["pass"] is True
+
+
+def test_check_1_fails_a_doubled_declared_edge(world):
+    graph = GateWorld(_graph_nodes())
+    graph.doubled = [(11, 10)]
+    result = _gate(graph)
+    check = _named(result, "1.lineage.duplicate_edges")
+    assert (check["actual"], check["pass"], check["detail"]) == (1, False, [[11, 10]])
+    assert _named(result, "1.lineage.undeclared_pairs_between_samples")["pass"] is True
