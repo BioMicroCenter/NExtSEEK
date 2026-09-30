@@ -24,6 +24,7 @@ from chat_nextseek.tool_loop import call_tools
 
 OPUS55 = "us.anthropic.claude-opus-5-5"
 SONNET = "us.anthropic.claude-sonnet-4-6"
+SONNET55 = "global.anthropic.claude-sonnet-5-5"
 TOOLS = [{"name": "run_new_query", "description": "Run a query.",
           "input_schema": {"type": "object", "properties": {"question": {"type": "string"}}}},
          {"name": "answer", "description": "Answer.",
@@ -204,6 +205,26 @@ def test_after_a_move_every_later_step_goes_to_sonnet_without_opus_reasoning():
     # the tool call Opus made is still in the history Sonnet gets, only its reasoning is gone
     assert moved["messages"][1]["content"] == [
         {"toolUse": {"toolUseId": "t1", "name": "run_new_query", "input": {"question": "q"}}}]
+
+
+def test_a_step_moved_to_sonnet_5_5_thinks_and_keeps_opus_reasoning_unchanged():
+    """Sonnet 5.5 always thinks, so the strip does not run: the step's request carries adaptive thinking and the
+    Opus 5.5 block as it was issued. Whether Bedrock's Converse drops a block Sonnet 5.5 cannot read (Anthropic's
+    documentation says the API does) is proven on dev, not here."""
+    fake = FakeConverse({OPUS55: [_step("sig-1", "t1")],
+                         SONNET55: [[_reasoning("sig-2"), {"text": "Two have RNA."}]]})
+    client = _bedrock(fake)
+    first = client.chat_with_tools(messages=[{"role": "user", "content": "Q"}], tools=TOOLS, system="S",
+                                   model=OPUS55, thinking_budget=4000)
+    history = [{"role": "user", "content": "Q"}, {"role": "assistant", "content": first["content"]},
+               {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}]
+    client.chat_with_tools(messages=history, tools=TOOLS, system="S", model=SONNET55)
+
+    moved = fake.requests[1]
+    assert moved["modelId"] == SONNET55
+    assert moved["additionalModelRequestFields"] == {"thinking": {"type": "adaptive"},
+                                                     "output_config": {"effort": "low"}}
+    assert moved["messages"][1]["content"][0] == _reasoning("sig-1")
 
 
 def test_without_reasoning_blocks_leaves_other_turns_and_never_an_empty_one():

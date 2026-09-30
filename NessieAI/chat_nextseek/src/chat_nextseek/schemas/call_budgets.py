@@ -29,7 +29,7 @@ step timings of 2026-09-14). Every Gemini call over 20 s that returned an answer
 output at 4x or more its neighbours' time, and a retry answers in about 5 s. The graph agent's long answers are real
 work, at up to 11.7 s per 1,000 output tokens (4,351 tokens took 51.0 s). The largest genuine success per agent, which
 each first try must clear, is pinned in ``NessieAI/tests/chat_nextseek/test_call_budgets.py``. The fallback of every
-Gemini agent is Sonnet 4.6, which no local ledger has measured; Opus 4.7 on the same Bedrock path writes 1,000 tokens
+Gemini agent is Sonnet 5.5, which no local ledger has measured; Opus 4.7 on the same Bedrock path writes 1,000 tokens
 in 7.6 to 9.5 s, so the longest graph answer needs about 41 s there, and 90 s is about twice that.
 
 The model switch (Gemini 3.8 Flash, Opus 5.5 with thinking) must re-check the rows it changes: this is the one place
@@ -60,7 +60,7 @@ DEFAULT_BUDGET = CallBudget(first_try_s=300, moved_s=180)
 TOOL_LOOP_DEFAULT_BUDGET = CallBudget(first_try_s=120, moved_s=120)
 
 CALL_BUDGETS: dict[str, CallBudget] = {
-    # Gemini 3.8 Flash primaries (sized on Gemini 3.5 Flash), Sonnet 4.6 fallback.
+    # Gemini 3.8 Flash primaries (sized on Gemini 3.5 Flash), Sonnet 5.5 fallback.
     "entity": CallBudget(first_try_s=20, moved_s=90),
     "api": CallBudget(first_try_s=30, moved_s=90),
     "chatter": CallBudget(first_try_s=30, moved_s=90),
@@ -69,14 +69,14 @@ CALL_BUDGETS: dict[str, CallBudget] = {
     "system": CallBudget(first_try_s=45, moved_s=90),
     "memory_coder": CallBudget(first_try_s=45, moved_s=90),
     "graph": CallBudget(first_try_s=60, moved_s=90, op_move_reserve=False),
-    # Sonnet 4.6 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
+    # Sonnet 5.5 primary (the legacy memory agent), Gemini 3.8 Flash fallback.
     "memory": CallBudget(first_try_s=60, moved_s=90),
     # Opus primaries, Gemini 3.1 Pro fallback. The first try was 35 s (ruling 9, 2026-09-25); run 2's always-thinking
     # Opus 5.5 gets 50 s (operator, 2026-09-28). The move keeps 60 s, and a timeout here still marks nothing (D3).
     "parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False),
     "multi_parser": CallBudget(first_try_s=50, moved_s=60, timeout_marks_model=False),
     "report_writer": CallBudget(first_try_s=240, moved_s=180, op_move_reserve=False),
-    # The tool loops, per step. Opus 5.5 primary (sized on Opus 4.7 without thinking), Sonnet 4.6 fallback (the
+    # The tool loops, per step. Opus 5.5 primary (sized on Opus 4.7 without thinking), Sonnet 5.5 fallback (the
     # catalog's _fallback block).
     "followup": CallBudget(first_try_s=60, moved_s=60),
     "pipeline_agent": CallBudget(first_try_s=120, moved_s=120),

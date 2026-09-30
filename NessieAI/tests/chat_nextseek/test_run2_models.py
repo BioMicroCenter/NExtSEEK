@@ -22,7 +22,8 @@ from chat_nextseek.llm_clients import model_traits
 
 OPUS55 = "us.anthropic.claude-opus-5-5"
 FLASH38 = "gemini-3.8-flash"
-SONNET = "us.anthropic.claude-sonnet-4-6"
+SONNET = "global.anthropic.claude-sonnet-5-5"
+SONNET_46 = "us.anthropic.claude-sonnet-4-6"  # the Container-CC map still names it
 
 
 def _config(profile: str = "default") -> ChatConfig:
@@ -81,7 +82,7 @@ def test_gcp_current_moves_its_flash_agents_and_keeps_its_pro_and_opus():
     assert config.agent_config("followup")["model"] == "us.anthropic.claude-opus-4-7"
 
 
-def test_the_tool_loops_still_move_to_sonnet_4_6():
+def test_the_tool_loops_move_to_sonnet_5_5():
     raw = json.loads((paths.CHAT_NEXTSEEK_DIR / "agent_model_catalog.json").read_text())
     for agent in ("followup", "pipeline_agent"):
         assert raw["_fallback"][agent] == {"provider": "anth", "model": SONNET, "thinking_level": None}
@@ -98,4 +99,4 @@ def test_the_gemini_default_model_is_3_8_flash():
 def test_container_cc_runs_opus_5_5_and_falls_back_to_opus_4_8():
     model_map = json.loads((paths.DMAC_BUILD_CONTEXT / "router_model_class_map.json").read_text())
     assert (model_map["opus"], model_map["opus_fallback"], model_map["sonnet"]) == (
-        OPUS55, "us.anthropic.claude-opus-4-8", SONNET)
+        OPUS55, "us.anthropic.claude-opus-4-8", SONNET_46)

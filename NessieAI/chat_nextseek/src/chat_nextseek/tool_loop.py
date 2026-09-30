@@ -13,7 +13,7 @@ agent) does not repeat the mistakes:
   trigger ``_call_with_recovery`` uses, skipping
   any fallback client that cannot take tools and any that is the model that just
   failed. For the follow-up and pipeline agents the catalog's ``_fallback`` block
-  names that provider (Sonnet 4.6, operator ruling 2026-09-25): their profile chains
+  names that provider (Sonnet 5.5, operator ruling 2026-09-30; Sonnet 4.6 before): their profile chains
   lead back to the same Opus. When the provider it moved to fails too, the call ends
   in ``LLMFatalError`` with ``unavailable`` set, so the user is told the models were
   unavailable. A timeout with nowhere to move recycles the socket pool and retries once.
