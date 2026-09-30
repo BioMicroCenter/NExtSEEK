@@ -458,3 +458,11 @@ def test_open_ended_summaries_are_ruled_to_container_cc_in_every_router_surface(
     assert apply_followup_ruling(routes["nextseek_query"]) == routes["nextseek_query"]
     baml = (root / "NessieAI/dmac_assistant/baml_src/router.baml").read_text()
     assert "Open-ended summaries go to `container_cc`" in baml
+
+
+def test_router_baml_keeps_catalog_counts_on_nextseek_query():
+    baml = (paths.DMAC_ASSISTANT_DIR / "baml_src" / "router.baml").read_text(encoding="utf-8")
+    assert "Catalog counts stay `nextseek_query`." in baml
+    # the paragraph sits after the summaries paragraph and before the output format
+    assert baml.index("Open-ended summaries go to `container_cc`") < baml.index(
+        "Catalog counts stay `nextseek_query`.") < baml.index("{{ ctx.output_format }}")
