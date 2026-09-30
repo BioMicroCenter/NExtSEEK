@@ -352,6 +352,13 @@ _ASSAY_LINK_STREAM_SQL = (
     "SELECT asset_id, assay_id FROM assay_assets "
     "WHERE asset_type = %s AND asset_id IS NOT NULL AND assay_id IS NOT NULL ORDER BY asset_id"
 )
+_SEEK_STUDY_LINK_STREAM_SQL = (
+    "SELECT DISTINCT aa.asset_id, s.id FROM assay_assets aa "
+    "JOIN assays a ON a.id = aa.assay_id "
+    "JOIN studies s ON s.id = a.study_id "
+    "WHERE aa.asset_type = %s AND aa.asset_id IS NOT NULL "
+    "ORDER BY aa.asset_id, s.id"
+)
 
 
 class _LinkStream:
@@ -611,28 +618,51 @@ def seek_study_links() -> list[dict]:
 
 
 def seek_study_links_for(ids: Iterable[int]) -> list[dict]:
-    """`seek_study_links` for these sample ids only, ordered by sample id, then study id."""
+    """(sample, SEEK study) links for these sample ids only, through `assay_assets` (Sample assets), `assays` and
+    `studies`, ordered by sample id, then study id. An assay whose study row is gone gives no link."""
     links = []
     for chunk in _id_chunks(ids):
-        sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.investigation_id "
+        sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.description, s.investigation_id "
                "FROM assay_assets aa "
                "JOIN assays a ON a.id = aa.assay_id "
                "JOIN studies s ON s.id = a.study_id "
                f"WHERE aa.asset_type = %s AND aa.asset_id IN ({_placeholders(len(chunk))}) "
                "ORDER BY aa.asset_id, s.id")
-        for sample_id, study_id, title, inv_id in _rows(_seek(), sql, ["Sample", *chunk]):
+        for sample_id, study_id, title, description, inv_id in _rows(_seek(), sql, ["Sample", *chunk]):
             links.append({"sample_id": int(sample_id), "study_id": int(study_id),
-                          "study_title": _text(title),
+                          "study_title": _text(title), "study_description": _text(description),
                           "investigation_id": int(inv_id) if inv_id is not None else None})
     return links
 
 
+def iter_seek_study_links() -> Iterator[tuple[int, int]]:
+    """Every (sample id, SEEK study id) link, the join of `seek_study_links_for` over every sample, ordered by sample
+    id, then study id, from one statement.
+
+    `study_links.diff_in_study` merges this stream with the graph's keyset pages, so Python holds one fetch batch at a
+    time (mysqlclient's default cursor still buffers the statement's rows on the client, as `iter_digest_rows` notes).
+    """
+    for sample_id, study_id in _rows(_seek(), _SEEK_STUDY_LINK_STREAM_SQL, ["Sample"]):
+        yield int(sample_id), int(study_id)
+
+
+def sample_ids_in_assays(assay_ids: Iterable[int]) -> list[int]:
+    """The distinct Sample members (`assay_assets` Sample rows) of these SEEK assays, ascending, read by bound
+    parameters in chunks of `IN_CHUNK` assay ids. No assay id, no query."""
+    found: set[int] = set()
+    for chunk in _id_chunks(assay_ids):
+        sql = ("SELECT DISTINCT asset_id FROM assay_assets WHERE asset_type = %s AND asset_id IS NOT NULL "
+               f"AND assay_id IN ({_placeholders(len(chunk))})")
+        found.update(int(sample_id) for (sample_id,) in _rows(_seek(), sql, ["Sample", *chunk]))
+    return sorted(found)
+
+
 def studies() -> list[dict]:
-    """Every SEEK study: `id`, `title`, `investigation_id`."""
-    return [{"id": int(sid), "title": _text(title),
+    """Every SEEK study: `id`, `title`, `description`, `investigation_id`, ordered by id."""
+    return [{"id": int(sid), "title": _text(title), "description": _text(description),
              "investigation_id": int(inv_id) if inv_id is not None else None}
-            for sid, title, inv_id in _rows(
-                _seek(), "SELECT id, title, investigation_id FROM studies ORDER BY id")]
+            for sid, title, description, inv_id in _rows(
+                _seek(), "SELECT id, title, description, investigation_id FROM studies ORDER BY id")]
 
 
 # --- the label maps (spec 7.3) -----------------------------------------------------------------

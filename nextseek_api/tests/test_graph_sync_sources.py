@@ -427,13 +427,16 @@ def test_parent_identities_use_the_batch_upload_identity_rule(fake_db):
 
 
 def test_seek_study_links_for_restricts_to_the_ids(fake_db):
-    seek, _ = fake_db(seek_results=[[(100, 7, b"Study A", 3), (101, 8, "Study B", None)]])
+    seek, _ = fake_db(seek_results=[[(100, 7, b"Study A", "About A", 3), (101, 8, "Study B", None, None)]])
     assert sources.seek_study_links_for([101, 100]) == [
-        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-        {"sample_id": 101, "study_id": 8, "study_title": "Study B", "investigation_id": None},
+        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "study_description": "About A",
+         "investigation_id": 3},
+        {"sample_id": 101, "study_id": 8, "study_title": "Study B", "study_description": None,
+         "investigation_id": None},
     ]
     sql, params = seek.executed[0]
     assert "FROM assay_assets" in sql and "JOIN studies" in sql and "asset_type = %s" in sql
+    assert "s.description" in sql
     assert "aa.asset_id IN (%s, %s)" in sql
     assert params == ["Sample", 100, 101]
 
@@ -441,6 +444,31 @@ def test_seek_study_links_for_restricts_to_the_ids(fake_db):
 def test_seek_study_links_for_runs_no_query_for_no_ids(fake_db):
     seek, _ = fake_db()
     assert sources.seek_study_links_for([]) == []
+    assert seek.executed == []
+
+
+def test_iter_seek_study_links_streams_ordered_pairs_through_the_studies_join(fake_db):
+    seek, _ = fake_db(seek_results=[[(100, 7), (100, 9), (101, 7)]])
+    assert list(sources.iter_seek_study_links()) == [(100, 7), (100, 9), (101, 7)]
+    (sql, params), = seek.executed
+    assert "FROM assay_assets aa" in sql and "JOIN assays a ON a.id = aa.assay_id" in sql
+    assert "JOIN studies s ON s.id = a.study_id" in sql
+    assert "aa.asset_type = %s" in sql and "ORDER BY aa.asset_id, s.id" in sql
+    assert params == ["Sample"]
+
+
+def test_sample_ids_in_assays_reads_the_members_by_bound_parameters(fake_db, monkeypatch):
+    monkeypatch.setattr(sources, "IN_CHUNK", 2)
+    seek, _ = fake_db(seek_results=[[(12,), (10,)], [(10,), (14,)]])
+    assert sources.sample_ids_in_assays([5, 3, 9, 5]) == [10, 12, 14]
+    first, second = seek.executed
+    assert "SELECT DISTINCT asset_id FROM assay_assets" in first[0] and "assay_id IN (%s, %s)" in first[0]
+    assert first[1] == ["Sample", 3, 5] and second[1] == ["Sample", 9]
+
+
+def test_sample_ids_in_assays_runs_no_query_for_no_assay(fake_db):
+    seek, _ = fake_db()
+    assert sources.sample_ids_in_assays([]) == []
     assert seek.executed == []
 
 
@@ -633,9 +661,10 @@ def test_sops_map_by_id(fake_db):
 
 
 def test_studies_rows(fake_db):
-    fake_db(seek_results=[[(7, "Study A", 3), (8, b"Study B", None)]])
-    assert sources.studies() == [{"id": 7, "title": "Study A", "investigation_id": 3},
-                                 {"id": 8, "title": "Study B", "investigation_id": None}]
+    seek, _ = fake_db(seek_results=[[(7, "Study A", "About A", 3), (8, b"Study B", None, None)]])
+    assert sources.studies() == [{"id": 7, "title": "Study A", "description": "About A", "investigation_id": 3},
+                                 {"id": 8, "title": "Study B", "description": None, "investigation_id": None}]
+    assert "SELECT id, title, description, investigation_id FROM studies" in seek.executed[0][0]
 
 
 # --- recent_sample_ids (gate G's recent stratum, PLAN-ci-health Task 7e) ---------------------------
