@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
+from ..context_rows import is_project_row
 from ..graph_review import PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
@@ -270,12 +271,14 @@ def _type_names_block(config: Any, rows: list) -> str:
 
 
 def _container_aliases(config: Any) -> list[set[str]]:
-    """One set per row of the projects catalog: its name and alternative names, squashed. The scope check reads
-    "IMPAcTB" and the Investigation title 'Impact' as two names of one row."""
+    """One set per PROJECT row of the projects catalog: its name and alternative names, squashed. The scope check
+    reads "IMPAcTB" and the Investigation title 'Impact' as two names of one row. Investigation rows are left out:
+    one carries its owner's names too, so it would make the owner's title count as the investigation (the rule
+    agents/graph.py already follows)."""
     rows = getattr(config, "FULL_PROJECTS", None)
     out: list[set[str]] = []
     for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
+        if not is_project_row(row):
             continue
         names = {re.sub(r"[^a-z0-9]", "", str(n or "").lower())
                  for n in [row.get("name"), *(row.get("alternative_names") or [])]}

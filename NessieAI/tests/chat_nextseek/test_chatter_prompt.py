@@ -821,6 +821,56 @@ def test_the_container_aliases_are_one_squashed_set_per_catalog_row():
     assert chatter_mod._container_aliases(_StubConfig()) == []
 
 
+_PRODUCTION_SHAPED_ROWS = [
+    {"name": "Griffith", "alternative_names": ["CGR-Endo", "CGR"], "entity_type": "project", "parent_project": None},
+    {"name": "Endometriosis", "alternative_names": ["Griffith", "CGR-Endo"], "entity_type": "investigation",
+     "parent_project": "Griffith"},
+    {"name": "Impact", "alternative_names": ["IMPACT", "IMPAcTb"], "entity_type": "project", "parent_project": None},
+    {"name": "Impactb Investigation", "alternative_names": ["Impact", "IMPAcTb"], "entity_type": "investigation",
+     "parent_project": "Impact"},
+]
+
+
+def test_the_container_aliases_come_from_project_rows_only():
+    """REVIEW-NS N2: an investigation row carries its owner's names, so it would make the owner's title count as
+    the investigation."""
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    aliases = chatter_mod._container_aliases(_Cfg())
+    assert aliases == [{"griffith", "cgrendo", "cgr"}, {"impact", "impactb"}]
+
+
+def test_an_investigation_asked_for_is_not_applied_by_a_query_scoped_to_its_project():
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["Endometriosis"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = 'CGR-Endo' "
+                              "RETURN count(s) AS n", "parameters": {}},
+        user_query="How many samples are in the Endometriosis investigation?",
+        container_aliases=chatter_mod._container_aliases(_Cfg()),
+    )
+    assert "project Endometriosis" in scope.not_applied
+
+
+def test_a_name_held_by_the_project_row_still_applies_the_investigation_title():
+    from chat_nextseek.helpers.query_scope import describe_query_scope
+    class _Cfg(_StubConfig):
+        FULL_PROJECTS = _PRODUCTION_SHAPED_ROWS
+    scope = describe_query_scope(
+        entity_result=_entity(projects=["IMPAcTB"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_SEQ)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation) "
+                              "WHERE toLower(inv.title) = toLower($investigation) RETURN count(DISTINCT s) AS n",
+                    "parameters": {"investigation": "Impact"}},
+        user_query="How many datasets are there across IMPAcTB?",
+        container_aliases=chatter_mod._container_aliases(_Cfg()),
+    )
+    assert "project IMPAcTB" in scope.applied and scope.not_applied == []
+
+
 def test_a_project_named_by_an_alias_of_the_compared_title_is_not_reported_as_dropped(captured):
     chatter_mod.chatter_agent_answer(
         _ProjectsConfig(), "How many datasets are there across IMPAcTB?",
