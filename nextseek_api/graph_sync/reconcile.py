@@ -9,7 +9,7 @@ every other path uses.
 **Its order** (section 10.3), each step its own write unit under the graph-write lock:
 
 1. ``run.catalog_sync`` rebuilds the SampleType and Attribute catalog (about 6,000 rows);
-2. ``targeted.sync_small_tables`` rewrites projects, investigations, people, memberships and the SEEK study titles;
+2. ``targeted.sync_small_tables`` rewrites projects, investigations, people, memberships and every SEEK study's node;
 3. ``targeted.relabel_for_maps`` relabels what a change to the resolved assay map or to ``sops`` affects, and does
    nothing when their digest still equals ``GraphMeta.label_maps_hash``;
 4. ``drift.detect_sample_drift`` merges MySQL's samples with the graph's ``source_hash`` values, so every change to a
@@ -19,16 +19,21 @@ every other path uses.
 6. the new-parent pass: when the changed samples carry uuids no node carried before, ``sources.samples_naming`` finds
    the older rows naming them and they are synced too, so a parent that arrived after its child gets its lineage.
    Above ``new_uuid_cap`` new uuids the pass is skipped and reported: the weekly full sync covers it.
+7. ``study_links.rebuild_in_study`` makes every sample's IN_STUDY follow SEEK (an assay moved to another study in
+   SEEK's UI or by hand SQL changes no source hash, so only this step sees it); it takes the lock per chunk, writes
+   no outbox row and is outside the guard's count.
 
 **The guard** (R9). When more than ``guard_fraction`` of the samples differ, the run stops before writing a single
 sample, enqueues a ``full`` slot and returns ``guard_tripped``. A reconcile that would rewrite a fifth of the graph is
-a graph the weekly full sync should rebuild, not a nightly one that should stream it.
+a graph the weekly full sync should rebuild, not a nightly one that should stream it. The ``study_links`` step does
+not run then; the full sync the guard enqueued runs the same rule.
 
 **Refusals.** A graph that is not at the writer's schema version is refused before anything runs
 (``not_at_version``), as in ``targeted``. A step that cannot take the graph-write lock stops the run
 (``lock_timeout``, ``stopped_at``), the catalog step included; a catalog sync that refuses for any other reason gives
-``refused`` with its ``problems``. Each of them leaves what earlier steps wrote, which is correct in itself, and the
-next run finishes the rest.
+``refused`` with its ``problems``, and one that raises gives ``failed``. Either way the small tables and the relabel,
+which read no catalog, still run, and detection and the sample steps, which build it, do not. Each of them leaves
+what earlier steps wrote, which is correct in itself, and the next run finishes the rest.
 
 ``dry_run`` reads MySQL and the graph, writes nothing, takes no lock, touches no file and records no run: it reports
 the same detection counts, whether the guard would trip and what it would sync.
@@ -50,7 +55,7 @@ from datetime import datetime, timezone
 
 from django.utils import timezone as dj_timezone
 
-from nextseek_api.graph_sync import drift, hooks, run, sources, state, targeted, writer
+from nextseek_api.graph_sync import drift, hooks, run, sources, state, study_links, targeted, writer
 
 log = logging.getLogger(__name__)
 
@@ -165,20 +170,34 @@ def _finish_record(handle, report: dict) -> None:
 # --- the steps -----------------------------------------------------------------------------------
 
 def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> bool:
-    """The catalog, the small tables and the label maps: the whole of options D and E (section 10.2)."""
+    """The catalog, the small tables and the label maps: the whole of options D and E (section 10.2). Returns whether
+    the run goes on to detection and the sample steps, which build the catalog: only after an ``ok`` catalog step.
+
+    The small tables and the relabel read no catalog, so they run whatever the catalog step answered: a catalog that
+    refuses (``refused``, its ``problems``) or raises (``failed``, its ``error``) is recorded with ``stopped_at:
+    "catalog"``, the two steps run, and the run then ends with the catalog's status. A busy lock at any step stops the
+    run there, as it does at every other step."""
+    catalog_ok = False
     try:
-        if not _step(report, "catalog", run.catalog_sync, driver, db, record=opts.record, trigger=opts.trigger):
-            return False
+        catalog_ok = _step(report, "catalog", run.catalog_sync, driver, db, record=opts.record, trigger=opts.trigger)
     except run.PreflightError as exc:
         # A busy lock stops the run as it does at every other step, not as a refusal of this graph.
         status = LOCK_TIMEOUT if isinstance(exc, run.LockTimeout) else REFUSED
         report.update(status=status, stopped_at="catalog", problems=list(exc.problems))
         log.warning("reconcile: the catalog sync refused: %s", "; ".join(exc.problems))
+    except Exception as exc:  # noqa: BLE001 (recorded; the steps that read no catalog still run)
+        report.update(status=FAILED, stopped_at="catalog", error=f"{type(exc).__name__}: {exc}")
+        log.exception("reconcile: the catalog sync failed; the small tables and the relabel still run")
+    if report.get("status") == LOCK_TIMEOUT:
         return False
+    catalog_stop = {key: report[key] for key in ("status", "stopped_at") if key in report}
     if not _step(report, "small_tables", targeted.sync_small_tables, driver, db):
         return False
-    return _step(report, "relabel", targeted.relabel_for_maps, driver, db,
-                 apply_label_changes=opts.apply_label_changes)
+    if not _step(report, "relabel", targeted.relabel_for_maps, driver, db,
+                 apply_label_changes=opts.apply_label_changes):
+        return False
+    report.update(catalog_stop)
+    return catalog_ok
 
 
 def _detect(driver, db, report: dict, opts: _Options) -> dict:
@@ -231,6 +250,20 @@ def _new_parents(driver, db, report: dict, opts: _Options, found: dict, synced: 
                  apply_label_changes=opts.apply_label_changes, chunk=opts.chunk)
 
 
+def _study_links(driver, db, report: dict, opts: _Options) -> bool:
+    """The last step: every sample's IN_STUDY follows SEEK (``study_links.rebuild_in_study``), removal as the box's
+    switch says, archived in the run directory, the graph-write lock taken per chunk so the drain gets it in between.
+    It writes IN_STUDY and Study nodes only, never a sample: it adds no outbox row, never counts toward the guard and
+    never enqueues a full sync. A dry run puts the counts under ``study_links_preview`` and writes nothing."""
+    remove = study_links.follows_seek()
+    if opts.dry_run:
+        report["study_links_preview"] = _timed(report, "study_links", study_links.rebuild_in_study, driver, db,
+                                               remove=remove, run_dir=None, dry_run=True, lock=None)
+        return True
+    return _step(report, "study_links", study_links.rebuild_in_study, driver, db, remove=remove,
+                 run_dir=opts.run_dir, lock="chunk")
+
+
 def _reconcile(driver, db, report: dict, opts: _Options, now: datetime | None = None) -> None:
     """The run itself; every branch that stops it sets ``status``, and the happy path leaves it to the caller."""
     refusal = targeted._refusal(driver, db)
@@ -252,7 +285,9 @@ def _reconcile(driver, db, report: dict, opts: _Options, now: datetime | None = 
             return
         if gone and not _step(report, "retire", targeted.retire_samples, driver, db, gone, run_dir=opts.run_dir):
             return
-    _new_parents(driver, db, report, opts, found, ids)
+    if not _new_parents(driver, db, report, opts, found, ids):
+        return
+    _study_links(driver, db, report, opts)
 
 
 # --- the entry point -----------------------------------------------------------------------------
