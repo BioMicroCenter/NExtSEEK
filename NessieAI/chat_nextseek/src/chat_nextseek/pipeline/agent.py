@@ -63,6 +63,7 @@ def snapshot_for_chat_log(session) -> dict[str, Any]:
     return {
         "active": state.get("active"),
         "pipeline_key": state.get("pipeline_key"),
+        "selection": state.get("selection") or {},
         "cohort_count": len(artifacts.get("cohorts") or []),
         "message_count": len(state.get("messages") or []),
     }
