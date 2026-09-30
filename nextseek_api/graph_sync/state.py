@@ -27,6 +27,8 @@ holding a row delays it by one lease and loses nothing.
 Both are best-effort: a missing table (production has no migration 0021) or any other database error logs a warning,
 and the run goes on unrecorded. ``reap_abandoned`` ends the runs whose process died. The readers (``last_runs``,
 ``freshness``, ``outbox_summary``) raise instead, so the status endpoint can answer 503.
+``failing_rows`` and ``failed_runs`` are what the status endpoint reports as failing, and raise like the other
+readers.
 
 **The graph-write lock.** Every graph_sync write unit holds ``GET_LOCK('nextseek_graph_write', timeout)`` on the dmac
 connection's MySQL session. MySQL releases it at ``RELEASE_LOCK`` or when the session ends, and counts nested
@@ -466,6 +468,92 @@ def outbox_summary(*, now: datetime | None = None) -> dict:
             "age_s": _age_s(now, oldest["enqueued_at"])},
         "max_attempts": MAX_ATTEMPTS,
     }
+
+
+# --- failing rows and failed runs (the CI health checks) ------------------------------------------
+
+FAILING_GRACE_S = 1800            # past a row's back-off, how long its retry may take before the row is overdue
+FAILING_ROWS_SHOWN = 20           # failing rows the status lists; its counts cover every one
+ERROR_EXCERPT_CHARS = 240         # the longest error excerpt the status publishes
+FAILED_RUN_STATUSES = ("failed", "abandoned")
+# The run kinds the loop reruns by itself (a row's back-off, or the next slot: the nightly reconcile runs a catalog
+# step). A hand --samples run or another tool's run kind has no retry, so it is never reported as a failed run.
+FAILED_RUN_KINDS = ("full", "reconcile", "catalog", "drift")
+_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+_IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b")
+
+
+def failing_threshold_s(kind: str) -> int:
+    """How long a row of ``kind`` (or a run of that kind) may have been failing before it counts as overdue: its
+    back-off, after which its one retry comes due, plus ``FAILING_GRACE_S`` for that retry to run."""
+    return backoff_s(kind) + FAILING_GRACE_S
+
+
+def error_excerpt(text: Any) -> str | None:
+    """The first non-blank line of an error, URLs and IPv4 addresses replaced, at most ``ERROR_EXCERPT_CHARS``
+    characters; None for no error. What the status endpoint publishes, since its body reaches CI logs."""
+    if text is None:
+        return None
+    first = next((line.strip() for line in str(text).splitlines() if line.strip()), "")
+    if not first:
+        return None
+    first = _IPV4.sub("<ip>", _URL.sub("<url>", first))
+    return first if len(first) <= ERROR_EXCERPT_CHARS else first[:ERROR_EXCERPT_CHARS - 3] + "..."
+
+
+def _failing(now: datetime):
+    """Open rows that have failed since they last succeeded and that no worker is retrying right now."""
+    not_live = Q(claimed_by__isnull=True) | Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)
+    return _outbox().filter(done_at__isnull=True, failing_since__isnull=False).filter(not_live)
+
+
+def failing_rows(*, now: datetime | None = None, limit: int = FAILING_ROWS_SHOWN) -> dict:
+    """The failing rows, oldest failure first, at most ``limit`` of them, with ``total`` and ``overdue`` counted over
+    all of them. A row is overdue when it has been failing longer than ``failing_threshold_s`` of its kind."""
+    now = now or timezone.now()
+    qs = _failing(now)
+    overdue_q = Q()
+    for kind in KINDS:
+        overdue_q |= Q(kind=kind, failing_since__lt=now - timedelta(seconds=failing_threshold_s(kind)))
+    rows = []
+    for r in (qs.order_by("failing_since", "id")
+              .values("kind", "key", "attempts", "failing_since", "lease_expires_at", "last_error")[:limit]):
+        dead = r["attempts"] >= MAX_ATTEMPTS
+        age = _age_s(now, r["failing_since"])
+        threshold = failing_threshold_s(r["kind"])
+        rows.append({
+            "kind": r["kind"], "key": r["key"], "attempts": r["attempts"], "dead": dead,
+            "failing_since": _iso(r["failing_since"]), "age_s": age, "threshold_s": threshold,
+            "overdue": age > threshold,
+            "next_retry_at": None if dead else _iso(r["lease_expires_at"]),
+            "error": error_excerpt(r["last_error"]),
+        })
+    return {"rows": rows, "total": qs.count(), "overdue": qs.filter(overdue_q).count(), "limit": limit}
+
+
+def failed_runs(runs: Mapping[str, dict], *, now: datetime | None = None) -> list[dict]:
+    """Of ``runs`` (``last_runs``: the latest run of each kind), those of a kind in ``FAILED_RUN_KINDS`` that ended
+    ``failed`` or ``abandoned``, by kind. Aged from the run's end (its start when it has none); overdue past
+    ``failing_threshold_s`` of its kind, since the loop reruns that kind on the same back-off or at its next slot."""
+    now = now or timezone.now()
+    out = []
+    for kind in sorted(runs):
+        run = runs[kind]
+        if kind not in FAILED_RUN_KINDS or run.get("status") not in FAILED_RUN_STATUSES:
+            continue
+        ended = run.get("finished_at") or run.get("started_at")
+        age = _age_s(now, datetime.fromisoformat(ended)) if ended else None
+        threshold = failing_threshold_s(kind)
+        counts = run.get("counts") if isinstance(run.get("counts"), dict) else {}
+        trigger = counts.get("trigger")
+        out.append({
+            "id": run["id"], "kind": kind, "status": run["status"],
+            "trigger": None if trigger is None else str(trigger),
+            "finished_at": run.get("finished_at"), "age_s": age, "threshold_s": threshold,
+            "overdue": age is None or age > threshold,
+            "error": error_excerpt(counts.get("error")),
+        })
+    return out
 
 
 # --- the graph-write lock ------------------------------------------------------------------------

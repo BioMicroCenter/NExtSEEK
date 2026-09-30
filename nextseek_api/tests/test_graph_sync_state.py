@@ -826,3 +826,178 @@ def test_the_lock_timeout_is_whole_seconds_and_never_infinite(stub_mysql, given,
     with state.graph_write_lock(given):
         pass
     assert conn.log[0] == ("SELECT GET_LOCK(%s, %s)", ["nextseek_graph_write", sent])
+
+
+# --- failing rows and failed runs (SPEC-ci-health D4 to D8) --------------------------------------
+
+LOST = "OperationalError: (2006, 'Server has gone away')"
+
+
+def failing(kind: str, key: str, when: datetime, error: str = LOST) -> None:
+    """Enqueue a row and fail it once at ``when``."""
+    state.enqueue(kind, key, now=when - timedelta(seconds=2))
+    claim = state.claim_next("w1", now=when - timedelta(seconds=1), kinds=[kind])
+    assert claim is not None and claim.key == key
+    state.finish_failed(claim, error, state.backoff_s(kind), now=when)
+
+
+def test_the_failing_threshold_is_the_back_off_plus_half_an_hour():
+    assert state.failing_threshold_s("catalog") == 3600 + 1800
+    assert state.failing_threshold_s("full") == 6 * 3600 + 1800
+
+
+@pytest.mark.parametrize("raw, expected", [
+    (None, None),
+    ("", None),
+    (LOST, LOST),
+    ("\n  Traceback (most recent call last):\n  File \"x.py\", line 1", "Traceback (most recent call last):"),
+    ("ServiceUnavailable: Couldn't connect to bolt://neo4j.example:7687 (10.0.0.5:7687)",
+     "ServiceUnavailable: Couldn't connect to <url> (<ip>)"),
+])
+def test_an_error_excerpt_is_its_first_line_with_urls_and_addresses_replaced(raw, expected):
+    assert state.error_excerpt(raw) == expected
+
+
+def test_a_long_error_excerpt_is_cut():
+    excerpt = state.error_excerpt("x" * 10_000)
+    assert len(excerpt) == state.ERROR_EXCERPT_CHARS
+    assert excerpt.endswith("...")
+
+
+@pytest.mark.django_db
+def test_failing_rows_lists_a_failing_row_with_its_excerpt_and_next_retry():
+    failing("catalog", "*", T0)
+
+    out = state.failing_rows(now=at(minutes=10))
+
+    assert (out["total"], out["overdue"], out["limit"]) == (1, 0, state.FAILING_ROWS_SHOWN)
+    assert out["rows"] == [{
+        "kind": "catalog", "key": "*", "attempts": 1, "dead": False,
+        "failing_since": T0.isoformat(), "age_s": 600.0, "threshold_s": 5400, "overdue": False,
+        "next_retry_at": at(hours=1).isoformat(), "error": LOST,
+    }]
+
+
+@pytest.mark.django_db
+def test_a_row_failing_past_its_back_off_and_grace_is_overdue():
+    failing("catalog", "*", T0)
+
+    assert state.failing_rows(now=at(minutes=90))["overdue"] == 0
+    out = state.failing_rows(now=at(minutes=90, seconds=1))
+    assert out["overdue"] == 1
+    assert out["rows"][0]["overdue"] is True
+
+
+@pytest.mark.django_db
+def test_a_full_sync_gets_its_six_hour_back_off_before_it_is_overdue():
+    failing("full", "slot:2026-W37", T0)
+
+    assert state.failing_rows(now=at(hours=6))["overdue"] == 0
+    assert state.failing_rows(now=at(hours=7))["overdue"] == 1
+
+
+@pytest.mark.django_db
+def test_a_re_enqueued_hot_row_stays_overdue():
+    failing("catalog", "*", T0)
+    state.enqueue("catalog", "*", now=at(hours=2))
+
+    out = state.failing_rows(now=at(hours=2, seconds=1))
+
+    assert out["overdue"] == 1
+    assert out["rows"][0]["attempts"] == 0
+
+
+@pytest.mark.django_db
+def test_only_open_failing_rows_outside_a_live_claim_are_listed():
+    failing("samples", "sample:2", T0)                                   # fails, then succeeds
+    state.enqueue("samples", "sample:1", now=at(hours=1))                # never fails
+    assert state.finish_done(state.claim_next("w1", now=at(hours=2), kinds=["samples"]), now=at(hours=2))
+    state.enqueue("retire", "sample:3", now=at(hours=2))                 # deferred
+    state.finish_failed(state.claim_next("w1", now=at(hours=2), kinds=["retire"]), "lock_timeout", 60,
+                        now=at(hours=2), failure=False)
+    failing("catalog", "*", at(hours=2))                                 # failing, then claimed for its retry
+    assert state.claim_next("w2", now=at(hours=3, seconds=1), kinds=["catalog"]) is not None
+    failing("isa", "*", at(hours=2))                                     # failing and waiting
+
+    out = state.failing_rows(now=at(hours=3, seconds=1))
+
+    assert [(r["kind"], r["key"]) for r in out["rows"]] == [("isa", "*")]
+    assert out["total"] == 1
+
+
+@pytest.mark.django_db
+def test_a_dead_row_is_listed_as_dead_with_no_next_retry():
+    state.enqueue("catalog", "*", now=T0)
+    for n in range(state.MAX_ATTEMPTS):
+        when = at(hours=2 * n, seconds=1)
+        state.finish_failed(state.claim_next("w1", now=when), "boom", 3600, now=when)
+
+    (r,) = state.failing_rows(now=at(days=2))["rows"]
+
+    assert r["dead"] is True
+    assert r["attempts"] == state.MAX_ATTEMPTS
+    assert r["next_retry_at"] is None
+    assert r["failing_since"] == at(seconds=1).isoformat()
+
+
+@pytest.mark.django_db
+def test_the_list_is_capped_oldest_first_and_the_counts_cover_every_row():
+    for n in range(state.FAILING_ROWS_SHOWN + 5):
+        failing("samples", f"sample:{n}", at(minutes=n))
+
+    out = state.failing_rows(now=at(hours=5))
+
+    assert len(out["rows"]) == state.FAILING_ROWS_SHOWN
+    assert out["total"] == out["overdue"] == state.FAILING_ROWS_SHOWN + 5
+    assert out["rows"][0]["key"] == "sample:0"
+
+
+@pytest.mark.django_db
+def test_the_latest_failed_run_of_a_kind_is_reported_and_other_outcomes_are_not():
+    handle = state.start_run("catalog", trigger="loop", now=T0)
+    handle.finish("failed", counts={"error": LOST}, now=at(seconds=1))
+    state.start_run("drift", trigger="loop", now=T0).finish("drift", now=at(minutes=2))
+    state.start_run("reconcile", trigger="loop", now=T0).finish("refused", now=at(minutes=1))
+
+    assert state.failed_runs(state.last_runs(), now=at(minutes=31)) == [{
+        "id": handle.id, "kind": "catalog", "status": "failed", "trigger": "loop",
+        "finished_at": at(seconds=1).isoformat(), "age_s": 1859.0, "threshold_s": 5400, "overdue": False,
+        "error": LOST,
+    }]
+
+
+@pytest.mark.django_db
+def test_a_later_successful_run_clears_the_failed_run():
+    state.start_run("catalog", trigger="loop", now=T0).finish("failed", counts={"error": LOST}, now=T0)
+    state.start_run("catalog", trigger="loop", now=at(hours=1)).finish("ok", now=at(hours=1))
+
+    assert state.failed_runs(state.last_runs(), now=at(hours=2)) == []
+
+
+@pytest.mark.django_db
+def test_a_failed_run_turns_overdue_past_its_back_off_and_grace():
+    state.start_run("catalog", trigger="loop", now=T0).finish("failed", counts={"error": LOST}, now=T0)
+
+    assert state.failed_runs(state.last_runs(), now=at(minutes=90))[0]["overdue"] is False
+    assert state.failed_runs(state.last_runs(), now=at(minutes=91))[0]["overdue"] is True
+
+
+@pytest.mark.django_db
+def test_an_abandoned_run_is_a_failed_run():
+    state.start_run("full", trigger="loop", now=T0)
+    assert state.reap_abandoned(now=at(hours=13)) == 1
+
+    (run,) = state.failed_runs(state.last_runs(), now=at(hours=13))
+
+    assert (run["kind"], run["status"], run["error"]) == ("full", "abandoned", None)
+    assert (run["age_s"], run["threshold_s"], run["overdue"]) == (0.0, 6 * 3600 + 1800, False)
+
+
+@pytest.mark.django_db
+def test_a_failed_run_of_a_kind_the_sync_never_reruns_is_not_reported():
+    """A hand --samples run, or another tool's run kind, has no retry to wait for: it would hold CI red until someone
+    reran it (SPEC-ci-health D6)."""
+    state.start_run("samples", trigger="command", now=T0).finish("failed", counts={"error": LOST}, now=T0)
+    state.start_run("merge_studies", trigger="command", now=T0).finish("failed", counts={"error": LOST}, now=T0)
+
+    assert state.failed_runs(state.last_runs(), now=at(days=1)) == []
