@@ -530,6 +530,29 @@ MATCH (x)-[e:IN_STUDY]->(:Study) WHERE NOT x:Sample
 RETURN count(e) AS n
 """
 
+# Every Study node with what the merge's selection and gate G read: its properties, its Investigations, the IN_STUDY
+# it receives (from any node, and from Samples), and every other relationship type it holds besides its incoming
+# IN_STUDY and outgoing IN_INVESTIGATION. Tens to hundreds of rows.
+STUDY_NODES = """
+MATCH (st:Study)
+RETURN elementId(st) AS element_id, properties(st) AS props,
+       [(st)-[:IN_INVESTIGATION]->(i:Investigation) | {element_id: elementId(i), id: i.id, title: i.title}]
+         AS investigations,
+       COUNT { (st)<-[:IN_STUDY]-() } AS in_study,
+       COUNT { (st)<-[:IN_STUDY]-(:Sample) } AS sample_in_study,
+       [(st)-[r]-() WHERE NOT (type(r) = 'IN_STUDY' AND endNode(r) = st)
+                     AND NOT (type(r) = 'IN_INVESTIGATION' AND startNode(r) = st) | type(r)] AS other_relationships
+ORDER BY element_id
+"""
+# The distinct nodes with an IN_STUDY to one Study, found by element id.
+STUDY_SOURCES = """
+MATCH (st:Study) WHERE elementId(st) = $element_id
+MATCH (x)-[:IN_STUDY]->(st)
+WITH DISTINCT x
+RETURN elementId(x) AS element_id, labels(x) AS labels, x.id AS id
+ORDER BY element_id
+"""
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.

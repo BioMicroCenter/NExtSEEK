@@ -142,6 +142,8 @@ class StudyGraph:
             q.REPLACE_SEEK_IN_STUDY: self._replace,
             q.STUDY_SEEK_ID_DUPLICATES: self._duplicates,
             q.ORPHAN_IN_STUDY: self._orphan_count,
+            q.STUDY_NODES: self._study_nodes,
+            q.STUDY_SOURCES: self._study_sources,
         }
 
     # --- Project and Investigation nodes --------------------------------------------------------------------
@@ -280,3 +282,23 @@ class StudyGraph:
 
     def _orphan_count(self, p):
         return [{"n": sum(1 for s, _ in self.in_study.values() if "Sample" not in self.sources[s]["labels"])}]
+
+    # --- the merge's reads -------------------------------------------------------------------------------
+
+    def _study_nodes(self, p):
+        rows = []
+        for eid, props in sorted(self.studies.items()):
+            incoming = [s for s, st in self.in_study.values() if st == eid]
+            rows.append({"element_id": eid, "props": dict(props),
+                         "investigations": [{"element_id": i, "id": self.investigations[i]["id"],
+                                             "title": self.investigations[i]["title"]}
+                                            for i in self.in_investigation[eid]],
+                         "in_study": len(incoming),
+                         "sample_in_study": sum(1 for s in incoming if "Sample" in self.sources[s]["labels"]),
+                         "other_relationships": list(self.other_rels[eid])})
+        return rows
+
+    def _study_sources(self, p):
+        found = sorted({s for s, st in self.in_study.values() if st == p["element_id"]})
+        return [{"element_id": s, "labels": sorted(self.sources[s]["labels"]), "id": self.sources[s]["id"]}
+                for s in found]

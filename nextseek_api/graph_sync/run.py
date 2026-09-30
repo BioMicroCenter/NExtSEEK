@@ -76,7 +76,7 @@ from django.db import DatabaseError
 from django.utils import timezone as dj_timezone
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
-from nextseek_api.graph_sync import catalog, labels, projection, sources, state, study_links, writer
+from nextseek_api.graph_sync import catalog, labels, projection, sources, state, study_links, study_merge, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, project_sample
 from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
@@ -863,6 +863,10 @@ def _preview(driver, db, state_: _Preflight, report: dict, bench_keys) -> None:
     report["studies_to_rekey"] = len(plan["element_ids"])
     report["study_ids_left_keyed_by_id"] = _cap(plan["left_ids"])
     report["study_links_preview"] = _timed(report, "study_links_preview", study_links.preview_in_study, driver, db)
+    merge = _timed(report, "study_merge_preview", study_merge.plan, driver, db, None, detail=False)
+    report["study_merge_preview"] = {key: merge[key] for key in ("counts", "approval_line",
+                                                                  "merge_other_investigation", "id_collisions",
+                                                                  "legacy_only")}
 
 
 def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight, report: dict,

@@ -660,6 +660,8 @@ def test_a_dry_run_takes_no_lock_records_nothing_and_writes_nothing(world, monke
 
     assert report["status"] == "dry_run"
     assert report["study_links_preview"]["dry_run"] is True and report["study_links_preview"]["status"] == "ok"
+    assert report["study_merge_preview"] == {"counts": {}, "approval_line": "", "merge_other_investigation": [],
+                                             "id_collisions": [], "legacy_only": []}
     assert lock.timeouts == [] and not GraphSyncRun.objects.exists()
     assert writers.names() == ["find_ghosts"]
     assert all(c.kwargs.get("routing_") is not None for c in graph.calls)
