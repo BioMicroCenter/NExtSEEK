@@ -29,8 +29,8 @@ in the staging flow — never the agent, never the sidecar):
   ``api_user`` only. Cross-user delivery is impossible by construction.
 * Path safety (defense in depth, independent of the sidecar's own key
   sanitization): ``_staging/<hash>`` and the user's scratch are read, listed and written only through
-  ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``; the scratch being delivered into: the turn's in-turn, the user's
-  ``scratch_mnt`` on a recovery sweep) with the folders
+  ``NessieAI/cc/safe_fs.py``, each from its mount root (``_staging``, and the scratch delivered into: the
+  turn's scratch for an in-turn sweep, the user's ``scratch_mnt`` for a recovery sweep) with the folders
   below it in ``rel``, so no link on either side is followed; relative components are rejected if absolute or
   containing ``..``, and every destination is asserted to stay within the user's scratch subtree. A staged
   file over ``_MAX_STAGED_BYTES`` is left in place, by the in-turn sweep and ``cc_sweep_staging`` alike.
@@ -333,8 +333,9 @@ def sweep_user_staging(
             continue
 
         if any(st.st_size > _MAX_STAGED_BYTES for _, st in staged.get(req_id, [])):
-            # One oversized file: the whole request stays in place, nothing from it is delivered, on this
-            # sweep or any later one (its marker is kept).
+            # One oversized file in the listing: the whole request stays in place, nothing from it is
+            # delivered on this sweep or any later one (its marker is kept).
+            # (A file that grows past the cap after the listing is caught by read_file below; see there.)
             logger.warning("cc staging sweep: leaving request %s in place, a file is over the size cap", req_id)
             continue
 
@@ -354,7 +355,9 @@ def sweep_user_staging(
                 swept_ok = False
                 logger.warning("cc staging sweep: copy failed for %r (%s)", tail, type(exc).__name__)
                 if exc.errno == errno.EFBIG:
-                    break  # grew past the cap after the listing: deliver nothing further from this request
+                    # Grew past the cap after the listing: files sorting before it may already be delivered;
+                    # the request stays in place and nothing further is delivered.
+                    break
                 continue
             try:
                 final_name = _deliver_file_safely(data, scratch_dir, rel.parent.parts, rel.name,

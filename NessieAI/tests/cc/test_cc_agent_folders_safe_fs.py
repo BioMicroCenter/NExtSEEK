@@ -218,6 +218,26 @@ def test_read_file_caps_the_size(root):
     assert not isinstance(info.value, safe_fs.UnsafePath)
 
 
+@pytest.mark.parametrize("grown_to, cap, expect", [(10, 4, "EFBIG"), (3, 4, b"abc")])
+def test_read_file_cap_is_exact_for_a_file_that_grows_after_fstat(root, monkeypatch, grown_to, cap, expect):
+    """2 bytes at fstat, more by the read: past the cap is EFBIG, under it the whole file (never a prefix)."""
+    (root / "g.bin").write_bytes(b"ab")
+    real = safe_fs._open_for_read
+
+    def open_then_grow(r, rel):
+        fd, st = real(r, rel)
+        (root / "g.bin").write_bytes(b"abcdefghij"[:grown_to])
+        return fd, st
+
+    monkeypatch.setattr(safe_fs, "_open_for_read", open_then_grow)
+    if expect == "EFBIG":
+        with pytest.raises(OSError) as info:
+            safe_fs.read_file(root, "g.bin", max_bytes=cap)
+        assert info.value.errno == errno.EFBIG
+    else:
+        assert safe_fs.read_file(root, "g.bin", max_bytes=cap) == expect
+
+
 @pytest.mark.parametrize("bad", ["/etc/passwd", "../x", "a/../../x", "", "a//b"])
 def test_read_file_rejects_paths_that_leave_the_root(root, bad):
     with pytest.raises(safe_fs.UnsafePath):
