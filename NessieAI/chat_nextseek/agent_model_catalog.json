@@ -3,11 +3,18 @@
   "default": {
     "_comment": "Mixed profile (no -m flag): Gemini 3.8 Flash for most agents, Claude Opus 5.5 on Bedrock for the parsers, the report writer and coder, the planner and the two tool loops (run 2, operator rulings 6 and 9, 2026-09-25). Opus 5.5 always thinks: effort medium for the parsers, high for the report writer and coder, low for the planner and the tool loops.",
     "models": {
-      "gemini-3.8-flash": {
-        "provider": "gcp",
-        "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
-      },
+      "gemini-3.8-flash": [
+        {
+          "provider": "gcp",
+          "thinking_level": "medium",
+          "agents": ["entity"]
+        },
+        {
+          "provider": "gcp",
+          "thinking_level": null,
+          "agents": ["api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
+        }
+      ],
       "global.anthropic.claude-sonnet-5-5": {
         "provider": "anth",
         "thinking_level": null,
@@ -35,11 +42,18 @@
   "gcp:current": {
     "_comment": "Pure GCP current-gen (-m gcp:current): Gemini 3.8 Flash for most, pro-preview for heavy reasoning agents. Also the first fallback of the default profile's Bedrock agents (schemas/schema_helper.py _FALLBACK_CHAINS), and of the memory agent's Sonnet 5.5.",
     "models": {
-      "gemini-3.8-flash": {
-        "provider": "gcp",
-        "thinking_level": null,
-        "agents": ["entity", "api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
-      },
+      "gemini-3.8-flash": [
+        {
+          "provider": "gcp",
+          "thinking_level": "medium",
+          "agents": ["entity"]
+        },
+        {
+          "provider": "gcp",
+          "thinking_level": null,
+          "agents": ["api", "reporter", "chatter", "memory", "graph", "system", "context_engineer", "memory_coder", "evaluator", "seqera_agent"]
+        }
+      ],
       "gemini-3.1-pro-preview": {
         "provider": "gcp",
         "thinking_level": "high",
