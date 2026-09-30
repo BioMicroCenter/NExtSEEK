@@ -1457,3 +1457,291 @@ class TestAStudyWhoseSamplesAreAllInPaperStudiesStillGetsItsNode:
         _, seen = self._run_write(links, in_paper={1})
         assert [s["study_id"] for s in seen["studies"]] == [55]
         assert [e["sample_id"] for e in seen["edges"]] == [2]
+
+
+# --- the studies release: Study nodes and IN_STUDY -----------------------------------------------------------------
+
+from nextseek_api.tests.graph_sync_study_fakes import StudyGraph  # noqa: E402
+
+DB = "neo4j"
+
+
+def _study_row(sid, title="Alder", description=None, investigation_id=101):
+    return {"id": sid, "title": title, "description": description, "investigation_id": investigation_id}
+
+
+# SEEK's side of the unit worlds below: investigations 101 and 102, studies 1 and 2 under 101, 3 under 102.
+SEEK_STUDIES = [_study_row(1, "Alder Unpublished"), _study_row(2, "Birch"), _study_row(3, "Birch Study", None, 102)]
+SEEK_INVESTIGATIONS = [{"id": 101, "title": "Alder Investigation", "description": None},
+                       {"id": 102, "title": "Birch Investigation", "description": None}]
+SCOPE = w.paper_scope(SEEK_STUDIES, SEEK_INVESTIGATIONS)
+
+
+def test_in_study_statements_hold_the_rule():
+    replace = q.REPLACE_SEEK_IN_STUDY
+    assert replace.lstrip().startswith("CYPHER 25")
+    for part in ("elementId(e) = eid", "st.seek_study_id IS NOT NULL", "NOT st.seek_study_id IN r.study_ids",
+                 "p.seek_study_id IS NULL", "MERGE (s)-[:IN_STUDY]->(st)", "RETURN count(s) AS samples",
+                 "[sid IN r.study_ids WHERE NOT sid IN withhold]",
+                 "CASE WHEN paper AND NOT r.paper THEN r.study_ids ELSE r.withhold END", "AS paper_added"):
+        assert part in replace, part
+    assert "DETACH" not in replace
+    statement = q.MERGE_SEEK_STUDIES
+    assert statement.lstrip().startswith("CYPHER 25")
+    assert "MERGE (st:Study {seek_study_id: r.study_id})" in statement
+    assert "SET st.title = r.title, st.description = r.description" in statement
+    assert "DELETE old" in statement and "MERGE (st)-[:IN_INVESTIGATION]->(i)" in statement
+    assert "AS investigation_missing" in statement
+    assert not hasattr(q, "SET_SEEK_STUDIES")
+    assert "investigations: [(st)-[:IN_INVESTIGATION]->(i:Investigation)" in q.SAMPLE_STUDIES_OF
+    assert "ORDER BY s.id LIMIT $limit" in q.SAMPLE_STUDIES_PAGE and "s.id > $after" in q.SAMPLE_STUDIES_PAGE
+    assert "count(*) AS nodes" in q.STUDY_SEEK_ID_DUPLICATES and "nodes > 1" in q.STUDY_SEEK_ID_DUPLICATES
+    assert "NOT x:Sample" in q.ORPHAN_IN_STUDY
+
+
+def test_write_seek_study_nodes_takes_seeks_title_description_and_investigation():
+    g = StudyGraph()
+    old_inv, new_inv = g.add_investigation(101, "Alder Investigation"), g.add_investigation(102, "Birch Investigation")
+    node = g.add_study(seek_study_id=7, title="Old title", description="Old text", investigation=old_inv)
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(7, "Alder", "New text", 102), _study_row(8, "Birch")])
+    assert counts == {"seek_studies": 2, "seek_study_nodes_written": 2, "seek_study_investigation_missing": 0}
+    assert g.studies[node] == {"seek_study_id": 7, "title": "Alder", "description": "New text"}
+    assert g.in_investigation[node] == [new_inv]
+    (created,) = g.studies_by_seek(8)
+    assert g.investigation_ids_of(created) == [101]
+
+
+def test_a_study_with_no_investigation_loses_its_link():
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    node = g.add_study(seek_study_id=7, title="Alder", description="text", investigation=inv)
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(7, "Alder", None, None)])
+    assert g.in_investigation[node] == []
+    assert "description" not in g.studies[node]      # SEEK's null removes the property
+    assert counts["seek_study_investigation_missing"] == 0
+
+
+def test_a_study_in_an_investigation_with_no_node_gets_it_written_first():
+    """A study created in SEEK in a new investigation: the investigation's node and its IN_PROJECT come first, so the
+    study is linked when its first samples are written, not at the next nightly."""
+    g = StudyGraph()
+    g.add_project(5, "Poplar")
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", "About", 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},
+                                          {"id": 104, "title": "Not named", "description": None}),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},
+                                                  {"investigation_id": 104, "project_id": 5}))
+    counts = w.write_seek_study_nodes(g, DB, tables.studies, tables=tables)
+    (node,) = g.studies_by_seek(9)
+    inv = g.investigation_by_id(103)
+    assert g.in_investigation[node] == [inv] and g.inv_projects[inv] == {5}
+    assert g.investigations[inv] == {"id": 103, "title": "Poplar Investigation", "project_id": 5}
+    assert g.investigation_by_id(104) is None                           # only the investigations named
+    assert (counts["investigations_written"], counts["investigation_links"],
+            counts["seek_study_investigation_missing"]) == (1, 1, 0)
+    assert [c.query for c in g.writes()] == [q.MERGE_INVESTIGATIONS, q.MERGE_INVESTIGATION_IN_PROJECT,
+                                             q.MERGE_SEEK_STUDIES]
+    assert q.DELETE_INVESTIGATION_IN_PROJECT not in [c.query for c in g.calls]
+
+
+def test_a_study_whose_investigation_is_still_missing_is_counted():
+    g = StudyGraph()
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(9, "Poplar Study", None, 103)])
+    assert counts["seek_study_investigation_missing"] == 1
+    assert g.in_investigation[g.studies_by_seek(9)[0]] == []
+
+
+def _in_study_world():
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    seek1 = g.add_study(seek_study_id=1, title="Alder", investigation=inv)
+    seek2 = g.add_study(seek_study_id=2, title="Birch", investigation=inv)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
+    for sid in (1001, 1002, 1003, 1004):
+        g.add_sample(sid)
+    g.link(1001, seek2)             # SEEK holds 1 only: 2 is stale, 1 is missing
+    g.link(1002, seek1)             # SEEK places it in no study: kept
+    g.link(1003, paper)             # a paper sample: SEEK's 2 (its own investigation) is withheld, the paper link kept
+    g.link(1003, seek1)             # ...but its stale SEEK link still goes
+    return g, {"seek1": seek1, "seek2": seek2, "paper": paper}
+
+
+def test_replace_seek_in_study_follows_seek_and_archives_before_it_deletes(tmp_path):
+    g, _ = _in_study_world()
+    archive = tmp_path / "in_study_removed.tsv"
+    seen = []
+    g.before_write = lambda query, params: seen.append(archive.exists())
+    rows = [{"sample_id": 1001, "study_ids": [1]}, {"sample_id": 1002, "study_ids": []},
+            {"sample_id": 1003, "study_ids": [2]}, {"sample_id": 1004, "study_ids": [2, 3]},
+            {"sample_id": 1099, "study_ids": [1]}]
+    counts = w.replace_seek_in_study(g, DB, rows, remove=True, archive_path=str(archive), scope=SCOPE,
+                                     path="studies")
+
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert g.keys_of(1002) == {("seek", 1)}
+    assert g.keys_of(1003) == {("id", 9)}
+    assert g.keys_of(1004) == {("seek", 2)}
+    assert seen == [True]
+    lines = archive.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == w.IN_STUDY_ARCHIVE_HEADER.rstrip("\n")
+    assert sorted(line.split("\t")[:3] + line.split("\t")[4:] for line in lines[1:]) == [
+        ["1001", "2", "", "studies"], ["1003", "1", "", "studies"]]
+    assert counts == {"in_study_rows": 5, "in_study_added": 2, "in_study_removed": 2, "in_study_stale": 0,
+                      "in_study_kept_no_seek_study": 1, "in_study_paper_samples": 1, "in_study_withheld": 1,
+                      "in_study_paper_links_written": 0, "in_study_paper_investigation_unknown": 0,
+                      "in_study_samples_missing": 1, "in_study_studies_missing": 1}
+
+
+def test_without_remove_nothing_is_archived_or_deleted(tmp_path):
+    g, _ = _in_study_world()
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=False,
+                                     archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert g.keys_of(1001) == {("seek", 1), ("seek", 2)}
+    assert counts["in_study_stale"] == 1 and counts["in_study_removed"] == 0
+    assert not (tmp_path / "a.tsv").exists()
+
+
+def test_removing_with_no_archive_path_raises_before_any_write():
+    g, _ = _in_study_world()
+    with pytest.raises(ValueError, match="archive"):
+        w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=True, archive_path=None,
+                                scope=SCOPE)
+    assert g.writes() == []
+
+
+def test_replace_seek_in_study_takes_its_scope_as_a_required_keyword(tmp_path):
+    g, _ = _in_study_world()
+    with pytest.raises(TypeError):
+        w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=False, archive_path=None)
+
+
+def test_parallel_stale_edges_are_archived_and_removed(tmp_path):
+    g, nodes = _in_study_world()
+    g.link(1001, nodes["seek2"])     # a second, parallel stale edge
+    archive = tmp_path / "a.tsv"
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=True,
+                                     archive_path=str(archive), scope=SCOPE)
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert counts["in_study_removed"] == 2
+    assert len(archive.read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_replace_seek_in_study_works_in_chunks(monkeypatch, tmp_path):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    g = StudyGraph()
+    g.add_study(seek_study_id=1, title="Alder")
+    for sid in range(1001, 1006):
+        g.add_sample(sid)
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": s, "study_ids": [1]} for s in range(1001, 1006)],
+                                     remove=True, archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert len(g.of(q.REPLACE_SEEK_IN_STUDY)) == 3 and len(g.of(q.SAMPLE_STUDIES_OF)) == 3
+    assert counts["in_study_added"] == 5
+
+
+def test_sample_study_pages_walk_every_numeric_sample_by_keyset():
+    g = StudyGraph()
+    for sid in (1003, 1001, 1005, 1002, 1004):
+        g.add_sample(sid)
+    g.add_sample("legacy-1")         # a non-numeric id is never paged
+    pages = list(w.sample_study_pages(g, DB, page=2))
+    assert [[r["id"] for r in page] for page in pages] == [[1001, 1002], [1003, 1004], [1005]]
+    assert [c.params["after"] for c in g.of(q.SAMPLE_STUDIES_PAGE)][1:] == [1002, 1004]
+    assert all(c.read for c in g.calls)
+
+
+def test_duplicates_and_orphan_links_are_read_only_counts():
+    g = StudyGraph()
+    a, b = g.add_study(seek_study_id=4, title="x"), g.add_study(seek_study_id=4, title="y")
+    g.link(g.add_sample(1001, label="OrphanSample"), a)
+    assert w.seek_study_id_duplicates(g, DB) == [{"seek_study_id": 4, "nodes": 2}]
+    assert w.orphan_in_study(g, DB) == 1
+    assert all(c.read for c in g.calls)
+
+
+# --- a paper sample's SEEK links are withheld only inside its own investigation (operator ruling SHARED SAMPLES) ----
+
+def _two_investigation_world():
+    g = StudyGraph()
+    alder = g.add_investigation(101, "Alder Investigation")
+    birch = g.add_investigation(102, "Birch Investigation")
+    bucket = g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=alder)
+    shared = g.add_study(seek_study_id=3, title="Birch Study", investigation=birch)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=alder)
+    g.add_sample(1003)
+    g.link(1003, paper)
+    return g, {"bucket": bucket, "shared": shared, "paper": paper}
+
+
+def test_a_paper_sample_links_another_investigations_study_and_never_its_bucket(tmp_path):
+    g, _ = _two_investigation_world()
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1, 3]}], remove=True,
+                                     archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9), ("seek", 3)}
+    assert [c.params["rows"] for c in g.of(q.REPLACE_SEEK_IN_STUDY)] == [[
+        {"sample_id": 1003, "study_ids": [1, 3], "withhold": [1], "paper": True, "remove": []}]]
+    assert (counts["in_study_added"], counts["in_study_paper_samples"], counts["in_study_withheld"],
+            counts["in_study_paper_links_written"], counts["in_study_paper_investigation_unknown"]) == (1, 1, 1, 1, 0)
+
+
+def _paper_links(*investigations):
+    """One paper link per entry: None for a Study with no IN_INVESTIGATION, else a list of (id, title)."""
+    return [{"element_id": f"e:{n}", "seek_study_id": None, "id": 90 + n,
+             "investigations": [] if invs is None else [{"id": i, "title": t} for i, t in invs]}
+            for n, invs in enumerate(investigations)]
+
+
+@pytest.mark.parametrize("links, own, written, withheld", [
+    (_paper_links(None), None, (), (1, 3)),                                                     # no IN_INVESTIGATION
+    (_paper_links([(101, "Alder Investigation"), (102, "Birch Investigation")]), None, (), (1, 3)),   # two
+    (_paper_links([(105, "Alder Investigation")]), None, (), (1, 3)),                          # an id SEEK lacks
+    (_paper_links([(101, "Alder investigation 2")]), None, (), (1, 3)),                        # a title that differs
+    (_paper_links([(101, "  ALDER investigation ")]), frozenset({101}), (3,), (1,)),            # case and spaces aside
+    (_paper_links([(101, "Alder Investigation")], [(102, "Birch Investigation")]), frozenset({101, 102}), (), (1, 3)),
+], ids=["no investigation", "two", "id seek lacks", "title differs", "case and spaces", "two papers"])
+def test_paper_split_withholds_only_the_papers_own_investigations(links, own, written, withheld):
+    split = w.paper_split(links, [3, 1], SCOPE)
+    assert (split.paper, split.own, split.written, split.withheld) == (True, own, written, withheld)
+
+
+def test_paper_split_withholds_a_study_seek_files_under_no_investigation():
+    scope = w.paper_scope([_study_row(4, "Loose", None, None)], SEEK_INVESTIGATIONS)
+    split = w.paper_split(_paper_links([(101, "Alder Investigation")]), [4], scope)
+    assert (split.written, split.withheld) == ((), (4,))
+
+
+def test_paper_split_links_every_study_of_a_sample_that_is_not_a_paper_sample():
+    links = [{"element_id": "e:1", "seek_study_id": 1, "id": None, "investigations": []}]
+    assert w.paper_split(links, [3, 1], SCOPE) == w.PaperSplit(False, None, (1, 3), ())
+
+
+def test_an_unknown_paper_investigation_withholds_every_link_and_is_counted(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.in_investigation[nodes["paper"]] = []
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1, 3]}], remove=False,
+                                     archive_path=None, scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9)}
+    assert (counts["in_study_withheld"], counts["in_study_paper_investigation_unknown"]) == (2, 1)
+
+
+def test_a_sample_that_became_a_paper_sample_after_the_read_withholds_every_study(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.add_sample(1004)
+    g.link(1004, nodes["paper"])
+    rows = [{"sample_id": 1004, "study_ids": [1, 3], "withhold": [], "paper": False, "remove": []}]
+    g.execute_query(q.REPLACE_SEEK_IN_STUDY, {"rows": rows})
+    assert g.keys_of(1004) == {("id", 9)}
+
+
+def test_a_shared_link_seek_no_longer_holds_is_removed_like_any_other(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.link(1003, nodes["shared"])
+    archive = tmp_path / "a.tsv"
+    w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1]}], remove=True, archive_path=str(archive),
+                            scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9)}
+    assert archive.read_text(encoding="utf-8").splitlines()[1].split("\t")[:2] == ["1003", "3"]
+    g2, nodes2 = _two_investigation_world()
+    g2.link(1003, nodes2["shared"])
+    counts = w.replace_seek_in_study(g2, DB, [{"sample_id": 1003, "study_ids": [1]}], remove=False,
+                                     archive_path=None, scope=SCOPE)
+    assert counts["in_study_stale"] == 1 and g2.keys_of(1003) == {("id", 9), ("seek", 3)}

@@ -15,6 +15,8 @@ in the design's order:
 Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule), ``edges_incident`` and
 ``write_edge_labels`` (DERIVED_FROM labels, new ones only unless the operator approves changes),
 ``archive_and_drop_undeclared_for_children``, ``sample_hashes`` (the ``(id, source_hash)`` stream) and ``graphmeta``.
+The studies release adds ``write_seek_study_nodes`` (every SEEK study's node, its investigation first) and
+``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first).
 
 Writes fail loudly: a schema statement that Neo4j refuses raises, and so does a catalog that would clash with the
 graph. Shortfalls the graph can explain (a type, project or endpoint node that is missing) are counted, not raised,
@@ -28,7 +30,9 @@ import os
 import random
 import time
 from collections import Counter, defaultdict
-from typing import Callable, Iterable, Iterator
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Callable, Iterable, Iterator, Mapping
 
 from neo4j import RoutingControl
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
@@ -51,6 +55,12 @@ CHILD_OF_DELETE_BATCH = 50_000
 DERIVED_FROM_DELETE_BATCH = 10_000
 DERIVED_FROM_ARCHIVE_HEADER = "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n"
 RETIRED_ARCHIVE_HEADER = "id\tuuid\ttype\tincident_edges\n"
+IN_STUDY_ARCHIVE_HEADER = "sample_id\tseek_study_id\tstudy_id\tedge_element_id\tpath\n"
+# replace_seek_in_study's counts, always all present.
+IN_STUDY_COUNTS = ("in_study_rows", "in_study_added", "in_study_removed", "in_study_stale",
+                   "in_study_kept_no_seek_study", "in_study_paper_samples", "in_study_withheld",
+                   "in_study_paper_links_written", "in_study_paper_investigation_unknown",
+                   "in_study_samples_missing", "in_study_studies_missing")
 
 # The seven DERIVED_FROM label properties, always written together (cypher.EDGE_LABEL_KEYS).
 EDGE_LABEL_KEYS = q.EDGE_LABEL_KEYS
@@ -105,6 +115,16 @@ def _one(result, key, default=0):
         return default
     value = records[0][key]
     return default if value is None else value
+
+
+def _first(result) -> dict:
+    """The first record as a dict, or {} when there is none."""
+    records = _records(result)
+    return dict(records[0]) if records else {}
+
+
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _counter(result, name) -> int:
@@ -776,6 +796,236 @@ def write_seek_studies(driver, db, links: list[dict]) -> dict:
         linked += _one(_run(driver, db, q.MERGE_SEEK_IN_STUDY, {"rows": rows}), "linked")
     return {"seek_studies": len(studies), "in_study_written": linked, "in_study_dropped": len(edges) - linked,
             "samples_skipped_in_paper_study": len(skipped)}
+
+
+# --- SEEK studies and IN_STUDY (the studies release) ---------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SeekTables:
+    """SEEK's small tables one call reads once and hands to the writer (which reads no MySQL): ``sources.studies()``,
+    ``sources.investigations()``, ``sources.investigation_projects()`` and ``sources.projects()`` rows."""
+    studies: tuple = ()
+    investigations: tuple = ()
+    investigation_projects: tuple = ()
+    projects: tuple = ()
+
+
+@dataclass(frozen=True)
+class PaperScope:
+    """What the paper-sample rule reads from SEEK: each SEEK study's investigation, each SEEK investigation's title."""
+    study_investigation: Mapping[int, int | None]
+    investigation_titles: Mapping[int, str | None]
+
+
+@dataclass(frozen=True)
+class PaperSplit:
+    """One sample's SEEK studies under the paper-sample rule (``paper_split``)."""
+    paper: bool
+    own: frozenset | None       # the own investigations; None when they cannot be matched (every study withheld)
+    written: tuple              # SEEK's study ids to link, sorted
+    withheld: tuple             # SEEK's study ids not linked, sorted
+
+
+def paper_scope(studies, investigations) -> PaperScope:
+    """``PaperScope`` from ``sources.studies()`` and ``sources.investigations()`` rows."""
+    return PaperScope(
+        study_investigation=MappingProxyType({int(s["id"]): s.get("investigation_id") for s in studies}),
+        investigation_titles=MappingProxyType({int(i["id"]): i.get("title") for i in investigations}))
+
+
+def _folded(title) -> str:
+    return str(title or "").strip().casefold()
+
+
+def paper_split(links, study_ids, scope: PaperScope) -> PaperSplit:
+    """Which of SEEK's studies ``study_ids`` a sample with IN_STUDY ``links`` (as ``sample_studies`` returns them) is
+    linked to. A sample with a link to a Study that has no ``seek_study_id`` is a paper sample. A paper link's own
+    investigation is its Study's one Investigation, when that node's ``id`` is a SEEK investigation and its title
+    equals SEEK's title (``str.strip().casefold()`` on both sides, the studies tool's T27 rule). A paper sample is
+    not linked to a SEEK study of one of its papers' own investigations, nor to one SEEK files under no
+    investigation; its links to other investigations' studies are written. When any of its paper links has no such
+    own investigation (no IN_INVESTIGATION, several, an id SEEK lacks, another title), ``own`` is None and every
+    study is withheld. A sample that is not a paper sample is linked to every study."""
+    wanted = tuple(sorted({int(s) for s in study_ids}))
+    papers = [link for link in links if link.get("seek_study_id") is None]
+    if not papers:
+        return PaperSplit(False, None, wanted, ())
+    own: set | None = set()
+    for link in papers:
+        found = link.get("investigations") or []
+        inv_id = found[0].get("id") if len(found) == 1 else None
+        if (not _is_int(inv_id) or inv_id not in scope.investigation_titles
+                or _folded(found[0].get("title")) != _folded(scope.investigation_titles[inv_id])):
+            own = None
+            break
+        own.add(inv_id)
+    if own is None:
+        return PaperSplit(True, None, (), wanted)
+    withheld = tuple(s for s in wanted if scope.study_investigation.get(s) is None
+                     or scope.study_investigation.get(s) in own)
+    return PaperSplit(True, frozenset(own), tuple(s for s in wanted if s not in withheld), withheld)
+
+
+def _seek_study_rows(studies) -> list[dict]:
+    """``sources.studies()`` rows as the statements' rows, one per study id, ascending."""
+    rows: dict[int, dict] = {}
+    for study in studies:
+        sid = int(study["id"])
+        rows.setdefault(sid, {"study_id": sid, "title": study.get("title"), "description": study.get("description"),
+                              "investigation_id": study.get("investigation_id")})
+    return [rows[key] for key in sorted(rows)]
+
+
+def write_study_investigations(driver, db, studies, tables: SeekTables) -> dict:
+    """MERGE the Investigation node of every investigation ``studies`` name, and its IN_PROJECT, from ``tables``, so a
+    study in an investigation created in SEEK that day is linked when its first samples are written. The same
+    properties ``write_investigation_projects`` sets; nothing is deleted (the whole-table write owns the deletes). An
+    investigation id with no SEEK row is counted in ``investigation_ids_not_in_seek`` and written nowhere."""
+    wanted = {int(s["investigation_id"]) for s in studies if s.get("investigation_id") is not None}
+    known = {int(i["id"]): i for i in tables.investigations}
+    link_rows, seen, project_of = [], set(), {}
+    for link in tables.investigation_projects:
+        pair = (int(link["investigation_id"]), int(link["project_id"]))
+        if pair[0] in wanted and pair[0] in known and pair not in seen:
+            seen.add(pair)
+            link_rows.append({"investigation_id": pair[0], "project_id": pair[1]})
+            project_of[pair[0]] = min(project_of.get(pair[0], pair[1]), pair[1])
+    rows = [{"id": inv_id, "title": known[inv_id].get("title"), "description": known[inv_id].get("description"),
+             "project_id": project_of.get(inv_id)} for inv_id in sorted(wanted & set(known))]
+    for batch in _batches(rows, REL_CHUNK):
+        _run(driver, db, q.MERGE_INVESTIGATIONS, {"rows": batch})
+    linked = sum(_one(_run(driver, db, q.MERGE_INVESTIGATION_IN_PROJECT, {"rows": batch}), "linked")
+                 for batch in _batches(link_rows, REL_CHUNK))
+    return {"investigations_written": len(rows), "investigation_links": linked,
+            "investigation_links_dropped": len(link_rows) - linked,
+            "investigation_ids_not_in_seek": len(wanted - set(known))}
+
+
+def write_seek_study_nodes(driver, db, studies, *, tables: SeekTables | None = None) -> dict:
+    """MERGE the Study node of each SEEK study on ``seek_study_id`` and make its title, description and
+    IN_INVESTIGATION SEEK's. ``studies`` are ``sources.studies()`` rows. With ``tables`` the investigations they name
+    are written first (``write_study_investigations``); without, the caller has just written every Investigation
+    (the full sync's and the small tables' whole-table write). ``seek_study_investigation_missing`` counts the study
+    rows whose Investigation node is still missing: expected 0."""
+    rows = _seek_study_rows(studies)
+    report = write_study_investigations(driver, db, studies, tables) if tables is not None else {}
+    written = missing = 0
+    for batch in _batches(rows, REL_CHUNK):
+        record = _first(_run(driver, db, q.MERGE_SEEK_STUDIES, {"rows": batch}))
+        written += int(record.get("n") or 0)
+        missing += int(record.get("investigation_missing") or 0)
+    report.update(seek_studies=len(rows), seek_study_nodes_written=written, seek_study_investigation_missing=missing)
+    return report
+
+
+def _links(record) -> list[dict]:
+    return [{"element_id": link.get("element_id"), "seek_study_id": link.get("seek_study_id"), "id": link.get("id"),
+             "investigations": [dict(i) for i in (link.get("investigations") or [])]}
+            for link in (record["studies"] or [])]
+
+
+def sample_studies(driver, db, ids) -> dict[int, list[dict]]:
+    """The IN_STUDY edges of these Sample nodes: sample id to ``{"element_id", "seek_study_id", "id",
+    "investigations"}`` per edge (``investigations`` the Study's ``{"id", "title"}``); a Sample with none maps to [], an
+    id with no Sample node is absent. Read-only."""
+    found: dict[int, list[dict]] = {}
+    for batch in _batches(dict.fromkeys(ids), REL_CHUNK):
+        for record in _records(_run(driver, db, q.SAMPLE_STUDIES_OF, {"ids": batch}, read=True)):
+            found[record["id"]] = _links(record)
+    return found
+
+
+def sample_study_pages(driver, db, page: int = HASH_PAGE) -> Iterator[list[dict]]:
+    """Keyset pages of every Sample with a numeric id, ascending, as ``{"id", "studies"}`` rows; memory holds one
+    page. Read-only."""
+    after = _INT64_MIN
+    while True:
+        rows = [{"id": record["id"], "studies": _links(record)}
+                for record in _records(_run(driver, db, q.SAMPLE_STUDIES_PAGE, {"after": after, "limit": page},
+                                            read=True))]
+        if rows:
+            yield rows
+        if len(rows) < page:
+            return
+        after = rows[-1]["id"]
+
+
+def seek_study_id_duplicates(driver, db) -> list[dict]:
+    """``{"seek_study_id", "nodes"}`` for every seek_study_id more than one Study node carries. Read-only."""
+    return [{"seek_study_id": r["seek_study_id"], "nodes": r["nodes"]}
+            for r in _records(_run(driver, db, q.STUDY_SEEK_ID_DUPLICATES, read=True))]
+
+
+def orphan_in_study(driver, db) -> int:
+    """IN_STUDY edges whose source is not a Sample. Read-only."""
+    return int(_one(_run(driver, db, q.ORPHAN_IN_STUDY, read=True), "n"))
+
+
+def _in_study_line(sample_id, link: dict, path: str) -> str:
+    return "\t".join(_tsv_field(v) for v in (sample_id, link.get("seek_study_id"), link.get("id"),
+                                             link.get("element_id"), path)) + "\n"
+
+
+def replace_seek_in_study(driver, db, rows, *, remove: bool, archive_path: str | None, scope: PaperScope,
+                          path: str = "sync") -> dict:
+    """Make each sample's IN_STUDY follow SEEK (docs/neo4j-schema.md, v1.2 "Study nodes and IN_STUDY").
+
+    ``rows`` are ``{"sample_id", "study_ids"}``, ``study_ids`` SEEK's studies of that sample ([] for none); a sample is
+    sent once, the first row winning. Per ``REL_CHUNK`` samples this reads their IN_STUDY (``SAMPLE_STUDIES_OF``) and
+    works out the stale links: each IN_STUDY to a SEEK-keyed Study outside ``study_ids``, and none at all for a sample
+    SEEK places in no study (it keeps its links; ``in_study_kept_no_seek_study`` counts it). With ``remove`` the stale
+    links are appended to ``archive_path``, ``path`` naming who removed them, and flushed before
+    ``REPLACE_SEEK_IN_STUDY`` deletes them; without it they are counted in ``in_study_stale`` and kept. The statement
+    links each sample to its SEEK studies' nodes, except a paper sample's links to studies of its own investigation
+    (``paper_split`` with ``scope``, a required keyword: a forgotten caller fails its test rather than withholding
+    silently). Returns every key of ``IN_STUDY_COUNTS``.
+
+    Raises ValueError when a chunk has links to remove and there is no ``archive_path``, and OSError when the archive
+    cannot be written; either before that chunk's write.
+    """
+    payload: dict[int, list[int]] = {}
+    for row in rows:
+        payload.setdefault(int(row["sample_id"]), sorted({int(s) for s in (row.get("study_ids") or ())}))
+    counts = dict.fromkeys(IN_STUDY_COUNTS, 0)
+    counts["in_study_rows"] = len(payload)
+    for batch in _batches(sorted(payload), REL_CHUNK):
+        current = sample_studies(driver, db, batch)
+        statement_rows, lines = [], []
+        for sample_id in batch:
+            wanted = payload[sample_id]
+            links = current.get(sample_id, ())
+            split = paper_split(links, wanted, scope)
+            counts["in_study_paper_investigation_unknown"] += split.paper and split.own is None
+            seek_links = [link for link in links if link["seek_study_id"] is not None]
+            if wanted:
+                stale = [link for link in seek_links if link["seek_study_id"] not in wanted]
+            else:
+                stale = []
+                counts["in_study_kept_no_seek_study"] += bool(seek_links)
+            if remove:
+                lines.extend(_in_study_line(sample_id, link, path) for link in stale)
+            else:
+                counts["in_study_stale"] += len(stale)
+            statement_rows.append({"sample_id": sample_id, "study_ids": wanted, "withhold": list(split.withheld),
+                                   "paper": split.paper,
+                                   "remove": [link["element_id"] for link in stale] if remove else []})
+        if lines:
+            if not archive_path:
+                raise ValueError(f"{len(lines)} IN_STUDY links to remove and no archive path to record them in")
+            _append_rows(archive_path, IN_STUDY_ARCHIVE_HEADER, lines)
+        record = _first(_run(driver, db, q.REPLACE_SEEK_IN_STUDY, {"rows": statement_rows}))
+        removed = int(record.get("removed") or 0)
+        if removed != len(lines):
+            log.warning("IN_STUDY: %d links archived for removal but %d removed (changed since the read)",
+                        len(lines), removed)
+        counts["in_study_removed"] += removed
+        counts["in_study_added"] += int(record.get("added") or 0)
+        counts["in_study_paper_samples"] += int(record.get("paper_samples") or 0)
+        counts["in_study_paper_links_written"] += int(record.get("paper_added") or 0)
+        counts["in_study_withheld"] += int(record.get("withheld") or 0)
+        counts["in_study_studies_missing"] += int(record.get("studies_missing") or 0)
+        counts["in_study_samples_missing"] += len(batch) - int(record.get("samples") or 0)
+    return counts
 
 
 # --- GraphMeta -----------------------------------------------------------------------------------

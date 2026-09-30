@@ -377,18 +377,101 @@ RETURN s.id AS id, s.source_hash AS source_hash
 ORDER BY s.id LIMIT $limit
 """
 
+# --- SEEK studies and IN_STUDY (docs/neo4j-schema.md, v1.2 "Study nodes and IN_STUDY") ----------------------------
+
+# A SEEK study's node is found by seek_study_id. Its title, description and IN_INVESTIGATION become SEEK's on every
+# path that writes it: a null description removes the property, and every IN_INVESTIGATION to another Investigation
+# (or every one, when SEEK names none) is deleted before the link to SEEK's is merged. The caller writes the
+# Investigation node first (writer.write_study_investigations); a row whose Investigation node is still missing is
+# counted in investigation_missing, never skipped silently.
+_SEEK_STUDY_FOLLOWS = """
+SET st.title = r.title, st.description = r.description
+WITH st, r
+CALL (st, r) {
+  MATCH (st)-[old:IN_INVESTIGATION]->(i:Investigation)
+  WHERE r.investigation_id IS NULL OR coalesce(i.id <> r.investigation_id, true)
+  DELETE old
+}
+CALL (st, r) {
+  OPTIONAL MATCH (i:Investigation {id: r.investigation_id})
+  FOREACH (_ IN CASE WHEN i IS NULL THEN [] ELSE [1] END | MERGE (st)-[:IN_INVESTIGATION]->(i))
+  RETURN CASE WHEN r.investigation_id IS NOT NULL AND i IS NULL THEN 1 ELSE 0 END AS missing
+}
+RETURN count(st) AS n, sum(missing) AS investigation_missing
+"""
+# Rows are {study_id, title, description, investigation_id}: the node of every SEEK study named, made when missing.
+MERGE_SEEK_STUDIES = """
+CYPHER 25
+UNWIND $rows AS r
+MERGE (st:Study {seek_study_id: r.study_id})""" + _SEEK_STUDY_FOLLOWS
+
+# Each IN_STUDY of a Sample: the edge's element id, its Study's two keys and the Study's Investigations.
+_SAMPLE_STUDIES = ("[(s)-[e:IN_STUDY]->(st:Study) | "
+                   "{element_id: elementId(e), seek_study_id: st.seek_study_id, id: st.id, "
+                   "investigations: [(st)-[:IN_INVESTIGATION]->(i:Investigation) | {id: i.id, title: i.title}]}] "
+                   "AS studies")
+SAMPLE_STUDIES_OF = """
+UNWIND $ids AS id
+MATCH (s:Sample {id: id})
+RETURN s.id AS id, """ + _SAMPLE_STUDIES
+# One keyset page of every Sample, ordered by id over the Sample.id index (numeric ids only, as SAMPLE_HASHES_PAGE).
+SAMPLE_STUDIES_PAGE = """
+MATCH (s:Sample) WHERE s.id > $after
+WITH s ORDER BY s.id LIMIT $limit
+RETURN s.id AS id, """ + _SAMPLE_STUDIES
+
+# Rows are {sample_id, study_ids, withhold, paper, remove}: SEEK's studies of the sample, the ones not to link it to
+# (a paper sample's studies of its paper's own investigation, writer.paper_split), whether the caller read it as a
+# paper sample, and the element ids of the IN_STUDY edges the caller archived for removal. An edge is deleted only if
+# it is still an IN_STUDY from that sample to a SEEK-keyed Study outside study_ids. Then a link to each SEEK study's
+# node not withheld is merged; a sample that became a paper sample after the caller's read (paper false, but an
+# IN_STUDY to a Study with no seek_study_id now) withholds every study, so a race can only withhold, never over-link.
+# An IN_STUDY to a Study with no seek_study_id is never touched. A row whose sample is not a Sample node is skipped
+# (samples counts the rest).
+REPLACE_SEEK_IN_STUDY = """
+CYPHER 25
+UNWIND $rows AS r
+MATCH (s:Sample {id: r.sample_id})
+CALL (s, r) {
+  UNWIND r.remove AS eid
+  MATCH (s)-[e:IN_STUDY]->(st:Study)
+  WHERE elementId(e) = eid AND st.seek_study_id IS NOT NULL AND NOT st.seek_study_id IN r.study_ids
+  DELETE e
+  RETURN count(*) AS removed
+}
+WITH s, r, removed, EXISTS { (s)-[:IN_STUDY]->(p:Study) WHERE p.seek_study_id IS NULL } AS paper
+WITH s, r, removed, paper, CASE WHEN paper AND NOT r.paper THEN r.study_ids ELSE r.withhold END AS withhold
+CALL (s, r, withhold) {
+  UNWIND [sid IN r.study_ids WHERE NOT sid IN withhold] AS sid
+  OPTIONAL MATCH (st:Study {seek_study_id: sid})
+  WITH s, st, st IS NOT NULL AND NOT EXISTS { (s)-[:IN_STUDY]->(st) } AS new
+  FOREACH (_ IN CASE WHEN new THEN [1] ELSE [] END | MERGE (s)-[:IN_STUDY]->(st))
+  RETURN sum(CASE WHEN new THEN 1 ELSE 0 END) AS added, sum(CASE WHEN st IS NULL THEN 1 ELSE 0 END) AS missing
+}
+RETURN count(s) AS samples, sum(removed) AS removed, sum(added) AS added,
+       sum(CASE WHEN paper THEN 1 ELSE 0 END) AS paper_samples,
+       sum(CASE WHEN paper THEN added ELSE 0 END) AS paper_added,
+       sum(size(withhold)) AS withheld,
+       sum(missing) AS studies_missing
+"""
+# A MERGE on seek_study_id matches every node holding it: the full sync, --studies and the reconcile refuse a graph
+# where this returns a row.
+STUDY_SEEK_ID_DUPLICATES = """
+MATCH (st:Study) WHERE st.seek_study_id IS NOT NULL
+WITH st.seek_study_id AS seek_study_id, count(*) AS nodes
+WHERE nodes > 1
+RETURN seek_study_id, nodes ORDER BY seek_study_id
+"""
+# IN_STUDY from anything that is not a Sample (an OrphanSample keeps its own): left as it is, counted apart.
+ORPHAN_IN_STUDY = """
+MATCH (x)-[e:IN_STUDY]->(:Study) WHERE NOT x:Sample
+RETURN count(e) AS n
+"""
+
 # Samples already placed in a paper-level Study (one with no seek_study_id); SEEK studies are not added to them.
 SAMPLES_IN_PAPER_STUDIES = """
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study) WHERE st.seek_study_id IS NULL
 RETURN DISTINCT s.id AS id
-"""
-MERGE_SEEK_STUDIES = """
-UNWIND $rows AS r
-MERGE (st:Study {seek_study_id: r.study_id})
-SET st.title = r.title
-WITH st, r WHERE r.investigation_id IS NOT NULL
-MATCH (i:Investigation {id: r.investigation_id})
-MERGE (st)-[:IN_INVESTIGATION]->(i)
 """
 MERGE_SEEK_IN_STUDY = """
 UNWIND $rows AS r
