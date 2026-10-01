@@ -25,7 +25,9 @@ import time
 import uuid
 
 from django.conf import settings
-from django.http import FileResponse, Http404, HttpResponseRedirect
+from django.http import FileResponse, Http404
+
+from ..decorators import login_redirect
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +70,7 @@ def newExport(request, filename):
 def exportFile(request, token, filename):
     """``GET /seek/exports/<token>/<filename>``: stream one export file to the caller who made it, or to a superuser."""
     if not request.user.is_authenticated:
-        return HttpResponseRedirect('/login/?next=' + request.path)
+        return login_redirect(request)
     if not _TOKEN.fullmatch(token) or not _FILENAME.fullmatch(filename):
         raise Http404(EXPORT_NOT_FOUND)
 

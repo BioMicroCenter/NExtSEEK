@@ -1260,3 +1260,11 @@ class TestDeduplicateFilename:
         used = {"data.backup.csv"}
         result = deduplicate_filename("data.backup.csv", "10", used)
         assert result == "data.backup_10.csv"
+
+
+@pytest.mark.parametrize("asked, stored", [("SOP-9-PUB1", "SOP-9"), ("DF-3", "DF-3-PUB")])
+def test_a_write_resolves_only_the_title_as_written_but_a_read_tries_every_spelling(monkeypatch, asked, stored):
+    from nextseek_api.services import content_blobs as cb
+    monkeypatch.setattr(cb, "_lookup_one_spelling", lambda uid, asset_type: "7" if uid == stored else None)
+    assert cb._resolve_uid_to_seek_id(asked, "sops") == "7"
+    assert cb._resolve_uid_to_seek_id(asked, "sops", as_written_only=True) is None

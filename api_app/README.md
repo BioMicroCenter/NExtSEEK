@@ -79,8 +79,7 @@ The other four are plain DRF generics over the mirrored SEEK tables
 Each is invoked as `python <file> …`; none is importable from Django code, and none is
 referenced by any config, script or compose file in the tree (searched with
 `/usr/bin/grep -rn` for each module basename over the worktree, excluding `.git/`,
-`.superpowers/` and this pair; the only outside hits are prose in
-`NessieAI/docker/cc-runtime/docs/nextseek/09-nextseek.md:142` and a commented-out line at
+`.superpowers/` and this pair; the only outside hit is a commented-out line at
 `seek/sample/upload.py:377`).
 
 **The `/api/` client scripts**: `api_app/api_calls.py:416-417`,
@@ -177,14 +176,10 @@ surviving hit checked against `git ls-files`.
   three lines in total, and the other two (`api_app/updateTrees.py:18` and
   `api_app/remoteJob/updateTrees.py:19`) are internal to this boundary.
 
-Three hits look like inbound edges and are not, so they are excluded rather than listed:
+Two hits look like inbound edges and are not, so they are excluded rather than listed:
 
 - `nextseek_api/attributes/tests/test_physical_safeguards_db.py:38` matches the string
   `api_app` only because its function name ends `..._nextseek_api_app`.
-- `NessieAI/docker/cc-runtime/docs/nextseek/09-nextseek.md:141-142` documents a `CRONJOBS` entry
-  calling `api_app.updateTrees.renewTreesCronjob`; that is prose baked into an agent's
-  reference docs, and no `CRONJOBS` setting exists in this repo: outside `.git/`,
-  `.superpowers/` and this pair, that identifier occurs on that markdown line alone.
 - `seek/sample/upload.py:377` names `updateTrees` inside a comment, and that file imports
   no such symbol (`seek/sample/upload.py:9-21`).
 

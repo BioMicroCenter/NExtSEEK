@@ -213,3 +213,34 @@ def test_a_turn_without_a_uid_runs_no_check(monkeypatch, tmp_path):
     assert calls["neo4j"] == 1
     assert calls["agent_contexts"] == [None]
     assert "uid_checks" not in debug
+
+
+def test_a_numbered_pub_uid_matches_any_other_publication_of_the_same_sample():
+    """-PUB and -PUB<n> name the same sample as the bare UID: asked as -PUB1, stored as -PUB2 only."""
+    seen = {}
+
+    def run(config, cypher, params):
+        seen.update(params)
+        return _rows({"uid": "TIS-230830ENG-5-PUB1", "exact": False, "base_uuid": None,
+                      "suffixed": ["TIS-230830ENG-5-PUB2"]})
+
+    checks = uid_check.check_uids(MagicMock(), ["TIS-230830ENG-5-PUB1"], run=run)
+
+    assert seen["checks"] == [{"uid": "TIS-230830ENG-5-PUB1", "base": "TIS-230830ENG-5"}]
+    assert checks == [uid_check.UidCheck(asked="TIS-230830ENG-5-PUB1", stored="TIS-230830ENG-5-PUB2")]
+
+
+def test_a_lower_case_uid_is_looked_up_in_upper_case():
+    """The check compares exactly and UIDs are stored upper-case, so a UID passed in any case must be asked for in
+    upper-case or the graph side says "not found" where REST finds it."""
+    for typed, upper in (("tis-230830eng-1", "TIS-230830ENG-1"), ("nhp-220830fly-42-pub1", "NHP-220830FLY-42-PUB1")):
+        seen = {}
+
+        def run(config, cypher, params, upper=upper):
+            seen.update(params)
+            return _rows({"uid": upper, "exact": True, "base_uuid": upper, "suffixed": []})
+
+        checks = uid_check.check_uids(MagicMock(), [typed], run=run)
+
+        assert seen["checks"][0]["uid"] == upper
+        assert checks == [uid_check.UidCheck(asked=upper, stored=upper)]

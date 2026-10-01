@@ -28,9 +28,6 @@ dmac/test_settings_realstack.py
 dmac/urls.py
 dmac/views.py
 dmac/wsgi.py
-dmac/templates/pages/datagrid_custom_table.embed.html
-dmac/templates/pages/dialog_custom_upload.embed.html
-dmac/templates/pages/login.embed.html
 
 # --- project root: entry points, packaging, ignore rules ---
 manage.py

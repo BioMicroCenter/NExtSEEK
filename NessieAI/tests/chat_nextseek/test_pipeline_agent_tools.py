@@ -3,8 +3,8 @@ from chat_nextseek.pipeline.agent_tools import PIPELINE_TOOL_SCHEMAS
 
 def test_tool_schemas_have_anthropic_shape():
     names = {t["name"] for t in PIPELINE_TOOL_SCHEMAS}
-    assert names == {"resolve_samples", "write_samplesheet", "configure_run", "submit_to_tower",
-                     "conclude", "handoff"}
+    assert names == {"select_pipeline", "resolve_samples", "write_samplesheet", "configure_run",
+                     "submit_to_tower", "conclude", "handoff"}
     for t in PIPELINE_TOOL_SCHEMAS:
         assert set(t) == {"name", "description", "input_schema"}
         assert t["input_schema"]["type"] == "object"
@@ -194,7 +194,7 @@ class _CfgTower:
 
 
 def test_submit_not_configured_returns_path():
-    state = {"artifacts": {"launch": "/tmp/launch.yml"}}
+    state = {"messages": [{"role": "user", "content": "go"}, {"role": "user", "content": "yes"}], "launch_built_at_user_msgs": 1, "artifacts": {"launch": "/tmp/launch.yml"}}
     out = _json.loads(tool_submit_to_tower(_Cfg(), state))  # _Cfg has no TOWER_ENV
     assert out["ok"] is False
     assert "/tmp/launch.yml" in out["message"]
@@ -202,7 +202,7 @@ def test_submit_not_configured_returns_path():
 
 def test_submit_calls_submit_launch(monkeypatch):
     monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.submit_launch", lambda p, *, tower_env: ["https://tower/run/1"])
-    state = {"artifacts": {"launch": "/tmp/launch.yml"}}
+    state = {"messages": [{"role": "user", "content": "go"}, {"role": "user", "content": "yes"}], "launch_built_at_user_msgs": 1, "artifacts": {"launch": "/tmp/launch.yml"}}
     out = _json.loads(tool_submit_to_tower(_CfgTower(), state))
     assert out["ok"] is True
     assert out["run_urls"] == ["https://tower/run/1"]

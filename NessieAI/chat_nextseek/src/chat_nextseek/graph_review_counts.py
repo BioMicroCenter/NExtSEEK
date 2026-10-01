@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from . import graph_catalog
-from .graph_review import (DISCLOSURE_MAX, TERM, VALUES_CAP, CatalogProvider, Check, GraphReview, ReviewInput, _resolve,
+from .graph_review import (DISCLOSURE_MAX, TERM, VALUES_CAP, CatalogProvider, GraphReview, ReviewInput, _resolve,
                            _var_labels)
 from .graph_scope import scope_of
 from .helpers.tools.neo4j import split_trailing_limit, tool_neo4j_query
@@ -1045,34 +1045,6 @@ def _suggestion_owner(review: GraphReview) -> str | None:
     return "stem_miss" if "stem_miss" in fired else "all_question_narrowed"
 
 
-def _one_distinct_value(out: GraphReview, value: str) -> bool:
-    """True when a recorded ``unapplied_value`` look found exactly one distinct value among the matched records: the
-    count of distinct values was 1, or the split held one row and it is the named value."""
-    for v in out.variants:
-        edit = str(v.get("edit") or "")
-        if edit.startswith("unapplied_value: distinct") and v.get("ok") and v.get("total") == 1:
-            return True
-        if edit.startswith("unapplied_value: split by") and v.get("ok"):
-            values = {r.get("value") for r in v.get("rows") or [] if isinstance(r, dict) and r.get("value") is not None}
-            if values == {value}:
-                return True
-    return False
-
-
-def _withdraw_if_one_value(out: GraphReview) -> None:
-    """The second look found one distinct value, so the "Only <value>" chip would return the same records: when
-    ``unapplied_value`` is the only finding, withdraw it (no caveat, no chip) and keep the look in ``variants``."""
-    fired = [c for c in out.checks if c.fired]
-    if [c.name for c in fired] != ["unapplied_value"]:
-        return
-    m = _UNAPPLIED_DETAIL.match(fired[0].detail or "")
-    if not m or not _one_distinct_value(out, m.group(3)):
-        return
-    out.checks = [Check(c.name, False, "withdrawn: the matched records hold one distinct value")
-                  if c.name == "unapplied_value" else c for c in out.checks]
-    out.verdict, out.disclosure, out.suggestion = "ok", None, None
-
-
 def run_tier2(config, inp: ReviewInput, review: GraphReview, *, budget_s: float = 8.0,
               max_variants: int = 2) -> GraphReview:
     """Run the fired checks' count variants in order, at most ``max_variants``, inside ``budget_s`` of wall clock.
@@ -1143,7 +1115,6 @@ def run_tier2(config, inp: ReviewInput, review: GraphReview, *, budget_s: float 
             if ran < max_variants and budget_s - (_clock() - t0) >= MIN_START_S:
                 ran += 1
                 apply(variant.fallback)
-        _withdraw_if_one_value(out)
     except Exception as exc:
         out.error = out.error or f"tier2: {type(exc).__name__}: {exc}"[:200]
     out.elapsed_ms = (review.elapsed_ms or 0) + int((_clock() - t0) * 1000)

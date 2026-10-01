@@ -1257,3 +1257,24 @@ def test_every_forcing_only_skip_is_flagged_structurally_for_the_runner():
         assert by_field[field]["skipped"] is True
         assert by_field[field]["forced_skip"] is False, (
             f"{field} is skipped with or without forcing and must not be counted")
+
+
+def test_reply_length_criterion_is_engine_neutral_and_scored_on_a_forced_cc_arm():
+    assert evaluate.is_ns_pipeline_internal("last_reply.lines") is False
+    assert evaluate.unobservable_reason("last_reply.lines", "lte", "container_cc", forced=True) is None
+
+
+def test_cannot_do_this_analysis_cases_cap_the_reply_length():
+    from NessieAI.tests.nessie_tests import corpus
+    raw = json.loads((Path(corpus.__file__).parent / "corpus.json").read_text())
+    found = []
+    def walk(o):
+        if isinstance(o, dict):
+            if o.get("id") == "write.make_me_a_heatmap_of_gene_expres":
+                found.append(o)
+            for v in o.values(): walk(v)
+        elif isinstance(o, list):
+            for v in o: walk(v)
+    walk(raw)
+    crits = found[0]["turns"][0]["pass_criteria"]
+    assert {"field": "last_reply.lines", "op": "lte", "value": 12} in crits

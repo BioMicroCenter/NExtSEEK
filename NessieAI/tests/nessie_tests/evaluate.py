@@ -423,8 +423,8 @@ def _split_local_criteria(criteria: list) -> tuple[list, list]:
 # None`, which nessie never satisfies — so these fields fall through to the generic
 # dot-notation fallback, which walks `debug` and finds the snapshot. They resolve.
 #
-# What the snapshot actually carries (`pipeline/agent.py:52-59`) is exactly four keys:
-# `active`, `pipeline_key`, `cohort_count`, `message_count`. `launch_plan` is NOT one
+# What the snapshot actually carries (`snapshot_for_chat_log` in `pipeline/agent.py`) is five keys:
+# `active`, `pipeline_key`, `selection`, `cohort_count`, `message_count`. `launch_plan` is NOT one
 # of them, so `pipeline_agent.launch_plan.*` still dot-navigates to None and must stay
 # skipped. That is the only sub-family left in this tuple.
 #
@@ -531,7 +531,7 @@ CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 # is called. They are in the set because it is a statement about what a CC ENGINE
 # can produce, and demoting it to a statement about call order would make it wrong
 # the moment the call order changed.
-ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source",
+ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "last_reply.lines", "route", "engine", "route_source",
                                    "cc_trace_text"})
 ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
 FORCED_CC_SKIP_REASON = (

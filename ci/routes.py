@@ -278,15 +278,29 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
           note="home dashboard; each tile query is separately guarded, so 200 "
                "does not prove the database is answering"),
-    Route(pattern=r"^accounts/login/", path="/accounts/login/",
+    Route(pattern=r"^docs/(?:(?P<slug>[\w-]+)/)?$", path="/docs/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          note="the user docs, markdown under themes/NextSeek/docs/; /docs/ shows the "
+               "first page and seek/tests/test_docs_pages.py renders every page"),
+    Route(pattern=r"^accounts/login/$", path="/accounts/login/",
           effect="external",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
-          note="second registration of the login view, below the CMS catch-all"),
-    Route(pattern=r"^accounts/signup/", path="/accounts/signup/",
+          note="the SEEK login again, at Django's default LOGIN_URL, above the CMS include"),
+    Route(pattern=r"^accounts/logout/$", path=None,
+          effect="external",
+          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="sign out (Mezzanine's view, the user menu's link); a GET ends the session"),
+    Route(pattern=r"^(?:blog|search|accounts|password_reset|reset)(?:/.*)?/$", path="/blog/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          note="Mezzanine's blog, site search, account forms and local password reset "
+               "are not part of NExtSEEK: shadowed with a 404 above the CMS include"),
+    Route(pattern=r"^accounts/signup/$", path="/accounts/signup/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-    Route(pattern=r"^login", path="/login/",
+    Route(pattern=r"^login/?$", path="/login/",
           effect="external",
           methods=("GET", "POST"), profiles="local,dev,prod", auth="anon", expect=200,
           prod_allows_non_get=True,
@@ -304,12 +318,6 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-
-    # project-level, excluded
-    Route(pattern=r"^logout$", path=None,
-          effect="external",
-          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="the SEEK logout view"),
 
     # ----------------------------------------------------------------- #
     # not in the application resolver: nginx-served asset, Django admin
@@ -366,7 +374,8 @@ REGISTRY: list[Route] = [
                "rendered no assays to scrape a link from"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=301,
+          note="the old Getting Started page; a permanent redirect to /docs/"),
     Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
@@ -431,8 +440,7 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^samples/upload/", path="/seek/samples/upload/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="bounces an anonymous visitor to /login/?next=/seek/samples/batchupload/, "
-               "which is not the requested path; do not assert on next"),
+          note="bounces an anonymous visitor to /login/?next=/seek/samples/upload/"),
     Route(pattern=r"^seek/^sampletree/uid=(?P<uid>[\w.-]{0,256})/$",
           path="/seek/sampletree/uid={sample_uid}/",
           effect="reads",

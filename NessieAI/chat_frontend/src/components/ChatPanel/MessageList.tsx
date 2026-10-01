@@ -29,7 +29,14 @@ export function MessageList({
   // Chips show under the newest reply only, so an older reply's chips go once a newer reply arrives.
   const lastAssistant = lastAssistantIndex(messages);
   return (
-    <div ref={scrollRef} data-testid="message-list" className="flex-1 overflow-y-auto px-4 py-4">
+    <div
+      ref={scrollRef}
+      data-testid="message-list"
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation"
+      className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+    >
       {messages.length === 0 ? (
         <div className="flex h-full items-center justify-center">
           <p className="text-lg text-muted-foreground">

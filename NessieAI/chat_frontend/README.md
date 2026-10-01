@@ -262,7 +262,7 @@ plan018), the build-context assertion naming this directory's example env file a
 `nextseek_api/tests/repo_guards/test_build_context_env_guard.py:107`, and the
 superseded plan and review documents under `NessieAI/history/cc/archive/`.
 
-Prose descriptions of this boundary live at `docs/UI.md` "Architecture Overview",
+Prose descriptions of this boundary live at `docs/ui/chat-frontend.md` and `docs/ui/README.md` "The UI in one picture",
 `NessieAI/docs/architecture.md` "Front door: page, auth, submit, progress" and `DEPLOYMENT.md` §3.2.
 
 See `NessieAI/chat_frontend/CLAUDE.md` for the invariants this arrangement rests on and

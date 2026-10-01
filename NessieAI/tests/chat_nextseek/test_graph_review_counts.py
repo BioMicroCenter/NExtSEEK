@@ -674,6 +674,22 @@ def test_the_free_text_detail_builds_the_click_statement_inside_the_one_exists()
     assert statement.count("{") == statement.count("}")
 
 
+def test_a_free_text_match_the_query_itself_narrows_with_not_contains_stays_quiet():
+    """REVIEW-NS N4: the text match also hits miRNA-Seq, but the query leaves 'mirna' out on the same variable."""
+    cy = ("MATCH (s:T_PAT)\nWHERE EXISTS {\n  MATCH (aln:T_A_ALN)-[:DERIVED_FROM*1..12]->(s)\n"
+          "  WHERE toLower(aln.search_text) CONTAINS toLower($rnaseq)\n"
+          "  AND NOT toLower(aln.search_text) CONTAINS 'mirna'\n}\nRETURN count(s) AS n")
+    inp = _inp(cy, {"rnaseq": "RNA-Seq"}, rows=[{"n": 10517}],
+               question="How many TCGA patients have at least one RNA-Seq alignment derived from their samples?")
+    review = review_tier1(inp, DictCatalog(FREE_TEXT_CATALOG))
+    assert review.verdict == "ok" and review.suggestion is None and review.disclosure is None
+    # the guard: an exclusion of another word still leaves the miRNA-Seq mix disclosed
+    other = cy.replace("'mirna'", "'wgs'")
+    review = review_tier1(_inp(other, {"rnaseq": "RNA-Seq"}, rows=[{"n": 10761}], question=inp.question),
+                          DictCatalog(FREE_TEXT_CATALOG))
+    assert [c.detail for c in review.checks if c.fired] == [FREE_TEXT_DETAIL]
+
+
 @pytest.mark.parametrize("detail", [FREE_TEXT_DETAIL, ALN_DETAIL])
 def test_a_conjunct_with_two_exists_blocks_gets_no_statement(detail):
     """``EXISTS {..} OR EXISTS {..}`` is not one block: the old reader swallowed it and edited only one branch."""
@@ -989,33 +1005,25 @@ def test_the_base_count_and_the_breakdown_are_disclosed(monkeypatch):
     assert out.suggestion is None
 
 
-def test_a_breakdown_of_one_value_withdraws_the_finding(monkeypatch):
-    """25 Sep run 2, task 1412: one distinct Organ value in the 1,057 matched rows, so the chip would return the
-    same 1,057: the caveat and the chip go, the second look stays recorded."""
+def test_a_breakdown_of_one_value_is_not_disclosed(monkeypatch):
     _counting(monkeypatch, [1])
-    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
-                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
+    rv = _review(("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
     out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
-    assert out.variants[0]["total"] == 1
-    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
-    assert [c.name for c in out.checks if c.fired] == []
+    assert out.disclosure == "d" and out.variants[0]["total"] == 1
 
 
-def test_a_breakdown_of_two_values_keeps_the_finding(monkeypatch):
-    _counting(monkeypatch, [2])
-    rv = GraphReview("suggest", [Check("unapplied_value", True, "question names T_NHP.Species='Macaca mulatta', "
-                                                               "Cypher never applies it")], "d", dict(NARROW), [], 0)
-    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
-    assert out.verdict == "suggest" and out.suggestion == NARROW
+def test_a_one_value_second_look_keeps_the_caveat_and_chip_when_the_named_value_was_never_filtered(monkeypatch):
+    """REVIEW-NS N1: the query forgot the strain; the one value the second look finds need not be the named one."""
+    catalog = DictCatalog({"T_MUS.*": [["Strain", 3], ["Lab", 3]], "T_MUS.@name": [["Mouse", 30000]],
+                           "T_MUS.Strain": [["H37Rv", 496], ["BcRv", 91], ["HN878", 39]]})
+    inp = _inp("MATCH (s:T_MUS) WHERE s.Lab = 'BOO' RETURN count(s) AS n", rows=[{"n": 168}], count=1, total=1,
+               question="How many H37Rv infected mice does the Boom lab have?")
+    rv = review_tier1(inp, catalog)
+    assert [c.name for c in rv.checks if c.fired] == ["unapplied_value"] and rv.suggestion
+    _counting(monkeypatch, [1, 1])
+    out = g2.run_tier2(object(), inp, rv)
+    assert out.verdict == "suggest" and out.disclosure and out.suggestion
     assert [c.name for c in out.checks if c.fired] == ["unapplied_value"]
-
-
-def test_a_one_value_breakdown_keeps_a_finding_that_has_another_check_beside_it(monkeypatch):
-    _counting(monkeypatch, [1])
-    rv = _review(("stem_miss", "misses ['tif']"),
-                 ("unapplied_value", "question names T_NHP.Species='Macaca mulatta', Cypher never applies it"))
-    out = g2.run_tier2(object(), _inp("MATCH (nhp:T_NHP) RETURN nhp.id AS id", rows=[{"id": 1}]), rv)
-    assert out.verdict == "suggest" and [c.name for c in out.checks if c.fired] == ["stem_miss", "unapplied_value"]
 
 
 def test_a_refused_variant_is_recorded_and_counts_against_the_cap(monkeypatch):
@@ -1112,19 +1120,11 @@ def test_the_fallback_counts_against_the_cap(monkeypatch):
     assert counts == [] and len(out.variants) == 1
 
 
-def test_a_split_that_holds_only_the_named_value_withdraws_the_finding(monkeypatch):
+def test_a_split_of_one_value_names_nothing_but_still_gives_the_count(monkeypatch):
     _rows(monkeypatch, [[{"value": "RNA-Seq", "n": 10761}]])
     rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
     out = g2.run_tier2(object(), _r6(), rv)
-    assert out.verdict == "ok" and out.disclosure is None and out.suggestion is None
-    assert out.variants[0]["edit"] == "unapplied_value: split by DataType"
-
-
-def test_a_split_that_holds_only_another_value_keeps_the_finding_and_the_count(monkeypatch):
-    _rows(monkeypatch, [[{"value": "miRNA-Seq", "n": 10761}]])
-    rv = GraphReview("suggest", [Check("unapplied_value", True, ALN_DETAIL)], TIER1_FACT, dict(NARROW), [], 0)
-    out = g2.run_tier2(object(), _r6(), rv)
-    assert out.verdict == "suggest" and out.disclosure == TIER1_FACT
+    assert out.disclosure == TIER1_FACT and out.suggestion["expected_count"] == 10761
 
 
 def test_the_old_distinct_count_breakdown_never_sets_an_expected_count(monkeypatch):

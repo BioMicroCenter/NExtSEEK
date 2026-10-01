@@ -100,7 +100,7 @@ export function UploadControl({ apiService, disabled, onUploadComplete }: Upload
         )}
       </div>
       {selectedFiles.length > 0 && (
-        <ul className="max-w-[200px] space-y-0.5 text-right text-[10px] text-muted-foreground">
+        <ul className="max-w-[200px] space-y-0.5 text-right text-xs text-muted-foreground">
           {selectedFiles.map((f, i) => (
             <li key={`${f.name}-${i}`} className="flex items-center justify-end gap-1">
               <span className="truncate">{f.name}</span>
@@ -121,7 +121,7 @@ export function UploadControl({ apiService, disabled, onUploadComplete }: Upload
       {uploading && progress > 0 && (
         <Progress value={progress} className="h-1 w-24" />
       )}
-      {error && <p className="max-w-[200px] text-right text-[10px] text-destructive">{error}</p>}
+      {error && <p className="max-w-[200px] text-right text-xs text-destructive">{error}</p>}
     </div>
   );
 }

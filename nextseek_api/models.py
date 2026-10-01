@@ -2195,6 +2195,11 @@ class SampleRetrieveResponse(BaseModel):
         description="False when the sample graph could not supply the whole lineage; the requested samples are "
                     "still returned. Always true when include_tree is false.",
     )
+    resolved_as: Optional[Dict[str, str]] = Field(
+        None,
+        description="Only present when an identifier was answered by a sample stored under another spelling of its "
+                    "UID (with or without a -PUB or -PUB<n> suffix): {identifier as written: stored UID}.",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 

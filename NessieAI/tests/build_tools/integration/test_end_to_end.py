@@ -86,7 +86,7 @@ def test_end_to_end_fresh_ingest_writes_expected_files(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="https://fake.example/",
+        source="docs/dir",
         force=True,
         loader=_make_loader(_markdown(SECTIONS_A)),
     )
@@ -106,7 +106,7 @@ def test_end_to_end_fresh_ingest_writes_expected_files(tmp_path: Path) -> None:
     assert "Welcome" in readme
     assert "Getting Started" in readme
     assert "Sample Registration" in readme
-    assert "https://fake.example/" in readme
+    assert "docs/dir" in readme
 
     hash_text = (docs_dir / ".content-hash").read_text().strip()
     assert len(hash_text) == 64
@@ -121,7 +121,7 @@ def test_end_to_end_idempotent_rerun(tmp_path: Path, capsys: pytest.CaptureFixtu
     first_rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="u",
+        source="u",
         force=True,
         loader=loader,
     )
@@ -131,7 +131,7 @@ def test_end_to_end_idempotent_rerun(tmp_path: Path, capsys: pytest.CaptureFixtu
     second_rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="u",
+        source="u",
         force=False,
         loader=loader,
     )
@@ -149,7 +149,7 @@ def test_end_to_end_mutation_deletes_stale_and_writes_new(tmp_path: Path) -> Non
     first_rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="u",
+        source="u",
         force=True,
         loader=_make_loader(_markdown(SECTIONS_A)),
     )
@@ -159,7 +159,7 @@ def test_end_to_end_mutation_deletes_stale_and_writes_new(tmp_path: Path) -> Non
     second_rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="u",
+        source="u",
         force=False,
         loader=_make_loader(_markdown(SECTIONS_B)),
     )
@@ -181,7 +181,7 @@ def test_end_to_end_container_claude_md_block_populated(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="https://fake.example/",
+        source="docs/dir",
         force=True,
         loader=_make_loader(_markdown(SECTIONS_A)),
     )
@@ -209,7 +209,7 @@ def test_end_to_end_does_not_pollute_repo(tmp_path: Path) -> None:
     rc = orchestrator.ingest(
         docs_dir=docs_dir,
         claude_md_path=claude_md,
-        doc_url="u",
+        source="u",
         force=True,
         loader=_make_loader(_markdown(SECTIONS_A)),
     )
@@ -217,3 +217,23 @@ def test_end_to_end_does_not_pollute_repo(tmp_path: Path) -> None:
     assert rc == 2
     after = _git_status_for_repo_paths()
     assert after == before
+
+
+def test_end_to_end_reads_a_fixture_docs_dir_with_the_default_loader(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "README.md").write_text("## Start\n\n- [Intro](intro.md)\n- [Upload](upload.md)\n")
+    (src / "intro.md").write_text("# Intro\n\nWelcome text.\n")
+    (src / "upload.md").write_text("# Upload\n\nHow to upload.\n")
+    docs_dir = tmp_path / "out" / "nextseek"
+    claude_md = tmp_path / "container" / "CLAUDE.md"
+    _seed_claude_md(claude_md)
+
+    rc = orchestrator.ingest(
+        docs_dir=docs_dir, claude_md_path=claude_md, source=str(src), force=True
+    )
+
+    assert rc == 2
+    assert "Welcome text." in (docs_dir / "01-intro.md").read_text()
+    assert "How to upload." in (docs_dir / "02-upload.md").read_text()
+    assert f"Source: {src}" in (docs_dir / "README.md").read_text()

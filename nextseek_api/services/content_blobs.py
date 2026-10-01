@@ -39,12 +39,13 @@ _ASSET_CONFIG = {
 }
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str, asset_type: str) -> Optional[str]:
+def _resolve_uid_to_seek_id(uid_or_id: str, asset_type: str, *, as_written_only: bool = False) -> Optional[str]:
     """Resolve UID/title to SEEK numeric ID, trying each spelling of the UID (F14/D2)."""
     text = str(uid_or_id)
     if text.isdigit():
         return text
-    return resolve_uid_with_suffix(text, lambda one: _lookup_one_spelling(one, asset_type))[0]
+    return resolve_uid_with_suffix(
+        text, lambda one: _lookup_one_spelling(one, asset_type), as_written_only=as_written_only)[0]
 
 
 def _lookup_one_spelling(uid_or_id: str, asset_type: str) -> Optional[str]:

@@ -143,10 +143,13 @@ def test_a_superuser_sees_any_sample_unscoped(page):
     page.visible.assert_not_called()
 
 
-def test_the_login_redirect_is_unchanged(page):
+def test_the_login_redirect_returns_to_the_requested_page(page):
     page.seekdb.getSeekLogin.return_value = {"status": False, "err": "no login"}
+    request = RequestFactory().get(f"/seek/sample/id={FOREIGN_ID}/")
+    request.user = SimpleNamespace(is_authenticated=False, is_superuser=False)
+    request.session = {}
 
-    resp = seek.views.samples.sample(_request(), FOREIGN_ID)
+    resp = seek.views.samples.sample(request, FOREIGN_ID)
 
     assert resp.status_code == 302
     assert resp.url == f"/login/?next=/seek/sample/id={FOREIGN_ID}/"

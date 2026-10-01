@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 from ..session import SessionState
 from ..config import ChatConfig
+from ..context_rows import is_project_row
 from ..graph_review import PREMISE_FACT_RE
 from ..llm_clients import LLMAPIConnectionError, LLMFatalError, LLMRateLimitError, LLMTimeoutError
 from ..schemas.schema_helper import call_llm_text
@@ -172,6 +173,12 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
 _VALUE_COLUMNS_MAX = 8
 _VALUE_TOP_MAX = 8
 _VALUE_CLIP = 60
+_AGGREGATE_COLUMN_RE = re.compile(r"\b(?:count|sum|avg|min|max)\s*\((?:[^()]|\([^()]*\))*\)(?:\s+AS\s+(\w+))?", re.I)
+
+
+def _aggregate_columns(cypher: str) -> frozenset[str]:
+    """The result columns a query builds from an aggregate call: its alias, or the call's own text when unaliased."""
+    return frozenset((m.group(1) or m.group(0)) for m in _AGGREGATE_COLUMN_RE.finditer(cypher or ""))
 _VALUE_COUNTS_CHARS_MAX = 3000
 
 
@@ -180,7 +187,8 @@ def _is_identity_key(key: Any) -> bool:
     return k in ("id", "uuid", "uid") or k.endswith(("_id", "_uuid", "_uid"))
 
 
-def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str:
+def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
+                        aggregate_columns: frozenset = frozenset()) -> str:
     """The values of each returned column across the WHOLE result, not the preview.
 
     ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
@@ -188,7 +196,9 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str
     cost a pass over a list. Sibling of ``_type_histogram_block``.
 
     Only emitted when the preview is short of the full set. Identity keys and type columns are left out, and so is
-    a column where no value repeats (a column of names): its counts say nothing the preview does not.
+    a column where no value repeats (a column of names): its counts say nothing the preview does not. A column the
+    query built from an aggregate call (``aggregate_columns``) is a count or a sum, not a value list: listing how
+    often each count occurs misleads the writer, so it is left out. A numeric group key is still counted.
     """
     if shown >= len(all_rows):
         return ""
@@ -202,6 +212,8 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str
     lines: list[str] = []
     size = 0
     for key in keys:
+        if str(key) in aggregate_columns:
+            continue
         counts: dict[str, int] = {}
         empty = 0
         for row in rows:
@@ -248,6 +260,17 @@ def _type_names(config: Any) -> dict[str, str]:
     }
 
 
+def _type_tags(config: Any) -> dict[str, list[str]]:
+    """``{SampleType: [tag phrases]}`` from the catalog's sample type rows (``Tags`` is comma separated)."""
+    catalog = getattr(config, "MIN_SAMPLETYPES", None)
+    if not isinstance(catalog, list):
+        return {}
+    return {
+        str(item["SampleType"]): [t.strip() for t in str(item.get("Tags") or "").split(",") if t.strip()]
+        for item in catalog if isinstance(item, dict) and item.get("SampleType")
+    }
+
+
 def _type_names_block(config: Any, rows: list) -> str:
     """Catalog names for the sample type codes in the rows, so the writer does not invent them
     (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
@@ -270,12 +293,14 @@ def _type_names_block(config: Any, rows: list) -> str:
 
 
 def _container_aliases(config: Any) -> list[set[str]]:
-    """One set per row of the projects catalog: its name and alternative names, squashed. The scope check reads
-    "IMPAcTB" and the Investigation title 'Impact' as two names of one row."""
+    """One set per PROJECT row of the projects catalog: its name and alternative names, squashed. The scope check
+    reads "IMPAcTB" and the Investigation title 'Impact' as two names of one row. Investigation rows are left out:
+    one carries its owner's names too, so it would make the owner's title count as the investigation (the rule
+    agents/graph.py already follows)."""
     rows = getattr(config, "FULL_PROJECTS", None)
     out: list[set[str]] = []
     for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict):
+        if not is_project_row(row):
             continue
         names = {re.sub(r"[^a-z0-9]", "", str(n or "").lower())
                  for n in [row.get("name"), *(row.get("alternative_names") or [])]}
@@ -684,6 +709,7 @@ def chatter_agent_answer(
         user_query=user_query,
         container_aliases=_container_aliases(config),
         type_names=_type_names(config),
+        type_tags=_type_tags(config),
     )
 
     def _fmt_entities(items: Any) -> str:
@@ -800,7 +826,8 @@ def chatter_agent_answer(
             + _type_histogram_block(all_rows, len(records))
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
-                                                             and total_matches > len(all_rows)))
+                                                             and total_matches > len(all_rows)),
+                                  aggregate_columns=_aggregate_columns(str((graph_plan or {}).get("cypher") or "")))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
@@ -912,7 +939,8 @@ def chatter_agent_answer(
             if count_only and offered_step else
             "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
             "the number and what it counts, never write as though you had seen the records, and make no offer "
-            "of your own: the reply ends on the answer.\n"
+            "of your own: the reply ends on the answer, or, when the user asked how it was found, on the one or "
+            "two sentences that say what was counted.\n"
             if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
@@ -936,11 +964,14 @@ def chatter_agent_answer(
             "capped search, a zero, or a note from whoever built the query). Never name an endpoint, a URL, "
             "an HTTP method, Cypher, a query operator (AND/OR) or a request field: the user cannot act on "
             "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
-            "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
+            "'another search was run instead'. Qualify what the result covers, not how it was reached, unless the user asked how the "
+            "answer was found: then also say, in one or two plain sentences, what was counted (which records, of "
+            "which type, under which conditions).\n"
             if disclosure_qualifies else
-            "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
-            "search is not part of the reply: no mention of a query, of what it was constrained by, or of "
-            "how the number was determined.\n"
+            "- Unless the user asked how the answer was found, do not say how it was found: nothing about "
+            "this result needs qualifying, so the search is not part of the reply. If the user did ask, after "
+            "the answer say in one or two plain sentences what was counted: which records, of which type, "
+            "under which conditions. Never name Cypher, a field name, a query operator or an endpoint.\n"
         )
         + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."

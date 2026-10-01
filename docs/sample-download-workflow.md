@@ -74,15 +74,14 @@ The template source implied far more behavior than actually ran.
    `samples_stable.embed.html:107` hardcoded `''`;
    `searchAdvanced_stable.embed.html:67-69` computed `getTreeChecked()` into it
    and then discarded it along with the commented-out POST. **`getTreeChecked`
-   was only ever defined in `searchAdvanced_tree.embed.html`, an orphan** — so on
+   was only ever defined in `searchAdvanced_tree.embed.html`, an orphan (since deleted)** — so on
    the live page it was an undefined function that would have thrown had the
    branch been reachable.
-4. **Orphaned templates.** Nothing includes `searchAdvanced_rtable.embed.html`
-   (download button at `:28`) or `searchAdvanced_tree.embed.html` (`:26`).
-   `sampleSearch.html`'s `render` is commented out in `sampleSearch` (`seek/views/search.py`) and the
-   view redirects to `/seek/search/`; `sampleDeletion.html` has no view at all.
-   Both of those include `samples_stable.embed.html`, so its grid was live only
-   via `searchAdvanced.html`. `samples_stable.embed.html.bk` is a backup file.
+4. **Orphaned templates** (all deleted 2026-10-01): `searchAdvanced_rtable.embed.html`
+   and `searchAdvanced_tree.embed.html` (nothing included them), `sampleSearch.html`
+   (its `render` was commented out and the view redirects to `/seek/search/`),
+   `sampleDeletion.html` (no view) and a `.bk` backup. The `samples_stable.embed.html` grid was live only
+   via `searchAdvanced.html`.
 
 Net: `/seek/samples/download/` was live in three controls (b's "No" branch, d, e),
 all with `includeSampleTree=0` and `attributeFilter=''`.

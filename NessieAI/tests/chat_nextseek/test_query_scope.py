@@ -1097,6 +1097,34 @@ def test_a_type_name_only_applies_a_keyword_when_the_query_constrained_that_type
     assert 'keyword "methylation"' in scope.not_applied
 
 
+@pytest.mark.parametrize("keyword, code, question", [
+    ("spectroscopy", "D.XRS", "What spectroscopy data do we hold?"),
+    ("flow cytometry", "D.FCS", "How many flow cytometry files are there?"),
+])
+def test_a_keyword_inside_a_longer_type_name_is_not_applied_by_that_type(keyword, code, question):
+    """REVIEW-NS N5: D.SPC is "Spectroscopy Data", D.XRS is "X-Ray Spectroscopy Data": the keyword names the first."""
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=[keyword]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": f"MATCH (s:T_{code.replace('.', '_')}) RETURN count(s) AS n", "parameters": {}},
+        user_query=question,
+        type_names={"D.SPC": "Spectroscopy Data", "D.XRS": "X-Ray Spectroscopy Data",
+                    "D.FLOW": "Flow Cytometry Data", "D.FCS": "Flow Cytometry Compensation File Data"},
+    )
+    assert f'keyword "{keyword}"' in scope.not_applied
+
+
+def test_a_keyword_equal_to_a_type_name_without_its_generic_words_is_applied():
+    scope = describe_query_scope(
+        entity_result=_entity(keywords=["GPT"]),
+        parser_plan=_plan(mode="graph_query"),
+        graph_plan={"cypher": "MATCH (s:T_D_GPT) RETURN count(s) AS n", "parameters": {}},
+        user_query="How many GPT results are there?",
+        type_names={"D.GPT": "GPT Assay Data"},
+    )
+    assert 'keyword "GPT"' in scope.applied
+
+
 def test_a_tag_of_a_type_is_not_its_name():
     """B13: "CC" is a Tag of MUS, not a word of its name. The query counted every mouse."""
     scope = describe_query_scope(
@@ -1150,3 +1178,76 @@ def test_the_graph_names_are_the_contracts():
     assert bound["_SYSTEM_PROPERTIES"] == "schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12"
     assert "schema.TYPE_LABEL_PATTERN" in bound["_GRAPH_LABEL"]
     assert "return schema.type_label(code)" in inspect.getsource(query_scope._type_label)
+
+
+# --- A2 (N8): a type reached only through a tag the user did not write is not asked for ---------------------------------
+
+_TAGS = {"QZ": ["crystal lattice", "geode", "mineral assembly"], "WV": ["oscillation trace", "WV", "spectral analysis"]}
+
+
+def _type_scope(question, *, code="QZ", name="Quartz Specimen", parser_code=None, cypher="MATCH (s:T_OTHER) RETURN count(s) AS n"):
+    return describe_query_scope(
+        entity_result=_entity(sampletypes=[EntityItem(code=code, name=name)]),
+        parser_plan=_plan(mode="graph_query", **({"filters": {"sampletype_code": parser_code}} if parser_code else {})),
+        graph_plan={"cypher": cypher, "parameters": {}},
+        user_query=question,
+        type_tags=_TAGS,
+    )
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many geodic libraries were prepared?"),
+    ("WV", "Wave Record", "How many oscillating traces are stored?"),
+])
+def test_a_type_reached_only_through_a_tag_the_user_did_not_write_stays_quiet(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert not scope.not_applied, scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many quartz specimens do we hold?"),
+    ("QZ", "Quartz Specimen", "How many QZ records are there?"),
+    ("WV", "Wave Record", "How many wave records are there?"),
+])
+def test_a_question_naming_the_type_outright_keeps_the_caveat(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert any(code in label for label in scope.not_applied), scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many samples have a crystal lattice measured?"),
+    ("WV", "Wave Record", "How many oscillation traces are there?"),
+])
+def test_a_question_writing_one_of_the_tag_phrases_keeps_the_caveat(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert any(code in label for label in scope.not_applied), scope.not_applied
+
+
+def test_the_parsers_own_type_code_is_always_asked_for():
+    scope = _type_scope("How many geodic libraries were prepared?", parser_code="QZ")
+    assert any("QZ" in label for label in scope.not_applied), scope.not_applied
+
+
+def test_an_everyday_name_still_asks_for_its_type():
+    """"CC mice": the question writes "mice", an everyday name of MUS; the query counted none of it."""
+    scope = _type_scope("How many CC mice are there?", code="MUS", name="Mouse")
+    assert any("MUS" in label for label in scope.not_applied), scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many mineral assemblies do we hold?"),       # y -> ies
+    ("WV", "Wave Record", "How many spectral analyses are stored?"),             # is -> es
+    ("QZ", "Quartz Specimen", "How many mineral assembly records are there?"),  # the singular still counts
+])
+def test_a_tag_written_in_an_ies_or_es_plural_keeps_the_caveat(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert any(code in label for label in scope.not_applied), scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many mineral assemblers do we hold?"),
+    ("WV", "Wave Record", "How many spectral analysts are there?"),
+])
+def test_a_longer_word_on_a_tag_stem_is_not_the_tag(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert not scope.not_applied, scope.not_applied

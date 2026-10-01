@@ -105,8 +105,8 @@ seek/templates -name '*.html'`), reached by Django's app-directories loader
 (`dmac/settings.py:131`). 24 template names are passed directly to a `render`
 call or a `TemplateView` in `seek/views/` and `seek/urls.py`, measured 2026-09-03
 by extracting every `render(request, "...")` and `template_name="..."` literal
-from those files; 23 of those files live here and one, `help/getting_started.html`,
-does not. The remaining 42 are reached by `{% extends %}` and `{% include %}`,
+from those files; 23 of those files live here. `help/getting_started.html` was the one
+that did not; it is gone, replaced by the theme's `docs/page.html`. The remaining 42 are reached by `{% extends %}` and `{% include %}`,
 or are dead. The inline JavaScript inside them is not untested: a Node harness
 lifts the script body out of `templatesList.html` verbatim and runs it against a
 stub DOM (`seek/tests/js/harness.js:3-9`).

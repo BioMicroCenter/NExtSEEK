@@ -2303,15 +2303,18 @@ def _catalog_fallback(config, reason: str, reader: str) -> CatalogFallback:
     return CatalogFallback(reason, fetched_at)
 
 
-def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) -> dict[str, str]:
-    """The resolved projects' ``Project.title``s, through the projects catalog (``graph_context.project_titles_for``).
+def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) -> dict[str, tuple[str, str, bool]]:
+    """The resolved names' ``(level, title, own)`` in this graph, through the projects catalog
+    (``graph_context.container_titles_for``): the Study, Investigation or Project title that exists, narrowest first.
 
     "What species are the samples in the IMPACT project?" answered 897 against a true 892 (P1, 2026-09-22): the
     entity step resolved the catalog name "Impact", the graph agent matched 'impact' by CONTAINS across Study and
     Investigation titles as well as the Project, and a paper titled "Impact of fibrinogen, ..." added 5 Homo sapiens
     samples from another project. The project's title is "IMPAcTb", one of the catalog row's alternative names,
-    which the graph agent is never shown; this hands it the title. Only project rows are read (an investigation row
-    carries its owner's names too), and only titles in the caller's vocabulary can be named.
+    which the graph agent is never shown; this hands it the title. An investigation row carries its owner's names
+    too, so its names reach a Project title only as a broader container (``own`` False: the query may use it, and
+    the scope check still reports the investigation as not applied). Only titles in the caller's vocabulary can be
+    named.
     """
     names: list[str] = []
     for source in ((plan_dict.get("resolved") or {}).get("projects"), entity_dict.get("projects")):
@@ -2321,7 +2324,11 @@ def _resolved_project_titles(config, entity_dict: dict, plan_dict: dict, vocab) 
     rows = getattr(config, "FULL_PROJECTS_MAP", None)
     if not names or not isinstance(rows, dict):
         return {}
-    return graph_context.project_titles_for(names, list(rows.values()), getattr(vocab, "project_titles", ()))
+    investigations = getattr(config, "FULL_INVESTIGATIONS_MAP", None)
+    all_rows = list(rows.values()) + (list(investigations.values()) if isinstance(investigations, dict) else [])
+    return graph_context.container_titles_for(names, all_rows, {
+        "study": getattr(vocab, "study_titles", ()), "investigation": getattr(vocab, "investigation_titles", ()),
+        "project": getattr(vocab, "project_titles", ())})
 
 
 def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, parser_plan, *,
@@ -2340,8 +2347,11 @@ def resolve_catalog_context(config: ChatConfig, user_query: str, entity_result, 
         schema = graph_context.render_graph_context(snapshot, details, structure=_variant_structure(config))
         vocab = graph_catalog.get_vocabulary(config)
         vocabulary = graph_context.render_vocabulary(vocab, user_query or "")
-        project_titles = _resolved_project_titles(config, entity_dict, plan_dict, vocab)
-        block = graph_context.render_project_titles(project_titles)
+        hits = _resolved_project_titles(config, entity_dict, plan_dict, vocab)
+        block = graph_context.render_project_titles({n: t for n, (_lv, t, _own) in hits.items()},
+                                                    {n: lv for n, (lv, _t, _own) in hits.items()})
+        # Only a title that scopes the named container itself lets the scope check call it applied.
+        project_titles = {n: t for n, (_lv, t, own) in hits.items() if own}
         if block:
             vocabulary = f"{vocabulary}\n\n{block}" if vocabulary else block
     except graph_catalog.CatalogUnavailable as exc:

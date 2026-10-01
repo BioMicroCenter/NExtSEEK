@@ -28,7 +28,7 @@ describe("ChatPanel", () => {
   it("disables input when isDisabled is true", () => {
     render(<ChatPanel {...defaultProps} isDisabled={true} />);
     const textarea = screen.getByPlaceholderText("Ask NExtSEEK a question...");
-    expect(textarea).toBeDisabled();
+    expect(textarea).toHaveAttribute("readonly");
   });
 
   it("enables input when isDisabled is false", () => {
