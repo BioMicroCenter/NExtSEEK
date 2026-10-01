@@ -297,28 +297,17 @@ class BatchUploadViewSet(viewsets.ViewSet):
         else:
             effective_lababbv = user_ctx["lababbv"]
 
-        # Dispatch to Celery
-        task_kwargs = dict(
-            project_id=project_id,
-            contributor_id=user_ctx["contributor_id"],
-            lababbv=effective_lababbv,
-            user_id=request.user.pk,
-            config_overrides=config_overrides,
-            neo4j_only=neo4j_only,
-        )
-        if validated_rows is not None:
-            task_kwargs["rows"] = [r.model_dump() for r in validated_rows]
-        else:
-            task_kwargs["xlsx_paths"] = xlsx_paths
-
         if input_warnings:
-            task_kwargs.setdefault("config_overrides", {})["_input_warnings"] = input_warnings
-
-        task = run_batch_upload_task.delay(**task_kwargs)
-        register_job(user_id=request.user.pk, job_id=task.id, project_id=project_id)
+            config_overrides["_input_warnings"] = input_warnings
+        job_id = dispatch_batch_job(
+            user_pk=request.user.pk, user_ctx=user_ctx, lababbv=effective_lababbv,
+            project_id=project_id, config_overrides=config_overrides,
+            neo4j_only=neo4j_only,
+            rows=[r.model_dump() for r in validated_rows] if validated_rows is not None else None,
+            xlsx_paths=xlsx_paths if validated_rows is None else None)
 
         return Response(
-            {"job_id": task.id, "status": "queued"},
+            {"job_id": job_id, "status": "queued"},
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -669,6 +658,44 @@ def _save_uploaded_file(uploaded_file) -> str:
         for chunk in uploaded_file.chunks():
             f.write(chunk)
     return dest_path
+
+
+def dispatch_batch_job(*, user_pk: int, user_ctx: dict, lababbv: str, project_id: int,
+                       config_overrides: dict, neo4j_only: bool = False,
+                       rows: list[dict] | None = None,
+                       xlsx_paths: list[str] | None = None) -> str:
+    """Queue one batch-upload job and register it to its owner. Returns the job id.
+
+    The one place a job starts: BatchUploadViewSet.start and the assistant's
+    upload-reingest op both call it, so ownership registration and the
+    contributor identity cannot drift between them. Exactly one of rows or
+    xlsx_paths: the endpoint lets rows silently win over files, and a caller
+    here must never be able to send both.
+    """
+    if (rows is None) == (xlsx_paths is None):
+        raise ValueError("exactly one of rows or xlsx_paths")
+    task_kwargs = dict(
+        project_id=project_id, contributor_id=user_ctx["contributor_id"],
+        lababbv=lababbv, user_id=user_pk, config_overrides=config_overrides,
+        neo4j_only=neo4j_only)
+    if rows is not None:
+        task_kwargs["rows"] = rows
+    else:
+        task_kwargs["xlsx_paths"] = xlsx_paths
+    task = run_batch_upload_task.delay(**task_kwargs)
+    register_job(user_id=user_pk, job_id=task.id, project_id=project_id)
+    return task.id
+
+
+def stage_workbook_copy(path: str) -> str:
+    """Copy a server-side workbook to where uploaded files live, for the worker."""
+    import shutil
+
+    upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
+    os.makedirs(upload_dir, exist_ok=True)
+    dest = os.path.join(upload_dir, f"{int(time.time())}_{os.path.basename(path)}")
+    shutil.copyfile(path, dest)
+    return dest
 
 
 def _resolve_user_context(request) -> dict | None:
