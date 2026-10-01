@@ -97,6 +97,45 @@ def test_paper_studies_retire_never_touches_a_seek_keyed_study(fresh, tmp_path):
     assert _count(fresh, "MATCH (:Sample {id: 70001})-[e:IN_STUDY]->() RETURN count(e) AS n") == 2
 
 
+def test_paper_studies_lane_a_rerun_after_a_stop_restores_each_link_and_node_once(fresh, tmp_path, monkeypatch):
+    """The step stopped between each archive and its delete and was run again, so both archives hold their rows
+    twice. Under the unique Study id constraint the live graph carries, the restore makes one paper node and one
+    link a sample."""
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync import paper_studies
+
+    real, stopped = paper_studies._run, []
+
+    def stop_once(driver, db, query, params=None, **kwargs):
+        if query in (q.DELETE_PAPER_IN_STUDY, q.DELETE_EMPTY_PAPER_STUDY_NODES) and query not in stopped:
+            stopped.append(query)
+            raise RuntimeError("stopped between the archive and the delete")
+        return real(driver, db, query, params, **kwargs)
+
+    monkeypatch.setattr(paper_studies, "_run", stop_once)
+    driver, samples = fresh.driver, [70001, 70002, 70003, 70004]
+    archive = tmp_path / paper_studies.IN_STUDY_REMOVED_FILE
+    nodes = tmp_path / paper_studies.STUDY_NODES_REMOVED_FILE
+    fresh.write("CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (st:Study) REQUIRE st.id IS UNIQUE")
+    try:
+        with pytest.raises(RuntimeError):
+            paper_studies.retire_paper_links(driver, DB, PAPER, samples, archive)
+        assert paper_studies.retire_paper_links(driver, DB, PAPER, samples, archive)["paper_links_retired"] == 4
+        with pytest.raises(RuntimeError):
+            paper_studies.delete_empty_paper_study_nodes(driver, DB, [PAPER], archive_path=nodes)
+        assert paper_studies.delete_empty_paper_study_nodes(driver, DB, [PAPER],
+                                                            archive_path=nodes)["study_nodes_deleted"] == 1
+        assert (len(archive.read_text().splitlines()), len(nodes.read_text().splitlines())) == (1 + 2 * 4, 2)
+
+        restored = paper_studies.restore_paper_links(driver, DB, tmp_path)
+        assert restored == {"study_nodes_restored": 1, "paper_links_restored": 4}
+        assert _count(fresh, "MATCH (st:Study {id: $paper}) RETURN count(st) AS n", paper=PAPER) == 1
+        assert fresh.read("MATCH (s:Sample)-[e:IN_STUDY]->(:Study {id: $paper}) RETURN s.id AS id, count(e) AS n "
+                          "ORDER BY id", {"paper": PAPER}) == [{"id": i, "n": 1} for i in samples]
+    finally:
+        fresh.write("DROP CONSTRAINT study_id_unique IF EXISTS")
+
+
 # --- the share mode: a shared paper sample's drain (tool spec 16.8) -----------------------------------------------
 
 SHARE_FIXTURE = """

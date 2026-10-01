@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import csv
 import json
-import os
+import logging
 from pathlib import Path
 
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.study_links import ARCHIVE_FILE as IN_STUDY_REMOVED_FILE
 from nextseek_api.graph_sync.writer import (IN_STUDY_ARCHIVE_HEADER, REL_CHUNK, _append_rows, _batches, _one,
                                             _records, _run, _tsv_field)
+
+log = logging.getLogger(__name__)
 
 STUDY_NODES_REMOVED_FILE = "study_nodes_removed.jsonl"
 PAPER_PATH = "studies_tool_paper"   # the archive's path column for a link this module removed
@@ -46,12 +48,8 @@ def retire_paper_links(driver, db, paper_id: int, sample_ids, archive_path) -> d
 
 
 def _append_json_lines(path, rows) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, sort_keys=True, default=str) + "\n")
-        fh.flush()
-        os.fsync(fh.fileno())
+    """One ASCII JSON line a row, through ``_append_rows``: a last line a crash cut short is ended first."""
+    _append_rows(str(path), "", [json.dumps(row, sort_keys=True, default=str) + "\n" for row in rows])
 
 
 def delete_empty_paper_study_nodes(driver, db, paper_ids, *, archive_path) -> dict:
@@ -68,20 +66,32 @@ def delete_empty_paper_study_nodes(driver, db, paper_ids, *, archive_path) -> di
 
 
 def _node_rows(path: Path) -> list[dict]:
+    """The archived nodes, one row a study id: a step run again after a stop between its archive and its delete
+    archives a node again, and the first row wins. A line a crash cut short is skipped (its delete never ran)."""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows: dict = {}
+    for raw in path.read_bytes().split(b"\n"):
+        try:
+            row = json.loads(raw) if raw.strip() else None
+        except ValueError:
+            log.warning("%s: a line a crash cut short was skipped", path.name)
+            continue
+        if isinstance(row, dict):
+            rows.setdefault(row.get("study_id"), row)
+    return list(rows.values())
 
 
 def _paper_link_rows(path: Path) -> list[dict]:
+    """This module's archived links, each (sample, paper) once: a rerun after a stop archives a link again."""
     if not path.exists():
         return []
-    rows = []
+    pairs: dict = {}
     with path.open(encoding="utf-8", newline="") as fh:
         for rec in csv.DictReader(fh, delimiter="\t"):
             if rec.get("path") == PAPER_PATH and rec.get("sample_id") and rec.get("study_id"):
-                rows.append({"sample_id": int(rec["sample_id"]), "study_id": int(rec["study_id"])})
-    return rows
+                pairs[(int(rec["sample_id"]), int(rec["study_id"]))] = None
+    return [{"sample_id": s, "study_id": st} for s, st in pairs]
 
 
 def restore_paper_links(driver, db, graph_dir) -> dict:
