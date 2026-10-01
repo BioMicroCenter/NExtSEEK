@@ -122,8 +122,7 @@ def projects_for_assays(assay_ids: List[int], conn) -> Dict[int, Set[int]]:
     assays -> studies -> investigations_projects. Note the table name:
     `investigations_projects`, NOT `projects_investigations`, and note that
     `investigations` carries no project_id column in this SEEK schema. The
-    Investigation.project_id read by services/sampletype_connections.py is a
-    Neo4j node property, not this column.
+    graph's Investigation.project_id is a Neo4j node property, not this column.
     """
     out: Dict[int, Set[int]] = {}
     if not assay_ids:

@@ -517,11 +517,12 @@ def write_investigation_projects(driver, db, investigations: list[dict], links: 
                                  archive_path: str | None = None) -> dict:
     """MERGE every SEEK Investigation on ``id`` and replace every ``(:Investigation)-[:IN_PROJECT]->(:Project)``.
 
-    ``Investigation.project_id`` (read by ``services/sampletype_connections.py``) is the investigation's lowest linked
-    project id, and absent when it has none. With ``archive_path`` an Investigation node whose id SEEK no longer has
-    and that no Study holds is appended to that archive (id, title, project ids), flushed, and deleted; one a Study
-    still holds is kept and counted in ``investigations_not_in_seek_held``. An empty ``investigations`` with nodes to
-    delete raises ValueError before anything is written, as ``write_projects`` refuses an empty project list.
+    ``Investigation.project_id`` is the investigation's lowest linked project id, and absent when it has none (the
+    connections endpoint reads the IN_PROJECT links instead). With ``archive_path`` an Investigation node whose id
+    SEEK no longer has and that no Study holds is appended to that archive (id, title, project ids), flushed, and
+    deleted; one a Study still holds is kept and counted in ``investigations_not_in_seek_held``. An empty
+    ``investigations`` with nodes to delete raises ValueError before anything is written, as ``write_projects``
+    refuses an empty project list.
     """
     deleted = held = 0
     if archive_path:

@@ -2828,13 +2828,14 @@ class BatchDeleteResponse(BaseModel):
 class SampleTypeConnectionsRequest(BaseModel):
     """Selector for the sample-type assay-connection graph.
 
-    FOUR SCOPES, and at least one is required. Without a floor an empty
+    FIVE SCOPES, and at least one is required. Without a floor an empty
     querystring would dump every connection in the graph, which is the one
     result nobody asks for by accident.
 
       all_conns      the whole graph, explicitly
+      project        project_id
       investigation  graph_inv_id / seek_inv_id / investigation_name
-      study          study_id / study_name
+      study          graph_study_id / seek_study_id / study_id / study_name
       sample type    sample_type
 
     ``sample_type`` COMBINES with an investigation or a study, narrowing to the
@@ -2845,6 +2846,15 @@ class SampleTypeConnectionsRequest(BaseModel):
     empty result.
     """
 
+    # -- project ------------------------------------------------------------
+    project_id: Optional[int] = Field(
+        None,
+        description=(
+            "A SEEK project id: the samples linked to that project (IN_PROJECT), whatever "
+            "their study or investigation."
+        ),
+    )
+
     # -- investigation ------------------------------------------------------
     graph_inv_id: Optional[int] = Field(
         None, description="Investigation.id in the graph (the SEEK investigation id)."
@@ -2852,8 +2862,9 @@ class SampleTypeConnectionsRequest(BaseModel):
     seek_inv_id: Optional[int] = Field(
         None,
         description=(
-            "Investigation.project_id in the graph. NOTE this is a SEEK *project* id, "
-            "so it is the wider net: it reaches every investigation in that project."
+            "A SEEK *project* id: every investigation linked to that project (IN_PROJECT), "
+            "reached through its studies. For all of a project's samples, whatever their "
+            "study, use project_id."
         ),
     )
     investigation_name: Optional[str] = Field(
@@ -2865,20 +2876,26 @@ class SampleTypeConnectionsRequest(BaseModel):
     )
 
     # -- study --------------------------------------------------------------
-    study_id: Optional[int] = Field(
+    graph_study_id: Optional[int] = Field(
         None,
         description=(
-            "Study.id. The graph and SEEK agree on study ids, so there is one "
-            "parameter rather than a graph/seek pair. Note the graph holds 56 Study "
-            "nodes against SEEK's 48, so 8 ids resolve only here."
+            "Study.id in the graph. A graph-only paper study carries one, and so does a SEEK study's node that "
+            "was merged or rekeyed; it can differ from the SEEK study id, so use seek_study_id for a SEEK study."
         ),
+    )
+    seek_study_id: Optional[int] = Field(
+        None,
+        description="Study.seek_study_id: the SEEK study id. Every SEEK study's node carries it; a graph-only paper "
+                    "study does not.",
+    )
+    study_id: Optional[int] = Field(
+        None, description="Deprecated alias for graph_study_id, kept so existing callers keep working.",
     )
     study_name: Optional[str] = Field(
         None,
         description=(
-            "Study title, exact and case-insensitive. Tries the graph's title first, "
-            "then SEEK's, because the two disagree on 44 of 48 shared studies "
-            "(the graph says 'CSBC Unpublished' where SEEK says the full name)."
+            "Study title, exact and case-insensitive. Tries the graph's titles first, then SEEK's, whose ids "
+            "reach only the nodes carrying them as seek_study_id."
         ),
     )
 
@@ -2934,14 +2951,22 @@ class SampleTypeConnectionsRequest(BaseModel):
         """investigation_name, falling back to the deprecated `name`."""
         return self.investigation_name or self.name
 
+    @property
+    def graph_study_ids(self) -> set:
+        """graph_study_id and its deprecated alias study_id, together: two different values match nothing."""
+        return {v for v in (self.graph_study_id, self.study_id) if v is not None}
+
     @model_validator(mode="after")
     def _require_at_least_one_selector(self):
         if not any(
             [
+                self.project_id is not None,
                 self.graph_inv_id is not None,
                 self.seek_inv_id is not None,
                 bool(self.investigation_name),
                 bool(self.name),
+                self.graph_study_id is not None,
+                self.seek_study_id is not None,
                 self.study_id is not None,
                 bool(self.study_name),
                 bool(self.sample_type),
@@ -2949,9 +2974,9 @@ class SampleTypeConnectionsRequest(BaseModel):
             ]
         ):
             raise ValueError(
-                "Supply at least one of: all_conns, an investigation "
+                "Supply at least one of: all_conns, project_id, an investigation "
                 "(graph_inv_id / seek_inv_id / investigation_name), a study "
-                "(study_id / study_name), or sample_type."
+                "(graph_study_id / seek_study_id / study_id / study_name), or sample_type."
             )
         return self
 
@@ -2975,6 +3000,11 @@ class SampleTypeConnectionsResponse(BaseModel):
     total: int = Field(..., description="Number of unique connections returned")
     filters: Dict[str, Any] = Field(..., description="Selectors actually applied, echoed back")
     connections: List[SampleTypeConnection] = Field(..., description="The connections")
+    notes: List[str] = Field(
+        default_factory=list,
+        description="When a selector was given and nothing matched: what the graph holds for each selector, so an "
+                    "empty answer says why (an investigation with no Study node, say).",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
