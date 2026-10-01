@@ -1,0 +1,57 @@
+{
+  "report_type": "NFCORE_VIRALMETAGENOME_SAMPLESHEET",
+  "description": "nf-core/viralmetagenome samplesheet context, aligned to the pinned 1.1.3 nextflow_schema.json and assets/schema_input.json. Untargeted viral genome reconstruction with iSNV detection.",
+  "params": {
+    "multiqc_title": {"type": "string", "default": null, "steerable": true},
+    "save_intermediate_reads": {"type": "bool", "default": false, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/viralmetagenome",
+    "repository": "https://github.com/nf-core/viralmetagenome",
+    "documentation_url": "https://nf-co.re/viralmetagenome/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2. sample and fastq_1 are required.",
+    "required_columns": ["sample", "fastq_1"],
+    "optional_columns": ["fastq_2"],
+    "reference_requirement": "NONE. The 1.1.3 schema declares no genome/fasta/gtf parameter — reconstruction is de novo, which is the point: it finds viruses without being told which to look for."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null}],
+  "examples": {
+    "paired_metagenome": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/mg_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/mg_R2.fastq.gz"}
+  },
+  "validation_rules": [
+    "Do NOT pass --genome, --fasta or --gtf: the 1.1.3 schema declares none of them.",
+    "Use this when the virus is UNKNOWN. If the target virus is known, viralrecon gives a better-constrained answer.",
+    "Input should be a shotgun metagenomic library. An amplicon library sent here reconstructs only what the primers targeted, which is not what the output implies."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: no registered viral or viral-metagenomic cohorts (19 viral mentions across 51,359 samples, none a sequencing cohort). Catalogued for future data.",
+  "sources": [
+    {"label": "nf-core/viralmetagenome usage docs", "url": "https://nf-co.re/viralmetagenome/latest/docs/usage/", "notes": "Workflow overview."},
+    {"label": "nf-core/viralmetagenome nextflow_schema.json @ 1.1.3", "url": "https://raw.githubusercontent.com/nf-core/viralmetagenome/1.1.3/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf."},
+    {"label": "nf-core/viralmetagenome assets/schema_input.json @ 1.1.3", "url": "https://raw.githubusercontent.com/nf-core/viralmetagenome/1.1.3/assets/schema_input.json", "notes": "Authoritative columns: sample and fastq_1 required."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/viralmetagenome input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/mg_R1.fastq.gz"},
+          "fastq_2": {"required": "optional", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/mg_R2.fastq.gz"}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/viralmetagenome sheet from a resolved D.SEQ cohort of shotgun metagenomic libraries.",
+    "workflow_role": "Selected when the user wants to find and reconstruct viruses without naming one in advance.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2.",
+    "population_priority": [
+      "Confirm the library is untargeted shotgun, not amplicon.",
+      "If the user already knows which virus they are after, suggest viralrecon instead.",
+      "One row per D.SEQ leaf."
+    ],
+    "final_checks": ["No reference flags were emitted.", "Every row has a non-empty sample and fastq_1."]
+  }
+}

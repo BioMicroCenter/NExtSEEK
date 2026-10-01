@@ -9,6 +9,8 @@ from __future__ import annotations
 import html
 import os
 import re
+import tempfile
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -144,7 +146,7 @@ def _request_protocol_record(config: ChatConfig, base_url: str, protocol_ref: st
         }
 
 
-def fetch_protocols(config, protocol_refs: list[dict[str, str]]) -> dict:
+def fetch_protocols(config, protocol_refs: list[dict[str, str]], *, deadline: float | None = None) -> dict:
     """
     Fetch protocol details for classified metadata references.
     fairdata-dev/fairdata hosts are queried directly; fairdomhub uses its own host;
@@ -161,6 +163,9 @@ def fetch_protocols(config, protocol_refs: list[dict[str, str]]) -> dict:
     }
 
     for ref in protocol_refs or []:
+        if deadline is not None and time.monotonic() >= deadline:
+            print("[DEBUG][REPORTER_PROTOCOL] Deadline reached; skipping remaining protocol fetches")
+            break
         source = ref.get("source", "")
         value = ref.get("value", "")
         if not value:
@@ -262,16 +267,33 @@ def sanitize_protocols_for_llm(protocol_payloads: dict) -> dict:
     return {pid: sanitize_dict(resp) if isinstance(resp, dict) else resp for pid, resp in protocol_payloads.items()}
 
 
-def download_and_extract_protocol_blobs(protocol_payloads: dict, base_dir: str | Path, config=None) -> dict:
+def download_and_extract_protocol_blobs(
+    protocol_payloads: dict,
+    base_dir: str | Path,
+    config=None,
+    *,
+    token_limit: int | None = 3000,
+    deadline: float | None = None,
+) -> dict:
     """
     For each protocol response, download attached files (content_blobs), save them under base_dir/protocols/files,
     and attempt to extract text (docx/pdf). Returns a mapping id -> list of file metadata with text.
+
+    ``token_limit`` caps extracted text at roughly that many tokens (~4 chars
+    per token); pass ``None`` for uncapped text. Defaults to 3000 to preserve
+    the existing GEO/SRA reporter behaviour (reports/outputs.py).
+
+    ``deadline`` is a ``time.monotonic()`` instant: past it no further download
+    starts, and each download timeout is cut to the time left.
     """
     store = ArtifactStore(base_dir)
     results: dict[str, list[dict]] = {}
     session = requests.Session()
 
     for pid, resp in (protocol_payloads or {}).items():
+        if deadline is not None and time.monotonic() >= deadline:
+            print("[DEBUG][REPORTER_PROTOCOL] Deadline reached; skipping remaining protocol downloads")
+            break
         files_out: list[dict] = []
         source_base_url = resp.get("source_base_url") if isinstance(resp, dict) else None
         source_host = (urlparse(source_base_url).netloc or "").lower() if source_base_url else ""
@@ -303,8 +325,13 @@ def download_and_extract_protocol_blobs(protocol_payloads: dict, base_dir: str |
                 content_resp = None
                 attempted = []
                 for candidate in (f"{link}/download", f"{link}?download=1", link):
+                    timeout = 30
+                    if deadline is not None:
+                        timeout = min(30, deadline - time.monotonic())
+                        if timeout <= 0:
+                            break
                     attempted.append(candidate)
-                    r = session.get(candidate, timeout=30)
+                    r = session.get(candidate, timeout=timeout)
                     ctype_hdr = (r.headers.get("Content-Type") or "").lower()
                     looks_json = ctype_hdr.startswith("application/vnd.api+json") or r.content[:1] in (b"{", b"[")
                     is_ok = r.status_code == 200 and not looks_json
@@ -346,15 +373,14 @@ def download_and_extract_protocol_blobs(protocol_payloads: dict, base_dir: str |
                 except Exception as e:
                     text_error = repr(e)
 
-                # Truncate text to ~3000 tokens max
+                # Truncate text to ~token_limit tokens max (None disables truncation)
                 text_truncated = False
-                if text:
-                    PROTOCOL_TOKEN_LIMIT = 3000
+                if text and token_limit is not None:
                     token_count = estimate_tokens_from_text(text)
-                    if token_count > PROTOCOL_TOKEN_LIMIT:
+                    if token_count > token_limit:
                         # Truncate: ~4 chars per token
-                        max_chars = PROTOCOL_TOKEN_LIMIT * 4
-                        text = text[:max_chars] + "\n\n[... truncated, exceeded 3000 token limit ...]"
+                        max_chars = token_limit * 4
+                        text = text[:max_chars] + f"\n\n[... truncated, exceeded {token_limit} token limit ...]"
                         text_truncated = True
 
                 entry.update(
@@ -376,3 +402,55 @@ def download_and_extract_protocol_blobs(protocol_payloads: dict, base_dir: str |
         if files_out:
             results[str(pid)] = files_out
     return results
+
+
+PROTOCOL_TEXT_BUDGET_S = 20.0
+
+
+def gather_protocol_text(config, annotated_metadata: dict, base_dir=None, budget_s: float = PROTOCOL_TEXT_BUDGET_S) -> dict:
+    """Concatenated, uncapped text of a cohort's protocol attachments + a status.
+
+    Reuses the same primitives the selection digest uses. Fail-open: any fetch or
+    extraction error yields empty text and a status recording the failure — a data
+    signal being unavailable must never block a build. A total budget of
+    ``budget_s`` seconds bounds the fetches and downloads; past it the text
+    gathered so far is used and the status says so.
+    """
+    deadline = time.monotonic() + budget_s
+    status = {"n_protocols": 0, "n_ok": 0, "n_failed": 0, "failure_reasons": []}
+    try:
+        refs = extract_protocol_refs_from_metadata(annotated_metadata) or []
+    except Exception as exc:                       # extraction of refs itself failed
+        status["n_failed"] = 1
+        status["failure_reasons"] = [f"ref-extract: {exc!r}"]
+        return {"text": "", "status": status}
+    status["n_protocols"] = len(refs)
+    if not refs:
+        return {"text": "", "status": status}
+    try:
+        raw = fetch_protocols(config, refs, deadline=deadline) or {}
+        if base_dir:
+            blobs = download_and_extract_protocol_blobs(raw, Path(base_dir), config=config, token_limit=None, deadline=deadline) or {}
+        else:
+            with tempfile.TemporaryDirectory(prefix="nessie-paramtext-") as tmp:
+                blobs = download_and_extract_protocol_blobs(raw, Path(tmp), config=config, token_limit=None, deadline=deadline) or {}
+        parts: list[str] = []
+        for pid in raw:
+            atts = blobs.get(pid) or []
+            texts = [a.get("text") for a in atts if a.get("text")]
+            if texts:
+                status["n_ok"] += 1
+                parts.extend(texts)
+            else:
+                status["n_failed"] += 1
+    except Exception as exc:
+        status["n_ok"] = 0
+        status["n_failed"] = status["n_protocols"]
+        status["failure_reasons"] = [repr(exc)]
+        return {"text": "", "status": status}
+    if time.monotonic() >= deadline:
+        status["failure_reasons"].append(f"deadline: stopped after {budget_s:g}s, used the text gathered so far")
+        print("[DEBUG][REPORTER_PROTOCOL] gather_protocol_text hit its", budget_s, "s deadline")
+    if status["n_failed"] and not status["failure_reasons"]:
+        status["failure_reasons"] = ["no extractable text in one or more protocols"]
+    return {"text": "\n\n".join(parts), "status": status}

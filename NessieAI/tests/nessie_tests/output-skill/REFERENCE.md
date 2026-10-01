@@ -281,7 +281,7 @@ left-hand column.
   became CURATED, and reading this line as "nothing is injected" is how a real
   route failure gets discounted as residue. `corpus.apply_route_policy` attaches
   a `route` criterion to turn 0 of **268** of the 283 resolved variants — 15 more
-  write one inline, so **all 283** carry one, against only 3 tagged `route_gate`
+  write one inline, so **all 283** carry one, against only 4 tagged `route_gate`
   — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
   criteria across 207 variants (`outcome_observed` to 150,
   `report_produced_output` to 57, `graph_truncation_disclosed` to 47). Those
