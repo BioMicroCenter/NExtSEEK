@@ -29,7 +29,7 @@ The Sample flow is the project's sample-type graph from [The data model](data-mo
 
 ## Templates
 
-A template is a blank Excel workbook set up for the sample types you pick. You fill it in and upload it. See [Uploading](uploading.md).
+A template is an Excel workbook that describes the sample types you pick: every column, which ones are required and what each one means. Use it to plan and collect your metadata. The upload page does not read this workbook yet: copy your rows into an upload workbook, see [Uploading](uploading.md).
 
 There are two places to get one:
 
@@ -49,8 +49,8 @@ The workbook has these sheets:
 |---|---|
 | README | A table of the sample types you chose with their names and descriptions. Where the workbook can show it, a tree of how they connect. Then, for each type, the types it is usually derived from and feeds into, and a table of its columns with a Yes in the Required column for the ones you must fill and a meaning for each |
 | One sheet per sample type | Only the column headers. Required columns are marked with an asterisk. Hover over a header to read a short note on what to enter. Some columns offer a dropdown of allowed values |
-| Controlled Vocabularies | The lists the dropdowns use. It appears when a column has one |
+| Controlled Vocabularies | The lists the dropdowns use. It is added, hidden, when a column has a dropdown |
 
-A further hidden sheet holds information that NExtSEEK uses to read the workbook back when you upload it. Leave it as it is.
+Another hidden sheet maps each column to its database field, for a later upload step. Leave it as it is.
 
-Fill in one sheet per sample type and keep the headers unchanged. The Parent column names the sample each row came from, which is how the lineage is built. See [Uploading](uploading.md) for the next step.
+Fill in one sheet per sample type and keep the headers unchanged. The Parent column names the sample each row came from, which is how the lineage is built. [Uploading](uploading.md) describes the workbooks the upload page reads.

@@ -114,7 +114,7 @@ folder is not on the path at all: editing it changes nothing. See [shell.md](she
 | [chat-frontend.md](chat-frontend.md) | the Nessie chat page: stack, mounting, transport, components, phone behaviour, build rule |
 | [ci-and-deploy.md](ci-and-deploy.md) | route registry and CI checks, static pipeline and caching, preview loops, deploying |
 | [legacy.md](legacy.md) | dead templates, backups, Mezzanine leftovers, vendored demo folders, deletion candidates |
-| [docs-and-help.md](docs-and-help.md) | Getting Started, API docs pages, the GitBook links, the planned move of the user docs |
+| [docs-and-help.md](docs-and-help.md) | The user docs at `/docs/` and how to write a page, the API docs pages, the help links, Nessie's copy of the docs |
 | [known-issues.md](known-issues.md) | every open UI problem, ranked, with evidence and a fix idea |
 
 Owner docs stay authoritative for their folders and go deeper: [`themes/README.md`](../../themes/README.md),

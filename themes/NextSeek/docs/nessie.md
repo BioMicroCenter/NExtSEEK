@@ -28,7 +28,7 @@ Nessie sees the same projects you do. It never shows you samples from projects y
   <figcaption>A question about the system itself. Nessie describes a sample type, its parents and children, and what metadata it needs.</figcaption>
 </figure>
 
-The first group of questions runs on the [sample graph](graph-search.md).
+Questions that find, count or follow samples run on the [sample graph](graph-search.md).
 
 ## Follow-up questions
 

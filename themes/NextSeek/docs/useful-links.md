@@ -1,5 +1,7 @@
 # Useful links
 
+Links to NExtSEEK, SEEK and the public data repositories.
+
 ## NExtSEEK
 
 * [NExtSEEK source code](https://github.com/BioMicroCenter/NExtSEEK) on GitHub

@@ -26,7 +26,7 @@ The code is the prefix of the sample's UID. A mouse sample has a UID that starts
 | `D.SEQ` | Sequencing Data | Raw |
 | `A.GEX` | Gene Expression Analysis | Analyzed |
 
-The data specialists create UIDs for new samples. You do not make them up. See [Uploading](uploading.md).
+NExtSEEK makes the UID when you upload a new sample. You do not make them up. See [Uploading](uploading.md).
 
 ## The four clades
 
@@ -43,7 +43,7 @@ Sample types are grouped into four **clades**. A clade is a stage in the life of
 
 Every attribute has a name, a type (text, date and so on) and a definition. Some are required: a sample cannot be uploaded without them.
 
-* Every type requires a **UID**. Almost every type also requires a **Scientist**, the lab member responsible.
+* Every type requires a **UID**. Almost every type also requires a **Scientist**, the lab member responsible, and Source and Processed types require a **Name**.
 * Types in the Raw and Analyzed clades, and most Processed types, also require a **Parent**, the sample they came from.
 * Raw and Analyzed data-file types also require the file, a link to it and, for nearly all of them, a checksum.
 * Everything else is optional. Fill in as much as you know: optional fields are what make samples findable later.
@@ -52,7 +52,7 @@ The detail page of each type lists its attributes, marks the required ones and s
 
 ## Parents and children
 
-A type lists the types it **derives from** and the types that derive from it. NHP samples, for example, can derive from antibodies or bacteria, and a patient visit derives from an NHP. An assay is what turns parents into children: see [Assays](assays.md).
+A type lists the types it **derives from** and the types that derive from it. A patient visit (`PAV`), for example, derives from an `NHP`, a patient or a mouse, and tissue (`TIS`) derives from a patient visit. An assay is what turns parents into children: see [Assays](assays.md).
 
 ## Tags
 

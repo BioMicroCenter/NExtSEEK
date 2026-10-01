@@ -134,13 +134,14 @@ def test_every_docs_page_and_its_images_are_served(anon, base_url):
     assert slugs, "themes/NextSeek/docs/README.md lists no pages"
     problems = []
     for slug in slugs:
-        r = anon.get(f"{base_url}/docs/{slug}/", timeout=60)
+        # Not followed: a docs page that redirects (to a login, say) is not a served page.
+        r = anon.get(f"{base_url}/docs/{slug}/", timeout=60, allow_redirects=False)
         check_gateway(r)
         if r.status_code != 200:
             problems.append(f"/docs/{slug}/ answered {describe_shape(r)}")
             continue
         for src in sorted(set(re.findall(r'<img[^>]*\ssrc="(/static/[^"]+)"', r.text))):
-            if anon.get(f"{base_url}{src}", timeout=60).status_code != 200:
+            if anon.get(f"{base_url}{src}", timeout=60, allow_redirects=False).status_code != 200:
                 problems.append(f"/docs/{slug}/ shows {src}, which is not served")
     assert not problems, (
         "\n".join(problems) + "\nA missing image means static was not collected after the "

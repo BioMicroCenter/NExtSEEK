@@ -57,7 +57,7 @@ Nine phases, in order:
 8. Verify the demo users.
 9. Run health checks.
 
-It is safe to run again. Prerequisites, config, volumes, users and health checks are idempotent, and each seed is skipped when its database is already populated.
+Running it again keeps your data: the volumes stay, and each seed is skipped when its database already holds data. It does write the three config files below again from their templates, so your edits to them are lost and the Django secret key changes. Redo those edits afterwards.
 
 ## Configuration
 
@@ -69,23 +69,23 @@ Install writes three files for you to edit. All are ignored by git:
 | `docker/nextseek.env` | The Django secret key, the Neo4j password and the LLM API keys (chat stays off until you add keys) |
 | `dmac/local_settings.py` | Django settings overlay |
 
-Edit a file, then apply it with `docker compose up -d --force-recreate nextseek`.
+Edit a file, then apply it with `docker compose up -d --no-deps --force-recreate nextseek`.
 
 !!! warning
-    Do not use `./startup.sh reset` to re-render config. `reset` drops the Docker volumes and re-seeds, which erases your data. It also writes `docker/db.env` back to the demo defaults.
+    Do not use `./startup.sh reset` to re-render config. `reset` drops the Docker volumes and re-seeds, which erases your data. It also writes the config files back to the demo values, even with `--keep-config`.
 
 ## Day-to-day commands
 
 | Command | What it does |
 |---|---|
 | `./startup.sh doctor` | Read-only check of prerequisites and health. Run this first when something is wrong |
-| `./startup.sh rebuild` | Rebuild and restart the app image without touching data. Pass `--component` to pick another: `app` (the default), `cc-agent`, `nextseek-sidecar`, `bedrock-proxy` or `custom-stack` |
-| `./startup.sh reset` | **Destructive.** Drops the volumes and re-seeds. Add `--keep-config` to keep the config files |
+| `./startup.sh rebuild` | Rebuild and restart the app image without touching data, then run the smoke tests (`--no-ci` skips them). Pass `--component` to pick another: `app` (the default), `cc-agent`, `nextseek-sidecar`, `bedrock-proxy` or `custom-stack` |
+| `./startup.sh reset` | **Destructive.** Drops the volumes, re-seeds and writes the config files again (also with `--keep-config`) |
 | `./startup.sh ci` | Run the smoke test suite against the running stack |
 | `./startup.sh seed-filestore` | Load the SEEK file blobs into a running stack (skipped if the volume already has files, unless you pass `--force`) |
 | `./startup.sh dump-db` | For maintainers: regenerate the seed dumps |
 
-To run a second, separate copy beside the first, use `./startup.sh install --instance test`. Each instance gets its own volumes and free ports.
+To run a second, separate copy beside the first, use `./startup.sh install --instance test`. Each instance gets its own volumes and free ports. The Nessie assistant's containers, volume and network have fixed names, so only one instance per machine can run the assistant.
 
 ## Next steps
 

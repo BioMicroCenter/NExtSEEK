@@ -45,7 +45,11 @@
 
 </div>
 <script>
-  // Phones: start with the page list folded so the article comes first.
-  if (window.matchMedia("(max-width: 991.98px)").matches) document.getElementById("docs-nav").open = false;
+  // Phones: the page list starts folded so the article comes first; wide screens always show it.
+  (function () {
+    var nav = document.getElementById("docs-nav"), narrow = window.matchMedia("(max-width: 991.98px)");
+    nav.open = !narrow.matches;
+    narrow.addEventListener("change", function (e) { nav.open = !e.matches; });
+  })();
 </script>
 {% endblock %}

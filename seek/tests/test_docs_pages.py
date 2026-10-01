@@ -85,8 +85,8 @@ def test_every_page_renders_and_every_link_resolves(client):
         body = r.context["body"]
         if r.status_code != 200:
             problems.append(f"{slug}: status {r.status_code}")
-        if not body.startswith("<h1"):
-            problems.append(f"{slug}: does not open with its H1 title")
+        if not body.startswith("<h1") or body.count("<h1") != 1:
+            problems.append(f"{slug}: must open with its H1 title and have no other H1")
         for target, anchor in re.findall(r'href="/docs/([\w-]+)/(?:#([^"]*))?"', body):
             if target not in ids:
                 problems.append(f"{slug}: links to missing page {target}")

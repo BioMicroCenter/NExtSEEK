@@ -28,7 +28,7 @@ The API describes itself from the code, so these pages always match what the ser
 
 ## Authenticating from a script
 
-A script sends credentials in the `Authorization` header. The API accepts HTTP Basic (your NExtSEEK login) and a `Token` header. Inside a browser, the session cookie of a signed-in user works.
+A script sends credentials in the `Authorization` header. Use HTTP Basic with your NExtSEEK login. Many endpoints also accept a `Token` header, with a token an administrator issues. Inside a browser, the session cookie of a signed-in user works.
 
 ```bash
 curl -u "<your-login>:<your-password>" "https://<your-site>/nextseek_api/projects/"

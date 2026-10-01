@@ -14,7 +14,7 @@ Open the sidebar and use **Data Entry**, or the **+ New sample** button.
 !!! note
     The sample upload page is built for a laptop or desktop. On a phone it shows a desktop-only notice.
 
-For a ready-made workbook for your sample types, go to [Templates](/seek/templates/). [Projects and templates](projects-and-templates.md) explains what the templates contain.
+The [Templates](/seek/templates/) page gives you a workbook that lists every column of the sample types you pick, and [Projects and templates](projects-and-templates.md) explains it. The upload page does not read that workbook yet: use it as the guide to the columns, and upload one of the two shapes below.
 
 ## The workbook
 
@@ -127,4 +127,4 @@ The **Logs** box reports each file.
 
 A protocol needs nothing more. Its title is built as `P.<LAB>-<YYMMDD>-V1_<file name>`.
 
-A data file must match a sample whose primary data file name is the file name you upload. That is how the file is linked to its sample. If no sample matches, for example a supplementary report, register a `D.FILE` sample for it first. Find the `D.FILE` template under [Templates](/seek/templates/).
+Each file becomes its own data file record in the project you chose. Upload it under the file name its sample records in `File_PrimaryData`, so the file and the sample can be matched.

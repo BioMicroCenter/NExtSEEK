@@ -79,7 +79,7 @@ Django drops anything in a child template that sits outside a block, so content 
 
 | Section | Items |
 |---|---|
-| Data | Home `/`; Sample Search `/seek/search/`; Data Entry (collapse `#dataEntrySubmenu`: Assay Sheet Upload `/seek/samples/upload/`, Data & Protocol Upload `/seek/data/upload/`); Data Query (collapse `#dataQuerySubmenu`: `/seek/datafile/query/`, `/seek/sop/query/`); Projects `/seek/projects/`; Useful Info (collapse `#usefulInfoSubmenu`: external docs site, `/seek/templates/`, `/seek/sampletypes/`, `/seek/assays/`) |
+| Data | Home `/`; Sample Search `/seek/search/`; Data Entry (collapse `#dataEntrySubmenu`: Assay Sheet Upload `/seek/samples/upload/`, Data & Protocol Upload `/seek/data/upload/`); Data Query (collapse `#dataQuerySubmenu`: `/seek/datafile/query/`, `/seek/sop/query/`); Projects `/seek/projects/`; Useful Info (collapse `#usefulInfoSubmenu`: Documentation `/docs/`, `/seek/templates/`, `/seek/sampletypes/`, `/seek/assays/`) |
 | Quick Access | Ask Nessie (`includes/nessie_button.html`), UID search input `#search-uid`, "+ New sample" link `.qa-cta` to `/seek/samples/upload/` |
 | Admin | only when `request.user.is_superuser`: `/admin`, `/seek/samples/attributes`, `/seek/admin/clades/`, `/seek/admin/internal_assays/` |
 | Resources | Getting Started `/docs/`, Published Studies (external), Contact Support (mailto to the team address) |

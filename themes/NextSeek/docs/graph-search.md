@@ -38,7 +38,7 @@ Together the links form the lineage tree you see on a sample page and in the "Ho
 | Which NHP samples have Species containing Macaca? | Sample Search, type NHP, attribute Species |
 | Which sequencing samples came from tissue samples? | Sample Search, type D.SEQ, Associated with TIS, ancestors only |
 | Which samples mention both "granuloma" and "lung"? | Advanced Sample Search, two terms joined with AND |
-| What was made from this sample? | Associated with, descendants only |
+| What was made from this sample? | The sample's page: its tree shows the children |
 | How many samples of each type does my project have? | Ask Nessie |
 
 ## Limits worth knowing

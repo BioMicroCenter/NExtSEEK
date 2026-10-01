@@ -1,5 +1,7 @@
 # Statistics
 
+How many samples and files NExtSEEK holds, in total and by project and sample type.
+
 !!! note
     These numbers are a snapshot as of July 2026. They are not updated live.
 

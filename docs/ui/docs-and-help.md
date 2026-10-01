@@ -58,7 +58,7 @@ to the view needs `./startup.sh rebuild`.
 | From | Element | Link text |
 |---|---|---|
 | `themes/NextSeek/templates/nav.embed.html`, "Resources" sidebar section | `<a href="/docs/">` | "Getting Started" |
-| `nav.embed.html`, "Useful Info" submenu (`#usefulInfoSubmenu`, signed-in users) | `<a href="/docs/">` | "Documentation" |
+| `nav.embed.html`, "Useful Info" submenu (`#usefulInfoSubmenu`) | `<a href="/docs/">` | "Documentation" |
 | `themes/NextSeek/templates/page-footer.embed.html` | `.footer-links` | "Docs", "People" (BMC wiki, new tab), "Contact" (`mailto:` the team address) |
 | `themes/NextSeek/templates/docs/page.html`, docs menu | "Get in touch" | "People", "Contact the data team" |
 
