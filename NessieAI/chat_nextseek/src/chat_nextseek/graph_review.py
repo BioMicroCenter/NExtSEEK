@@ -658,14 +658,16 @@ def _zero_unproven_base(t: _Turn) -> _Finding | None:
     """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
 
     Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes (SampleType,
-    Attribute and, at graph schema 1.3, Assay), an exact value missing from a complete stored list, and a reply that
-    already offers dropping the filter.
+    Attribute and, at graph schema 1.3, Assay) with no sample in the query, an exact value missing from a complete
+    stored list, and a reply that already offers dropping the filter. A zero over samples that reach an Assay is a
+    sample zero like any other.
     """
     if t.result_n() != 0:
         return None
     if re.search(r"uuid\s*[:=]\s*\$\w+", t.cy):
         return None
-    if re.search(r"\(\w+:(Attribute|SampleType|Assay)\b", t.cy) and not t.vl:
+    if (re.search(r"\(\w+:(Attribute|SampleType|Assay)\b", t.cy) and not t.vl
+            and not re.search(r"\(\w*:(?:Sample|T_\w+)\b", t.cy)):
         return None
     for var, attr, term in t.eq:
         stored = t.vals(t.vl.get(var), attr)

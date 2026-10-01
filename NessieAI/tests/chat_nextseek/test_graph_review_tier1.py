@@ -647,8 +647,16 @@ def test_a_zero_over_catalog_nodes_is_not_a_sample_zero(label):
     assert not _check(rv, "zero_unproven_base").fired
 
 
-def test_a_zero_over_samples_that_reach_an_assay_still_opens():
-    cypher = ("MATCH (s:T_TIS)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
-              "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n")
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:T_TIS)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    # the taught "went through" form: the Assay by name, then the samples with an edge to it
+    "MATCH (a:Assay) WHERE toLower(a.title) = toLower($y) MATCH (s:Sample) "
+    "WHERE (EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }) "
+    "AND toLower(s.search_text) CONTAINS toLower($x) RETURN count(DISTINCT s) AS n",
+], ids=["type_label", "sample_label", "went_through"])
+def test_a_zero_over_samples_that_reach_an_assay_still_opens(cypher):
     rv = review_tier1(_zero(cypher, {"x": "lung", "y": "rna"}), DictCatalog({}))
     assert _check(rv, "zero_unproven_base").fired
