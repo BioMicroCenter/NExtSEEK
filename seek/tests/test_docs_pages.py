@@ -97,6 +97,9 @@ def test_every_page_renders_and_every_link_resolves(client):
             if not (THEME_STATIC / ref).is_file():
                 problems.append(f"{slug}: missing static file {ref}")
         for ref in re.findall(r'(?:src|href)="([^"]+)"', body):
+            # An absolute link to a repository file on GitHub (NExtSTEPS.md#...) is not a page link.
+            if ref.startswith(("http://", "https://")):
+                continue
             if ref.endswith(".md") or ".md#" in ref or ref.startswith("../"):
                 problems.append(f"{slug}: unrewritten relative link {ref}")
         if re.search(r'<img(?![^>]*\balt="[^"]+")', body):
