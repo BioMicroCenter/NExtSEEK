@@ -55,7 +55,7 @@ single SEEK project (or a note on why there is not one). Records are per user.
 
 `upload-reingest` takes `build_ids` and one `confirmed_write`. `upload.verify` loads each record
 for the caller, re-hashes the workbook, and refuses a changed, foreign, non-passing or
-project-less build; `upload.run` then stages every workbook and re-hashes each staged copy
+project-less build, two builds of one sample type and mode, or builds from different runs; `upload.run` then stages every workbook and re-hashes each staged copy
 before any job starts. After that each workbook is its own batch-upload job through
 `dispatch_batch_job` (`nextseek_api/batch_upload/README.md`), new mode first, and a job that
 fails to start never stops the next. Files only, never `rows`.

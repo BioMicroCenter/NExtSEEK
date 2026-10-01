@@ -86,6 +86,19 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
         records.append(record)
     if len({r["project_id"] for r in records}) > 1:
         reasons.append("these workbooks belong to different projects; upload them separately")
+    # Two builds of one (sample_type, mode) would insert twice or race their
+    # deep-merges; builds from two runs do not belong in one confirmation.
+    seen: set[tuple] = set()
+    duplicated: list[tuple] = []
+    for record in records:
+        pair = (record.get("sample_type"), record.get("mode"))
+        if pair in seen and pair not in duplicated:
+            duplicated.append(pair)
+        seen.add(pair)
+    reasons += [f"{st} ({mode}): more than one build; send only the latest"
+                for st, mode in duplicated]
+    if len({r.get("manifest_id") for r in records}) > 1:
+        reasons.append("these builds come from different runs; upload one run at a time")
     if reasons:
         raise UploadRefused(reasons)
     return sorted(records, key=lambda r: r["mode"] != "new")

@@ -26,12 +26,14 @@ def env(tmp_path, monkeypatch):
 
 
 def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG",
-           data=None):
+           data=None, sample_type=None, manifest_id="abc"):
     path = env / f"{name}.xlsx"
     path.write_bytes(data or name.encode())
+    if sample_type is None:
+        sample_type = "A.GEX" if "A_GEX" in name else ("A.ALN" if mode == "new" else "D.SEQ")
     return build_records.write(
-        path=str(path), artifact_key=name, sample_type="A.ALN" if mode == "new" else "D.SEQ",
-        mode=mode, manifest_id="abc", disposition=disposition, open_warnings=[],
+        path=str(path), artifact_key=name, sample_type=sample_type,
+        mode=mode, manifest_id=manifest_id, disposition=disposition, open_warnings=[],
         row_count=2, project_id=project_id, project_note="" if project_id else "no project",
         answers_digest="d", user_id=user_id)
 
@@ -258,3 +260,27 @@ def test_an_unwired_server_refuses_the_upload(env, missing):
     delattr(session, missing)
     with pytest.raises(g.OpValidationError, match="upload is not wired on this server"):
         _op({"build_ids": new["build_id"], "confirmed_write": True}, session=session)
+
+
+def test_two_builds_of_one_sample_type_and_mode_are_refused_before_staging(env):
+    dispatch, staged = MagicMock(), []
+    first = _build(env, "reingest_A_ALN", "new")
+    again = _build(env, "reingest_A_ALN_again", "new", sample_type="A.ALN")
+    with pytest.raises(g.OpValidationError) as info:
+        _op({"build_ids": f"{first['build_id']},{again['build_id']}", "confirmed_write": True},
+            dispatch=dispatch, stage=lambda p: staged.append(p) or _copy_stage(p))
+    assert "A.ALN (new): more than one build; send only the latest" in str(info.value)
+    assert staged == []
+    dispatch.assert_not_called()
+
+
+def test_builds_from_different_runs_are_refused_before_staging(env):
+    dispatch, staged = MagicMock(), []
+    new = _build(env, "reingest_A_ALN", "new", manifest_id="run-one")
+    update = _build(env, "reingest_D_SEQ_update", "update", manifest_id="run-two")
+    with pytest.raises(g.OpValidationError) as info:
+        _op({"build_ids": f"{new['build_id']},{update['build_id']}", "confirmed_write": True},
+            dispatch=dispatch, stage=lambda p: staged.append(p) or _copy_stage(p))
+    assert "these builds come from different runs; upload one run at a time" in str(info.value)
+    assert staged == []
+    dispatch.assert_not_called()
