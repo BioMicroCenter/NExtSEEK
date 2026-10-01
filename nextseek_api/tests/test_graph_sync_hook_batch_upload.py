@@ -275,6 +275,21 @@ class TestStageSixCallsSyncSamples:
             _fake_driver(mp)
             assert orch._run_graph_sync([10]) == "structural_gaps"
 
+    def test_a_long_gap_list_is_logged_as_a_count_and_the_first_few_ids(self, monkeypatch, caplog):
+        """An untraced gap names every sample of a chunk, up to 5,000: the info line carries a count, not the list."""
+        from nextseek_api.graph_sync import targeted
+        named = {i: "in_project_missing (project ids SEEK lacks: 77)" for i in range(1000, 1200)}
+        monkeypatch.setattr(targeted, "sync_samples", lambda driver, db, ids, **kw: {
+            "status": "ok", "structural_gaps": 200, "structural_gap_parts": {"in_project_missing": 200},
+            "structural_gap_samples": named})
+        monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: _config()))
+        with caplog.at_level("INFO", logger=orch.__name__), pytest.MonkeyPatch.context() as mp:
+            _fake_driver(mp)
+            assert orch._run_graph_sync(sorted(named)) == "structural_gaps"
+        assert "200 samples, first 1000, 1001, 1002, 1003, 1004" in caplog.text
+        assert "1199" not in caplog.text and "project ids SEEK lacks" not in caplog.text
+        assert "'in_project_missing': 200" in caplog.text
+
     def test_a_graph_that_is_not_configured_is_never_connected_to(self, monkeypatch):
         disabled = _config(enabled=False)
         monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: disabled))
