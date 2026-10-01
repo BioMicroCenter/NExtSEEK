@@ -224,7 +224,9 @@ every step to `study_merge.tsv` before its write. Each id's kind is read again u
 another kind than its approved one stops the run (exit 2 when nothing was written yet, else 1): run the dry run again
 and approve what it prints. A rerun with the same `--run-dir` finishes a merge a crash stopped, held to the kind its
 journal recorded; one that stops on such an id exits 1, not 2, since the earlier attempt may have written, and
-`--unmerge-studies` with that run directory puts back what it moved.
+`--unmerge-studies` with that run directory puts back what it moved. On a graph at schema 1.3, a split whose SEEK-keyed
+node holds RUN_IN is refused as `k_relationship`, and an undo leaves RUN_IN on the legacy node until the next
+`sync_assays` replaces it.
 
 Before `--unmerge-studies` on a box whose switch is on, turn the switch off and recreate the container (above): with
 `follow`, the next drain, reconcile or full sync removes again every restored link SEEK does not hold, and gate G's
