@@ -7,8 +7,9 @@ The rest of the application suite is informational: it is scored against
 ci/pytest-baseline.txt and never fails the job. The modules these globs expand
 to run a second time, in the workflow's "Blocking unit tests
 (ci/blocking_lanes.py)" step, where any failure fails it. A new test module joins by its name, with no
-edit here: the graph_sync and graph_search tests under nextseek_api/tests/, and
-the Sample Search page's view and JavaScript tests under seek/tests/. Two modules are
+edit here: the graph_sync and graph_search tests under nextseek_api/tests/, the
+studies tool's tests under nextseek_api/studies/tests/, and the Sample Search
+page's view and JavaScript tests under seek/tests/. Two modules are
 named one by one: the entity_tree view tests and their read-routing test.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
@@ -29,6 +30,9 @@ BLOCKING_GLOBS = (
     "nextseek_api/tests/test_graph_sync_*.py",
     "nextseek_api/tests/test_graph_search_*.py",
     "nextseek_api/tests/test_services_graph_*.py",
+    # The studies tool's own suite: it writes SEEK only through stubs and runs on SQLite, so it is as safe to block
+    # on as the graph_sync tests.
+    "nextseek_api/studies/tests/test_*.py",
     # The Sample Search page, whose two search boxes send their searches to
     # graph_search: its view tests and its JavaScript cases, which skip where node
     # is missing (the workflow step checks for node first). It replaced the
