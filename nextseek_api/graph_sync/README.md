@@ -37,7 +37,8 @@ only).
 
 ```
 manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --drift | --verify | --samples IDS
-                      | --requeue-dead)
+                      | --requeue-dead | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...]
+                      | --studies)
                      [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--interval S]
                      [--no-record] [--apply-label-changes] [--seed N] [--bench-keys FILE] [--kind KIND]
                      [--i-mean-the-live-graph]
@@ -54,24 +55,31 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |
+| `--labels` | every DERIVED_FROM label against the rule, over the whole graph: new labels, renames and filled protocols written, the rest counted unless `--apply-label-changes` | yes |
+| `--merge-studies [IDS]` | merge each listed SEEK study's legacy and seek-keyed Study nodes, or give a legacy node its `seek_study_id` in place, journaled to `study_merge.tsv`; bare, or `all`, only with `--dry-run`, which prints each id's kind and the line to approve | yes |
+| `--unmerge-studies PATH[,PATH...]` | reverse the merges journaled in these run directories or journals, and re-create the IN_STUDY links their `in_study_removed.tsv` archives hold | yes |
+| `--studies` | make every sample's IN_STUDY follow SEEK once, removing stale links whatever the switch says | yes |
 
 Options that apply to more than one mode: `--json` puts only the JSON result on stdout and sends progress to
-stderr; `--dry-run` makes `--full` and `--catalog` read everything and write nothing; `--chunk` is the page and
-transaction size; `--no-record` leaves `graph_sync_run` alone; `--bench-keys FILE` (with `--full`) is a JSON list of
+stderr; `--dry-run` makes `--full`, `--catalog`, `--labels`, `--merge-studies`, `--unmerge-studies` and
+`--studies` read everything and write nothing; a written `--full` and the three study modes make their own run
+directory, `<kind>-<UTC time>` under the loop's run root, when neither `--run-dir` nor `GS_RUN_DIR` names one, and
+print it; `--chunk` is the page and transaction size; `--no-record` leaves `graph_sync_run` alone; `--bench-keys FILE` (with `--full`) is a JSON list of
 attribute keys the index budget must cover. `--apply-label-changes` is the operator's approval for label changes
 (below).
 
 **The live-graph rule.** The read-only modes (`--verify`, `--drift`) and the loop accept the stack's own `neo4j`
-host. A hand-run `--full`, `--catalog`, `--reconcile` or `--samples` still refuses it without
-`--i-mean-the-live-graph`; the loop passes that flag to the children it launches.
+host. A hand-run `--full`, `--catalog`, `--reconcile`, `--samples`, `--labels` or study mode still refuses it
+without `--i-mean-the-live-graph`, the dry runs of the last four included; the loop passes that flag to the children
+it launches.
 
 Exit status:
 
 | Code | Means |
 |---|---|
 | 0 | success, and for `--drift` and `--verify` no failing check |
-| 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it) |
-| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem |
+| 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it); or a study mode stopped part way or found the lock busy |
+| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, two Study nodes sharing a `seek_study_id`, a path `--unmerge-studies` finds no journal in, or a run directory a hand run cannot make |
 | 3 | the run could not complete |
 
 ## The loop
@@ -81,10 +89,14 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 `GRAPH_SYNC_RESTART_DELAY` the seconds between restarts. One pass does housekeeping (abandoned runs, expired
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
-memory returns when they end and a crash cannot take the loop with it. A child's exit status decides its row: 0 and
+memory returns when they end and a crash cannot take the loop with it. A claimed single-sample `samples` row takes up
+to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync, whose outcome closes, defers or fails every
+row it drained; a `batch:` row is one sync of its own. A by-id sync that left a structural link unwritten (a type, a
+project, a study or an investigation link) fails its row, which retries on its back-off. A child's exit status decides its row: 0 and
 2 (a refusal) are done, anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child
 that exits 1 having saved a result that reports drift: that check did its job, so its row is done and the drift is in
-its run record, never retried into the same answer. The newest 20 run directories per kind are kept. Every pass
+its run record, never retried into the same answer. The newest 20 run directories per kind are kept (the kinds the
+loop runs; a `merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every pass
 starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
 connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on
 it with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error
@@ -148,6 +160,39 @@ Every write unit reads `GraphMeta.schema_version` first and refuses, writing not
 `graph_sync --full --i-mean-the-live-graph`, and until that run an upload reports `graph: pending` and its outbox
 rows keep the work. The loop never turns a graph into 1.2 by itself.
 
+## Study nodes and IN_STUDY
+
+What the graph holds is in `docs/neo4j-schema.md`, v1.2 "Study nodes and IN_STUDY"; the rule is in
+`study_links.py` and the merge in `study_merge.py`.
+
+**The switch.** `NEXTSEEK_GRAPH_SYNC_STUDY_LINKS` in the box's `docker/nextseek.env`. Unset, or any value but
+`follow`, reads as `add`: every path adds the links SEEK holds and removes none, counting what it would remove
+(`in_study_stale`). `follow` turns removal on in the drain and every other by-id sync, the full sync's SEEK studies
+step and the reconcile's `study_links` step; `graph_sync --studies` removes whatever it says. A change takes effect
+when the app container is recreated: `docker compose up -d --no-deps --force-recreate nextseek`. `rebuild` keeps it;
+`install` re-renders `docker/nextseek.env` from the template, which carries the switch only as a comment, so a
+reinstall turns it off. Turn it on only after the box's merge dry run, the operator's approval of its id list, the
+merge and `--studies`. While it is off, gate G's family `12.studies` fails only on two Study nodes sharing a
+`seek_study_id`, so the drift check stays green on a box that has not merged.
+
+**Paper samples.** A sample on a graph-only paper study is not linked to the SEEK studies of its paper's own
+investigation (the paper Study's one Investigation, matched to SEEK's by id and title, as the studies tool does), so
+it is never counted twice there; its links to other investigations' studies are written. A paper whose investigation
+cannot be matched withholds every link and is counted in `paper_investigation_unknown`: the curators' list.
+
+**The merge.** `--merge-studies --dry-run` prints each SEEK study id's kind (`merge`, `merge_other_investigation`,
+`rekey_in_place` act; the rest are reported) and ends with the ids to approve. `--merge-studies <ids>` merges exactly
+those, under the graph-write lock, journaling every step to `study_merge.tsv` before its write; a rerun with the same
+`--run-dir` finishes a merge a crash stopped. `--unmerge-studies` takes the merge's run directory and any run
+directory whose `in_study_removed.tsv` should come back (a `--studies` run's, and after the switch went on the
+drain's, reconcile's and full sync's while they are kept). Merge and `--studies` directories are never pruned.
+
+**Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
+its study or samples, keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
+confirming it (a 5xx, a timeout) enqueues its rows held back five minutes; the study proxy's `isa` row writes every
+SEEK study's node with its title, description and Investigation; an assay moved in SEEK's own UI reaches the graph at
+the next reconcile.
+
 ## DERIVED_FROM labels
 
 The labels are batch upload's rule, moved here and fed from MySQL: the SEEK assays both endpoints share, resolved
@@ -155,12 +200,16 @@ through the internal-assay map with the smallest internal id winning and the SEE
 child's `Protocol` resolved by the house three-format rule. All five assay properties and the protocol pair are
 written together, never a subset, and every edge graph_sync creates is labelled in the same run.
 
-What is written without the operator's approval is only a **new** label: an edge whose three singular assay fields
-are all null, guarded in the Cypher itself, and on such an edge a stored protocol is kept. Every other difference is
-classified per edge (`new`, `equal`, `plural_missing`, `changed`, `cleared`), counted per property in the run's
-report (`labels_*`, `labels_by_property`, `labels_examples`) and left alone. `--apply-label-changes`, or
+What is written without the operator's approval is a **new** label (an edge whose three singular assay fields are
+all null, guarded in the Cypher itself; on such an edge a stored protocol is kept), a **rename** (the edge keeps its
+assay ids and an internal assay title changed under them: `renamed`) and a **filled protocol** (a protocol where none
+was stored: `protocol_filled`), the last two only where the stored values still equal the ones read. Every other
+difference, any change of which assay an edge carries, is classified per edge (`new`, `equal`, `plural_missing`,
+`renamed`, `protocol_filled`, `changed`, `cleared`), counted per property in the run's report (`labels_*`,
+`labels_by_property`, `labels_examples`) and left alone. `--apply-label-changes`, or
 `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` for the loop, is what writes the rest, and then only where the stored
-values still equal the ones read. Read a run's label counts before turning it on.
+values still equal the ones read. Read a run's label counts before turning it on. `graph_sync --labels` runs the
+label step alone over the whole graph, for a backlog the by-id and nightly paths do not reach.
 
 ## Lineage
 
@@ -214,6 +263,12 @@ A dry run writes no file.
 | `derived_from_undeclared_archive.tsv` | `--full`, `--reconcile`, `--samples` | every undeclared DERIVED_FROM between two Sample nodes before it is deleted, with its properties as JSON |
 | `retired.tsv` | any path that retires | each retired node's id, uuid, type and incident-edge count, before the delete |
 | `reconcile.json` | `--reconcile` | the detection counts, what each step did, and whether the guard tripped |
+| `study_merge.tsv` | `--merge-studies` | the journal: per id its plan (both nodes' properties and Investigations), each moved source and whether it was only on the seek-keyed node, and `done`; appended and flushed before each write |
+| `study_merge.json` | `--merge-studies` | the plan and the result |
+| `in_study_removed.tsv` | any path that removes an IN_STUDY link | sample id, the Study's `seek_study_id` and `id`, the edge's element id and the path that removed it, before the delete |
+| `study_links.json` | `--studies` | samples read and differing, links added, removed and withheld, paper samples, samples kept with no SEEK study, OrphanSample links |
+| `sample_types_deleted.tsv` | the catalog step (`--full`, `--catalog`, the reconcile, the drain) | each SampleType node deleted because SEEK lost it and no Sample reaches it: id, title, label, attribute keys |
+| `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it: id, title, project ids |
 | `gate_g.json`, `catalog_sync.json` | `--verify`, `--catalog` | that run's report, with `--run-dir` |
 
 ## The modules
@@ -238,6 +293,8 @@ One concern each; `git ls-files nextseek_api/graph_sync` lists which have landed
 | `loop.py` | one pass of the loop: housekeeping, the schedule, the drain |
 | `drift.py` | the read-only drift check |
 | `verify.py`, `run.py` | gate G and the ordered full and catalog runs |
+| `study_links.py` | the IN_STUDY rule: the per-box switch, the streaming diff against SEEK, the rebuild step `--studies`, the full sync and the reconcile share |
+| `study_merge.py` | the study merge: selection of a kind per SEEK study id, the dry-run plan, apply with its journal, undo |
 
 ## Who calls it
 

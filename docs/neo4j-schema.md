@@ -57,8 +57,9 @@ The local graph (the production snapshot plus TCGA) at schema 1.2, `catalog_hash
   `r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])`.
 - 781,392 DERIVED_FROM edges between two Samples carry no plural lists (`plural_missing`, v1.2 rule 5); only
   `--apply-label-changes` writes them.
-- A SEEK study (one with `seek_study_id`) carries only `title` and `seek_study_id`: no `id`, `DOI`, `PMID` or
-  `description`.
+- A SEEK study (one with `seek_study_id`) carries SEEK's `title` and `description`. A node given `seek_study_id` by
+  `graph_sync --merge-studies` or by the full sync's rekey keeps its old `id`, and a paper study that is also a SEEK
+  study keeps its `DOI` and `PMID` (v1.2, "Study nodes and IN_STUDY").
 - The 270 orphans predate 1.2 and keep edges the 1.2 rule removes (the v1.2 `OrphanSample` row).
 - LYS is deprecated in the catalog while 12 samples carry `:T_LYS`. The graph agent's type index leaves deprecated
   types out, so it never sees them.
@@ -146,7 +147,7 @@ the ghost nodes, and adds metadata, a catalog, people and projects.
 | `(:Sample)-[:IN_PROJECT]->(:Project)` | distinct `projects_samples` pairs |
 | `(:Person)-[:MEMBER_OF {has_left, time_left_at}]->(:Project)` | `group_memberships` joined to `work_groups` |
 | `(:Investigation)-[:IN_PROJECT]->(:Project)` | `investigations_projects` |
-| `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)` | unchanged |
+| `(:Sample)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(:Investigation)` | unchanged; which links exist: v1.2, "Study nodes and IN_STUDY" |
 
 Removed: `CHILD_OF`, and any DERIVED_FROM edge between two `Sample` nodes that MySQL's parent tokens do not declare
 (both archived to a file before deletion).
@@ -234,13 +235,16 @@ Rules:
    The legacy `assay_title` is removed from every edge graph_sync labels.
 3. **Label on create.** Every edge graph_sync creates is labelled in the same run, so a graph rebuilt from an empty
    Neo4j stays labelled.
-4. **Only new labels without the operator's approval.** By default a label is written only on an edge whose three
-   singular assay fields (`assay_id`, `internal_assay_id`, `internal_assay_title`) are all null, and the write
-   statement itself checks that, so a label written between a read and the write is kept. Every other difference is
-   classified per edge (`new`, `equal`, `plural_missing`, `changed`, `cleared`) and reported per property; it is
-   written only with the operator's opt-in (`--apply-label-changes` for one command run,
+4. **Only new labels, renames and filled protocols without the operator's approval.** By default a label is
+   written on an edge whose three singular assay fields (`assay_id`, `internal_assay_id`, `internal_assay_title`) are
+   all null, and the write statement itself checks that, so a label written between a read and the write is kept. An
+   edge that keeps its assay ids and whose internal assay title was renamed (`renamed`), or whose protocol was filled
+   where none was stored (`protocol_filled`), is written too, only where all seven stored values still equal those
+   read. Every other difference, any change of which assay an edge carries, is classified per edge (`new`, `equal`,
+   `plural_missing`, `renamed`, `protocol_filled`, `changed`, `cleared`) and reported per property; it is written
+   only with the operator's opt-in (`--apply-label-changes` for one command run,
    `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` for the loop), and then only where all seven stored values still equal
-   those read.
+   those read. `graph_sync --labels` applies the rule to every edge at once.
 5. **A missing plural list is not a difference to write.** On an edge whose singular fields match the rule, absent
    `internal_assay_ids` and `internal_assay_titles` are reported as `plural_missing` and written only with the same
    opt-in.
@@ -264,6 +268,34 @@ by-id sync, the nightly or the weekly sync):
 
 The line is exact because only graph_sync sets `synced_at`. With no `T_` label left on an orphan, a reader that
 starts from `MATCH (s:T_X)` never sees one.
+
+Two other nodes follow the same archive-then-delete rule. A SampleType SEEK no longer has and that no Sample reaches
+is deleted by the catalog step with its Attribute nodes, archived first to `sample_types_deleted.tsv` (one that still
+holds samples is kept and reported), and an Investigation SEEK no longer has and that no Study holds is deleted by
+the small tables, archived first to `investigations_deleted.tsv`. Study nodes are not deleted.
+
+### Study nodes and IN_STUDY
+
+Every SEEK study has one Study node, found by `seek_study_id`, whether or not a sample belongs to it yet. Every
+graph_sync path that writes it gives it SEEK's title, description and Investigation, and writes that Investigation
+node (with its IN_PROJECT, and a missing Project node) first. A Study node with no `seek_study_id` is a graph-only
+paper study, and a sample linked to one is a paper sample. A node that held a SEEK study on `id` from before 1.2 is
+given `seek_study_id` in place, keeping its `id`: by the full sync's rekey on a graph that holds no SEEK-keyed node
+yet, and otherwise by `graph_sync --merge-studies`, which also folds a split study's second node into it. A reader
+matching `Study.id` therefore still finds a merged node, and a reader matching `Study.seek_study_id` finds every SEEK
+study.
+
+A sample's IN_STUDY follows SEEK: every sync of a sample links it to the Study of each SEEK study its assays belong
+to, and removes its links to SEEK studies SEEK no longer holds for it, except that a sample SEEK places in no study
+keeps its links. A paper sample is not linked to the SEEK studies of its paper's own investigation (the paper Study's
+one Investigation, matched to SEEK's by id and title), so it is never counted twice there; its links to other
+investigations' studies are written. A link to a graph-only paper study is never touched, and only `Sample` nodes are
+read and written. Removal happens only where the box's switch `NEXTSEEK_GRAPH_SYNC_STUDY_LINKS` says `follow`, and
+always in `graph_sync --studies`, the one-time pass over every sample; every removed link is appended to
+`in_study_removed.tsv` in the run's directory before it is deleted. The nightly reconcile's last step applies the
+same rule to every sample, which is how an assay moved to another study outside NExtSEEK reaches the graph.
+`graph_sync --unmerge-studies` reverses a merge from its journal. Gate G's family `12.studies` checks all of this
+(`nextseek_api/graph_sync/README.md`, "Study nodes and IN_STUDY").
 
 ### Constraints and indexes
 
