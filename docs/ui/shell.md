@@ -116,19 +116,19 @@ FAIRDATA logo) and the form (`.auth-panel-right`: username, password, "Stay sign
 then Sign up and Reset links). All of its CSS is inline in `{% block extra_head %}` of `login.html`,
 not in `nextseek.css`.
 
-- Served by `dmac.views.login_seek`, routed as `^login` and again as `^accounts/login/` in
-  `dmac/urls.py` (security items SEC-0930-A and SEC-0930-I, tracked privately).
+- Served by `dmac.views.login_seek`, routed as `^login/?$` and again as `^accounts/login/` in
+  `dmac/urls.py`. After signing in it follows `next` (decoded from the query string) when that is
+  a path on this site, and goes home otherwise.
 - Sign up: there is no signup template. `signup_seek` (in `dmac/views.py`) redirects to SEEK's own
   `/signup` on `SEEK_PUBLIC_URL`. The `^accounts/signup/` route is placed before the Mezzanine
   catch-all on purpose, so Mezzanine's local signup form stays unreachable.
 - Reset password: the link goes to SEEK (`seek_forgot_password_url`), falling back to Mezzanine's
   reset URL if `SEEK_PUBLIC_URL` is unset.
 - Protected pages redirect anonymous users with `requires_seek_login_redirect` in
-  `seek/decorators.py`, which redirects to `/login/?next=<the literal the view passes>` (or a bare
-  `/login/` when it passes none) when the SEEK login check fails. The target is fixed at decoration
-  time, not taken from the request.
-- Legacy `/logout`: `logout_seek` in `dmac/views.py` (route `^logout$`) is broken and returns HTTP 500
-  (security item SEC-0930-D, tracked privately). The sidebar does not use it.
+  `seek/decorators.py` (or its helper `login_redirect` in inline checks), which sends them to
+  `/login/?next=<the page they asked for, with its query string>`. A view passes its own target
+  only where returning to the page makes no sense (the template download returns to its list).
+- Sign out is Mezzanine's `logout` URL (see the user panel); there is no other logout route.
 
 ### Home page
 
@@ -248,5 +248,4 @@ There are no other full-document templates in the theme or in `seek/templates`.
 
 Full list: [known-issues.md](known-issues.md#shell). The ones that matter most here:
 
-- Login, legacy logout, login route and home page security items: SEC-0930-A, -C, -D and -I
-  (tracked privately).
+- Home page for logged-out visitors: security item SEC-0930-C (tracked privately).

@@ -27,7 +27,7 @@ Auth is decided per view, not in the URL conf. The labels used in the tables bel
 | Label | Meaning | Mechanism |
 |---|---|---|
 | anonymous | no check | none |
-| SEEK login | the SEEK session is verified; on failure the browser is redirected to `/login/?next=...` (or bare `/login/`) | `@requires_seek_login_redirect(next)` in `seek/decorators.py`, or the same check written inline in the view |
+| SEEK login | the SEEK session is verified; on failure the browser is redirected to `/login/?next=<the page asked for, with its query string>` | `@requires_seek_login_redirect()` in `seek/decorators.py`, or `login_redirect(request)` from the same module in an inline check |
 | Django user | the Django session user | `request.user.is_authenticated` (the assistant page only) |
 | superuser | SEEK login plus superuser | `@requires_supervisor` in `seek/decorators.py` (superuser, not `is_staff`; every SEEK user becomes `is_staff` at login) |
 | member | SEEK login plus project membership | checked in the view (`_may_see_project` and similar) |
@@ -42,12 +42,11 @@ The string passed to `requires_seek_login_redirect` is the `next` target after l
 |---|---|---|---|---|---|---|
 | `/` | `home` | `dmac/views.py:home` | `themes/NextSeek/templates/index.html` (block `main`) | anonymous (see known issues) | sidebar wordmark and "Home" in `nav.embed.html`, login page wordmark | [shell.md](shell.md), [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
 | `/login` | `login_seek` | `dmac/views.py:login_seek` | `login.html` (extends `base_auth.html`, styles inline in the file) | anonymous | "Sign in" in `accounts/includes/user_panel.html`, every login redirect | [shell.md](shell.md) |
-| `/logout` | `logout_seek` | `dmac/views.py:logout_seek` | none | none | nothing; returns HTTP 500 (security item SEC-0930-D, tracked privately) | [legacy.md](legacy.md) |
 | `/signup/` and `/accounts/signup/` | `signup_seek` (both; reverse resolves to the `accounts/` one) | `dmac/views.py:signup_seek` | none: 302 to `SEEK_PUBLIC_URL + /signup` | anonymous | "Sign up" on the login page | [shell.md](shell.md) |
 | `/media/<path>` | none | `dmac/media.py:serve_media` | file response | logged-in only; anonymous gets 302 to `/login/` | download links produced by exports | [search-and-downloads.md](search-and-downloads.md) |
 | `/admin/` | Django admin | `django.contrib.admin` | Django admin templates | Django staff login | sidebar "Admin Panel" (superusers only) | [legacy.md](legacy.md) |
 
-The login route is registered twice: `^login` and `^accounts/login/` (the second sits after the Mezzanine include, so Mezzanine's own `/accounts/login/` answers first; see the Mezzanine table). Login route pattern: security item SEC-0930-I, tracked privately. The login view itself: SEC-0930-A. The home page for logged-out visitors: SEC-0930-C.
+The login route is registered twice: `^login/?$` and `^accounts/login/` (the second sits after the Mezzanine include, so Mezzanine's own `/accounts/login/` answers first; see the Mezzanine table). The login view follows `next` only to a path on this site. The home page for logged-out visitors: SEC-0930-C.
 
 ### Search and downloads
 
@@ -66,7 +65,7 @@ The login route is registered twice: `^login` and `^accounts/login/` (the second
 
 | URL | URL name | View | Template (main embeds) | Who | Linked from | Covered in |
 |---|---|---|---|---|---|---|
-| `/seek/samples/upload/` | `sampleUpload` | `seek/views/upload.py:batchUpload` | `batchUpload.html` + `pages/batch_upload.embed.html`; says "desktop-only" on small screens | SEEK login (`next` is a wrong literal, see known issues) | sidebar "Assay Sheet Upload" and "+ New sample", home action card | [upload-and-samples.md](upload-and-samples.md) |
+| `/seek/samples/upload/` | `sampleUpload` | `seek/views/upload.py:batchUpload` | `batchUpload.html` + `pages/batch_upload.embed.html`; says "desktop-only" on small screens | SEEK login | sidebar "Assay Sheet Upload" and "+ New sample", home action card | [upload-and-samples.md](upload-and-samples.md) |
 | `/seek/data/upload/` | `datafileUpload` | `upload.py:datafileUpload` | `dataFileUpload.html` | SEEK login | sidebar "Data & Protocol Upload" | [upload-and-samples.md](upload-and-samples.md) |
 | `/seek/templates/` (no `$`, so `/seek/templates/anything` also matches) | `templatesList` | `seek/views/assets.py:templatesList` | `templatesList.html` | SEEK login (`next=/seek/templates`) | sidebar "Templates" | [upload-and-samples.md](upload-and-samples.md) |
 
@@ -86,16 +85,16 @@ The login route is registered twice: `^login` and `^accounts/login/` (the second
 | URL | URL name | View | Template | Who | Linked from | Covered in |
 |---|---|---|---|---|---|---|
 | `/seek/sampletypes/` | `sampleTypesList` | `seek/views/catalog.py:sampleTypesList` | `sampleTypesList.html` + `catalog_styles.html`, `includes/catalog_table.html`, `includes/catalog_table_filter.js` | SEEK login | sidebar "Sample Types", home action card, help icons on the search page | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
-| `/seek/sampletypes/<code>/` | `sampleTypeDetail` | `catalog.py:sampleTypeDetail` | `sampleTypeDetail.html` + `includes/attribute_definitions_table.html` | SEEK login (`next` is the list, not the detail) | catalog rows, assay pages, project page | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
+| `/seek/sampletypes/<code>/` | `sampleTypeDetail` | `catalog.py:sampleTypeDetail` | `sampleTypeDetail.html` + `includes/attribute_definitions_table.html` | SEEK login | catalog rows, assay pages, project page | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
 | `/seek/assays/` | `assaysList` | `catalog.py:assaysList` | `assaysList.html` | SEEK login | sidebar "Assays", home action card | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
-| `/seek/assays/<slug>/` | `assayDetail` | `catalog.py:assayDetail` | `assayDetail.html` | SEEK login (`next` is the list) | assay list rows, sample type detail | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
+| `/seek/assays/<slug>/` | `assayDetail` | `catalog.py:assayDetail` | `assayDetail.html` | SEEK login | assay list rows, sample type detail | [projects-catalogs-graphs.md](projects-catalogs-graphs.md) |
 
 ### Data files and SOPs
 
 | URL | URL name | View | Template (main embeds) | Who | Linked from | Covered in |
 |---|---|---|---|---|---|---|
-| `/seek/datafile/query/` | `datafileQuery` | `seek/views/assets.py:datafileQuery` | `dataFilesPage.html` + `pages/datafile_table.embed.html` | SEEK login (bare `/login/`) | sidebar "Data File Query", home tile, project page | [search-and-downloads.md](search-and-downloads.md) |
-| `/seek/sop/query/` | `sopQuery` | `assets.py:sopQuery` | `sopsPage.html` + `pages/sops_table.embed.html` | SEEK login (bare `/login/`) | sidebar "Protocol Query" | [search-and-downloads.md](search-and-downloads.md) |
+| `/seek/datafile/query/` | `datafileQuery` | `seek/views/assets.py:datafileQuery` | `dataFilesPage.html` + `pages/datafile_table.embed.html` | SEEK login | sidebar "Data File Query", home tile, project page | [search-and-downloads.md](search-and-downloads.md) |
+| `/seek/sop/query/` | `sopQuery` | `assets.py:sopQuery` | `sopsPage.html` + `pages/sops_table.embed.html` | SEEK login | sidebar "Protocol Query" | [search-and-downloads.md](search-and-downloads.md) |
 
 ### Admin pages
 
@@ -115,7 +114,7 @@ The two `admin/` pages with a decorator pass `next='/seek/samples/attributes/'`,
 
 | URL | URL name | View | Template | Who | Linked from | Covered in |
 |---|---|---|---|---|---|---|
-| `/seek/assistant/` (no `$`; `/seek/assistant/<anything>` is used by the React router) | `assistant` | `seek/views/search.py:smartSearch` | `smartSearch.html`, which mounts the Vite bundle with `{% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}` | Django user (`request.user.is_authenticated`); an anonymous visitor gets `error.html` with HTTP 200 | `includes/nessie_button.html` (included by `nav.embed.html` and the home page) | [chat-frontend.md](chat-frontend.md) |
+| `/seek/assistant/` (no `$`; `/seek/assistant/<anything>` is used by the React router) | `assistant` | `seek/views/search.py:smartSearch` | `smartSearch.html`, which mounts the Vite bundle with `{% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}` | Django user (`request.user.is_authenticated`); an anonymous visitor is sent to sign in | `includes/nessie_button.html` (included by `nav.embed.html` and the home page) | [chat-frontend.md](chat-frontend.md) |
 
 ### Help and API docs
 
@@ -211,10 +210,10 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 ## Gotchas
 
 - A route placed after the Mezzanine include in `dmac/urls.py` never matches. The signup route is deliberately placed before it; the second login registration is not, which is why it is dead.
-- Many `seek/urls.py` patterns have no trailing `$` (`^templates/`, `^newsearch/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others; two `nhp` patterns also have no `^`), so they answer any longer path. `^assistant/` is open on purpose, for the chat's deep links. The login route pattern is security item SEC-0930-I, tracked privately. `^templates/download/$` works only because it is listed before `^templates/`; keep that order when editing.
+- Many `seek/urls.py` patterns have no trailing `$` (`^templates/`, `^newsearch/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others; two `nhp` patterns also have no `^`), so they answer any longer path. `^assistant/` is open on purpose, for the chat's deep links. `^templates/download/$` works only because it is listed before `^templates/`; keep that order when editing.
 - `/seek/search/` is sample search. `/search/` is Mezzanine's site search. `/seek/sampletypes/` is the catalog (describes types); `/seek/sample_types/id=<id>/` lists samples of a type. The names differ by one underscore on purpose.
 - `seek/urls.py` has 65 routes. `seek/README.md` and the retired UI snapshot (`docs/archive/2026-09/2026-09-03-ui-snapshot.md`) say 62.
-- `error.html` is returned with HTTP 200 for "not in this project" and for an anonymous assistant visit, so monitors and `ci/routes.py` cannot tell it from a page.
+- `error.html` is returned with HTTP 200 for "not in this project", so monitors and `ci/routes.py` cannot tell it from a page.
 - A theme template edit shows on the next request; a `seek/templates/` edit needs `./startup.sh rebuild`. On a worktree, the compose bind mount serves the compose directory's theme, not the worktree's.
 - The user panel is included from `base.html` through `includes/user_panel.html`, which includes `accounts/includes/user_panel.html`. The "Profile" menu item there never renders because the profile URLs are disabled in Mezzanine.
 - Hard-coded `/seek/samples/publish/` and `/seek/samples/publishlist/` targets on the search page do not resolve; the routes do not exist.
@@ -224,6 +223,5 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 
 See [known-issues.md](known-issues.md#pages). The ones that matter most for this page:
 
-- Login `next` targets are wrong for "+ New sample" (`/seek/samples/batchupload/` does not exist), both admin pages, and both catalog detail pages.
-- `/accounts/login/` is answered by Mezzanine, not by the SEEK login view, and `/logout` returns HTTP 500.
+- `/accounts/login/` is answered by Mezzanine, not by the SEEK login view.
 - Unlinked Mezzanine pages (blog, site search, account forms) are live in the app chrome (security item SEC-0930-H), and two admin pages are security item SEC-0930-B (both tracked privately).

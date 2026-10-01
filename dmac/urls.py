@@ -19,8 +19,7 @@ from . import views
 admin.autodiscover()
 
 urlpatterns = i18n_patterns(
-    re_path(r'^login', views.login_seek, name="login_seek"),
-    re_path(r'^logout$', views.logout_seek, name="logout_seek"),
+    re_path(r'^login/?$', views.login_seek, name="login_seek"),
     re_path(r'^signup/', views.signup_seek, name="signup_seek"),
     
     re_path("^admin/", include(admin.site.urls)),

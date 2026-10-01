@@ -35,7 +35,7 @@ Bootstrap 5 with theme tokens and are the only ones that cope with a phone.
 "+ New sample" (sidebar or home tile)
       |  plain <a href="/seek/samples/upload/">
       v
-/seek/samples/upload/  --(logged out)--> /login/?next=/seek/samples/batchupload/   (not a route)
+/seek/samples/upload/  --(logged out)--> /login/?next=/seek/samples/upload/
       |
       v
 batchUpload view -> batchUpload.html -> pages/batch_upload.embed.html
@@ -56,13 +56,9 @@ an assay sheet; there is no single-sample form, although the home tile text says
 | Home tile | `themes/NextSeek/templates/index.html`, `<a class="dash-action accent">` in `aside.dash-actions` | Home page only. |
 | Sidebar "Data Entry" submenu | `nav.embed.html`, `#dataEntrySubmenu` | Two links: "Assay Sheet Upload" (`/seek/samples/upload/`) and "Data & Protocol Upload" (`/seek/data/upload/`). Collapse is Bootstrap, wired in `themes/NextSeek/static/js/nextseek.js`. |
 
-Logged-out behaviour: the `batchUpload` view is wrapped in `requires_seek_login_redirect(...)` from
-`seek/decorators.py`, which sends the browser to `/login/?next=<path>`. The path passed in
-`seek/views/upload.py` is `/seek/samples/batchupload/`, which matches no route (the real route is
-`/seek/samples/upload/`), so after signing in the user lands on a 404. The decorator on
-`datafileUpload` passes the correct `/seek/data/upload/`. The same wrong path is recorded as
-expected behaviour in `ci/routes.py` (the `Route` for `/seek/samples/upload/`), so fix both together.
-The login view itself is covered by (security item SEC-0930-A, tracked privately).
+Logged-out behaviour: the `batchUpload` and `datafileUpload` views are wrapped in
+`requires_seek_login_redirect()` from `seek/decorators.py`, which sends the browser to
+`/login/?next=<the page asked for>`, so signing in returns to the upload page.
 
 Styling: `.qa-cta` and its `.qa-plus` in `themes/NextSeek/static/css/nextseek.css`; a media rule
 under 992px forces it to `display:inline-flex`, which shrinks the button to about 120px inside the

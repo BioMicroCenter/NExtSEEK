@@ -76,7 +76,7 @@ surface at all. The vocabulary and the reasoning behind the default are at
 The `REGISTRY` list begins at `ci/routes.py:271`. What it holds today -- how many
 entries, how many excluded, how many pinned `xfail`, how many per profile -- is an
 import away rather than a number worth keeping here; the one entry that sets
-`prod_allows_non_get` is the `^login` route at `ci/routes.py:289-294`, and the
+`prod_allows_non_get` is the `^login/?$` route in `ci/routes.py`, and the
 placeholder vocabulary its paths draw on is `PLACEHOLDERS` at
 `ci/routes.py:229-247`.
 

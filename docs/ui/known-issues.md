@@ -37,30 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 2. Broken routes and login next targets
-
-Files: `seek/decorators.py` (`requires_seek_login_redirect`), `seek/views/search.py` (`smartSearch`),
-`seek/views/upload.py` (`batchUpload`), `seek/views/samples.py` (`sample`, `sampleTree`),
-`seek/views/assets.py` (`sopQuery`, `datafileQuery`), `dmac/views.py` (`logout_seek`), `dmac/urls.py`,
-the matching `Route(...)` entries in `ci/routes.py` and, for UI-024, `_PROJECT_LEVEL` in
-`ci/gate/live_routes.py`. The shared `next` fix below also touches `seek/views/admin.py` and
-`seek/views/catalog.py` (UI-025).
-
-6. [UI-020](#pages): logged out, `/seek/assistant/` shows an access error instead of sending the user to
-   sign in.
-7. [UI-021](#pages): signing in from "+ New sample" lands on a 404 (`next=/seek/samples/batchupload/`).
-8. [UI-022](#pages): logged out, the sidebar UID search sends the user to `/login/?next=/seek/sample/id=None/`.
-9. [UI-023](#pages): Data File Query and SOP Query send logged-out users to `/login/` with no `next`, so
-   they land on home after signing in.
-10. [UI-024](#pages): `GET /logout` returns HTTP 500.
-
-One change covers UI-021, UI-023 and UI-025: make `requires_seek_login_redirect` build `next` from
-`request.get_full_path()` when a view passes no target (it builds the target once, at decoration
-time, today), then drop the wrong literals from `batchUpload`, `adminClades`, `internalAssays`,
-`sampleTypeDetail` and `assayDetail` and update their `ci/routes.py` notes. UI-020 needs the
-decorator added to `smartSearch`, UI-022 a change in `sampleTree` and `sample`, and UI-024 its own
-fix.
-
 ### 3. "+ New sample" on phones
 
 Files: `seek/templates/batchUpload.html`, `seek/templates/pages/batch_upload.embed.html`,
@@ -128,17 +104,11 @@ Routes, views, login redirects, error pages and the Mezzanine pages that share t
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-020 | broken | Logged out, `/seek/assistant/` shows "Access Error, You do not have access to this page" with only "Go to Home", instead of sending the user to sign in | live 2026-09-30 | `seek/views/search.py` `smartSearch` (renders `error.html`) | Use `@requires_seek_login_redirect('/seek/assistant/')` like the other search pages |
-| UI-021 | broken | Logged out, "+ New sample" goes to `/login/?next=/seek/samples/batchupload/`; after signing in the user gets a 404 (that path is not a route; the real one is `/seek/samples/upload/`) | live 2026-09-30 | `seek/views/upload.py` `batchUpload` decorator argument; `ci/routes.py` records the wrong path as expected | Change the target to `/seek/samples/upload/` and update the `ci/routes.py` entry in the same commit |
-| UI-022 | broken | Logged out, the sidebar UID search goes to `/login/?next=/seek/sample/id=None/`, a broken next target | live 2026-09-30 | `seek/views/samples.py` `sampleTree` (looks up the id before the login check) and `sample` (builds `next` from the id) | Check login first in `sampleTree` and use `request.get_full_path()` as `next` |
-| UI-023 | confusing | `/seek/datafile/query/` and `/seek/sop/query/` send logged-out users to `/login/` with no `next`, so they land on home after signing in. The same bare redirect is used by `newSearch`, `project_samples` and `project_connections` | live 2026-09-30 | `seek/views/assets.py` `datafileQuery`, `sopQuery`; `seek/decorators.py` `requires_seek_login_redirect` (a `None` target means bare `/login/`) | Default `next` to `request.get_full_path()` when no target is given |
-| UI-024 | broken | `GET /logout` returns HTTP 500. Nothing in the UI links to it (the user menu uses Mezzanine's logout), so only bookmarks hit it (security item SEC-0930-D, tracked privately) | live 2026-09-30 | `dmac/views.py` `logout_seek`; route `^logout$` in `dmac/urls.py`; its `ci/routes.py` entry and `_PROJECT_LEVEL` line | Delete the route, the view and both CI entries; do not just patch the redirect (coordinate with the private SEC-0930-D item) |
-| UI-025 | confusing | Signing in from an admin page (clades, internal assays) lands on Sample Attributes; signing in from a sample type or assay detail page lands on the catalog list | code | `seek/views/admin.py` `adminClades`, `internalAssays`; `seek/views/catalog.py` `sampleTypeDetail`, `assayDetail` | Use the requested path as `next` (same fix as UI-023) |
 | UI-026 | broken | `/accounts/login/` serves Mezzanine's own login form, not the SEEK login, because Mezzanine's include is listed first and matches first, so the second `login_seek` registration is dead. CI checks only for a 200, which Mezzanine also returns (security item SEC-0930-H, tracked privately) | code | `dmac/urls.py` (`accounts/login/` entry after `include("mezzanine.urls")`); `ci/routes.py` | Move the entry above the Mezzanine include (like the signup line) or set `LOGIN_URL = "/login/"` |
 | UI-027 | confusing | Mezzanine pages that are not part of NExtSEEK answer inside the app with no theme styling: `/blog/` (200), `/search/`, `/accounts/update/`, `/password_reset/` (security item SEC-0930-H, tracked privately) | live 2026-09-30 (`/blog/`); code (others) | `dmac/settings.py` `INSTALLED_APPS` (Mezzanine blog, pages, forms, galleries); `dmac/urls.py` Mezzanine include | Remove unused Mezzanine apps (check migrations first) or style and link the ones kept |
-| UI-028 | confusing | Access errors ("You are not in this project", anonymous Nessie) render `error.html` with HTTP 200, so bookmarks, monitors and CI cannot tell an error from a page; the themed 404 page is never used | code | `seek/views/projects.py` `project_page`; `seek/views/search.py` `smartSearch`; `dmac/urls.py` `handler404` (Mezzanine's view; the theme has no errors folder) | Pass `status=403`; add themed 404 and 500 templates in an errors folder under the theme templates |
+| UI-028 | confusing | Access errors ("You are not in this project") render `error.html` with HTTP 200, so bookmarks, monitors and CI cannot tell an error from a page; the themed 404 page is never used | code | `seek/views/projects.py` `project_page`; `dmac/urls.py` `handler404` (Mezzanine's view; the theme has no errors folder) | Pass `status=403`; add themed 404 and 500 templates in an errors folder under the theme templates |
 | UI-029 | broken | `/seek/remote/` and `/seek/url/<x>/` raise NameError (500). Unlinked, xfailed in CI | code | `seek/views/search.py` `remote` (calls undefined `samples`); `seek/views/samples.py` `seek` (calls undefined `getPageRequests`) | Delete both routes and views |
-| UI-030 | debt | Several `seek/urls.py` patterns have no end anchor, so longer paths such as `/seek/templates/zzz` and `/seek/search/anything` also answer. The login route pattern is security item SEC-0930-I, tracked privately | code | `seek/urls.py` `^templates/`, `^newsearch/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others (`^assistant/` is open on purpose: the chat's `chat/<uuid>` deep links need it) | Add `$` to each (keep `^templates/download/$` above `^templates/`), update the matching `ci/routes.py` patterns and re-run the route gate |
+| UI-030 | debt | Several `seek/urls.py` patterns have no end anchor, so longer paths such as `/seek/templates/zzz` and `/seek/search/anything` also answer. | code | `seek/urls.py` `^templates/`, `^newsearch/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others (`^assistant/` is open on purpose: the chat's `chat/<uuid>` deep links need it) | Add `$` to each (keep `^templates/download/$` above `^templates/`), update the matching `ci/routes.py` patterns and re-run the route gate |
 | UI-031 | debt | `project_page` checks the SEEK login by hand instead of using the shared decorator | code | `seek/views/projects.py` `project_page` | Use `requires_seek_login_redirect` |
 
 ## upload-and-samples
@@ -307,12 +277,9 @@ The Getting Started page, API docs pages and help links. See [docs-and-help.md](
 
 | Code | Area |
 |---|---|
-| SEC-0930-A | the login view |
 | SEC-0930-B | two admin pages (sample attributes, admin retrieve) |
 | SEC-0930-C | the home page for logged-out visitors |
-| SEC-0930-D | the legacy /logout view |
 | SEC-0930-E | the vendored EasyUI demo folders |
 | SEC-0930-F | third-party script loading (CDN tags) |
 | SEC-0930-G | the sample timeline route |
 | SEC-0930-H | Mezzanine's own url includes (blog, search, accounts) |
-| SEC-0930-I | the login route pattern |

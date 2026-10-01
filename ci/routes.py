@@ -286,7 +286,7 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-    Route(pattern=r"^login", path="/login/",
+    Route(pattern=r"^login/?$", path="/login/",
           effect="external",
           methods=("GET", "POST"), profiles="local,dev,prod", auth="anon", expect=200,
           prod_allows_non_get=True,
@@ -304,12 +304,6 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=302,
           note="hands account creation to SEEK; redirects to SEEK_PUBLIC_URL/signup"),
-
-    # project-level, excluded
-    Route(pattern=r"^logout$", path=None,
-          effect="external",
-          methods=(), profiles="", auth="anon", exclude="EXCLUDE_UNSAFE_METHOD",
-          note="the SEEK logout view"),
 
     # ----------------------------------------------------------------- #
     # not in the application resolver: nginx-served asset, Django admin
@@ -431,8 +425,7 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^seek/^samples/upload/", path="/seek/samples/upload/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="bounces an anonymous visitor to /login/?next=/seek/samples/batchupload/, "
-               "which is not the requested path; do not assert on next"),
+          note="bounces an anonymous visitor to /login/?next=/seek/samples/upload/"),
     Route(pattern=r"^seek/^sampletree/uid=(?P<uid>[\w.-]{0,256})/$",
           path="/seek/sampletree/uid={sample_uid}/",
           effect="reads",

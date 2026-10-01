@@ -16,6 +16,7 @@ error-presentation step, not here.
 
 import functools
 import logging
+from urllib.parse import quote
 
 from django.contrib.auth.models import User
 from django.http import HttpResponseRedirect
@@ -89,26 +90,36 @@ def requires_seek_login(view=None, *, log_failure=False):
     return wrapper
 
 
+def login_redirect(request, next_url=None):
+    """302 to the login page, which returns to ``next_url`` or, by default, to
+    the page that was asked for (path and query string).
+
+    Built from the decoded path rather than ``get_full_path()``, which is already
+    escaped and would come out double-encoded.
+    """
+    if next_url is None:
+        query = request.META.get('QUERY_STRING', '')
+        next_url = request.path + ('?' + query if query else '')
+    return HttpResponseRedirect('/login/?next=' + quote(next_url, safe='/='))
+
+
 def requires_seek_login_redirect(next_url=None, *, whetherFullInfo=False):
     """Send the browser to the login page unless the SEEK login succeeds.
 
     The page views use this where the AJAX views use :func:`requires_seek_login`:
-    a redirect rather than a JSON envelope. ``next_url`` is the path to return to
-    afterwards; ``None`` reproduces the four views that redirect to a bare
-    ``/login/`` with no ``next`` parameter at all. The target is assembled once,
-    at decoration time, by the same concatenation the inlined copies used.
+    a redirect rather than a JSON envelope. After signing in the user returns to
+    the page they asked for; ``next_url`` overrides that only where returning
+    there makes no sense (a file download returns to its list page).
 
     ``whetherFullInfo`` is ``getSeekLogin``'s own second argument. Two views pass
     ``True`` and the rest ``False``; it is a parameter rather than a constant
     because that difference is real and undocumented.
     """
-    target = '/login/' if next_url is None else '/login/?next=' + next_url
-
     def decorate(view):
         @functools.wraps(view)
         def wrapper(request, *args, **kwargs):
             if not _login(request, whetherFullInfo)['status']:
-                return HttpResponseRedirect(target)
+                return login_redirect(request, next_url)
             return view(request, *args, **kwargs)
         return wrapper
     return decorate

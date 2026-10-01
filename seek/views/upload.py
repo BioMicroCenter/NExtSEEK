@@ -24,7 +24,7 @@ from .shared import SEEK_DATABASE, UPLOAD_DIRECTORY, report
 
 logger = logging.getLogger(__name__)
 
-@requires_seek_login_redirect('/seek/samples/batchupload/', whetherFullInfo=True)
+@requires_seek_login_redirect(whetherFullInfo=True)
 def batchUpload(request):
     seekdb = request.seekdb
     user_seek = request.user_seek
@@ -301,7 +301,7 @@ def samplesValidate(request):
                 
     return HttpResponse(simplejson.dumps(data, default=str))       
 
-@requires_seek_login_redirect('/seek/data/upload/', whetherFullInfo=True)
+@requires_seek_login_redirect(whetherFullInfo=True)
 def datafileUpload(request):
     seekdb = request.seekdb
     user_seek = request.user_seek

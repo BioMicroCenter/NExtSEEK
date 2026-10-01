@@ -62,7 +62,7 @@ def _group_by_clade(entries):
             for name in _ordered_clades(buckets) if buckets.get(name)]
 
 
-@requires_seek_login_redirect('/seek/sampletypes/')
+@requires_seek_login_redirect()
 def sampleTypesList(request):
     """Every curated sample type as a scannable table, grouped by clade.
 
@@ -91,7 +91,7 @@ def sampleTypesList(request):
     })
 
 
-@requires_seek_login_redirect('/seek/sampletypes/')
+@requires_seek_login_redirect()
 def sampleTypeDetail(request, code):
     """One sample type. 404 for a code with no curated row."""
     entry = load_sample_type(code)
@@ -150,7 +150,7 @@ def _all_codes(groups):
     return " · ".join(seen)
 
 
-@requires_seek_login_redirect('/seek/assays/')
+@requires_seek_login_redirect()
 def assaysList(request):
     """Every curated assay as a table, grouped by the clade it consumes.
 
@@ -187,7 +187,7 @@ def assaysList(request):
     })
 
 
-@requires_seek_login_redirect('/seek/assays/')
+@requires_seek_login_redirect()
 def assayDetail(request, slug):
     """One assay. Two rows when the name appears twice; neither is preferred."""
     entry = load_assay(slug)

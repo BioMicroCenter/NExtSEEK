@@ -42,12 +42,11 @@ IGNORE_PREFIXES = ("admin/", "^admin/")
 OWNED_PREFIXES = ("nextseek_api/", "^nextseek_api/", "seek/", "^seek/")
 
 # Project-level routes CI owns. Anything else at the URL root belongs to Mezzanine.
-# '^logout$' keeps its anchor: that is the pattern the resolver reports, and the
-# diff is by exact string.
+# Patterns keep their anchors: they are what the resolver reports, and the diff is
+# by exact string.
 _PROJECT_LEVEL = {
     "^$",
-    "^login",
-    "^logout$",
+    "^login/?$",
     "^signup/",
     "^accounts/login/",
     "^accounts/signup/",

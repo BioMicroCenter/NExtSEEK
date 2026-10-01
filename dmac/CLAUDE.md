@@ -93,19 +93,6 @@ not fail locally; it fails somewhere else.
   `python -c 'import dmac.views'` from that same mount does not. Both measured 2026-09-03;
   the second raised `OSError: [Errno 30] Read-only file system: '/src/dmac.logs'`, and
   from a writable directory it left a `dmac.logs` behind.
-- **`GET /logout` raises `NameError` on every request.** `dmac/views.py:174` calls
-  `reverse`, and a grep for that name over `dmac/views.py` matches only that line: it is
-  never imported. Confirmed 2026-09-03 by calling `logout_seek` with a stub session in the
-  application image: `NameError: name 'reverse' is not defined`. There is also no URL named
-  `index` to reverse: grepping every `*.py` in the worktree for `name="index"` and
-  `name='index'` returns nothing. The route is live at `dmac/urls.py:23`, so the 500 is
-  reachable; today's navbar link goes to Mezzanine's logout instead
-  (`themes/NextSeek/templates/accounts/includes/user_panel.html:38`), which is why nobody
-  has hit it.
-- **The failing line runs *after* a shell-out.** `dmac/views.py:172` executes
-  `rm -r <username>` relative to the server's working directory whenever the session
-  carries a username, and only then reaches the crash. Anything that reintroduces a
-  `/logout` link deletes a directory before returning a 500.
 - **`{% url "login_seek" %}` produces a URL this package does not serve.**
   `dmac/urls.py:56` registers that name last, so reversing it wins there, but the pattern
   sits after the catch-all and never resolves. Measured 2026-09-03: the name reverses to

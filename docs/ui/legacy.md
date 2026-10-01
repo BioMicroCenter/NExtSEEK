@@ -167,7 +167,6 @@ Live images that look like leftovers: `img/favicon.png` (the favicon links in th
 |---|---|---|
 | `login_full` in `dmac/views.py` | Renders `home.html`, which does not exist anywhere | No: `dmac/urls.py` routes `login_seek` |
 | `index` in `dmac/views.py` | Renders `seek_login.html`, which does not exist | No. Nothing imports it except tests touching `home` |
-| `logout_seek` in `dmac/views.py` | Ends with `reverse('index')`, but no URL is named `index` (names in `dmac/urls.py`: `login_seek`, `logout_seek`, `signup_seek`, `home`, `set_language`), so `/logout` answers HTTP 500 (security item SEC-0930-D, tracked privately) | Yes, `^logout$` |
 | `sampleSearch` in `seek/views/search.py` | Builds a `report` dict, discards it, redirects to `/seek/search/` | Yes, but it only redirects |
 
 ## Deletion candidates
@@ -220,7 +219,6 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 
 | Task | Files and steps |
 |---|---|
-| Fix `/logout` returning 500 | Delete the `^logout$` route in `dmac/urls.py`, the `logout_seek` view and the `^logout$` entries in `ci/routes.py` and `_PROJECT_LEVEL`, then let the gate say whether `OWNED_ROUTE_COUNT` changes (the sidebar already signs out through Mezzanine). Do not just patch the `reverse` call: the view is security item SEC-0930-D, tracked privately, so coordinate before changing it |
 | Really hide Sample Tree v1 | `pages/samples.embed.html`: replace the two `<!-- ... -->` blocks around the `samples_tree.embed.html` includes with `{# #}` or `{% comment %}`, or delete the includes |
 | Retire an old template | Run the checks above, delete the file, edit `ORPHANS` in `nextseek_api/tests/test_download_call_sites.py` if it is listed, and fix the stale citation of the old single-module views file in that file's docstring (views is a package now; the commented render is in `seek/views/search.py`) |
 | Clean up the repo-root `templates/` | Delete the folder in one commit, and update the "81 files" statements in `themes/README.md` |
@@ -243,6 +241,5 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 
 Tracked in [known-issues.md](known-issues.md#legacy). The ones that matter most for this area:
 
-- `/logout` returns HTTP 500 because `logout_seek` reverses a URL name that does not exist (security item SEC-0930-D, tracked privately).
 - Vendored EasyUI demo folders are published and duplicated across two static roots (security item SEC-0930-E, tracked privately).
 - Sample Tree v1 is hidden with HTML comments but still rendered into every sample detail page source.

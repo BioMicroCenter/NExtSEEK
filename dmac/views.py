@@ -5,6 +5,7 @@ from django import forms
 from django.db.models import Q
 from django.contrib.auth import authenticate, login
 from django.conf import settings
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import simplejson
 import datetime
@@ -107,6 +108,15 @@ def userSynchronization(user_seek):
 
     return status, msg
 
+def _safe_next(request):
+    """The ``next`` page to return to after signing in: a path on this site, else home."""
+    next_url = request.GET.get('next', '')
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()},
+                                       require_https=request.is_secure()):
+        return next_url
+    return '/'
+
+
 def login_seek(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, fromLoginForm=True)  # body credentials, once SEEK accepts them
@@ -155,13 +165,7 @@ def login_seek(request):
                     request.session.flush()
                     return render(request, 'login.html', {'error': msg})
             
-            httpurl = request.get_full_path()
-            urls = httpurl.split('?next=')
-            if len(urls)>1:
-                url_redirect = urls[1]
-            else:
-                url_redirect = "/"
-            return HttpResponseRedirect(url_redirect)
+            return HttpResponseRedirect(_safe_next(request))
         else:
             logger.debug("SEEK authentication failed, re-login")
             request.session.flush()
@@ -172,12 +176,6 @@ def login_seek(request):
         
     return render(request, 'login.html')
 
-def logout_seek(request):
-    if request.session.get('username') is not None:
-        call(["rm", "-r", request.session.get('username')])
-        request.session.flush()
-    return HttpResponseRedirect(reverse('index'))
-    
 def login_full(request):
     if request.method == 'POST':
         err = []
