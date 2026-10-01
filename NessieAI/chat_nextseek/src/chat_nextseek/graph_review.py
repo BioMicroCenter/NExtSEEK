@@ -459,6 +459,14 @@ def _negated(value: str, term: str) -> bool:
     return i > 0 and bool(NEGATION.search(low[:i]))
 
 
+def _holds(value: str, term: str) -> bool:
+    """The free-text term is in the value; a term under 3 characters only as a whole word, never inside a longer one."""
+    low = value.lower()
+    if len(term) >= 3:
+        return term in low
+    return bool(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", low))
+
+
 # ---------------------------------------------------------------- the turn, read once --------------------------------
 @dataclass
 class _Turn:
@@ -698,7 +706,7 @@ def value_spellings(question: str, *, blob: set[str], type_words: set[str]) -> l
     """The spellings under which a stored value would be one the question names, for one queried type.
 
     Each run of 1 to ``PHRASE_MAX_WORDS`` question words that neither starts nor ends on a ``FUNCTION_WORDS`` word, and
-    that ``_unapplied_value`` would accept as a named value (three characters or more, not all digits, not a
+    that ``_unapplied_value`` would accept as a named value (two characters or more, not all digits, not a
     ``STOP_VALUES`` word, not only the type's own words, not only words the query already uses), is spelled every way
     a stored value plausibly writes it: the separators as typed or all ``SPELLING_SEPARATORS[i]``; the case as typed,
     lower, upper or capitalized, per word for a phrase of up to two words ("RNA-Seq" for "rna-seq"), for the whole
@@ -714,7 +722,7 @@ def value_spellings(question: str, *, blob: set[str], type_words: set[str]) -> l
             if low[0] in FUNCTION_WORDS or low[-1] in FUNCTION_WORDS:
                 continue
             phrase, tokens = " ".join(low), set(low)
-            if (len(phrase) < 3 or phrase.isdigit() or phrase in STOP_VALUES or tokens <= type_words
+            if (len(phrase) < 2 or phrase.isdigit() or phrase in STOP_VALUES or tokens <= type_words
                     or tokens <= blob):
                 continue
             raw = [m.group(0) for m in span]
@@ -807,7 +815,7 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
             stored = t.vals(lab, attr)
             for v, _c in stored:
                 vn = re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
-                if len(vn) < 3 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
+                if len(vn) < 2 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
                     continue
                 if f" {vn} " not in qn or _named_alias_applied(t.q, vn.split(), blob):
                     continue
@@ -817,11 +825,13 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
                 if _tokens(vn) <= strict_named:
                     continue                # a filter of its own applies it
-                hit = [term for term in terms if term in str(v).lower()]
+                hit = [term for term in terms if _holds(str(v), term)]
                 # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
-                # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended
+                # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended, unless the
+                # added words negate it (Not Hispanic or Latino for Hispanic or Latino)
                 others = [str(w) for w, _n in stored
-                          if any(term in str(w).lower() for term in hit) and not _tokens(vn) <= _tokens(str(w))
+                          if any(_holds(str(w), term) for term in hit)
+                          and (not _tokens(vn) <= _tokens(str(w)) or any(_negated(str(w), term) for term in hit))
                           and not any(x in str(w).lower() for x in excl)]
                 if others:                  # applied only as free text, and that text matches another stored value too
                     fact = TEXT_MATCH_FACT.format(value=v, others=_quoted(others[:3]))
