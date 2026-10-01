@@ -284,3 +284,53 @@ def test_builds_from_different_runs_are_refused_before_staging(env):
     assert "these builds come from different runs; upload one run at a time" in str(info.value)
     assert staged == []
     dispatch.assert_not_called()
+
+
+def test_a_hash_failure_on_a_staged_copy_is_refused_and_removes_every_copy(env, monkeypatch):
+    dispatch, staged = MagicMock(), []
+    new = _build(env, "reingest_A_ALN", "new")
+    update = _build(env, "reingest_D_SEQ_update", "update")
+    real_sha = build_records.sha256_of
+
+    def _sha(path):
+        if path.endswith(".staged") and len(staged) == 2:
+            raise OSError("I/O error reading /secret/staging/path")
+        return real_sha(path)
+
+    monkeypatch.setattr(build_records, "sha256_of", _sha)
+
+    def _stage(p):
+        staged.append(_copy_stage(p))
+        return staged[-1]
+
+    with pytest.raises(g.OpValidationError) as info:
+        _op({"build_ids": f"{new['build_id']},{update['build_id']}", "confirmed_write": True},
+            dispatch=dispatch, stage=_stage)
+    assert "reingest_D_SEQ_update: could not stage the workbook" in str(info.value)
+    assert "secret" not in str(info.value)
+    assert len(staged) == 2 and not any(os.path.exists(p) for p in staged)
+    dispatch.assert_not_called()
+
+
+def test_a_discard_that_hits_an_os_error_still_refuses_cleanly(env, monkeypatch):
+    new = _build(env, "reingest_A_ALN", "new")
+
+    def _tamper(p):
+        with open(p + ".staged", "wb") as fh:
+            fh.write(b"not the reviewed bytes")
+        return p + ".staged"
+
+    monkeypatch.setattr(upload.os, "remove", MagicMock(side_effect=PermissionError("denied")))
+    with pytest.raises(g.OpValidationError, match="does not match the reviewed workbook"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True}, stage=_tamper)
+
+
+@pytest.mark.parametrize("missing", ["sample_type", "mode", "artifact_key"])
+def test_an_incomplete_record_is_refused(env, missing):
+    dispatch = MagicMock()
+    new = _build(env, "reingest_A_ALN", "new")
+    _edit_record(new["build_id"], **{missing: None})
+    with pytest.raises(g.OpValidationError,
+                       match=f"{new['build_id'][:12]}: record is incomplete"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True}, dispatch=dispatch)
+    dispatch.assert_not_called()

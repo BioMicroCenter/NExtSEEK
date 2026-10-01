@@ -89,6 +89,8 @@ catalog, so a green run in the sqlite lane checks the committed snapshot only.
 - Reads `nextseek_api.assistant.models_db` (`PipelineRun`) from `launch_record.py` and
   `uid_resolve.py`, and `models_db` plus `nextseek_api.services.reingest_lookups` from
   `proposals.py` — allowed back-edges, listed in `NessieAI/tests/api/test_nessie_boundaries.py`.
-- Calls `nextseek_api.batch_upload.views` (`dispatch_batch_job`, `stage_workbook_copy`) from `upload.py`.
+- Never imports `nextseek_api.batch_upload.views`: `nextseek_api/services/assistant.py` puts
+  `dispatch_batch_job` and `stage_workbook_copy` on the session (`dispatch_job`, `stage_workbook`),
+  and `granular._upload_reingest` hands them to `upload.run`, which refuses when either is missing.
 - Called by `NessieAI/ns/granular.py` (`run-harvest`, `run-checksum`, `build-upload-xlsx`, `upload-reingest`) and
   by `nextseek_api/services/reingest_proposals.py` (the superuser review endpoint).

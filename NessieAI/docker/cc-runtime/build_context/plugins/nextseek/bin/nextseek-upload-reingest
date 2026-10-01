@@ -1,7 +1,8 @@
 #!/bin/sh
 # nextseek-upload-reingest — reingest step 5: upload the reviewed workbooks.
 # WRITES to NExtSEEK (one batch-upload job per workbook).
-# Layer 1: NOT in the L1 allowlist (auto_runnable false) — every call prompts.
+# Layer 1: NOT in the L1 allowlist (auto_runnable false) — not pre-allowed: the
+#          permission layer gates every invocation.
 # Layer 2: this shim requires both --build-ids and --confirmed-write; the
 #          runner re-checks --confirmed-write (WRITE_BLOCKED, exit 5).
 # Layer 3: the SKILL.md requires one explicit confirmation from the user,
@@ -28,8 +29,8 @@ while [ $# -gt 0 ]; do
       echo "(from build-upload-xlsx's builds), one batch-upload job per workbook."
       echo "WRITES to NExtSEEK. BOTH --build-ids and --confirmed-write are required;"
       echo "pass --confirmed-write only after the user explicitly said yes. This shim"
-      echo "is intentionally NOT in the L1 permission allowlist; every invocation"
-      echo "prompts the user."
+      echo "is intentionally NOT in the L1 permission allowlist: it is not pre-allowed,"
+      echo "and the permission layer gates every invocation."
       exit 0
       ;;
     *) nextseek_die 3 "unknown arg: $1" ;;

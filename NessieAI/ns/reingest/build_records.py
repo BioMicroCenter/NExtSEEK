@@ -55,16 +55,21 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
     owner = _owner_dir(user_id)
     os.makedirs(owner, exist_ok=True)
     final = os.path.join(owner, f"{record['build_id']}.json")
-    with tempfile.NamedTemporaryFile("w", dir=owner, delete=False, suffix=".tmp",
-                                     encoding="utf-8") as fh:
-        tmp = fh.name
-        try:
+    fh = tempfile.NamedTemporaryFile("w", dir=owner, delete=False, suffix=".tmp",
+                                     encoding="utf-8")
+    tmp = fh.name
+    try:
+        # The dump, the close (which flushes) and the replace all fail the same
+        # way: no record, and no .tmp left behind.
+        with fh:
             json.dump(record, fh, indent=2)
-        except BaseException:
-            fh.close()
+        os.replace(tmp, final)
+    except BaseException:
+        try:
             os.unlink(tmp)
-            raise
-    os.replace(tmp, final)
+        except OSError:
+            pass
+        raise
     return {k: v for k, v in record.items() if k != "path"}
 
 

@@ -94,3 +94,11 @@ def test_a_failed_dump_leaves_no_temp_and_no_record(root):
                 row_count=1, project_id=None, project_note="", answers_digest="d",
                 user_id=7)
     assert list((root / "builds" / "7").iterdir()) == []
+
+
+def test_a_failed_replace_leaves_no_temp_and_no_record(root, monkeypatch):
+    monkeypatch.setattr(build_records.os, "replace",
+                        MagicMock(side_effect=OSError("cross-device link")))
+    with pytest.raises(OSError):
+        _write(root)
+    assert list((root / "builds" / "7").iterdir()) == []

@@ -62,7 +62,10 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
         except build_records.BuildRecordError as exc:
             reasons.append(str(exc))
             continue
-        key = record.get("artifact_key", build_id[:12])
+        if not all(record.get(field) for field in ("sample_type", "mode", "artifact_key")):
+            reasons.append(f"{build_id[:12]}: record is incomplete")
+            continue
+        key = record["artifact_key"]
         if record.get("built_by_user_id") != user_id:
             reasons.append(f"{key}: built by another user")
             continue
@@ -137,18 +140,19 @@ def run(*, build_ids_raw, user, upload_context, dispatch, stage) -> dict:
         for _, staged in staged_paths:
             try:
                 os.remove(staged)
-            except FileNotFoundError:
-                pass
+            except OSError:
+                logger.warning("upload-reingest: could not remove staged copy %s", staged)
 
     for record in records:
         try:
             staged = stage(record["path"])
-        except Exception:  # noqa: BLE001
+            staged_paths.append((record, staged))
+            matches = build_records.sha256_of(staged) == record["build_id"]
+        except Exception:  # noqa: BLE001 -- the caller sees no raw text
             logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
             _discard()
             raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook"])
-        staged_paths.append((record, staged))
-        if build_records.sha256_of(staged) != record["build_id"]:
+        if not matches:
             _discard()
             raise UploadRefused(
                 [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook"])

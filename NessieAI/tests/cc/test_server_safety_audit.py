@@ -69,6 +69,22 @@ def test_transport_only_write_ops_are_write_confirm_and_blocked_unconfirmed():
         assert op.allowlist.auto_runnable is False
     with pytest.raises(WriteBlockedError):
         gate("api-write", None, None, "true")
+    # The handler itself, not only the gate, refuses an unconfirmed upload
+    # before it reaches the engine.
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    from NessieAI.ns import granular
+    from NessieAI.ns.reingest import upload
+
+    handler = granular._HANDLERS["upload-reingest"]
+    session = SimpleNamespace(user=SimpleNamespace(pk=7), upload_context=None)
+    for confirmed in ("true", None, False):
+        with patch.object(upload, "run") as run:
+            with pytest.raises(WriteBlockedError):
+                handler({"build_ids": "a" * 64, "confirmed_write": confirmed},
+                        None, session, gate, None, None)
+            run.assert_not_called()
 
 
 def test_api_read_opspec_safety_data_matches_enforced_allowlist():
