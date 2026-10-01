@@ -13,10 +13,12 @@
    ``manage.py graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop.
    A claimed single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such
    rows with it into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a
-   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A structural link a
-   by-id sync left unwritten fails only the samples its report names: such a sample's own row fails, a row of many
-   samples (a batch, a sample type) is closed and hands each such sample on as a ``sample:<id>`` row of its own that
-   keeps the row's attempts, failing time and back-off (``state.hand_on_failed``), and every other row is done.
+   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed
+   ``ALONE_AFTER_ATTEMPTS`` times since it was last written drains alone, so one sample whose sync raises cannot keep
+   failing the rows merged with it. A structural link a by-id sync left unwritten fails only the samples its report
+   names: such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each such
+   sample on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
+   (``state.hand_on_failed``), and every other row is done.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
 the loop claims nothing but the read-only drift check: the writing rows wait in the outbox, unclaimed, with their
@@ -81,6 +83,10 @@ DEFER_BACKOFF_S = 60                   # how long a deferred row waits; it count
 MAX_ROWS_PER_PASS = 1_000              # a pass with more work than this finishes it at the next one
 MERGED_KIND = "samples"                # the one kind whose single-sample rows the drain merges (A13)
 MERGED_KEY_PREFIX = "sample:"          # the key of a single-sample row; a batch row is never merged
+# A single-sample row claimed this many times since it was last written drains alone, and no other row takes it in:
+# a sync that raises on one sample fails every row merged with it, and the group, claimable again at one moment, would
+# otherwise re-merge until all of it was dead. A transient failure costs one merged retry.
+ALONE_AFTER_ATTEMPTS = 2
 
 # Closes every Django connection before each pass. Django refreshes connections only around a web request, so a
 # loop that lives for days keeps each one until MySQL drops it for idling, and every drain on it then fails with
@@ -471,11 +477,12 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
         if claim is None:
             break
         merged = ()
-        if _merges(claim):
+        if _merges(claim) and claim.attempts <= ALONE_AFTER_ATTEMPTS:
             # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each (A13). Merged
-            # rows count toward MAX_ROWS_PER_PASS like any other.
+            # rows count toward MAX_ROWS_PER_PASS like any other. A row that has failed twice merges with nothing.
             limit = min(writer.SAMPLE_CHUNK - 1, MAX_ROWS_PER_PASS - rows - 1)
-            merged = state.claim_more(worker_id, MERGED_KIND, MERGED_KEY_PREFIX, limit, now=tick)
+            merged = state.claim_more(worker_id, MERGED_KIND, MERGED_KEY_PREFIX, limit, now=tick,
+                                      below_attempts=ALONE_AFTER_ATTEMPTS)
         entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
                            clock=(lambda: now) if pinned else dj_timezone.now, merged=merged)
         report["drained"].append(entry)

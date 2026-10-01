@@ -91,20 +91,22 @@ leases, old run directories), puts the slots the schedule owes into the outbox, 
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
 memory returns when they end and a crash cannot take the loop with it. A claimed single-sample `samples` row takes up
 to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within the pass's 1,000 rows), whose outcome
-closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A by-id sync that left a
-structural link unwritten (a type, a project, a study or an investigation link) fails only the samples it names, each
-with why in its `last_error` (the project ids SEEK lacks, say): a single-sample row fails on its back-off, and a row
-of many samples (a batch, a sample type) is closed and hands each such sample on as a `sample:<id>` row that keeps
-its attempts, failing time and back-off; every other sample is done. A gap from SEEK's data never heals by itself:
-fix the SEEK row, then `--requeue-dead` the samples' rows if they died. A child's exit status decides its row: 0 and
-2 (a refusal) are done, anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child
-that exits 1 having saved a result that reports drift: that check did its job, so its row is done and the drift is in
-its run record, never retried into the same answer. The newest 20 run directories per kind are kept (the kinds the
-loop runs; a `merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every pass
-starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
-connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on
-it with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error
-2006 until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
+closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A row that has failed twice since
+it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it (a
+transient failure costs one merged retry). A by-id sync that left a structural link unwritten (a type, a project, a
+study or an investigation link) fails only the samples it names, each with why in its `last_error` (the project ids
+SEEK lacks, say): a single-sample row fails on its back-off, and a row of many samples (a batch, a sample type) is
+closed and hands each such sample on as a `sample:<id>` row that keeps its attempts, failing time and back-off; every
+other sample is done. A gap from SEEK's data never heals by itself: fix the SEEK row, then `--requeue-dead` the
+samples' rows if they died. A child's exit status decides its row: 0 and 2 (a refusal) are done, anything else backs
+off, a busy graph-write lock (exit 1) included, except a `drift` child that exits 1 having saved a result that reports
+drift: that check did its job, so its row is done and the drift is in its run record, never retried into the same
+answer. The newest 20 run directories per kind are kept (the kinds the loop runs; a `merge_studies`,
+`unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every pass starts by closing all of the
+process's Django database connections: the loop lives for days and Django refreshes connections only around a web
+request, so a connection MySQL dropped for idling would otherwise fail every drain on it with "Server has gone away".
+Before this, the loop never recovered by itself: every pass failed with MySQL error 2006 until the process was
+restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|

@@ -900,6 +900,52 @@ def test_a_handed_on_sample_keeps_the_attempts_and_the_failing_clock_of_its_batc
 
 
 @pytest.mark.django_db
+def test_a_row_that_failed_twice_drains_alone_so_the_healthy_rows_merged_with_it_close(work, monkeypatch):
+    """A sync that raises on one sample fails every row merged with it, and the group becomes claimable again at
+    one moment: without isolation it re-merges until all of it is dead. A row that has failed twice drains alone, so
+    the poison row fails by itself and the healthy rows close on their next claim."""
+    _single_rows(4)                                    # 1000 fails every sync it is in; 1001 to 1003 are healthy
+    synced = []
+
+    def sync(driver, db, ids, **kwargs):
+        synced.append(list(ids))
+        if 1000 in ids:
+            raise RuntimeError("sample 1000 cannot be written")
+        return {"status": targeted.OK}
+
+    monkeypatch.setattr(targeted, "sync_samples", sync)
+    hour = timedelta(seconds=state.backoff_s("samples"))
+    one_pass(work, now=T0)
+    one_pass(work, now=T0 + hour)
+    state.enqueue("samples", "sample:2000", now=T0 + hour + timedelta(minutes=30))     # a new write meanwhile
+    one_pass(work, now=T0 + 2 * hour)
+
+    assert synced == [[1000, 1001, 1002, 1003]] * 2 + [[1000], [1001], [1002], [1003], [2000]]
+    rows = {r.key: r for r in GraphSyncOutbox.objects.filter(kind="samples")}
+    assert all(rows[f"sample:{i}"].done_at is not None for i in (1001, 1002, 1003, 2000))
+    assert (rows["sample:1000"].done_at, rows["sample:1000"].attempts) == (None, 3)
+
+
+@pytest.mark.django_db
+def test_a_transient_failure_costs_one_merged_retry(work, monkeypatch):
+    _single_rows(3)
+    synced, failures = [], [RuntimeError("neo4j went away")]
+
+    def sync(driver, db, ids, **kwargs):
+        synced.append(list(ids))
+        if failures:
+            raise failures.pop()
+        return {"status": targeted.OK}
+
+    monkeypatch.setattr(targeted, "sync_samples", sync)
+    one_pass(work, now=T0)
+    one_pass(work, now=T0 + timedelta(seconds=state.backoff_s("samples")))
+
+    assert synced == [[1000, 1001, 1002]] * 2
+    assert GraphSyncOutbox.objects.filter(kind="samples", done_at__isnull=True).count() == 0
+
+
+@pytest.mark.django_db
 def test_a_deferred_merged_sync_puts_every_row_back_without_an_attempt(work):
     _single_rows(2)
     work.sync = {"status": targeted.LOCK_TIMEOUT}

@@ -1248,6 +1248,19 @@ def test_claim_more_takes_claimable_rows_of_one_kind_and_key_prefix_oldest_first
     assert state.claim_more("w2", "samples", "sample:", 0, now=at(minutes=1)) == []
 
 
+@pytest.mark.django_db
+def test_claim_more_takes_only_rows_below_the_attempts_it_is_given():
+    for n in range(4):
+        state.enqueue("samples", f"sample:{n}", now=at(seconds=n))
+        GraphSyncOutbox.objects.filter(key=f"sample:{n}").update(attempts=n)
+
+    more = state.claim_more("w1", "samples", "sample:", 10, now=at(minutes=1), below_attempts=2)
+
+    assert [(c.key, c.attempts) for c in more] == [("sample:0", 1), ("sample:1", 2)]
+    assert [c.key for c in state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=1))] == [
+        "sample:2", "sample:3"]
+
+
 # --- a claimed row of many samples hands its failing ones on as rows of their own ------------------------------------
 
 def _claimed_batch(*, attempts: int = 0, failing_since=None):

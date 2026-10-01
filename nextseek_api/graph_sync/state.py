@@ -243,10 +243,11 @@ class Claim:
     lease_expires_at: datetime
 
 
-def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None) -> list[dict]:
-    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
-    ``kinds`` and with keys starting ``key_prefix`` when given."""
-    qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
+def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None,
+                below_attempts: int = MAX_ATTEMPTS) -> list[dict]:
+    """Claimable rows, oldest first: not done, below the attempt limit (or ``below_attempts``, when lower), and no
+    lease or back-off still running; of ``kinds`` and with keys starting ``key_prefix`` when given."""
+    qs = (_outbox().filter(done_at__isnull=True, attempts__lt=min(MAX_ATTEMPTS, below_attempts))
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
@@ -288,18 +289,19 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
 
 
 def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *,
-               now: datetime | None = None) -> list[Claim]:
+               now: datetime | None = None, below_attempts: int = MAX_ATTEMPTS) -> list[Claim]:
     """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
-    ``worker_id``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in between is
-    skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease runs). The
-    drain uses it to run many single-sample rows as one by-id sync (``loop``, A13)."""
+    ``worker_id``, and only rows with fewer than ``below_attempts`` attempts. Each is the same compare-and-set as
+    ``claim_next``, so a row another worker took in between is skipped, and each counts its own attempt; a row this
+    worker already holds is not claimable (its lease runs). The drain uses it to run many single-sample rows as one
+    by-id sync (``loop``, A13), leaving out a row that has failed repeatedly."""
     if not worker_id or len(worker_id) > WORKER_CHARS:
         raise ValueError(f"not a worker id: {worker_id!r}")
     if limit <= 0:
         return []
     now = now or timezone.now()
     out = []
-    for c in _candidates(now, [kind], limit, key_prefix=key_prefix):
+    for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts):
         claim = _take(worker_id, c, now)
         if claim is not None:
             out.append(claim)
