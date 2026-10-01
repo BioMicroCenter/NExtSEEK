@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is ten purpose
+The surface is not a set of entry points behind a package boundary. It is twelve purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -50,6 +50,9 @@ groups, each defined by what it reads and what it writes.
 | I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
 | J. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
 | K. File-level code graph | `graph_files.py` | `graphify-out/graph.json` (local, from graphify) | `docs/graph/graph-files.json`, `graph.html`, `architecture.svg` ([docs/graph/README.md](../docs/graph/README.md)) |
+| L. Citation converter | `line_cites.py` | a markdown doc, its git blame and the cited `.py` files at those commits | nothing by default (`--report`); the doc in place with `--apply` |
+
+**L. `line_cites.py`.** Use it once, when the operator says the graph program's branch has landed, to turn `path.py:N` citations in a doc into `path.py` plus the enclosing symbol, so edits stop breaking them. `python3 scripts/line_cites.py --report DOC.md` counts what would change; `--apply` rewrites; `--self-check` runs its built-in check. It leaves unresolvable citations as they are and lists them.
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
