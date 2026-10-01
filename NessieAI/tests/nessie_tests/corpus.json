@@ -23272,6 +23272,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?i)(can'?t|cannot|not able|don'?t (?:have|support)|outside (?:the |my )?scope|beyond what)"
+                },
+                {
+                  "field": "last_reply.lines",
+                  "op": "lte",
+                  "value": 12
                 }
               ]
             }

@@ -531,7 +531,7 @@ CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 # is called. They are in the set because it is a statement about what a CC ENGINE
 # can produce, and demoting it to a statement about call order would make it wrong
 # the moment the call order changed.
-ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source",
+ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "last_reply.lines", "route", "engine", "route_source",
                                    "cc_trace_text"})
 ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
 FORCED_CC_SKIP_REASON = (
