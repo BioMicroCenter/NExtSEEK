@@ -356,8 +356,11 @@ def _journaled_node(node: StudyNode | None) -> dict | None:
 
 def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     x, legacy, keyed = sel.study_id, sel.legacy, sel.seek_keyed
+    # L's own sources go in the plan line, before any write: an undo moves every other source it then finds on L
+    # (one that reached study X through the key after the merge) to the re-created K.
     _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
-                                   "seek_keyed": _journaled_node(keyed)}])
+                                   "seek_keyed": _journaled_node(keyed),
+                                   "legacy_sources": _sources(driver, db, legacy.element_id)}])
     if keyed is not None and sel.kind != REKEY_IN_PLACE:
         while True:
             rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
@@ -451,7 +454,10 @@ def _opt_int(text: str):
 def read_journals(paths) -> tuple[dict, list]:
     """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
     and/or ``in_study_removed.tsv``), and the archives found. The first ``plan`` line of an id wins (a crash and its
-    rerun journal the same nodes); sources are merged by element id. Raises ValueError for a path that is neither."""
+    rerun journal the same nodes); sources, and the legacy node's own sources of every plan line, are merged by
+    element id (a source a crashed run moved is in its ``source`` lines, which take precedence in the undo).
+    ``legacy_sources_known`` is False when a plan line holds no list of them. Raises ValueError for a path that is
+    neither."""
     per_id: dict[int, dict] = {}
     archives: list[str] = []
     for raw in paths:
@@ -477,10 +483,16 @@ def read_journals(paths) -> tuple[dict, list]:
                 raise ValueError(f"{journal} is not a study merge journal")
             for line in fh:
                 study_id, record, payload = line.rstrip("\n").split("\t", 2)
-                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}})
+                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}, "legacy_sources": {},
+                                                          "legacy_sources_known": True})
                 data = json.loads(payload)
-                if record == "plan" and entry["plan"] is None:
-                    entry["plan"] = data
+                if record == "plan":
+                    if entry["plan"] is None:
+                        entry["plan"] = data
+                    if "legacy_sources" not in data:
+                        entry["legacy_sources_known"] = False
+                    for source in data.get("legacy_sources") or []:
+                        entry["legacy_sources"].setdefault(source["element_id"], source)
                 elif record == "source":
                     entry["sources"].setdefault(data["element_id"], data)
     return per_id, archives
@@ -556,8 +568,11 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
     carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
     step finds it done and goes on); then every archived link whose sample and Study still exist is re-created; then
-    each journaled source goes back to K ("on both" keeps its link to L too). ``dry_run`` reports each id's state and
-    writes nothing.
+    each journaled source goes back to K ("on both" keeps its link to L too), and every other source on L that is
+    not one of L's own journaled sources reached study X through the key after the merge (an upload, a ``--studies``
+    link) and moves to K too, listed in ``arrived_after_merge``; where the journal holds no K (a rekey in place of a
+    node with none) they stay on L, are listed in ``arrived_left_on_legacy``, and the status is ``partial``.
+    ``dry_run`` reports each id's state and writes nothing.
 
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
@@ -580,7 +595,8 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
             continue
         todo.append([x, entry, state_, found])
         report["studies"].append({"study_id": x, "state": state_, "sources": len(entry["sources"]),
-                                  "moved_back": 0, "skipped": 0, "sources_replaced": []})
+                                  "moved_back": 0, "skipped": 0, "sources_replaced": [], "arrived_after_merge": [],
+                                  "arrived_moved": 0, "arrived_left_on_legacy": []})
     if dry_run:
         return report
     for item in todo:
@@ -612,22 +628,55 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         report["archive_restored"] += _one(_run(driver, db, q.RESTORE_IN_STUDY, {"rows": rows}), "restored")
     by_id = {s["study_id"]: s for s in report["studies"]}
     for x, entry, state_, keyed_eid in todo:
-        if state_ is None or keyed_eid is None:
+        if state_ is None:
             continue
-        journaled = entry["sources"]
-        now = _nodes_now(driver, db, sorted(journaled), batch)
-        same = [eid for eid in sorted(journaled) if _same_node(journaled[eid], now.get(eid))]
-        kept = set(same)
-        replaced = [_identity(eid, journaled[eid]) for eid in sorted(journaled)
-                    if eid not in kept and now.get(eid, {}).get("found")]
-        rows = [dict(_identity(eid, journaled[eid]), source=eid, on_both=journaled[eid]["place"] == "on_both")
-                for eid in same]
-        moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
-                                                                "k": keyed_eid, "rows": part}), "restored")
-                    for part in _batches(rows, batch))
-        by_id[x].update(moved_back=moved, skipped=len(journaled) - moved, sources_replaced=replaced)
+        if keyed_eid is not None:
+            _move_back(driver, db, entry, keyed_eid, by_id[x], batch)
+        _move_arrivals(driver, db, entry, keyed_eid, by_id[x], batch)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
-    if report["refused"]:
+    if report["refused"] or any(s["arrived_left_on_legacy"] for s in report["studies"]):
         report["status"] = PARTIAL
     return report
+
+
+def _move_back(driver, db, entry: dict, keyed_eid: str, study: dict, batch: int) -> None:
+    """Step 2: each journaled K source that is still the journaled node goes back to K."""
+    journaled = entry["sources"]
+    now = _nodes_now(driver, db, sorted(journaled), batch)
+    same = [eid for eid in sorted(journaled) if _same_node(journaled[eid], now.get(eid))]
+    kept = set(same)
+    replaced = [_identity(eid, journaled[eid]) for eid in sorted(journaled)
+                if eid not in kept and now.get(eid, {}).get("found")]
+    rows = [dict(_identity(eid, journaled[eid]), source=eid, on_both=journaled[eid]["place"] == "on_both")
+            for eid in same]
+    moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
+                                                            "k": keyed_eid, "rows": part}), "restored")
+                for part in _batches(rows, batch))
+    study.update(moved_back=moved, skipped=len(journaled) - moved, sources_replaced=replaced)
+
+
+def _move_arrivals(driver, db, entry: dict, keyed_eid: str | None, study: dict, batch: int) -> None:
+    """Every source on L now that is neither a journaled K source nor one of L's own journaled sources (each matched
+    by element id, id and labels) reached study X through the key after the merge: it goes to K, or, with no K to
+    go to, stays and is listed. A journal from before L's sources were journaled says nothing about arrivals."""
+    if not entry["legacy_sources_known"]:
+        study["arrived_after_merge"] = None
+        return
+    legacy_eid = entry["plan"]["legacy"]["element_id"]
+    known = (entry["sources"], entry["legacy_sources"])
+    arrived = []
+    for source in _sources(driver, db, legacy_eid):
+        now = {"found": True, "id": source["id"], "labels": source["labels"]}
+        if not any(source["element_id"] in j and _same_node(j[source["element_id"]], now) for j in known):
+            arrived.append(_identity(source["element_id"], source))
+    study["arrived_after_merge"] = arrived
+    if not arrived:
+        return
+    if keyed_eid is None:
+        study["arrived_left_on_legacy"] = arrived
+        return
+    rows = [dict(a, source=a["element_id"], on_both=False) for a in arrived]
+    study["arrived_moved"] = sum(
+        _one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": legacy_eid, "k": keyed_eid, "rows": part}), "restored")
+        for part in _batches(rows, batch))

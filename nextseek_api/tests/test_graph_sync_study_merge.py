@@ -360,6 +360,8 @@ def test_apply_merges_a_split_and_journals_each_step_before_its_write(world, tmp
     plan = _journal(tmp_path)[0][2]
     assert plan["legacy"]["props"] == {"id": 1, "title": "Alder Unpublished", "DOI": "", "PMID": ""}
     assert plan["seek_keyed"]["props"] == {"seek_study_id": 1, "title": "Alder Unpublished"}
+    assert plan["legacy_sources"] == [{"element_id": "s:1001", "id": 1001, "labels": ["Sample"]},
+                                      {"element_id": "s:1003", "id": 1003, "labels": ["Sample"]}]
 
 
 def test_a_rekey_in_place_keeps_a_non_empty_doi_and_deletes_the_empty_seek_keyed_node(world, tmp_path):
@@ -633,6 +635,41 @@ def test_undo_restores_a_link_studies_removed_from_a_merged_node(world, tmp_path
     assert sorted(set(links) - set(before_links)) == [
         (1005, "Sample", json.dumps({"seek_study_id": 12, "title": "Larch Study"}, sort_keys=True))]
     assert set(before_links) <= set(links)
+
+
+def test_undo_moves_a_sample_that_reached_the_study_after_the_merge_to_the_seek_keyed_node(world, tmp_path):
+    """After the merge, an upload links 1009 to study 1 and --studies adds SEEK's link of 1010; both land on the
+    merged node. Neither is among the legacy node's journaled sources, so the undo moves both to the re-created
+    seek-keyed node and lists them, where they would otherwise stay on the legacy node as paper samples."""
+    legacy, _ = _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    for sample_id in (1009, 1010):
+        world.graph.add_sample(sample_id)
+    world.graph.link(1009, legacy)
+    world.links = [(1001, 1), (1002, 1), (1003, 1), (1009, 1), (1010, 1)]
+    study_links.rebuild_in_study(world.graph, DB, remove=False, run_dir=None)
+    assert world.graph.keys_of(1010) == {("seek", 1)}
+
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "ok"
+    assert world.graph.keys_of(1009) == world.graph.keys_of(1010) == {("seek", 1)}
+    assert world.graph.keys_of(1001) == {("id", 1)} and world.graph.keys_of(1003) == {("id", 1), ("seek", 1)}
+    entry = result["studies"][0]
+    assert [a["id"] for a in entry["arrived_after_merge"]] == [1009, 1010] and entry["arrived_moved"] == 2
+
+
+def test_an_arrival_on_a_rekey_with_no_seek_keyed_node_is_reported_and_the_undo_is_partial(world, tmp_path):
+    _seek(world, 5, "Elm paper")
+    legacy = world.graph.add_study(id=5, title="Elm paper", DOI="10.9999/e5", investigation=world.inv[101])
+    world.graph.add_sample(1001)
+    world.graph.link(1001, legacy)
+    study_merge.apply(world.graph, DB, {5: "rekey_in_place"}, run_dir=str(tmp_path / "m1"))
+    world.graph.add_sample(1011)
+    world.graph.link(1011, legacy)
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "partial"
+    assert [a["id"] for a in result["studies"][0]["arrived_left_on_legacy"]] == [1011]
+    assert world.graph.keys_of(1011) == world.graph.keys_of(1001) == {("id", 5)}
 
 
 def test_undo_refuses_an_id_another_node_now_carries(world, tmp_path):
