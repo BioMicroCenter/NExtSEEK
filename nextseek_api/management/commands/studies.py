@@ -25,8 +25,9 @@
 The password is typed at the prompt, or given as one line of stdin with ``--seek-password-stdin``; it is never an
 argument or an environment variable. ``graph`` and ``rollback`` need ``--i-mean-the-live-graph`` against the live
 stack's Neo4j, as graph_sync's writing modes do. Exit status: 0 done; 1 stopped part way (the journal says where; the
-same command resumes); 2 refused, nothing written. With ``--json`` stdout holds only the result, progress goes to
-stderr. The package and its rules: ``nextseek_api/studies/README.md``.
+same command resumes), which is also what an error raised inside apply, the graph step or rollback gives, since it may
+come after a write; 2 refused, nothing written. With ``--json`` stdout holds only the result. The package and its
+rules: ``nextseek_api/studies/README.md``.
 """
 from __future__ import annotations
 
@@ -39,10 +40,12 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from neo4j.exceptions import AuthError, DriverError
 
 from nextseek_api.helpers import SeekAPIClient
 from nextseek_api.management.commands.graph_sync import live_graph_refusal
 from nextseek_api.studies import apply, planner, report, rollback
+from nextseek_api.studies.journal import JOURNAL_FILE, read_journal
 from nextseek_api.studies.models import AssociationSet
 from nextseek_api.studies.seek import SeekCredential, SeekError, SeekRefused, SeekSession, read_password
 from nextseek_api.studies.snapshot import SnapshotReader
@@ -56,6 +59,37 @@ _client_factory = SeekAPIClient
 
 class Refused(Exception):
     """Nothing was written: exit 2."""
+
+
+class Stopped(Exception):
+    """A run phase (apply, the graph step, rollback) raised, perhaps after a write: exit 1."""
+
+    def __init__(self, exc: Exception, run_dir: Path):
+        self.run_dir = run_dir
+        super().__init__(f"stopped part way: {type(exc).__name__}: {exc}. The journal in {run_dir} says where; "
+                         "the same command resumes")
+
+
+# Raised before any run phase starts, so nothing was written: refused, exit 2.
+PRE_WRITE_ERRORS = (Refused, sheet.SheetError, SeekRefused, SeekError, ValueError, OSError, DriverError, AuthError)
+
+
+def _run_phase(call, run_dir: Path, *args, **kwargs) -> tuple:
+    """One run phase, as (exit code, message, counts, run_dir). Whatever it raises may come after a write, so it
+    stops, never refuses. The journal lines that could not be read are reported: lines a stop cut short, whose
+    writes never began."""
+    try:
+        result = call(run_dir, *args, **kwargs)
+    except Exception as exc:
+        log.exception("studies: the run phase stopped")
+        raise Stopped(exc, run_dir) from exc
+    message, counts = result.message, dict(result.counts)
+    bad = read_journal(run_dir / JOURNAL_FILE)[1]
+    if bad:
+        counts["journal_unreadable_lines"] = bad
+        message += (f" ({bad} journal line(s) could not be read and were skipped: lines a stop cut short, whose "
+                    "writes never began)")
+    return result.exit_code, message, counts, run_dir
 
 
 def _reader(session, driver, db):
@@ -184,9 +218,6 @@ class Command(BaseCommand):
 
     def _dispatch(self, options):
         mode = options["mode"]
-        if mode == "report":
-            self._need(options, "run_dir")
-            return 0, "progress", report.progress(options["run_dir"]), options["run_dir"]
         if mode == "export":
             self._need(options, "out")
             with self._graph(options, live_ok=True) as (driver, db):
@@ -196,32 +227,36 @@ class Command(BaseCommand):
             return self._plan(options)
         self._need(options, "run_dir")
         run_dir = Path(options["run_dir"])
+        if not (run_dir / report.PLAN_FILE).is_file():
+            raise Refused(f"{run_dir} holds no {report.PLAN_FILE}: give the run directory --mode plan wrote")
+        if mode == "report":
+            return 0, "progress", report.progress(run_dir), run_dir
         if mode == "apply":
             session = self._session(options).prove()
             with self._graph(options, live_ok=True) as (driver, db):
-                result = apply.apply_study_moves(run_dir, session, driver, db, investigation=options["investigation"])
-            message = result.message
-            if result.status == apply.DONE:
+                code, message, counts, _ = _run_phase(apply.apply_study_moves, run_dir, session, driver, db,
+                                                      investigation=options["investigation"])
+            if code == 0:
                 message += (f". Next: manage.py studies --mode graph --run-dir {run_dir} --approve-label-changes "
                             "--i-mean-the-live-graph, after reading the label changes in plan.txt")
-            return result.exit_code, message, result.counts, run_dir
+            return code, message, counts, run_dir
         if mode == "graph":
             if not options["approve_label_changes"]:
                 raise Refused("--mode graph writes the plan's label changes: give --approve-label-changes")
             with self._graph(options, live_ok=False) as (driver, db):
-                result = apply.graph_step(run_dir, driver, db, approve_label_changes=True,
-                                          investigation=options["investigation"])
-            return result.exit_code, result.message, result.counts, run_dir
+                return _run_phase(apply.graph_step, run_dir, driver, db, approve_label_changes=True,
+                                  investigation=options["investigation"])
         session = self._session(options).prove()
         with self._graph(options, live_ok=False) as (driver, db):
-            result = rollback.rollback_study_moves(run_dir, session, driver, db, confirm=options["confirm"],
-                                                   investigation=options["investigation"])
-        return result.exit_code, result.message, result.counts, run_dir
+            return _run_phase(rollback.rollback_study_moves, run_dir, session, driver, db, confirm=options["confirm"],
+                              investigation=options["investigation"])
 
     def handle(self, *args, **options):
         try:
             code, message, counts, run_dir = self._dispatch(options)
-        except (Refused, sheet.SheetError, SeekRefused, SeekError, ValueError) as exc:
+        except Stopped as exc:
+            code, message, counts, run_dir = 1, str(exc), {}, exc.run_dir
+        except PRE_WRITE_ERRORS as exc:
             messages = getattr(exc, "messages", None) or [str(exc)]
             code, message, counts, run_dir = 2, "refused, nothing written: " + "; ".join(messages), {}, None
         except planner.PlannerDefect as exc:
