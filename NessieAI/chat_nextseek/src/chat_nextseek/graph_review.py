@@ -657,14 +657,15 @@ def _all_question_narrowed(t: _Turn) -> _Finding | None:
 def _zero_unproven_base(t: _Turn) -> _Finding | None:
     """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
 
-    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes, an exact
-    value missing from a complete stored list, and a reply that already offers dropping the filter.
+    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes (SampleType,
+    Attribute and, at graph schema 1.3, Assay), an exact value missing from a complete stored list, and a reply that
+    already offers dropping the filter.
     """
     if t.result_n() != 0:
         return None
     if re.search(r"uuid\s*[:=]\s*\$\w+", t.cy):
         return None
-    if re.search(r"\(\w+:(Attribute|SampleType)\b", t.cy) and not t.vl:
+    if re.search(r"\(\w+:(Attribute|SampleType|Assay)\b", t.cy) and not t.vl:
         return None
     for var, attr, term in t.eq:
         stored = t.vals(t.vl.get(var), attr)
