@@ -230,12 +230,14 @@ could not restore an Investigation, or had to leave such a sample on a legacy no
 Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories
 are never pruned.
 
-**Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
-its study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's
-answer says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
-confirming it (a 5xx, a timeout) enqueues its rows held back five minutes; the study proxy's `isa` row writes every
-SEEK study's node with its title, description and Investigation; an assay moved in SEEK's own UI reaches the graph at
-the next reconcile.
+**Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets its
+study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's answer
+says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without confirming it (a 5xx,
+a timeout) enqueues its rows held back five minutes, except the samples of a create, which only SEEK's answer names: a
+sample create, and an assay create's members, are enqueued only on a 2xx whose body validates, so a create SEEK did not
+confirm (a 5xx, a timeout, an answer that fails validation) reaches the graph at the next nightly reconcile; the study
+proxy's `isa` row writes every SEEK study's node with its title, description and Investigation; an assay moved in
+SEEK's own UI reaches the graph at the next reconcile.
 
 ## DERIVED_FROM labels
 
