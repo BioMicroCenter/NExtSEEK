@@ -818,10 +818,10 @@ MERGE (a:Assay {id: r.id})
 SET a = r
 RETURN count(a) AS written
 """
-# An Assay whose id left internal_assays: every edge it has, a batch at a time, then the node.
+# An Assay whose id left internal_assays: every edge the assay layer gives it, a batch at a time, then the node.
 DELETE_GONE_ASSAY_EDGES = """
 MATCH (a:Assay) WHERE NOT a.id IN $ids
-MATCH (a)-[r]-()
+MATCH (a)-[r:INPUT_TO|OUTPUT_OF|RUN_IN|ACCEPTED_BY|GENERATES]-(:Sample|Study|SampleType)
 WITH r LIMIT $batch
 DELETE r
 RETURN count(*) AS deleted

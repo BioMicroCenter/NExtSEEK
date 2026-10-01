@@ -412,7 +412,8 @@ To take a graph from 1.3 back to 1.2, in this order:
 
 1. Deploy the last 1.2 image first. Its writers refuse a graph at 1.3, so nothing rewrites the Assay layer while it
    is removed; uploads report `graph: pending` until step 4.
-2. Delete the Assay layer in batches, then its constraint and index, as the neo4j user:
+2. Delete the Assay layer in batches, then its constraint and index, as the neo4j user. The loop deletes by
+   relationship type alone, naming no end label: only the assay layer writes these five types.
 
 ```bash
 for rel in INPUT_TO OUTPUT_OF RUN_IN ACCEPTED_BY GENERATES; do

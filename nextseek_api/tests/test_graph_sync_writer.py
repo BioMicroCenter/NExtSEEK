@@ -2012,6 +2012,11 @@ def test_a_gone_assay_loses_its_edges_in_batches_before_its_node():
     assert counts == {"assays_deleted": 1, "assay_edges_deleted_with_gone_assays": 5}
 
 
+def test_the_gone_assay_edge_delete_names_both_end_labels():
+    assert ("MATCH (a)-[r:INPUT_TO|OUTPUT_OF|RUN_IN|ACCEPTED_BY|GENERATES]-(:Sample|Study|SampleType)"
+            in q.DELETE_GONE_ASSAY_EDGES)
+
+
 def test_the_assay_reads_see_sample_nodes_only():
     for statement in (q.LINEAGE_PAIRS_INCIDENT,):
         assert statement.count("(c:Sample") == 2 and statement.count("(p:Sample") == 2
