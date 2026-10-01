@@ -54,7 +54,6 @@ context processor; `{% static %}` also works.
 | Cytoscape, dagre, cytoscape-dagre | `@3`, `@0.8`, `@2` (major versions only) | CDN unpkg, written by `rows_to_html` in `nextseek_api/services/sampletype_connections.py` (constant `_CYTO_CDN`) | the project "Sample flow" iframe page only |
 | d3, d3-dag | 7.8.4, 1.1.0 | CDN skypack, ES module imports at the top of `static/js/dag/dag.js` | sample tree v2 (`pages/samples_tree_new.embed.html`) |
 | d3, lodash | 3.5.5, 3.3.1 | CDN cdnjs, top of `seek/templates/pages/samples_tree.embed.html` | sample tree v1, commented out (see gotchas) |
-| d3 | 7.9.0 | CDN jsDelivr `+esm`, top of `static/js/dag/d3neo4j.js` | nothing references this file |
 | Mezzanine jQuery, Bootstrap 2/3 JS, html5shiv, respond | jQuery 1.8.3 by default | vendored: `static/mezzanine/js/`, `static/js/bootstrap.js` and siblings | nothing on the site: the only template that named them was Mezzanine's stock `base.html`, which the theme's `base.html` shadows |
 | Google Fonts | Inter (theme), Playfair Display and Source Sans 3 (login) | CDN | CSS only |
 
@@ -103,7 +102,7 @@ EasyUI. `/seek/search/` breaks that rule today: `searchAdvanced.html` and the in
 | `static/js/sample_timeline/` | `seek/templates/sample_timeline.html` (`extra_head`) | Built Vite bundle (React, MUI, axios), file names hard-coded in the template. A rebuild changes the hashed names |
 | `static/js/chat_assistant/assets/` | `seek/templates/smartSearch.html` via the `{% vite_assets %}` tag (`seek/templatetags/vite_assets.py`) | The React chat panel. See [chat-frontend.md](chat-frontend.md) |
 
-Dead or vendored, safe to ignore: `static/js/dag/d3neo4j.js`, `static/js/buildtree/` (old tree builder,
+Dead or vendored, safe to ignore: `static/js/buildtree/` (old tree builder,
 d3 v3 copies), and `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
 
 ### What nextseek.js does

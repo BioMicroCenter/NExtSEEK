@@ -59,7 +59,6 @@ To really disable it, use `{# ... #}` or `{% comment %}` around the includes, or
 
 | Path | What it is | Evidence | Confidence |
 |---|---|---|---|
-| `static/test/image.jpg` | A test image, published under `/static/test/` | No reference found | likely |
 
 ### Templates that nothing reaches
 
@@ -107,7 +106,6 @@ A name search over every `.html`, `.py`, `.css` and `.js` in `seek`, `themes/Nex
 | Subfolders of that folder | `colorblind-friendly/`, `dropzone/`, `flags/`, `gradient/`, `invoice/`, `jcrop/`, `jqueryui/`, `partners/`, `pattern/`, `realestate/`, `splash/`, `superbox/`, `versions/`, `voicecommand/`, `favicon/` |
 | Stock Bootstrap and Mezzanine | `static/css/bootstrap*.css`, `static/css/mezzanine.css`, `static/fonts/glyphicons-*`, `static/js/bootstrap*.js`, `static/js/html5shiv.js`, `static/js/respond.min.js`. No template loads them (the stock root `templates/base.html` that did is deleted). Mezzanine admin may load its own copies, hence check-first |
 | D3 experiment | `static/js/buildtree/` (d3 libraries, `dndTree*.js`, `flare.json`, a saved "Tree Layout in D3.js" page) |
-| Extra DAG files | `static/js/dag/d3neo4j.js`, `static/js/dag/d3neo4j.css`. Only `dag/dag.js` is loaded (`pages/samples_tree_new.embed.html`) |
 
 Live images that look like leftovers: `img/favicon.png` (the favicon links in the theme `base.html`), `img/favicon.ico` (`base_auth.html`), `img/bmc-header-800.png`, `img/nessie-logo.png`, `img/timeline-icon-external-link.png`. Keep them.
 
@@ -125,7 +123,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 |---|---|---|---|
 | likely | One of the two identical EasyUI copies | `diff -rq` identical | Decide which `STATICFILES_DIRS` entry keeps it. The theme copy is the one `themes/README.md` documents |
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
-| likely | `static/js/dag/d3neo4j.*`, `static/test/image.jpg` | No references | Load `/seek/sample_timeline/` and a sample page afterwards |
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
 | check-first | `static/js/buildtree/` | Unreferenced but a large experiment | Ask the operator |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
