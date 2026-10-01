@@ -1,4 +1,4 @@
-# themes/ and templates/ — what will bite you
+# themes/ — what will bite you
 
 ## Invariants
 
@@ -10,9 +10,8 @@
   renders it.
 - `{% block title %}` in this theme fills the HTML `<title>` element
   (`themes/NextSeek/templates/base.html:7`), which inverts the upstream
-  Mezzanine convention preserved at `templates/base.html:10` where `meta_title`
-  is the document title and `title` is the page `<h1>`
-  (`templates/base.html:87`); a child template written to the upstream
+  Mezzanine convention (the package's own `base.html`) where `meta_title`
+  is the document title and `title` is the page `<h1>`; a child template written to the upstream
   convention loses its document title silently, since Django discards an
   override of a block the parent does not define.
 - The sidebar reverses nothing: grepping for the string `{% url` in
@@ -72,11 +71,6 @@
   (`docker/scripts/entrypoint.sh:13`). Editing CSS without restarting the
   container leaves the old file in the volume and looks exactly like a caching
   problem.
-- The entire repo-root `templates/` directory is inert. Resolving every one of
-  its 81 filenames through the real Django loader on 2026-09-03 put 0 of them in
-  that directory, so a fix applied to `templates/accounts/includes/user_panel.html`
-  or `templates/base.html:101` changes nothing; the live copies are under
-  `themes/NextSeek/templates/`.
 - One of this theme's templates is inert, so time spent restyling it is
   wasted (the other, `content.embed.html`, was deleted on 2026-10-01). It is `pages/menus/tree.html`, entered only by a
   `{% page_menu %}` tag, and no such tag survives in the live chrome: grepping

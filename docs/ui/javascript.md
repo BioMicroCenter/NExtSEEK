@@ -55,7 +55,7 @@ context processor; `{% static %}` also works.
 | d3, d3-dag | 7.8.4, 1.1.0 | CDN skypack, ES module imports at the top of `static/js/dag/dag.js` | sample tree v2 (`pages/samples_tree_new.embed.html`) |
 | d3, lodash | 3.5.5, 3.3.1 | CDN cdnjs, top of `seek/templates/pages/samples_tree.embed.html` | sample tree v1, commented out (see gotchas) |
 | d3 | 7.9.0 | CDN jsDelivr `+esm`, top of `static/js/dag/d3neo4j.js` | nothing references this file |
-| Mezzanine jQuery, Bootstrap 2/3 JS, html5shiv, respond | jQuery 1.8.3 by default | vendored: `static/mezzanine/js/`, `static/js/bootstrap.js` and siblings | nothing on the site: the stock `templates/base.html` that names them is not on the template path, and `base.html` resolves to the theme's copy |
+| Mezzanine jQuery, Bootstrap 2/3 JS, html5shiv, respond | jQuery 1.8.3 by default | vendored: `static/mezzanine/js/`, `static/js/bootstrap.js` and siblings | nothing on the site: the only template that named them was Mezzanine's stock `base.html`, which the theme's `base.html` shadows |
 | Google Fonts | Inter (theme), Playfair Display and Source Sans 3 (login) | CDN | CSS only |
 
 Third-party script loading is security item SEC-0930-F (tracked privately). Bootstrap (jsDelivr),

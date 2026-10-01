@@ -54,9 +54,9 @@ theme stylesheet. The timeline page links a Vite-built bundle (`static/js/sample
 ### The dead Bootstrap 3 / Mezzanine chain
 
 `static/css/` at the repo root holds `bootstrap.css`, `bootstrap-theme.css`, `bootstrap-rtl.css` and
-`mezzanine.css` (Bootstrap 3 era, about 8,600 lines). They are linked only from the stock
-`templates/base.html`, which the theme's `base.html` shadows, so no app page loads them. The same stock
-`base.html` links `cartridge.css` and `cartridge.rtl.css`. (The stock `templates/mobile/` folder, which linked more missing files, was deleted.)
+`mezzanine.css` (Bootstrap 3 era, about 8,600 lines). They are linked only from
+Mezzanine's stock `base.html`, which the theme's `base.html` shadows, so no app page loads them. That
+stock `base.html` also links `cartridge.css` and `cartridge.rtl.css`. (The repo-root copy of it was deleted on 2026-10-01.)
 
 The visible leftover is Bootstrap 3 vocabulary in live templates: `glyphicon-*` icon classes (no font is
 loaded, so they render blank) and `.well` (removed in Bootstrap 5; `nextseek.css` restyles it by hand).

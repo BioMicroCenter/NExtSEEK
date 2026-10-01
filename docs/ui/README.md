@@ -38,8 +38,7 @@ every server-rendered page = themes/NextSeek/templates/base.html
 ```
 
 Template lookup order: `themes/NextSeek/templates/` first, then each installed app's `templates/`
-folder (`seek/templates/` is one), then Mezzanine's packaged templates. The repo-root `templates/`
-folder is not on the path at all: editing it changes nothing. See [shell.md](shell.md).
+folder (`seek/templates/` is one), then Mezzanine's packaged templates. See [shell.md](shell.md).
 
 ## I want to change...
 

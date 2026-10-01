@@ -80,7 +80,6 @@ Personal and external tools (session handoff, the parallel fix lane, the dmac-cu
 | `seek/` | Django app over SEEK's tables: table layer, search, the NExtSEEK pages | `seek/README.md` | `ui`, `sample-search` |
 | `startup/` | the `./startup.sh` Typer CLI (its own uv project) and the seed data | `startup/README.md` | `installer` |
 | `static/` | source static files (second entry of `STATICFILES_DIRS`, behind the theme) and the committed chat bundle `static/js/chat_assistant/` | `DEPLOYMENT.md` §3.2 (collectstatic); `themes/CLAUDE.md` for which twin wins | `ui` |
-| `templates/` | upstream Mezzanine template tree; inert, nothing resolves here | `themes/README.md` | `ui` |
 | `themes/` | the NextSeek theme: its templates and static win site-wide | `themes/README.md` | `ui` |
 <!-- END DOCS-MAP:folders -->
 

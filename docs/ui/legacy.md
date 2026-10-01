@@ -27,7 +27,7 @@ request -> view -> render("x.html")
         TemplateDoesNotExist -> HTTP 500
 ```
 
-One folder is on neither list, so nothing in it can ever render: the repo-root `templates/` (66 files, a copy of the Mezzanine scaffold). the old `dmac` templates folder (`dmac` is the project package and is not in `INSTALLED_APPS`) was removed for the same reason. `themes/README.md` already warns about the root folder.
+Two folders that were on neither list, so nothing in them could ever render, were deleted on 2026-10-01: the repo-root `templates/` (66 files, a copy of the Mezzanine scaffold) and the old `dmac` templates folder (`dmac` is the project package and is not in `INSTALLED_APPS`). Before the root folder went, every template name in it, the theme and `seek/templates/` (119 names) was resolved through the real loaders and none landed in it.
 
 ### How "dead" was established
 
@@ -72,23 +72,6 @@ All of these are under `seek/templates/` unless noted. "Parent dead" means the o
 
 Not dead, despite looking like leftovers: `pages/sampleSearch_core.embed.html` (included by `searchAdvanced.html`), `pages/samples_search.embed.html` (see above), `themes/NextSeek/templates/accounts/includes/user_panel.html` (reached from the theme's `includes/user_panel.html`), and `themes/NextSeek/templates/includes/catalog_table_filter.js` (included by the assays and sample types list pages).
 
-### Repo-root `templates/` (66 files, 54 `.html`)
-
-A stock Mezzanine scaffold. None of it resolves: the folder is not in `DIRS` and is not inside an installed app. Whatever renders for these names comes from the Mezzanine package, so deleting the folder changes nothing users see (a live check on 2026-09-30 confirmed `/search/` and `/accounts/login/` answer from package templates).
-
-| Subfolder | Files | Note |
-|---|---|---|
-| `templates/accounts/` | 8 | Package copies render instead |
-| `templates/blog/` | 3 | The blog itself is live, see below; these copies are not what it uses |
-| `templates/email/` | 20 | Account emails come from the Mezzanine package versions |
-| `templates/errors/` | 2 | |
-| `templates/generic/` | 7 | |
-| `templates/includes/` | 10 | |
-| `templates/pages/` | 13 | Includes 8 menu templates. The theme overrides only `pages/menus/tree.html` |
-| `templates/base.html`, `index.html`, `search_results.html` | 3 | The real base is `themes/NextSeek/templates/base.html` |
-
-The root `base.html` is also the only file that loads the stock Bootstrap and `mezzanine.css` files under `static/` (see unreferenced static below).
-
 ### Mezzanine features: live, dead, unknown
 
 `INSTALLED_APPS` in `dmac/settings.py` has `mezzanine.boot, conf, core, generic, pages, blog, forms, galleries, accounts`. `mezzanine.twitter` is commented out. `mezzanine.urls` is included in `dmac/urls.py` as a catch-all `^` pattern, last. Above it, a 404 route shadows Mezzanine's public pages (`/blog/`, `/search/`, `/accounts/...`, `/password_reset/`, `/reset/...`); `/accounts/login/` (the SEEK login), `/accounts/signup/` and `/accounts/logout/` are registered before that.
@@ -123,7 +106,7 @@ A name search over every `.html`, `.py`, `.css` and `.js` in `seek`, `themes/Nex
 | Logos and partner images in `themes/NextSeek/static/img/` | `logo.png`, `400px-Bmclogo2020.png`, `800px-BMC_Header_2020_3.png`, `BMC_Header_2020_3-i6GmrgvN.png`, `BTC.jpg`, `BTC_LOGO_RGB.webp`, `CSBC.jpg`, `CSBC.png`, `Impact.png`, `Impact_logo.svg`, `Metnet.png`, `Srp.png`, `ki_logo01-300x52.{jpg,png}`, `logo-{blacknwhite,blue,o,pale,white}.png`, `cover.png`, `cover-impactb.png`, `glass.jpg`, `glass-image-copyright.txt`, `mybg.png`, `violate.jpg`, `supporter-small.png` |
 | Generic widget leftovers, same folder | `ajax-loader.gif`, `alpha.png`, `blank.gif`, `clear.png`, `loading.gif`, `hue.png`, `saturation.png`, `ribbon.png`, `vt-menu.png`, `mappin-default.png`, `select2-spinner.gif`, `minus.png`, `plus.png`, five `sort_*.png` |
 | Subfolders of that folder | `colorblind-friendly/`, `dropzone/`, `flags/`, `gradient/`, `invoice/`, `jcrop/`, `jqueryui/`, `partners/`, `pattern/`, `realestate/`, `splash/`, `superbox/`, `versions/`, `voicecommand/`, `favicon/` |
-| Stock Bootstrap and Mezzanine | `static/css/bootstrap*.css`, `static/css/mezzanine.css`, `static/fonts/glyphicons-*`, `static/js/bootstrap*.js`, `static/js/html5shiv.js`, `static/js/respond.min.js`. Only the unreachable root `templates/base.html` loads them. Mezzanine admin may load its own copies, hence check-first |
+| Stock Bootstrap and Mezzanine | `static/css/bootstrap*.css`, `static/css/mezzanine.css`, `static/fonts/glyphicons-*`, `static/js/bootstrap*.js`, `static/js/html5shiv.js`, `static/js/respond.min.js`. No template loads them (the stock root `templates/base.html` that did is deleted). Mezzanine admin may load its own copies, hence check-first |
 | D3 experiment | `static/js/buildtree/` (d3 libraries, `dndTree*.js`, `flare.json`, a saved "Tree Layout in D3.js" page) |
 | Extra DAG files | `static/js/dag/d3neo4j.js`, `static/js/dag/d3neo4j.css`. Only `dag/dag.js` is loaded (`pages/samples_tree_new.embed.html`) |
 
@@ -141,7 +124,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 
 | Confidence | Candidate | Evidence | Extra step before deleting |
 |---|---|---|---|
-| likely | Rest of repo-root `templates/` (accounts, blog, email, errors, generic, includes, pages, base, index, search_results) | Not on loader path; package copies render | `themes/README.md` mentions it, update it |
 | likely | One of the two identical EasyUI copies | `diff -rq` identical | Decide which `STATICFILES_DIRS` entry keeps it. The theme copy is the one `themes/README.md` documents |
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
 | likely | `static/js/dag/d3neo4j.*`, `static/test/image.jpg` | No references | Load `/seek/sample_timeline/` and a sample page afterwards |
@@ -171,14 +153,12 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 |---|---|
 | Really hide Sample Tree v1 | `pages/samples.embed.html`: replace the two `<!-- ... -->` blocks around the `samples_tree.embed.html` includes with `{# #}` or `{% comment %}`, or delete the includes |
 | Retire an old template | Run the checks above and delete the file. If it is in the `LIVE` list of `nextseek_api/tests/test_download_call_sites.py`, edit that list too |
-| Clean up the repo-root `templates/` | Delete the folder in one commit, and update the "81 files" statements in `themes/README.md` |
 | Promote or retire `/seek/newsearch/` | Add a link in `themes/NextSeek/templates/nav.embed.html` to promote, or remove the route in `seek/urls.py`, the `newSearch` view in `seek/views/search.py` and the six `*_new*` embeds; update the test's `LIVE` list and `LOADERS` |
-| Remove the blog | Operator decision first. Then `mezzanine.blog` in `INSTALLED_APPS` (`dmac/settings.py`), migration state, and the `templates/blog/` copies |
+| Remove the blog | Operator decision first. Then `mezzanine.blog` in `INSTALLED_APPS` (`dmac/settings.py`), migration state, and the blog templates |
 
 ## Gotchas
 
 - Editing a dead file has no effect and gives no error. Before changing any template, confirm a route reaches it (find the `render` or `template_name`, then the include chain). Names that look right are the trap: the deleted `sampleSearch.html`, `sampleUpload.html` and `samplesTest.html` all looked like real pages.
-- Changing the repo-root `templates/*` never changes the site. The real scaffold overrides live only in `themes/NextSeek/templates/`.
 - HTML comments do not stop Django: a `{% include %}` or `{{ var }}` inside `<!-- -->` still runs, costs time, and can raise an error. Use `{# #}` or `{% comment %}`.
 - The theme folder shadows `seek/templates` for the same file name, so a stale copy in one folder can hide the real file in the other.
 - Deleting a static file from the repo does not remove it from `STATIC_ROOT` on a box that already ran collectstatic; the stale file keeps being served until that folder is cleaned (see [ci-and-deploy.md](ci-and-deploy.md)). The two static roots (`static/`, `themes/NextSeek/static/`) are merged, so deleting from only one of a duplicated pair changes nothing.

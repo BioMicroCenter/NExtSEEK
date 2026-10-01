@@ -327,7 +327,7 @@ Each folder below documents itself in a `README.md` (plus a `CLAUDE.md` where it
 | `scripts/README.md` | validators and one-off operational programs, not a package |
 | `seek/README.md` | the SEEK-schema mirror app and most server-rendered pages |
 | `startup/README.md` | the bring-up CLI and the data bring-up installs |
-| `themes/README.md` | the server-rendered chrome (and the dead repo-root `templates/`) |
+| `themes/README.md` | the server-rendered chrome |
 
 The Django shell of the CC route (the `cc_assistant` app label, its Celery tasks and the
 endpoint ownership guard) stays in `nextseek_api/cc_assistant/`, described in
