@@ -98,15 +98,18 @@ to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within 
 closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A row that has failed twice since
 it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it (a
 transient failure costs one merged retry); a row whose last failure was a gap traced to its own sample stays
-mergeable, since a merged sync fails each gapped sample alone. A row whose catalog sync is refused for SampleType
-titles held under other ids and nothing else (a type recreated in SEEK under its old title, which the nightly
-reconcile clears) is deferred, not failed: no attempt is counted, so it never dies and never shows as failing; it
-waits 30 minutes, under the outbox's one-hour freshness threshold, and drains alone until it syncs, since the refusal
-does not say which samples of a merged sync needed the catalog. A by-id sync that left a structural link unwritten (a
-type, a project, a study or an investigation link) fails only the samples it names, each with why in its `last_error`
-(the project ids SEEK lacks, say): a single-sample row fails on its back-off, and a row of many samples (a batch, a
-sample type) is closed and hands each such sample on as a `sample:<id>` row that keeps its attempts, failing time and
-back-off; every other sample is done. A gap from SEEK's data never heals by itself: fix the SEEK row, then
+mergeable, since a merged sync fails each gapped sample alone. While SampleType titles are held under other ids in the
+graph (a type recreated in SEEK under its old title, which the nightly reconcile clears), the catalog sync is refused,
+so a by-id sync leaves out the samples of a type that has no current SampleType node, writes the rest and names the
+ones it left out. Only the rows holding those samples are deferred, not failed (a `batch:` row whole, a
+`samples_of_type` row when any of its samples waited): no attempt is counted, so they never die and never show as
+failing. They wait 30 minutes and stay mergeable, so the single-sample ones come back merged into one sync, beside the
+writes made since, and never hold a fresh write back. A `catalog` row refused for those titles alone waits the same
+way. A by-id sync that left a structural link unwritten (a type, a project, a study or an investigation link) fails
+only the samples it names, each with why in its `last_error` (the project ids SEEK lacks, say): a single-sample row
+fails on its back-off, and a row of many samples (a batch, a sample type) is closed and hands each such sample on as a
+`sample:<id>` row that keeps its attempts, failing time and back-off; every other sample is done. A gap from SEEK's
+data never heals by itself: fix the SEEK row, then
 `--requeue-dead` the samples' rows if they died. A child's exit status decides its row: 0 and 2 (a refusal) are done,
 anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child that exits 1 having saved a
 result that reports drift: that check did its job, so its row is done and the drift is in its run record, never
@@ -227,12 +230,14 @@ could not restore an Investigation, or had to leave such a sample on a legacy no
 Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories
 are never pruned.
 
-**Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
-its study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's
-answer says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
-confirming it (a 5xx, a timeout) enqueues its rows held back five minutes; the study proxy's `isa` row writes every
-SEEK study's node with its title, description and Investigation; an assay moved in SEEK's own UI reaches the graph at
-the next reconcile.
+**Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets its
+study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's answer
+says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without confirming it (a 5xx,
+a timeout) enqueues its rows held back five minutes, except the samples of a create, which only SEEK's answer names: a
+sample create, and an assay create's members, are enqueued only on a 2xx whose body validates, so a create SEEK did not
+confirm (a 5xx, a timeout, an answer that fails validation) reaches the graph at the next nightly reconcile; the study
+proxy's `isa` row writes every SEEK study's node with its title, description and Investigation; an assay moved in
+SEEK's own UI reaches the graph at the next reconcile.
 
 ## DERIVED_FROM labels
 

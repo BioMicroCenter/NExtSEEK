@@ -16,19 +16,26 @@ bring part of the graph up to date without a full sync:
 is the writer's (``status: not_at_version``): a 1.1 graph waits for the operator's first full sync at 1.2. Then it
 takes the graph-write lock (``state.graph_write_lock``), waiting at most ``lock_timeout_s`` (``LOCK_WAIT_S``, the
 spec's 60 s, R10); without the lock it returns ``status: lock_timeout`` and writes nothing, so the caller's outbox row
-stays pending. Otherwise it returns ``status: ok`` and every step's counts. An error part way raises: every step is
-idempotent, so the caller retries the whole call. ``sync_samples_of_type`` takes the lock once per chunk, so a long
-type sync lets other writers in between chunks.
+stays pending. Otherwise it returns ``status: ok`` and every step's counts. An ``ok`` report of ``sync_samples`` can
+still name samples that are not done: those it left out for the catalog (``catalog_waiting_samples``) and those a
+structural link was left unwritten for (``structural_gap_samples``); the drain keeps their rows open. An error part
+way raises: every step is idempotent, so the caller retries the whole call. ``sync_samples_of_type`` takes the lock
+once per chunk, so a long type sync lets other writers in between chunks.
 
-**Order of ``sync_samples``**, per chunk of ids: read the rows, their projects, assay ids and parent tokens; read the
-types the nodes point at now; retire the ids MySQL did not return; run ``run.catalog_sync`` when a row's type has no
-SampleType node or one holding another title; project and write the samples (``source_hash`` and the parent lists
-always, R1, R4); the declared lineage of these samples as children (create what is missing, then archive and delete
-what MySQL does not declare); label every edge incident to them, both directions, the ones just created included;
-IN_STUDY, which follows SEEK (``study_links``: a link SEEK no longer holds is removed only where the box's switch is
-on, archived first); ``declared: false`` Attribute nodes; the touched types' counts. A sample that cannot be projected
-is counted and skipped whole, its lineage included: its parent tokens could not be read, and reading them as none
-would delete every edge it has.
+**Order of ``sync_samples``**, per chunk of ids: read the rows and the types the nodes point at now; retire the ids
+MySQL did not return; run ``run.catalog_sync`` when a row's type has no SampleType node or one holding another title,
+and when that is refused for SampleType titles held under other ids alone (a type recreated in SEEK under its old
+title, which only the nightly reconcile clears), leave the samples of those types out and name them; read the rest's
+projects, assay ids and parent tokens and project them; write the Project nodes they link to that the graph lacks;
+write the samples (the parent lists, and ``source_hash``, left null for a sample whose OF_TYPE or an IN_PROJECT could
+not be written, so the nightly reads it as changed); the declared lineage of these samples as children (create what is
+missing, then archive and delete what MySQL does not declare); label every edge incident to them, both directions, the
+ones just created included; the Study node of each of their SEEK studies, its Investigation node first, and IN_STUDY,
+which follows SEEK (``study_links``: a link SEEK no longer holds is removed only where the box's switch is on, archived
+first); ``declared: false`` Attribute nodes and the counts of attributes a sample fills for the first time, then one
+catalog sync to restamp the catalog hash when either changed; the touched types' counts; and, when a structural link
+was left unwritten, which samples it belongs to. A sample that cannot be projected is counted and skipped whole, its
+lineage included: its parent tokens could not be read, and reading them as none would delete every edge it has.
 
 **Labels** (section 7.3). Each edge is labelled by ``labels.edge_labels`` from MySQL and classified against what it
 stores (``labels.classify``). Without the operator's approval ``new`` edges are written, and the writer's own guard
@@ -38,10 +45,10 @@ under its id, a protocol filled where none was stored), only where the stored va
 with ``apply_label_changes=True``, then only where the stored values still equal those read. An edge a call creates
 has no label, so it is ``new`` and labelled in the same call (R15).
 
-**Archives.** ``retired.tsv``, ``derived_from_undeclared_archive.tsv`` and ``in_study_removed.tsv`` are appended
-in ``run_dir``; without one,
-in a new ``targeted-<UTC time>`` directory under ``$GS_RUN_DIR``, else under ``<LOG_DIR>/graph_sync``, created only
-when a row is archived. The writer writes and flushes each archive before the delete it records.
+**Archives.** ``retired.tsv``, ``derived_from_undeclared_archive.tsv`` and ``in_study_removed.tsv`` are appended in
+``run_dir``; without one, in a new ``targeted-<UTC time>`` directory under ``$GS_RUN_DIR``, else under
+``<LOG_DIR>/graph_sync``, created only when a row is archived. The writer writes and flushes each archive before the
+delete it records.
 
 The statements that ``cypher.py`` does not hold are module constants here.
 """
@@ -64,6 +71,7 @@ from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
 log = logging.getLogger(__name__)
 
 OK, NOT_AT_VERSION, LOCK_TIMEOUT = "ok", "not_at_version", "lock_timeout"
+TRIGGER = "by-id"         # what the run record of a catalog sync a by-id call runs says started it
 LOCK_WAIT_S = 60          # the spec's bounded wait for the graph-write lock (R10)
 RETIRED_FILE = "retired.tsv"
 DERIVED_FROM_ARCHIVE_FILE = "derived_from_undeclared_archive.tsv"   # the full sync's name, so a run keeps one
@@ -257,19 +265,47 @@ def _set_type_counts(driver, db, type_ids) -> int:
                for batch in _batches(ids, writer.REL_CHUNK))
 
 
-def _ensure_sample_types(driver, db, rows, cat) -> list[int]:
+def _catalog_sync(driver, db, cat) -> list[dict]:
+    """Run the catalog sync and return ``[]``; or, when SampleType titles are held under other ids in the graph (a
+    type recreated in SEEK under its old title, which only the nightly reconcile clears), return those conflicts. Any
+    other refusal raises.
+
+    The titles are read first, against ``cat``, and the catalog sync runs only when none is held: its refusal would
+    record a catalog run, and while the titles wait every by-id sync that needs the catalog would add one, though the
+    report and the drain already name the samples left out. The catalog sync's own refusal for titles alone (a type
+    renamed in SEEK since the read) is the same outcome."""
+    conflicts = run._title_conflicts(driver, db, cat)
+    if conflicts:
+        return conflicts
+    try:
+        run.catalog_sync(driver, db, trigger=TRIGGER)
+    except run.PreflightError as exc:
+        if not run.only_title_conflicts(exc.problems, exc.report):
+            raise
+        return list(exc.report["sample_type_title_conflicts"])
+    return []
+
+
+def _ensure_sample_types(driver, db, rows, cat) -> tuple[list[int], dict[int, str]]:
     """Run the catalog sync when a row's type has no SampleType node, or one holding another title. Returns those
-    type ids."""
+    type ids; or, when the catalog sync is refused for SampleType titles held under other ids (``_catalog_sync``),
+    none and each such type's reason instead: its node cannot be written until the nightly, so its samples wait."""
     type_ids = sorted({r["sample_type_id"] for r in rows if r["sample_type_id"] in cat.type_titles})
     if not type_ids:
-        return []
+        return [], {}
     held = {r["id"]: r["title"]
             for r in _records(_run(driver, db, SAMPLE_TYPES_PRESENT, {"ids": type_ids}, read=True))}
     stale = [t for t in type_ids if held.get(t) != cat.type_titles[t]]
-    if stale:
-        log.info("graph_sync: sample types %s have no current SampleType node; running the catalog sync first", stale)
-        run.catalog_sync(driver, db)
-    return stale
+    if not stale:
+        return [], {}
+    log.info("graph_sync: sample types %s have no current SampleType node; running the catalog sync first", stale)
+    conflicts = _catalog_sync(driver, db, cat)
+    if not conflicts:
+        return stale, {}
+    titles = "; ".join(f"{c['title']!r} is held by type {c['graph_id']} in the graph" for c in conflicts[:3])
+    log.info("graph_sync: the catalog sync is refused for SampleType titles held under other ids (%s); the samples "
+             "of types %s wait for the nightly reconcile", titles, stale)
+    return [], {t: f"sample type {t} has no current SampleType node ({titles})" for t in stale}
 
 
 def _project_rows(rows, cat):
@@ -370,7 +406,12 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
     projections, links = [], []
     if rows:
         cat = ctx.catalog()
-        report["catalog_synced_for_types"] = _ensure_sample_types(driver, db, rows, cat)
+        report["catalog_synced_for_types"], waiting = _ensure_sample_types(driver, db, rows, cat)
+        if waiting:
+            report["catalog_waiting_samples"] = {r["id"]: waiting[r["sample_type_id"]]
+                                                 for r in rows if r["sample_type_id"] in waiting}
+            rows = [r for r in rows if r["sample_type_id"] not in waiting]
+    if rows:
         projections, metas, tokens, errors = _project_rows(rows, cat)
         report.update(projected=len(projections), projection_errors=len(errors),
                       projection_error_examples=errors[:EXAMPLES])
@@ -391,8 +432,9 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
             report.update(undeclared)
             report.update(counted)
             if undeclared["undeclared_attributes_created"] or counted["attribute_counts_raised"]:
-                # One catalog sync restamps the catalog hash for both (the lock nests).
-                report["catalog_resynced"] = run.catalog_sync(driver, db).get("status")
+                # One catalog sync restamps the catalog hash for both (the lock nests). Refused for SampleType titles
+                # held under other ids, the writes above stand and the hash waits for the nightly.
+                report["catalog_resynced"] = "refused" if _catalog_sync(driver, db, cat) else OK
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
     parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
@@ -480,12 +522,16 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
 
     Returns ``status`` (``ok``, ``not_at_version`` or ``lock_timeout``, the last two having written nothing) and the
     summed counts of every step: ``requested``, ``found``, ``missing_in_mysql``, ``projected``,
-    ``projection_errors`` with examples, the writer's sample, lineage, retire and IN_STUDY counts, ``labels_edges``
-    and one ``labels_<class>`` count per ``labels.CLASSES``, ``label_differences`` (class to property to edges),
-    ``label_examples``, the label write counts, ``undeclared_attributes_created``, ``catalog_synced_for_types`` and
-    ``sample_type_counts_set``; ``structural_gaps`` and ``structural_gap_parts`` count the structural links left
-    unwritten, and when there are any ``structural_gap_samples`` names each sample they belong to, with why
-    (``STRUCTURAL_GAP_KEYS``). ``apply_label_changes`` is the operator's approval (R14).
+    ``projection_errors`` with examples, ``projects_written_for_links``, the writer's sample, lineage, retire and
+    IN_STUDY counts, ``labels_edges`` and one ``labels_<class>`` count per ``labels.CLASSES``, ``label_differences``
+    (class to property to edges), ``label_examples``, the label write counts, ``undeclared_attributes_created``,
+    ``attribute_counts_raised``, ``catalog_resynced`` (``ok``, or ``refused`` for SampleType titles held under other
+    ids: the writes stand and the hash waits for the nightly), ``catalog_synced_for_types`` and
+    ``sample_type_counts_set``; ``catalog_waiting_samples`` names each sample left out because its type's SampleType
+    node cannot be written while titles are held under other ids, with why; ``structural_gaps`` and
+    ``structural_gap_parts`` count the structural links left unwritten, and when there are any
+    ``structural_gap_samples`` names each sample they belong to, with why (``STRUCTURAL_GAP_KEYS``).
+    ``apply_label_changes`` is the operator's approval.
     """
     wanted = _ids(ids)
     if not wanted:

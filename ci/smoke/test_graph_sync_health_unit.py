@@ -167,14 +167,14 @@ def test_long_durations_read_in_hours():
 
 def labels_recorded(**classes):
     """A drift record as drift_check writes it, holding gate G's label classes (verify._check_labels)."""
-    return {"stats": {"gate_g": {"lineage_labels": {"edges_compared": 2_014_307, "classes": classes}}}}
+    return {"stats": {"gate_g": {"lineage_labels": {"edges_compared": 2_000_000, "classes": classes}}}}
 
 
 def test_label_changes_awaiting_approval_are_one_warning_and_never_a_problem():
-    b = body(runs={"drift": drift_run("ok", drift=labels_recorded(new=0, equal=1_000, plural_missing=717_309,
-                                                                    changed=57_549, cleared=6_583))})
+    b = body(runs={"drift": drift_run("ok", drift=labels_recorded(new=0, equal=1_000, plural_missing=700_000,
+                                                                    changed=50_000, cleared=6_000))})
     assert health.label_changes_awaiting_approval(b) == [
-        "drift run 6 counted DERIVED_FROM labels awaiting approval: changed 57549, cleared 6583 "
+        "drift run 6 counted DERIVED_FROM labels awaiting approval: changed 50000, cleared 6000 "
         "(its check 9.lineage.labels_differ_from_rule lists examples)"]
     assert health.within_grace(b) == health.label_changes_awaiting_approval(b)
     assert health.problems(b) == []
@@ -189,8 +189,8 @@ def test_no_label_line_without_counts_to_show():
 
 def test_only_the_classes_that_need_approval_are_counted():
     """After the studies release, renamed and protocol_filled are written without approval."""
-    b = body(runs={"drift": drift_run("ok", drift=labels_recorded(renamed=55_307, protocol_filled=23,
-                                                                    plural_missing=712_705))})
+    b = body(runs={"drift": drift_run("ok", drift=labels_recorded(renamed=50_000, protocol_filled=20,
+                                                                    plural_missing=700_000))})
     assert health.label_changes_awaiting_approval(b) == []
 
 

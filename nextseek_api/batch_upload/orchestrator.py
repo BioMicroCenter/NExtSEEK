@@ -601,13 +601,17 @@ def _run_graph_sync(sample_ids: List[int]) -> str:
             report = targeted.sync_samples(
                 driver, neo4j_config.NEO4J_DB, sample_ids, lock_timeout_s=GRAPH_LOCK_WAIT_S,
             )
-        gapped = report.get("structural_gap_samples") or {}
-        if gapped:
-            # Up to a chunk of names, each with its reason; the loop names each on its own outbox row when it
-            # retries this job's rows, so this line carries a count and the first few ids.
-            report = {**report, "structural_gap_samples": (f"{len(gapped)} samples, first "
-                                                           + ", ".join(map(str, sorted(gapped)[:5])))}
+        for key in ("structural_gap_samples", "catalog_waiting_samples"):
+            named = report.get(key) or {}
+            if named:
+                # Up to a chunk of names, each with its reason; the loop names each on its own outbox row when it
+                # retries this job's rows, so this line carries a count and the first few ids.
+                report = {**report, key: f"{len(named)} samples, first " + ", ".join(map(str, sorted(named)[:5]))}
         log.info("GRAPH SYNC: %s", report)
+        if report.get("status") == "ok" and report.get("catalog_waiting_samples"):
+            # Left out until SampleType titles held under other ids clear (the nightly reconcile does it): the job's
+            # outbox rows stay open for the loop, which waits with them (graph_sync.loop.TITLE_CONFLICT_DEFERRAL).
+            return "catalog_waiting"
         if report.get("status") == "ok" and report.get("structural_gaps"):
             # Written, but a type, project, study or investigation link is missing: the job's outbox rows stay open
             # for the loop, which retries them (graph_sync.targeted.STRUCTURAL_GAP_KEYS).
