@@ -443,3 +443,18 @@ def test_a_rollback_that_died_part_way_closes_the_run_to_apply(undo_env):
     truncate_journal_after(run_dir, "undo", "intent")   # the first undo part started; the crash beat the rest
     assert undo_env.apply(run_dir).status == a.REFUSED
     assert a.graph_step(run_dir, None, "neo4j", approve_label_changes=True).status == a.REFUSED
+
+
+@pytest.mark.django_db
+def test_a_unit_that_rolled_back_without_its_journal_line_is_skipped(undo_env):
+    from nextseek_api.studies.tests.conftest import seed
+
+    run_dir, _plan = _applied(undo_env)
+    truncate_journal_after(run_dir, "links", "prepared")    # the transaction rolled back: its outbox row is absent
+    seed(undo_env.engine, undo_env.world)
+    with undo_env.engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM dmac.graph_sync_outbox")
+    result = undo_env.rollback(run_dir)
+    assert result.status == a.DONE and result.counts["units"] == []
+    assert sorted(links_of(undo_env.engine)) == sorted(ORIGINAL) and ("assay", 302) in undo_env.session.deleted
+    assert not any(c[0] == "sync" for c in undo_env.calls)
