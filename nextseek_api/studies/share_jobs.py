@@ -6,9 +6,11 @@ to ``claim_owner`` and a state instead. Every writer that moves ``state_version`
 ``models.F("state_version") + 1``, never a Python-side value.
 
 States: ``planning`` (the worker plans it), ``planned``, ``plan_failed``, ``refused``; ``applying`` (the caller's apply
-calls make its clones), ``queued`` (the worker runs its link unit), ``running``, ``applied``, ``apply_failed``. A lease
-that expired makes a ``planning`` or ``running`` share claimable again: a crashed worker's share resumes, and the
-tool's journal makes its unit idempotent.
+calls make its clones), ``queued`` (the worker runs its link unit), ``running``, ``applied``, ``apply_failed``,
+``rolled_back`` (the studies tool's rollback undid its run: never applied again). A lease that expired makes a
+``planning`` or ``running`` share claimable again: a crashed worker's share resumes, and the tool's journal makes its
+unit idempotent. An ``apply_failed`` share whose error can never clear (``TERMINAL_ERRORS``) is not applied again
+either: it needs a new share.
 """
 from __future__ import annotations
 
@@ -22,9 +24,11 @@ from nextseek_api.studies.models import ShareInput
 from nextseek_api.studies.models_db import SampleShare
 
 LEASE_SECONDS = 120
+WORKER_ATTEMPTS = 3   # an error the worker did not expect, this many times on one share, ends it
 PLAN_ENDS = frozenset({"planned", "plan_failed", "refused"})
-APPLY_ENDS = frozenset({"applied", "apply_failed"})
+APPLY_ENDS = frozenset({"applied", "apply_failed", "rolled_back"})
 APPLICABLE = ("planned", "applying", "apply_failed")
+TERMINAL_ERRORS = frozenset({"plan_stale", "destination_changed"})
 _LEASED = ("planning", "running")
 
 
@@ -38,8 +42,11 @@ def _claimable(now) -> Q:
             | Q(state__in=_LEASED, lease_expires_at__lt=now))
 
 
-def next_claimable() -> SampleShare | None:
-    return SampleShare.objects.filter(_claimable(timezone.now())).order_by("created_at", "id").first()
+def next_claimable(*, planning_only: bool = False) -> SampleShare | None:
+    found = SampleShare.objects.filter(_claimable(timezone.now()))
+    if planning_only:
+        found = found.filter(state="planning")
+    return found.order_by("created_at", "id").first()
 
 
 def claim(share: SampleShare, owner: str) -> bool:
@@ -76,9 +83,18 @@ def finish_plan(share: SampleShare, owner: str, *, state: str, run_dir: str = ""
     return updated == 1
 
 
-def _move(share: SampleShare, *, to: str, sources: tuple, **fields) -> bool:
+def applicable(share: SampleShare) -> bool:
+    """The share may take an apply call: planned, applying, or apply_failed with an error that can clear."""
+    if share.state not in APPLICABLE:
+        return False
+    return not (share.state == "apply_failed" and (share.error or {}).get("code") in TERMINAL_ERRORS)
+
+
+def _move(share: SampleShare, *, to: str, **fields) -> bool:
+    if not applicable(share):
+        return False
     updated = SampleShare.objects.filter(pk=share.pk, state_version=share.state_version,
-                                         state__in=sources).update(
+                                         state__in=APPLICABLE).update(
         state=to, updated_at=timezone.now(), state_version=models.F("state_version") + 1, **fields)
     if updated == 1:
         share.refresh_from_db()
@@ -87,16 +103,16 @@ def _move(share: SampleShare, *, to: str, sources: tuple, **fields) -> bool:
 
 
 def to_applying(share: SampleShare) -> bool:
-    return _move(share, to="applying", sources=APPLICABLE)
+    return _move(share, to="applying")
 
 
 def to_queued(share: SampleShare) -> bool:
-    return _move(share, to="queued", sources=APPLICABLE)
+    return _move(share, to="queued")
 
 
 def to_apply_failed(share: SampleShare, error: dict) -> bool:
     """An apply call's own refusal that ends the share (``destination_changed``): from an applicable state."""
-    return _move(share, to="apply_failed", sources=APPLICABLE, error=error)
+    return _move(share, to="apply_failed", error=error)
 
 
 def finish_apply(share: SampleShare, owner: str, *, state: str, receipt: dict | None = None,
@@ -108,7 +124,32 @@ def finish_apply(share: SampleShare, owner: str, *, state: str, receipt: dict | 
     return updated == 1
 
 
+def worker_failed(share: SampleShare, owner: str, detail: str) -> str:
+    """The worker raised on a share it holds: the error is counted on the row and the share keeps its lease, so another
+    pass retries it once the lease runs out; at ``WORKER_ATTEMPTS`` the share ends ``plan_failed`` or
+    ``apply_failed`` with the error. Returns the share's state after."""
+    share.refresh_from_db()
+    prior = share.error or {}
+    attempts = (int(prior.get("attempts") or 0) if prior.get("code") == "worker_error" else 0) + 1
+    error = {"code": "worker_error", "detail": detail[:500], "attempts": attempts}
+    held = SampleShare.objects.filter(pk=share.pk, claim_owner=owner, state__in=_LEASED)
+    if attempts < WORKER_ATTEMPTS:
+        held.update(error=error, updated_at=timezone.now())
+        return share.state
+    end = "plan_failed" if share.state == "planning" else "apply_failed"
+    return end if held.update(**_release(state=end, error=error)) == 1 else share.state
+
+
 def back_to_queued(share: SampleShare, owner: str) -> bool:
     """The worker could not take the run lock: the share waits for the next pass, unchanged otherwise."""
     return SampleShare.objects.filter(pk=share.pk, claim_owner=owner, state="running").update(
         **_release(state="queued")) == 1
+
+
+def end_rolled_back(run_dir: str) -> int:
+    """The studies tool's rollback undid the share whose run directory is ``run_dir``: whatever its state, it ends
+    ``rolled_back`` (its claim released), so neither an apply call nor the worker acts on it again."""
+    if not run_dir:
+        return 0
+    return SampleShare.objects.filter(run_dir=run_dir).exclude(state="rolled_back").update(
+        **_release(state="rolled_back"))

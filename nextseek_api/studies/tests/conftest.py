@@ -57,6 +57,7 @@ class World:
     assay_reps: dict = field(default_factory=dict)              # assay id -> GET body
     study_reps: dict = field(default_factory=dict)              # study id -> GET body
     projects: set = field(default_factory=set)                  # SEEK's project ids
+    policies: dict = field(default_factory=dict)                # study id -> its policy, as SEEK's tables give it
 
     def assay_map(self) -> dict:
         out = {}
@@ -111,6 +112,10 @@ class FakeReader:
             if sample in wanted:
                 out.setdefault(sample, {}).setdefault(assay, direction)
         return out
+
+    def sample_assay_rows(self, sample_ids):
+        wanted = set(sample_ids)
+        return [(assay, sample, direction) for assay, sample, direction in self.w.links if sample in wanted]
 
     def assays(self, assay_ids):
         return {a: self.w.assays[a] for a in assay_ids if a in self.w.assays}
@@ -196,6 +201,9 @@ class FakeReader:
     def study_representation(self, study_id):
         self.calls.append(f"GET /studies/{study_id}")
         return self.w.study_reps[study_id]
+
+    def study_policy(self, study_id):
+        return self.w.policies.get(study_id)
 
 
 class FakeDriver:
@@ -360,6 +368,9 @@ def seek_db(monkeypatch):
                              "relationship_type_id INTEGER, asset_type TEXT, direction INTEGER)")
         conn.exec_driver_sql("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, json_metadata TEXT)")
         conn.exec_driver_sql("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
+        conn.exec_driver_sql("CREATE TABLE assays (id INTEGER PRIMARY KEY, study_id INTEGER, title TEXT)")
+        conn.exec_driver_sql("CREATE TABLE studies (id INTEGER PRIMARY KEY, investigation_id INTEGER, title TEXT)")
+        conn.exec_driver_sql("CREATE TABLE investigations_projects (investigation_id INTEGER, project_id INTEGER)")
         conn.exec_driver_sql("CREATE TABLE dmac.graph_sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, "
                              "key TEXT, payload TEXT, enqueued_at TEXT, attempts INTEGER, UNIQUE (kind, key))")
     monkeypatch.setattr(registration_planner, "_seek_db", lambda: "main")
@@ -383,6 +394,18 @@ def seed(engine, world: World) -> None:
         conn.exec_driver_sql("DELETE FROM assay_assets")
         conn.exec_driver_sql("DELETE FROM samples")
         conn.exec_driver_sql("DELETE FROM projects_samples")
+        for table in ("assays", "studies", "investigations_projects"):
+            conn.exec_driver_sql(f"DELETE FROM {table}")
+        for row in world.assays.values():
+            conn.execute(text("INSERT INTO assays (id, study_id, title) VALUES (:i, :s, :t)"),
+                         {"i": row.id, "s": row.study_id, "t": row.title})
+        for row in world.studies:
+            conn.execute(text("INSERT INTO studies (id, investigation_id, title) VALUES (:i, :v, :t)"),
+                         {"i": row.id, "v": row.investigation_id, "t": row.title})
+        for inv, projects in sorted(world.investigation_projects.items()):
+            for project_id in sorted(projects):
+                conn.execute(text("INSERT INTO investigations_projects (investigation_id, project_id) "
+                                  "VALUES (:v, :p)"), {"v": inv, "p": project_id})
         for sid, projects in sorted(world.sample_projects.items()):
             for project_id in sorted(projects):
                 conn.execute(text("INSERT INTO projects_samples (project_id, sample_id) VALUES (:p, :s)"),
@@ -635,6 +658,8 @@ def share_world() -> World:
     w.projects |= {5}
     w.assay_reps[401] = assay_rep(401, "Imaging run", study_id=40)
     w.study_reps[40] = study_rep(40, "Delta Study")
+    w.policies[40] = {"access": "view", "permissions": [{"resource": {"id": "5", "type": "projects"},
+                                                         "access": "manage"}]}
     return w
 
 

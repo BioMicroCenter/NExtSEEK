@@ -21,6 +21,11 @@ from nextseek_api.studies.buckets import buckets_from_rows
 
 IN_CHUNK = sources.IN_CHUNK
 GRAPH_MAX_STUDY_ID = "MATCH (st:Study) WHERE st.id IS NOT NULL RETURN max(st.id) AS n"
+# SEEK's policy in the form its JSON API writes and reads back: PolicyHelper::ACCESS_TYPE_MAP for an access type,
+# contributor_type.underscore.pluralize for a permission's resource type (base_serializer.rb, convert_policy).
+POLICY_ACCESS = {0: "no_access", 1: "view", 2: "download", 3: "edit", 4: "manage"}
+PERMISSION_TYPES = {"Person": "people", "Project": "projects", "Institution": "institutions",
+                    "WorkGroup": "work_groups", "Programme": "programmes", "FavouriteGroup": "favourite_groups"}
 
 
 class StudyRow(NamedTuple):
@@ -100,6 +105,26 @@ class SnapshotReader:
         return {int(r[0]) for r in self._seek("SELECT investigation_id FROM investigations_projects "
                                               "WHERE project_id = %s", [int(project_id)])}
 
+    def study_policy(self, study_id: int) -> Optional[dict]:
+        """The study's policy as SEEK's API would give it to one who may manage the study, read from SEEK's
+        ``policies`` and ``permissions`` tables (the API hides it from anyone else, admins included). None when the
+        study has no policy row, or a value of it has no API form."""
+        found = self._seek("SELECT p.id, p.access_type FROM studies s JOIN policies p ON p.id = s.policy_id "
+                           "WHERE s.id = %s", [int(study_id)])
+        if len(found) != 1 or _int(found[0][1]) not in POLICY_ACCESS:
+            return None
+        policy_id, access = found[0]
+        permissions = []
+        for kind, contributor, level in self._seek("SELECT contributor_type, contributor_id, access_type FROM "
+                                                   "permissions WHERE policy_id = %s ORDER BY created_at, id",
+                                                   [int(policy_id)]):
+            kind = PERMISSION_TYPES.get(sources._text(kind))
+            if kind is None or contributor is None or _int(level) not in POLICY_ACCESS:
+                return None
+            permissions.append({"resource": {"id": str(int(contributor)), "type": kind},
+                                "access": POLICY_ACCESS[int(level)]})
+        return {"access": POLICY_ACCESS[int(access)], "permissions": permissions}
+
     def next_study_id(self) -> int:
         try:
             self._seek("SET SESSION information_schema_stats_expiry = 0")
@@ -145,6 +170,17 @@ class SnapshotReader:
                     "SELECT asset_id, assay_id, direction FROM assay_assets WHERE asset_type = %s "
                     f"AND asset_id IN ({_holes(len(chunk))}) ORDER BY id", ["Sample", *chunk]):
                 out.setdefault(int(sample), {}).setdefault(int(assay), _int(direction))
+        return out
+
+    def sample_assay_rows(self, sample_ids) -> list:
+        """Every Sample row of these samples, ``(assay_id, sample_id, direction)`` in ``assay_assets.id`` order,
+        duplicates kept (a share's digest, read by sample, never by whole assay)."""
+        out: list = []
+        for chunk in _chunks(sample_ids):
+            for sample, assay, direction in self._seek(
+                    "SELECT asset_id, assay_id, direction FROM assay_assets WHERE asset_type = %s "
+                    f"AND asset_id IN ({_holes(len(chunk))}) ORDER BY id", ["Sample", *chunk]):
+                out.append((int(assay), int(sample), _int(direction)))
         return out
 
     def assays(self, assay_ids) -> dict:

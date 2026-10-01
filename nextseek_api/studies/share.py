@@ -10,7 +10,8 @@ carry as they carry a move. ``plan_share`` reads, decides and writes nothing:
    source project, less the destination study's), none being ``no_source_assay``; one with no internal-assay row
    makes it ``source_assay_unmapped``.
 4. Groups by (title, internal-assay set): the destination study's one assay of a group is reused; none: one clone,
-   made at apply with the destination study's policy; several: the group's samples are ``target_assay_ambiguous``.
+   made at apply with the destination study's policy, read here from SEEK's tables (none readable refuses the share,
+   ``destination_policy_unreadable``); several: the group's samples are ``target_assay_ambiguous``.
 5. Inserts: each sample into its groups' destination assays with its direction in the group's smallest source assay
    it is in; each direct parent that is a member of one of those source assays into that group's destination assay
    with direction 1 (a grandparent never); the destination project for every sample and parent lacking it. A sample
@@ -24,11 +25,14 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
+from nextseek_api.batch_upload.helpers import UID_RE
 from nextseek_api.graph_sync import labels
+from nextseek_api.graph_sync.sources import declared_lineage
 from nextseek_api.studies import planner
 from nextseek_api.studies.buckets import title_key
 from nextseek_api.studies.models import (PLAN_VERSION, ClonePlan, GraphPlan, LinkInsert, LinkUnit, ProjectInsert,
-                                         ShareInput, Skip, StudyAction, StudyMovePlan, TargetPlan, canonical_json)
+                                         ShareInput, ShareParent, Skip, StudyAction, StudyMovePlan, TargetPlan,
+                                         canonical_json)
 from nextseek_api.studies.sources.matching import SAMPLE_UID_NOT_FOUND, SAMPLE_UID_NOT_UNIQUE
 
 MAX_SHARE_UIDS = 10_000
@@ -37,6 +41,7 @@ SOURCE_PROJECT_UNKNOWN = "source_project_unknown"
 DESTINATION_PROJECT_UNKNOWN = "destination_project_unknown"
 DESTINATION_STUDY_UNKNOWN = "destination_study_unknown"
 DESTINATION_STUDY_NOT_IN_DESTINATION_PROJECT = "destination_study_not_in_destination_project"
+DESTINATION_POLICY_UNREADABLE = "destination_policy_unreadable"
 NOT_IN_SOURCE_PROJECT = "not_in_source_project"
 NO_SOURCE_ASSAY = "no_source_assay"
 SOURCE_ASSAY_UNMAPPED = planner.SOURCE_ASSAY_UNMAPPED
@@ -159,6 +164,12 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
     for src in sources.values():
         for a in src:
             group_sources[group_of[a]].add(a)
+    policy = None
+    if any(not dest_by_group.get(g) for g in group_sources):
+        policy = reader.study_policy(d)
+        if policy is None:
+            raise ShareRefused(DESTINATION_POLICY_UNREADABLE, f"study {d}: its policy could not be read from SEEK's "
+                                                              "tables, so an assay made in it could not take it")
     placeholder = reader.max_assay_id()
     clones: dict = {}
     for g in sorted(group_sources):
@@ -169,33 +180,46 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
             clones[g] = ClonePlan(action="reuse", seek_assay_id=dest_by_group[g][0], **common)
         else:
             placeholder += 1
-            clones[g] = ClonePlan(action="create", placeholder_id=placeholder, policy_from_study=d, **common)
+            clones[g] = ClonePlan(action="create", placeholder_id=placeholder, policy_from_study=d, policy=policy,
+                                  **common)
 
-    # 5. inserts: movers, then direct parents in their source assay, then the destination project
+    # 5. inserts: movers, then direct parents in their source assay, then the destination project. Only the share's
+    #    own samples and their declared parents are read (rows, metadata, memberships), never a whole source assay.
     source_assays = sorted({a for ids in group_sources.values() for a in ids})
-    lin = planner._lineage(reader, source_assays)
+    members = {s: dict(members_of.get(s, {})) for s in samples}
+    rows_of = reader.sample_rows(sorted(sources)) if sources else {}
+    tokens = {t for r in rows_of.values() for t in planner.parent_tokens(r.get("json_metadata")) if UID_RE.match(t)}
+    index = reader.uuid_index(sorted(tokens)) if tokens else {}
+    declared: dict = defaultdict(set)
+    for child, parent in declared_lineage([rows_of[s] for s in sorted(rows_of)], index):
+        declared[child].add(parent)
+    unread = sorted({par for found in declared.values() for par in found} - set(members))
+    if unread:
+        members.update(reader.memberships(unread))
     reused = sorted(c.seek_assay_id for c in clones.values() if c.action == "reuse")
-    present_rows = reader.assay_rows(reused) if reused else {}
-    present = {a: {s for s, _d in rows} for a, rows in present_rows.items()}
 
     def dest_holds(clone: ClonePlan, sample: int) -> bool:
-        return clone.action == "reuse" and sample in present.get(clone.seek_assay_id, set())
+        return clone.action == "reuse" and clone.seek_assay_id in members.get(sample, {})
 
     movers: dict = {}            # (clone ref, sample) -> direction
     for s in sorted(sources):
         for g in sorted({group_of[a] for a in sources[s]}):
             first = min(a for a in sources[s] if group_of[a] == g)
-            movers[(clones[g].source_assay_id, s)] = planner._direction(lin.members[first].get(s))
+            movers[(clones[g].source_assay_id, s)] = planner._direction(members[s].get(first))
     parents: dict = {}           # (clone ref, parent) -> (child, source assay)
     for s in sorted(sources):
         for a in sources[s]:
             ref = clones[group_of[a]].source_assay_id
-            for par in sorted(lin.parents.get((a, s), ())):
-                if (ref, par) not in movers:
+            for par in sorted(declared.get(s, ())):
+                if a in members.get(par, {}) and (ref, par) not in movers:
                     parents.setdefault((ref, par), (s, a))
     parent_ids = sorted({par for _ref, par in parents} - set(sources))
     if parent_ids:
-        projects.update(reader.sample_projects(parent_ids))
+        projects.update(reader.sample_projects([i for i in parent_ids if i not in projects]))
+    # a parent outside the source project crosses no boundary: no link, no project row; listed with its projects
+    outside = {(ref, par): found for (ref, par), found in parents.items() if p not in projects.get(par, set())}
+    parents = {k: v for k, v in parents.items() if k not in outside}
+    parent_ids = sorted({par for _ref, par in parents} - set(sources))
     clone_by_ref = {c.source_assay_id: c for c in clones.values()}
 
     inserts: list = []
@@ -237,8 +261,7 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
     graph = GraphPlan()
     if inserts or project_inserts:
         unit_assays = sorted(set(source_assays) | set(reused))
-        wanted = set(sync_ids)
-        rows = [(a, s, dr) for a, found in reader.assay_rows(unit_assays).items() for s, dr in found if s in wanted]
+        rows = [(a, s, dr) for a, s, dr in reader.sample_assay_rows(sync_ids) if a in set(unit_assays)]
         project_rows = [(q, s) for s in sync_ids if q in projects.get(s, set())]
         units = [LinkUnit(unit=1, target_key=key, investigation_id=investigation, source_assay_ids=unit_assays,
                           digest=share_digest(rows, project_rows), inserts=inserts, removals=[],
@@ -246,17 +269,25 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
         graph = _label_preview(units[0], clone_by_ref, reader)
     if not units:
         target = target.model_copy(update={"clones": []})
-    every = sorted(set(samples) | set(parent_ids))
-    rows_of = reader.sample_rows([i for i in every if i not in uid_of]) if every else {}
-    uid_of.update({i: r["uuid"] for i, r in rows_of.items()})
+    every = sorted(set(samples) | {par for _ref, par in parents} | {par for _ref, par in outside})
+    named = reader.sample_rows([i for i in every if i not in uid_of]) if every else {}
+    uid_of.update({i: r["uuid"] for i, r in named.items()})
     plan = StudyMovePlan(
         plan_version=PLAN_VERSION, created_at=now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         code_sha=planner.code_sha(), associations_sha256=inp.sha256(), run_id=run_id, buckets={},
         seek_next_study_id=0, targets=[target], units=units, publications=[], graph=graph, skipped=skipped,
         no_change={key: no_change} if no_change else {}, empty_bucket_assays=[], warnings=[], summary={},
         mode="share", share=inp)
-    summary = _summary(plan, uid_of, shared, parents)
-    return plan.model_copy(update={"summary": summary})
+    planned_links = {(x.source_assay_id, x.sample_id) for u in units for x in u.inserts if x.role == "parent"}
+    listed = [ShareParent(sample_id=par, uid=uid_of.get(par), child_id=child, child_uid=uid_of.get(child),
+                          source_assay_id=a, link=(ref, par) in planned_links, project=par in parent_projects)
+              for (ref, par), (child, a) in sorted(parents.items(), key=lambda kv: (kv[0][1], kv[0][0]))]
+    listed += [ShareParent(sample_id=par, uid=uid_of.get(par), child_id=child, child_uid=uid_of.get(child),
+                           source_assay_id=a, link=False, project=False, outside_source_project=True,
+                           projects=sorted(projects.get(par, set())))
+               for (ref, par), (child, a) in sorted(outside.items(), key=lambda kv: (kv[0][1], kv[0][0]))]
+    plan = plan.model_copy(update={"share_parents": listed})
+    return plan.model_copy(update={"summary": _summary(plan, uid_of, shared)})
 
 
 def _label_preview(unit: LinkUnit, clone_by_ref: dict, reader) -> GraphPlan:
@@ -279,8 +310,9 @@ def _label_preview(unit: LinkUnit, clone_by_ref: dict, reader) -> GraphPlan:
     return GraphPlan(sync_ids={unit.unit: unit.sync_ids}, move=move, pending=pending)
 
 
-def _summary(plan: StudyMovePlan, uid_of: dict, shared: list, parents: dict) -> dict:
-    """The dry run's summary (tool spec 16.7): what the GET answer shows and plan.txt prints."""
+def _summary(plan: StudyMovePlan, uid_of: dict, shared: list) -> dict:
+    """The dry run's summary (tool spec 16.7): what the GET answer shows and plan.txt prints; every parent is in the
+    run directory's parents.csv."""
     by_reason: dict = defaultdict(list)
     for s in plan.skipped:
         by_reason[s.reason].append(s.detail.split(":", 1)[0])
@@ -288,10 +320,11 @@ def _summary(plan: StudyMovePlan, uid_of: dict, shared: list, parents: dict) -> 
     by_reason[NO_CHANGE] = [uid_of[s] for s in plan.no_change.get(plan.targets[0].key, [])]
     unit = plan.units[0] if plan.units else None
     planned_parents = {(x.source_assay_id, x.sample_id) for x in (unit.inserts if unit else []) if x.role == "parent"}
-    parent_projects = {x.sample_id for x in (unit.project_inserts if unit else []) if x.role == "parent"}
-    listed = [{"uid": uid_of.get(par), "child_uid": uid_of.get(child), "source_assay_id": a,
-               "link": (ref, par) in planned_parents, "project": par in parent_projects}
-              for (ref, par), (child, a) in sorted(parents.items(), key=lambda kv: (kv[0][1], kv[0][0]))]
+    listed = [{"uid": x.uid, "child_uid": x.child_uid, "source_assay_id": x.source_assay_id, "link": x.link,
+               "project": x.project} for x in plan.share_parents if not x.outside_source_project]
+    outside = [{"uid": x.uid, "child_uid": x.child_uid, "source_assay_id": x.source_assay_id, "projects": x.projects}
+               for x in plan.share_parents if x.outside_source_project]
+    policy = next((c.policy for c in plan.targets[0].clones if c.action == "create"), None)
     needing = Counter(c.after_class for c in plan.graph.move + plan.graph.pending
                       if c.after_class != labels.EQUAL and c.after_class not in labels.WRITABLE_WITHOUT_APPROVAL)
     inp = plan.share
@@ -303,10 +336,13 @@ def _summary(plan: StudyMovePlan, uid_of: dict, shared: list, parents: dict) -> 
         "groups": [{"source_assay_ids": c.group_source_assay_ids, "title": c.title,
                     "internal_assay_ids": sorted(set(c.internal_assay_ids)), "action": c.action,
                     "destination_assay_id": c.seek_assay_id} for c in plan.targets[0].clones],
+        "clone_policy": policy,
         "links": {"mover": sum(1 for x in (unit.inserts if unit else []) if x.role == "mover"),
                   "parent": len(planned_parents)},
         "project_rows": len(unit.project_inserts) if unit else 0,
         "parents_count": len(listed),
         "parents": listed[:EXAMPLES],
+        "parents_outside_source_project_count": len(outside),
+        "parents_outside_source_project": outside[:EXAMPLES],
         "label_changes_needing_approval": dict(sorted(needing.items())),
     }

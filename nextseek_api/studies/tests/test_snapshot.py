@@ -102,3 +102,26 @@ def test_the_share_reads_projects_and_a_projects_investigations(reader):
     assert r.project_ids_present([3, 5, 404]) == {3, 5}
     assert r.project_investigations(5) == {7, 9}
     assert rows.sent[1][2] == [5]
+
+
+def test_a_studys_policy_is_read_from_seeks_tables_in_the_apis_form(reader):
+    r, rows = reader([("JOIN policies", [(12, 0)]),
+                      ("FROM permissions", [("Project", 3, 4), ("Person", 55, 2), ("WorkGroup", 8, 1)])])
+    assert r.study_policy(40) == {"access": "no_access", "permissions": [
+        {"resource": {"id": "3", "type": "projects"}, "access": "manage"},
+        {"resource": {"id": "55", "type": "people"}, "access": "download"},
+        {"resource": {"id": "8", "type": "work_groups"}, "access": "view"}]}
+    assert rows.sent[0][2] == [40] and rows.sent[1][2] == [12] and "ORDER BY created_at, id" in rows.sent[1][1]
+
+
+@pytest.mark.parametrize("policy, permissions", [([], []), ([(12, 9)], []), ([(12, 1)], [("Martian", 3, 4)]),
+                                                 ([(12, 1)], [("Project", 3, -1)]), ([(12, None)], [])])
+def test_a_policy_the_api_form_cannot_carry_reads_as_none(reader, policy, permissions):
+    r, _ = reader([("JOIN policies", policy), ("FROM permissions", permissions)])
+    assert r.study_policy(40) is None
+
+
+def test_sample_assay_rows_read_by_sample_keep_every_row(reader):
+    r, rows = reader([("FROM assay_assets", [(3, 101, 2), (3, 101, 2), (2, 402, None)])])
+    assert r.sample_assay_rows([3, 2]) == [(101, 3, 2), (101, 3, 2), (402, 2, None)]
+    assert "asset_id IN" in rows.sent[0][1] and rows.sent[0][2] == ["Sample", 2, 3]

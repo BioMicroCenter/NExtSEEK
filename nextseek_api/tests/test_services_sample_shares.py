@@ -172,3 +172,58 @@ def test_the_three_paths_and_their_models_are_in_the_schema():
     for model in ("SampleShareRequest", "SampleShareApplyRequest", "SampleShareAccepted", "SampleShareStep",
                   "SampleShareStatus"):
         assert model in components, model
+
+
+def test_the_graph_check_reads_every_outbox_row_of_the_unit_and_reports_the_worst(db, monkeypatch):
+    from django.utils import timezone
+
+    from nextseek_api.graph_sync import state as outbox_state
+    from nextseek_api.graph_sync.models_db import GraphSyncOutbox
+    from nextseek_api.studies import links
+    from nextseek_api.studies.tests.conftest import U3, FakeReader, share_world
+
+    monkeypatch.setattr(links, "SAMPLE_CHUNK", 1)          # the unit's two samples: two rows, as over 5,000 ids
+    plan = sh.plan_share(ShareInput(sample_uids=[U3], source_project_id=3, destination_project_id=5,
+                                    destination_study_id=40, created_at="t"), FakeReader(share_world()),
+                         run_id="r", now="t")
+    keys = [k for k, _part in links.outbox_rows(links.unit_key("r", 1), plan.units[0].sync_ids)]
+    assert len(keys) == 2 and view._outbox_state(plan) == "missing"
+    GraphSyncOutbox.objects.create(kind="samples", key=keys[0], payload=[2], done_at=timezone.now())
+    assert view._outbox_state(plan) == "missing"           # its first row drained, the second never written
+    GraphSyncOutbox.objects.create(kind="samples", key=keys[1], payload=[3])
+    assert view._outbox_state(plan) == "pending"
+    GraphSyncOutbox.objects.filter(key=keys[1]).update(failing_since=timezone.now())
+    assert view._outbox_state(plan) == "failed"
+    GraphSyncOutbox.objects.filter(key=keys[1]).update(attempts=outbox_state.MAX_ATTEMPTS)
+    assert view._outbox_state(plan) == "dead"
+    GraphSyncOutbox.objects.filter(key=keys[1]).update(done_at=timezone.now())
+    assert view._outbox_state(plan) == "done"
+
+
+def test_verify_graph_answers_503_in_the_envelope_when_the_graph_or_the_plan_cannot_be_read(superuser):
+    from neo4j.exceptions import ServiceUnavailable
+
+    row = _planned(superuser)                              # its run directory does not exist
+    response = _client(superuser).get(URL + str(row.share_id) + "/?verify=graph")
+    assert response.status_code == 503 and response.json()["errors"][0]["title"] == "graph_unavailable"
+
+    @contextlib.contextmanager
+    def down():
+        raise ServiceUnavailable("no route")
+        yield
+
+    with patch.object(view, "_graph", down), patch.object(view, "_graph_check", side_effect=ServiceUnavailable("x")):
+        response = _client(superuser).get(URL + str(row.share_id) + "/?verify=graph")
+    assert response.status_code == 503 and response.json()["errors"][0]["title"] == "graph_unavailable"
+    header = "Basic " + base64.b64encode(b"admin:x").decode("ascii")
+    with patch.object(view.SeekSession, "prove_for", lambda self, u: self), patch.object(view, "_graph", down):
+        response = _client(superuser).post(URL + str(row.share_id) + "/apply/", {"plan_sha256": "a" * 64},
+                                           format="json", HTTP_AUTHORIZATION=header)
+    assert response.status_code == 503 and response.json()["errors"][0]["title"] == "graph_unavailable"
+
+
+def test_a_202_answers_the_state_the_step_left_not_a_later_one(superuser):
+    row = _planned(superuser)
+    share_jobs.SampleShare.objects.filter(pk=row.pk).update(state="running")   # the worker took it already
+    response, _step = _apply(superuser, row, answer=StepAnswer(202, "queued", 2, 0))
+    assert response.status_code == 202 and response.json()["state"] == "queued"

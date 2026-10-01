@@ -306,3 +306,62 @@ def test_an_undo_run_twice_reports_its_own_rows_as_gone_not_changed(tmp_path, se
         again = links.undo_link_unit(conn, unit.unit, state, journal, run_id="run-1")
     assert again["not_deleted_changed"] == [] and sorted(again["not_deleted_gone"]) == [7, 8]
     assert again["deleted"] == 0 and again["reinserted"] == 0
+
+
+def _undo_share(seek_db, tmp_path):
+    state = journal_state(read_journal(tmp_path / JOURNAL_FILE)[0]).units[1]
+    with sqlite_connection(seek_db) as conn:
+        return links.undo_link_unit(conn, 1, state, Journal(tmp_path / JOURNAL_FILE, run_id="share-1"),
+                                    run_id="share-1")
+
+
+def test_a_share_undo_keeps_destination_project_rows_it_did_not_add(tmp_path, seek_db, share):
+    share.sample_projects[1] |= {5}                     # the parent's row predates the share
+    share.sample_projects[6] |= {5}                     # an unrelated sample of the destination project
+    seed(seek_db, share)
+    unit = _share_plan(share).units[0]
+    assert [(r.project_id, r.sample_id) for r in unit.project_inserts] == [(5, 2)]
+    _run_share(seek_db, unit, tmp_path)
+    report = _undo_share(seek_db, tmp_path)
+    assert report["project_pairs_deleted"] == 1
+    assert (5, 2) not in projects_of(seek_db) and {(5, 1), (5, 6)} <= set(projects_of(seek_db))
+
+
+def test_a_share_undo_keeps_project_rows_a_later_share_still_relies_on(tmp_path, seek_db, share_unit):
+    _run_share(seek_db, share_unit, tmp_path)
+    with seek_db.begin() as conn:                        # a later share put both into study 41 of project 5
+        conn.exec_driver_sql("INSERT INTO studies (id, investigation_id, title) VALUES (41, 9, 'Delta Two')")
+        conn.exec_driver_sql("INSERT INTO assays (id, study_id, title) VALUES (403, 41, 'RNA-seq run')")
+        conn.exec_driver_sql("INSERT INTO assay_assets (assay_id, asset_id, asset_type, direction) "
+                             "VALUES (403, 2, 'Sample', 2), (403, 1, 'Sample', 1)")
+    report = _undo_share(seek_db, tmp_path)
+    assert report["project_pairs_kept_in_use"] == [[5, 1], [5, 2]] and report["project_pairs_deleted"] == 0
+    assert {(5, 1), (5, 2)} <= set(projects_of(seek_db)) and not any(a == 402 for a, _s, _d in links_of(seek_db))
+
+
+def test_a_share_undo_enqueues_a_parent_that_only_gained_the_project(tmp_path, seek_db, share):
+    from nextseek_api.studies import share as sh
+    from nextseek_api.studies.models import ShareInput
+
+    share.links.append((401, 1, 1))                      # the parent is in the destination assay already
+    seed(seek_db, share)
+    inp = ShareInput(sample_uids=[share.samples[4]["uuid"]], source_project_id=3, destination_project_id=5,
+                     destination_study_id=40, created_at="t")
+    unit = sh.plan_share(inp, FakeReader(share), run_id="share-1", now="t").units[0]
+    assert [(x.sample_id, x.role) for x in unit.inserts] == [(4, "mover")]
+    with sqlite_connection(seek_db) as conn:
+        links.run_link_unit(conn, unit, Journal(tmp_path / JOURNAL_FILE, run_id="share-1"), {("share:40", 102): 401},
+                            run_id="share-1", share_project_id=5)
+    report = _undo_share(seek_db, tmp_path)
+    assert outbox_of(seek_db)[-1] == ("samples", "batch:studies:share-1:undo:1", [1, 4])
+    # the parent's own link into the destination study stays, so its project row does too, and is reported
+    assert report["project_pairs_kept_in_use"] == [[5, 1]] and (5, 4) not in projects_of(seek_db)
+
+
+def test_a_share_unit_carrying_a_removal_is_refused_before_any_write(tmp_path, seek_db, share_unit):
+    from nextseek_api.studies.models import LinkRemoval
+
+    unit = share_unit.model_copy(update={"removals": [LinkRemoval(assay_id=101, sample_id=3)]})
+    with pytest.raises(links.LinkRefused) as exc:
+        _run_share(seek_db, unit, tmp_path)
+    assert exc.value.reason == "share_removals" and not (tmp_path / JOURNAL_FILE).exists()

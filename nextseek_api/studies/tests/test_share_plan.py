@@ -5,7 +5,7 @@ from nextseek_api.graph_sync import labels
 from nextseek_api.studies import report
 from nextseek_api.studies import share as sh
 from nextseek_api.studies.models import ProjectInsert, ShareInput
-from nextseek_api.studies.tests.conftest import AssayRow, FakeReader, apply_to_world, uid
+from nextseek_api.studies.tests.conftest import AssayRow, FakeReader, add_sample, apply_to_world, uid
 
 U1, U2, U3, U4, U5, U6 = (uid(1), uid(2, kind="D.SEQ"), uid(3, kind="D.SEQ"), uid(4, kind="IMG"), uid(5),
                           uid(6, "BBB"))
@@ -60,6 +60,8 @@ def test_a_group_without_one_is_cloned_with_the_destination_studys_policy(share)
     result = plan(share, U3)
     [clone] = result.targets[0].clones
     assert (clone.action, clone.payload, clone.policy_from_study, clone.placeholder_id) == ("create", None, 40, 402)
+    assert clone.policy == share.policies[40] and result.summary["clone_policy"] == share.policies[40]
+    assert "access view" in report.render_share_text(result)
     assert (clone.title, clone.internal_assay_ids) == ("RNA-seq run", [900])
     t = result.targets[0]
     assert (t.key, t.investigation_id, t.study.action, t.study.seek_study_id) == ("share:40", 9, "existing", 40)
@@ -185,5 +187,69 @@ def test_the_run_directory_files(share, tmp_path):
     result = plan(share, U3, "TIS-260101ZZZ-9")
     written = report.write_share_run(tmp_path, result, result.summary)
     assert sorted(p.name for p in written) == sorted([report.SHARE_FILE, report.PLAN_FILE, report.PLAN_TEXT,
-                                                      report.UNMATCHED_JSON, report.UNMATCHED_CSV])
+                                                      report.UNMATCHED_JSON, report.UNMATCHED_CSV,
+                                                      report.PARENTS_CSV])
     assert "TIS-260101ZZZ-9" in (tmp_path / report.UNMATCHED_CSV).read_text()
+
+
+def test_an_unreadable_destination_policy_refuses_a_share_that_creates_an_assay(share):
+    del share.policies[40]
+    with pytest.raises(sh.ShareRefused) as exc:
+        plan(share, U3)
+    assert exc.value.code == sh.DESTINATION_POLICY_UNREADABLE
+    result = plan(share, U4)                              # only a reused group: no policy needed
+    assert [c.action for c in result.targets[0].clones] == ["reuse"] and result.summary["clone_policy"] is None
+
+
+def test_a_parent_outside_the_source_project_is_skipped_and_listed_with_its_projects(share):
+    share.sample_projects[1] = {8}                       # parent 1 sits in project 8 only
+    result = plan(share, U2, U1)
+    assert skips(result) == [(1, sh.NOT_IN_SOURCE_PROJECT)]
+    assert inserts(result) == [(101, 2, 2, "mover")] and result.units[0].sync_ids == [2]
+    assert [(r.sample_id, r.role) for r in result.units[0].project_inserts] == [(2, "mover")]
+    s = result.summary
+    assert (s["parents_count"], s["parents"]) == (0, [])
+    assert s["parents_outside_source_project_count"] == 1 and s["parents_outside_source_project"] == [
+        {"uid": U1, "child_uid": U2, "source_assay_id": 101, "projects": [8]}]
+    assert "outside the source project" in report.render_share_text(result)
+
+
+def test_a_parent_that_is_not_in_the_childs_source_assay_does_not_come(share):
+    share.links.remove((101, 1, 1))                      # parent 1 is in assay 102 only
+    result = plan(share, U2)
+    assert inserts(result) == [(101, 2, 2, "mover")] and result.summary["parents_count"] == 0
+
+
+def test_the_run_directory_lists_every_parent(share, tmp_path):
+    children = []
+    for n in range(55):
+        add_sample(share, 1000 + n, kind="TIS", assays=((101, 1),))
+        children.append(add_sample(share, 2000 + n, parents=(1000 + n,), assays=((101, 2),)))
+    result = plan(share, *children)
+    assert result.summary["parents_count"] == 55 and len(result.summary["parents"]) == 50
+    report.write_share_run(tmp_path, result, result.summary)
+    lines = (tmp_path / report.PARENTS_CSV).read_text().splitlines()
+    assert len(lines) == 56 and lines[0].startswith("uid,sample_id,child_uid")
+
+
+class CountingReader(FakeReader):
+    def __init__(self, world):
+        super().__init__(world)
+        self.read_rows: set = set()
+
+    def sample_rows(self, ids):
+        self.read_rows |= set(ids)
+        return super().sample_rows(ids)
+
+    def assay_rows(self, assay_ids):
+        raise AssertionError(f"a share never reads whole assays: {sorted(assay_ids)}")
+
+
+def test_a_share_reads_only_its_own_samples_and_their_parents(share):
+    for n in range(30):                                  # a big source assay
+        add_sample(share, 3000 + n, assays=((101, 2),))
+    reader = CountingReader(share)
+    result = sh.plan_share(inp(U3), reader, run_id="share-1", now="t")
+    assert inserts(result) == [(101, 3, 2, "mover"), (101, 2, 1, "parent")]
+    assert reader.read_rows <= {2, 3}
+    assert result.units[0].digest == plan(share, U3).units[0].digest

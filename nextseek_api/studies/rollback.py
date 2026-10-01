@@ -39,7 +39,7 @@ from nextseek_api.graph_sync import hooks, labels, paper_studies, state, targete
 from nextseek_api.graph_sync.writer import _batches
 from nextseek_api.management.commands import backfill_publication_attributes as backfill
 from nextseek_api.studies import apply as apply_mod
-from nextseek_api.studies import links, mapping, preflight
+from nextseek_api.studies import links, mapping, preflight, share_jobs
 from nextseek_api.studies.apply import (DONE, REFUSED, STOPPED, RunResult, in_scope, labels_outside_plan,
                                         scope_refusal, state_of)
 from nextseek_api.studies.journal import JOURNAL_FILE, Journal, journal_state, read_journal
@@ -102,10 +102,12 @@ def _lost_posts(st, targets, session) -> list:
     return found
 
 
-def _verdicts(st, units, run_id) -> dict:
-    """Apply's recovery for each unit journaled prepared and not committed (read only)."""
-    return {u.unit: apply_mod._recover(u, st.units[u.unit], run_id) for u in units
-            if (st.units.get(u.unit) or {}).get("prepared") and not st.units[u.unit].get("committed")}
+def _verdicts(st, units, plan) -> dict:
+    """Apply's recovery for each unit journaled prepared and not committed (read only); a share's unit by the share's
+    rules (its destination project)."""
+    share_project_id = plan.share.destination_project_id if plan.mode == "share" else None
+    return {u.unit: apply_mod._recover(u, st.units[u.unit], plan.run_id, share_project_id=share_project_id)
+            for u in units if (st.units.get(u.unit) or {}).get("prepared") and not st.units[u.unit].get("committed")}
 
 
 def _undo_effects(st, units, reports=None) -> tuple[set, set]:
@@ -195,7 +197,7 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
     if blocker:
         return RunResult(REFUSED, f"run {blocker} built on this run's clones or studies: roll it back first")
     if not confirm:
-        verdicts = _verdicts(st, units, plan.run_id)
+        verdicts = _verdicts(st, units, plan)
         committed = [u for u in units if st.units.get(u.unit, {}).get("committed") or verdicts.get(u.unit) ==
                      "committed"]
         todo_units = [u for u in committed if u.unit not in st.undone_units]
@@ -208,6 +210,8 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
                 "publications": sum(1 for sid in st.pubs_rows if sid in pub_ids),
                 "units": [u.unit for u in reversed(todo_units)], "clones": clone_ids, "studies": study_ids,
                 "sync_ids": len(ids),
+                "project_rows": sum(len(((st.units.get(u.unit) or {}).get("prepared") or {})
+                                        .get("project_pairs_inserted") or []) for u in todo_units),
                 "units_unknown": sorted(n for n, v in verdicts.items() if v == "unknown"),
                 "answers_lost": _lost_posts(st, targets, session)}
         return RunResult(DONE, "dry run: nothing written; label_preview is the graph against MySQL now, before the "
@@ -223,7 +227,7 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
             return RunResult(REFUSED, f"another studies run holds the lock {preflight.LOCK_NAME}")
         st = state_of(run_dir)
         clone_ids, study_ids, clone_slots = scope(st)
-        verdicts = _verdicts(st, units, plan.run_id)
+        verdicts = _verdicts(st, units, plan)
         unknown = sorted(n for n, v in verdicts.items() if v == "unknown")
         if unknown:
             return RunResult(REFUSED, f"units {unknown} read as neither committed nor rolled back; look at their rows "
@@ -243,6 +247,8 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
         implied = (json.loads(implied_path.read_text(encoding="utf-8")) if implied_path.exists() else None)
         inputs = _label_inputs(reader, ids) if implied is None else None
         counts: dict = {"units": [], "not_deleted": _lost_posts(st, targets, session)}
+        if plan.mode == "share":   # never applied again, whatever its state
+            share_jobs.end_rolled_back(run_dir.name)
 
         def done(part):
             return (part, None) in st.undo_parts or (part, investigation) in st.undo_parts
@@ -281,6 +287,7 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
             undo_line("done", "unit", unit=unit.unit, deleted=report["deleted"], reinserted=report["reinserted"],
                       not_deleted_changed=report["not_deleted_changed"], not_deleted_gone=report["not_deleted_gone"],
                       not_reinserted=report["not_reinserted"], project_pairs_deleted=report["project_pairs_deleted"],
+                      project_pairs_kept_in_use=report["project_pairs_kept_in_use"],
                       project_pairs_gone=report["project_pairs_gone"])
             if not report["outbox_in_transaction"]:   # chunked as in its transaction (links.outbox_rows)
                 for key, part in links.outbox_rows(links.undo_key(plan.run_id, unit.unit), report["sample_ids"]):

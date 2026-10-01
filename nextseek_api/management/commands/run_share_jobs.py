@@ -35,18 +35,25 @@ def _graph():
 
 
 def run_pass(owner: str, limit: int) -> int:
-    """Up to ``limit`` claimable shares, oldest first. Returns how many were taken."""
-    taken = 0
+    """Up to ``limit`` claimable shares, oldest first; once the run lock was busy for a queued one, only planning
+    shares (planning takes no lock). An error on one share is counted on its row and ends it at the third
+    (``share_jobs.worker_failed``); the pass goes on. Returns how many were taken."""
+    taken, planning_only = 0, False
     for _ in range(limit):
-        share = share_jobs.next_claimable()
+        share = share_jobs.next_claimable(planning_only=planning_only)
         if share is None or not share_jobs.claim(share, owner):
             break
         taken += 1
-        if share.state == "planning":
-            with _graph() as (driver, db):
-                outcome = share_apply.plan_job(share, owner, reader=SnapshotReader(None, driver, db))
-        else:
-            outcome = share_apply.run_share_unit(share, owner)
+        try:
+            if share.state == "planning":
+                with _graph() as (driver, db):
+                    outcome = share_apply.plan_job(share, owner, reader=SnapshotReader(None, driver, db))
+            else:
+                outcome = share_apply.run_share_unit(share, owner)
+        except Exception as exc:  # noqa: BLE001 - counted on the share; its lease holds it until the next try
+            log.exception("run_share_jobs: share %s raised", share.share_id)
+            outcome = share_jobs.worker_failed(share, owner, f"{type(exc).__name__}: {exc}")
+        planning_only = planning_only or outcome == "queued"
         log.info("run_share_jobs: share %s %s", share.share_id, outcome)
     return taken
 

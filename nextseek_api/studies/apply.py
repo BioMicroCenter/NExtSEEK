@@ -215,19 +215,28 @@ def _mapping(journal, st, targets, clone_ids) -> bool:
 
 # --- units, with recovery ----------------------------------------------------------------------------------------
 
-def _recover(unit, unit_state: dict, run_id: str) -> str:
+def _recover(unit, unit_state: dict, run_id: str, *, share_project_id: Optional[int] = None) -> str:
+    """A unit journaled ``links.prepared`` but not ``links.committed``: ``committed``, ``rolled_back`` or ``unknown``.
+    Its outbox row is the commit marker when it went in the transaction; else committed means every inserted id holds
+    its pair, no removal is left and (a share's unit, ``share_project_id``) every journaled project pair is present,
+    and rolled back means the unit's own digest reads as the plan's."""
     prepared = unit_state["prepared"]
     if prepared.get("outbox") == "in_transaction":
         return "committed" if _unit_outbox_exists(links.unit_key(run_id, unit.unit)) else "rolled_back"
     inserted = prepared.get("inserted") or []
     removals = sorted({(r.assay_id, r.sample_id) for r in unit.removals})
+    projects = sorted({(int(p), int(s)) for p, s in prepared.get("project_pairs_inserted") or []})
     with _connection() as conn:
         held = links.rows_by_id(conn, [i for i, _a, _s in inserted])
         ids_hold = all(held.get(i) == (a, s) for i, a, s in inserted)
         left = existing_membership_ids(removals, conn)
-        if ids_hold and not left:
+        projects_hold = not projects or links.project_pairs(conn, projects) == set(projects)
+        if ids_hold and not left and projects_hold:
             return "committed"
-        digest, _rows = links.current_digest(conn, unit.source_assay_ids)
+        if share_project_id is None:
+            digest, _rows = links.current_digest(conn, unit.source_assay_ids)
+        else:
+            digest = links.share_digest_now(conn, unit, share_project_id)
         if digest == unit.digest:
             return "rolled_back"
     return "unknown"

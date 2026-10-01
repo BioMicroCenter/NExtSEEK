@@ -213,6 +213,17 @@ def test_a_membership_in_another_investigation_is_a_share_when_the_sample_shares
     assert [(w.code, w.target_key) for w in result.warnings] == [(p.SHARED_ELSEWHERE, "sheet:7:paper one")]
 
 
+def test_the_shared_elsewhere_warning_names_the_assay_its_study_and_the_samples_that_stay(alpha):
+    alpha.links += [(301, 2, 1), (301, 5, 1)]
+    alpha.sample_projects[2] = {3, 4}
+    alpha.sample_projects[5] = {3, 4}              # shared too, but in no assay here: skipped, so not named
+    result = plan(alpha, target([2, 3, 5]))
+    assert skips(result) == [(5, p.SAMPLE_IN_NO_ASSAY)]
+    assert [(w.code, w.target_key, w.assay_id, w.detail) for w in result.warnings
+            if w.code == p.SHARED_ELSEWHERE] == [(p.SHARED_ELSEWHERE, "sheet:7:paper one", 301,
+                                                 "study 30 (investigation 8): samples [2]")]
+
+
 def test_a_membership_in_another_investigation_without_its_project_is_still_a_misfiling(alpha):
     alpha.links.append((301, 2, 1))                 # sample 2 keeps only project 3
     result = plan(alpha, target([2, 3]))

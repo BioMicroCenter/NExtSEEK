@@ -30,7 +30,8 @@ source assay, as inputs. It never removes a link, never creates a study and neve
    ```bash
    umask 077; mkdir -p "$HOME/.config/nextseek"
    read -r LOGIN; read -rs PW
-   printf 'user = "%s:%s"\n' "$LOGIN" "$PW" > "$HOME/.config/nextseek/share-<box>.curlrc"
+   esc() { local s=${1//\\/\\\\}; printf '%s' "${s//\"/\\\"}"; }   # curl reads \ and " in quotes as escapes
+   printf 'user = "%s:%s"\n' "$(esc "$LOGIN")" "$(esc "$PW")" > "$HOME/.config/nextseek/share-<box>.curlrc"
    unset PW
    ```
 
@@ -68,11 +69,14 @@ From `summary`, show the operator, in a short table first:
   `sample_uid_not_unique`, `not_in_source_project`, `no_source_assay`, `source_assay_unmapped`,
   `target_assay_ambiguous`), with the UIDs of each (all of them when fewer than 50, else the saved file's path);
 - the groups: each source assay title and internal assays, and whether the destination assay is reused (its id) or
-  will be created;
+  will be created, and the policy a created one takes (`clone_policy`);
 - links to insert by role (`mover`, `parent`) and the project rows to add;
-- every parent brought in, with the child and the assay that brought it (the first 50 and the file's path);
+- every parent brought in, with the child and the assay that brought it (the first 50; every one is in
+  `parents.csv` in the run directory);
+- every parent skipped as outside the source project, with its projects
+  (`parents_outside_source_project`): say they can be shared from their own project;
 - label changes needing approval (normally none; if any, say the operator will run the graph step after the share);
-- `plan_sha256` and the run directory name.
+- `plan_sha256` and the run directory name (on the box: `<LOG_DIR>/studies/<run_dir>`).
 
 Then ask the operator to approve THIS plan, naming the share id and the counts. Apply only on an explicit yes for this
 share. Anything else: stop; the share stays planned and harmless.
@@ -93,24 +97,26 @@ printf '{"plan_sha256": "%s"}' "<plan_sha256>" \
 | 200 `applying` | call apply again at once (it made one destination assay; `clones_remaining` says how many are left) |
 | 202 with `code` `clone_outcome_unknown` | wait `retry_after_s`, call again (it is checking whether SEEK finished a create) |
 | 202 `queued` | stop calling apply; go to step 4 |
-| 409 `busy` | another studies run holds the lock: wait 30 s and call again, at most 10 times, then ask the operator |
-| 409 `plan_changed`, `share_not_applicable`, `nothing_to_apply`, `not_ready`, `destination_changed`, `clone_outcome_ambiguous` | stop and report |
+| 409 `busy` | another studies run holds the lock, or another share is making an assay of the same group: wait 30 s and call again, at most 10 times, then ask the operator |
+| 503 `graph_unavailable` | nothing was written: wait 60 s and call again, at most 5 times, then ask the operator |
+| 409 `plan_changed`, `share_not_applicable`, `share_rolled_back`, `nothing_to_apply`, `not_ready`, `destination_changed`, `clone_outcome_ambiguous` | stop and report |
 | 401 (`seek_credential_missing`), 403 (`seek_refused`, `seek_identity_mismatch`), 422 (`seek_payload_rejected`, `clone_payload_invalid`), 502 (`seek_error`) | stop, show the message; never retry in a loop. Once the cause is fixed, the next apply call resumes where the journal stopped |
 
 ## 4. Wait for the link unit
 
-Poll the share every 5 s until `applied` or `apply_failed`. `applied` carries the receipt: links inserted, project
-rows added, the outbox key. `apply_failed` with `plan_stale` means someone changed those samples'
+Poll the share every 5 s until `applied`, `apply_failed` or `rolled_back`. `applied` carries the receipt: links
+inserted, project rows added, the outbox key. `apply_failed` with `plan_stale` means someone changed those samples'
 links since the dry run: tell the operator, and offer a new dry run with the same inputs (finished work then reads
-`no_change`).
+`no_change`). Any other code in `error` (`unit_state_unknown`, `worker_error`, ...): report it with the share id and
+do not apply again.
 
 ## 5. Verify in the graph
 
 Poll `GET .../sample-shares/<share_id>/?verify=graph` every 10 s until `graph.outbox` is `done` (at most 10 minutes;
-`failed` or `dead`: stop and point the operator to `GET $NEXTSEEK_URL/nextseek_api/admin/graph-sync/status/`). Then
-check and report:
+`failed`, `dead` or `missing`: stop and point the operator to
+`GET $NEXTSEEK_URL/nextseek_api/admin/graph-sync/status/`). Then check and report:
 
-- `found`, `has_project` and `in_project` equal the shared samples plus parents;
+- `found`, `has_project` and `in_project` equal the block's `ids` (the shared samples plus the parents brought);
 - `in_study` equals `found` less the paper samples that are not linked (`paper` minus `paper_in_study`); a paper
   sample is left unlinked only when its paper sits in the destination study's own investigation, by design, so report
   that count and say so;
@@ -122,13 +128,14 @@ Any other number: report it with the ids; do not try to repair it.
 
 One short summary: box, share id, samples shared, destination assays created and reused, parents added, project rows
 added, skipped by reason, the graph check, label changes left for the operator (with the command
-`manage.py studies --mode graph --run-dir <run> --approve-label-changes --i-mean-the-live-graph`, which only the
-operator runs), and where the answers are saved.
+`manage.py studies --mode graph --run-dir <LOG_DIR>/studies/<run_dir> --approve-label-changes
+--i-mean-the-live-graph`, which only the operator runs), and where the answers are saved.
 
 ## Undo
 
-Only the operator, from a shell on the box: `manage.py studies --mode rollback --run-dir <run> --seek-login <login>`,
-first without `--confirm` to read what it would undo. Never offer it as an automatic step.
+Only the operator, from a shell on the box:
+`manage.py studies --mode rollback --run-dir <LOG_DIR>/studies/<run_dir> --seek-login <login>`, first without
+`--confirm` to read what it would undo. Never offer it as an automatic step.
 
 ## Never
 
