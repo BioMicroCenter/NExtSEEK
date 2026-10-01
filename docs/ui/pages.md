@@ -142,7 +142,7 @@ Mezzanine 6.0.0 is installed (`mezzanine.blog`, `.forms`, `.galleries`, `.accoun
 | `/edit/`, `/rating/`, `/comment/`, `/set_site/`, `/jsi18n/...`, `/sitemap.xml` | Mezzanine core and generic | mostly POST or XML; used by Mezzanine's admin |
 | any other path ending in `/` | `mezzanine.pages.views.page` | renders a CMS Page row if one exists, else Mezzanine's 404 |
 
-`handler404` and `handler500` in `dmac/urls.py` point at Mezzanine's views, so the 404 page is Mezzanine's `errors/404.html`. `seek/templates/pages/404.html` is never rendered.
+`handler404` and `handler500` in `dmac/urls.py` point at Mezzanine's views, so the 404 page is Mezzanine's `errors/404.html`.
 
 ### Linked-from summary
 
@@ -157,7 +157,7 @@ The link sources are: the sidebar (`themes/NextSeek/templates/nav.embed.html`, i
 | `/seek/remote/` (`search.py:remote`) and `/seek/url/<name>/` (`samples.py:seek`) | broken: the views raise an error. Both are xfailed in `ci/routes.py`. Delete rather than repair |
 | `/seek/sample/id=<id>/edit`, `/manage` | 302 to `SEEK_PUBLIC_URL/samples/<id>/edit` or `/manage` |
 
-Templates with no view at all (`publish.html`, `publishAssets.html`, `batchSearch.html`, `sampleDeletion.html`, `sampleUpload.html`, `samplesTest.html`, `sampleSearch.html`, `pages/denied.html`) are listed in [legacy.md](legacy.md).
+Dead templates that remain are listed in [legacy.md](legacy.md).
 
 ## How to add a page
 
@@ -180,7 +180,7 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 
 | Link | Where it appears | Notes |
 |---|---|---|
-| `https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/` (GitBook) | `nav.embed.html` (Useful Info > Documentation), `help/getting_started.html` (near the end); also in the unused `content.embed.html` | opens in a new tab; the only docs link |
+| `https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/` (GitBook) | `nav.embed.html` (Useful Info > Documentation), `help/getting_started.html` (near the end) | opens in a new tab; the only docs link |
 | `https://fairdomhub.org/programmes/206` | `nav.embed.html` (Resources > Published Studies) | new tab |
 | `mailto:` the team's support address | `nav.embed.html` (Resources > Contact Support), `help/getting_started.html` | team address |
 | `SEEK_PUBLIC_URL` + `/signup` | `dmac/views.py:signup_seek` (302), reached from the "Sign up" link in `login.html` | falls back to `SEEK_URL`, the internal docker host, when `SEEK_PUBLIC_URL` is empty; a browser cannot resolve that |
@@ -190,7 +190,6 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 | `SEEK_PUBLIC_URL/samples/<id>/edit` and `/manage` | `seek/views/samples.py:editSample`, `manageSample` (302 targets) | |
 | Bootstrap 5.3.3 and Bootstrap Icons 1.11.3 (jsdelivr), Google Fonts (Inter; Playfair Display and Source Sans 3 on the login page) | `base.html`, `base_auth.html` | the whole UI needs these CDNs |
 | d3 and lodash (cdnjs) | `pages/samples_tree.embed.html` | sample tree |
-| 113 SEEK script tags pointing at the production SEEK host | `seek/templates/pages/seek_includes.html` | never rendered: every include of it sits between `{% extends %}` and the first block, so Django drops it (UI-203). Delete it rather than fix it |
 
 ## Where to edit
 

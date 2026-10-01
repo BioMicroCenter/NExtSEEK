@@ -104,8 +104,7 @@ EasyUI. `/seek/search/` breaks that rule today: `searchAdvanced.html` and the in
 | `static/js/chat_assistant/assets/` | `seek/templates/smartSearch.html` via the `{% vite_assets %}` tag (`seek/templatetags/vite_assets.py`) | The React chat panel. See [chat-frontend.md](chat-frontend.md) |
 
 Dead or vendored, safe to ignore: `static/js/dag/d3neo4j.js`, `static/js/buildtree/` (old tree builder,
-d3 v3 copies), the `.bk` backups (`static/js/sample_timeline.bk/`, `samples_stable.embed.html.bk`,
-`samples_tree.embed.html.bk`), and `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
+d3 v3 copies), and `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
 
 ### What nextseek.js does
 
@@ -140,30 +139,20 @@ are on routed pages. Counts below are approximate inline lines (they drift as th
 | `dataFileUpload.html` | about 150 | Live |
 | `sampleAttributes.html` | about 1,020 (vanilla JS, no EasyUI) | Live, admin page |
 | `templatesList.html` | about 440 (vanilla JS, uses `json_script`) | Live |
-| `pages/sops_table`, `datafile_table`, `batchSearch_table` (`.embed.html`) | about 125 each | First two live through `sopsPage.html` and `dataFilesPage.html`; `batchSearch_table` has no routed page |
+| `pages/sops_table`, `datafile_table` (`.embed.html`) | about 125 each | Live through `sopsPage.html` and `dataFilesPage.html` |
 | `clades.html`, `internal_assays.html` | about 65 to 70 each, plus `ns-vocab-workbench.js` | Live, admin pages |
 | `pages/samples_table.embed.html`, `samples_tree_new.embed.html`, `samples.embed.html` | 14 to 20 each | Live (`sampleQuery.html`, sample detail page) |
 | `samples_tree.embed.html` (v1 tree) | about 210 | Included but commented out, never runs |
-| Publish pair (`publish_*`, `publishAssets_*`), `samples_upload`, `batchSearch_*`, `searchAdvanced_retrieval`, `searchAdvanced_tree` | 10 to 230 each, about 1,500 total | Used only by pages no `urls.py` entry renders, or by nothing |
-| `dmac/templates/pages/datagrid_custom_table.embed.html`, `dialog_custom_upload.embed.html` | 15, 59 | No route renders them |
 | `themes/NextSeek/templates/nextseek/swagger_ui.html`, `includes/attribute_definitions_table.html` | 46, 43 | Live |
-| `themes/NextSeek/templates/content.embed.html` | 10 | Orphan (nothing includes it) |
-
-Unrouted page templates (no `render()` call or `urls.py` entry): `sampleUpload.html`, `publish.html`,
-`publishAssets.html`, `batchSearch.html`, `sampleDeletion.html`, `samplesTest.html`, and `sampleSearch.html`
-(its view, `sampleSearch` in `seek/views/search.py`, now redirects to `/seek/search/`). Before
-changing one, check whether anything still renders it.
 
 ## Copy-paste families and global-name collisions
 
 | Family | Members | What repeats |
 |---|---|---|
-| Downloadable table page | `pages/batchSearch_table`, `sops_table`, `datafile_table` (`.embed.html`) | 83 to 94 percent identical. Each has its own `getCookie`, a download `fetch` and a list `fetch`, and the same `console.log("Error")` |
-| Publish pair | `publish_search` and `publishAssets_search`; `publish_stable` and `publishAssets_stable` | Both halves of a pair mostly the same; all four unrouted |
+| Downloadable table page | `pages/sops_table`, `datafile_table` (`.embed.html`) | Mostly identical. Each has its own `getCookie`, a download `fetch` and a list `fetch`, and the same `console.log("Error")` |
 | Sample search generations | `samples_search`, `searchAdvanced_search`, `samples_newsearch`, `searchAdvanced_newsearch` and the matching `*_stable` | Three generations of the same UI (old, advanced, new) with partial overlap |
 | Admin vocab pages | `clades.html`, `internal_assays.html` | Same `nsVocabWorkbench` config and the same un-checked sync `fetch` |
-| `getCookie` | `newSearch.html`, `dataFileUpload.html`, `batch_upload.embed.html`, `datafile_table`, `sops_table`, `batchSearch_table` | The Django docs snippet pasted verbatim six times |
-| Message helpers | `showSampleErrorMsg`, `showSampleWarningMsg`, `showSampleInfoMsg`, `showSampleValidation*` in `samples_upload.embed.html` and `dmac/.../dialog_custom_upload.embed.html` | Same pattern twice |
+| `getCookie` | `newSearch.html`, `dataFileUpload.html`, `batch_upload.embed.html`, `datafile_table`, `sops_table` | The Django docs snippet pasted verbatim five times |
 | Delete samples | `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion`, `newSearch.html` | Four implementations that POST to `/seek/samples/delete/` |
 | Full screen | `samples_tree_new.embed.html` and the overlay in `nextseek.js` | Two unrelated implementations |
 
@@ -199,7 +188,7 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 | `/nextseek_api/batch-upload/summary/<job>` | GET via a synthetic download link | `pages/batch_upload.embed.html` |
 | `/nextseek_api/${upload_type}/` | POST | `dataFileUpload.html` |
 | `/nextseek_api/data_files/`, `data_files/download/` | GET, POST | `pages/datafile_table.embed.html` |
-| `/nextseek_api/sops/`, `sops/download/` | GET, POST | `pages/sops_table.embed.html`, `pages/batchSearch_table.embed.html` |
+| `/nextseek_api/sops/`, `sops/download/` | GET, POST | `pages/sops_table.embed.html` |
 | `/nextseek_api/attributes/`, `attributes/search/`, `attributes/batch-create/`, `batch-patch/`, `batch-delete/` | GET, POST, PATCH | `sampleAttributes.html`; `includes/attribute_definitions_table.html` (search) |
 | `{% url "nextseek_api:assistant-me" %}` | GET | `nextseek/swagger_ui.html` |
 | `/nextseek_api/sample-tree/<uid>/tree` | GET | `static/js/dag/dag.js` |
@@ -209,9 +198,7 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 | URL | Method | Called from |
 |---|---|---|
 | `/seek/samples/delete/` | POST | `newSearch.html`, `pages/samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion` |
-| `/seek/attributes/id=<id>`, `/seek/operators/`, `/seek/sample_types/id=<id>/` | GET | the `*_search` and `*_newsearch` partials, `samples_query`, `batchSearch_query` |
-| `/seek/samples/searching/` | GET | `pages/samples_query.embed.html`, `pages/batchSearch_search.embed.html` |
-| `/seek/searchUIDs/` | GET | `pages/searchAdvanced_retrieval.embed.html` (no includer found) |
+| `/seek/attributes/id=<id>`, `/seek/operators/`, `/seek/sample_types/id=<id>/` | GET | the `*_search` and `*_newsearch` partials |
 | `/seek/retrieve/samples/` | datagrid url | `pages/samples_table.embed.html` |
 | `/seek/samples/export/` | POST | `pages/samples_stable.embed.html` |
 | `syncSampleTypes/`, `syncInternalAssays` (relative URLs) | POST | `clades.html`, `internal_assays.html` |
@@ -220,15 +207,10 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 | `/seek/projects/<id>/samples/` | GET (modal route) | `nextseek.js` via `data-modal-route` |
 | `/seek/projects/<id>/connections/` | iframe | `projectPage.html` ("Sample flow") |
 | `/seek/sample_timeline/`, `/seek/sample/id=<id>/`, `/seek/sampletree/uid=<uid>/` | `window.open` or `location.href` | `pages/samples_stable.embed.html`, `dag.js`, `nextseek.js` (`navUID`) |
-| `/seek/sampleupload/`, `/seek/samplesvalidate/`, `/seek/document/id=`, `/seek/instituion/id=` | POST, GET | `pages/samples_upload.embed.html` (unrouted page). Note the `instituion` spelling in the URL |
-| `/seek/samplefind/`, `/seek/investigations/id=`, `/seek/studies/id=`, `/seek/searchAssets/`, `/seek/publish_investigations/id=` | GET | `publish_search`, `publishAssets_search` (unrouted pages) |
 
 ### Called but no route exists
 
-| URL | Called from | Effect |
-|---|---|---|
-| `/seek/searchAssets/`, `/seek/publish_investigations/id=` | unrouted publish pages only | no user effect today |
-| `/dmac/upload/`, `/dmac/dmac/` | `dmac/templates/pages/*` (unrouted) | no user effect today |
+None left: the only callers were the unrouted templates, now deleted.
 
 No Django page opens an SSE or EventSource connection; the chat panel streams on its own.
 
@@ -238,10 +220,10 @@ Five patterns are in use, none shared:
 
 | Pattern | Where | Notes |
 |---|---|---|
-| 1. `getCookie("csrftoken")` into an `X-CSRFToken` header | `newSearch.html`, `batch_upload.embed.html`, `dataFileUpload.html`, three `*_table` partials | Works because the CSRF cookie is not HttpOnly. Six copies of the helper |
+| 1. `getCookie("csrftoken")` into an `X-CSRFToken` header | `newSearch.html`, `batch_upload.embed.html`, `dataFileUpload.html`, two `*_table` partials | Works because the CSRF cookie is not HttpOnly. Five copies of the helper |
 | 2. Inline regex on `document.cookie` | `nsCsrfToken()` in `searchAdvanced.html`, `getCsrfToken()` in `ns_sample_download.js` | Same idea, two more copies |
 | 3. Token baked into the page by the template: `'{{ csrf_token }}'` in a `$.post` body or header | `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion`, `clades.html`, `internal_assays.html` | Only works inside a template, never in a static file |
-| 4. Hidden `{% csrf_token %}` input in a form | `samples_upload.embed.html`, `projectPage.html`, `templatesList.html` | Needs a real `<form>` |
+| 4. Hidden `{% csrf_token %}` input in a form | `projectPage.html`, `templatesList.html` | Needs a real `<form>` |
 | 5. None | `batch_upload.embed.html` validate and start, `sampleAttributes.html`, `attribute_definitions_table.html` | These rely on per-view authentication settings in `nextseek_api` (see `nextseek_api/authentication.py`). The project default (`REST_FRAMEWORK` in `dmac/settings.py`) enforces CSRF, so new code must always send the token |
 
 A bug follows from pattern 3: `static/js/custom/datagrid-custom.js` (function `upload`) does
@@ -268,14 +250,12 @@ Weak spots:
 - The `*_table` partials: failures end in `console.log("Error")` and nothing on screen.
 - `batch_upload.embed.html`: a failed `/nextseek_api/projects/` call leaves the Project dropdowns empty; an
   upload error only reaches `console.error`.
-- `samples_upload.embed.html` and `publishAssets_search.embed.html` (unrouted): `$.ajax` with no `.fail`, and
-  `success: console.log('success!')`, which calls `console.log` immediately instead of passing a callback.
 - `dag.js`: no error handling, so if skypack or the API fails the tree shows "Loading..." forever.
 - `nextseek.js` modal route: a 404 or 500 page is still parsed and injected because `r.ok` is not checked.
 - Debug leftovers: `alert("downloadTable")` and `alert(newrows.length)` in `datagrid-custom.js`, and
   `console.log` calls such as "Sample Type Clicked!" in `samples_search.embed.html`.
 - Server data injected as raw JS with `|safe` (`report.lab_options` and `report.all_lab_users` in
-  `batch_upload.embed.html`; `report.template_options` in the unrouted `samples_upload.embed.html`).
+  `batch_upload.embed.html`).
   Use `{{ x|json_script:"id" }}`; `templatesList.html` already does.
 
 ## Where to edit
@@ -305,11 +285,8 @@ and its static files after an app restart (collectstatic runs at start); see
 - A Django child template's content outside any `{% block %}` is dropped. When a template does
   `{% extends "base.html" %}`, only the contents of blocks it overrides are rendered; everything else
   at the top level, including scripts and includes, is silently discarded with no error. The example in
-  this repo: `admin_retrieval.html`, `clades.html`, `internal_assays.html`, `sampleQuery.html`,
-  `sampleDeletion.html` and `sampleSearch.html` all have `{% include "pages/seek_includes.html" %}`
-  directly after `{% extends %}`, before `{% block main %}`. That include (113 `<script>` tags pointing at
-  the old SEEK asset host) never renders, so those scripts never load. It is dead weight, not a second
-  jQuery. The fix is to delete the include lines and the file, not to move them into a block. Put any
+  this repo (now fixed): six templates had `{% include "pages/seek_includes.html" %}`
+  directly after `{% extends %}`, before `{% block main %}`; the include lines and the file were deleted rather than moved into a block. Put any
   real script inside a block.
 - An `{% include %}` inside an HTML comment still runs. `pages/samples.embed.html` includes
   `samples_tree.embed.html` twice, each inside `<!-- -->`; Django renders the partial both times, so

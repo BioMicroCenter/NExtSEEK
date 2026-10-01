@@ -77,24 +77,13 @@
   that directory, so a fix applied to `templates/accounts/includes/user_panel.html`
   or `templates/base.html:101` changes nothing; the live copies are under
   `themes/NextSeek/templates/`.
-- Two of this theme's own twelve templates are equally inert, so time spent
-  restyling either is wasted. `content.embed.html` is a superseded home
-  fragment: grepping `content.embed` across every `.py` and `.html` file in the
-  worktree outside the vendored `static/` trees matches no `{% extends %}`, no
-  `{% include %}` and no render call, and matches nothing else either. Its one
-  button calls `homeNavUID()`
-  (`themes/NextSeek/templates/content.embed.html:144`), a name that grepping
-  `homeNavUID` across every `.js`, `.html` and `.py` file in the worktree
-  matches on that one line alone, so the handler has no definition at all.
-- The other inert one is `pages/menus/tree.html`, entered only by a
+- One of this theme's templates is inert, so time spent restyling it is
+  wasted (the other, `content.embed.html`, was deleted on 2026-10-01). It is `pages/menus/tree.html`, entered only by a
   `{% page_menu %}` tag, and no such tag survives in the live chrome: grepping
   `page_menu` across `themes/NextSeek/templates/` and `seek/templates/` finds
   it in that file's own recursive self-call and nowhere else
   (`themes/NextSeek/templates/pages/menus/tree.html:20`), so an edit here
   reaches no page.
-- The theme's dead `content.embed.html` also shadows the live-looking
-  `seek/templates/content.embed.html:2`, so wiring up an include of that name
-  gets the theme's copy, not the `seek` file you were reading.
 - Two template names this project renders exist in no directory on the search
   path, verified on 2026-09-03 by calling `get_template` on all 30 rendered
   names swept out of the tree: `dmac/views.py:214` and `dmac/views.py:255` both

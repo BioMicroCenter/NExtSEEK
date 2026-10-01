@@ -220,16 +220,12 @@ The libraries' versions for the rest of the site are in [javascript.md](javascri
   the target page, parses it, and injects `#content` (or `main`, or `body`). Page-level `<style>`
   from `extra_head` is not carried across, which is why the sample-counts table CSS lives in
   `nextseek.css` and not in `project_samples.html`.
-- **Django drops content outside blocks in a child template.** `admin_retrieval.html`, `clades.html`
-  and `internal_assays.html` each have a top-level `pages/seek_includes.html` include that never
-  renders; `projectsList.html` loads the `index` tag library
-  and does not use it. Harmless, but do not copy either.
+- **Django drops content outside blocks in a child template.** `projectsList.html` loads the `index`
+  tag library and does not use it. Harmless, but do not copy it.
 - **Sample tree v1 still ships its bytes.** `pages/samples.embed.html` includes
   `pages/samples_tree.embed.html` twice, each inside an HTML comment. Django runs `{% include %}`
   even inside `<!-- -->`, so the markup (about 520 lines with four CDN tags) is served on every
   sample page and never executes.
-- **`publish.html` and `publishAssets.html` have no route and no view that renders them.** Nothing
-  reaches them; do not edit them expecting a visible change.
 - **Two "clade" concepts.** The clades workbench edits the clade tables; the flow diagram, the
   catalogs and the project sample counts all read them. Changing a clade name or assignment shows
   up in the flow only after the cached HTML expires.

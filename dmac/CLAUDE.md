@@ -98,12 +98,8 @@ not fail locally; it fails somewhere else.
   site search, account forms, local password reset) are shadowed above it by a 404 route
   rather than removed from the include, because Mezzanine's admin templates reverse their
   names; drop the include and those admin pages raise `NoReverseMatch`.
-- **`dmac/templates/pages/` is dead and cannot be loaded.** This package is not in
-  `INSTALLED_APPS` (`dmac/settings.py:144-180`), so the app-directories loader at
-  `dmac/settings.py:131` never sees it, and the only filesystem directory configured is
-  the theme's (`dmac/settings.py:108-110`). Measured 2026-09-03: `get_template` raises
-  `TemplateDoesNotExist` for all three names, and grepping every `*.py` and `*.html` in the
-  worktree for those filenames returns nothing. Editing them changes no page.
+- **`dmac/` has no loadable templates folder.** This package is not in `INSTALLED_APPS`, so a
+  `dmac/templates/` folder would never be seen (the dead one was deleted 2026-10-01).
 - **What you read in `INSTALLED_APPS` and `MIDDLEWARE` is not what runs.** Mezzanine's
   `set_dynamic_settings` (`dmac/settings.py:265-270`) rewrites both. Measured 2026-09-03
   inside the image: 33 declared apps become 36, gaining `filebrowser_safe`,

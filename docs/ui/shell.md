@@ -242,7 +242,7 @@ There are no other full-document templates in the theme or in `seek/templates`.
 - The sidebar carries `role="dialog" aria-modal="true"` permanently, including on desktop where it is
   not a dialog.
 - `base_auth.html` has no jQuery, EasyUI or `nextseek.js`. Do not put shell widgets on the login page.
-- `content.embed.html` and `pages/menus/tree.html` in the theme are not used by the live shell; see
+- `pages/menus/tree.html` in the theme is not used by the live shell; see
   [legacy.md](legacy.md).
 
 ## Known issues

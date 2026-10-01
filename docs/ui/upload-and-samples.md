@@ -171,7 +171,7 @@ Static assets for the tree live in the repo-root `static/js/`, not in `themes/`.
 
 An event timeline for non-human primate samples, built as a React bundle. `sample_timeline.html`
 loads hashed files from `static/js/sample_timeline/assets/` (`index-*.js`, vendor chunks, one CSS
-file). There is no source in the repo, only the built output and a `sample_timeline.bk/` backup, so
+file). There is no source in the repo, only the built output, so
 a hash change means editing the template's `extra_head` tags by hand. Its data comes from
 `seek/views/timeline.py` (`nhp_info`, `get_nhp_data`, `download_nhp_data`, `fetch_event_data`,
 all DRF `@api_view(['GET'])`) at `/seek/nhpinfo/<name>/`, `/seek/nhpdata/<name>/`,
@@ -193,12 +193,7 @@ rule in the same template never applies. Phone behaviour was not inspected.
 
 ## Orphans
 
-Templates in this area with no view, or no includer (verified by searching `*.py` and `*.html`):
-`sampleUpload.html` (only includes `pages/samples_upload.embed.html`; no view renders it),
-`sampleDeletion.html` (no route; real deletion is the `Delete samples` buttons in the search grids,
-posting to `/seek/samples/delete/`, `sampleDelete` in `seek/views/samples.py`), `samplesTest.html`,
-`pages/samples_upload.embed.html`, `pages/datafile_upload.embed.html`, `pages/samples_query.embed.html`,
-and the `*.bk` files. Full list and cleanup status: [legacy.md](legacy.md).
+The unrouted templates in this area (`sampleUpload.html`, `sampleDeletion.html`, `samplesTest.html` and their embeds) were deleted on 2026-10-01. Real deletion is the `Delete samples` buttons in the search grids, posting to `/seek/samples/delete/` (`sampleDelete` in `seek/views/samples.py`). Remaining cleanup: [legacy.md](legacy.md).
 
 ## Where to edit
 

@@ -151,18 +151,7 @@ phone layout at all (fixed-height EasyUI tabs and layouts).
 
 ### Dead or orphan search templates
 
-None of these are rendered by a live view. Full list and removal notes are in [legacy.md](legacy.md).
-
-| Files (`seek/templates/`) | Why dead |
-|---|---|
-| `sampleSearch.html` | view only redirects |
-| `batchSearch.html`, `pages/batchSearch_*` | no view; `batchSearch_table` is a copy of the SOP grid |
-| `publish.html`, `publishAssets.html`, `pages/publish*_*` | no view; their endpoints have no route |
-| `sampleDeletion.html` | no view |
-| `pages/searchAdvanced_retrieval`, `_rtable`, `_tree` | not included anywhere (but see Gotchas: `retriveAdvanced`) |
-| `pages/samples_query` | calls the old `/seek/samples/searching/` |
-| `pages/*.bk`, `pages/dmac.logs` | backup and stray files |
-| old engine routes `/seek/searchAdvanced/`, `/seek/searchUIDs/`, `/seek/samples/searching/` | still routed, no live caller |
+The dead templates were deleted on 2026-10-01 (see [legacy.md](legacy.md)). The old engine routes `/seek/searchAdvanced/`, `/seek/searchUIDs/` and `/seek/samples/searching/` are still routed but have no live caller.
 
 The repo-root `templates/search_results.html` is Mezzanine's stock template and is not in
 `TEMPLATES["DIRS"]` (`dmac/settings.py`), so it is never used from this repo. Mezzanine's own
