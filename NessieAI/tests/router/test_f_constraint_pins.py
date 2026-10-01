@@ -77,6 +77,7 @@ def test_no_new_migrations():                        # Global Constraint
         # Pin updated for the ledger's task link: 0022 adds one nullable TurnLedger -> QueryTask FK, nothing else.
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
         "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
+        "nextseek_api/migrations/0024_sampleshare.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
