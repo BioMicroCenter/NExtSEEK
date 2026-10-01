@@ -68,6 +68,21 @@ def test_an_admins_pass_cannot_open_another_users_chat(admin):
     assert resp.status_code == 403 and resp.json()["code"] == "PASS_NOT_ALLOWED"
 
 
+@pytest.mark.parametrize("tail", ["", "/bundles/1", "/bundles/1/artifacts/key1"])
+def test_the_views_own_read_any_lock_refuses_an_admins_pass_on_a_foreign_chat(admin, tail):
+    """The pass is bound to the foreign chat so the allow table's path_session check lets it through; the view's
+    own owner check (read-any is off under a pass) is what answers 403."""
+    other = make_user("someone")
+    foreign = ChatSession.objects.create(
+        user=other, results_history=[{"id": 1, "artifacts": {"key1": {"path": "x"}}}],
+    )
+    _, raw = make_turn(admin, chat=foreign)
+    resp = APIClient().get(f"{A}/sessions/{foreign.session_id}{tail}/", **pass_header(raw))
+    assert resp.status_code == 403, resp.content
+    body = resp.json()
+    assert body.get("code") != "PASS_NOT_ALLOWED" and "own this session" in json.dumps(body), body
+
+
 def test_an_admins_pass_never_gets_the_prod_config(admin):
     from nextseek_api.services.assistant import _chat_config_for
 
@@ -98,3 +113,5 @@ def test_an_admins_pass_keeps_the_admins_graph_scope(admin):
     turn, _ = make_turn(admin)
     cfg = _granular_chat_config(pass_request(turn), SimpleNamespace(use_prod=False))
     assert scope_of(cfg).is_admin is True
+    asks_prod = _granular_chat_config(pass_request(turn), SimpleNamespace(use_prod=True))
+    assert asks_prod.API_USER == "service"  # never the prod config, even when the body asks for it
