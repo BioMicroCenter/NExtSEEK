@@ -189,9 +189,11 @@ when the app container is recreated: `docker compose up -d --no-deps --force-rec
 reinstall turns it off. Turn it on only after, in this order: the box's merge dry run, the operator's approval of
 its approval line, the merge, `--studies`, and then a second merge dry run. `--studies` gives every SEEK study its
 node, so an id that read `legacy_only` now reads `merge` and needs its own approval and merge run, and
-`id_collisions` grows by every SEEK study whose id a graph-only paper's node holds (never acted on). Turn the switch on
-only when that dry run's approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any
-id the merge would still act on, and so does every later drift check and rebuild. While the switch is off, family
+`id_collisions` grows by every SEEK study whose id a graph-only paper's node holds (never acted on). When that second
+dry run's approval line is not empty: its approval, the merge, `--studies` again (nothing else rebuilds the links of
+the samples that merge took off a paper), and another merge dry run. Turn the switch on only when a merge dry run's
+approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any id the merge would still
+act on, and so does every later drift check and rebuild. While the switch is off, family
 `12.studies` fails only on two Study nodes sharing a `seek_study_id`, so it stays green on a box that has not merged.
 
 **Paper samples.** A sample on a graph-only paper study is not linked to the SEEK studies of its paper's own
@@ -209,7 +211,8 @@ hold it back; `--merge-studies <approval line>` then merges exactly those, under
 every step to `study_merge.tsv` before its write. Each id's kind is read again under the lock, and one that reads
 another kind than its approved one stops the run (exit 2 when nothing was written yet, else 1): run the dry run again
 and approve what it prints. A rerun with the same `--run-dir` finishes a merge a crash stopped, held to the kind its
-journal recorded.
+journal recorded; one that stops on such an id exits 1, not 2, since the earlier attempt may have written, and
+`--unmerge-studies` with that run directory puts back what it moved.
 
 `--unmerge-studies` takes, in one call, every merge run directory of the ids it undoes (a crashed run and its rerun;
 for a whole box, the second approval's after `--studies` too) and every run directory whose `in_study_removed.tsv`

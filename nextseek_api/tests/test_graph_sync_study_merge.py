@@ -447,9 +447,10 @@ def test_a_kind_changed_after_an_earlier_id_merged_stops_the_run_part_way(world,
 
 
 def test_a_rerun_of_a_journaled_id_is_held_to_the_kind_its_journal_recorded(world, tmp_path):
-    """A rekey approved while the seek-keyed node was empty stopped before its last step; the node has gained a
-    sample since. A rerun into the same run directory, even with a fresh approval of merge, is held to the journal's
-    rekey_in_place and refuses."""
+    """A rekey approved while the seek-keyed node was empty stopped at its last step; the node has gained a sample
+    since. A rerun into the same run directory, even with a fresh approval of merge, is held to the journal's
+    rekey_in_place and stops writing nothing. It reports failed, not refused: whether the earlier attempt's last step
+    landed before its connection was lost is not known, so the box is not known to be as it was."""
     _seek(world, 6, "Fir paper")
     world.graph.add_study(id=6, title="Fir paper", DOI="10.9999/f6", investigation=world.inv[101])
     keyed = world.graph.add_study(seek_study_id=6, title="Fir paper", investigation=world.inv[101])
@@ -467,10 +468,29 @@ def test_a_rerun_of_a_journaled_id_is_held_to_the_kind_its_journal_recorded(worl
     assert _kind(world, 6).kind == "merge"
     writes = len(world.graph.writes())
     result = study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path))
-    assert (result["status"], result["stopped_at"]) == ("refused", 6)
+    assert (result["status"], result["stopped_at"]) == ("failed", 6)
     assert "journal" in result["problem"] and len(world.graph.writes()) == writes
     finished = study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path / "fresh"))
     assert finished["status"] == "ok"
+
+
+def test_a_rerun_stopping_on_an_id_an_earlier_attempt_left_part_way_fails_and_never_refuses(world, tmp_path):
+    """One of two sources moved before a crash, then the seek-keyed node gained a relationship, so the rerun stops on
+    that id writing nothing. The earlier attempt did write: the status is failed (exit 1), never refused (exit 2,
+    which says nothing was written), and the problem says an earlier attempt left the id part way."""
+    _, keyed = _split(world, on_l=(), on_k=(1002, 1004), on_both=())
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path), batch=1)
+    world.graph.fail_moves_after = None
+    world.graph.other_rels[keyed] = ["HAS_NOTE"]
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path), batch=1)
+    assert (result["status"], result["stopped_at"], result["merged"]) == ("failed", 1, [])
+    assert "earlier attempt" in result["problem"]
+    # What the earlier attempt moved goes back with an undo of its run directory.
+    assert world.graph.keys_of(1002) == {("id", 1)}
+    assert study_merge.undo(world.graph, DB, [str(tmp_path)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == world.graph.keys_of(1004) == {("seek", 1)}
 
 
 def test_a_finished_id_in_the_journal_takes_the_approved_kind_again(world, tmp_path):
@@ -506,9 +526,13 @@ def test_the_last_step_refuses_a_seek_keyed_node_that_gained_a_relationship(worl
             world.graph.other_rels[keyed] = ["HAS_NOTE"]
 
     world.graph.before_write = meanwhile
-    with pytest.raises(RuntimeError, match="last step"):
+    with pytest.raises(RuntimeError, match="last step") as exc:
         study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
     assert keyed in world.graph.studies
+    # The error names every cause the last step checks, since its count of 0 does not say which one it met.
+    for cause in ("still holds a relationship", "legacy node changed", "another node took seek_study_id 1",
+                  "is not the seek-keyed node's Investigation"):
+        assert cause in str(exc.value)
 
 
 def test_the_last_step_refuses_a_second_node_that_took_the_key_meanwhile(world, tmp_path):

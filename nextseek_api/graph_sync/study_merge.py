@@ -381,8 +381,10 @@ def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
                        {"l": legacy.element_id, "k": None if keyed is None else keyed.element_id, "study_id": x,
                         "new_investigation": new_investigation}), "merged")
     if merged != 1:
-        raise RuntimeError(f"study {x}: the last step found the seek-keyed node still holding a relationship, or the "
-                           "legacy node changed since it was read; that step wrote nothing")
+        raise RuntimeError(f"study {x}: the last step wrote nothing: the seek-keyed node still holds a relationship "
+                           "besides one IN_INVESTIGATION, the legacy node changed since it was read, another node took "
+                           f"seek_study_id {x}, or the Investigation the legacy node was to move to is not the "
+                           "seek-keyed node's Investigation")
     _journal(journal, x, "done", [{"kind": sel.kind}])
 
 
@@ -415,7 +417,9 @@ def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_C
     approved one stops the run before its first write, ids done before it staying done. A rerun given the same
     ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
     a merge by the match that moved every source before a crash, and now reads rekey_in_place, is still finished.
-    The status is ``refused`` when the run stopped before writing anything, ``failed`` when it stopped part way.
+    The status is ``refused`` when the run stopped before anything was written, ``failed`` when it stopped part way:
+    after merging an id, or on an id an earlier attempt into ``run_dir`` left unfinished (its journal has a plan line
+    and no done line for it, so that attempt may have written).
     Every step is journaled to ``study_merge.tsv`` in ``run_dir`` before its write. Raises RuntimeError when a move
     or the last step does not do what was read."""
     run_dir = os.path.abspath(run_dir)
@@ -434,9 +438,10 @@ def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_C
             # the id reads rekey_in_place, whose last step is the merge's own. Finish it as that.
             log.info("study %s: its merge moved every source before it stopped; finishing it", x)
         elif sel.kind != expected or sel.kind not in ACTING:
-            source = (f"its journal's {expected}, from a run it did not finish" if x in journaled
-                      else f"{expected}, as approved")
-            result.update(status=FAILED if result["merged"] else REFUSED, stopped_at=x,
+            earlier = x in journaled
+            source = (f"its journal's {expected}; an earlier attempt into this run directory left it part way"
+                      if earlier else f"{expected}, as approved")
+            result.update(status=FAILED if result["merged"] or earlier else REFUSED, stopped_at=x,
                           problem=f"study {x} reads {sel.kind} now, not {source}; it and every later id are left "
                                   "as they are: run the dry run again and approve what it prints")
             return result
