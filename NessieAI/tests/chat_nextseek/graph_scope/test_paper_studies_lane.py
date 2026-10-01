@@ -22,8 +22,8 @@ CREATE (:GraphMeta {schema_version: $version})
 CREATE (inv:Investigation {id: 501, title: 'Lane Investigation'})
 CREATE (paper:Study {id: $paper, title: 'Lane Paper', DOI: '10.0000/lane.1', description: 'A synthetic paper'})
 CREATE (paper)-[:IN_INVESTIGATION]->(inv)
-CREATE (seek:Study {seek_study_id: 801, title: 'Lane SEEK Study'})-[:IN_INVESTIGATION]->(inv)
-CREATE (empty:Study {seek_study_id: 802, title: 'Lane Empty SEEK Study'})-[:IN_INVESTIGATION]->(inv)
+CREATE (seek:Study {id: 801, seek_study_id: 801, title: 'Lane SEEK Study'})-[:IN_INVESTIGATION]->(inv)
+CREATE (empty:Study {id: 802, seek_study_id: 802, title: 'Lane Empty SEEK Study'})-[:IN_INVESTIGATION]->(inv)
 WITH paper, seek
 UNWIND [1, 2, 3, 4] AS n
 CREATE (s:Sample {id: 70000 + n, uuid: 'TIS-260101LNE-' + toString(n)})-[:IN_STUDY]->(paper)
@@ -95,6 +95,30 @@ def test_paper_studies_retire_never_touches_a_seek_keyed_study(fresh, tmp_path):
     report = paper_studies.retire_paper_links(fresh.driver, DB, 801, [70001], tmp_path / "x.tsv")
     assert report == {"paper_links_found": 0, "paper_links_retired": 0}
     assert _count(fresh, "MATCH (:Sample {id: 70001})-[e:IN_STUDY]->() RETURN count(e) AS n") == 2
+
+
+def test_paper_studies_lane_each_delete_and_the_restore_recheck_that_the_study_is_not_seeks(fresh, tmp_path):
+    """A SEEK study's node carries an id beside its seek_study_id (a rekey keeps both). Each delete checks again at
+    delete time that its Study has no seek_study_id, so an edge or a node that became a SEEK study's after the read
+    stays; and a restore never links a sample to a SEEK study's node."""
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync import paper_studies, writer
+
+    driver = fresh.driver
+    [edge] = fresh.read("MATCH (:Sample {id: 70001})-[e:IN_STUDY]->(:Study {id: 801}) RETURN elementId(e) AS e")
+    [node] = fresh.read("MATCH (st:Study {id: 802}) RETURN elementId(st) AS e")
+
+    def deleted(query, **params):
+        return driver.execute_query(query, params, database_=DB).records[0]["deleted"]
+
+    assert deleted(q.DELETE_PAPER_IN_STUDY, paper_id=801, element_ids=[edge["e"]]) == 0
+    assert deleted(q.DELETE_EMPTY_PAPER_STUDY_NODES, element_ids=[node["e"]]) == 0
+    assert _count(fresh, "MATCH (:Sample {id: 70001})-[e:IN_STUDY]->(:Study {id: 801}) RETURN count(e) AS n") == 1
+    assert _count(fresh, "MATCH (st:Study {id: 802}) RETURN count(st) AS n") == 1
+    (tmp_path / paper_studies.IN_STUDY_REMOVED_FILE).write_text(
+        writer.IN_STUDY_ARCHIVE_HEADER + "70002\t\t802\tx\tstudies_tool_paper\n", encoding="utf-8")
+    assert paper_studies.restore_paper_links(driver, DB, tmp_path)["paper_links_restored"] == 0
+    assert _count(fresh, "MATCH (:Sample {id: 70002})-[e:IN_STUDY]->(:Study {id: 802}) RETURN count(e) AS n") == 0
 
 
 def test_paper_studies_lane_a_rerun_after_a_stop_restores_each_link_and_node_once(fresh, tmp_path, monkeypatch):

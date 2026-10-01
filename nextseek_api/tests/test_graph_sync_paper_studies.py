@@ -192,7 +192,9 @@ def test_the_statements_live_in_cypher_py_and_paper_studies_holds_none():
     source = inspect.getsource(paper_studies)
     for word in ("MATCH", "MERGE", "DELETE e", "DETACH"):
         assert word not in source.replace('"""', ""), word
-    assert "WHERE st.seek_study_id IS NULL" in q.PAPER_IN_STUDY_OF
+    for statement in (q.PAPER_IN_STUDY_OF, q.DELETE_PAPER_IN_STUDY, q.EMPTY_PAPER_STUDY_NODES,
+                      q.DELETE_EMPTY_PAPER_STUDY_NODES, q.RESTORE_PAPER_IN_STUDY):
+        assert "st.seek_study_id IS NULL" in statement, statement   # never a SEEK study's node or its edges
 
 
 # --- preview_labels: read only, classes as sync_samples does ------------------------------------
