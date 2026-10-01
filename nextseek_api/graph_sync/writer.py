@@ -1230,14 +1230,16 @@ def replace_sample_assay_edges(driver, db, rows, chunk: int = SAMPLE_CHUNK) -> d
 
     Every row is checked before anything is sent: ``id`` an int, ``inputs`` and ``outputs`` lists of ``{"assay_id":
     int, "seek_assay_ids": non-empty list of int}``, else ValueError. ``assay_edge_samples_missing`` counts rows whose
-    Sample node is missing; ``assay_edges_dropped`` edges whose Assay node is."""
+    Sample node is missing, and nothing of such a row is written or counted further; ``assay_edges_dropped`` counts the
+    edges of the rows whose Sample node was found that were left unwritten because their Assay node is missing (the
+    statement returns the edges it was asked for over those rows alone, ``expected``)."""
     checked = [_assay_edge_row(row) for row in rows]
     samples = written = expected = 0
     for batch in _batches(checked, chunk):
         result = _run(driver, db, q.REPLACE_SAMPLE_ASSAY_EDGES, {"rows": batch})
         samples += _one(result, "samples")
         written += _one(result, "inputs") + _one(result, "outputs")
-        expected += sum(len(r["inputs"]) + len(r["outputs"]) for r in batch)
+        expected += _one(result, "expected")
     return {"assay_edge_samples": len(checked), "assay_edge_samples_missing": len(checked) - samples,
             "assay_edges_written": written, "assay_edges_dropped": expected - written}
 

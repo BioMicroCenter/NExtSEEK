@@ -1990,6 +1990,8 @@ def test_the_assay_write_statements_replace_whole_and_name_both_labels_on_every_
     assert "CREATE (s)-[:OUTPUT_OF {seek_assay_ids: e.seek_assay_ids}]->(a)" in edges
     # the delete comes before the creates, inside the one statement per chunk
     assert edges.index("DELETE old") < edges.index("CREATE (s)-[:INPUT_TO")
+    # the edges asked for, counted over the rows whose Sample matched only (assay_edges_dropped)
+    assert "sum(size(r.inputs) + size(r.outputs)) AS expected" in edges
 
 
 def test_a_gone_assay_loses_its_edges_in_batches_before_its_node():
@@ -2108,7 +2110,8 @@ def test_replace_assay_catalog_edges_sends_one_statement():
 
 
 def test_replace_sample_assay_edges_sends_one_statement_per_chunk_and_counts_what_it_could_not_write():
-    driver = FakeDriver(lambda query, params: [{"samples": len(params["rows"]) - 1, "inputs": 1, "outputs": 0}])
+    driver = FakeDriver(lambda query, params: [{"samples": len(params["rows"]) - 1, "inputs": 1, "outputs": 0,
+                                                "expected": 1}])
     rows = [{"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": [5]}], "outputs": []},
             {"id": 11, "inputs": [], "outputs": [{"assay_id": 99, "seek_assay_ids": [5]}]},
             {"id": 12, "inputs": [], "outputs": []}]

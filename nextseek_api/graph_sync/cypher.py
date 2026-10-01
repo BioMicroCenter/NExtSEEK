@@ -885,7 +885,8 @@ CALL (s, r) {
   CREATE (s)-[:OUTPUT_OF {seek_assay_ids: e.seek_assay_ids}]->(a)
   RETURN count(a) AS outputs
 }
-RETURN count(s) AS samples, sum(inputs) AS inputs, sum(outputs) AS outputs
+RETURN count(s) AS samples, sum(inputs) AS inputs, sum(outputs) AS outputs,
+       sum(size(r.inputs) + size(r.outputs)) AS expected
 """
 # Reads. The (SEEK id, Assay id) pairs RUN_IN holds, and those the sample edges hold (sync_assays step 3).
 RUN_IN_PAIRS = """

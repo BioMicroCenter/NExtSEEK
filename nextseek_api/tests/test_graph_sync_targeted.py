@@ -464,11 +464,12 @@ class FakeGraph:
         return [{"child_id": c, "parent_id": pa} for c, pa in sorted(pairs)]
 
     def _replace_sample_edges(self, p):
-        samples = inputs = outputs = 0
+        samples = inputs = outputs = expected = 0
         for r in p["rows"]:
             if not self._is_sample(r["id"]):
                 continue
             samples += 1
+            expected += len(r["inputs"]) + len(r["outputs"])
             edges = set()
             for rel, key in (("INPUT_TO", "inputs"), ("OUTPUT_OF", "outputs")):
                 for e in r[key]:
@@ -477,7 +478,7 @@ class FakeGraph:
                         inputs += rel == "INPUT_TO"
                         outputs += rel == "OUTPUT_OF"
             self.assay_edges[r["id"]] = edges
-        return [{"samples": samples, "inputs": inputs, "outputs": outputs}]
+        return [{"samples": samples, "inputs": inputs, "outputs": outputs, "expected": expected}]
 
 
 # --- fixtures ------------------------------------------------------------------------------------
@@ -1212,6 +1213,15 @@ def test_an_assay_edge_whose_assay_node_is_missing_is_a_structural_gap(env, tmp_
     assert result["structural_gap_parts"]["assay_edges_dropped"] == 2
     assert result["structural_gaps"] >= 2
     assert targeted.UNTRACED_MARK in result["structural_gap_samples"][11]
+
+
+def test_assay_edges_dropped_counts_only_the_edges_of_samples_that_have_a_node(env):
+    """A row whose Sample node is missing is counted in assay_edge_samples_missing, and its edges are not dropped
+    edges: that count means an Assay node was missing for a sample the graph holds."""
+    rows = [{"id": 999, "inputs": [{"assay_id": 99, "seek_assay_ids": [5]}], "outputs": []},
+            {"id": 10, "inputs": [{"assay_id": 404, "seek_assay_ids": [5]}], "outputs": []}]
+    assert writer.replace_sample_assay_edges(env.graph, DB, rows) == {
+        "assay_edge_samples": 2, "assay_edge_samples_missing": 1, "assay_edges_written": 0, "assay_edges_dropped": 1}
 
 
 def test_retire_samples_rewrites_the_partners_of_a_retired_sample_after_the_delete(with_assay, tmp_path):
