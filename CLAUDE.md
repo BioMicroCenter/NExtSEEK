@@ -141,7 +141,7 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 | AI facts | `NessieAI/` |
 
 - Cite docs as `FILE §N` or `FILE "Heading"`, and code by symbol. No line numbers in map files. Write no dated counts or run results into a README or CLAUDE file (cite the command that produces them); older ones go when their section is next edited.
-- A new folder gets a `README.md` (plus a `CLAUDE.md` only if it has invariants) and one row in its parent map.
+- A new folder gets a `README.md` (plus a `CLAUDE.md` only if it has invariants) and one row in its parent map. R11 fails a folder down to depth 3 that has neither a README nor an `R11_EXEMPT` entry in `ci/docs_map.py`.
 - Retire a doc with `git mv` into `docs/archive/<yyyy-mm>/` and add its row to `docs/archive/INDEX.md`. A spec names `Tracking: #N`.
 - `NessieAI/history/**` and `docs/archive/**` are frozen.
 - Run `python3 ci/docs_map.py` before pushing; its failures print the row to add.
