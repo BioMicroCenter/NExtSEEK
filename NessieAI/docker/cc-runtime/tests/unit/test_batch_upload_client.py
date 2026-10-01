@@ -507,3 +507,88 @@ def test_from_env_legacy_fallback_partial_nextseek_pair_and_missing(monkeypatch)
     with pytest.raises(SystemExit) as exc:
         buc.BatchUploadClient.from_env()
     assert exc.value.code == 2
+
+
+# --- the bucket rule for a title reaching several in-project assays (the studies tool's paper clones) ------------
+
+
+def _bucket_world(calls, *, studies=None, members=None):
+    studies = studies or {351: (20, "Alpha Unpublished"), 260: (21, "Alpha Paper")}
+    members = members or {}
+
+    def handler(request):
+        calls.append(request.url.path)
+        parts = [p for p in request.url.path.split("/") if p]
+        if parts[-2] == "assays":
+            assay_id = int(parts[-1])
+            study_id, _title = studies[assay_id]
+            return httpx.Response(200, json={"data": {"id": str(assay_id), "relationships": {
+                "study": {"data": {"id": str(study_id), "type": "studies"}},
+                "samples": {"data": [{"id": sid, "type": "samples"} for sid in members.get(assay_id, [])]}}},
+                "links": {}})
+        if parts[-2] == "studies":
+            study_id = int(parts[-1])
+            title = next(t for s, t in studies.values() if s == study_id)
+            return httpx.Response(200, json={"data": {"id": str(study_id), "attributes": {"title": title}}})
+        raise AssertionError(f"unexpected route {request.url}")
+
+    return _client(handler)
+
+
+def test_one_in_project_candidate_is_unchanged_and_reads_nothing():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351}) == 351
+    assert calls == []
+
+
+def test_a_bucket_and_a_paper_clone_resolve_to_the_bucket():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}) == 351
+
+
+def test_a_sample_in_one_candidate_resolves_to_it():
+    calls: list[str] = []
+    c = _bucket_world(calls, members={260: ["324503"]})
+    got = c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=324503)
+    assert got == 260
+
+
+def test_buckets_of_two_investigations_refuse_naming_them():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (22, "Beta Unpublished")})
+    with pytest.raises(ValueError, match="ambiguous assay title: Comet Chip") as exc:
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+    assert "260, 351" in str(exc.value)
+
+
+def test_two_candidates_none_in_a_bucket_refuse():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Paper"), 260: (21, "Alpha Paper Two")})
+    with pytest.raises(ValueError, match="ambiguous"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+
+
+def test_one_get_per_assay_and_per_study_however_many_rows_name_them():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (20, "Alpha Unpublished"),
+                                      400: (21, "Alpha Paper")})
+    title_map = {"Comet Chip": [351, 400], "Other": [260, 400]}
+    for _ in range(5):
+        c.resolve_assay_title("Comet Chip", title_map, {351, 400, 260})
+        c.resolve_assay_title("Other", title_map, {351, 400, 260})
+    assert sorted(calls) == sorted(["/nextseek_api/assays/351/", "/nextseek_api/assays/400/",
+                                    "/nextseek_api/assays/260/", "/nextseek_api/studies/20/",
+                                    "/nextseek_api/studies/21/"])
+
+
+def test_a_failed_study_read_fails_closed_as_ambiguous():
+    c = _client(lambda request: httpx.Response(500))
+    with pytest.raises(ValueError, match="ambiguous"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260})
+
+
+def test_the_bucket_suffix_is_the_studies_tools():
+    assert buc.BUCKET_TITLE_SUFFIX == "unpublished"
+    assert buc._is_bucket_title("  Alpha UNPUBLISHED ") and not buc._is_bucket_title("Unpublished data")

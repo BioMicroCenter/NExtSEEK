@@ -14,6 +14,14 @@ _API = "/nextseek_api"
 _UID_CHUNK_SIZE = 1000
 _PAGE_SIZE = 1000
 
+# The studies tool's bucket rule (nextseek_api/studies/buckets.py), copied because this image carries no
+# nextseek_api; nextseek_api/studies/tests/test_cc_bucket_suffix.py keeps the two equal.
+BUCKET_TITLE_SUFFIX = "unpublished"
+
+
+def _is_bucket_title(title: Any) -> bool:
+    return isinstance(title, str) and title.strip().casefold().endswith(BUCKET_TITLE_SUFFIX)
+
 
 class BatchUploadClient:
     def __init__(
@@ -34,6 +42,9 @@ class BatchUploadClient:
         # the lifetime of this client so update-path disambiguation fetches each assay
         # once instead of once per referencing UID.
         self._assay_samples_cache: dict[int, set[str]] = {}
+        # An assay's study and a study's title, read once per client for the bucket rule.
+        self._assay_study_cache: dict[int, int | None] = {}
+        self._study_title_cache: dict[int, str | None] = {}
 
     @classmethod
     def from_env(
@@ -98,19 +109,65 @@ class BatchUploadClient:
         rel = body["data"]["relationships"]["assays"]["data"]
         return {int(item["id"]) for item in rel}
 
+    def assay_study_id(self, assay_id: int | str) -> int | None:
+        key = int(assay_id)
+        if key not in self._assay_study_cache:
+            response = self._client.get(f"{_API}/assays/{key}/")
+            response.raise_for_status()
+            body = _json(response)
+            try:
+                self._assay_study_cache[key] = int(body["data"]["relationships"]["study"]["data"]["id"])
+            except (KeyError, TypeError, ValueError):
+                self._assay_study_cache[key] = None
+        return self._assay_study_cache[key]
+
+    def study_title(self, study_id: int | str) -> str | None:
+        key = int(study_id)
+        if key not in self._study_title_cache:
+            response = self._client.get(f"{_API}/studies/{key}/")
+            response.raise_for_status()
+            body = _json(response)
+            title = (((body or {}).get("data") or {}).get("attributes") or {}).get("title")
+            self._study_title_cache[key] = title if isinstance(title, str) else None
+        return self._study_title_cache[key]
+
     def resolve_assay_title(
         self,
         title: str,
         title_map: dict[str, list[int]],
         project_assay_ids: set[int],
+        *,
+        sample_numeric_id: int | str | None = None,
     ) -> int:
+        """One in-project candidate: it. Several: the one the sample is in (when a sample is named), else the one in
+        an Unpublished study, else ValueError('ambiguous assay title: ...'), as the registration resolver decides."""
         candidates = [int(item) for item in title_map.get(title, [])]
         if not candidates:
             raise ValueError(f"assay title not accessible: {title}")
-        in_project = [item for item in candidates if item in project_assay_ids]
-        if len(in_project) != 1:
+        in_project = sorted({item for item in candidates if item in project_assay_ids})
+        if len(in_project) == 1:
+            return in_project[0]
+        if not in_project:
             raise ValueError(f"ambiguous assay title: {title}")
-        return in_project[0]
+        try:
+            if sample_numeric_id is not None:
+                members = self.assay_samples(in_project)
+                key = str(sample_numeric_id)
+                holding = [item for item in in_project if key in members.get(item, set())]
+                if len(holding) == 1:
+                    return holding[0]
+            in_bucket = []
+            for item in in_project:
+                study_id = self.assay_study_id(item)
+                if study_id is not None and _is_bucket_title(self.study_title(study_id)):
+                    in_bucket.append(item)
+        except Exception as exc:  # noqa: BLE001 - fail closed: an unreadable candidate never picks one
+            raise ValueError(f"ambiguous assay title: {title} (could not read the candidates: "
+                             f"{type(exc).__name__})") from exc
+        if len(in_bucket) == 1:
+            return in_bucket[0]
+        raise ValueError(f"ambiguous assay title: {title} (candidates {in_project}; "
+                         f"in an Unpublished study: {in_bucket or 'none'})")
 
     def assay_samples(self, assay_ids: Iterable[int]) -> dict[int, set[str]]:
         out: dict[int, set[str]] = {}
