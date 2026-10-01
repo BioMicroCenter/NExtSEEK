@@ -923,7 +923,8 @@ def chatter_agent_answer(
             if count_only and offered_step else
             "- This result is a single number: no rows, so no identifiers, no spellings and no examples. Give "
             "the number and what it counts, never write as though you had seen the records, and make no offer "
-            "of your own: the reply ends on the answer.\n"
+            "of your own: the reply ends on the answer, or, when the user asked how it was found, on the one or "
+            "two sentences that say what was counted.\n"
             if count_only else
             "- Mention 2-3 example identifiers (UIDs, names) from the preview verbatim if available.\n"
         )
@@ -947,7 +948,9 @@ def chatter_agent_answer(
             "capped search, a zero, or a note from whoever built the query). Never name an endpoint, a URL, "
             "an HTTP method, Cypher, a query operator (AND/OR) or a request field: the user cannot act on "
             "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
-            "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
+            "'another search was run instead'. Qualify what the result covers, not how it was reached, unless the user asked how the "
+            "answer was found: then also say, in one or two plain sentences, what was counted (which records, of "
+            "which type, under which conditions).\n"
             if disclosure_qualifies else
             "- Unless the user asked how the answer was found, do not say how it was found: nothing about "
             "this result needs qualifying, so the search is not part of the reply. If the user did ask, after "

@@ -942,9 +942,12 @@ def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
     assert "no Cypher" not in text
     assert "You do NOT receive the query itself" not in text
     assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
-            "receive the `Executed query`, for checking only.") in text
+            "receive the `Executed query`.") in text
     assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
-            "is there only to check a `NOT APPLIED` line or a note against what ran.") in text
+            "is there to check a `NOT APPLIED` line or a note against what ran, and to say what was counted when "
+            "the user asks how the answer was found.") in text
+    assert "for checking only" not in text
+    assert "there only to check" not in text
 
 
 def test_the_prompt_lets_the_user_ask_how_the_answer_was_found():
@@ -1016,3 +1019,17 @@ def test_a_count_query_turn_leaves_its_count_column_out_of_the_value_counts(capt
     assert "- value:" in text
     assert "- n:" not in text
 
+
+
+def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
+    count_only = _graph_turn(captured, question="how did you get that number", rows=[{"n": 12}],
+                             cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("the reply ends on the answer, or, when the user asked how it was found, on the one or two "
+            "sentences that say what was counted.") in count_only
+    assert "the reply ends on the answer.\n" not in count_only
+
+    qualified = _graph_turn(captured, question="what did you count", rows=[{"n": 0}], total=0,
+                            cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
+            "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
+    assert "not how it was reached.\n" not in qualified
