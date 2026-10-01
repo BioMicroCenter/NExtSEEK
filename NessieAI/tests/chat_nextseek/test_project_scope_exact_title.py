@@ -56,12 +56,106 @@ def test_a_resolved_project_maps_to_its_stored_title(name, title):
     assert gctx.project_titles_for([name], PROJECT_ROWS, GRAPH_TITLES) == {name: title}
 
 
-def test_an_investigation_row_never_names_a_title():
-    """"Impactb Investigation" carries IMPAcTb among its names; it is not a project row, so it maps nothing."""
+def test_an_investigation_row_names_only_a_title_its_graph_holds():
+    """"Impactb Investigation" carries IMPAcTb among its names: with no Investigation title in the graph that
+    reaches only the Project, as a broader container (own False); a name no row or title holds maps nothing."""
     rows = [{"name": "Impactb Investigation", "alternative_names": ["Impact", "IMPAcTb"],
              "entity_type": "investigation", "parent_project": "Impact"}]
     assert not any(is_project_row(r) for r in rows)
-    assert gctx.project_titles_for(["Impactb Investigation", "Collagen Study"], PROJECT_ROWS, GRAPH_TITLES) == {}
+    assert gctx.project_titles_for(["Collagen Study"], PROJECT_ROWS, GRAPH_TITLES) == {}
+
+
+# --- A1: a name resolves to the container titles that exist, narrowest first -------------------------------------------
+
+INV_ROW = {"name": "Alpha Cohort", "alternative_names": ["Gamma Lab"], "entity_type": "investigation",
+           "parent_project": "Gamma Group"}
+INV_ROW_2 = {"name": "Delta Trial", "alternative_names": ["Epsilon"], "entity_type": "investigation",
+             "parent_project": "Epsilon Group"}
+PROJ_ROW = {"name": "Gamma Group", "alternative_names": ["Gamma Lab"], "entity_type": "project"}
+
+
+def _levels(inv=(), proj=(), study=()):
+    return {"study": study, "investigation": inv, "project": proj}
+
+
+def test_an_investigation_name_reaches_the_investigation_title_this_graph_holds():
+    """The catalog name is not a title here; its alternative name is an Investigation title (the box differs)."""
+    hits = gctx.container_titles_for(["Alpha Cohort"], [INV_ROW, PROJ_ROW], _levels(inv=("Gamma Lab",), proj=("Gamma Group",)))
+    assert hits == {"Alpha Cohort": ("investigation", "Gamma Lab", True)}
+
+
+def test_a_second_investigation_name_with_another_box_title():
+    hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2], _levels(inv=("Epsilon",)))
+    assert hits == {"Delta Trial": ("investigation", "Epsilon", True)}
+
+
+def test_a_title_that_is_the_name_itself_beats_an_alternative_name():
+    """Both investigations exist (production's shape): the one the user named is used, not the owner's alias."""
+    hits = gctx.container_titles_for(["Alpha Cohort"], [INV_ROW], _levels(inv=("Alpha Cohort", "Gamma Lab")))
+    assert hits == {"Alpha Cohort": ("investigation", "Alpha Cohort", True)}
+
+
+def test_only_a_broader_container_is_used_but_not_counted_as_the_name():
+    hits = gctx.container_titles_for(["Alpha Cohort"], [INV_ROW], _levels(proj=("Gamma Group",)))
+    assert hits == {"Alpha Cohort": ("project", "Gamma Group", False)}
+    other = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2], _levels(proj=("Epsilon Group",)))
+    assert other == {"Delta Trial": ("project", "Epsilon Group", False)}
+
+
+def test_two_titles_at_the_narrowest_level_stop_the_search():
+    rows = [{"name": "Alpha Cohort", "alternative_names": ["Gamma Lab", "Gamma Two"], "entity_type": "investigation",
+             "parent_project": "Gamma Group"}]
+    assert gctx.container_titles_for(["Alpha Cohort"], rows, _levels(inv=("Gamma Lab", "Gamma Two"),
+                                                                    proj=("Gamma Group",))) == {}
+
+
+def test_a_name_with_no_catalog_row_maps_to_a_study_title_that_exists():
+    hits = gctx.container_titles_for(["Zed Paper"], [], _levels(study=("Zed-Paper",), proj=("Zed Paper",)))
+    assert hits == {"Zed Paper": ("study", "Zed-Paper", True)}
+
+
+def test_the_block_header_names_the_three_levels():
+    block = gctx.render_project_titles({"Alpha Cohort": "Gamma Lab"}, {"Alpha Cohort": "investigation"})
+    assert block.startswith(
+        "PROJECTS NAMED IN THIS QUESTION (the exact title each is stored under and whether it is a project, an "
+        "investigation or a study, found through the project catalog's names and alternative names; scope on "
+        "this title, STEP 5):")
+
+
+def test_the_prompt_tells_the_agent_to_scope_on_an_investigation_or_study_title():
+    assert ("a PROJECTS NAMED IN THIS QUESTION block after it gives the exact title that project, investigation or "
+            "study is stored under (STEP 5).") in PROMPT
+    bullet = PROMPT[PROMPT.index("- **A name the PROJECTS NAMED IN THIS QUESTION block gives as an investigation"):]
+    bullet = bullet[:bullet.index('- **"Study X"')]
+    assert "WHERE inv.title = $investigation_title" in bullet
+    assert "(s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)" in bullet
+    assert "`WHERE st.title = $study_title` for a study" in bullet
+    assert "The block's title wins over the name as the user wrote it." in bullet
+    # the bullet sits after the project bullet and before the "Study X" bullet
+    assert PROMPT.index("A project the entity step resolved") < PROMPT.index("A name the PROJECTS NAMED") < PROMPT.index('- **"Study X"')
+
+
+def test_the_block_names_the_level():
+    block = gctx.render_project_titles({"Alpha Cohort": "Gamma Lab"}, {"Alpha Cohort": "investigation"})
+    assert '- "Alpha Cohort" is the investigation titled "Gamma Lab"' in block
+
+
+def _inv_scope(project_titles, title):
+    return describe_query_scope(
+        entity_result=EntityAgentOutput(projects=["Alpha Cohort"]).model_dump(),
+        parser_plan=ParserPlan(mode="graph_query").model_dump(),
+        graph_plan={"cypher": "MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE p.title = $t RETURN count(s) AS n",
+                    "parameters": {"t": title}, "project_titles": project_titles},
+        user_query="How many samples are in the Alpha Cohort?")
+
+
+def test_the_scope_check_keeps_the_narrower_name_not_applied_under_a_broader_title():
+    """A broader hit never enters project_titles, so the query on the owner's title leaves the name NOT APPLIED."""
+    assert "project Alpha Cohort" in _inv_scope({}, "Gamma Group").not_applied
+
+
+def test_the_scope_check_applies_the_name_when_its_own_title_is_in_the_query():
+    assert "project Alpha Cohort" in _inv_scope({"Alpha Cohort": "Gamma Lab"}, "Gamma Lab").applied
 
 
 def test_a_title_the_caller_cannot_see_is_never_named():

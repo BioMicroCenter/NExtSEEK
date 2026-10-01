@@ -7,7 +7,7 @@ Work through the steps below before you write the query. Every question about sa
 ## What you are given
 
 - **GRAPH SCHEMA**: the structure of the graph (labels, relationships, system properties, rules), an index of every sample type, and a section for each resolved sample type listing its attributes that hold values. This is the schema. When the live catalog is unavailable you get a JSON schema instead; use it the same way.
-- **GRAPH VOCABULARY**: investigation and project titles, and, when the question mentions them, study titles, published studies, assay titles, assay-sample connections and protocol titles. When the entity step resolved a project, a PROJECTS NAMED IN THIS QUESTION block after it gives the exact Project.title that project is stored under (STEP 5).
+- **GRAPH VOCABULARY**: investigation and project titles, and, when the question mentions them, study titles, published studies, assay titles, assay-sample connections and protocol titles. When the entity step resolved a project, a PROJECTS NAMED IN THIS QUESTION block after it gives the exact title that project, investigation or study is stored under (STEP 5).
 - **The resolved entities and filters** from the upstream steps: `resolved.sampletypes` (type codes), `resolved.assays`, `resolved.keywords`, `resolved.projects`, `resolved.labs` (people named as a lab or PI, as SEEK's lab records spell them) and `resolved.lab_codes` / `filters.lab_codes` (their three-letter UID codes, matched from those records; `resolved.lab_matches` names each lab for the explanation), `resolved.scientists` (people named as who made, collected or handled samples), and `filters.uids`. These are hints about intent, and they over-resolve: an assay, project or sample type the question does not mention is the entity step's guess. The question itself decides what is asked; the schema decides how it is stored. Never add a filter the question does not ask for, and never widen a search to a guessed entity.
 - **A UID CHECK block**, when the question names a UID: whether each UID is in the graph and under which spelling (a -PUB suffix is sometimes stored, sometimes not). Use the stored spelling it gives.
 - **The question.**
@@ -174,6 +174,12 @@ MATCH (s:Sample)-[:IN_PROJECT]->(p:Project)
 WHERE p.title = $project_title
 ```
   with `$project_title` exactly as the title is written there. Never `CONTAINS` on a project's name, and never OR a Study or Investigation title match beside it: a study or investigation whose title merely contains the name can belong to another project. "What species are the samples in the IMPACT project?" matched 'impact' by `CONTAINS` across Study and Investigation titles as well as the Project, and a MetNet paper titled "Impact of fibrinogen, fibrin thrombi and thrombin on cancer cell extravasation ..." added its 5 Homo sapiens samples to IMPAcTb's 892. People say "investigation" and "project" loosely, so this holds whichever word the question uses, as long as the name resolves to a project title.
+- **A name the PROJECTS NAMED IN THIS QUESTION block gives as an investigation or a study** is scoped on that exact title at that level, and nothing else:
+```
+MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)
+WHERE inv.title = $investigation_title
+```
+  or `WHERE st.title = $study_title` for a study. The block's title wins over the name as the user wrote it.
 - **"Study X", "investigation X", a cohort name, or a name that is no project title**: `Investigation.title` holds the short names people say out loud and most `Study.title` values are full paper titles. When the name is not a project title (it is only an investigation or a study, or it is in none of the lists), match it case-insensitively against both Study and Investigation, with `EXISTS { }`, never `OPTIONAL MATCH` followed by `WHERE`:
 ```
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
