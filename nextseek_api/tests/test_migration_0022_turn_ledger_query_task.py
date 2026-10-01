@@ -1,7 +1,7 @@
 """Migration 0022 links each TurnLedger row to its QueryTask, and it closes the chain without a fork.
 
-The chain has forked before and been stitched by merge migrations (nextseek_api/CLAUDE.md), so the leaf is pinned
-here, and makemigrations must propose nothing further for TurnLedger: a model/migration mismatch would reach a box
+The chain has forked before and been stitched by merge migrations (nextseek_api/CLAUDE.md), so the graph's single leaf
+(the leaf count, not its name; 0022 must stay in the graph) is pinned here, and makemigrations must propose nothing further for TurnLedger: a model/migration mismatch would reach a box
 as DDL nobody reviewed.
 """
 import os

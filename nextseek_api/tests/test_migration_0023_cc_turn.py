@@ -112,3 +112,14 @@ def test_the_orm_round_trip_and_the_delete_rules():
     turn = CCTurn.objects.create(task=task, user=user, chat=chat, pass_hash="b" * 64)
     task.delete()
     assert not CCTurn.objects.filter(pk=turn.pk).exists()  # CASCADE from the task
+
+
+@pytest.mark.django_db
+def test_the_heal_create_table_columns_match_the_0023_state():
+    import re
+
+    from django.apps import apps
+
+    model = heal._frozen_0023_model(apps)
+    sql_columns = set(re.findall(r"^  `(\w+)` ", heal._CREATE_TABLE_SQL, re.M))
+    assert {f.column for f in model._meta.local_fields} == sql_columns
