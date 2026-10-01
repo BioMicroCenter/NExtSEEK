@@ -664,3 +664,54 @@ def test_recent_sample_ids_reads_created_or_updated_since_newest_first(fake_db):
     assert sources.recent_sample_ids(since, 5000) == [1007, 1003]
     assert seek.executed == [("SELECT id FROM samples WHERE created_at >= %s OR updated_at >= %s "
                               "ORDER BY id DESC LIMIT %s", [since, since, 5000])]
+
+
+# --- the assay layer (schema 1.3) ------------------------------------------------------------------
+
+ASSAY_TABLES = ("internal_assays", "assays_internal_assays", "assay_context")
+
+
+def test_internal_assays_reads_every_row_with_its_title_as_stored(fake_db):
+    _, dmac = fake_db(dmac_results=[[(99, "Patient Visit"), (120, b"RNA-seq "), (130, None)]],
+                      dmac_tables=ASSAY_TABLES)
+    assert sources.internal_assays() == [{"id": 99, "title": "Patient Visit"}, {"id": 120, "title": "RNA-seq "},
+                                         {"id": 130, "title": None}]
+    assert dmac.executed[0][0] == "SELECT id, internal_assay_title FROM internal_assays ORDER BY id"
+
+
+def test_assay_internal_pairs_keeps_a_row_with_no_internal_assay_for_the_report(fake_db):
+    _, dmac = fake_db(dmac_results=[[(5, None), (5, 99), (5, 120), (6, 98)]], dmac_tables=ASSAY_TABLES)
+    assert sources.assay_internal_pairs() == [(5, None), (5, 99), (5, 120), (6, 98)]
+    sql = dmac.executed[0][0]
+    assert "SELECT DISTINCT assay_id, internal_assay_id FROM assays_internal_assays" in sql
+    assert "WHERE assay_id IS NOT NULL" in sql
+
+
+@pytest.mark.parametrize("reader", ["internal_assays", "assay_internal_pairs", "assay_context_rows"])
+def test_an_absent_dmac_table_reads_as_empty(fake_db, reader):
+    _, dmac = fake_db(dmac_tables=())
+    assert getattr(sources, reader)() == []
+    assert dmac.executed == []
+
+
+def test_assay_studies_reads_every_seek_assay_and_its_study_joined_to_studies(fake_db):
+    # SEEK assay 7's study row is gone: the join reads it as having no study, so it gets no RUN_IN.
+    seek, _ = fake_db(seek_results=[[(5, 70), (6, None), (7, None)]])
+    assert sources.assay_studies() == [(5, 70), (6, None), (7, None)]
+    assert seek.executed[0][0] == ("SELECT a.id, s.id FROM assays a LEFT JOIN studies s ON s.id = a.study_id "
+                                   "ORDER BY a.id")
+
+
+def test_assay_context_rows_lowercases_the_columns_and_decodes_bytes(fake_db):
+    _, dmac = fake_db(dmac_results=[[(1, 99, b"Patient Visit", "TIS or CEL")]], dmac_tables=ASSAY_TABLES)
+    dmac.description = [("id",), ("internal_assay_id",), ("Assay_Name",), ("Required_Parent_Sample_Types",)]
+    assert sources.assay_context_rows() == [{"id": 1, "internal_assay_id": 99, "assay_name": "Patient Visit",
+                                             "required_parent_sample_types": "TIS or CEL"}]
+    assert dmac.executed[0][0] == "SELECT * FROM assay_context ORDER BY id"
+
+
+def test_iter_assay_links_streams_the_sample_rows_in_sample_order(fake_db):
+    seek, _ = fake_db(seek_results=[[(10, 5), (11, 5), (11, 6)]])
+    assert list(sources.iter_assay_links()) == [(10, 5), (11, 5), (11, 6)]
+    sql, params = seek.executed[0]
+    assert sql == " ".join(sources._ASSAY_LINK_STREAM_SQL.split()) and params == ["Sample"]

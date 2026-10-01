@@ -32,6 +32,7 @@ from django.db import connections
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.batch_upload.identity import extract_identity
+from nextseek_api.services.context_catalog import _rows_from_cursor
 from nextseek_api.services.template_catalog import is_deprecated
 from seek.models import Sample_types_context
 
@@ -442,6 +443,15 @@ def iter_digest_rows(chunk: int = 5000) -> Iterator[list[dict]]:
         assays.close()
 
 
+def iter_assay_links() -> Iterator[tuple[int, int]]:
+    """Every Sample row of `assay_assets` as `(sample id, SEEK assay id)`, ordered by sample id, by one statement.
+
+    The stream `iter_digest_rows` merges, read on its own: the drift check sets each membership against the sample
+    edges the graph holds (graph schema 1.3)."""
+    for sample_id, assay_id in _rows(_seek(), _ASSAY_LINK_STREAM_SQL, ["Sample"]):
+        yield int(sample_id), int(assay_id)
+
+
 # --- the catalog -------------------------------------------------------------------------------
 
 def sample_types() -> list[dict]:
@@ -691,3 +701,50 @@ def sops_map() -> dict[int, str | None]:
     """SEEK SOP id to its title as stored: the protocol half of the label rule."""
     return {int(sop_id): _text(title)
             for sop_id, title in _rows(_seek(), "SELECT id, title FROM sops ORDER BY id")}
+
+
+# --- the assay layer (schema 1.3) --------------------------------------------------------------
+
+def internal_assays() -> list[dict]:
+    """Every internal assay: `id` and `title` (`internal_assay_title` as stored, None included). One Assay node each.
+
+    Empty when the table is absent, which gives a graph with no Assay node rather than a failure."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "internal_assays"):
+        logger.warning("internal_assays is absent; the graph gets no Assay node")
+        return []
+    return [{"id": int(ia_id), "title": _text(title)}
+            for ia_id, title in _rows(_dmac(), "SELECT id, internal_assay_title FROM internal_assays ORDER BY id")]
+
+
+def assay_internal_pairs() -> list[tuple[int, int | None]]:
+    """Every distinct `(SEEK assay id, internal assay id)` of `assays_internal_assays` with a SEEK assay.
+
+    All of them, where `internal_assay_links` keeps only the smallest internal id per SEEK assay for the label rule. A
+    row with no internal assay is kept (as None) so that `assays.build_catalog` can report it. Empty when the table
+    is absent."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "assays_internal_assays"):
+        return []
+    sql = ("SELECT DISTINCT assay_id, internal_assay_id FROM assays_internal_assays "
+           "WHERE assay_id IS NOT NULL ORDER BY assay_id, internal_assay_id")
+    return [(int(assay_id), int(ia_id) if ia_id is not None else None) for assay_id, ia_id in _rows(_dmac(), sql)]
+
+
+def assay_studies() -> list[tuple[int, int | None]]:
+    """Every SEEK assay and its study, by id. RUN_IN is built from it, and its ids are the SEEK assays that exist.
+
+    Joined to `studies`, the join `seek_study_links` makes: an assay whose study row is gone reads as having no study,
+    so it gets no RUN_IN, as its members get no IN_STUDY."""
+    sql = "SELECT a.id, s.id FROM assays a LEFT JOIN studies s ON s.id = a.study_id ORDER BY a.id"
+    return [(int(assay_id), int(study_id) if study_id is not None else None)
+            for assay_id, study_id in _rows(_seek(), sql)]
+
+
+def assay_context_rows() -> list[dict]:
+    """Every `assay_context` row, columns lowercased (production spells them in mixed case; the one rule is
+    `services/context_catalog._rows_from_cursor`), bytes decoded. Empty when the table is absent."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "assay_context"):
+        return []
+    with _dmac().cursor() as cursor:
+        cursor.execute("SELECT * FROM assay_context ORDER BY id")
+        rows = _rows_from_cursor(cursor)
+    return [{key: _text(value) for key, value in row.items()} for row in rows]
