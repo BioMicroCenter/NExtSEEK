@@ -93,7 +93,7 @@ from nextseek_api.assistant.models_api import (
 )
 from NessieAI.ns.granular import OpValidationError, run_op
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
-from nextseek_api.permissions import may_read_any_users_data
+from nextseek_api.permissions import is_turn_pass, may_read_any
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
 # Moved to NessieAI/ns/ (NessieAI Phase B): the NS turn in turn.py, the on-disk
@@ -206,6 +206,17 @@ def _most_recent_session(user) -> "ChatSession | None":
         return None
 
 
+def _chat_config_for(request, req):
+    """The ChatConfig for this request: the default one under a turn pass, else ``_select_chat_config``'s choice.
+
+    A pass never reaches the prod ChatConfig. TurnPassAuthentication already refuses a body that sets ``use_prod``;
+    this is the second lock, so no future request model can open it by accident.
+    """
+    if is_turn_pass(request):
+        return settings.NEXTSEEK_CHAT_CONFIG
+    return _select_chat_config(request, req)
+
+
 # ----------------------------------------------------------------------
 # Granular ops (native) — shared helpers
 # ----------------------------------------------------------------------
@@ -244,7 +255,7 @@ def _granular_chat_config(request, req) -> ChatConfig:
     the graph catalog read; an unresolved or malformed scope is stored as ``None``,
     which refuses every graph query.
     """
-    chat_config = _select_chat_config(request, req)
+    chat_config = _chat_config_for(request, req)
     basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
     if basic_tuple and basic_tuple[0] and basic_tuple[1]:
         api_user, api_pass = basic_tuple
@@ -443,7 +454,7 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
         if (session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
+                and not may_read_any(request)):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         history = session.results_history or []
@@ -601,7 +612,7 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
-        chat_config = _select_chat_config(request, req)
+        chat_config = _chat_config_for(request, req)
 
         # When the request routed to the prod ChatConfig, swap the
         # session-derived credentials for the prod config's baked-in
@@ -725,7 +736,7 @@ class AssistantViewSet(viewsets.ViewSet):
             api_user = request.session.get("username")
             api_pass = request.session.get("password")
 
-        chat_config = _select_chat_config(request, req)
+        chat_config = _chat_config_for(request, req)
 
         # When the request routed to the prod ChatConfig, swap the
         # session-derived credentials for the prod config's baked-in
@@ -786,7 +797,7 @@ class AssistantViewSet(viewsets.ViewSet):
         try:
             query_task = QueryTask.objects.select_related("session").get(
                 task_id=task_id,
-                **({} if may_read_any_users_data(request.user)
+                **({} if may_read_any(request)
                    else {"user": request.user}),
             )
         except QueryTask.DoesNotExist:
@@ -833,7 +844,7 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
         if (chat_session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
+                and not may_read_any(request)):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         history = chat_session.results_history or []
@@ -917,7 +928,7 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
         if (chat_session.user_id != request.user.pk
-                and not may_read_any_users_data(request.user)):
+                and not may_read_any(request)):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         history = chat_session.results_history or []
@@ -1098,7 +1109,7 @@ class AssistantViewSet(viewsets.ViewSet):
             return _error_response("Not found", "Session not found.", status.HTTP_404_NOT_FOUND)
 
         is_owner = chat_session.user_id == request.user.pk
-        if not is_owner and not may_read_any_users_data(request.user):
+        if not is_owner and not may_read_any(request):
             return _error_response("Forbidden", "You do not own this session.", status.HTTP_403_FORBIDDEN)
 
         # The CC tree comes from the session itself (the project folder its CC turns

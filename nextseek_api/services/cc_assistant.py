@@ -40,7 +40,7 @@ from drf_spectacular.utils import extend_schema, OpenApiExample
 from pydantic import ValidationError
 
 from nextseek_api.assistant.models_api import AsyncQueryResponse, QueryRequest, TaskProgressResponse
-from nextseek_api.permissions import may_read_any_users_data
+from nextseek_api.permissions import may_read_any
 from nextseek_api.assistant.descriptions_cc import (
     NESSIE_CC_QUERY_ASYNC_DESC, NESSIE_QUERY_ASYNC_DESC, NESSIE_TASK_PROGRESS_DESC,
 )
@@ -224,7 +224,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             return err
         try:
             _tasks = QueryTask.objects.select_related("session")
-            if not may_read_any_users_data(request.user):
+            if not may_read_any(request):
                 _tasks = _tasks.filter(user=request.user)
             query_task = _tasks.get(task_id=task_id)
         except QueryTask.DoesNotExist:
@@ -296,7 +296,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from nextseek_api.batch_upload.job_index import user_owns_job
 
         if not (user_owns_job(request.user.pk, job_id)
-                or may_read_any_users_data(request.user)):
+                or may_read_any(request)):
             return Response({"error": "not found"}, status=404)
         r = AsyncResult(job_id, app=celery_app)
         resp = {"job_id": job_id, "state": r.state, "meta": {}, "result": None}
@@ -331,7 +331,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from NessieAI.cc.cc_engine import _safe_relpath
 
         _sessions = ChatSession.objects.all()
-        if not may_read_any_users_data(request.user):
+        if not may_read_any(request):
             _sessions = _sessions.filter(user=request.user)
         cs = _sessions.filter(session_id=session).first()
         if cs is None:
@@ -379,7 +379,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
         from NessieAI.cc.cc_transcript_store import decompress
 
         _sessions = ChatSession.objects.all()
-        if not may_read_any_users_data(request.user):
+        if not may_read_any(request):
             _sessions = _sessions.filter(user=request.user)
         cs = _sessions.filter(session_id=session).first()
         if cs is None:
