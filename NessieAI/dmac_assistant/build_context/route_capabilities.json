@@ -185,6 +185,7 @@
         "nextseek-build-upload-xlsx",
         "nextseek-run-harvest",
         "nextseek-run-checksum",
+        "nextseek-upload-reingest",
         "nextseek-sampletype-attrs",
         "nextseek-extract-text",
         "nextseek-project-resolve",

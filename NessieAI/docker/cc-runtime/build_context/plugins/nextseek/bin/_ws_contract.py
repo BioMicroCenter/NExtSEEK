@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 SIDECAR_OPS = frozenset(
     {"entity", "parse", "api-read", "api-write", "graph", "report", "generate-submission",
-     "run-ls", "run-harvest", "run-checksum", "build-upload-xlsx"}
+     "run-ls", "run-harvest", "run-checksum", "upload-reingest", "build-upload-xlsx"}
 )
 
 # §12 — fixed error code → CLI exit code. The thin client maps a sidecar error
@@ -181,6 +181,13 @@ class _RunChecksumArgs(BaseModel):
     manifest_id: str | None = None
 
 
+class _UploadReingestArgs(BaseModel):
+    """Write-class: strict, like ApiWriteArgs, so no str->bool coercion here."""
+    model_config = ConfigDict(extra="forbid", strict=True)
+    build_ids: str
+    confirmed_write: bool = False
+
+
 _OP_ARG_MODELS = {
     "entity": _QueryArg,
     "parse": _QueryArg,
@@ -193,6 +200,7 @@ _OP_ARG_MODELS = {
     "build-upload-xlsx": _BuildUploadXlsxArgs,
     "run-harvest": _RunHarvestArgs,
     "run-checksum": _RunChecksumArgs,
+    "upload-reingest": _UploadReingestArgs,
 }
 
 

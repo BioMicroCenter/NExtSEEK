@@ -23,7 +23,10 @@ from NessieAI.cc.op_registry.models import GateClass, Transport
 
 # Transport-truth sidecar ops present in handlers/ws_contract but absent from
 # write_gate.SIDECAR_OPS (documented audit debt; do not enlarge write_gate here).
-KNOWN_TRANSPORT_ONLY_OPS = frozenset({"run-ls", "build-upload-xlsx", "run-harvest", "run-checksum"})
+KNOWN_TRANSPORT_ONLY_OPS = frozenset({"run-ls", "build-upload-xlsx", "run-harvest",
+                                      "run-checksum", "upload-reingest"})
+# Transport-only ops that write; they call the gate under the api-write label.
+KNOWN_TRANSPORT_ONLY_WRITE_OPS = frozenset({"upload-reingest"})
 
 
 def test_sidecar_transport_sources_agree_by_set_equality():
@@ -50,12 +53,22 @@ def test_write_gate_sidcar_ops_is_not_transport_truth():
 
 def test_transport_only_ops_are_read_class_in_opspec_but_unknown_to_gate():
     gate = build_gate(load_allowlist())
-    for runner_key in sorted(KNOWN_TRANSPORT_ONLY_OPS):
+    for runner_key in sorted(KNOWN_TRANSPORT_ONLY_OPS - KNOWN_TRANSPORT_ONLY_WRITE_OPS):
         op = next(o for o in OPS if o.runner_key == runner_key)
         assert op.transport is Transport.sidecar
         assert op.gate_class is GateClass.read
         with pytest.raises(WriteBlockedError, match="unknown op"):
             gate(runner_key, None, None, False)
+
+
+def test_transport_only_write_ops_are_write_confirm_and_blocked_unconfirmed():
+    gate = build_gate(load_allowlist())
+    for runner_key in sorted(KNOWN_TRANSPORT_ONLY_WRITE_OPS):
+        op = next(o for o in OPS if o.runner_key == runner_key)
+        assert op.gate_class is GateClass.write_confirm
+        assert op.allowlist.auto_runnable is False
+    with pytest.raises(WriteBlockedError):
+        gate("api-write", None, None, "true")
 
 
 def test_api_read_opspec_safety_data_matches_enforced_allowlist():

@@ -212,6 +212,16 @@ def _run_checksum(args, config, session, write_gate, stage, stage_bytes, commit_
     return envelope["result"]
 
 
+def _upload_reingest(args, config, session, write_gate, stage, stage_bytes, commit_bytes):
+    confirmed = args.get("confirmed_write", False)
+    # Local pre-check (defense-in-depth); NExtSEEK gates again server-side.
+    write_gate("api-write", None, None, confirmed)
+    envelope = ns_client.call_op("upload-reingest",
+                                 {"build_ids": args["build_ids"], "confirmed_write": confirmed},
+                                 base_url=config.base_url, auth=config.auth)
+    return envelope["result"]
+
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity, "parse": _parse, "graph": _graph,
     "api-read": _api_read, "api-write": _api_write,
@@ -219,4 +229,5 @@ _HANDLERS: dict[str, Callable] = {
     "run-ls": _run_ls, "build-upload-xlsx": _build_upload_xlsx,
     "run-harvest": _run_harvest,
     "run-checksum": _run_checksum,
+    "upload-reingest": _upload_reingest,
 }

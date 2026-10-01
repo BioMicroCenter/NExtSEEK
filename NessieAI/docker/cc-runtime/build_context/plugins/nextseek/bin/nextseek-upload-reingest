@@ -1,0 +1,42 @@
+#!/bin/sh
+# nextseek-upload-reingest — reingest step 5: upload the reviewed workbooks.
+# WRITES to NExtSEEK (one batch-upload job per workbook).
+# Layer 1: NOT in the L1 allowlist (auto_runnable false) — every call prompts.
+# Layer 2: this shim requires both --build-ids and --confirmed-write; the
+#          runner re-checks --confirmed-write (WRITE_BLOCKED, exit 5).
+# Layer 3: the SKILL.md requires one explicit confirmation from the user,
+#          listing every workbook and open warning, before this is invoked.
+# The sidecar and the NExtSEEK server each gate again (only boolean true confirms).
+set -eu
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/_nextseek_common.sh"
+
+BUILD_IDS=""
+CONFIRMED_WRITE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --build-ids) BUILD_IDS="$2"; shift 2 ;;
+    --build-ids=*) BUILD_IDS="${1#--build-ids=}"; shift ;;
+    --confirmed-write) CONFIRMED_WRITE=1; shift ;;
+    --confirmed-write=*)
+      nextseek_die 3 "--confirmed-write requires no value; pass bare --confirmed-write"
+      ;;
+    --help)
+      echo "Usage: nextseek-upload-reingest --build-ids <id,id> --confirmed-write"
+      echo ""
+      echo "Reingest step 5. Uploads the reviewed workbooks named by their build ids"
+      echo "(from build-upload-xlsx's builds), one batch-upload job per workbook."
+      echo "WRITES to NExtSEEK. BOTH --build-ids and --confirmed-write are required;"
+      echo "pass --confirmed-write only after the user explicitly said yes. This shim"
+      echo "is intentionally NOT in the L1 permission allowlist; every invocation"
+      echo "prompts the user."
+      exit 0
+      ;;
+    *) nextseek_die 3 "unknown arg: $1" ;;
+  esac
+done
+[ -n "$BUILD_IDS" ] || nextseek_die 3 "missing --build-ids"
+[ "$CONFIRMED_WRITE" = "1" ] || nextseek_die 3 "missing --confirmed-write"
+
+exec python "$SCRIPT_DIR/_nextseek_runner.py" \
+  --agent upload-reingest --build-ids "$BUILD_IDS" --confirmed-write

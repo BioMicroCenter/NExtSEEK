@@ -370,6 +370,25 @@ OPS: list[OpSpec] = [
             "{run_dir, checksums, skipped, manifest_id?}",
         ),
     ),
+    _dispatch(
+        op_id="upload-reingest",
+        bin_name="nextseek-upload-reingest",
+        transport=Transport.sidecar,
+        assistant_endpoint="/nextseek_api/assistant/upload-reingest/",
+        gate_class=GateClass.write_confirm,
+        allowlist=AllowlistSpec(auto_runnable=False),
+        argv=[
+            ArgSpec(flag="--build-ids", required=True),
+            ArgSpec(flag="--confirmed-write", required=True),
+        ],
+        response_envelope_fields=["op", "result"],
+        skill_name="nextseek",
+        skill_row=_row(
+            "**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling.",
+            "--build-ids <id,id> --confirmed-write",
+            "{jobs: [{artifact_key, mode, job_id or error}], reply}",
+        ),
+    ),
     _subcmd(
         op_id="attrs",
         bin_name="nextseek-sampletype-attrs",

@@ -527,6 +527,30 @@ def _dispatch_build_upload_xlsx(args):
         _err(e.code, e.message, e.exit_code)  # pragma: no cover
 
 
+def _dispatch_upload_reingest(args):
+    """Reingest step 5 — upload the reviewed workbooks named by build id
+    (from build-upload-xlsx's builds), one batch-upload job each. WRITES to
+    NExtSEEK. Layer 2: refuses without --confirmed-write; the sidecar and the
+    server gate again, and only the boolean True confirms."""
+    if not getattr(args, "build_ids", None):
+        _err("VALIDATION", "missing --build-ids", 3)
+    if not args.confirmed_write:
+        _err("WRITE_BLOCKED",
+             "nextseek-upload-reingest requires --confirmed-write (Layer 2; advisory; server is the hard floor)", 5)
+
+    if _dry_run():  # pragma: no cover
+        return {"jobs": [], "reply": "[dry-run]"}  # pragma: no cover
+    import _sidecar_client as sc
+    try:
+        return sc.call_op(
+            "upload-reingest",
+            {"build_ids": args.build_ids, "confirmed_write": args.confirmed_write},
+            ns_login=(_api_user(), _api_pass()),
+            sidecar_url=sc.sidecar_url_from_env())
+    except sc.SidecarCallError as e:  # pragma: no cover
+        _err(e.code, e.message, e.exit_code)  # pragma: no cover
+
+
 _DISPATCH = {
     "query": _dispatch_query,
     "recall": _dispatch_recall,
@@ -543,6 +567,7 @@ _DISPATCH = {
     "build-upload-xlsx": _dispatch_build_upload_xlsx,
     "run-harvest": _dispatch_run_harvest,
     "run-checksum": _dispatch_run_checksum,
+    "upload-reingest": _dispatch_upload_reingest,
 }
 
 
@@ -551,7 +576,8 @@ def main() -> None:
     p.add_argument("--agent", required=True, choices=sorted(_DISPATCH))
     p.add_argument("--query")
     p.add_argument("--parser-plan")  # for api-read / api-write
-    p.add_argument("--confirmed-write", action="store_true")
+    p.add_argument("--confirmed-write", action="store_true")  # api-write / upload-reingest
+    p.add_argument("--build-ids")  # for upload-reingest (comma-separated build ids)
     p.add_argument("--mode")  # for report
     p.add_argument("--project")  # for report
     p.add_argument("--type")  # for generate-submission

@@ -44,22 +44,23 @@ nextseek-run-harvest	run-harvest	**Reingest step 1** — parse a finished run's 
 nextseek-run-ls	run-ls	Ad-hoc recursive read-only listing (`ls -laR`) of a finished Luria run directory, for manual orientation — not one of the numbered reingest steps below.
 nextseek-sample-search	sample-search	Retrieve current sample rows by UID.
 nextseek-sampletype-attrs	attrs	Fetch structured sample-type schema.
+nextseek-upload-reingest	upload-reingest	**Reingest step 5** — upload the reviewed workbooks (build ids from build-upload-xlsx's builds). WRITES to NExtSEEK: ask the user once, listing each workbook (sample type, new/update, row count, project) and every open warning from the builds, before calling.
 nextseek-validate-upload	build-validate	Fused build and validate of an upload workbook.
 <!-- END PLAN005-GEN:operations -->
 
 ## Skills in this image
 
-The `nextseek` plugin ships two skills. Both are read-only toward NExtSEEK: the `nextseek` skill's query path only reads, and the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting.
+The `nextseek` plugin ships two skills. Neither writes to NExtSEEK without the user's explicit yes: the `nextseek` skill's query path only reads, and it writes only through `nextseek-api-write` and `nextseek-upload-reingest`, each after the confirmation its SKILL.md prescribes; the `nextseek-batch-upload` skill only builds and validates a payload for the user to inspect — it never uploads or writes. Choose the right one up front, because the choice governs the whole turn, not just its first step. Read the chosen skill's SKILL.md before acting.
 
 <!-- BEGIN PLAN005-GEN:skills -->
 nextseek	nextseek
 nextseek	nextseek-batch-upload
 <!-- END PLAN005-GEN:skills -->
 
-- **`nextseek`** — `skills/nextseek/SKILL.md`. Answer questions about existing NExtSEEK data (query, find, list, count, look up samples, projects, studies), **launch** an nf-core pipeline on the cluster (`nextseek-pipeline`), and **reingest** a finished pipeline run's outputs into a reviewable upload workbook (`nextseek-run-ls` + `nextseek-build-upload-xlsx`).
+- **`nextseek`** — `skills/nextseek/SKILL.md`. Answer questions about existing NExtSEEK data (query, find, list, count, look up samples, projects, studies), **launch** an nf-core pipeline on the cluster (`nextseek-pipeline`), and **reingest** a finished pipeline run's outputs into reviewable upload workbooks (`nextseek-run-harvest` + `nextseek-build-upload-xlsx`), then upload them with `nextseek-upload-reingest` once the user confirms.
 - **`nextseek-batch-upload`** — `skills/nextseek-batch-upload/SKILL.md`. Prepare a workbook to create or update samples from user-supplied material (protocol text, a description, an existing cohort to normalize). It builds and validates the payload for the user to inspect and never uploads.
 
-Routing rule (load-bearing): if the request is to create, update, or modify samples — even when it also asks you to find those samples first — it is a `nextseek-batch-upload` task from its first action. Do the sample discovery inside that skill, following its own first step; do not hand discovery to the `nextseek` skill. Use the `nextseek` skill when the user only wants to see existing data.
+Routing rule (load-bearing): if the request is to create, update, or modify samples — even when it also asks you to find those samples first — it is a `nextseek-batch-upload` task from its first action. Do the sample discovery inside that skill, following its own first step; do not hand discovery to the `nextseek` skill. Use the `nextseek` skill when the user only wants to see existing data. The one exception is reingesting a finished pipeline run: it stays in the `nextseek` skill from harvest to upload.
 
 Reingest exception (also load-bearing): registering the **outputs of a finished nf-core/Luria run** as new `A.*` analysis samples is a `nextseek` skill task, NOT `nextseek-batch-upload` — even though it creates samples and starts by listing the run directory. Its inputs are pipeline output files (found with `nextseek-run-ls` against a Luria run dir), not user-supplied protocol text, so it uses `nextseek-run-ls` + `nextseek-build-upload-xlsx`. The tell: the user points at a finished run / a run directory / "the outputs of the run I just launched". Everything else that creates or updates samples stays with `nextseek-batch-upload`.
 
