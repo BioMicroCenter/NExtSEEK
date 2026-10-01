@@ -125,6 +125,37 @@ def test_a_study_with_no_resolvable_sample_stops_the_plan(tmp_path, alpha):
         sheet_associations(path, None, FakeReader(alpha))
 
 
+def test_only_the_study_with_no_resolvable_sample_stops_the_plan(tmp_path, alpha):
+    path = write_csv(tmp_path / "s.csv", [["Paper A", "Alpha Investigation", "TIS-260101ZZZ-9", ""],
+                                          ["Paper B", "Alpha Investigation", "TIS-260101ZZZ-9", ""],
+                                          ["Paper B", "Alpha Investigation", U2, ""]])
+    with pytest.raises(SheetError) as exc:
+        sheet_associations(path, None, FakeReader(alpha))
+    assert len(exc.value.messages) == 1 and "'Paper A'" in exc.value.messages[0]
+
+
+def test_two_studies_holding_only_one_missing_uid_both_stop_the_plan(tmp_path, alpha):
+    path = write_csv(tmp_path / "s.csv", [["Paper A", "Alpha Investigation", "TIS-260101ZZZ-9", ""],
+                                          ["Paper B", "Alpha Investigation", "TIS-260101ZZZ-9", ""]])
+    with pytest.raises(SheetError) as exc:
+        sheet_associations(path, None, FakeReader(alpha))
+    assert sorted(m.split("'")[1] for m in exc.value.messages) == ["Paper A", "Paper B"]
+
+
+def test_case_variants_of_one_study_title_are_one_study(tmp_path, alpha):
+    path = write_csv(tmp_path / "s.csv", [["Paper One", "Alpha Investigation", U2, "About"],
+                                          [" paper ONE", "Alpha Investigation", U3, ""],
+                                          ["paper one", "Alpha Investigation", U2, ""]])
+    aset = sheet_associations(path, None, FakeReader(alpha))
+    [t] = aset.targets
+    assert (t.key, t.title, t.sample_ids, t.description) == ("sheet:7:paper one", "Paper One", [2, 3], "About")
+    assert aset.notes == {"duplicate_rows": 1}
+    with pytest.raises(SheetError, match="study_description"):
+        validate_rows([row(desc="first"), row(study="paper one", uuid=U3, desc="second", number=3)])
+    with pytest.raises(SheetError, match="multiple investigations"):
+        validate_structure([row(), row(study="PAPER ONE", inv="Beta Investigation", uuid=U3, number=3)])
+
+
 def test_an_unknown_investigation_is_unmatched_not_created(tmp_path, alpha):
     path = write_csv(tmp_path / "s.csv", [["Paper One", "Nowhere Investigation", U2, ""]])
     aset = sheet_associations(path, None, FakeReader(alpha))
