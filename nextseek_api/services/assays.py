@@ -287,25 +287,28 @@ class AssayProxyViewSet(viewsets.ViewSet):
             return HttpResponse(b'{"errors":[{"title":"Assay not found"}]}', status=404, content_type='application/json')
 
         # A PATCH that sets the study or the samples moves its members' IN_STUDY: read who they are before SEEK
-        # changes them, so a sample the PATCH removes is synced too.
+        # changes them, so a sample the PATCH removes is synced too. With the samples the request itself names, that
+        # is every sample the PATCH can move, known without SEEK's answer.
         before = _members_before(seek_id) if _moves_samples(payload) else None
+        moved = None if before is None else sorted(set(before) | set(_response_samples(payload)))
         try:
             body, code, headers, resp = self.client.update_assay(request, str(seek_id), payload)
         except requests.RequestException:
             # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
             hooks.enqueue("assay_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
-            if before is not None:
-                _enqueue_members(seek_id, before, delay_s=hooks.UNCONFIRMED_DELAY_S)
+            if moved is not None:
+                _enqueue_members(seek_id, moved, delay_s=hooks.UNCONFIRMED_DELAY_S)
             raise
         delay = hooks.write_delay(code)
         if delay is not None:
             # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
             hooks.enqueue("assay_map", "*", delay_s=delay)
             hooks.enqueue("isa", "*", delay_s=delay)
-            if before is not None and delay:
-                # SEEK may have moved them: the members it held before are synced once it has had time.
-                _enqueue_members(seek_id, before, delay_s=delay)
+            if moved is not None:
+                # The members before and the request's samples, whatever the body says: one SEEK no longer answers
+                # in the shape the proxy validates costs the caller a 502, never the graph's IN_STUDY.
+                _enqueue_members(seek_id, moved, delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -320,8 +323,10 @@ class AssayProxyViewSet(viewsets.ViewSet):
 
         if 200 <= code < 300:
             # A renamed assay leaves every DERIVED_FROM label it names stale (spec 5 E8, E15): enqueued above.
-            if before is not None:
-                _enqueue_members(seek_id, set(before) | set(_response_samples(data)))
+            # The samples the body names beyond those already enqueued (a member read that failed) join them.
+            extra = set(_response_samples(data)) - set(moved) if moved is not None else set()
+            if extra:
+                _enqueue_members(seek_id, extra)
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

@@ -807,10 +807,12 @@ def test_create_enqueues_the_samples_the_response_names(members):
 
 
 def test_a_patch_of_samples_enqueues_the_members_before_and_after(members):
+    """The members before and the samples the request names go in right after the call; a validated 2xx adds only
+    the samples its body names beyond those, in a row of their own."""
     members.answer = [1, 2]
     _assay_call("partial_update", PATCH_SAMPLES, _assay_body_with_samples(2, 3))
     assert members.reads == [[351]]
-    assert _member_rows() == [("batch:assay:351:1:0", [1, 2, 3])]
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 2, 7]), ("batch:assay:351:2:0", [3])]
 
 
 def test_a_patch_of_the_study_enqueues_the_members(members):
@@ -823,7 +825,7 @@ def test_a_patch_of_both_reads_the_members_once_and_enqueues_the_union(members):
     members.answer = [1]
     _assay_call("partial_update", PATCH_BOTH, _assay_body_with_samples(4))
     assert members.reads == [[351]]
-    assert _member_rows() == [("batch:assay:351:1:0", [1, 4])]
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 7]), ("batch:assay:351:2:0", [4])]
 
 
 def test_a_patch_of_attributes_only_reads_and_enqueues_no_members(members):
@@ -843,8 +845,43 @@ def test_a_failed_member_read_enqueues_the_response_samples(members, caplog):
     members.error = OperationalError("(2006, 'MySQL server has gone away')")
     response = _assay_call("partial_update", PATCH_SAMPLES, _assay_body_with_samples(8))
     assert response.status_code == 200
-    assert _member_rows() == [("batch:assay:351:1:0", [8])]
+    assert _member_rows() == [("batch:assay:351:1:0", [7]), ("batch:assay:351:2:0", [8])]
     assert "sample members" in caplog.text
+
+
+def _body_with_a_new_relationship():
+    """An assay body as a SEEK upgrade might answer it: one relationship the response model does not know."""
+    body = _assay_body()
+    body["data"]["relationships"]["new_thing"] = _EMPTY_REF
+    return body
+
+
+@pytest.mark.parametrize("request_body, expected", [(PATCH_STUDY, [1, 2]), (PATCH_SAMPLES, [1, 2, 7])],
+                         ids=["study", "samples"])
+@pytest.mark.parametrize("body", [{"data": {"id": "351"}}, _body_with_a_new_relationship()],
+                         ids=["unreadable", "new relationship"])
+def test_an_unreadable_2xx_patch_still_enqueues_its_members_at_once(members, request_body, expected, body):
+    """SEEK committed it, whatever its body says: the members before and the samples the request names go in at
+    once, so a body the proxy cannot read costs the caller a 502 and not the graph's IN_STUDY."""
+    members.answer = [1, 2]
+    response = _assay_call("partial_update", request_body, body)
+    assert response.status_code == 502
+    assert _member_rows() == [("batch:assay:351:1:0", expected)]
+    assert _delays()[("samples", "batch:assay:351:1:0")] == 0
+
+
+@pytest.mark.parametrize("failure", ["5xx", "timeout"])
+def test_an_unconfirmed_patch_of_samples_holds_back_the_members_and_the_requests_own_samples(members, failure):
+    """SEEK may have set the samples before it failed: the request names them, so they wait for Rails beside the
+    members before."""
+    members.answer = [1]
+    if failure == "5xx":
+        _assay_call("partial_update", PATCH_SAMPLES, _assay_body(), code=500)
+    else:
+        with pytest.raises(requests.ReadTimeout):
+            _assay_call("partial_update", PATCH_SAMPLES, _assay_body(), raises=requests.ReadTimeout("slow"))
+    assert _member_rows() == [("batch:assay:351:1:0", [1, 7])]
+    assert _delays()[("samples", "batch:assay:351:1:0")] == hooks.UNCONFIRMED_DELAY_S
 
 
 def test_a_refused_patch_enqueues_nothing(members):

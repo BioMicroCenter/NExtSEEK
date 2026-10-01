@@ -188,7 +188,8 @@ directory whose `in_study_removed.tsv` should come back (a `--studies` run's, an
 drain's, reconcile's and full sync's while they are kept). Merge and `--studies` directories are never pruned.
 
 **Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
-its study or samples, keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
+its study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's
+answer says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
 confirming it (a 5xx, a timeout) enqueues its rows held back five minutes; the study proxy's `isa` row writes every
 SEEK study's node with its title, description and Investigation; an assay moved in SEEK's own UI reaches the graph at
 the next reconcile.
