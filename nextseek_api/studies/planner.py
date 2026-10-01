@@ -31,9 +31,11 @@ same snapshot and input give the same plan.
    never leaves an edge without a shared assay. A parent that shares no project with the investigation skips its
    child (``parent_project_mismatch``). One unit per target, ordered by investigation and key, each with the digest
    its source assays must have just before it runs.
-5. Publications (6.5): one row per sample the run's units insert, movers and parents, across the whole run: every
-   DOI of the targets that touch it (with its PMID, blank where none), in unit order, a DOI compared case-insensitively.
-   A target with a PMID and no DOI writes nothing and is warned about.
+5. Publications (6.5): one row per sample across the whole run, for every sample of an accepted target (moved,
+   copied, already in its clone, or moved by a run that stopped) and every parent it has in its source assays or in
+   the target's own assays: every DOI of the targets that touch it (with its PMID, blank where none), in unit order, a
+   DOI compared case-insensitively. A row whose sample already holds each of its DOIs is dropped. A target with a PMID
+   and no DOI writes nothing and is warned about.
 6. The graph (6.6): each unit's sync ids; the stored labels of every edge incident to them (read only), classed twice,
    against today's MySQL and against the planned memberships with each new clone mapped as its source (and given its
    placeholder id); the move's own changes and the differences already pending are listed apart. An edge the move
@@ -55,6 +57,7 @@ from pydantic import ValidationError
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.graph_sync import labels
 from nextseek_api.graph_sync.sources import declared_lineage
+from nextseek_api.management.commands.backfill_publication_attributes import publication_pairs
 from nextseek_api.models import AssayCreateRequest, StudyCreateRequest
 from nextseek_api.studies.buckets import NO_BUCKET, SEVERAL_BUCKETS, is_bucket_title, title_key  # noqa: F401
 from nextseek_api.studies.models import (PLAN_VERSION, AssociationSet, ClonePlan, GraphPlan, LabelChange, LinkInsert,
@@ -619,27 +622,55 @@ TARGET_REASONS = frozenset({TARGET_DOUBLED, NO_BUCKET, SEVERAL_BUCKETS, STUDY_EX
                             STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
 
 
-def _publications(units: list, works: list, warnings: list) -> list:
-    by_key = {w.t.key: w.t for w in works}
+def _published(works: list, lin: _Lineage, reader) -> dict:
+    """Target key to the samples its DOI goes on (T13): its accepted samples, the parents each has in its source
+    assays (inserted or already there), and the parents each has in the target's own assays: what an earlier run of
+    the target brought in, from source assays the sample may since have left."""
+    held = sorted({a for w in works for a in w.existing_assay_ids})
+    there = _lineage(reader, held) if held else None
+    out: dict = {}
+    for w in works:
+        mine = set(w.sources) | w.no_change
+        for s in sorted(mine):
+            mine |= {par for a in w.sources.get(s, ()) for par in lin.parents.get((a, s), ())}
+            if there is not None:
+                mine |= {par for a in w.existing_assay_ids if s in there.members[a]
+                         for par in there.parents.get((a, s), ())}
+        out[w.t.key] = mine
+    return out
+
+
+def _publications(works: list, lin: _Lineage, reader, warnings: list) -> list:
+    published = _published(works, lin, reader)
     per_sample: dict = {}
     inv_of: dict = {}
-    warned: set = set()
-    for u in units:
-        t = by_key[u.target_key]
-        if not t.doi:
-            if t.pmid and t.key not in warned:
-                warned.add(t.key)
+    for w in works:
+        t = w.t
+        doi, pmid = (t.doi or "").strip(), (t.pmid or "").strip()
+        if not doi:
+            if pmid:
                 warnings.append(PlanWarning(code=PMID_WITHOUT_DOI, target_key=t.key,
                                             detail="a PMID with no DOI is not written"))
             continue
-        doi, pmid = t.doi.strip(), (t.pmid or "").strip()
-        for s in sorted({x.sample_id for x in u.inserts}):
+        for s in sorted(published[t.key]):
             papers = per_sample.setdefault(s, [])
             if doi.casefold() not in {d.casefold() for d, _p in papers}:
                 papers.append((doi, pmid))
             inv_of[s] = t.investigation_id
-    return [PublicationRow(sample_id=s, investigation_id=inv_of[s], dois=[d for d, _p in papers],
-                           pmids=[x for _d, x in papers]) for s, papers in sorted(per_sample.items())]
+    metas = reader.sample_rows(sorted(per_sample)) if per_sample else {}
+    rows = []
+    for s, papers in sorted(per_sample.items()):
+        try:
+            meta = json.loads((metas.get(s) or {}).get("json_metadata") or "{}")
+        except (TypeError, ValueError):
+            meta = None
+        if isinstance(meta, dict):      # unreadable metadata keeps its row: apply reports it
+            have = {d.casefold() for d, _p in publication_pairs(meta.get("DOI"), meta.get("PMID"))}
+            if all(d.casefold() in have for d, _p in papers):
+                continue
+        rows.append(PublicationRow(sample_id=s, investigation_id=inv_of[s], dois=[d for d, _p in papers],
+                                   pmids=[x for _d, x in papers]))
+    return rows
 
 
 def _label_changes(edges, now: dict, after: dict, assay_map: dict, sops: dict, metas: dict) -> tuple[list, list]:
@@ -744,7 +775,7 @@ def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: 
     _parent_check(works, lin, snap, skipped)
     works = _decide_clones(works, snap, skipped, warnings)
     units, empty = _plan_links(works, lin, snap)
-    publications = _publications(units, works, warnings)
+    publications = _publications(works, lin, reader, warnings)
     graph = _graph_plan(units, works, reader, lin)
     no_change = {w.t.key: sorted(w.no_change) for w in works if w.no_change}
     targets = [_target_plan(w) for w in works]
