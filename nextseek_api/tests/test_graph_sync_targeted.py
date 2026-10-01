@@ -1019,6 +1019,67 @@ def test_a_clean_sync_reports_no_gap_and_keeps_the_hash(env, tmp_path):
     result = targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path))
     assert (result["structural_gaps"], result["structural_gap_parts"]) == (0, {})
     assert all(env.graph.nodes[i]["props"]["source_hash"] for i in (10, 11, 12, 13))
+    assert "structural_gap_samples" not in result
+
+
+# --- a gap names its samples, so the drain fails only those ---------------------------------------------------------
+
+def test_a_gap_names_only_the_gapped_sample_with_the_project_ids_seek_lacks(env, tmp_path):
+    env.mysql.projects[10] = [2, 77, 78]                   # projects_samples rows for two projects SEEK lacks
+    result = targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path))
+    assert result["structural_gap_parts"] == {"in_project_missing": 2}
+    assert result["structural_gap_samples"] == {10: "in_project_missing (project ids SEEK lacks: 77, 78)"}
+
+
+def test_an_untyped_sample_is_named_with_its_type(env, tmp_path, monkeypatch):
+    monkeypatch.setattr(writer, "merge_missing_projects",
+                        lambda d, db, ids, rows: {"projects_written_for_links": 0, "project_ids_not_in_seek": 0})
+    env.graph.types.pop(26)                                 # no SampleType node for sample 10's type
+    env.graph.study.projects[2] = {"id": 2, "title": "Local"}
+    env.mysql.projects[11] = [16]
+    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: [])
+    result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+    assert result["structural_gap_parts"] == {"untyped": 1, "in_project_missing": 1}
+    # project 16 has no node though SEEK has it (the writer is stubbed here), so it is named apart
+    assert result["structural_gap_samples"] == {10: "untyped (no SampleType node for type 26)",
+                                                11: "in_project_missing (no Project node for 16)"}
+
+
+def test_a_study_whose_investigation_seek_lacks_names_the_samples_it_links(env, tmp_path, monkeypatch):
+    monkeypatch.setattr(sources, "investigations", lambda: [])      # study 70 names investigation 3, SEEK lacks it
+    result = targeted.sync_samples(env.graph, DB, [10, 11, 12], run_dir=str(tmp_path))
+    assert result["structural_gap_parts"] == {"seek_study_investigation_missing": 1}
+    reason = "seek_study_investigation_missing (study 70: investigation 3, which SEEK lacks)"
+    assert result["structural_gap_samples"] == {10: reason, 11: reason}
+
+
+def test_a_gap_no_sample_can_be_traced_to_names_every_written_sample_of_its_chunk(env, tmp_path, monkeypatch):
+    real = writer.write_seek_studies
+    monkeypatch.setattr(writer, "write_seek_studies",
+                        lambda *a, **k: dict(real(*a, **k), in_study_samples_missing=1))
+    result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+    reason = "in_study_samples_missing 1 in its chunk, not traced to a sample"
+    assert result["structural_gap_samples"] == {10: reason, 11: reason}
+
+
+def test_a_count_the_trace_does_not_match_names_every_written_sample(env, tmp_path, monkeypatch):
+    """The statements' counts are the truth: a trace that finds fewer links than they count names the whole chunk."""
+    env.mysql.projects[10] = [2, 77]
+    real = writer.write_samples
+    monkeypatch.setattr(writer, "write_samples",
+                        lambda *a, **k: dict(real(*a, **k), in_project_missing=2))
+    result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+    reason = "in_project_missing 2 in its chunk, not traced to a sample"
+    assert result["structural_gap_samples"] == {10: reason, 11: reason}
+
+
+def test_a_sample_type_sync_names_the_gapped_samples_of_every_chunk(env, tmp_path):
+    env.mysql.projects[10] = [77]
+    env.mysql.projects[12] = [78]
+    result = targeted.sync_samples_of_type(env.graph, DB, 26, run_dir=str(tmp_path), chunk=1)
+    assert result["chunks"] == 2
+    assert result["structural_gap_samples"] == {10: "in_project_missing (project ids SEEK lacks: 77)",
+                                                12: "in_project_missing (project ids SEEK lacks: 78)"}
 
 
 # --- sync_small_tables ---------------------------------------------------------------------------

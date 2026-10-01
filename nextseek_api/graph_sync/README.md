@@ -90,9 +90,13 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
 memory returns when they end and a crash cannot take the loop with it. A claimed single-sample `samples` row takes up
-to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync, whose outcome closes, defers or fails every
-row it drained; a `batch:` row is one sync of its own. A by-id sync that left a structural link unwritten (a type, a
-project, a study or an investigation link) fails its row, which retries on its back-off. A child's exit status decides its row: 0 and
+to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within the pass's 1,000 rows), whose outcome
+closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A by-id sync that left a
+structural link unwritten (a type, a project, a study or an investigation link) fails only the samples it names, each
+with why in its `last_error` (the project ids SEEK lacks, say): a single-sample row fails on its back-off, and a row
+of many samples (a batch, a sample type) is closed and hands each such sample on as a `sample:<id>` row that keeps
+its attempts, failing time and back-off; every other sample is done. A gap from SEEK's data never heals by itself:
+fix the SEEK row, then `--requeue-dead` the samples' rows if they died. A child's exit status decides its row: 0 and
 2 (a refusal) are done, anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child
 that exits 1 having saved a result that reports drift: that check did its job, so its row is done and the drift is in
 its run record, never retried into the same answer. The newest 20 run directories per kind are kept (the kinds the

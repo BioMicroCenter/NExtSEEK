@@ -830,6 +830,75 @@ def test_a_merged_sync_that_left_a_structural_link_unwritten_fails_every_row(wor
     assert all("untyped 1" in r.last_error for r in rows)
 
 
+def _gap(*ids, reason="in_project_missing (project ids SEEK lacks: 77)"):
+    """A by-id sync's report that left a structural link unwritten for ``ids``, and names them."""
+    return {"status": targeted.OK, "structural_gaps": len(ids),
+            "structural_gap_parts": {"in_project_missing": len(ids)},
+            "structural_gap_samples": {i: reason for i in ids}}
+
+
+@pytest.mark.django_db
+def test_a_merged_sync_with_a_gapped_sample_fails_only_its_row(work):
+    _single_rows(3)
+    work.sync = _gap(1001)
+
+    report = one_pass(work)
+
+    rows = {r.key: r for r in GraphSyncOutbox.objects.filter(kind="samples")}
+    assert rows["sample:1000"].done_at is not None and rows["sample:1002"].done_at is not None
+    bad = rows["sample:1001"]
+    assert (bad.done_at, bad.attempts, bad.failing_since) == (None, 1, T0)
+    assert bad.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("samples"))
+    assert "sample:1001" in bad.last_error and "project ids SEEK lacks: 77" in bad.last_error
+    assert report["counts"][loop.FAILED] == 1 and report["counts"][loop.DONE] == 2 + 3
+
+
+@pytest.mark.django_db
+def test_a_batch_row_with_a_gapped_sample_closes_and_hands_only_that_sample_on(work):
+    state.enqueue("samples", "batch:reg:1:0", [11, 12, 13], now=before(minutes=1))
+    work.sync = _gap(12)
+
+    report = one_pass(work)
+
+    assert row("samples", "batch:reg:1:0").done_at is not None
+    r = row("samples", "sample:12")
+    assert (r.done_at, r.claimed_by, r.attempts, r.failing_since) == (None, None, 1, T0)
+    assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("samples"))
+    assert "sample:12" in r.last_error and "batch:reg:1:0" in r.last_error and "77" in r.last_error
+    assert not GraphSyncOutbox.objects.filter(key__in=["sample:11", "sample:13"]).exists()
+    (entry,) = [d for d in report["drained"] if d["kind"] == "samples"]
+    assert (entry["outcome"], entry["handed_on"]) == (loop.FAILED, 1)
+
+    work.sync = _gap(12)                                   # an hour on, only the gapped sample is synced again
+    one_pass(work, now=T0 + timedelta(seconds=state.backoff_s("samples")))
+    assert [c.args[2] for c in work.calls if c.name == "sync"] == [[11, 12, 13], [12]]
+    assert row("samples", "sample:12").attempts == 2
+
+
+@pytest.mark.django_db
+def test_a_sample_type_row_hands_its_gapped_samples_on_and_closes(work):
+    state.enqueue("samples_of_type", "type:26", now=before(minutes=1))
+    work.of_type = _gap(10, 12)
+
+    one_pass(work)
+
+    assert row("samples_of_type", "type:26").done_at is not None
+    assert {r.key for r in GraphSyncOutbox.objects.filter(kind="samples", done_at__isnull=True)} == {
+        "sample:10", "sample:12"}
+
+
+@pytest.mark.django_db
+def test_a_handed_on_sample_keeps_the_attempts_and_the_failing_clock_of_its_batch_row(work):
+    state.enqueue("samples", "batch:reg:1:0", [11, 12], now=before(hours=3))
+    GraphSyncOutbox.objects.filter(key="batch:reg:1:0").update(attempts=2, failing_since=before(hours=2))
+    work.sync = _gap(12)
+
+    one_pass(work)
+
+    r = row("samples", "sample:12")
+    assert (r.attempts, r.failing_since) == (3, before(hours=2))
+
+
 @pytest.mark.django_db
 def test_a_deferred_merged_sync_puts_every_row_back_without_an_attempt(work):
     _single_rows(2)

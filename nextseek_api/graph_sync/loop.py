@@ -13,7 +13,10 @@
    ``manage.py graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop.
    A claimed single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such
    rows with it into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a
-   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``.
+   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A structural link a
+   by-id sync left unwritten fails only the samples its report names: such a sample's own row fails, a row of many
+   samples (a batch, a sample type) is closed and hands each such sample on as a ``sample:<id>`` row of its own that
+   keeps the row's attempts, failing time and back-off (``state.hand_on_failed``), and every other row is done.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
 the loop claims nothing but the read-only drift check: the writing rows wait in the outbox, unclaimed, with their
@@ -354,10 +357,48 @@ def _refused(claim, exc, entry: dict, *, now: datetime, merged=()) -> dict:
     return _fail(claim, exc, entry, now=now, merged=merged)
 
 
+def _gapped(claim, result: dict, entry: dict, *, now: datetime, merged=(), label: str) -> dict:
+    """A sync that left a structural link unwritten (``targeted.STRUCTURAL_GAP_KEYS``) is not done for the samples
+    its report names in ``structural_gap_samples``, and is for every other one. A single-sample row of a named sample
+    fails on its own back-off, its ``last_error`` saying why (the project ids SEEK lacks, say); a row of many samples
+    (a ``batch:`` row, a sample type) is closed and hands each named sample in it on as a ``sample:<id>`` row that
+    failed as it did (``state.hand_on_failed``); every other row is done. So a gap that never heals retries, shows in
+    the health line and dies at the attempt limit one sample at a time, and the healthy samples it rode with are not
+    synced again for it. A report that names no sample fails every row it drained, as one failure."""
+    named = {int(k): str(v) for k, v in (result.get("structural_gap_samples") or {}).items()}
+    if not named:
+        parts = ", ".join(f"{k} {v}" for k, v in sorted((result.get("structural_gap_parts") or {}).items()))
+        return _fail(claim, f"{claim.kind} {label}: {result['structural_gaps']} structural links left unwritten "
+                            f"({parts})", entry, now=now, merged=merged)
+    rows_failed = handed_on = 0
+    for c in (claim, *merged):
+        ids = _ids_of(c) if c.kind == MERGED_KIND else sorted(named)
+        gapped = [i for i in ids if i in named]
+        if not gapped:
+            state.finish_done(c, now=now)
+        elif _merges(c):
+            state.finish_failed(c, f"{c.kind} {c.key}: structural links left unwritten: {named[gapped[0]]}",
+                                state.backoff_s(c.kind), now=now)
+            rows_failed += 1
+        else:
+            handed_on += state.hand_on_failed(
+                c, MERGED_KIND,
+                {f"{MERGED_KEY_PREFIX}{i}": f"{MERGED_KIND} {MERGED_KEY_PREFIX}{i} (from {c.kind} {c.key}): "
+                                            f"structural links left unwritten: {named[i]}" for i in gapped},
+                state.backoff_s(MERGED_KIND), now=now)
+            state.finish_done(c, now=now)
+    shown = "; ".join(f"{i}: {why}" for i, why in sorted(named.items())[:targeted.EXAMPLES])
+    log.warning("graph_sync: %s %s left structural links unwritten for %d samples, which fail on rows of their own: "
+                "%s", claim.kind, label, len(named), shown)
+    entry.update(outcome=FAILED, rows_failed=rows_failed, handed_on=handed_on, samples_failed=len(named))
+    return entry
+
+
 def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, started: datetime | None = None,
                clock=None, merged=()) -> dict:
     """Drain one claimed row, with the single-sample rows ``merged`` into it (A13): one by-id sync over all their
-    ids, and every row closed, deferred or failed with that sync's outcome. ``now`` is the time of the claim and
+    ids, and every row closed, deferred or failed with that sync's outcome, except a structural gap, which fails only
+    the samples it names (``_gapped``). ``now`` is the time of the claim and
     stamps an in process row's outcome; ``started`` (the pass start, ``now`` when not given) names the run
     directories, so a pass makes one drain directory; ``clock`` gives the time a child ended (``now`` when not
     given). The entry's ``rows`` is how many outbox rows it drained."""
@@ -381,14 +422,8 @@ def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, start
         return _defer(claim, f"{claim.kind} {label}: {status}", entry, now=now, merged=merged)
     if status not in (targeted.OK, "dry_run"):
         return _fail(claim, f"{claim.kind} {label}: {status}", entry, now=now, merged=merged)
-    gaps = (result or {}).get("structural_gaps") or 0
-    if gaps:
-        # A sync that left a structural link unwritten is not done: the row retries on its back-off and, if it never
-        # heals, shows in the health line's failing rows and dies at the attempt limit. A merged sync fails every
-        # row it drained (A13, A3).
-        parts = ", ".join(f"{k} {v}" for k, v in sorted(((result or {}).get("structural_gap_parts") or {}).items()))
-        return _fail(claim, f"{claim.kind} {label}: {gaps} structural links left unwritten ({parts})", entry,
-                     now=now, merged=merged)
+    if (result or {}).get("structural_gaps"):
+        return _gapped(claim, result, entry, now=now, merged=merged, label=label)
     for c in (claim, *merged):
         state.finish_done(c, now=now)
     entry["outcome"] = DONE
@@ -444,7 +479,12 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
         entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
                            clock=(lambda: now) if pinned else dj_timezone.now, merged=merged)
         report["drained"].append(entry)
-        report["counts"][entry["outcome"]] += entry["rows"]
+        if "rows_failed" in entry:
+            # A structural gap fails only the rows of the samples it names; the rest of the rows it drained are done.
+            report["counts"][FAILED] += entry["rows_failed"]
+            report["counts"][DONE] += entry["rows"] - entry["rows_failed"]
+        else:
+            report["counts"][entry["outcome"]] += entry["rows"]
         rows += entry["rows"]
     report["finished_at"] = _iso(dj_timezone.now())
     return report
