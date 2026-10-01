@@ -1,0 +1,43 @@
+# launch-nextseek preflight for @@INSTANCE@@ (@@BOX@@). READ-ONLY. Rendered by launch.py; do not edit.
+# `KV`, `DIRTY`, `IMAGE`, `CONTAINER`, `MEM`, `TMUX` lines are parsed by `launch.py preflight`.
+# Arrives on stdin, so every docker exec reads </dev/null.
+cd @@REPO@@ || { echo "KV repo=missing"; echo "KV done=yes"; exit 0; }
+EXP=@@EXP@@
+echo "== host $(hostname) $(date -u +%FT%TZ)"
+echo "KV utc=$(date -u +%FT%TZ)"
+echo "KV disk_free_gb=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)"
+echo "KV mem_available_gib=$(free -g | awk '/^Mem:/{print $7}')"
+echo "KV swap_total_gib=$(free -g | awk '/^Swap:/{print $2}')"
+echo "KV swap_used_gib=$(free -g | awk '/^Swap:/{print $3}')"
+tmux ls 2>/dev/null | sed 's/^/TMUX /'
+busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync --full|graph_sync --drift|nessie)" || true' </dev/null 2>/dev/null | tr '\n' ';')
+echo "KV busy=${busy:-none}"
+echo "KV branch=$(git branch --show-current)"
+echo "KV head=$(git rev-parse HEAD)"
+echo "KV head_subject=$(git log -1 --format=%s | cut -c1-100)"
+git status --short | sed 's/^/DIRTY /'
+git fetch -q origin 2>/dev/null && echo "KV fetch=ok" || echo "KV fetch=failed"
+E=$(git rev-parse --verify -q "$EXP^{commit}")
+if [ -z "$E" ]; then
+  echo "KV expected=NOT_FOUND"
+else
+  echo "KV expected=$E"
+  echo "KV origin=$(git rev-parse origin/dev)"
+  [ "$(git rev-parse origin/dev)" = "$E" ] && echo "KV origin_match=yes" || echo "KV origin_match=no"
+  git merge-base --is-ancestor HEAD "$E" && echo "KV ff=yes" || echo "KV ff=no"
+  echo "KV range_count=$(git rev-list --count HEAD.."$E")"
+  git diff --name-only HEAD.."$E" | grep -Fx -f <(git status --short | awk '{print $2}') | sed 's/^/DIRTY_TOUCHED /'
+fi
+for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
+  echo "IMAGE $i $(docker image inspect -f '{{.Created}}' "$i" 2>/dev/null || echo missing)"
+done
+for c in nextseek neo4j seek seek-mysql nextseek-sidecar dmac-bedrock-proxy; do
+  echo "CONTAINER $c $(docker inspect -f 'status={{.State.Status}} oom={{.State.OOMKilled}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$c" 2>/dev/null || echo missing)"
+done
+docker stats --no-stream --format 'MEM {{.Name}} {{.MemUsage}}'
+if grep -qE '/app/(chat_nextseek|dmac_assistant|nessie_tests)' docker/nextseek.env; then echo "KV nextseek_env=old_paths"; else echo "KV nextseek_env=ok"; fi
+echo "KV ci_env_keys=$(grep -vE '^[[:space:]]*(#|$)' ~/.config/nextseek/ci.env 2>/dev/null | sed -E 's/=.*//' | sort | tr '\n' ',')"
+echo "KV http=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)"
+echo "KV seek_http=$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://127.0.0.1:3000/)"
+@@EXTRA@@
+echo "KV done=yes"

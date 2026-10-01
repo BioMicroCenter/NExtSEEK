@@ -1,0 +1,55 @@
+{
+  "schema": "launch-report-form/v1",
+  "headline": {
+    "verdict": "stopped",
+    "line": "not started: the preflight found seek OOMKilled and the brief has no waiver"
+  },
+  "summary": "The box is still on 926be1e3; nothing was pulled, rebuilt or run. The read-only preflight stopped on one row: seek shows oom=true since 2026-09-14. Everything else was healthy (112 GB free, origin/dev is the expected sha, fast-forward possible).",
+  "steps": [
+    {
+      "step": "preflight",
+      "status": "stopped",
+      "evidence": [
+        "preflight.json",
+        "preflight.out"
+      ],
+      "note": "oom: seek"
+    },
+    {
+      "step": "commit_review",
+      "status": "skipped",
+      "evidence": [],
+      "note": "not reached"
+    },
+    {
+      "step": "pull",
+      "status": "skipped",
+      "evidence": [],
+      "note": null
+    }
+  ],
+  "live_markers": [],
+  "ci": {
+    "ran": false
+  },
+  "nessie": {
+    "ran": false
+  },
+  "findings": [
+    {
+      "severity": "medium",
+      "text": "seek was OOMKilled on 2026-09-14 and has run since; its memory is 15.9 of 16 GiB.",
+      "evidence": [
+        "preflight.json"
+      ]
+    }
+  ],
+  "anomalies": [],
+  "proposals": [
+    {
+      "kind": "extra_step",
+      "text": "Waive the oom row for seek in the brief form, in the operator's words, then rerun the preflight.",
+      "why": "the OOM is from 2026-09-14; seek has run since. The runner restarts SEEK only before a Nessie run (with 'seek restart ok'), never before the preflight, so the waiver is the way past this row."
+    }
+  ]
+}

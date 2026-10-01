@@ -1,0 +1,18 @@
+{
+  "instance": "dev",
+  "expected_sha": "1c070c08",
+  "parent": "SUPERVISOR-GFxRR-2",
+  "change": "Rebuild 2: A branch 1 (model fallback everywhere, a cost on every turn, Container-CC on Claude Code 2.1.282 and node:22), B reviewer live values and seek-search fix, C manifest criterion, CI coverage checks.",
+  "images": ["bedrock-proxy", "app", "cc-agent"],
+  "live_markers": [
+    {"pattern": "cost_by_price_table_usd", "file": "/app/NessieAI/cc/translate.py", "proves": "A's CC price table is in the running app"}
+  ],
+  "static_changed": true,
+  "ci": true,
+  "nessie": null,
+  "paid": null,
+  "allowed_extras": ["bedrock-proxy rebuild ok"],
+  "ruled_out": ["nessie runs (moved to next week)"],
+  "continue_on_failure": ["cc-agent"],
+  "tag": "20260926-1300"
+}
