@@ -241,8 +241,9 @@ IMAGE_RULES: tuple[PathRule, ...] = (
              "a canonical context file: skip the cc-agent and every 'cc-agent context' check fails"),
     PathRule(r"^NessieAI/dmac_assistant/baml_src/", ("app", "cc-agent")),
     PathRule(r"^NessieAI/docker/cc-runtime/", ("cc-agent",)),
-    PathRule(r"^NessieAI/docker/ns-sidecar/", ("nextseek-sidecar",)),
-    PathRule(r"^NessieAI/docker/bedrock-proxy/", ("bedrock-proxy",)),
+    # Only what each Dockerfile copies; a README or PORT-EVIDENCE.json beside it builds nothing.
+    PathRule(r"^NessieAI/docker/ns-sidecar/(Dockerfile|__init__\.py|app/)", ("nextseek-sidecar",)),
+    PathRule(r"^NessieAI/docker/bedrock-proxy/(Dockerfile|app/)", ("bedrock-proxy",)),
     PathRule(r"^(static/|NessieAI/chat_frontend/)", ("app",), None, "then collectstatic"),
     PathRule(r"^themes/NextSeek/", (), None, "bind-mounted: live after the pull; static needs collectstatic"),
     PathRule(r"^(ci|startup)/", (), None, "CI and the CLI run from the host checkout"),

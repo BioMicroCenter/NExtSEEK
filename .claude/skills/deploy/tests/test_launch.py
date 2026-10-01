@@ -823,3 +823,16 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
     rules.INSTANCES.clear()
     with pytest.raises(rules.BoxesConfigError, match="dev.*run_as"):
         rules.INSTANCES["dev"]
+
+
+@pytest.mark.parametrize("path, images", [
+    ("NessieAI/docker/bedrock-proxy/app/main.py", ("bedrock-proxy",)),
+    ("NessieAI/docker/bedrock-proxy/Dockerfile", ("bedrock-proxy",)),
+    ("NessieAI/docker/ns-sidecar/__init__.py", ("nextseek-sidecar",)),
+    ("NessieAI/docker/ns-sidecar/app/contract.py", ("nextseek-sidecar",)),
+    ("NessieAI/docker/bedrock-proxy/README.md", ()),
+    ("NessieAI/docker/ns-sidecar/README.md", ()),
+    ("NessieAI/docker/cc-runtime/docs/nextseek/01-overview.md", ("cc-agent",)),
+])
+def test_proxy_and_sidecar_rebuild_only_for_their_build_inputs(path, images):
+    assert rules.rule_for(path).images == images
