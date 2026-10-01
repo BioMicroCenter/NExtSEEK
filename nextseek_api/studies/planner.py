@@ -23,13 +23,20 @@ same snapshot and input give the same plan.
    (a fixpoint); the others leave A, each in the last unit, in apply order, that moves it. A parent that shares no
    project with the investigation skips its child (``parent_project_mismatch``). One unit per target, ordered by
    investigation and key, each with the digest its source assays must have just before it runs.
+5. Publications (6.5): one row per sample the run's units insert, movers and parents, across the whole run: every
+   DOI of the targets that touch it (with its PMID, blank where none), in unit order, a DOI compared case-insensitively.
+   A target with a PMID and no DOI writes nothing and is warned about.
+6. The graph (6.6): each unit's sync ids; the stored labels of every edge incident to them (read only), classed twice,
+   against today's MySQL and against the planned memberships with each new clone mapped as its source (and given its
+   placeholder id); the move's own changes and the differences already pending are listed apart. An edge the move
+   itself would clear refuses the plan (``PlannerDefect``). A graph-only target lists its paper's links to retire.
 """
 from __future__ import annotations
 
 import copy
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,12 +45,13 @@ from typing import Optional
 from pydantic import ValidationError
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
+from nextseek_api.graph_sync import labels
 from nextseek_api.graph_sync.sources import declared_lineage
 from nextseek_api.models import AssayCreateRequest, StudyCreateRequest
 from nextseek_api.studies.buckets import NO_BUCKET, SEVERAL_BUCKETS, is_bucket_title, title_key  # noqa: F401
-from nextseek_api.studies.models import (PLAN_VERSION, AssociationSet, ClonePlan, GraphPlan, LinkInsert, LinkRemoval,
-                                         LinkUnit, PlanWarning, Skip, StudyAction, StudyMovePlan, StudyTarget,
-                                         TargetPlan)
+from nextseek_api.studies.models import (PLAN_VERSION, AssociationSet, ClonePlan, GraphPlan, LabelChange, LinkInsert,
+                                         LinkRemoval, LinkUnit, PaperLinks, PlanWarning, PublicationRow, Skip,
+                                         StudyAction, StudyMovePlan, StudyTarget, TargetPlan)
 
 STUDY_TITLE_MAX = 255        # provisional: the tool spec's section 10, check 6
 ASSAY_TITLE_MAX = 255
@@ -523,6 +531,128 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
     return units, empty
 
 
+TARGET_REASONS = frozenset({NO_BUCKET, SEVERAL_BUCKETS, STUDY_EXISTS, STUDY_TITLE_IN_OTHER_INVESTIGATION,
+                            STUDY_NOT_IN_INVESTIGATION, SEEK_STUDY_NOT_FOUND, TARGET_IS_BUCKET, TITLE_TOO_LONG,
+                            SOURCE_ASSAYS_SHARE_TITLE, TARGET_ASSAY_AMBIGUOUS, CLONE_PAYLOAD_INVALID,
+                            STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
+
+
+def _publications(units: list, works: list, warnings: list) -> list:
+    by_key = {w.t.key: w.t for w in works}
+    per_sample: dict = {}
+    inv_of: dict = {}
+    warned: set = set()
+    for u in units:
+        t = by_key[u.target_key]
+        if not t.doi:
+            if t.pmid and t.key not in warned:
+                warned.add(t.key)
+                warnings.append(PlanWarning(code=PMID_WITHOUT_DOI, target_key=t.key,
+                                            detail="a PMID with no DOI is not written"))
+            continue
+        doi, pmid = t.doi.strip(), (t.pmid or "").strip()
+        for s in sorted({x.sample_id for x in u.inserts}):
+            papers = per_sample.setdefault(s, [])
+            if doi.casefold() not in {d.casefold() for d, _p in papers}:
+                papers.append((doi, pmid))
+            inv_of[s] = t.investigation_id
+    return [PublicationRow(sample_id=s, investigation_id=inv_of[s], dois=[d for d, _p in papers],
+                           pmids=[x for _d, x in papers]) for s, papers in sorted(per_sample.items())]
+
+
+def _label_changes(edges, now: dict, after: dict, assay_map: dict, sops: dict, metas: dict) -> tuple[list, list]:
+    index = labels.sop_title_index(sops)
+    move, pending, defects = [], [], []
+    for e in edges:
+        child, parent, stored = e["child_id"], e["parent_id"], e["stored"]
+        if not (isinstance(child, int) and isinstance(parent, int)):
+            continue
+        protocol = labels.resolve_protocol(labels.protocol_value_of((metas.get(child) or {}).get("json_metadata")),
+                                           sops, index)
+        before = labels.edge_labels(now.get(child), now.get(parent), assay_map, protocol)
+        later = labels.edge_labels(after.get(child), after.get(parent), assay_map, protocol)
+        before_class, after_class = labels.classify(stored, before), labels.classify(stored, later)
+        if after_class in (labels.EQUAL, labels.NEW):
+            continue
+        change = LabelChange(child_id=child, parent_id=parent, before_class=before_class, after_class=after_class,
+                             properties=labels.differences(stored, later), stored=dict(stored), after=later)
+        if after_class == labels.CLEARED and before_class != labels.CLEARED:
+            defects.append(change)
+        (move if before_class == labels.EQUAL else pending).append(change)
+    if defects:
+        raise PlannerDefect(defects)
+    return move, pending
+
+
+def _graph_plan(units: list, works: list, reader, lin: _Lineage) -> GraphPlan:
+    sync_ids = {u.unit: u.sync_ids for u in units}
+    # A no_change sample (a replan after apply, or a paper finished later) is synced by the graph step too, with the
+    # parents its sources give it, so the step still writes what is pending for it and rebuilds its study links.
+    no_change_ids = {w.t.key: sorted(w.no_change | {par for s in w.no_change for a in w.sources.get(s, [])
+                                                    for par in lin.parents.get((a, s), ())})
+                     for w in works if w.no_change}
+    paper_links = [PaperLinks(paper_id=_paper_id(w.t.key), target_key=w.t.key,
+                              sample_ids=sorted(set(w.sources) | w.no_change))
+                   for w in works if _paper_id(w.t.key) is not None and (w.sources or w.no_change)]
+    ids = sorted({s for found in sync_ids.values() for s in found} | {s for found in no_change_ids.values()
+                                                                        for s in found})
+    if not ids:
+        return GraphPlan(sync_ids=sync_ids, no_change_sync_ids=no_change_ids, paper_links=paper_links)
+    edges = reader.stored_edges(ids)
+    endpoints = sorted({v for e in edges for v in (e["child_id"], e["parent_id"]) if isinstance(v, int)})
+    now = {s: set(m) for s, m in reader.memberships(endpoints).items()} if endpoints else {}
+    after = {s: set(v) for s, v in now.items()}
+    clone_ids = {(w.t.key, a): (c.seek_assay_id if c.action == "reuse" else c.placeholder_id)
+                 for w in works for a, c in w.clones.items()}
+    for u in units:
+        for x in u.inserts:
+            after.setdefault(x.sample_id, set()).add(clone_ids[(x.target_key, x.source_assay_id)])
+        for r in u.removals:
+            after.setdefault(r.sample_id, set()).discard(r.assay_id)
+    assay_map = dict(reader.assay_map())
+    for w in works:
+        for a, c in w.clones.items():
+            if c.action == "create":
+                assay_map[c.placeholder_id] = assay_map.get(a, (None, c.title))
+    children = sorted({e["child_id"] for e in edges if isinstance(e["child_id"], int)})
+    metas = reader.sample_rows(children) if children else {}
+    move, pending = _label_changes(edges, now, after, assay_map, reader.sops(), metas)
+    return GraphPlan(sync_ids=sync_ids, no_change_sync_ids=no_change_ids, move=move, pending=pending,
+                     paper_links=paper_links)
+
+
+def _summary(targets: list, units: list, publications: list, skipped: list, no_change: dict, graph: GraphPlan,
+             empty: list, inv_of_key: dict) -> dict:
+    per_inv: dict = defaultdict(lambda: {"targets": 0, "units": 0, "inserts": 0, "removals": 0, "skipped": 0})
+    for t in targets:
+        per_inv[str(t.investigation_id)]["targets"] += 1
+    for u in units:
+        row = per_inv[str(u.investigation_id)]
+        row["units"] += 1
+        row["inserts"] += len(u.inserts)
+        row["removals"] += len(u.removals)
+    for s in skipped:
+        per_inv[str(inv_of_key.get(s.target_key, "?"))]["skipped"] += 1
+    return {
+        "targets": len(targets),
+        "targets_refused": len({s.target_key for s in skipped if s.reason in TARGET_REASONS}),
+        "studies_to_create": sum(1 for t in targets if t.study.action == "create"),
+        "clones_to_create": sum(1 for t in targets for c in t.clones if c.action == "create"),
+        "clones_reused": sum(1 for t in targets for c in t.clones if c.action == "reuse"),
+        "units": len(units),
+        "inserts": sum(len(u.inserts) for u in units),
+        "removals": sum(len(u.removals) for u in units),
+        "publication_rows": len(publications),
+        "skipped_by_reason": dict(sorted(Counter(s.reason for s in skipped).items())),
+        "no_change": sum(len(v) for v in no_change.values()),
+        "label_changes": {"move": dict(sorted(Counter(c.after_class for c in graph.move).items())),
+                          "pending": dict(sorted(Counter(c.after_class for c in graph.pending).items()))},
+        "paper_links": sum(len(x.sample_ids) for x in graph.paper_links),
+        "empty_bucket_assays": len(empty),
+        "per_investigation": {k: dict(per_inv[k]) for k in sorted(per_inv)},
+    }
+
+
 def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: Optional[str] = None) -> StudyMovePlan:
     snap = _Snapshot(reader)
     skipped: list = []
@@ -532,11 +662,15 @@ def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: 
     _parent_check(works, lin, snap, skipped)
     works = _decide_clones(works, snap, skipped, warnings)
     units, empty = _plan_links(works, lin, snap)
+    publications = _publications(units, works, warnings)
+    graph = _graph_plan(units, works, reader, lin)
     no_change = {w.t.key: sorted(w.no_change) for w in works if w.no_change}
+    targets = [_target_plan(w) for w in works]
+    inv_of_key = {t.key: t.investigation_id for t in associations.targets}
     return StudyMovePlan(
         plan_version=PLAN_VERSION, created_at=now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         code_sha=code_sha(), associations_sha256=associations.sha256(), run_id=run_id,
         buckets=dict(snap.buckets.by_investigation), seek_next_study_id=snap.next_study_id,
-        graph_max_study_id=snap.graph_max_study_id, targets=[_target_plan(w) for w in works], units=units,
-        publications=[], graph=GraphPlan(sync_ids={u.unit: u.sync_ids for u in units}), skipped=skipped,
-        no_change=no_change, empty_bucket_assays=empty, warnings=warnings, summary={})
+        graph_max_study_id=snap.graph_max_study_id, targets=targets, units=units, publications=publications,
+        graph=graph, skipped=skipped, no_change=no_change, empty_bucket_assays=empty, warnings=warnings,
+        summary=_summary(targets, units, publications, skipped, no_change, graph, empty, inv_of_key))
