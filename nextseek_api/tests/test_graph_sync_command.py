@@ -1134,6 +1134,14 @@ def test_small_tables_that_wrote_nothing_exits_2(graphdb, monkeypatch, status):
     assert record.status == "refused"
 
 
+def test_small_tables_has_no_dry_run_and_refuses_one_before_connecting(graphdb, monkeypatch):
+    monkeypatch.setattr(targeted, "sync_small_tables", lambda driver, db, **kw: pytest.fail("a dry run wrote"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "--dry-run" in str(exc.value)
+    assert graphdb.uris == []
+
+
 def test_small_tables_needs_the_flag_on_the_live_graph(graphdb, settings):
     settings.NEO4J_DATABASE = dict(LIVE)
     with pytest.raises(CommandError) as exc:

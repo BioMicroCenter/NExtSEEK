@@ -296,6 +296,9 @@ class Command(BaseCommand):
                                "the explicit list of SEEK study ids the operator approved", returncode=2)
         if options["kind"] is not None and mode != "requeue_dead":
             raise CommandError("--kind belongs to --requeue-dead")
+        if mode == "small_tables" and options["dry_run"]:
+            raise CommandError("--small-tables has no --dry-run: it rewrites a few hundred rows whole; --drift reads "
+                               "what they would change", returncode=2)
         if mode == "requeue_dead":
             # The dmac outbox only: no Neo4j settings are read and no driver is opened.
             return self._requeue_dead(options)
