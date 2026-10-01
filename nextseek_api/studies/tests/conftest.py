@@ -267,3 +267,46 @@ def alpha_world() -> World:
 @pytest.fixture
 def alpha() -> World:
     return alpha_world()
+
+
+def add_sample(world: World, sid: int, *, parents=(), assays=((101, 2),), kind="D.SEQ", projects=(3,)) -> str:
+    """A synthetic sample of ``kind`` whose Parent names the samples ``parents`` (by their UIDs), linked to each
+    ``(assay, direction)`` of ``assays``. Returns its UID."""
+    code = uid(sid, kind=kind)
+    meta = {"UID": code}
+    if parents:
+        meta["Parent"] = "; ".join(world.samples[p]["uuid"] for p in parents)
+    world.samples[sid] = {"uuid": code, "meta": meta}
+    world.sample_projects[sid] = set(projects)
+    for assay, direction in assays:
+        world.links.append((assay, sid, direction))
+    return code
+
+
+def apply_to_world(world: World, plan) -> dict:
+    """What a complete apply would leave in SEEK, done to the World: new studies from ``next_study_id``, clones at
+    their placeholder ids with their source's mapping, the units' inserts and removals."""
+    next_id = world.next_study_id
+    ids = {}
+    for t in plan.targets:
+        study_id = t.study.seek_study_id
+        if t.study.action == "create":
+            study_id = next_id
+            next_id += 1
+            world.studies.append(StudyRow(study_id, t.investigation_id, t.title, t.description))
+        for c in t.clones:
+            new = c.seek_assay_id if c.action == "reuse" else c.placeholder_id
+            if c.action == "create":
+                world.assays[new] = AssayRow(new, study_id, c.title)
+                world.mapping[new] = list(c.internal_assay_ids)
+                world.assay_reps[new] = assay_rep(new, c.title, study_id=study_id)
+            ids[(t.key, c.source_assay_id)] = new
+    for unit in plan.units:
+        for x in unit.inserts:
+            assay = ids[(x.target_key, x.source_assay_id)]
+            if not any(a == assay and s == x.sample_id for a, s, _d in world.links):
+                world.links.append((assay, x.sample_id, x.direction))
+        gone = {(r.assay_id, r.sample_id) for r in unit.removals}
+        world.links = [link for link in world.links if (link[0], link[1]) not in gone]
+    world.next_study_id = next_id
+    return ids

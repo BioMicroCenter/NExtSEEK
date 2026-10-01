@@ -17,6 +17,12 @@ same snapshot and input give the same plan.
    ``GET /assays/A`` (ontology fields keep only their uri; the study is the target, filled at apply; samples, data
    files, documents, models and publications dropped) and validated as SEEK's proxy would. A clone to create gets a
    placeholder id above every SEEK assay id, for the label preview only.
+4. Links (6.4). Per source assay A: the movers are the targets' samples whose source assay is A; each goes into its
+   target's clone with its direction in A (1 where A holds none); each parent of a mover that is a member of A goes
+   in with direction 1 and stays in A. A member stays in A when it is not a mover or one of its children in A stays
+   (a fixpoint); the others leave A, each in the last unit, in apply order, that moves it. A parent that shares no
+   project with the investigation skips its child (``parent_project_mismatch``). One unit per target, ordered by
+   investigation and key, each with the digest its source assays must have just before it runs.
 """
 from __future__ import annotations
 
@@ -31,11 +37,13 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from nextseek_api.batch_upload.helpers import collect_parent_tokens
+from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
+from nextseek_api.graph_sync.sources import declared_lineage
 from nextseek_api.models import AssayCreateRequest, StudyCreateRequest
 from nextseek_api.studies.buckets import NO_BUCKET, SEVERAL_BUCKETS, is_bucket_title, title_key  # noqa: F401
-from nextseek_api.studies.models import (PLAN_VERSION, AssociationSet, ClonePlan, GraphPlan, PlanWarning, Skip,
-                                         StudyAction, StudyMovePlan, StudyTarget, TargetPlan)
+from nextseek_api.studies.models import (PLAN_VERSION, AssociationSet, ClonePlan, GraphPlan, LinkInsert, LinkRemoval,
+                                         LinkUnit, PlanWarning, Skip, StudyAction, StudyMovePlan, StudyTarget,
+                                         TargetPlan)
 
 STUDY_TITLE_MAX = 255        # provisional: the tool spec's section 10, check 6
 ASSAY_TITLE_MAX = 255
@@ -377,17 +385,158 @@ def _target_plan(w: _Work) -> TargetPlan:
                       existing_assay_ids=w.existing_assay_ids, clones=[w.clones[a] for a in sorted(w.clones)])
 
 
+@dataclass
+class _Lineage:
+    rows: dict        # assay id -> [(sample id, direction)], every Sample row
+    members: dict     # assay id -> {sample id: direction of its first row}
+    parents: dict     # (assay id, child id) -> parents that are members of that assay
+    children: dict    # (assay id, parent id) -> children that are members of that assay
+    tokens: dict      # sample id -> parent tokens
+
+
+def _lineage(reader, assay_ids) -> _Lineage:
+    rows = reader.assay_rows(assay_ids) if assay_ids else {}
+    members: dict = {}
+    for a in assay_ids:
+        members[a] = {}
+        for s, d in rows.get(a, []):
+            members[a].setdefault(s, d)
+    samples = sorted({s for m in members.values() for s in m})
+    sample_rows = reader.sample_rows(samples) if samples else {}
+    tokens = {s: parent_tokens((sample_rows.get(s) or {}).get("json_metadata")) for s in samples}
+    uids = sorted({t for found in tokens.values() for t in found if UID_RE.match(t)})
+    index = reader.uuid_index(uids) if uids else {}
+    declared: dict = defaultdict(set)
+    for child, parent in declared_lineage([sample_rows[s] for s in samples if s in sample_rows], index):
+        declared[child].add(parent)
+    parents: dict = defaultdict(set)
+    children: dict = defaultdict(set)
+    for a, m in members.items():
+        for c in m:
+            for par in declared.get(c, ()):
+                if par in m and par != c:
+                    parents[(a, c)].add(par)
+                    children[(a, par)].add(c)
+    return _Lineage(rows={a: list(rows.get(a, [])) for a in assay_ids}, members=members, parents=dict(parents),
+                    children=dict(children), tokens=tokens)
+
+
+def _parent_check(works: list, lin: _Lineage, snap: _Snapshot, skipped: list) -> None:
+    needed = sorted({par for w in works for s, src in w.sources.items() for a in src
+                     for par in lin.parents.get((a, s), ())})
+    projects = snap.reader.sample_projects(needed) if needed else {}
+    for w in works:
+        allowed = snap.inv_projects(w.t.investigation_id)
+        for s in sorted(w.sources):
+            bad = sorted({par for a in w.sources[s] for par in lin.parents.get((a, s), ())
+                          if not (projects.get(par, set()) & allowed)})
+            if bad:
+                _skip(skipped, w.t.key, [s], PARENT_PROJECT_MISMATCH, f"parents {bad}")
+                del w.sources[s]
+                w.copy.discard(s)
+
+
+def _direction(value) -> int:
+    return 1 if value is None else int(value)
+
+
+def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list]:
+    """Step 4 of the module docstring. Returns the units and the bucket assays left with no member."""
+    reused = sorted({c.seek_assay_id for w in works for c in w.clones.values() if c.action == "reuse"})
+    reused_rows = snap.reader.assay_rows(reused) if reused else {}
+    present = {a: {s for s, _d in rows} for a, rows in reused_rows.items()}
+
+    movers: dict = defaultdict(set)
+    for i, w in enumerate(works):
+        for s, src in w.sources.items():
+            for a in src:
+                movers[(i, a)].add(s)
+
+    inserts: dict = defaultdict(list)
+    for i, w in enumerate(works):
+        for a in sorted({a for src in w.sources.values() for a in src}):
+            clone = w.clones[a]
+            here = present.get(clone.seek_assay_id, set()) if clone.action == "reuse" else set()
+            ms = movers[(i, a)]
+            planned: set = set()
+            for s in sorted(ms):
+                if s not in here:
+                    inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=a, sample_id=s,
+                                                 direction=_direction(lin.members[a].get(s)), role="mover"))
+                    planned.add(s)
+            for s in sorted(ms):
+                for par in sorted(lin.parents.get((a, s), ())):
+                    if par in ms or par in here or par in planned:
+                        continue
+                    inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=a, sample_id=par, direction=1,
+                                                 role="parent"))
+                    planned.add(par)
+
+    removals: dict = defaultdict(list)
+    removed: set = set()
+    bucket_assays = sorted({a for w in works for s, src in w.sources.items() if s not in w.copy for a in src})
+    for a in bucket_assays:
+        moving = {s for (i, aa), ss in movers.items() if aa == a for s in ss if s not in works[i].copy}
+        stays = {m for m in lin.members[a] if m not in moving}
+        grew = True
+        while grew:
+            grew = False
+            for m in sorted(moving - stays):
+                if lin.children.get((a, m), set()) & stays:
+                    stays.add(m)
+                    grew = True
+        for s in sorted(moving - stays):
+            last = max(i for i in range(len(works)) if s in movers.get((i, a), set()) and s not in works[i].copy)
+            removals[last].append((a, s))
+            removed.add(s)
+
+    for i, w in enumerate(works):
+        inserted = {x.sample_id for x in inserts[i] if x.role == "mover"}
+        w.no_change.update(s for s in w.sources if s not in inserted and s not in removed)
+
+    state = {a: list(rows) for a, rows in lin.rows.items()}
+    for a, rows in reused_rows.items():
+        state.setdefault(a, list(rows))
+    units: list = []
+    for i, w in enumerate(works):
+        ins, rem = inserts[i], sorted(removals[i])
+        if not ins and not rem:
+            continue
+        src = sorted({x.source_assay_id for x in ins} | {a for a, _s in rem})
+        rows = [(a, s, d) for a in src for s, d in state.get(a, [])]
+        digest = unit_digest(rows, {s: lin.tokens.get(s, []) for _a, s, _d in rows})
+        moved = {x.sample_id for x in ins if x.role == "mover"} | {s for _a, s in rem}
+        added = {x.sample_id for x in ins if x.role == "parent"}
+        kids = {c for a in src for m in moved for c in lin.children.get((a, m), ())}
+        units.append(LinkUnit(unit=len(units) + 1, target_key=w.t.key, investigation_id=w.t.investigation_id,
+                              source_assay_ids=src, digest=digest, inserts=ins,
+                              removals=[LinkRemoval(assay_id=a, sample_id=s) for a, s in rem],
+                              sync_ids=sorted(moved | added | kids)))
+        for a, s in rem:
+            state[a] = [(x, d) for x, d in state.get(a, []) if x != s]
+        for x in ins:
+            clone = w.clones[x.source_assay_id]
+            rows_of = state.get(clone.seek_assay_id) if clone.action == "reuse" else None
+            if rows_of is not None and all(y != x.sample_id for y, _d in rows_of):
+                rows_of.append((x.sample_id, x.direction))
+    empty = sorted(a for a in bucket_assays if not state.get(a))
+    return units, empty
+
+
 def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: Optional[str] = None) -> StudyMovePlan:
     snap = _Snapshot(reader)
     skipped: list = []
     warnings: list = []
     works = _decide_samples(associations.targets, snap, skipped)
+    lin = _lineage(reader, sorted({a for w in works for src in w.sources.values() for a in src}))
+    _parent_check(works, lin, snap, skipped)
     works = _decide_clones(works, snap, skipped, warnings)
+    units, empty = _plan_links(works, lin, snap)
     no_change = {w.t.key: sorted(w.no_change) for w in works if w.no_change}
     return StudyMovePlan(
         plan_version=PLAN_VERSION, created_at=now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         code_sha=code_sha(), associations_sha256=associations.sha256(), run_id=run_id,
         buckets=dict(snap.buckets.by_investigation), seek_next_study_id=snap.next_study_id,
-        graph_max_study_id=snap.graph_max_study_id, targets=[_target_plan(w) for w in works], units=[],
-        publications=[], graph=GraphPlan(), skipped=skipped, no_change=no_change, empty_bucket_assays=[],
-        warnings=warnings, summary={})
+        graph_max_study_id=snap.graph_max_study_id, targets=[_target_plan(w) for w in works], units=units,
+        publications=[], graph=GraphPlan(sync_ids={u.unit: u.sync_ids for u in units}), skipped=skipped,
+        no_change=no_change, empty_bucket_assays=empty, warnings=warnings, summary={})
