@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Tuple
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.urls import reverse
 
 from nextseek_api.batch_upload.db_engine import get_connection
 from nextseek_api.graph_sync import hooks
+from nextseek_api.graph_sync.writer import SAMPLE_CHUNK
 
 from . import jobs
 from .executor import execute, preview
@@ -52,17 +54,23 @@ def _http_status(result) -> int:
     return _STATUS_FOR[result.overall_status]
 
 
+def _stamp() -> int:
+    return time.time_ns()
+
+
 def _enqueue_graph_sync(changed_sample_ids) -> GraphOutcome:
     """Queue a graph sync for every sample whose assay links this batch changed.
 
     Registering a membership invalidates the assay labels on every DERIVED_FROM
     edge incident to that sample, in both directions. One rule owns those labels
     now (`nextseek_api/graph_sync/labels.py`), so this endpoint computes and
-    writes none of them: it writes one `samples` outbox row per sample and
-    returns, and the drain relabels the edges through `targeted.sync_samples`
-    under the same rule every other writer gets. Nothing here waits on Neo4j,
-    and that is why the outcome says `queued` rather than carrying a count:
-    when this request answers, nothing has been recomputed yet.
+    writes none of them: it writes one `samples` outbox row per
+    `SAMPLE_CHUNK` samples, keyed `batch:registration:<time_ns>:<n>` with the
+    ids as its payload, and returns; the drain relabels the edges through
+    `targeted.sync_samples` under the same rule every other writer gets, one
+    sync per row. Nothing here waits on Neo4j, and that is why the outcome says
+    `queued` rather than carrying a count: when this request answers, nothing
+    has been recomputed yet.
 
     A failure here never invalidates the write. assay_assets is the source of
     truth and the labels are derived from it, so a row that could not be queued
@@ -83,14 +91,22 @@ def _enqueue_graph_sync(changed_sample_ids) -> GraphOutcome:
     if not changed_sample_ids:
         return GraphOutcome(status="skipped")
 
-    ids = sorted(int(sample_id) for sample_id in changed_sample_ids)
+    ids = sorted({int(sample_id) for sample_id in changed_sample_ids})
+    # One row per chunk, not one per sample: the drain runs one by-id sync per
+    # row, and a row per sample drained a large registration for hours. The
+    # time in the key keeps two registrations before a drain from overwriting
+    # each other's ids.
     # `hooks.enqueue` never raises: it logs a failure with its traceback,
     # counts it per kind, and reports False. Reporting `queued` over a row that
     # was never written would be the class of lie this endpoint exists to
     # remove, so what was lost is counted and named instead. `edges_recomputed`
     # stays 0: it is not a count of anything on either path.
-    lost = [sample_id for sample_id in ids
-            if not hooks.enqueue("samples", f"sample:{sample_id}")]
+    stamp = _stamp()
+    lost = []
+    for n, start in enumerate(range(0, len(ids), SAMPLE_CHUNK)):
+        part = ids[start:start + SAMPLE_CHUNK]
+        if not hooks.enqueue("samples", f"batch:registration:{stamp}:{n}", part):
+            lost.extend(part)
     if lost:
         return GraphOutcome(status="failed", error=(
             f"{len(lost)} of {len(ids)} samples could not be queued for a "

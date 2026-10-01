@@ -11,6 +11,9 @@
    ``catalog``, ``assay_map``, ``protocol_map``, ``isa`` and ``membership`` run in this process, through the same
    by-id entry points every other path uses. ``full``, ``reconcile`` and ``drift`` run as child
    ``manage.py graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop.
+   A claimed single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such
+   rows with it into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a
+   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
 the loop claims nothing but the read-only drift check: the writing rows wait in the outbox, unclaimed, with their
@@ -73,6 +76,8 @@ ERROR_INTERVAL_S = 60.0                # after a failed pass, so a broken box lo
 KEEP_RUN_DIRS = 20                     # run directories kept per kind
 DEFER_BACKOFF_S = 60                   # how long a deferred row waits; it counts no attempt
 MAX_ROWS_PER_PASS = 1_000              # a pass with more work than this finishes it at the next one
+MERGED_KIND = "samples"                # the one kind whose single-sample rows the drain merges (A13)
+MERGED_KEY_PREFIX = "sample:"          # the key of a single-sample row; a batch row is never merged
 
 # Closes every Django connection before each pass. Django refreshes connections only around a web request, so a
 # loop that lives for days keeps each one until MySQL drops it for idling, and every drain on it then fails with
@@ -236,11 +241,18 @@ def _ids_of(claim) -> list[int]:
     return [int(i) for i in (claim.payload or [])]
 
 
-def _apply(driver, db, claim, opts: Options, run_dir: str) -> dict:
-    """Do what one row asks, in this process, and return the entry point's report."""
+def _merges(claim) -> bool:
+    """Whether the drain merges more rows into this one: a single-sample ``samples`` row (A13)."""
+    return claim.kind == MERGED_KIND and claim.key.startswith(MERGED_KEY_PREFIX)
+
+
+def _apply(driver, db, claim, opts: Options, run_dir: str, merged=()) -> dict:
+    """Do what one row asks, in this process, and return the entry point's report. ``merged`` are more
+    single-sample rows claimed with a ``samples`` row: their ids join its one by-id sync, in claim order."""
     kind = claim.kind
     if kind == "samples":
-        return targeted.sync_samples(driver, db, _ids_of(claim), run_dir=run_dir,
+        ids = list(dict.fromkeys(i for c in (claim, *merged) for i in _ids_of(c)))
+        return targeted.sync_samples(driver, db, ids, run_dir=run_dir,
                                      apply_label_changes=opts.apply_label_changes)
     if kind == "samples_of_type":
         return targeted.sync_samples_of_type(driver, db, int(claim.key.split(":", 1)[1]), run_dir=run_dir,
@@ -260,24 +272,29 @@ def _text(error) -> str:
     return f"{type(error).__name__}: {error}" if isinstance(error, BaseException) else str(error)
 
 
-def _defer(claim, reason: str, entry: dict, *, now: datetime) -> dict:
-    """Put the row back as it was: pending, no attempt counted against it, a short back-off.
+def _defer(claim, reason: str, entry: dict, *, now: datetime, merged=()) -> dict:
+    """Put the row back as it was: pending, no attempt counted against it, a short back-off. The rows ``merged``
+    into it go back the same way.
 
     ``finish_failed`` alone would keep the attempt the claim counted, and ``state.MAX_ATTEMPTS`` of them leave the
     row dead with its work never done. Re-enqueueing resets the attempts; the back-off then releases the claim.
     """
-    try:
-        state.enqueue(claim.kind, claim.key, claim.payload, now=now)
-    except (DatabaseError, ValueError) as exc:
-        log.warning("graph_sync: could not put %s %s back after %s: %s", claim.kind, claim.key, reason, exc)
-    state.finish_failed(claim, reason, DEFER_BACKOFF_S, now=now, failure=False)
+    for c in (claim, *merged):
+        try:
+            state.enqueue(c.kind, c.key, c.payload, now=now)
+        except (DatabaseError, ValueError) as exc:
+            log.warning("graph_sync: could not put %s %s back after %s: %s", c.kind, c.key, reason, exc)
+        state.finish_failed(c, reason, DEFER_BACKOFF_S, now=now, failure=False)
     log.info("graph_sync: %s %s waits: %s", claim.kind, claim.key, reason)
     entry["outcome"] = DEFERRED
     return entry
 
 
-def _fail(claim, error, entry: dict, *, now: datetime) -> dict:
-    state.finish_failed(claim, error, state.backoff_s(claim.kind), now=now)
+def _fail(claim, error, entry: dict, *, now: datetime, merged=()) -> dict:
+    """Back the row off by its kind's back-off with its attempt counted; the rows ``merged`` into it too, each keeping
+    its own attempts and ``failing_since``."""
+    for c in (claim, *merged):
+        state.finish_failed(c, error, state.backoff_s(c.kind), now=now)
     entry.update(outcome=FAILED, error=_text(error))
     return entry
 
@@ -327,47 +344,53 @@ def _child(claim, opts: Options, entry: dict, *, started: datetime, clock, launc
     return _fail(claim, reason, entry, now=now)
 
 
-def _refused(claim, exc, entry: dict, *, now: datetime) -> dict:
+def _refused(claim, exc, entry: dict, *, now: datetime, merged=()) -> dict:
     """A run that refused before writing: deferred when the lock or the graph's version refused it, failed when it
     was the data (a SampleType title held twice, say), which the next attempt would meet again."""
     problems = " ".join(getattr(exc, "problems", None) or [])
     version = (getattr(exc, "report", None) or {}).get("graph_schema_version")
     if LOCK_REFUSAL in problems or (version is not None and version != writer.SCHEMA_VERSION):
-        return _defer(claim, f"{claim.kind} {claim.key}: {_text(exc)}", entry, now=now)
-    return _fail(claim, exc, entry, now=now)
+        return _defer(claim, f"{claim.kind} {claim.key}: {_text(exc)}", entry, now=now, merged=merged)
+    return _fail(claim, exc, entry, now=now, merged=merged)
 
 
 def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, started: datetime | None = None,
-               clock=None) -> dict:
-    """Drain one claimed row. ``now`` is the time of the claim and stamps an in process row's outcome; ``started``
-    (the pass start, ``now`` when not given) names the run directories, so a pass makes one drain directory; ``clock``
-    gives the time a child ended (``now`` when not given)."""
+               clock=None, merged=()) -> dict:
+    """Drain one claimed row, with the single-sample rows ``merged`` into it (A13): one by-id sync over all their
+    ids, and every row closed, deferred or failed with that sync's outcome. ``now`` is the time of the claim and
+    stamps an in process row's outcome; ``started`` (the pass start, ``now`` when not given) names the run
+    directories, so a pass makes one drain directory; ``clock`` gives the time a child ended (``now`` when not
+    given). The entry's ``rows`` is how many outbox rows it drained."""
     started = started or now
     clock = clock or (lambda: now)
-    entry = {"kind": claim.kind, "key": claim.key}
+    merged = tuple(merged)
+    entry = {"kind": claim.kind, "key": claim.key, "rows": 1 + len(merged)}
     if claim.kind in CHILD_KINDS:
         return _child(claim, opts, entry, started=started, clock=clock, launch=launch)
+    label = claim.key if not merged else f"{claim.key} and {len(merged)} more single-sample rows"
     try:
-        result = _apply(driver, db, claim, opts, run_dir_for(opts.run_root, DRAIN_DIR_KIND, started))
+        result = _apply(driver, db, claim, opts, run_dir_for(opts.run_root, DRAIN_DIR_KIND, started), merged)
     except run.PreflightError as exc:
-        return _refused(claim, exc, entry, now=now)
+        return _refused(claim, exc, entry, now=now, merged=merged)
     except Exception as exc:                       # noqa: BLE001
-        log.exception("graph_sync: %s %s failed", claim.kind, claim.key)
-        return _fail(claim, exc, entry, now=now)
+        log.exception("graph_sync: %s %s failed", claim.kind, label)
+        return _fail(claim, exc, entry, now=now, merged=merged)
     status = (result or {}).get("status")
     entry["status"] = status
     if status in DEFER_STATUSES:
-        return _defer(claim, f"{claim.kind} {claim.key}: {status}", entry, now=now)
+        return _defer(claim, f"{claim.kind} {label}: {status}", entry, now=now, merged=merged)
     if status not in (targeted.OK, "dry_run"):
-        return _fail(claim, f"{claim.kind} {claim.key}: {status}", entry, now=now)
+        return _fail(claim, f"{claim.kind} {label}: {status}", entry, now=now, merged=merged)
     gaps = (result or {}).get("structural_gaps") or 0
     if gaps:
         # A sync that left a structural link unwritten is not done: the row retries on its back-off and, if it never
-        # heals, shows in the health line's failing rows and dies at the attempt limit.
+        # heals, shows in the health line's failing rows and dies at the attempt limit. A merged sync fails every
+        # row it drained (A13, A3).
         parts = ", ".join(f"{k} {v}" for k, v in sorted(((result or {}).get("structural_gap_parts") or {}).items()))
-        return _fail(claim, f"{claim.kind} {claim.key}: {gaps} structural links left unwritten ({parts})", entry,
-                     now=now)
-    state.finish_done(claim, now=now)
+        return _fail(claim, f"{claim.kind} {label}: {gaps} structural links left unwritten ({parts})", entry,
+                     now=now, merged=merged)
+    for c in (claim, *merged):
+        state.finish_done(c, now=now)
     entry["outcome"] = DONE
     return entry
 
@@ -404,17 +427,25 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
                  version, writer.SCHEMA_VERSION, writer.SCHEMA_VERSION, ", ".join(READ_ONLY_KINDS))
 
     kinds = None if at_version else list(READ_ONLY_KINDS)
-    for _ in range(MAX_ROWS_PER_PASS):
+    rows = 0
+    while rows < MAX_ROWS_PER_PASS:
         # A child can run for hours, so a caller that pinned no time gets the clock as it is at each claim: a row a
         # write enqueued meanwhile must not be stamped (claim, failure time, back-off) with the pass's start.
         tick = now if pinned else dj_timezone.now()
         claim = state.claim_next(worker_id, now=tick, kinds=kinds)
         if claim is None:
             break
+        merged = ()
+        if _merges(claim):
+            # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each (A13). Merged
+            # rows count toward MAX_ROWS_PER_PASS like any other.
+            limit = min(writer.SAMPLE_CHUNK - 1, MAX_ROWS_PER_PASS - rows - 1)
+            merged = state.claim_more(worker_id, MERGED_KIND, MERGED_KEY_PREFIX, limit, now=tick)
         entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
-                           clock=(lambda: now) if pinned else dj_timezone.now)
+                           clock=(lambda: now) if pinned else dj_timezone.now, merged=merged)
         report["drained"].append(entry)
-        report["counts"][entry["outcome"]] += 1
+        report["counts"][entry["outcome"]] += entry["rows"]
+        rows += entry["rows"]
     report["finished_at"] = _iso(dj_timezone.now())
     return report
 

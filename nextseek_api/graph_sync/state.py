@@ -241,14 +241,32 @@ class Claim:
     lease_expires_at: datetime
 
 
-def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int) -> list[dict]:
-    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running."""
+def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None) -> list[dict]:
+    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
+    ``kinds`` and with keys starting ``key_prefix`` when given."""
     qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
+    if key_prefix is not None:
+        qs = qs.filter(key__startswith=key_prefix)
     return list(qs.order_by("enqueued_at", "id")
                 .values("id", "kind", "claimed_by", "lease_expires_at", "attempts")[:limit])
+
+
+def _take(worker_id: str, c: dict, now: datetime) -> Claim | None:
+    """The compare-and-set on one candidate row as it was read (its claim, lease and attempts): the Claim, or None
+    when another worker took the row in between."""
+    lease = now + timedelta(seconds=lease_s(c["kind"]))
+    won = _outbox().filter(
+        pk=c["id"], done_at__isnull=True, attempts=c["attempts"],
+        claimed_by=c["claimed_by"], lease_expires_at=c["lease_expires_at"],
+    ).update(claimed_by=worker_id, lease_expires_at=lease, attempts=F("attempts") + 1)
+    if won != 1:
+        return None
+    got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
+           .values("id", "kind", "key", "payload", "enqueued_at", "attempts").first())
+    return None if got is None else Claim(worker_id=worker_id, lease_expires_at=lease, **got)
 
 
 def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[str] | None = None) -> Claim | None:
@@ -261,18 +279,29 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
         raise ValueError(f"not a worker id: {worker_id!r}")
     now = now or timezone.now()
     for c in _candidates(now, kinds, CLAIM_CANDIDATES):
-        lease = now + timedelta(seconds=lease_s(c["kind"]))
-        won = _outbox().filter(
-            pk=c["id"], done_at__isnull=True, attempts=c["attempts"],
-            claimed_by=c["claimed_by"], lease_expires_at=c["lease_expires_at"],
-        ).update(claimed_by=worker_id, lease_expires_at=lease, attempts=F("attempts") + 1)
-        if won != 1:
-            continue
-        got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
-               .values("id", "kind", "key", "payload", "enqueued_at", "attempts").first())
-        if got is not None:
-            return Claim(worker_id=worker_id, lease_expires_at=lease, **got)
+        claim = _take(worker_id, c, now)
+        if claim is not None:
+            return claim
     return None
+
+
+def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *,
+               now: datetime | None = None) -> list[Claim]:
+    """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
+    ``worker_id``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in between is
+    skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease runs). The
+    drain uses it to run many single-sample rows as one by-id sync (``loop``, A13)."""
+    if not worker_id or len(worker_id) > WORKER_CHARS:
+        raise ValueError(f"not a worker id: {worker_id!r}")
+    if limit <= 0:
+        return []
+    now = now or timezone.now()
+    out = []
+    for c in _candidates(now, [kind], limit, key_prefix=key_prefix):
+        claim = _take(worker_id, c, now)
+        if claim is not None:
+            out.append(claim)
+    return out
 
 
 def _held(claim: Claim):

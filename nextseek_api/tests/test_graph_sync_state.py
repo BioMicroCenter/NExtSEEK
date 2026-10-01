@@ -1230,3 +1230,19 @@ def test_a_drift_run_that_did_not_compare_the_graph_is_not_a_fresh_check(status)
 def test_a_full_sync_does_not_stand_in_for_a_drift_check():
     state.start_run("full", trigger="loop", now=at(hours=-1)).finish("ok", now=at(minutes=-50))
     assert state.freshness(now=T0)["drift"]["status"] == "never"
+
+
+@pytest.mark.django_db
+def test_claim_more_takes_claimable_rows_of_one_kind_and_key_prefix_oldest_first():
+    for n, (kind, key) in enumerate([("samples", "sample:1"), ("samples", "batch:x:0"), ("retire", "sample:2"),
+                                     ("samples", "sample:3"), ("samples", "sample:4"), ("samples", "sample:5")]):
+        state.enqueue(kind, key, [9] if key.startswith("batch") else None, now=at(seconds=n))
+    first = state.claim_next("w1", now=at(minutes=1))
+    assert first.key == "sample:1"
+
+    more = state.claim_more("w1", "samples", "sample:", 2, now=at(minutes=1))
+
+    assert [c.key for c in more] == ["sample:3", "sample:4"]
+    assert all(c.attempts == 1 and c.worker_id == "w1" for c in more)
+    assert [c.key for c in state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=1))] == ["sample:5"]
+    assert state.claim_more("w2", "samples", "sample:", 0, now=at(minutes=1)) == []

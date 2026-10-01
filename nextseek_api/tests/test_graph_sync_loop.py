@@ -779,3 +779,86 @@ def test_a_child_that_fails_is_backed_off_from_the_time_it_ended(work, monkeypat
     assert r.lease_expires_at == ended + timedelta(seconds=state.backoff_s("reconcile"))
     backoff = timedelta(seconds=state.backoff_s("reconcile"))
     assert state.claim_next("w2", now=ended + backoff - timedelta(seconds=1), kinds=["reconcile"]) is None
+
+
+# --- A13: single-sample rows drain as one sync -----------------------------------------------------
+
+def _single_rows(n: int, *, first_id: int = 1000) -> list[int]:
+    ids = list(range(first_id, first_id + n))
+    for k, sample_id in enumerate(ids):
+        state.enqueue("samples", f"sample:{sample_id}", now=before(minutes=30) + timedelta(milliseconds=k))
+    return ids
+
+
+@pytest.mark.django_db
+def test_the_drain_runs_300_single_sample_rows_as_one_sync_and_closes_all_300(work):
+    ids = _single_rows(300)
+
+    report = one_pass(work)
+
+    (sync,) = [c for c in work.calls if c.name == "sync"]
+    assert sync.args == (DRIVER, DB, ids)
+    assert GraphSyncOutbox.objects.filter(kind="samples", done_at__isnull=True).count() == 0
+    (entry,) = [d for d in report["drained"] if d["kind"] == "samples"]
+    assert entry["rows"] == 300 and entry["outcome"] == loop.DONE
+    assert report["counts"][loop.DONE] == 300 + 3          # the three schedule slots of T0 are children
+
+
+@pytest.mark.django_db
+def test_a_failed_merged_sync_backs_off_every_row_it_drained(work):
+    _single_rows(3)
+    work.sync = RuntimeError("neo4j went away")
+
+    report = one_pass(work)
+
+    rows = GraphSyncOutbox.objects.filter(kind="samples")
+    assert {(r.done_at, r.attempts, r.failing_since) for r in rows} == {(None, 1, T0)}
+    assert {r.lease_expires_at for r in rows} == {T0 + timedelta(seconds=state.backoff_s("samples"))}
+    assert all("neo4j went away" in r.last_error for r in rows)
+    assert report["counts"][loop.FAILED] == 3
+
+
+@pytest.mark.django_db
+def test_a_merged_sync_that_left_a_structural_link_unwritten_fails_every_row(work):
+    _single_rows(2)
+    work.sync = {"status": targeted.OK, "structural_gaps": 1, "structural_gap_parts": {"untyped": 1}}
+
+    one_pass(work)
+
+    rows = GraphSyncOutbox.objects.filter(kind="samples")
+    assert {(r.done_at, r.attempts) for r in rows} == {(None, 1)}
+    assert all("untyped 1" in r.last_error for r in rows)
+
+
+@pytest.mark.django_db
+def test_a_deferred_merged_sync_puts_every_row_back_without_an_attempt(work):
+    _single_rows(2)
+    work.sync = {"status": targeted.LOCK_TIMEOUT}
+
+    one_pass(work)
+
+    rows = GraphSyncOutbox.objects.filter(kind="samples")
+    assert {(r.done_at, r.attempts, r.claimed_by, r.failing_since) for r in rows} == {(None, 0, None, None)}
+
+
+@pytest.mark.django_db
+def test_a_batch_row_is_never_merged_with_single_sample_rows(work):
+    state.enqueue("samples", "batch:reg:1:0", [11, 12], now=before(minutes=40))
+    _single_rows(2)
+    state.enqueue("samples", "batch:reg:1:1", [13], now=before(minutes=20))
+
+    one_pass(work)
+
+    assert [c.args[2] for c in work.calls if c.name == "sync"] == [[11, 12], [1000, 1001], [13]]
+
+
+@pytest.mark.django_db
+def test_merged_rows_count_toward_the_rows_a_pass_may_drain(work, monkeypatch):
+    monkeypatch.setattr(loop, "MAX_ROWS_PER_PASS", 5)
+    ids = _single_rows(8)
+
+    report = one_pass(work)
+
+    assert [c.args[2] for c in work.calls if c.name == "sync"] == [ids[:5]]
+    assert GraphSyncOutbox.objects.filter(kind="samples", done_at__isnull=True).count() == 3
+    assert sum(d["rows"] for d in report["drained"]) == 5

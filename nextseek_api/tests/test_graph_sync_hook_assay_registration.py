@@ -1,9 +1,10 @@
 """The assay-registration hook: a membership write queues a graph sync (spec 5 E8, 7.3, 12; CI-6).
 
 Registering a sample in an assay changes the assay labels of every DERIVED_FROM edge incident to it, so both entry
-points enqueue one ``samples`` row per sample whose links the registration changed: ``service.register`` for a batch
-answered in the request, ``runner.run_one`` for one answered by the job worker. The drain relabels those edges through
-``targeted.sync_samples``, under the one label rule; nothing in the request touches Neo4j.
+points enqueue the samples whose links the registration changed, one ``samples`` row per ``SAMPLE_CHUNK`` of them
+with the ids as its payload: ``service.register`` for a batch answered in the request, ``runner.run_one`` for one
+answered by the job worker. The drain relabels those edges through ``targeted.sync_samples``, under the one label
+rule; nothing in the request touches Neo4j.
 
 CI-6 asks three things of every hook site, and each one is here for both: the success path writes its rows after the
 writer's own commit, a batch that changed no links writes none, and an enqueue failure never reaches the caller.
@@ -40,8 +41,9 @@ _STATE_ENQUEUE = "nextseek_api.graph_sync.state.enqueue"
 
 
 @pytest.fixture(autouse=True)
-def fresh_counts():
+def fresh_counts(monkeypatch):
     hooks.reset_failure_counts()
+    monkeypatch.setattr(service, "_stamp", lambda: 1)     # the row key's time part: batch:registration:1:<n>
     yield
     hooks.reset_failure_counts()
 
@@ -96,21 +98,30 @@ def _queued():
 
 @pytest.mark.django_db
 class TestTheRequestPath:
-    def test_every_sample_whose_links_changed_gets_its_own_row(self):
+    def test_the_samples_whose_links_changed_share_one_row_per_chunk(self):
         body, status = _register(_written([200, 100]))
 
         assert status == 200
-        assert _queued() == [("samples", "sample:100", None),
-                             ("samples", "sample:200", None)]
+        assert _queued() == [("samples", "batch:registration:1:0", [100, 200])]
         assert body["graph"] == {"status": "queued", "edges_recomputed": 0, "error": None}
 
+    def test_a_registration_of_2000_samples_writes_ceil_2000_over_the_chunk_rows(self, monkeypatch):
+        """One by-id sync per row: a row per sample drained at about 11 rows a minute on production (A13)."""
+        monkeypatch.setattr(service, "SAMPLE_CHUNK", 300)
+        _register(_written(range(1, 2001)))
+
+        rows = _queued()
+        assert len(rows) == -(-2000 // 300)
+        assert sorted(i for _, _, payload in rows for i in payload) == list(range(1, 2001))
+
     def test_the_rows_are_pending_work_for_the_drain(self):
-        """A `samples` row keyed `sample:<id>` with no payload is what the drain hands to `targeted.sync_samples`.
-        Any other shape is refused by `state.check_item` and would never have been written at all."""
+        """A `samples` row keyed `batch:<name>` with the ids as its payload is what the drain hands to
+        `targeted.sync_samples`. Any other shape is refused by `state.check_item` and would never have been written
+        at all."""
         _register(_written([100]))
         row = GraphSyncOutbox.objects.get()
 
-        assert (row.kind, row.key, row.payload) == ("samples", "sample:100", None)
+        assert (row.kind, row.key, row.payload) == ("samples", "batch:registration:1:0", [100])
         assert row.done_at is None and row.attempts == 0 and row.claimed_by is None
 
     def test_a_batch_that_changed_no_links_queues_nothing(self):
@@ -193,8 +204,7 @@ class TestTheJobPath:
         job, ran = self._run_job(actor, _written([100, 200]))
 
         assert ran is True
-        assert _queued() == [("samples", "sample:100", None),
-                             ("samples", "sample:200", None)]
+        assert _queued() == [("samples", "batch:registration:1:0", [100, 200])]
         assert job.terminal_result["graph"] == {
             "status": "queued", "edges_recomputed": 0, "error": None}
 

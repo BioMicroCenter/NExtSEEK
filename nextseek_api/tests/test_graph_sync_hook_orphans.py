@@ -1,9 +1,10 @@
 """Orphan resolution enqueues the children it resolved, and writes no graph (the sync design, sections 8 and 12;
 C-14; nextseek_api/batch_upload/tasks.py::resolve_orphans_task).
 
-The Celery task keeps its MySQL rewrite. What follows it changes: one ``samples sample:<id>`` outbox row per resolved
-child, written after that rewrite's transaction has committed and never inside it, and nothing sent to Neo4j. The row
-is the record the drain turns into a graph write, so a failure to write it is logged and counted, never raised.
+The Celery task keeps its MySQL rewrite. What follows it changes: one ``samples`` outbox row per ``SAMPLE_CHUNK``
+resolved children, the ids as its payload, written after that rewrite's transaction has committed and never inside
+it, and nothing sent to Neo4j. The row is the record the drain turns into a graph write, so a failure to write it is
+logged and counted, never raised.
 """
 from __future__ import annotations
 
@@ -70,13 +71,13 @@ TWO_ORPHANS = ONE_ORPHAN + [{"id": 600, "uuid": "CHD-260101MIT-2", "matched_toke
 
 
 @pytest.mark.django_db
-def test_every_resolved_child_gets_one_row():
-    with task_world(orphans=TWO_ORPHANS, sample_ids=[500, 600]):
+def test_the_resolved_children_share_one_row_per_chunk():
+    with task_world(orphans=TWO_ORPHANS, sample_ids=[600, 500]):
         result = run_task()
 
     rows = GraphSyncOutbox.objects.filter(kind="samples", done_at__isnull=True)
-    assert set(rows.values_list("key", flat=True)) == {"sample:500", "sample:600"}
-    assert [r.payload for r in rows] == [None, None]
+    assert [r.payload for r in rows] == [[500, 600]]
+    assert rows[0].key.startswith("batch:orphans:") and rows[0].key.endswith(":0")
     assert result["queued"] == 2
 
 
@@ -96,7 +97,7 @@ def test_the_row_is_written_after_the_rewrite_commits():
         run_task()
 
     assert committed_first == [True]
-    assert GraphSyncOutbox.objects.filter(kind="samples", key="sample:500").exists()
+    assert [r.payload for r in GraphSyncOutbox.objects.filter(kind="samples")] == [[500]]
 
 
 @pytest.mark.django_db
@@ -145,9 +146,10 @@ def test_the_task_sends_no_write_to_neo4j():
 
 
 @pytest.mark.django_db
-def test_two_uploads_resolving_the_same_child_coalesce():
+def test_two_uploads_resolving_the_same_child_each_keep_their_own_row():
+    """A batch key never overwrites another write's ids (A13); the drain syncs the child twice, which is harmless."""
     for _ in range(2):
         with task_world(orphans=ONE_ORPHAN, sample_ids=[500]):
             run_task()
 
-    assert GraphSyncOutbox.objects.filter(kind="samples", key="sample:500").count() == 1
+    assert [r.payload for r in GraphSyncOutbox.objects.filter(kind="samples")] == [[500], [500]]
