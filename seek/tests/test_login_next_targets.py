@@ -56,6 +56,16 @@ class TestDecoratorNextTarget:
             "/login/?next=/seek/templates/"
 
 
+class TestEncodedPaths:
+    def test_an_encoded_character_in_the_path_survives_the_round_trip(self):
+        from urllib.parse import parse_qs, urlsplit
+        from seek.decorators import login_redirect
+        for path in ("/seek/a%3Fb/", "/seek/sample/50%25/", "/seek/sample/id=202/"):
+            req = RequestFactory().get(path)
+            target = login_redirect(req).url
+            assert parse_qs(urlsplit(target).query)["next"] == [path], path
+
+
 class TestInlineLoginChecks:
     def test_anonymous_assistant_is_sent_to_sign_in(self):
         from seek.views.search import smartSearch
@@ -91,7 +101,9 @@ class TestLoginViewNext:
         assert resp.url == "/seek/search/?tab=advanced"
 
     def test_refuses_an_off_site_next(self):
-        for target in ("https://example.org/x", "//example.org/x", "/\\example.org"):
+        # testserver is the request's own host: absolute URLs are refused even then
+        for target in ("https://example.org/x", "//example.org/x", "/\\example.org",
+                       "http://testserver/x", "https://testserver/x"):
             assert self._signed_in("/login/?next=" + target).url == "/", target
 
     def test_no_next_goes_home(self):

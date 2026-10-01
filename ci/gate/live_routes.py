@@ -50,8 +50,8 @@ _PROJECT_LEVEL = {
     "^signup/",
     "^accounts/login/$",
     "^accounts/logout/$",
-    "^(?:blog|search|accounts|password_reset|reset)(?:/|$)",
-    "^accounts/signup/",
+    "^(?:blog|search|accounts|password_reset|reset)(?:/.*)?/$",
+    "^accounts/signup/$",
     "^media/(?P<path>.*)$",
 }
 

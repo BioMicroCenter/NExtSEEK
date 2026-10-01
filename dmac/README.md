@@ -108,10 +108,12 @@ with no prefix).
 | `^seek/` | `seek.urls`, at `dmac/urls.py:27` |
 | `^nextseek_api/` | `nextseek_api.urls`, at `dmac/urls.py:29` |
 | `^media/(?P<path>.*)$` | `dmac.media.serve_media`, at `dmac/urls.py:37-40` |
-| `^$` | `dmac/views.py:285` |
-| `^accounts/signup/` | `dmac/views.py:267` again, at `dmac/urls.py:54` |
-| `^` | `mezzanine.urls`, at `dmac/urls.py:55` |
-| `^accounts/login/` | `dmac/views.py:110` again, at `dmac/urls.py:56` |
+| `^$` | `dmac.views.home` |
+| `^accounts/signup/$` | `dmac.views.signup_seek` again |
+| `^accounts/login/$` | `dmac.views.login_seek` again |
+| `^accounts/logout/$` | `mezzanine.accounts.views.logout` (URL name `logout`) |
+| `^(?:blog\|search\|accounts\|password_reset\|reset)(?:/.*)?/$` | `_not_found` in `dmac/urls.py`: Mezzanine's public pages answer 404 |
+| `^` | `mezzanine.urls`, last |
 
 The media route is unusual and its reason is recorded in place: nginx has no `/media`
 location and `DEBUG` is off under Docker, so Django serves it with a view of its own

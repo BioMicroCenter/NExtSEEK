@@ -121,7 +121,7 @@ not in `nextseek.css`.
   `dmac/urls.py`. After signing in it follows `next` (decoded from the query string) when that is
   a path on this site, and goes home otherwise.
 - Sign up: there is no signup template. `signup_seek` (in `dmac/views.py`) redirects to SEEK's own
-  `/signup` on `SEEK_PUBLIC_URL`. The `^accounts/signup/` route is placed before the Mezzanine
+  `/signup` on `SEEK_PUBLIC_URL`. The `^accounts/signup/$` route is placed before the Mezzanine
   catch-all on purpose, so Mezzanine's local signup form stays unreachable.
 - Reset password: the link goes to SEEK (`seek_forgot_password_url`), falling back to Mezzanine's
   reset URL if `SEEK_PUBLIC_URL` is unset.

@@ -107,10 +107,13 @@ def userSynchronization(user_seek):
     return status, msg
 
 def _safe_next(request):
-    """The ``next`` page to return to after signing in: a path on this site, else home."""
+    """The ``next`` page to return to after signing in: a path on this site, else home.
+
+    Relative paths only (no allowed hosts): behind nginx every request's Host is
+    the upstream name, so an absolute URL naming it would leave the site.
+    """
     next_url = request.GET.get('next', '')
-    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()},
-                                       require_https=request.is_secure()):
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts=set()):
         return next_url
     return '/'
 

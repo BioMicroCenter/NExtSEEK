@@ -287,6 +287,9 @@ def test_sample_flow_frame_never_shows_scrollbars(browser, profile, base_url, st
             pytest.skip("the smoke account cannot open the discovered project")
         frame_el.scroll_into_view_if_needed()
         frame = frame_el.element_handle().content_frame()
+        frame.wait_for_load_state("load", timeout=60_000)
+        if frame.locator("#cy").count() == 0:
+            pytest.skip("the discovered project has no recorded sample-type connections")
         frame.wait_for_function("() => window.cy && window.cy.nodes().length >= 0", timeout=60_000)
         page.wait_for_timeout(1500)  # past the debounced resize
         fits = frame.evaluate("""() => { const d = document.documentElement;

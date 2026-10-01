@@ -21,6 +21,24 @@ def test_retired_pages_answer_404(path):
         match.func(RequestFactory().get(path), *match.args, **match.kwargs)
 
 
+@pytest.mark.parametrize("path", ["/accounts/login", "/accounts/signup", "/accounts/logout",
+                                  "/searchfoo/", "/resetx/"])
+def test_slashless_and_lookalike_paths_are_not_shadowed(path):
+    from django.urls import Resolver404
+    try:
+        match = resolve(path)
+    except Resolver404:
+        return                       # APPEND_SLASH or a plain 404 handles it
+    assert match.func.__name__ != "_not_found", path
+
+
+def test_admin_login_hides_the_dead_reset_link():
+    from django.template.loader import get_template
+    tpl = get_template("admin/login.html")
+    assert "themes/NextSeek" in str(tpl.origin.name)
+    assert "#forgot-password { display: none; }" in tpl.template.source
+
+
 def test_account_routes_that_stay():
     assert resolve("/accounts/login/").func.__name__ == "login_seek"
     assert resolve("/accounts/signup/").func.__name__ == "signup_seek"

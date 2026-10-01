@@ -131,7 +131,7 @@ There is no separate Nessie README or chat page in `nextseek_api`; the chat page
 
 ### Mezzanine routes
 
-Mezzanine 6.0.0 is installed (`mezzanine.blog`, `.forms`, `.galleries`, `.accounts`, `.pages`, `.generic` in `INSTALLED_APPS`) and its whole URL conf is mounted under the `^` include, last in `dmac/urls.py`. Its public pages are not part of NExtSEEK: a `_not_found` route placed above the include answers 404 for `/blog/...`, `/search/...`, `/accounts/...`, `/password_reset/...` and `/reset/...`. They are shadowed rather than dropped from the include, so every URL name Mezzanine's admin templates reverse still resolves (`dmac/tests/test_mezzanine_pages_retired.py`).
+Mezzanine 6.0.0 is installed (`mezzanine.blog`, `.forms`, `.galleries`, `.accounts`, `.pages`, `.generic` in `INSTALLED_APPS`) and its whole URL conf is mounted under the `^` include, last in `dmac/urls.py`. Its public pages are not part of NExtSEEK: a `_not_found` route placed above the include answers 404 for `/blog/...`, `/search/...`, `/accounts/...`, `/password_reset/...` and `/reset/...` (slashed paths only, so `/accounts/login` still gets the APPEND_SLASH redirect). The Django admin's login page is Mezzanine's, overridden in `themes/NextSeek/templates/admin/login.html` only to hide its "Forgot password?" link. They are shadowed rather than dropped from the include, so every URL name Mezzanine's admin templates reverse still resolves (`dmac/tests/test_mezzanine_pages_retired.py`).
 
 | URL | What answers | Notes |
 |---|---|---|

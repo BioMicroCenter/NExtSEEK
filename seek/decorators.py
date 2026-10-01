@@ -90,16 +90,20 @@ def requires_seek_login(view=None, *, log_failure=False):
     return wrapper
 
 
+_PATH_SAFE = "/:@&+$,=-_.!~*'()"
+
+
 def login_redirect(request, next_url=None):
     """302 to the login page, which returns to ``next_url`` or, by default, to
     the page that was asked for (path and query string).
 
-    Built from the decoded path rather than ``get_full_path()``, which is already
-    escaped and would come out double-encoded.
+    The path is re-escaped (keeping ``=``, which UID routes use) so an encoded
+    ``?``, ``%`` or ``/`` in it survives the round trip; the whole target is then
+    quoted once more as the value of ``next``.
     """
     if next_url is None:
         query = request.META.get('QUERY_STRING', '')
-        next_url = request.path + ('?' + query if query else '')
+        next_url = quote(request.path, safe=_PATH_SAFE) + ('?' + query if query else '')
     return HttpResponseRedirect('/login/?next=' + quote(next_url, safe='/='))
 
 

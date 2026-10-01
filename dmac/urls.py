@@ -56,7 +56,7 @@ urlpatterns += [
     # after it is unreachable and users get Mezzanine's local signup form instead
     # of being handed off to SEEK. Registered last among the signup_seek patterns
     # so {% url "signup_seek" %} reverses to this one.
-    re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),
+    re_path(r'^accounts/signup/$', views.signup_seek, name="signup_seek"),
     # Accounts are SEEK's. Of Mezzanine's account pages only sign-out is used (the
     # user menu reverses its name, "logout"); /accounts/login/ is the SEEK login.
     re_path(r'^accounts/login/$', views.login_seek),
@@ -64,8 +64,9 @@ urlpatterns += [
     # Mezzanine's public pages are not part of NExtSEEK: its blog, site search,
     # account forms and local password reset answer 404. Shadowed rather than
     # dropped from the include, so the names Mezzanine's admin templates reverse
-    # still resolve.
-    re_path(r'^(?:blog|search|accounts|password_reset|reset)(?:/|$)', _not_found),
+    # still resolve. Slashed paths only, so /accounts/login (no slash) still gets
+    # APPEND_SLASH's redirect to the route above.
+    re_path(r'^(?:blog|search|accounts|password_reset|reset)(?:/.*)?/$', _not_found),
     re_path("^", include("mezzanine.urls")),
 ]
 
