@@ -631,7 +631,9 @@ def retire_samples(driver, db, ids, *, run_dir: str | None = None, lock_timeout_
 
     MySQL is read again first: an id it still holds is left as it is and counted in ``retire_skipped_in_mysql``.
     A synced ``:Sample`` of a gone id is archived to ``retired.tsv`` and deleted, a never-synced one becomes an
-    ``:OrphanSample`` (``writer.retire_samples``), and the counts of the types they held are set again.
+    ``:OrphanSample`` (``writer.retire_samples``), and the counts of the types they held are set again. The lineage
+    partners of the gone ids are read before the delete and their INPUT_TO and OUTPUT_OF rewritten after it (graph
+    schema 1.3): an edge to a deleted sample, or to an OrphanSample, gives no role.
     """
     wanted = _ids(ids)
     if not wanted:
@@ -646,7 +648,9 @@ def retire_samples(driver, db, ids, *, run_dir: str | None = None, lock_timeout_
             log.info("graph_sync: not retiring %d samples MySQL still holds", len(still))
         if gone:
             old_types = _types_of_samples(driver, db, gone)
+            partners = _partners(driver, db, gone)
             report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
+            report.update(_rewrite_with_partners(driver, db, [], partners, ctx))
             report["sample_type_counts_set"] = _set_type_counts(driver, db, old_types)
         return report
 

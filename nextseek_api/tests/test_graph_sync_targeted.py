@@ -375,6 +375,7 @@ class FakeGraph:
                                   if not label.startswith("T_") and label != "Sample"} | {"OrphanSample"}
                 node["type_id"] = None
                 node["props"]["orphaned_at"] = "now"
+                self.assay_edges.pop(sid, None)
                 n += 1
         return [{"n": n}]
 
@@ -1095,6 +1096,35 @@ def test_an_assay_edge_whose_assay_node_is_missing_is_a_structural_gap(env, tmp_
     assert result["structural_gap_parts"]["assay_edges_dropped"] == 2
     assert result["structural_gaps"] >= 2
     assert targeted.UNTRACED_MARK in result["structural_gap_samples"][11]
+
+
+def test_retire_samples_rewrites_the_partners_of_a_retired_sample_after_the_delete(with_assay, tmp_path):
+    graph = with_assay.graph
+    graph.add_sample(15, 33)
+    graph.add_edge(15, 10)
+    graph.assay_edges[15] = {("OUTPUT_OF", 99, (5,))}
+    graph.assay_edges[10] = {("INPUT_TO", 99, (5,))}
+    result = targeted.retire_samples(graph, DB, [15], run_dir=str(tmp_path))
+
+    assert 15 not in graph.nodes and 15 not in graph.assay_edges
+    assert graph.assay_edges[10] == set()
+    assert (graph.first(q.LINEAGE_PAIRS_INCIDENT) < graph.first(q.DELETE_RETIRED)
+            < graph.first(q.REPLACE_SAMPLE_ASSAY_EDGES))
+    assert result["assay_edge_partners"] == 1
+
+
+def test_a_sample_that_becomes_an_orphan_loses_its_assay_edges_and_its_partner_its_role(with_assay, tmp_path):
+    graph = with_assay.graph
+    graph.add_sample(16, 33, synced=False)
+    graph.add_edge(16, 10)
+    graph.assay_edges[16] = {("OUTPUT_OF", 99, (5,))}
+    graph.assay_edges[10] = {("INPUT_TO", 99, (5,))}
+    targeted.retire_samples(graph, DB, [16], run_dir=str(tmp_path))
+
+    assert graph.nodes[16]["labels"] == {"OrphanSample"}
+    assert graph.edge(16, 10) is not None                          # its lineage stays
+    assert 16 not in graph.assay_edges
+    assert graph.assay_edges[10] == set()                          # an OrphanSample end is not lineage for a role
 
 
 # --- sync_samples and retire_samples: the deletion rule --------------------------------------------

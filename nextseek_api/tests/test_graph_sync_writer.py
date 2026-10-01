@@ -2147,3 +2147,10 @@ def test_sample_ids_with_assay_edges_pages_by_keyset(monkeypatch):
     driver = FakeDriver(lambda query, params: pages[params["after"]])
     assert list(w.sample_ids_with_assay_edges(driver, "neo4j")) == [3, 8, 9]
     assert [c.params["after"] for c in driver.calls] == [w._INT64_MIN, 8]
+
+
+def test_an_orphan_swap_drops_the_samples_assay_edges_and_keeps_its_lineage():
+    assert "CALL (s) { MATCH (s)-[r:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE r }" in q.ORPHAN_SWAP
+    for statement in (q.RELABEL_ORPHANS, q.RELABEL_ORPHANS_BY_ELEMENT_ID):
+        assert statement.rstrip().endswith(q.ORPHAN_SWAP.strip())
+    assert "DERIVED_FROM" not in q.ORPHAN_SWAP and "DETACH" not in q.ORPHAN_SWAP

@@ -93,11 +93,12 @@ DETACH DELETE s
 RETURN count(*) AS n
 """
 # The deletion rule (the sync design, section 9). A node graph_sync never wrote (no synced_at: a v1.0 graph-only
-# node, which may carry lineage MySQL never had) becomes an OrphanSample: Sample, every T_ label, OF_TYPE and
-# IN_PROJECT go, orphaned_at is set, its properties and DERIVED_FROM stay. One body, matched by id or by element id;
-# a node carrying synced_at is never matched here (retire_samples deletes it instead).
+# node, which may carry lineage MySQL never had) becomes an OrphanSample: Sample, every T_ label, OF_TYPE,
+# IN_PROJECT, INPUT_TO and OUTPUT_OF go, orphaned_at is set, its properties and DERIVED_FROM stay. One body, matched
+# by id or by element id; a node carrying synced_at is never matched here (retire_samples deletes it instead).
 ORPHAN_SWAP = """
 CALL (s) { MATCH (s)-[o:OF_TYPE|IN_PROJECT]->() DELETE o }
+CALL (s) { MATCH (s)-[r:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE r }
 WITH s, [l IN labels(s) WHERE l STARTS WITH 'T_'] AS types
 SET s:OrphanSample, s.orphaned_at = datetime()
 REMOVE s:Sample
