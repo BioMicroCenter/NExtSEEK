@@ -59,13 +59,10 @@ characters (`ci/routes.py:57-77`). Validation refuses a route with neither profi
 exclusion, and refuses a free-text exclusion reason because this repository is
 public (`ci/routes.py:81-89`).
 
-Measured 2026-09-03 by importing the module and counting every entry of the
-`REGISTRY` list that begins at `ci/routes.py:204`: 159 entries, 157 of them
-`resolver=True`; 26 carry an exclusion; 11 carry an `xfail`; 133 entries name
-`local`, 133 name `dev`, 79 name `prod`; and exactly one sets
-`prod_allows_non_get`, the `^login` route at `ci/routes.py:219-223`. The
-placeholder vocabulary those paths draw on holds 13 names
-(`ci/routes.py:162-180`).
+Count the entries, their `resolver`, `exclude` and `xfail` settings, and the
+environments they name by importing `ci.routes` and iterating `REGISTRY`; the
+one route that sets `prod_allows_non_get` is the `^login` route. The placeholder
+vocabulary those paths draw on is declared in `ci/routes.py`.
 
 `match()` resolves a URL to the most specific declaration (the pattern that
 pins the whole path first, then the one spelling out the most literal characters),

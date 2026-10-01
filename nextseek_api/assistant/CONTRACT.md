@@ -28,10 +28,10 @@ All endpoints are **additive** to the existing `AssistantViewSet`; existing endp
 
 ## Op table
 
-The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds **eleven** handlers: the
-seven ops ported from the sidecar, plus `run-ls` (`_run_ls`), `build-upload-xlsx`
-(`_build_upload_xlsx`), `run-harvest` (`_run_harvest`) and `run-checksum` (`_run_checksum`), the
-NExtSEEK-only reingest quartet added afterwards. `run_op` refuses any label absent from that table.
+The dispatcher is `_HANDLERS` in `NessieAI/ns/granular.py`, and it holds the
+ops ported from the sidecar, plus `run-ls` (`_run_ls`), `build-upload-xlsx`
+(`_build_upload_xlsx`), `run-harvest` (`_run_harvest`), `run-checksum` (`_run_checksum`) and
+`upload-reingest` (`_upload_reingest`), the NExtSEEK-only reingest ops added afterwards. `run_op` refuses any label absent from that table.
 The sidecar's own table (`_HANDLERS` in `NessieAI/docker/ns-sidecar/app/ops.py`) matches it handler
 for handler. The last two rows below are not dispatched here at all: they are the pre-existing
 chat endpoints, listed so the whole surface is in one place.
@@ -46,7 +46,8 @@ chat endpoints, listed so the whole surface is in one place.
 | **report** | POST `/assistant/report/` | `ReportOpRequest{mode, project}` | `ReportOpResponse` | `run_reporter_summary(config, ReporterPlan(project, reporter_mode="summary", summary_mode=("RPPR" if mode=="rppr" else mode)), log_dir)` → `(result, saved_files, summary)`. Result = `{summary, saved_files, rows}`. **No LLM** (SQL/Neo4j). |
 | **generate-submission** | POST `/assistant/generate-submission/` | `SubmissionRequest{type, uids, query?}` | `SubmissionResponse` | `report_writer_agent(config, query or "Generate a <type> submission report…", ReportWriterPlan(report_type=type, reporter_context={"uids": [...]}))` → `ReportWriterOutput`. **Note:** the query defaults to a non-empty string (a blank user message is rejected by Bedrock/Opus). |
 | **run-ls** | POST `/assistant/run-ls/` | `RunLsRequest{run_dir}` | none declared; the `run_ls` action pins only the error envelope | no agent and **no LLM**: `_run_ls` validates that `run_dir` is at or under `<LURIA working_path>/runs`, then calls `ssh_run` with the path shell-quoted. Result = `{run_dir, truncated, tree}`. Never writes to Luria. |
-| **build-upload-xlsx** | POST `/assistant/build-upload-xlsx/` | `BuildUploadXlsxRequest{rows, existing_parent_uids, session_id?}` | none declared; the `build_upload_xlsx` action pins only the error envelope | no agent and **no LLM**: `_build_upload_xlsx` runs `qa_rows` per sample type, skips a HARD_REJECT type while still returning its report, then runs `render_upload_workbook` per surviving type. Result = `{saved_files, qa}`. **No NExtSEEK write.** |
+| **build-upload-xlsx** | POST `/assistant/build-upload-xlsx/` | `BuildUploadXlsxRequest{rows, existing_parent_uids, session_id?, answers?}` | none declared; the `build_upload_xlsx` action pins only the error envelope | no agent and **no LLM**: `_build_upload_xlsx` runs `qa_rows` per sample type, skips a HARD_REJECT type while still returning its report, then runs `render_upload_workbook` per surviving type. Result = `{saved_files, qa, builds, answers_deferred}`; `builds` is one build record per workbook (sha256 build id, disposition, project) and `answers_deferred` lists answers held for the other mode's call. **No NExtSEEK write.** |
+| **upload-reingest** | POST `/assistant/upload-reingest/` | `UploadReingestRequest{build_ids, confirmed_write (strict bool), use_prod (ignored)}` | none declared | no agent and **no LLM**: `_upload_reingest` calls the gate as `api-write` first, then `upload.run` verifies each build record of the caller, stages and re-hashes every workbook, and starts one batch-upload job per workbook through `dispatch_batch_job`, new mode first. Result = `{jobs, reply}`; each job is `{build_id, artifact_key, sample_type, mode, job_id}` or carries `error` instead of `job_id`. **Writes to NExtSEEK; files only, never rows.** |
 | **run-harvest** | POST `/assistant/run-harvest/` | `RunHarvestRequest{run_dir, allow_failed_run?}` | none declared; the `run_harvest` action pins only the error envelope | no agent and **no LLM**: `_run_harvest` validates `run_dir` exactly as `_run_ls` does (shared `_validate_run_dir`), stages every `harvest.GENERIC_GLOBS` match off Luria into a temp dir, and calls `harvest.harvest_local` on it. Refuses (VALIDATION) a run with a failed process unless `allow_failed_run` is set. Result = `{run_dir, manifest_id, manifest}`. Never writes to Luria or to NExtSEEK. |
 | **run-checksum** | POST `/assistant/run-checksum/` | `RunChecksumRequest{run_dir, paths, manifest_id?}` | none declared; the `run_checksum` action pins only the error envelope | no agent and **no LLM**: `_run_checksum` validates `run_dir` exactly as `_run_ls` does (shared `_validate_run_dir`), then runs a remote Python script over SSH that md5s each caller-named relative path under `run_dir`. Unlike `run-harvest`'s glob matches, `paths` is caller-supplied, so a symlink, hardlink, traversal, or any other resolve-outside-`run_dir` escape is a hard VALIDATION error naming every offending path, never a silent skip; only a genuinely missing/non-regular-file path is reported in `skipped`. With `manifest_id`, also loads that run-harvest manifest, merges the new checksums into `RunManifest.checksums`, and re-saves it — manifests are content-addressed (`store.save_manifest`), so this produces a NEW id rather than mutating the one loaded. Refuses (VALIDATION) when the loaded manifest's own `run_dir` does not match the `run_dir` being hashed, so a stale `manifest_id` from a different run can never fold its checksums into this run's outputs. Result = `{run_dir, checksums, skipped, manifest_id?}` (the `manifest_id` key is present, and is the NEW id, only when one was supplied). Never writes to Luria or to NExtSEEK. Separate op from `run-harvest` because hashing multi-GB BAMs during harvest would blow the harvest step's wall clock; which file becomes `File_PrimaryData` is derived server-side from the committed map (`NessieAI/ns/reingest/mapper.py`) once `build-upload-xlsx` runs, independent of when (or whether) it was checksummed. |
 | **query** | POST `/assistant/query/` (SSE) | `QueryRequest{query, mode, session_id?, force_new?, use_prod?}` | (SSE stream) | **already exposed**: `run_query(...)`. No change. |
@@ -62,12 +63,13 @@ chat endpoints, listed so the whole surface is in one place.
 | report | `mode` ∈ {samples,protocols,published,rppr}, `project` | `use_prod?` |
 | generate-submission | `type` ∈ {GEO,SRA,NFCORE_RNASEQ,NFCORE_SCRNASEQ,PRIDE}, `uids` (comma-sep), `query?` | `use_prod?` |
 | run-ls | `run_dir` | `use_prod?` |
-| build-upload-xlsx | `rows` (JSON string), `existing_parent_uids` (comma-sep, defaults `""`) | `use_prod?`, `session_id?` |
+| build-upload-xlsx | `rows` (JSON string), `existing_parent_uids` (comma-sep, defaults `""`) | `use_prod?`, `session_id?`, `answers?` |
+| upload-reingest | `build_ids` (comma-sep), `confirmed_write` (strict bool) | `use_prod?` (ignored) |
 | run-harvest | `run_dir`, `allow_failed_run` (bool, defaults `false`) | `use_prod?` |
 | run-checksum | `run_dir`, `paths` (comma-sep relative paths), `manifest_id?` | `use_prod?` |
 
 A caller can ignore the `use_prod`/`session_id` additions; they default safely. All four reingest
-models (`RunLsRequest`, `BuildUploadXlsxRequest`, `RunHarvestRequest`, `RunChecksumRequest`) set
+models (`RunLsRequest`, `BuildUploadXlsxRequest`, `RunHarvestRequest`, `RunChecksumRequest`, `UploadReingestRequest`) set
 `extra="forbid"`, so an unknown body field is a 422, not a silent drop.
 
 ## Downloading report / generate-submission / build-upload-xlsx outputs (the HTTP delivery path)
@@ -110,19 +112,13 @@ gate (`is True`). The gate fires **before** any agent/LLM call or DB write, so a
 cannot reach the database. `api-read` is allowlist-gated against
 `NessieAI/ns/read_safe_endpoints.json`. Source: `build_gate` in `NessieAI/ns/write_gate.py`.
 
-Only two handlers call the gate at all: the `api-read` and `api-write` handlers in
-`NessieAI/ns/granular.py`. The other nine, `run-ls`, `build-upload-xlsx`, `run-harvest` and
-`run-checksum` among them, never reach it, which is why the gate's own `SIDECAR_OPS` frozenset
-still holds the **seven** ported labels while the dispatcher holds eleven. That set is not a
-second op catalog: it is the gate's known-label list, and anything outside it is default-denied.
-A handler added later that *does* call the gate with its own label is refused with
-`WRITE_BLOCKED` until the label is added there.
+Three handlers call the gate: `api-read` and `api-write`, and `upload-reingest`, which reaches it under the `api-write` label and so needs the same strict `True`. The other reingest ops, `run-ls`, `build-upload-xlsx`, `run-harvest` and `run-checksum`, never reach it. The gate's own `SIDECAR_OPS` frozenset holds only the ported sidecar labels while `_HANDLERS` holds every op. That set is not a second op catalog: it is the gate's known-label list, and anything outside it is default-denied. A handler added later that *does* call the gate with its own label is refused with `WRITE_BLOCKED` until the label is added there.
 
 `run-harvest` is read-only for the same reason `run-ls` is: it only stages files off Luria (SSH)
 and parses them locally, and never calls `write_gate`, `_run_granular_op`'s own gate check, or
 NExtSEEK's write API. It is intentionally absent from `write_gate.SIDECAR_OPS` — adding it there
 would not make it safer, since nothing in its handler ever calls the gate to begin with, and it
-would make the count-mismatch above harder to explain to the next reader.
+would make the label-set mismatch above harder to explain to the next reader.
 
 `run-checksum` is read-only for the same reason: it only SSHes Luria to md5 files, returns the
 digests, and — when `manifest_id` is given — folds them into a NEW, content-addressed manifest

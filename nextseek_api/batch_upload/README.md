@@ -54,6 +54,8 @@ authenticated callers only (`nextseek_api/batch_upload/views.py:101`).
 | `summary/{job_id}` | `nextseek_api/batch_upload/views.py:587` | the summary CSV as a download |
 | `list` | `nextseek_api/batch_upload/views.py:618` | the caller's own jobs, paged |
 
+`dispatch_batch_job` in `nextseek_api/batch_upload/views.py` is the one place a job starts: `start` and the assistant's `upload-reingest` op both call it, so ownership registration (`register_job`) and the contributor identity cannot drift. It takes exactly one of `rows` or `xlsx_paths`. `stage_workbook_copy` copies a server-side workbook under a uuid name into the upload directory for the worker.
+
 `start` takes two input modes and rows win when both arrive
 (`nextseek_api/batch_upload/views.py:168`); uploads must end in `.xlsx`
 (`nextseek_api/batch_upload/views.py:201`) and are capped by a settings value defaulting to

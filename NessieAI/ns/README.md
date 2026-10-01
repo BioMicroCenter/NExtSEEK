@@ -8,7 +8,7 @@ No Django models live here; the HTTP contract and the ORM stay in `nextseek_api/
 
 | Module | What it does |
 |---|---|
-| `granular.py` | `run_op` dispatches a table of nine handlers: seven ported sidecar ops, plus `run-ls` and `build-upload-xlsx` for reingest. Every `chat_nextseek` agent is imported inside a handler body |
+| `granular.py` | `run_op` dispatches `_HANDLERS`: the ported sidecar ops, plus the reingest ops (`run-ls`, `run-harvest`, `run-checksum`, `build-upload-xlsx`, and the write-class `upload-reingest`). Every `chat_nextseek` agent is imported inside a handler body |
 | `write_gate.py` + `read_safe_endpoints.json` | `build_gate`: strict `True` confirms `api-write`; allowlist membership for `api-read`; pass for the read-class labels; deny anything else. The JSON is found beside the module |
 | [`reingest/`](reingest/README.md) | turns a finished nf-core run into NExtSEEK rows: harvest to a `RunManifest`, a committed per-pipeline map, and an approval queue for every raw key the map does not cover. Never invents a sample attribute |
 | [`reingest_maps/`](reingest_maps/README.md) | one `<pipeline>.outputs.json` per nf-core pipeline: committed, code-reviewed, read-only at runtime, gated in CI by `NessieAI/tests/ns/reingest/test_map_contract.py` |
