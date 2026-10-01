@@ -37,12 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 5. Login page
-
-Files: `themes/NextSeek/templates/login.html` (inline `<style>`), `themes/NextSeek/templates/base_auth.html`.
-
-17. [UI-101](#styles): the partner logo strip renders as a flat pale bar on desktop and is hidden on phones.
-
 ### 6. Sample flow iframe
 
 Files: `nextseek_api/services/sampletype_connections.py` (the HTML page string the connections view
@@ -151,7 +145,6 @@ Project list and page, the Sample flow diagram, catalog pages, admin catalogs an
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
 | UI-100 | confusing | Three breakpoint conventions: the drawer switches below 992px, the 16 px inputs below 768px (767.98) and the desktop-only notice at 768px and below, and the "Mobile view v1" banner comment lists 768 / 576 / 400. Between 768 and 991px the drawer is active but inputs are small and the notice is hidden | code | `nextseek.css` "Mobile / Responsive" block, "Mobile view v1" and touch-target blocks, `.easyui-mobile-notice` in "Utility" | Standardise on 575.98 / 767.98 / 991.98 and pick one "mobile" cut point |
-| UI-101 | confusing | Login page, desktop: the partner logo strip renders as a flat pale bar (`filter: brightness(0) invert(1)`, opacity .55, 22 px tall on crimson); on phones it is hidden | live 2026-09-30 | `themes/NextSeek/templates/login.html` inline `<style>` (partner logo rules and the phone media block) | Use a white logo asset at full opacity and a larger height; show it in the phone layout |
 | UI-102 | confusing | The login page uses Source Sans 3 and Playfair Display; the app uses Inter. The `--ns-font-*` tokens name Inter first, which is not loaded on auth pages | code | `themes/NextSeek/templates/base_auth.html` font link vs `base.html` | Load the same font link, or add an explicit auth font token |
 | UI-103 | confusing | Monospace text renders as Courier New: JetBrains Mono and Fira Code are named but never loaded | code | `nextseek.css` `:root` `--ns-font-mono` | Use `ui-monospace, SFMono-Regular, Menlo, monospace`, or load the font |
 | UI-105 | debt | About 260 `!important` declarations make overrides order-dependent | code | `nextseek.css` ("EasyUI Theme Overrides" holds about half; the datagrid retune, search-tab and workbench sections most of the rest) | Scope EasyUI overrides under one class and drop `!important` where specificity suffices |

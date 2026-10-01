@@ -190,3 +190,16 @@ class TestNewSampleOnPhones:
         for name in ("pages/batch_upload.embed.html", "dataFileUpload.html"):
             assert "min-width:600px" not in (root / name).read_text(), name
         assert "easyui-mobile-notice" in (root / "dataFileUpload.html").read_text()
+
+
+class TestLoginPartnerLogos:
+    """UI-101: the partner strip shows as itself, on desktop and on phones."""
+
+    def test_strip_is_not_recoloured_and_shows_on_phones(self):
+        html = _theme_file("templates/login.html").read_text()
+        rule = html[html.index(".auth-panel-foot img {"):]
+        rule = rule[:rule.index("}")]
+        assert "invert" not in rule and "opacity" not in rule
+        phone = html[html.index("@media (max-width: 767.98px)"):]
+        assert ".auth-panel-foot { display: none" not in phone
+        assert ", .auth-panel-foot { display: none" not in phone

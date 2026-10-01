@@ -188,7 +188,7 @@ button" rules in `nextseek.css` (`.nessie-btn`). `nextseek.js` needs no handler 
 | Home, signed out | sticky top bar (hamburger, wordmark, Sign in), then the dashboard with a Sign in button in the hero | Sign in in the top bar or the hero; also at the bottom of the drawer |
 | Home, signed in | sticky top bar (hamburger, wordmark), heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Profile, Update profile, Sign out |
 | Protected page, signed out | redirected (302) to `/login/`, usually with a `next` target; `/seek/assistant/` shows an access error instead (UI-020) | n/a |
-| `/login/` | brand strip (wordmark only) above the form; no sidebar, no hamburger | n/a |
+| `/login/` | crimson brand strip (wordmark, then the partner logos on a white card) above the form; no sidebar, no hamburger | n/a |
 | `/seek/help/` | top bar, article, footer (logo above the copyright line below 576px) | top bar |
 
 The drawer shows the wordmark, the nav sections, Quick Access (signed in only) and the user panel

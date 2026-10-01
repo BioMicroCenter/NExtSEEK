@@ -97,9 +97,17 @@ body.nextseek-auth {
 }
 
 .auth-panel-foot img {
-    height: 22px;
-    opacity: 0.55;
-    filter: brightness(0) invert(1);
+    /* The partner strip is full-colour logos on white boxes: show it as it is,
+       on a white card, rather than recolouring it (that made a flat pale bar). */
+    display: block;
+    box-sizing: border-box;
+    height: 44px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
+    padding: 7px 12px;
+    background: #fff;
+    border-radius: 8px;
 }
 
 /* ── Right panel (form) ──────────────────────────── */
@@ -240,8 +248,12 @@ body.nextseek-auth {
         flex-direction: row;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
+        row-gap: 0.85rem;
     }
-    .auth-panel-copy, .auth-panel-foot { display: none; }
+    .auth-panel-copy { display: none; }
+    .auth-panel-foot { flex-basis: 100%; }
+    .auth-panel-foot img { height: 38px; padding: 6px 10px; }
     .auth-brand { margin: 0; }
     .auth-wordmark { font-size: 1.5rem; margin-bottom: 0.2rem; }
     .auth-tagline { display: none; }
