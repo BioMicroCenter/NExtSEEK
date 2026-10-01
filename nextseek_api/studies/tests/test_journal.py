@@ -50,6 +50,31 @@ def test_a_torn_last_line_is_ignored_reported_and_closed_before_the_next(tmp_pat
     assert [l["seq"] for l in lines] == [1, 2] and bad == 1
 
 
+def test_lines_are_ascii_and_a_line_separator_in_a_value_stays_in_its_line(tmp_path):
+    path = tmp_path / j.JOURNAL_FILE
+    jr = j.Journal(path, run_id="r")
+    old = "{\"Note\": \"a b c\u0085d 5 µl at 4 °C, α\"}"
+    jr.append("pubs", "intent", rows=[[3, old, old]])
+    jr.append("study", "intent", target_key="k\u0085", payload={"title": "α paper"})
+    assert path.read_bytes().isascii()
+    lines, bad = j.read_journal(path)
+    assert bad == 0 and [l["step"] for l in lines] == ["pubs", "study"]
+    assert j.journal_state(lines).pubs_rows == {3: (old, old)}
+
+
+def test_a_line_cut_inside_a_character_is_one_bad_line_never_an_error(tmp_path):
+    path = tmp_path / j.JOURNAL_FILE
+    j.Journal(path, run_id="r").append("run", "start")
+    whole = json.dumps({"seq": 2, "step": "study", "event": "intent", "title": "α"}, ensure_ascii=False)
+    data = whole.encode("utf-8")
+    with open(path, "ab") as fh:
+        fh.write(data[:data.index("α".encode("utf-8")) + 1])
+    assert [len(x) if isinstance(x, list) else x for x in j.read_journal(path)] == [1, 1]
+    j.Journal(path, run_id="r").append("study", "intent", target_key="k")
+    lines, bad = j.read_journal(path)
+    assert [l["seq"] for l in lines] == [1, 2] and bad == 1
+
+
 @pytest.mark.parametrize("field", ["password", "Password", "authorization", "secret", "credential"])
 def test_a_credential_field_is_refused(tmp_path, field):
     with pytest.raises(ValueError, match="never journaled"):

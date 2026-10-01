@@ -2,8 +2,10 @@
 
 One JSON object a line: ``seq``, ``at`` (UTC), ``run_id``, ``step``, ``event`` and the step's fields. ``append``
 writes the line, flushes and fsyncs before it returns, and every write of apply and rollback happens only after its
-line has returned. The reader ignores a line it cannot parse (a crash inside a write leaves a torn last line) and
-counts it; a new ``Journal`` on such a file first ends the torn line, so the next line is whole. The journal carries
+line has returned. Lines are ASCII (other characters escaped), so no cut can split a character and no line separator
+of Unicode's can split a line. The reader splits on newline bytes only and ignores a line it cannot decode or parse
+(a crash inside a write leaves a torn last line), counting it; a new ``Journal`` on such a file first ends the torn
+line, so the next line is whole. A torn line's write never began. The journal carries
 the login name and SEEK person id, never a credential: a field named like one is refused.
 """
 from __future__ import annotations
@@ -28,12 +30,12 @@ def read_journal(path) -> tuple[list[dict], int]:
     if not path.exists():
         return [], 0
     lines, bad = [], 0
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in path.read_bytes().split(b"\n"):
         if not raw.strip():
             continue
         try:
             obj = json.loads(raw)
-        except ValueError:
+        except ValueError:      # UnicodeDecodeError included: a line cut inside a character
             bad += 1
             continue
         if isinstance(obj, dict):
@@ -66,7 +68,7 @@ class Journal:
             raise ValueError(f"{bad}: a credential is never journaled")
         self._seq += 1
         line = {"seq": self._seq, "at": _utc(), "run_id": self.run_id, "step": step, "event": event, **fields}
-        data = (json.dumps(line, sort_keys=True, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        data = (json.dumps(line, sort_keys=True, default=str) + "\n").encode("utf-8")
         with open(self.path, "ab") as fh:
             fh.write(data)
             fh.flush()
