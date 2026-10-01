@@ -123,6 +123,7 @@ dependencies = [
   "channels>=4.3.2",
   "daphne>=4.2.1",
   "dmac-assistant",
+  "cryptography>=46",
 ]
 
 [[tool.uv.index]]
