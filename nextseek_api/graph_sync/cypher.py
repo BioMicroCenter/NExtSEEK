@@ -709,6 +709,69 @@ MATCH (s:Sample)-[:IN_PROJECT]->(p:Project) WHERE NOT p.id IN coalesce(s.project
 RETURN count(*) AS n
 """
 
+# --- the studies tool's paper studies (graph_sync/paper_studies.py; the tool spec, 7.6 and 7.7) ---------------
+
+# The IN_STUDY edges from these samples to one graph-only paper Study (an `id`, no `seek_study_id`).
+PAPER_IN_STUDY_OF = """
+UNWIND $ids AS id
+MATCH (s:Sample {id: id})-[e:IN_STUDY]->(st:Study {id: $paper_id})
+WHERE st.seek_study_id IS NULL
+RETURN s.id AS sample_id, elementId(e) AS element_id
+ORDER BY sample_id
+"""
+# Deletes an archived edge only while it is still an IN_STUDY to that paper Study.
+DELETE_PAPER_IN_STUDY = """
+UNWIND $element_ids AS eid
+MATCH (:Sample)-[e:IN_STUDY]->(st:Study)
+WHERE elementId(e) = eid AND st.id = $paper_id AND st.seek_study_id IS NULL
+DELETE e
+RETURN count(*) AS deleted
+"""
+# Graph-only paper Study nodes (an `id`, no `seek_study_id`) that hold no IN_STUDY and nothing but their
+# IN_INVESTIGATION, each with what restoring it needs. A SEEK study's node is never one of them: Study nodes of SEEK
+# studies are not deleted (the studies release).
+EMPTY_PAPER_STUDY_NODES = """
+UNWIND $ids AS id
+MATCH (st:Study {id: id})
+WHERE st.seek_study_id IS NULL AND NOT EXISTS { (st)<-[:IN_STUDY]-() }
+  AND COUNT { (st)--() } = COUNT { (st)-[:IN_INVESTIGATION]->() }
+RETURN st.id AS study_id, elementId(st) AS element_id, properties(st) AS props,
+       [(st)-[:IN_INVESTIGATION]->(i) | i.id] AS investigation_ids
+"""
+DELETE_EMPTY_PAPER_STUDY_NODES = """
+UNWIND $element_ids AS eid
+MATCH (st:Study)
+WHERE elementId(st) = eid AND st.seek_study_id IS NULL AND NOT EXISTS { (st)<-[:IN_STUDY]-() }
+  AND COUNT { (st)--() } = COUNT { (st)-[:IN_INVESTIGATION]->() }
+DETACH DELETE st
+RETURN count(*) AS deleted
+"""
+# Restores, each a no-op for what already exists. The node restore uses a scoped CALL subquery, hence CYPHER 25.
+RESTORE_PAPER_STUDY_NODES = """
+CYPHER 25
+UNWIND $rows AS r
+OPTIONAL MATCH (existing:Study {id: r.study_id})
+WITH r, existing WHERE existing IS NULL
+CREATE (st:Study)
+SET st = r.props
+WITH st, r
+CALL (st, r) {
+  UNWIND r.investigation_ids AS iid
+  MATCH (i:Investigation {id: iid})
+  MERGE (st)-[:IN_INVESTIGATION]->(i)
+}
+RETURN count(st) AS restored
+"""
+RESTORE_PAPER_IN_STUDY = """
+UNWIND $rows AS r
+MATCH (s:Sample {id: r.sample_id})
+MATCH (st:Study {id: r.study_id})
+WHERE st.seek_study_id IS NULL AND NOT EXISTS { (s)-[:IN_STUDY]->(st) }
+CREATE (s)-[:IN_STUDY]->(st)
+RETURN count(*) AS restored
+"""
+
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.

@@ -330,7 +330,8 @@ One concern each; `git ls-files nextseek_api/graph_sync` lists which have landed
 | `health.py` | pure, standard library only: the judgement of a status body (stale jobs, dead and failing rows, failed runs, drift) that the smoke suite and `manage.py graph_sync_health` share |
 | `hooks.py` | what every NExtSEEK writer calls after it writes; it never raises into its caller |
 | `cypher.py`, `writer.py` | the Neo4j statements and the chunked writer |
-| `targeted.py` | the by-id entry points: sync, retire, relabel, the small tables |
+| `targeted.py` | the by-id entry points: sync, retire, relabel, the small tables, and the read-only label preview |
+| `paper_studies.py` | the studies tool's graph writes: retire a graph-only paper's IN_STUDY links, delete an empty paper Study node, restore both; archived first |
 | `reconcile.py` | the nightly targeted sync |
 | `loop.py` | one pass of the loop: housekeeping, the schedule, the drain |
 | `drift.py` | the read-only drift check |

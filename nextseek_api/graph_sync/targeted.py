@@ -11,6 +11,8 @@ bring part of the graph up to date without a full sync:
 - ``relabel_for_maps(driver, db)``: the labels a change to the resolved assay map or to ``sops`` affects.
 - ``sync_small_tables(driver, db)``: projects, investigations, people and memberships, and every SEEK study's
   node with its title, description and investigation.
+- ``preview_labels(driver, db, ids)``: read only, no lock: how an approved ``sync_samples`` would class each
+  DERIVED_FROM edge incident to ``ids`` (the studies tool's label approval check).
 
 **Every call is one write unit.** It first reads ``GraphMeta.schema_version`` and refuses, writing nothing, unless it
 is the writer's (``status: not_at_version``): a 1.1 graph waits for the operator's first full sync at 1.2. Then it
@@ -612,6 +614,35 @@ def _label_edges(driver, db, edges: list[dict], ctx: _Context, metas: dict | Non
     if refresh:
         report.update(writer.write_edge_label_refreshes(driver, db, refresh))
     return report
+
+
+def preview_labels(driver, db, ids) -> list[dict]:
+    """Read only: how ``sync_samples(..., apply_label_changes=True)`` would class every DERIVED_FROM edge incident to
+    ``ids`` now (the studies tool's approval check, T12). Each item holds ``child_id``, ``parent_id``, ``element_id``,
+    ``class`` (one of ``labels.CLASSES``), ``properties`` (the label keys that differ), ``stored`` and ``computed``
+    (all seven keys). The labels are computed exactly as ``_label_edges`` computes them; nothing is written and no
+    lock is taken."""
+    wanted = _ids(ids)
+    if not wanted:
+        return []
+    edges = writer.edges_incident(driver, db, wanted)
+    if not edges:
+        return []
+    assay_map, sops, sop_index = _Context(None).maps()
+    endpoints = sorted({v for e in edges for v in (e["child_id"], e["parent_id"]) if _is_id(v)})
+    assays = sources.sample_assay_ids_for(endpoints)
+    children = sorted({e["child_id"] for e in edges if _is_id(e["child_id"])})
+    metas = {row["id"]: row["json_metadata"] for row in sources.samples_by_ids(children)} if children else {}
+    out = []
+    for edge in edges:
+        child, parent, stored = edge["child_id"], edge["parent_id"], edge["stored"]
+        protocol = labels.resolve_protocol(labels.protocol_value_of(metas.get(child)), sops, sop_index)
+        computed = labels.edge_labels(assays.get(child), assays.get(parent), assay_map, protocol)
+        cls = labels.classify(stored, computed)
+        out.append({"child_id": child, "parent_id": parent, "element_id": edge["element_id"], "class": cls,
+                    "properties": [] if cls == labels.EQUAL else labels.differences(stored, computed),
+                    "stored": dict(stored), "computed": computed})
+    return out
 
 
 def _edge(record, props) -> dict:
