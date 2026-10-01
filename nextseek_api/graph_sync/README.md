@@ -229,8 +229,11 @@ itself and refuses (exit 2) while one that names its ids is not given. It report
 now names another node (`sources_replaced`, never written), a journal line a crash cut short, which it skips as the
 merge does (`journal_lines_skipped`), an archive line a crash cut short, which describes no removed link and is
 skipped (`archive_lines_skipped`), and a sample that reached a merged study after the merge
-(moved to the re-created seek-keyed node, `arrived_after_merge`), and ends `partial` (exit 1) when it refused an id,
-could not restore an Investigation, or had to leave such a sample on a legacy node with no seek-keyed node to move to.
+(moved to the re-created seek-keyed node, `arrived_after_merge`). Last, it appends a timed `done` line to each merge
+attempt it reversed that the journals given leave open (a merge that died after its last step), so a later merge of
+the id is read as a new one; a journal it cannot write is named in `journals_not_closed`. It ends `partial` (exit 1)
+when it refused an id, could not restore an Investigation, had to leave such a sample on a legacy node with no
+seek-keyed node to move to, or could not write such a `done` line.
 Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories
 are never pruned.
 

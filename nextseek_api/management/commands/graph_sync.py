@@ -741,12 +741,15 @@ class Command(BaseCommand):
 
 def _undo_problems(result: dict) -> str:
     """What an undo that did not end ok could not do, in words: each refused id with its reason, each Investigation
-    not restored, each study whose late arrivals stayed on the legacy node, or the busy lock."""
+    not restored, each study whose late arrivals stayed on the legacy node, each journal it could not close, or the
+    busy lock."""
     parts = [f"study {r['study_id']} refused: {r['reason']}" for r in result.get("refused") or []]
     parts += [f"study {i['study_id']}: its {i['node']} node's Investigation {i['investigation'].get('id')} was not "
               "restored" for i in result.get("investigation_not_restored") or []]
     parts += [f"study {s['study_id']}: {len(s['arrived_left_on_legacy'])} sources that reached it after the merge "
               "stayed on the legacy node" for s in result.get("studies") or [] if s.get("arrived_left_on_legacy")]
+    parts += [f"could not record the undo in {j['journal']}: {j['error']}"
+              for j in result.get("journals_not_closed") or []]
     if result.get("status") == "lock_timeout":
         parts.append("the graph-write lock was busy")
     return "; ".join(parts) or "see its report"

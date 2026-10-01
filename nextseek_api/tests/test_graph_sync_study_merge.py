@@ -980,6 +980,44 @@ def test_a_crash_finished_in_another_run_directory_stays_one_cycle_after_a_rerun
     assert _snapshot(world.graph) == before
 
 
+
+@pytest.mark.parametrize("stale_rerun", [False, True], ids=["undo_with_no_rerun", "stale_rerun_after_the_second"])
+def test_an_undo_closes_the_merge_it_reversed_so_a_later_merge_is_a_new_cycle(world, tmp_path, stale_rerun):
+    """m1's last step committed but its done line never reached the journal, and no rerun recorded it before the
+    undo. The undo appends a timed done line to the attempt it reversed, so a second merge of the id (m2, in which 1002
+    sits on both nodes) is a new cycle, and a stale rerun into m1 after m2 began finds nothing open: the undo of both
+    keeps 1002's link to the legacy node."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    m1, m2 = tmp_path / "m1", tmp_path / "m2"
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    _drop_last_journal_line(m1)
+    assert study_merge.undo(world.graph, DB, [str(m1)])["status"] == "ok"
+    record, payload = _journal(m1)[-1][1:]
+    assert (record, payload["found"], payload["kind"]) == ("done", "undone", "merge") and payload["at"]
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m2))
+    if stale_rerun:
+        assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))["already_merged"] == [1]
+    assert study_merge.undo(world.graph, DB, [str(m1), str(m2)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_an_undo_that_cannot_close_a_journal_reports_it_and_ends_partial(world, tmp_path, monkeypatch):
+    """The graph is restored either way; a journal left open is named, and the status says the undo is not complete."""
+    _split(world)
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    _drop_last_journal_line(tmp_path)
+
+    def disk_full(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(study_merge, "_journal", disk_full)
+    result = study_merge.undo(world.graph, DB, [str(tmp_path)])
+    assert result["status"] == "partial" and _snapshot(world.graph) == before
+    assert result["journals_not_closed"] == [
+        {"journal": str(tmp_path / study_merge.JOURNAL_FILE), "error": "No space left on device"}]
+
 # --- an archive line a crash cut short, a --studies run that removed no link ------------------------------------------
 
 def test_undo_skips_and_reports_an_archive_line_a_crash_cut_short(world, tmp_path):

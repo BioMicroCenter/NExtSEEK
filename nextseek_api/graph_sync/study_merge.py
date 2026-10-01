@@ -663,7 +663,10 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
     or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal and archive lines
     a crash cut short are skipped and named in ``journal_lines_skipped`` (``read_journals``) and
-    ``archive_lines_skipped`` (``_read_archives``)."""
+    ``archive_lines_skipped`` (``_read_archives``). Last, it ends with a timed done line each attempt of an id it did
+    not refuse that a given journal leaves open (a merge whose last step landed before it died), so a later merge of
+    the id reads as a new cycle (``_close_attempts``); a journal it cannot write is named in ``journals_not_closed``
+    and makes the status ``partial``."""
     skipped: list[str] = []
     journals, archives = read_journals(paths, skipped)
     if run_root is not None:
@@ -676,7 +679,7 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
               "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": [],
-              "journal_lines_skipped": skipped, "archive_lines_skipped": archive_skipped}
+              "journal_lines_skipped": skipped, "archive_lines_skipped": archive_skipped, "journals_not_closed": []}
     todo = []
     for x in sorted(journals):
         entry = journals[x]
@@ -729,10 +732,31 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         _move_arrivals(driver, db, entry, keyed_eid, by_id[x], batch)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
-    if (report["refused"] or report["investigation_not_restored"]
+    _close_attempts(paths, {item[0] for item in todo} - refused, report)
+    if (report["refused"] or report["investigation_not_restored"] or report["journals_not_closed"]
             or any(s["arrived_left_on_legacy"] for s in report["studies"])):
         report["status"] = PARTIAL
     return report
+
+
+def _close_attempts(paths, study_ids, report: dict) -> None:
+    """End every attempt of ``study_ids`` that a journal among ``paths`` leaves open with a timed done line
+    (``"found": "undone"``): the undo reversed it, so a later merge of the id is a new cycle (``read_journals``) and a
+    stale rerun into that run directory finds nothing to finish. A journal that cannot be written is named in
+    ``journals_not_closed``."""
+    seen = set()
+    for raw in paths:
+        path = os.path.abspath(raw)
+        journal = os.path.join(path, JOURNAL_FILE) if os.path.isdir(path) else path
+        if journal in seen or not os.path.isfile(journal):
+            continue
+        seen.add(journal)
+        try:
+            for x, kind in sorted(_unfinished_kinds(journal).items()):
+                if x in study_ids:
+                    _journal(journal, x, "done", [{"kind": kind, "found": "undone", "at": _now()}])
+        except OSError as exc:
+            report["journals_not_closed"].append({"journal": journal, "error": str(exc)})
 
 
 def _move_back(driver, db, entry: dict, keyed_eid: str, study: dict, batch: int) -> None:
