@@ -2201,7 +2201,8 @@ def _shape_refusal(shapes: list[_Shape]) -> str:
 
 # The graph agent's schema message heading, on a live turn and on a fallback alike: both send the structure, the
 # sample type index and the resolved types' sections (none on a fallback), rendered the same way. It names the version
-# the structure names (graph_context.schema_version_named): the graph's GraphMeta.schema_version on a live turn.
+# the structure names (graph_context.schema_version_named): the graph's GraphMeta.schema_version on a live turn, the
+# committed file's on a fallback (_committed_version).
 SCHEMA_HEADING = ("GRAPH SCHEMA (v{version} structure, sample type index and the resolved sample types; this is the "
                   "schema):\n")
 # The vocabulary message heading, on a live turn and on an admin's fallback alike (_committed_vocabulary).
@@ -2222,6 +2223,12 @@ def _plain(value) -> dict:
     if value is None:
         return {}
     return value.model_dump() if hasattr(value, "model_dump") else dict(value)
+
+
+def _committed_version(config):
+    """The committed ``neo4j_schema.json``'s ``schema_version``: the version of the graph it was captured from."""
+    raw = getattr(config, "NEO4J_SCHEMA", None)
+    return raw.get("schema_version") if isinstance(raw, dict) else None
 
 
 def schema_heading(schema_version) -> str:
@@ -2404,7 +2411,9 @@ def _render_committed_schema(config) -> str:
     A live turn reads the structure text, the sample type index and the resolved types' sections
     (``graph_context.render_graph_context``); this is the same text but for freshness, joined as that is joined:
 
-    1. the structure: an evaluation prompt variant's (``_variant_structure``), else ``graph_context.load_structure()``;
+    1. the structure: an evaluation prompt variant's (``_variant_structure``), else the file, fitted to the committed
+       file's ``schema_version`` by ``graph_context.structure_for`` (the version its first line names, and the Assay
+       section from 1.3 on), as a live turn fits it to the graph's;
     2. the type index, one line per code of the file's ``vocabulary.sampletype_titles`` in the file's order;
     3. the file's ``node_properties.Sample`` names as one names-only block. The committed file carries no per-type
        attributes, so a fallback turn has no resolved sections; without this block the model would see no attribute
@@ -2421,8 +2430,7 @@ def _render_committed_schema(config) -> str:
     block is cut to fit, ending with how many names it left out. A missing or malformed file renders the structure
     and an index that says it lists no sample types; it never raises.
     """
-    structure = _variant_structure(config)
-    structure = graph_context.load_structure() if structure is None else structure
+    structure = graph_context.structure_for(_variant_structure(config), _committed_version(config))
 
     raw = getattr(config, "NEO4J_SCHEMA", None)
     vocabulary = raw.get("vocabulary") if isinstance(raw, dict) else None
@@ -2621,7 +2629,7 @@ def graph_agent(
         # it reads on a live turn but for freshness. It says nothing to the model about the fallback: that is loud
         # already in the WARNING and the turn's debug (context_fallback). The schema text reads only the type codes
         # from the committed vocabulary; an admin's committed titles are the vocabulary message, as live.
-        schema_message = schema_heading(None) + _render_committed_schema(config)
+        schema_message = schema_heading(_committed_version(config)) + _render_committed_schema(config)
         committed_vocabulary = _committed_vocabulary(config, user_query)
         vocabulary_messages = [VOCABULARY_HEADING + committed_vocabulary] if committed_vocabulary else []
 
