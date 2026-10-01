@@ -1554,6 +1554,26 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
     }
 
 
+def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir):
+    """Upload reviewed reingest workbooks. The gate fires first, before any
+    lookup: only the boolean True confirms (passed through, never coerced).
+
+    ``session.upload_context`` may be a callable (the REST layer passes the
+    SEEK identity lookup that way), so an unconfirmed call never resolves it."""
+    write_gate("api-write", None, None, args.get("confirmed_write"))
+    from NessieAI.ns.reingest import upload
+
+    upload_context = getattr(session, "upload_context", None)
+    if callable(upload_context):
+        upload_context = upload_context()
+    try:
+        return upload.run(build_ids_raw=args.get("build_ids"),
+                          user=getattr(session, "user", None),
+                          upload_context=upload_context)
+    except upload.UploadRefused as exc:
+        raise OpValidationError(str(exc)) from exc
+
+
 _HANDLERS: dict[str, Callable] = {
     "entity": _entity,
     "parse": _parse,
@@ -1566,4 +1586,5 @@ _HANDLERS: dict[str, Callable] = {
     "build-upload-xlsx": _build_upload_xlsx,
     "run-harvest": _run_harvest,
     "run-checksum": _run_checksum,
+    "upload-reingest": _upload_reingest,
 }

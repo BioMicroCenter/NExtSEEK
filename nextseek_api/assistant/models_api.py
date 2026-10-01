@@ -371,6 +371,19 @@ class RunChecksumRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class UploadReingestRequest(BaseModel):
+    """POST /assistant/upload-reingest/ body -- upload reviewed reingest workbooks.
+
+    ``build_ids`` are the sha256 ids from build-upload-xlsx's ``builds``.
+    ``confirmed_write`` is strict bool, as on api-write: "true" and 1 are
+    rejected here, and the gate re-checks ``is True``.
+    """
+    build_ids: str = Field(..., description="Comma-separated build ids from build-upload-xlsx.")
+    confirmed_write: bool = Field(False, strict=True)
+    use_prod: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+
 class SubmissionRequest(BaseModel):
     """POST /assistant/generate-submission/ body."""
     type: str = Field(..., description="One of: GEO | SRA | NFCORE_RNASEQ | NFCORE_SCRNASEQ | PRIDE")

@@ -47,7 +47,9 @@ from ci.smoke.test_reachability import _callable_routes
 # hand-counted -- ci/CLAUDE.md records that this tripwire has already drifted
 # stale once before from exactly that mistake -- it was read off a real run of
 # `pytest ci/smoke/test_registry_contents.py` against the merged registry.
-OWNED_ROUTE_COUNT = 175
+# 175 -> 176 for /nextseek_api/assistant/upload-reingest/, with the completeness
+# gate passing against the live resolver on the branch that added it.
+OWNED_ROUTE_COUNT = 176
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
 # static asset and the Django admin login page.

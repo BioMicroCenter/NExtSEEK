@@ -405,3 +405,35 @@ class ReingestEndpointTests(GranularEndpointBase):
                                      "answers": '{"fill": []}'}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(run_op.call_args.args[1]["answers"], '{"fill": []}')
+
+    def test_upload_reingest_rejects_a_string_true_at_validation(self):
+        resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                {"build_ids": "a" * 64, "confirmed_write": "true"},
+                                format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")
+
+    def test_upload_reingest_unconfirmed_is_write_blocked_before_any_lookup(self):
+        with patch("NessieAI.ns.reingest.upload.run") as run:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64}, format="json")
+            run.assert_not_called()
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["code"], "WRITE_BLOCKED")
+
+    def test_upload_reingest_unconfirmed_never_resolves_the_seek_identity(self):
+        with patch("nextseek_api.batch_upload.views._resolve_user_context") as resolve:
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": False},
+                                    format="json")
+        self.assertEqual(resp.status_code, 403)
+        resolve.assert_not_called()
+
+    def test_upload_reingest_refuses_a_caller_supplied_person_id(self):
+        """The batch-upload identity resolver honours a body person_id for
+        admins; this request model must never let one through."""
+        resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                {"build_ids": "a" * 64, "confirmed_write": True,
+                                 "person_id": 1}, format="json")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["code"], "VALIDATION")

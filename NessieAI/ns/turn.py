@@ -124,6 +124,8 @@ def _granular_args(op: str, req) -> dict:
         return {"run_dir": req.run_dir, "allow_failed_run": req.allow_failed_run}
     if op == "run-checksum":
         return {"run_dir": req.run_dir, "paths": req.paths, "manifest_id": req.manifest_id}
+    if op == "upload-reingest":
+        return {"build_ids": req.build_ids, "confirmed_write": req.confirmed_write}
     return {}
 
 

@@ -5,6 +5,7 @@ import logging
 import os
 import json
 import time
+import uuid
 
 from celery.result import AsyncResult
 from django.conf import settings
@@ -693,7 +694,7 @@ def stage_workbook_copy(path: str) -> str:
 
     upload_dir = os.path.join(getattr(settings, "MEDIA_ROOT", "/tmp"), _UPLOAD_DIR)
     os.makedirs(upload_dir, exist_ok=True)
-    dest = os.path.join(upload_dir, f"{int(time.time())}_{os.path.basename(path)}")
+    dest = os.path.join(upload_dir, f"{uuid.uuid4().hex}_{os.path.basename(path)}")
     shutil.copyfile(path, dest)
     return dest
 

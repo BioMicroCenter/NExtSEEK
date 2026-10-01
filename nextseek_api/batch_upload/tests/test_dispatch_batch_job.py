@@ -37,3 +37,19 @@ def test_stage_workbook_copy_lands_in_the_upload_dir(tmp_path, settings):
     assert dest.startswith(str(tmp_path / "media" / "batch_upload_uploads"))
     assert dest.endswith("_reingest_A_ALN.xlsx")
     assert open(dest, "rb").read() == b"xlsx"
+
+
+def test_two_same_second_copies_of_one_workbook_do_not_overwrite(tmp_path, settings):
+    """Staged copies are what the worker reads, so two uploads of the same
+    workbook name must land at different paths, or the bytes uploaded stop
+    being the bytes reviewed."""
+    settings.MEDIA_ROOT = str(tmp_path / "media")
+    src = tmp_path / "reingest_A_ALN.xlsx"
+    src.write_bytes(b"first")
+    with patch("nextseek_api.batch_upload.views.time.time", return_value=1700000000.0):
+        first = views.stage_workbook_copy(str(src))
+        src.write_bytes(b"second")
+        second = views.stage_workbook_copy(str(src))
+    assert first != second
+    assert open(first, "rb").read() == b"first"
+    assert open(second, "rb").read() == b"second"

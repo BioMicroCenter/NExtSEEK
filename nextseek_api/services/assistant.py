@@ -81,6 +81,7 @@ from nextseek_api.assistant.models_api import (
     ReportOpRequest,
     ReportOpResponse,
     RunChecksumRequest,
+    UploadReingestRequest,
     RunHarvestRequest,
     RunLsRequest,
     BuildUploadXlsxRequest,
@@ -217,6 +218,7 @@ _GRANULAR_REQUEST_MODELS = {
     "build-upload-xlsx": BuildUploadXlsxRequest,
     "run-harvest": RunHarvestRequest,
     "run-checksum": RunChecksumRequest,
+    "upload-reingest": UploadReingestRequest,
 }
 
 
@@ -1169,6 +1171,17 @@ class AssistantViewSet(viewsets.ViewSet):
             # The build record is filed under this user, and Scientist is
             # this user (mapper's @nextseek_user); without a session both are blank.
             session = SimpleNamespace(user=request.user)
+        elif op == "upload-reingest":
+            # The identity lookup is handed over uncalled: the op resolves it
+            # only after the write gate passes, so an unconfirmed call never
+            # reaches SEEK. The request model forbids extra keys, so the
+            # resolver's admin person_id override can never arrive here. The
+            # import is deferred too: batch_upload.views pulls in Celery.
+            def _upload_context():
+                from nextseek_api.batch_upload.views import _resolve_user_context
+                return _resolve_user_context(request)
+
+            session = SimpleNamespace(user=request.user, upload_context=_upload_context)
         else:
             session = None
         gate = build_gate(load_allowlist())
@@ -1366,3 +1379,15 @@ class AssistantViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="run-checksum")
     def run_checksum(self, request):
         return self._run_granular_op(request, "run-checksum")
+
+    @extend_schema(
+        operation_id="Assistant: Upload Reingest",
+        description="Upload reviewed reingest workbooks (by build id) to NExtSEEK. "
+                    "Write-class: requires confirmed_write=true. One batch-upload job "
+                    "per workbook, new samples first.",
+        request=UploadReingestRequest,
+        responses={401: OpErrorResponse, 403: OpErrorResponse, 422: OpErrorResponse},
+    )
+    @action(detail=False, methods=["post"], url_path="upload-reingest")
+    def upload_reingest(self, request):
+        return self._run_granular_op(request, "upload-reingest")

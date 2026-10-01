@@ -961,6 +961,10 @@ REGISTRY: list[Route] = [
     Route(pattern=r"^nextseek_api/^^assistant/run-ls/$", path=None,
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_EXTERNAL",
           note="recursive listing of a finished Luria run directory over SSH"),
+    Route(pattern=r"^nextseek_api/^^assistant/upload-reingest/$", path=None,
+          methods=(), profiles="", auth="smoke", exclude="EXCLUDE_UNSAFE_METHOD",
+          note="reingest step 5: upload reviewed workbooks by build id; write-class, "
+               "confirmed_write must be literal true; one batch-upload job per workbook"),
     Route(pattern=r"^nextseek_api/^^nessie/query/$", path=None,
           methods=(), profiles="", auth="smoke", exclude="EXCLUDE_COST",
           note="the router-dispatched chat turn; alias of cc-assistant/query/async/"),
