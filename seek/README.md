@@ -96,7 +96,7 @@ with no database, network or settings dependency.
 
 `seek/timeline/` is a 10-module NHP timeline subtree with its own MySQL
 connection pool (`seek/timeline/core/database.py:7-16`) rather than Django's,
-reached through `seek/views/timeline.py:1-11`.
+reached through `seek/views/timeline.py:1-11`. Its own doc: `seek/timeline/README.md`.
 
 ### Templates
 

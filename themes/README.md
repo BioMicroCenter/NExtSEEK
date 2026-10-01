@@ -93,6 +93,8 @@ blocks this base does not have.
 
 ### `themes/NextSeek/static/`
 
+The repo-root `static/` tree behind it is described in `static/README.md`.
+
 Not documented file by file — 992 files on 2026-09-03, of which 797 are the
 vendored `jquery-easyui-1.5.2/` tree. What the templates here actually reach
 for is small: `css/nextseek.css` (the whole theme, 45 KB, referenced at
