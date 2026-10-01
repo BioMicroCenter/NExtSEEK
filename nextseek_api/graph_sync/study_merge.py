@@ -591,16 +591,16 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
          run_root: str | None = None) -> dict:
     """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
     section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
-    carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
-    step finds it done and goes on); then every archived link whose sample and Study still exist is re-created, in
-    the same call and before any source moves, so a link ``--studies`` removed from the merged node comes back on L
-    and then moves to K with the rest (given in a later call it would stay on L); then each journaled source goes
-    back to K ("on both" keeps its link to L too), and every other source on L that is
-    not one of L's own journaled sources reached study X through the key after the merge (an upload, a ``--studies``
-    link) and moves to K too, listed in ``arrived_after_merge``; where the journal holds no K (a rekey in place of a
-    node with none) they stay on L, are listed in ``arrived_left_on_legacy``, and the status is ``partial``.
-    ``dry_run`` reports each id's state and writes nothing. With ``run_root``, a merge journal under it that names
-    one of the ids and is not among ``paths`` raises ValueError before anything is read from the graph.
+    carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that step
+    finds it done and goes on); then every archived link whose sample and Study still exist is re-created, in the same
+    call and before any source moves, so a link ``--studies`` removed from the merged node comes back on L and then
+    moves to K with the rest (given in a later call it would stay on L); then each journaled source goes back to K
+    ("on both" keeps its link to L too), and every other source on L that is not one of L's own journaled sources
+    reached study X through the key after the merge (an upload, a ``--studies`` link) and moves to K too, listed in
+    ``arrived_after_merge``; where the journal holds no K (a rekey in place of a node with none) they stay on L, are
+    listed in ``arrived_left_on_legacy``, and the status is ``partial``. ``dry_run`` reports each id's state and
+    writes nothing. With ``run_root``, a merge journal under it that names one of the ids and is not among ``paths``
+    raises ValueError before anything is read from the graph.
 
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
