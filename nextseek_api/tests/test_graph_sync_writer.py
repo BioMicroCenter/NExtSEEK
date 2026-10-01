@@ -1933,3 +1933,30 @@ def test_write_edge_label_refreshes_needs_the_stored_values():
     del row["stored"]
     with pytest.raises(ValueError, match="stored"):
         w.write_edge_label_refreshes(FakeDriver(), "neo4j", [row])
+
+
+# --- the studies tool's share check (tool spec 16.8) -------------------------------------------------------------
+
+def test_the_share_check_is_one_read_only_statement_in_cypher_py():
+    text = q.SHARE_CHECK
+    assert "OPTIONAL MATCH (s:Sample {id: id})" in text and "$project_id IN s.project_ids" in text
+    assert "(:Study {seek_study_id: $study_id})" in text and "WHERE p.seek_study_id IS NULL" in text
+    for word in ("MERGE", "CREATE", "SET ", "DELETE", "REMOVE"):
+        assert word not in text, word
+
+
+def test_the_share_check_counts_and_caps_the_missing_ids(monkeypatch):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    rows = {1: (True, True, True, True, False), 2: (True, True, True, False, True), 3: (True, True, True, True, True),
+            4: (False, False, False, False, False)}
+
+    def respond(query, params):
+        assert query == q.SHARE_CHECK and (params["project_id"], params["study_id"]) == (5, 40)
+        keys = ("found", "has_project", "in_project", "in_study", "paper")
+        return [{"id": i, **dict(zip(keys, rows[i]))} for i in params["ids"]]
+
+    driver = FakeDriver(respond)
+    got = w.share_graph_check(driver, "neo4j", [4, 3, 2, 1, 1], project_id=5, study_id=40)
+    assert got == {"ids": 4, "found": 3, "has_project": 3, "in_project": 3, "in_study": 2, "paper": 2,
+                   "paper_in_study": 1, "missing_ids": [4]}
+    assert len(driver.calls) == 2 and all(c.kwargs.get("routing_") is not None for c in driver.calls)

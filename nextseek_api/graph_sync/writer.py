@@ -17,7 +17,8 @@ Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule
 ``write_edge_labels`` (DERIVED_FROM labels, new ones only unless the operator approves changes),
 ``archive_and_drop_undeclared_for_children``, ``sample_hashes`` (the ``(id, source_hash)`` stream) and ``graphmeta``.
 The studies release adds ``write_seek_study_nodes`` (every SEEK study's node, its investigation first) and
-``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first).
+``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first). The studies
+tool adds ``share_graph_check``, a read of how a share's samples stand.
 
 Writes fail loudly: a schema statement that Neo4j refuses raises, and so does a catalog that would clash with the
 graph. Shortfalls the graph can explain (a type, project or endpoint node that is missing) are counted, not raised,
@@ -1116,6 +1117,31 @@ def write_seek_studies(driver, db, links: list[dict], sample_ids, *, remove: boo
         remove=remove, archive_path=archive_path, scope=paper_scope(tables.studies, tables.investigations),
         path="by_id"))
     return report
+
+
+# --- the studies tool's share check (read only) ---------------------------------------------------------------------
+
+SHARE_CHECK_COUNTS = ("found", "has_project", "in_project", "in_study", "paper", "paper_in_study")
+SHARE_CHECK_MISSING_CAP = 50
+
+
+def share_graph_check(driver, db, ids, *, project_id: int, study_id: int) -> dict:
+    """How a share's samples stand in the graph (tool spec 16.8), read only, ``REL_CHUNK`` ids a statement: how many
+    exist, carry the destination project (property and IN_PROJECT), link the destination study's node, are paper
+    samples and, of those, link it anyway; and up to 50 of the ids with no node."""
+    wanted = sorted({int(i) for i in ids})
+    counts = dict.fromkeys(SHARE_CHECK_COUNTS, 0)
+    missing: list[int] = []
+    for batch in _batches(wanted, REL_CHUNK):
+        rows = _records(_run(driver, db, q.SHARE_CHECK, {"ids": batch, "project_id": int(project_id),
+                                                         "study_id": int(study_id)}, read=True))
+        for row in rows:
+            for key in ("found", "has_project", "in_project", "in_study", "paper"):
+                counts[key] += 1 if row[key] else 0
+            counts["paper_in_study"] += 1 if (row["paper"] and row["in_study"]) else 0
+            if not row["found"] and len(missing) < SHARE_CHECK_MISSING_CAP:
+                missing.append(int(row["id"]))
+    return {"ids": len(wanted), **counts, "missing_ids": missing}
 
 
 # --- GraphMeta -----------------------------------------------------------------------------------

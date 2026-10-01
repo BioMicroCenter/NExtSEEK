@@ -772,6 +772,22 @@ RETURN count(*) AS restored
 """
 
 
+# --- the studies tool's share check (a share's samples in the graph, read only; tool spec 16.8) ----------------------
+
+# Per id: whether the Sample exists, carries the project in project_ids and an IN_PROJECT to it, has an IN_STUDY to the
+# SEEK study's node, and is a paper sample (an IN_STUDY to a Study with no seek_study_id).
+SHARE_CHECK = """
+UNWIND $ids AS id
+OPTIONAL MATCH (s:Sample {id: id})
+RETURN id,
+       s IS NOT NULL AS found,
+       coalesce($project_id IN s.project_ids, false) AS has_project,
+       s IS NOT NULL AND EXISTS { (s)-[:IN_PROJECT]->(:Project {id: $project_id}) } AS in_project,
+       s IS NOT NULL AND EXISTS { (s)-[:IN_STUDY]->(:Study {seek_study_id: $study_id}) } AS in_study,
+       s IS NOT NULL AND EXISTS { (s)-[:IN_STUDY]->(p:Study) WHERE p.seek_study_id IS NULL } AS paper
+"""
+
+
 # --- GraphMeta -----------------------------------------------------------------------------------
 
 # Named properties, never a replace, so a value a statement does not name (label_maps_hash here) is kept.
