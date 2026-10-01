@@ -175,7 +175,7 @@ Note that a cross-project export path already exists and is correctly gated:
 
 ## Register
 
-57 routed read endpoints. `permission_classes` values are the declared class list; several
+58 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
@@ -237,6 +237,7 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
 | `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:96`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:61`), and publishes each failing row's and failed run's error only as a one-line excerpt of at most 240 characters with URLs and IPv4 addresses replaced (`graph_sync/state.py` `error_excerpt`), which can still name an identifier the failing statement named, and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
+| `GET /nextseek_api/sample-shares/{share_id}/` | `SampleShareViewSet.retrieve` | `IsAuthenticated, IsDjangoSuperuser` (`services/sample_shares.py:112`) | **None on the caller's membership**: the projects and the study come from the share's own request, and the answer lists up to 50 sample UIDs per outcome. The superuser gate is the whole control; the share's two POST routes (create, apply) sit behind the same gate, and its SEEK assay creates are authorised by SEEK as the caller. See note E | admin-only |
 
 ### Bucket totals
 
@@ -244,8 +245,8 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 |---|---|
 | public-to-authenticated | 42 (of which 13 are owner-scoped) |
 | project-scoped | 8 |
-| admin-only | 7 |
-| **Total** | **57** |
+| admin-only | 8 |
+| **Total** | **58** |
 
 ### NOT ROUTED
 
@@ -439,6 +440,12 @@ The `sops/download/` and `data_files/download/` actions genuinely stream file bl
 authorized entirely by the caller's own SEEK credentials
 (`services/content_blobs.py:220-221` -> `helpers.py:334-346`). Upstream 401/403/404 are
 propagated (`services/content_blobs.py:228-247`).
+
+The sample-shares endpoint (`services/sample_shares.py`, the studies tool's share mode) writes to SEEK as the caller:
+each destination assay it creates is a `POST /assays` with the caller's own credential, proved as the SEEK person bound
+to the caller and never stored. Its links and project rows are SQL (no
+Rails), so SEEK's policies are neither consulted nor changed; the shared samples reach the destination project's
+members through `projects_samples` and the graph's `Sample.project_ids`.
 
 Two wrinkles worth recording, neither a leak:
 

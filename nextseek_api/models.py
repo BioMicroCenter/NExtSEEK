@@ -73,6 +73,78 @@ class JsonApiErrorResponse(BaseModel):
     errors: List[JsonApiError]
 
 
+# -----------------------------
+# Sample shares (the studies tool's share mode, nextseek_api/studies/share.py)
+# -----------------------------
+
+class SampleShareRequest(BaseModel):
+    """A share's request: these samples of one project, linked into an existing study of another project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 10,000 is studies.share.MAX_SHARE_UIDS (a test pins the two equal; this module cannot import that one).
+    sample_uids: List[str] = Field(min_length=1, max_length=10_000)
+    source_project_id: int = Field(gt=0)
+    destination_project_id: int = Field(gt=0)
+    destination_study_id: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _clean_uids(self):
+        uids = [u.strip() for u in self.sample_uids]
+        if any(not u for u in uids):
+            raise ValueError("sample_uids holds a blank entry")
+        seen: set = set()
+        repeated: set = set()
+        for u in uids:
+            if u in seen:
+                repeated.add(u)
+            seen.add(u)
+        if repeated:
+            raise ValueError(f"sample_uids repeats {sorted(repeated)[:20]}")
+        self.sample_uids = uids
+        return self
+
+
+class SampleShareApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SampleShareAccepted(BaseModel):
+    share_id: str
+    state: str
+    status_url: str
+
+
+class SampleShareStep(BaseModel):
+    share_id: str
+    state: str
+    clones_done: int
+    clones_remaining: int
+    retry_after_s: Optional[int] = None
+    code: Optional[str] = None        # clone_outcome_unknown on a 202 that asks to call again after retry_after_s
+    message: Optional[str] = None
+    status_url: str
+
+
+class SampleShareStatus(BaseModel):
+    share_id: str
+    state: str
+    created_at: str
+    actor_login: str
+    source_project_id: int
+    destination_project_id: int
+    destination_study_id: int
+    uid_count: int
+    run_dir: str
+    plan_sha256: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
+    receipt: Optional[Dict[str, Any]] = None
+    error: Optional[Dict[str, Any]] = None
+    graph: Optional[Dict[str, Any]] = None
+
+
 class ItemReference(BaseModel):
     id: str
     type: str

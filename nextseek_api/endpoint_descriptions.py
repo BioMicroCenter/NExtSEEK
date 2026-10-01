@@ -1418,3 +1418,63 @@ GRAPH_SYNC_STATUS_DESC = (
     "- 'When did the last full graph sync finish, and did it succeed?'\n"
     "- 'How many samples are waiting to be written to the graph?'\n"
 )
+
+
+# --- sample shares (the studies tool's share mode) --------------------------------------------------------------
+
+_SAMPLE_SHARE_USE = (
+    "**USE WHEN:** A superuser shares samples of one project into an existing study of another project; the "
+    "destination project's members then see them in NExtSEEK. It is intentionally global: a superuser shares between "
+    "any two projects.\n\n"
+    "**DO NOT USE WHEN:** Moving samples out of an investigation's Unpublished study into a new paper study, which "
+    "is `manage.py studies`; registering samples into an assay of their own project, which is "
+    "`assay-registrations/`; changing SEEK sharing policies, which is not done here.\n\n"
+)
+SAMPLE_SHARE_CREATE_DESC = (
+    "**SUMMARY:** Start a share: its dry run is planned by the share worker, nothing is written to SEEK or the "
+    "graph.\n\n" + _SAMPLE_SHARE_USE +
+    "**ACCEPTS:** JSON `{sample_uids, source_project_id, destination_project_id, destination_study_id}`: 1 to 10,000 "
+    "sample UIDs as NExtSEEK shows them, no blank and no repeat, and three positive ids.\n\n"
+    "**RETURNS:** `202` with `share_id`, `state` (`planning`) and `status_url`; poll it until the state is "
+    "`planned`, `refused` or `plan_failed`.\n\n"
+    "**ERROR CODES:** `401` unauthenticated; `403` not a Django superuser; `422` an invalid body.\n\n"
+    "**TRIGGER PHRASES:** share samples with another project, link samples into another project's study, copy "
+    "samples across projects\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Share these 40 samples of project 1 into study 746 of project 2558.'\n"
+)
+SAMPLE_SHARE_DETAIL_DESC = (
+    "**SUMMARY:** Read a share: its state, its dry run's summary and plan sha once planned, its receipt once "
+    "applied, and with `?verify=graph` a read-only check of its samples in the graph.\n\n" + _SAMPLE_SHARE_USE +
+    "**ACCEPTS:** The share id in the path; `verify=graph` as an optional query parameter.\n\n"
+    "**RETURNS:** `200` with `share_id`, `state` (`planning`, `planned`, `plan_failed`, `refused`, `applying`, "
+    "`queued`, `running`, `applied` or `apply_failed`), the request's ids and UID count, `run_dir` (the run "
+    "directory's name), `plan_sha256`, `summary` (counts per outcome: `shared`, `no_change`, "
+    "`sample_uid_not_found`, `sample_uid_not_unique`, `not_in_source_project`, `no_source_assay`, "
+    "`source_assay_unmapped`, `target_assay_ambiguous`; up to 50 UIDs of each; the groups with `reuse` or `create`; "
+    "links by role; project rows; the parents brought with their child and assay; label changes needing approval), "
+    "`receipt`, `error` and, with `verify=graph`, `graph` (`found`, `has_project`, `in_project`, `in_study`, "
+    "`paper`, `paper_in_study`, `missing_ids` and `outbox`, the unit's outbox row: `pending`, `done`, `failed`, "
+    "`dead` or `missing`).\n\n"
+    "**ERROR CODES:** `401`; `403`; `404` an unknown or malformed share id.\n\n"
+    "**TRIGGER PHRASES:** share status, share dry run, verify a share in the graph\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Is share 3f1c... planned yet, and what will it do?'\n"
+)
+SAMPLE_SHARE_APPLY_DESC = (
+    "**SUMMARY:** One step of a share's apply, as the caller in SEEK: it creates at most one destination assay a "
+    "call, then writes the clones' internal-assay rows and queues the share's link unit for the worker.\n\n"
+    + _SAMPLE_SHARE_USE +
+    "**ACCEPTS:** JSON `{plan_sha256}`, the `plan_sha256` of the share's dry run; the caller's own SEEK login "
+    "(Basic or the session), proved as a SEEK person bound to the caller.\n\n"
+    "**RETURNS:** `200` `applying` (call again at once), `202` `clone_outcome_unknown` (call again after "
+    "`retry_after_s`) or `202` `queued` (stop; poll the share until `applied` or `apply_failed`); each with "
+    "`clones_done`, `clones_remaining` and `status_url`.\n\n"
+    "**ERROR CODES:** `401` unauthenticated or no SEEK credential; `403` not a superuser, `seek_identity_mismatch` "
+    "or `seek_refused`; `404` an unknown share; `409` `share_not_applicable`, `plan_changed`, `nothing_to_apply`, "
+    "`not_ready`, `busy`, `destination_changed` or `clone_outcome_ambiguous`; `422` an invalid body, "
+    "`seek_payload_rejected` or `clone_payload_invalid`; `502` `seek_error`.\n\n"
+    "**TRIGGER PHRASES:** apply a share, run the share\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Apply share 3f1c... with its plan sha.'\n"
+)
