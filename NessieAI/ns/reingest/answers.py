@@ -267,7 +267,15 @@ def split_for_call(bundle: Answers, *, this_call: set[str], other_call: set[str]
     return Answers(**keep), deferred
 
 
-def _conflicts(bundle: Answers, findings_by_type) -> list[str]:
+def _choose_groups(answer: ChooseAnswer, groups: list[dict]) -> set[int]:
+    """Indexes of the candidate groups ``answer`` resolves."""
+    return {index for index, group in enumerate(groups)
+            if group["sample_type"] == answer.sample_type
+            and group["attribute"] == answer.attribute
+            and answer.path in group["candidates"]}
+
+
+def _conflicts(bundle: Answers, findings_by_type, groups: list[dict]) -> list[str]:
     """Reasons two answers aim at the same cell; list order must never decide."""
     reasons: list[str] = []
     fill_rows: dict[tuple[str, str], set[int]] = {}
@@ -278,12 +286,16 @@ def _conflicts(bundle: Answers, findings_by_type) -> list[str]:
         if overlap:
             reasons.append(f"fill {key[0]}.{key[1]}: answered twice for rows {overlap}")
         fill_rows.setdefault(key, set()).update(rows)
-    seen_choose: set[tuple[str, str]] = set()
+    # A per-sample rule gives each sample its own candidate group, so two
+    # chooses conflict only when they resolve the same group. A choose that
+    # matches no group is refused by check_choose.
+    seen_groups: dict[tuple[str, str], set[int]] = {}
     for answer in bundle.choose:
         key = (answer.sample_type, answer.attribute)
-        if key in seen_choose:
+        hit = _choose_groups(answer, groups)
+        if hit & seen_groups.get(key, set()):
             reasons.append(f"choose {key[0]}.{key[1]}: answered twice")
-        seen_choose.add(key)
+        seen_groups.setdefault(key, set()).update(hit)
     seen_place: set[tuple[str, str]] = set()
     seen_keys: set[str] = set()
     for answer in bundle.place:
@@ -301,7 +313,7 @@ def _conflicts(bundle: Answers, findings_by_type) -> list[str]:
 
 def validate(bundle: Answers, *, findings_by_type, mapped_by_type, unmapped, groups,
              run_sourced_for, attribute_exists, existing_values) -> None:
-    reasons: list[str] = _conflicts(bundle, findings_by_type)
+    reasons: list[str] = _conflicts(bundle, findings_by_type, groups)
     for answer in bundle.fill:
         reasons += check_fill(answer, findings=findings_by_type.get(answer.sample_type, []),
                               rows=mapped_by_type.get(answer.sample_type, []),

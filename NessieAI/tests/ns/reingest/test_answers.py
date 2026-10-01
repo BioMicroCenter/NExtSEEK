@@ -332,6 +332,28 @@ def test_two_chooses_for_one_cell_are_refused():
     assert "choose A.ALN.File_PrimaryData: answered twice" in exc.value.reasons
 
 
+BAM_S2_A = "star_salmon/S2.markdup.sorted.bam"
+BAM_S2_B = "hisat2/S2.markdup.sorted.bam"
+
+
+def test_chooses_for_two_samples_groups_are_both_accepted():
+    """A per-sample rule gives each sample its own candidate group; one choose
+    per group is not "answered twice"."""
+    bundle = answers.Answers(choose=[
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_B),
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_S2_A)])
+    _validate(bundle, groups=[_group(), _group(candidates=(BAM_S2_A, BAM_S2_B))])
+
+
+def test_two_chooses_for_the_same_group_are_still_refused_among_several_groups():
+    bundle = answers.Answers(choose=[
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_S2_A),
+        answers.ChooseAnswer(sample_type="A.ALN", attribute="File_PrimaryData", path=BAM_S2_B)])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        _validate(bundle, groups=[_group(), _group(candidates=(BAM_S2_A, BAM_S2_B))])
+    assert "choose A.ALN.File_PrimaryData: answered twice" in exc.value.reasons
+
+
 def _place(raw_key="star-foo", attribute="FooRate"):
     return answers.PlaceAnswer(raw_key=raw_key, sample_type="D.SEQ", attribute=attribute)
 

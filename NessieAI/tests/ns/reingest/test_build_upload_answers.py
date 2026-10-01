@@ -9,7 +9,8 @@ import openpyxl
 import pytest
 
 from NessieAI.tests.ns.reingest.test_build_upload_manifest import (
-    _A_ALN_ROW, _A_GEX_ROW, _D_SEQ_ROW, _dispatch, _meta, _save_manifest)
+    _A_ALN_ROW, _A_GEX_ROW, _D_SEQ_ROW, _dispatch, _meta, _save_manifest,
+    _save_manifest_multi)
 import NessieAI.ns.granular as g
 from NessieAI.ns.reingest import manifest as manifest_mod
 
@@ -100,6 +101,38 @@ def test_choose_resolves_an_ambiguous_pick_and_clears_it_from_the_reply(rows, tm
     result = _new(tmp_path, manifest_id, {"choose": [
         {"sample_type": "A.GEX", "attribute": "File_PrimaryData", "path": gex_b}]})
     assert "PRIMARY-FILE PICK" not in result["reply"]
+
+
+@patch(CATALOG)
+def test_each_samples_ambiguous_bam_is_chosen_separately(rows, tmp_path, monkeypatch):
+    """A per-sample rule gives each sample its own candidate group, so each
+    needs its own choose; two of them are not "answered twice"."""
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    outputs = [manifest_mod.OutputRecord(path=f"{d}/{s}.markdup.sorted.bam", bytes=1, sample=s)
+               for s in ("SAMPLE_1", "SAMPLE_2") for d in ("star_salmon", "hisat2")]
+    outputs.append(manifest_mod.OutputRecord(path="star_salmon/all.merged.gene_counts.tsv",
+                                             bytes=1, sample=None))
+    manifest_id = _save_manifest_multi(tmp_path, monkeypatch, n=2, outputs=outputs)
+    first = _new(tmp_path, manifest_id)
+    assert "PRIMARY-FILE PICK" in first["reply"]
+
+    chosen = {"SAMPLE_1": "hisat2/SAMPLE_1.markdup.sorted.bam",
+              "SAMPLE_2": "star_salmon/SAMPLE_2.markdup.sorted.bam"}
+    result = _new(tmp_path, manifest_id, {"choose": [
+        {"sample_type": "A.ALN", "attribute": "File_PrimaryData", "path": path}
+        for path in chosen.values()]})
+
+    assert "PRIMARY-FILE PICK" not in result["reply"]
+    from nextseek_api.batch_upload.convert import parse_traditional_file
+    parsed = parse_traditional_file(result["saved_files"]["reingest_A_ALN"]).rows
+    assert sorted(_meta(r)["File_PrimaryData"] for r in parsed) == sorted(
+        path.rsplit("/", 1)[1] for path in chosen.values())
+    prov = openpyxl.load_workbook(result["saved_files"]["reingest_A_ALN"])["Provenance"]
+    header = [c.value for c in prov[1]]
+    files = {(r[header.index("Value")], r[header.index("Origin")], r[header.index("Source file")])
+             for r in prov.iter_rows(min_row=2, values_only=True)
+             if r[header.index("Attribute")] == "File_PrimaryData"}
+    assert files == {(path.rsplit("/", 1)[1], "curator", path) for path in chosen.values()}
 
 
 @patch(CATALOG)
