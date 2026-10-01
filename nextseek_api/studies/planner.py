@@ -17,7 +17,7 @@ same snapshot and input give the same plan.
    sample's source assays are its assays in the bucket; a sample in none of them but in another study of the
    investigation is copied from there, never removed; a sample in no assay but the target study's is ``no_change``.
 3. Clones (6.3). Per target, its source assays are grouped by title key and internal-assay set, and each group
-   has one clone (share mode's rule, T33): in an existing target, the one assay of that title and set is reused
+   has one clone, as in share mode: in an existing target, the one assay of that title and set is reused
    (several refuse the target); otherwise the group's smallest source assay is cloned. The payload is built from
    ``GET /assays/A`` (ontology fields keep only their uri; the study is the target, filled at apply; samples, data
    files, documents, models and publications dropped) and validated as SEEK's proxy would. A clone to create gets a
@@ -445,7 +445,7 @@ def _decide_clones(works: list[_Work], snap: _Snapshot, skipped: list, warnings:
 
 
 def _group_key(title, internal_ids) -> tuple:
-    """Source assays one clone serves: one title key and one set of internal assay ids (T33, for moves too)."""
+    """Source assays one clone serves: one title key and one set of internal assay ids, for a move as for a share."""
     return title_key(title), tuple(sorted(set(internal_ids)))
 
 
@@ -534,7 +534,7 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
     inserts: dict = defaultdict(list)
     drawn: dict = defaultdict(set)              # unit -> the source assays its inserts come from
     for i, w in enumerate(works):
-        groups: dict = defaultdict(list)        # one clone per group (T33): its ref -> its source assays here
+        groups: dict = defaultdict(list)        # one clone per group: its ref -> its source assays here
         for a in sorted({a for src in w.sources.values() for a in src}):
             groups[w.clones[a].source_assay_id].append(a)
         for ref, members in sorted(groups.items()):
@@ -623,7 +623,7 @@ TARGET_REASONS = frozenset({TARGET_DOUBLED, NO_BUCKET, SEVERAL_BUCKETS, STUDY_EX
 
 
 def _published(works: list, lin: _Lineage, reader) -> dict:
-    """Target key to the samples its DOI goes on (T13): its accepted samples, the parents each has in its source
+    """Target key to the samples its DOI goes on: its accepted samples, the parents each has in its source
     assays (inserted or already there), and the parents each has in the target's own assays: what an earlier run of
     the target brought in, from source assays the sample may since have left."""
     held = sorted({a for w in works for a in w.existing_assay_ids})
