@@ -104,8 +104,9 @@ TRACED_GAP_ERROR = "structural links left unwritten: "
 # The nightly reconcile clears it: it retires the graph-only samples holding the old title and writes the catalog
 # again. So the row is deferred, not failed: no attempt counted, never dead, never failing. It waits
 # TITLE_CONFLICT_BACKOFF_S and stays mergeable: a by-id sync names the samples it left out, so a waiting row merged
-# with fresh writes defers only itself, and the waiting rows come back together as one sync, not one each.
-TITLE_CONFLICT_DEFERRAL = "waiting for SampleType titles held under other ids to clear: "
+# with fresh writes defers only itself, and the waiting rows come back together as one sync, not one each. A
+# successful full sync closes such a row (``state.mark_done_before``).
+TITLE_CONFLICT_DEFERRAL = state.TITLE_CONFLICT_DEFERRAL
 TITLE_CONFLICT_BACKOFF_S = 30 * 60
 
 # Closes every Django connection before each pass. Django refreshes connections only around a web request, so a

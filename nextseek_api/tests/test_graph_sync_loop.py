@@ -1144,6 +1144,25 @@ def test_a_batch_or_type_row_holding_a_waiting_sample_waits_and_one_holding_none
 
 
 @pytest.mark.django_db
+def test_a_full_sync_closes_the_rows_waiting_for_the_catalog_but_not_a_write_still_held_back(work):
+    """A successful full sync wrote the catalog and every sample (it clears titles held under other ids first, or it
+    refuses), so the rows waiting for the catalog are done; a write that landed on one of them since, held back
+    because SEEK may not have committed it yet, may not have been read and stays open."""
+    state.enqueue("samples", "sample:1", now=before(minutes=1))
+    state.enqueue("samples", "sample:2", now=before(minutes=1))
+    state.enqueue("samples", "batch:assay:5:1:0", [1, 2, 3, 4], now=before(minutes=1))
+    work.sync = _waiting(1, 2)
+    one_pass(work)
+    state.enqueue("samples", "sample:2", now=T0 + timedelta(minutes=5), delay_s=300)    # a 5xx on sample 2's write
+
+    closed = state.mark_done_before(T0 + timedelta(minutes=7), now=T0 + timedelta(minutes=40))
+
+    assert closed == 2
+    assert [k for k in ("sample:1", "sample:2", "batch:assay:5:1:0") if row("samples", k).done_at is None] == [
+        "sample:2"]
+
+
+@pytest.mark.django_db
 def test_a_sync_with_waiting_and_gapped_samples_defers_fails_and_closes_each_row_by_its_own_samples(work):
     _single_rows(3)
     work.sync = _waiting(1000, **{k: v for k, v in _gap(1001).items() if k != "status"})

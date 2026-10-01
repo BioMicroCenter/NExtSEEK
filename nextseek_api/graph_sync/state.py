@@ -21,7 +21,8 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
 - ``hand_on_failed`` writes keys as rows that failed as a claimed row just did (its attempts, ``failing_since`` and a
   back-off): the drain closes a row of many samples and hands on only the samples its sync left a gap for.
 - ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
-  row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
+  row whose delay had not run out when the sync started is left open, since the sync may have read before its write;
+  a row waiting for the catalog (``TITLE_CONFLICT_DEFERRAL``) is closed, its back-off notwithstanding.
 
 ``lease_expires_at`` is the time before which no worker may claim the row: a live claim's lease while ``claimed_by`` is
 set, a failure's back-off after ``finish_failed`` clears it. An expired lease is claimable again, so a worker that dies
@@ -91,6 +92,10 @@ WORKER_CHARS = 255        # graph_sync_outbox.claimed_by
 RUN_KIND_CHARS = 32       # graph_sync_run.kind
 
 MAX_ATTEMPTS = 8          # claims before a row is dead
+# The start of the last_error of a row the drain deferred because SampleType titles are held under other ids in the
+# graph, so a sample of it could not be written (``loop``, which explains it). Here because two outbox rules read it:
+# a successful full sync closes such a row, and a write held back since takes the mark away.
+TITLE_CONFLICT_DEFERRAL = "waiting for SampleType titles held under other ids to clear: "
 ERROR_CHARS = 4_000       # longest last_error kept
 CLAIM_CANDIDATES = 20     # rows read per claim; a claim lost to another worker tries the next
 _TICK = timedelta(microseconds=1)
@@ -171,9 +176,10 @@ def _reopen(kind: str, key: str, payload: Any, now: datetime, not_before: dateti
 
     ``not_before`` pushes the row's back-off out to that time unless a longer one is already running, and is ignored
     for a row under a live claim: ``finish_done`` finds its claim by the lease, so moving it would take the row from
-    its worker."""
+    its worker. It also clears a ``TITLE_CONFLICT_DEFERRAL`` mark, so ``mark_done_before`` keeps the row open for its
+    held-back write."""
     found = (_outbox().select_for_update().filter(kind=kind, key=key)
-             .values("id", "enqueued_at", "claimed_by", "lease_expires_at").first())
+             .values("id", "enqueued_at", "claimed_by", "lease_expires_at", "last_error").first())
     if found is None:
         return False
     stamp = max(now, found["enqueued_at"] + _TICK)
@@ -182,6 +188,8 @@ def _reopen(kind: str, key: str, payload: Any, now: datetime, not_before: dateti
     live_claim = found["claimed_by"] is not None and lease is not None and lease > now
     if not_before is not None and not live_claim and (lease is None or lease < not_before):
         fields["lease_expires_at"] = not_before
+    if not_before is not None and (found["last_error"] or "").startswith(TITLE_CONFLICT_DEFERRAL):
+        fields["last_error"] = None
     _outbox().filter(pk=found["id"]).update(**fields)
     return True
 
@@ -423,10 +431,12 @@ def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: d
     Except a row still held back by its ``delay_s`` at ``ts``: its writer could not tell whether its write had landed,
     and the sync may have read MySQL before it did. A delay is stored as a back-off is, in ``lease_expires_at`` with
     no claim, and told apart by the attempts: none since the row was enqueued, where a failure's back-off follows a
-    claim that counted one."""
+    claim that counted one. A row the drain deferred for the catalog has that shape too (its deferral reset the
+    attempts) and is closed by its ``TITLE_CONFLICT_DEFERRAL`` mark: the full sync wrote the catalog, clearing the
+    held titles first or refusing, and every sample. A write held back since cleared the mark (``_reopen``)."""
     qs = _outbox().filter(done_at__isnull=True, enqueued_at__lt=ts)
     qs = qs.filter(Q(claimed_by__isnull=False) | Q(attempts__gt=0) | Q(lease_expires_at__isnull=True)
-                   | Q(lease_expires_at__lte=ts))
+                   | Q(lease_expires_at__lte=ts) | Q(last_error__startswith=TITLE_CONFLICT_DEFERRAL))
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
     return qs.update(done_at=now or timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None,
