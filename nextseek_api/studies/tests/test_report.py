@@ -44,5 +44,18 @@ def test_progress_before_apply(tmp_path, alpha):
     report.write_plan_files(tmp_path, plan, aset)
     got = report.progress(tmp_path)
     assert got["units"] == {"planned": 1, "committed": 0, "undone": 0}
-    assert (got["apply_done"], got["graph_done"], got["undone"], got["journal_unreadable_lines"]) == (
-        False, False, False, 0)
+    assert (got["apply_done"], got["graph_done_for"], got["undone"], got["journal_unreadable_lines"]) == (
+        False, [], False, 0)
+
+
+def test_progress_names_the_investigations_the_graph_step_finished(tmp_path, alpha):
+    from nextseek_api.studies.journal import JOURNAL_FILE, Journal
+
+    aset = _aset()
+    plan = p.plan_study_moves(aset, FakeReader(alpha), run_id=tmp_path.name, now="t")
+    report.write_plan_files(tmp_path, plan, aset)
+    journal = Journal(tmp_path / JOURNAL_FILE, run_id=plan.run_id)
+    journal.append("graph", "done", investigation=7, counts={})
+    assert report.progress(tmp_path)["graph_done_for"] == [7]
+    journal.append("graph", "done", investigation=None, counts={})
+    assert report.progress(tmp_path)["graph_done_for"] == ["all"]

@@ -119,7 +119,8 @@ def progress(run_dir) -> dict:
         "units": {"planned": len(plan.units), "committed": sum(1 for u in plan.units
                                                                if (st.units.get(u.unit) or {}).get("committed")),
                   "undone": len(st.undone_units)},
-        "publications_done": st.pubs_done, "apply_done": st.apply_done, "graph_done": st.graph_done,
+        "publications_done": st.pubs_done, "apply_done": st.apply_done,
+        "graph_done_for": ["all"] if None in st.graph_done else sorted(st.graph_done),
         "undone": st.undone, "journal_unreadable_lines": bad,
     }
 

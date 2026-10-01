@@ -86,7 +86,7 @@ class JournalState:
     units: dict = field(default_factory=dict)
     pubs_rows: dict = field(default_factory=dict)
     pubs_done: bool = False
-    graph_done: bool = False
+    graph_done: set = field(default_factory=set)    # the investigations the graph step finished; None: all
     apply_done: bool = False
     undone_units: set = field(default_factory=set)
     undo_parts: set = field(default_factory=set)
@@ -137,7 +137,7 @@ def journal_state(lines: list[dict]) -> JournalState:
         elif step == "apply" and event == "done":
             st.apply_done = True
         elif step == "graph" and event == "done":
-            st.graph_done = True
+            st.graph_done.add(line.get("investigation"))
         elif step == "undo" and event == "done":
             part = line.get("part")
             st.undo_parts.add(part)
