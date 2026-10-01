@@ -62,7 +62,6 @@ this directory; the behaviour claims are in the prose around it.
 | `nextseek_api/urls.py` | the router and the three documentation routes |
 | `nextseek_api/apps.py`, `nextseek_api/admin.py` | the app config; an admin module that registers nothing (`nextseek_api/admin.py:1-3`) |
 | `nextseek_api/conftest.py` | DRF client and mock-SEEK fixtures shared by every test below this directory |
-| `nextseek_api/seek_api.py`, `nextseek_api/seek_api_helpers.py`, `nextseek_api/example.py` | superseded SEEK-call sketches; see CLAUDE.md for why they are not live |
 | `nextseek_api/tests/` | the test package |
 
 Two facts about the description module, both established 2026-09-03: it holds 73
@@ -131,15 +130,14 @@ its own current result in CLAUDE.md.
 
 ## Depends on / depended on by
 
-Depends on, outside this directory. Derived by reading every import line in the 15
+Depends on, outside this directory. Derived by reading every import line in the 12
 modules directly under `nextseek_api/`:
 
-- `seek/`, at module scope in six of those modules, so the SEEK app must import cleanly
+- `seek/`, at module scope in four of those modules, so the SEEK app must import cleanly
   before this one loads at all: `nextseek_api/helpers.py:10`, `nextseek_api/models.py:16-17`,
-  `nextseek_api/serializers.py:2-3`, `nextseek_api/seek_api_helpers.py:5-6`,
-  `nextseek_api/example.py:1`, and `nextseek_api/views.py:24-28`.
+  `nextseek_api/serializers.py:2-3`, and `nextseek_api/views.py:24-28`.
 - Django settings read at import time rather than per request: `nextseek_api/views.py:33-34`
-  binds two database aliases, and `nextseek_api/seek_api.py:7` binds the SEEK base URL.
+  binds two database aliases.
 - `MySQLdb` and the `neo4j` driver, both imported unconditionally, at
   `nextseek_api/views.py:6` and `nextseek_api/views.py:19-22`.
 - `drf_spectacular`, which supplies the three documentation views imported at
