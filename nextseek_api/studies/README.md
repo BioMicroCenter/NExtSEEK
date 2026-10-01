@@ -93,6 +93,18 @@ looked for in SEEK for a while before a new POST; a unit whose commit was not jo
 `rollback` undoes one run, or one investigation of it, in reverse, and restores only rows unchanged since, listing the
 others; a rolled-back run is closed (plan again for a new run).
 
+## Share mode
+
+A superuser can also link samples of one project into an existing study of another project: the sample-shares
+endpoint plans a share (a one-unit plan of mode `share`), creates any destination assay as the caller one call at a
+time, and the share worker (`manage.py run_share_jobs`) runs its link unit, which adds the destination project to
+each sample and parent in the same transaction. `docs/sample-sharing.md` is the how-to; a share is undone with
+`--mode rollback` on its run directory.
+
+A move treats a sample's membership in another investigation's study as a share, not a misfiling, when one of the
+sample's projects is linked to that investigation, so the sample moves and the plan warns `shared_elsewhere`. A known
+limit, accepted: a project linked to both investigations makes a misfiling read as a share.
+
 ## Answers of the local checks
 
 Measured on the local stack before the tool's first write anywhere; the provisional values in `seek.py` and

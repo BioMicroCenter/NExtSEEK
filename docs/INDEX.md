@@ -13,6 +13,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
+| [`sample-sharing.md`](sample-sharing.md) | how-to | sharing samples of one project into another project's study, reading a share's dry run, or undoing a share | |
 | [`UI.md`](UI.md) | snapshot | finding a page's route, view and template. Dated 2026-09-03; check it against the tree | |
 | [`superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md`](superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md) | live spec | extending CI coverage past tier T0 | #104 |
 | [`superpowers/specs/2026-09-11-nessie-ci-lane-design.md`](superpowers/specs/2026-09-11-nessie-ci-lane-design.md) | live spec | changing what the Nessie CI lane (`ci/smoke/test_nessie.py`) proves, its switches, or its budget; `ci/smoke/README.md` "Nessie lane" is the operator's view | |
