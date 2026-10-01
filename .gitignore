@@ -293,3 +293,9 @@ ci.env
 
 # CI write-lane run file (startup ci), never committed
 startup/.ci-write-run.xml
+
+# nf-core selection evals: outputs built from production metadata and SOP text. Never commit them.
+NessieAI/chat_nextseek/evals/prod_digests*.json
+NessieAI/chat_nextseek/evals/demo-output-*/
+NessieAI/chat_nextseek/evals/team_questions.json
+NessieAI/tests/evals/seqtype_fix/snapshot-*.json
