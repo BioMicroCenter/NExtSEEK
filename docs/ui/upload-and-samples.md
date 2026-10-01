@@ -35,7 +35,7 @@ Bootstrap 5 with theme tokens and are the only ones that cope with a phone.
 "+ New sample" (sidebar or home tile)
       |  plain <a href="/seek/samples/upload/">
       v
-/seek/samples/upload/  --(logged out)--> /login/?next=/seek/samples/batchupload/   (not a route)
+/seek/samples/upload/  --(logged out)--> /login/?next=/seek/samples/upload/
       |
       v
 batchUpload view -> batchUpload.html -> pages/batch_upload.embed.html
@@ -48,7 +48,8 @@ background job + log textarea
 
 Both are plain links to `/seek/samples/upload/`. There is no modal, dropdown or script involved, and
 no other create control exists (the chat panel has none). A sample is only ever created by uploading
-an assay sheet; there is no single-sample form, although the home tile text says "or single sample".
+an assay sheet; there is no single-sample form. Below 768px both controls carry a "desktop only" hint
+(`.desktop-only-hint`), because the upload pages need a laptop or desktop.
 
 | Control | File and element | Notes |
 |---|---|---|
@@ -56,17 +57,12 @@ an assay sheet; there is no single-sample form, although the home tile text says
 | Home tile | `themes/NextSeek/templates/index.html`, `<a class="dash-action accent">` in `aside.dash-actions` | Home page only. |
 | Sidebar "Data Entry" submenu | `nav.embed.html`, `#dataEntrySubmenu` | Two links: "Assay Sheet Upload" (`/seek/samples/upload/`) and "Data & Protocol Upload" (`/seek/data/upload/`). Collapse is Bootstrap, wired in `themes/NextSeek/static/js/nextseek.js`. |
 
-Logged-out behaviour: the `batchUpload` view is wrapped in `requires_seek_login_redirect(...)` from
-`seek/decorators.py`, which sends the browser to `/login/?next=<path>`. The path passed in
-`seek/views/upload.py` is `/seek/samples/batchupload/`, which matches no route (the real route is
-`/seek/samples/upload/`), so after signing in the user lands on a 404. The decorator on
-`datafileUpload` passes the correct `/seek/data/upload/`. The same wrong path is recorded as
-expected behaviour in `ci/routes.py` (the `Route` for `/seek/samples/upload/`), so fix both together.
-The login view itself is covered by (security item SEC-0930-A, tracked privately).
+Logged-out behaviour: the `batchUpload` and `datafileUpload` views are wrapped in
+`requires_seek_login_redirect()` from `seek/decorators.py`, which sends the browser to
+`/login/?next=<the page asked for>`, so signing in returns to the upload page.
 
-Styling: `.qa-cta` and its `.qa-plus` in `themes/NextSeek/static/css/nextseek.css`; a media rule
-under 992px forces it to `display:inline-flex`, which shrinks the button to about 120px inside the
-drawer while the search box above it is full width.
+Styling: `.qa-cta`, its `.qa-plus` and `.desktop-only-hint` in `themes/NextSeek/static/css/nextseek.css`.
+The CTA is full width in the drawer, like the Nessie button and the UID box above it.
 
 ## Page inventory
 
@@ -92,11 +88,12 @@ background job and watch a log.
   `all_lab_users`, and passes them in `report`. Supervisors see every person in a lab; other users
   see only themselves.
 - `batchUpload.html` shows an amber `.easyui-mobile-notice` ("desktop-only") and wraps the embed in
-  `easyui-tabs` (height 800px) > `easyui-layout` (height 700px, north region 760px). The notice is
-  hidden by default and shown at 768px and below by a rule in `nextseek.css`.
+  `.easyui-page-wrapper` (scrolls sideways instead of clipping) > `easyui-tabs` (height 800px) >
+  `easyui-layout` (height 700px, north region 760px). The notice is hidden by default and shown at
+  768px and below by a rule in `nextseek.css`.
 - `pages/batch_upload.embed.html` holds two hidden forms, a 70%-wide table with file inputs
   (`width:220px`), EasyUI comboboxes for project, lab and creator, an "update existing" checkbox, and
-  a log `<textarea id="messages">` with `min-width:600px`. The script is inline in the same file.
+  a full-width log `<textarea id="messages">`. The script is inline in the same file.
 
 | Step | Endpoint | Method |
 |---|---|---|
@@ -116,7 +113,7 @@ creator. `dataFileUpload.html` extends `base.html` directly with an inline form 
 each file to `/nextseek_api/${upload_type}/` where the type is `sops` or `data_files` (routers
 `SopViewSet` and `DataFileViewSet`), and loads projects from `/nextseek_api/projects/`. Progress is
 written into `<div id="messages">`. It uses the same 70% table and fixed-width inputs as batch
-upload but has no desktop-only notice.
+upload, and the same desktop-only notice.
 
 The data-file list and SOP list pages (`dataFilesPage.html`, `sopsPage.html`) are read-only and
 belong with [search-and-downloads.md](search-and-downloads.md).
@@ -174,7 +171,7 @@ Static assets for the tree live in the repo-root `static/js/`, not in `themes/`.
 
 An event timeline for non-human primate samples, built as a React bundle. `sample_timeline.html`
 loads hashed files from `static/js/sample_timeline/assets/` (`index-*.js`, vendor chunks, one CSS
-file). There is no source in the repo, only the built output and a `sample_timeline.bk/` backup, so
+file). There is no source in the repo, only the built output, so
 a hash change means editing the template's `extra_head` tags by hand. Its data comes from
 `seek/views/timeline.py` (`nhp_info`, `get_nhp_data`, `download_nhp_data`, `fetch_event_data`,
 all DRF `@api_view(['GET'])`) at `/seek/nhpinfo/<name>/`, `/seek/nhpdata/<name>/`,
@@ -186,9 +183,9 @@ rule in the same template never applies. Phone behaviour was not inspected.
 
 | Page | On a 390px phone |
 |---|---|
-| Both "+ New sample" links | Work (drawer must be open). The hamburger `.mobile-toggle` is not sticky, so after scrolling the user must scroll back up. |
-| Assay sheet upload | Desktop-only notice shows (at 768px and below); form overflows sideways (70% table, 220px inputs, `min-width:600px` log). |
-| Data and protocol upload | Same overflow, no notice. |
+| Both "+ New sample" links | Work, and say "desktop only" (the sidebar one is in the drawer, opened from the sticky top bar). |
+| Assay sheet upload | Desktop-only notice shows (at 768px and below); the form scrolls sideways (70% table, 220px inputs). |
+| Data and protocol upload | Same notice and overflow. |
 | Download templates | Works; info icons invisible on touch. |
 | Sample attributes | Scrolls sideways; acceptable. |
 | Sample tree and table | Fixed 1500/600/500px EasyUI heights with nested scrollbars; no notice. |
@@ -196,12 +193,7 @@ rule in the same template never applies. Phone behaviour was not inspected.
 
 ## Orphans
 
-Templates in this area with no view, or no includer (verified by searching `*.py` and `*.html`):
-`sampleUpload.html` (only includes `pages/samples_upload.embed.html`; no view renders it),
-`sampleDeletion.html` (no route; real deletion is the `Delete samples` buttons in the search grids,
-posting to `/seek/samples/delete/`, `sampleDelete` in `seek/views/samples.py`), `samplesTest.html`,
-`pages/samples_upload.embed.html`, `pages/datafile_upload.embed.html`, `pages/samples_query.embed.html`,
-and the `*.bk` files. Full list and cleanup status: [legacy.md](legacy.md).
+The unrouted templates in this area (`sampleUpload.html`, `sampleDeletion.html`, `samplesTest.html` and their embeds) were deleted on 2026-10-01. Real deletion is the `Delete samples` buttons in the search grids, posting to `/seek/samples/delete/` (`sampleDelete` in `seek/views/samples.py`). Remaining cleanup: [legacy.md](legacy.md).
 
 ## Where to edit
 
@@ -227,7 +219,7 @@ and the `*.bk` files. Full list and cleanup status: [legacy.md](legacy.md).
   before `templates/` for that reason).
 - The desktop-only notice appears at 768px, while the sidebar becomes a drawer at 992px, so tablets
   between those widths get the EasyUI layout without any warning.
-- Only `batchUpload.html` has the notice; adding it elsewhere is one `<div class="easyui-mobile-notice">`.
+- Both upload pages have the notice; adding it elsewhere is one `<div class="easyui-mobile-notice">`.
 - `nextseek.css` gets a content-hashed URL, so it updates once the box re-collects static (an app
   restart after `git pull`). The upload pages' own scripts are inline, but anything they load by a
   plain `{{STATIC_URL}}` path can stay cached for 30 days; hard-reload before blaming a deploy.

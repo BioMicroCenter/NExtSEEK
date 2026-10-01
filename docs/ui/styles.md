@@ -56,9 +56,7 @@ theme stylesheet. The timeline page links a Vite-built bundle (`static/js/sample
 `static/css/` at the repo root holds `bootstrap.css`, `bootstrap-theme.css`, `bootstrap-rtl.css` and
 `mezzanine.css` (Bootstrap 3 era, about 8,600 lines). They are linked only from the stock
 `templates/base.html`, which the theme's `base.html` shadows, so no app page loads them. The same stock
-`base.html` links `cartridge.css` and `cartridge.rtl.css`, and `templates/mobile/base.html` links
-`global-mobile.css`, `jquery.mobile-1.2.1.min.css` and `mobile.rtl.css`; none of those files exist.
-Six stock templates under `templates/mobile/` still extend `mobile/base.html`.
+`base.html` links `cartridge.css` and `cartridge.rtl.css`. (The stock `templates/mobile/` folder, which linked more missing files, was deleted.)
 
 The visible leftover is Bootstrap 3 vocabulary in live templates: `glyphicon-*` icon classes (no font is
 loaded, so they render blank) and `.well` (removed in Bootstrap 5; `nextseek.css` restyles it by hand).
@@ -131,7 +129,6 @@ file mixes those with off-grid values. Every `@media` in use:
 | same | 991.98px | 44px touch targets for the drawer toggle, nav links, user menu, quick search, `.qa-cta` |
 | same | 575.98px / 400px | Dashboard heading sizes, row wrapping, footer padding |
 | `themes/NextSeek/templates/login.html` | 767.98px | Auth shell stacks, marketing copy hidden |
-| `themes/NextSeek/templates/content.embed.html` | 575.98px | Old home page; nothing includes it (dead) |
 | `seek/templates/projectPage.html` | 575.98px | Avatar and header grid |
 | `seek/templates/projectsList.html` | 600px | Card grid |
 | `seek/templates/templatesList.html` | 900px, 600px | Two columns, then one |
@@ -158,7 +155,6 @@ Shared CSS is supposed to go in `nextseek.css`, but many pages carry their own `
 | `themes/NextSeek/templates/login.html` | Whole login layout (largest: about 245 lines) |
 | `seek/templates/sampleAttributes.html` | Attribute editor (about 390 lines; shared parts were moved into `nextseek.css` "attrs-* shared components") |
 | `seek/templates/projectsList.html`, `projectPage.html` | Project cards, clade table, header, `.project-diagram` iframe box |
-| `themes/NextSeek/templates/content.embed.html` | Old home page (dead; nothing includes it) |
 | `seek/templates/templatesList.html` | Templates grid (`.tpl-*`) |
 | `seek/templates/catalog_styles.html` | The `.cat-*` family, included by `assaysList.html`, `sampleTypesList.html`, `sampleTypeDetail.html`, `assayDetail.html` and `project_samples.html` through `{% block extra_head %}` |
 | `seek/templates/pages/samples_tree.embed.html`, `samples.embed.html`, `*_stable.embed.html`, `*_table.embed.html` | Small EasyUI grid tweaks |
@@ -166,14 +162,14 @@ Shared CSS is supposed to go in `nextseek.css`, but many pages carry their own `
 | `seek/templates/searchAdvanced.html`, `sample_timeline.html` | Small blocks |
 | `nextseek_api/services/sampletype_connections.py` | The Sample flow iframe page builds its own `<style>` as a Python string |
 
-Also `seek/templates/error.html` and `seek/templates/pages/404.html` use `--ns-*` tokens
+Also `seek/templates/error.html` uses `--ns-*` tokens
 inline in the markup.
 
 Copy-pasted rule families (change one, change all):
 
 | Family | Copies |
 |---|---|
-| `.datagrid-row-alt { background: #e6f2ff; }` | Nine templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `batchSearch_table`, `publishAssets_stable`, `publish_stable`, `samples_stable`, `samples_new_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
+| `.datagrid-row-alt { background: #e6f2ff; }` | Six templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `samples_stable`, `samples_new_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
 | `.ns-page-title` | Four identical copies (1.8rem): `projectsList.html`, `sampleAttributes.html`, `templatesList.html`, and as `.cat-page .ns-page-title` in `catalog_styles.html` |
 | Pill chips (11px radius, mono 0.72 to 0.74rem) | `.cat-chip`, `.tpl-chip`, `.stat-chip`, `.attrs-chip` (in `nextseek.css`), `.project-types a` |
 | Focus-ring shadow | Literals in `nextseek.css` and templates |
@@ -252,7 +248,7 @@ Keep the `--ns-*` names and prune and extend the single `:root` block. As a targ
 - Bootstrap, Bootstrap Icons and the fonts come from CDNs; EasyUI and `nextseek.css` are local.
   Offline or blocked networks lose Bootstrap, icons and fonts but still get the HTML. A `glyphicon`
   class never renders.
-- Fixed pixel sizes in templates (textareas with `min-width: 600px`, file inputs at 220px, the
+- Fixed pixel sizes in templates (file inputs at 220px, the
   `.attrs-table` at 1120px inside a scroll wrapper) are what break phone layouts, not the stylesheet.
 
 Owner docs: `themes/README.md` (what the theme depends on, static and CDN notes), `themes/CLAUDE.md`.

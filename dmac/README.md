@@ -98,27 +98,29 @@ own resolver inside the application image. A fourth block at `dmac/urls.py:42-45
 language-switch route only when `USE_MODELTRANSLATION` is on, and it is off here, so it
 contributes none of the eleven. Because
 `USE_I18N` is `False` (`dmac/settings.py:56`), the `i18n_patterns` wrapper at
-`dmac/urls.py:21` adds no language prefix; verified 2026-09-03 by resolving `/logout`
-inside the application image, which reached `dmac.views.logout_seek` with no prefix.
+`dmac/urls.py:21` adds no language prefix (resolving `/login/` reaches `dmac.views.login_seek`
+with no prefix).
 
 | Pattern | Goes to |
 |---|---|
-| `^login`, `^logout$`, `^signup/` | `dmac/views.py:110`, `dmac/views.py:170`, `dmac/views.py:267` |
+| `^login/?$`, `^signup/` | `dmac.views.login_seek`, `dmac.views.signup_seek` |
 | `^admin/` | `dmac/urls.py:26` |
 | `^seek/` | `seek.urls`, at `dmac/urls.py:27` |
 | `^nextseek_api/` | `nextseek_api.urls`, at `dmac/urls.py:29` |
 | `^media/(?P<path>.*)$` | `dmac.media.serve_media`, at `dmac/urls.py:37-40` |
-| `^$` | `dmac/views.py:285` |
-| `^accounts/signup/` | `dmac/views.py:267` again, at `dmac/urls.py:54` |
-| `^` | `mezzanine.urls`, at `dmac/urls.py:55` |
-| `^accounts/login/` | `dmac/views.py:110` again, at `dmac/urls.py:56` |
+| `^$` | `dmac.views.home` |
+| `^accounts/signup/$` | `dmac.views.signup_seek` again |
+| `^accounts/login/$` | `dmac.views.login_seek` again |
+| `^accounts/logout/$` | `mezzanine.accounts.views.logout` (URL name `logout`) |
+| `^(?:blog\|search\|accounts\|password_reset\|reset)(?:/.*)?/$` | `_not_found` in `dmac/urls.py`: Mezzanine's public pages answer 404 |
+| `^` | `mezzanine.urls`, last |
 
 The media route is unusual and its reason is recorded in place: nginx has no `/media`
 location and `DEBUG` is off under Docker, so Django serves it with a view of its own
 (`dmac/urls.py:32-36`). `dmac/media.py` sends an anonymous caller to `/login/` and serves
 a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
-(`dmac/urls.py:60-61`).
+(`handler404`, `handler500` in `dmac/urls.py`).
 
 There is one legacy include, and it is disabled rather than deleted: `^api/` pointing at
 `api_app.urls` is commented out at `dmac/urls.py:28`, while `dmac/urls.py:13` still

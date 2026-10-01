@@ -62,8 +62,8 @@ to the view needs `./startup.sh rebuild`.
 | `themes/NextSeek/templates/page-footer.embed.html` | `.footer-links` | "Docs", "People" (BMC wiki, new tab), "Contact" (`mailto:` the team address) |
 | `themes/NextSeek/templates/docs/page.html`, docs menu | "Get in touch" | "People", "Contact the data team" |
 
-The dead `content.embed.html` still carries the old GitBook link (see [legacy.md](legacy.md)); nothing
-renders it.
+No template links to the old GitBook site any more; the dead `content.embed.html` that last did is
+deleted.
 
 ### Nessie's copy of the docs
 

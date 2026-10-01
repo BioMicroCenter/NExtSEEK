@@ -72,7 +72,6 @@ seek/timeline/utils/helpers.py
 # --- boundary: template tags and one template artifact ---
 seek/templatetags/index.py
 seek/templatetags/vite_assets.py
-seek/templates/pages/dmac.logs
 
 # --- boundary: tests ---
 seek/tests/discovery.py
@@ -121,7 +120,6 @@ nextseek_api/services/users.py
 nextseek_api/views.py
 
 # --- the shadowed template, and a stale path this package is cited by ---
-themes/NextSeek/templates/content.embed.html
 architecture.md
 
 # --- documents cross-referenced from CLAUDE.md's See also ---

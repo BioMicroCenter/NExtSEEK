@@ -72,7 +72,7 @@ def _templates_context(message=""):
     }
 
 
-@requires_seek_login_redirect('/seek/templates')
+@requires_seek_login_redirect()
 def templatesList(request):
     """The Download Templates picker.
 
@@ -82,7 +82,7 @@ def templatesList(request):
     return render(request, 'templatesList.html', _templates_context())
 
 
-@requires_seek_login_redirect('/seek/templates')
+@requires_seek_login_redirect('/seek/templates/')
 def templatesDownload(request):
     """Generate and stream one workbook for the selected sample types.
 

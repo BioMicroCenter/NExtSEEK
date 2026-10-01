@@ -1,9 +1,18 @@
 {% extends "base.html" %}
 {% load static vite_assets %}
+{% comment %}
+  The chat is one full-height frame (body.page-chat in nextseek.css): no page
+  scroll on top of the chat's own, no footer, and below 992px the chat toolbar's
+  Menu button stands in for the site's hamburger. resizes-content lets Android
+  Chrome shrink the layout for the keyboard; viewport-fit=cover lets the composer
+  pad itself clear of the iPhone home indicator.
+{% endcomment %}
+{% block viewport %}<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">{% endblock %}
+{% block body_class %}page-chat{% endblock %}
 {% block extra_head %}
 <meta name="chat-basename" content="/seek/assistant/">
 {% endblock %}
 {% block main %}
-<div id="chat-assistant-root" style="width:100%;height:calc(100vh - 60px);"></div>
+<div id="chat-assistant-root"></div>
 {% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}
 {% endblock %}

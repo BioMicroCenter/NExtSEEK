@@ -88,8 +88,7 @@ folder is not on the path at all: editing it changes nothing. See [shell.md](she
    stays green and never sees the route) and must be mounted before Mezzanine's catch-all in
    `dmac/urls.py`. See [ci-and-deploy.md](ci-and-deploy.md) and [pages.md](pages.md).
 5. **Content outside a block is dropped.** In a template that `{% extends %}` another, anything not
-   inside a `{% block %}` is silently discarded. Six templates include `pages/seek_includes.html`
-   this way, and it never renders.
+   inside a `{% block %}` is silently discarded.
 6. **HTML comments do not stop Django.** An `{% include %}` inside `<!-- -->` still renders and ships
    to the browser. Use `{% comment %}` to remove markup.
 7. **Phones get the same templates.** There is no device detection. Below 992px the sidebar becomes

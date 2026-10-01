@@ -76,7 +76,7 @@ surface at all. The vocabulary and the reasoning behind the default are at
 The `REGISTRY` list begins at `ci/routes.py:271`. What it holds today -- how many
 entries, how many excluded, how many pinned `xfail`, how many per profile -- is an
 import away rather than a number worth keeping here; the one entry that sets
-`prod_allows_non_get` is the `^login` route at `ci/routes.py:289-294`, and the
+`prod_allows_non_get` is the `^login/?$` route in `ci/routes.py`, and the
 placeholder vocabulary its paths draw on is `PLACEHOLDERS` at
 `ci/routes.py:229-247`.
 
@@ -256,7 +256,7 @@ names something that is declared but not yet built, it says so.
 |---|---|
 | **tier** | How deep a check goes. Six are declared, T0 to T5 (`docs/superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md:244-255`): T0 and T1 are parametrised from the registry and grow with it, T2 upward are hand-written because a browser interaction is not a table row. Only T0 is built; `ci/smoke/README.md:62-63` records that per-route body assertions are T1's job "and are not in this increment" |
 | **T0 / reachability** | `ci/smoke/test_reachability.py`: one test per registry route, parametrised at collection, asserting a status, a live gateway and no silent bounce to `/login/` (`ci/smoke/test_reachability.py:1-10`). Deliberately shallow, which is why the hand-written tests exist beside it |
-| **flows** | `ci/smoke/test_flows.py`: the browser lane, marked `flow` (`ci/smoke/test_flows.py:19`), which drives the real UI through Playwright and with `--strict-console` fails on uncaught console errors. Nothing in it writes to the database (`ci/smoke/test_flows.py:1-9`) |
+| **flows** | `ci/smoke/test_flows.py`: the browser lane, marked `flow` (`ci/smoke/test_flows.py:19`), which drives the real UI through Playwright and with `--strict-console` fails on uncaught console errors. Nothing in it writes to the database (`ci/smoke/test_flows.py:1-9`). `ci/smoke/test_ui_shell.py` adds the shell at phone (390x844, iPhone Safari) and desktop sizes, plus HTTP checks of where a visitor is sent to sign in |
 | **route registry** | The `REGISTRY` list in `ci/routes.py`. Every application URL declared exactly once; an undeclared route is refused before the request is built (`ci/routes.py:10-13`) |
 | **completeness gate** | `ci/gate/`: the two tests that diff Django's live resolver against `REGISTRY` in both directions and fail with a paste-ready skeleton (`ci/gate/test_route_registry.py`) |
 | **effect** | What a request to a route writes: `reads`, `writes` (with the `ci/writers.py` ids that do it), `external` (a write the graph does not read) or `n/a` (not this application's surface). Declared per entry, enforced at `ci/routes.py:126-152`, checked against the writer registry by `ci/gate/test_route_effects.py` |
@@ -330,7 +330,7 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests pytest \
 It runs on a host with no Django installed.
 
 **The rest of the smoke suite** (`test_reachability.py`, `test_health.py`,
-`test_flows.py`, `test_write_lane.py`) needs a deployed stack reachable through
+`test_flows.py`, `test_ui_shell.py`, `test_write_lane.py`) needs a deployed stack reachable through
 its nginx front door, and both CI accounts named in `~/.config/nextseek/ci.env`
 having logged in through `/login/` on that box at least once. `./startup.sh ci`
 is the operator entry point for it (`startup/README.md:38`).

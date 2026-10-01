@@ -17,9 +17,9 @@ the invariants that fail silently. Read those before a non-trivial change.
 ## How it works
 
 The chat is a full page, not a floating panel. `/seek/assistant/` (`seek/urls.py`, route name
-`assistant`, view `smartSearch` in `seek/views/search.py`; signed-in users only, and an inline check renders `error.html` rather than redirecting to login) renders
+`assistant`, view `smartSearch` in `seek/views/search.py`; signed-in users only, and a visitor is sent to `/login/?next=<the page>`) renders
 `seek/templates/smartSearch.html`. That template extends `base.html` and, in `{% block main %}`,
-emits one empty `div#chat-assistant-root` (inline style `height: calc(100vh - 60px)`) plus the
+emits one empty `div#chat-assistant-root` plus the
 `{% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}` tag. React then fills the div. The
 page has no close control; it lives inside the normal sidebar layout.
 
@@ -102,7 +102,7 @@ it only works against a remote `VITE_API_BASE_URL` with CORS.
 | Screen area | Files | Notes |
 |---|---|---|
 | Top bar (40 px) | `components/Layout/CompactToolbar.tsx` | toggle chat list, About, Debug |
-| Saved chats rail | `components/Sessions/SessionSidebar.tsx`, `SessionListItem.tsx`, `NewChatButton.tsx`; hook `hooks/useSessions.ts` | 260 px wide, 48 px collapsed; collapse state in localStorage key `chat.sidebar.collapsed`, read in `EmbeddedApp.tsx` |
+| Saved chats rail | `components/Sessions/SessionSidebar.tsx`, `SessionListItem.tsx`, `NewChatButton.tsx`; hook `hooks/useSessions.ts` | 260 px wide, 48 px collapsed from 768 px up, a sheet below; collapse state in localStorage key `chat.sidebar.collapsed`, read in `EmbeddedApp.tsx` |
 | Conversation column | `components/ChatPanel/ChatPanel.tsx` | stepper, message list, composer; wires suggestion chips to send |
 | Message list | `ChatPanel/MessageList.tsx`; hook `hooks/useAutoScroll.ts` | empty state, stick-to-bottom scroll |
 | One message | `ChatPanel/MessageBubble.tsx` | user and assistant bubbles (`max-w-[80%]`), system notices as a centred italic line, suggestion chips, "Search Details" toggle |
@@ -152,22 +152,35 @@ live in `themes/NextSeek/static/css/nextseek.css`; see [styles.md](styles.md).
 
 ## Phone behaviour
 
-There is no responsive behaviour in the shipped shell: no layout responds to width. The only
-breakpoint classes are cosmetic ones in the shadcn primitives (`ui/dialog.tsx`, `ui/input.tsx`,
-`ui/sheet.tsx`, where the Debug sheet is `w-3/4 sm:max-w-sm`) and in standalone `HeaderBar.tsx`. The
-embedded top bar (`CompactToolbar.tsx`) always shows its About and Debug labels. Confirmed on a
-phone-sized viewport on 2026-09-30 (see [known-issues.md](known-issues.md#chat-frontend), UI-160).
+The embedded shell responds to width in three places. The cut is 768 px (`PHONE_QUERY` in
+`hooks/useMediaQuery.ts`, Bootstrap's `md`); the site's own drawer switches at 992 px.
 
-| Issue | Where | Effect at 390 px |
-|---|---|---|
-| Fixed rail width | `SessionSidebar.tsx` (`w-[260px]`, expanded by default unless `chat.sidebar.collapsed` is `1`) | The Django sidebar collapses to a drawer below 992 px and `.content` padding drops to 0.875rem at 575 px and below (`nextseek.css` media queries), so the chat root is about 360 px wide. The 260 px rail leaves roughly 100 px for messages and composer until the user taps the toolbar toggle (48 px rail) |
-| `100vh` | inline style in `smartSearch.html` | `vh` is the large viewport on mobile browsers, so the URL bar and soft keyboard are not subtracted and the composer can sit off screen. There is no `dvh`, `visualViewport` or safe-area handling |
-| Double scroll | same inline height inside padded `<main>` plus the footer | the root is viewport height minus 60 px, then padding and footer add more, so the page scrolls as well as the chat (also on desktop; not checked in a browser) |
-| 80% widths | bubbles, chips, Search Details in `MessageBubble.tsx`; upload list `max-w-[200px]` in `UploadControl.tsx` | fine on desktop, tight beside the rail |
+| Behaviour | Where |
+|---|---|
+| Below 768 px the saved-chats list is a left Radix Sheet, closed by default and closed after a pick or New chat; from 768 px up it is the rail (260 px, 48 px collapsed) | `Sessions/SessionSidebar.tsx`; the toolbar toggle opens the sheet on phones (`EmbeddedApp.tsx`) |
+| Below 992 px the toolbar shows a "Menu" button that calls `window.openSidebar()`, because the chat page hides the site's hamburger | `Layout/CompactToolbar.tsx` (needs the `page-chat` body class and `nextseek.js`) |
+| About and Debug show icons only below 768 px; toolbar, send, upload-adjacent and chip targets are 44 px on `pointer: coarse` | `CompactToolbar.tsx`, `MessageInput.tsx`, `MessageBubble.tsx` |
+| Assistant replies take the full column, user messages up to 85% (80% from 768 px) | `MessageBubble.tsx` |
+| Admin controls (route override, prod toggle, turn length) are hidden below 768 px, and no stored override applies to a send from there | `EmbeddedApp.tsx` (`isAdmin && !isPhone`) |
+| A suggestion chip's reason sits behind an info button beside it (tap to show), not a hover title | `MessageBubble.tsx` |
+| The composer pads for the iOS home indicator (`env(safe-area-inset-bottom)`) | `MessageInput.tsx` |
 
-A fix starts with a default-collapsed or overlay rail under about 768 px, `100dvh` on the root,
-and a flex chain with `min-height: 0` (or a full-bleed page class) in `smartSearch.html`. There
-is no mobile-viewport Playwright project to catch regressions.
+The page frame is the Django side. `smartSearch.html` fills `{% block body_class %}` with `page-chat`
+and `{% block viewport %}` with a viewport meta that adds `viewport-fit=cover` (so the composer's
+safe-area padding works on iPhone) and `interactive-widget=resizes-content` (Android Chrome shrinks
+the layout for the keyboard). Under `.page-chat`, `nextseek.css` makes `#main-wrapper` a `100dvh`
+column, takes the padding off `#content`, lets `#chat-assistant-root` fill it (`flex: 1 1 0;
+min-height: 0`), and hides the footer and the phone top bar (the toolbar's Menu button replaces
+the hamburger). The page itself never scrolls; only the message list does.
+
+## Accessibility and focus
+
+- The message list is `role="log"` (polite); a visually hidden `role="status"` line in `ChatPanel.tsx` says
+  "Answer ready" or "Notice: " plus the error text.
+- The composer is `readOnly` with `aria-disabled` during a turn, not `disabled`. Focus returns to it when a
+  turn starts and ends (send, chip click, answer) on fine pointers only (`isFinePointer()`); on a phone
+  that would open the keyboard over the answer.
+- Search Details and the chip reason toggle carry `aria-expanded` and `aria-controls`.
 
 ## Build and commit rule
 
@@ -212,10 +225,10 @@ Every row ends with the build-and-commit step above, unless the row is Django-si
 | Composer placeholder, keys, `?q=` | `ChatPanel/MessageInput.tsx`, `UploadControl.tsx` | smoke tests rely on `?q=` and the test ids |
 | Progress step text and icons | `ChatPanel/ProcessingStepper.tsx`, `hooks/useProcessingState.ts` | steps differ per mode |
 | Suggestion chips | `MessageBubble.tsx`, send wiring in `ChatPanel.tsx` | only the newest assistant reply shows chips |
-| Saved chats rail (width, mobile) | `Sessions/SessionSidebar.tsx`, collapse state in `EmbeddedApp.tsx`, `Layout/CompactToolbar.tsx` | the default-collapsed state must also respect the stored key |
+| Saved chats rail (width, mobile) | `Sessions/SessionSidebar.tsx`, collapse state in `EmbeddedApp.tsx`, `Layout/CompactToolbar.tsx` | the sheet and the rail share one content block; the stored key only affects the rail |
 | Debug sheet and admin controls | `Layout/RightSidebar.tsx`, `DebugPanel/DebugPanel.tsx`, the three control files | gating in the client is cosmetic; the server enforces admin-only overrides |
 | About text | `Layout/AboutDialog.tsx` | `components/__tests__/AboutDialog.test.tsx` and the bundle guard quote it |
-| Page frame, height, padding around the chat | `seek/templates/smartSearch.html` (inline height), `themes/NextSeek/static/css/nextseek.css` (`.content`, `#main-wrapper`) | `seek/templates/` is baked into the image: `./startup.sh rebuild`. Only `themes/NextSeek/` is bind-mounted |
+| Page frame, height, padding around the chat | `seek/templates/smartSearch.html` (`body_class`, `viewport` blocks), `themes/NextSeek/static/css/nextseek.css` (the `.page-chat` rules) | `seek/templates/` is baked into the image: `./startup.sh rebuild`. Only `themes/NextSeek/` is bind-mounted |
 | New endpoint or event | `src/lib/services/chatApi.ts`, `src/lib/types/api.ts`, handler in both `EmbeddedApp.tsx` and `AppLayout.tsx` | add the backend route to `ci/routes.py` if it is a new URL |
 | Mount id, basename, script tag | `src/main.embedded.tsx`, `src/hooks/useChatRoute.ts`, `smartSearch.html` | three places must agree |
 | Dark mode | toggle on `#chat-assistant-root` (not `<html>`), theme the highlight.js import | the Django theme has no dark mode either, so decide both together |
@@ -239,15 +252,13 @@ Every row ends with the build-and-commit step above, unless the row is Django-si
 | Browser, real backend | `e2e/real-backend/` (env-gated, needs a login on a live box) | manual |
 | Repo level | `test_committed_chat_bundle.py`, `ci/smoke/test_flows.py`, `ci/smoke/test_deploy_live.py`, `ci/smoke/test_nessie.py` (test ids) | see [ci-and-deploy.md](ci-and-deploy.md) |
 
-Gaps: no mobile-viewport project, no accessibility checks, no visual regression. The dark-mode
-spec only tests the standalone toggle. Accessibility holes found by reading source: no live region
-for new replies or errors, focus is not returned to the composer after a send (the textarea is
-disabled during a turn), and the Search Details toggle has no `aria-expanded`.
+Gaps: no mobile-viewport project, no axe checks, no visual regression. The dark-mode
+spec only tests the standalone toggle. `src/components/__tests__/phoneLayout.test.tsx` covers the
+focus rule, rail versus sheet, the Menu button and the live regions.
 
 ## Known issues
 
 See [known-issues.md](known-issues.md#chat-frontend). The ones that matter most:
 
-- No responsive behaviour: the 260 px rail and `100vh` make the chat hard to use on a phone.
 - The shipped UI is only what is committed in `static/js/chat_assistant/`, guarded by a check that covers two strings, and the two shells duplicate their event handling by hand.
 - Dark tokens ship but are never applied, and unprefixed Tailwind utilities plus no preflight let Bootstrap and the chat CSS affect each other.

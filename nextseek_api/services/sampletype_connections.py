@@ -728,6 +728,16 @@ CLADE_STYLES = {
     "Analyzed":  ("#1565C0", "hexagon"),
 }
 _CYTO_CDN = "https://unpkg.com"
+#: Exact versions with their integrity hashes: a floating "@3" could change under
+#: the page, and a changed file without a matching hash is refused by the browser.
+_CYTO_SCRIPTS = (
+    ("cytoscape@3.34.3/dist/cytoscape.min.js",
+     "sha384-qPKQxl9uMXOw7vSTUDAnpUilhLuulovw6P5Z4db4bqxW5VhumS7przEmHX0iM0Oc"),
+    ("dagre@0.8.5/dist/dagre.min.js",
+     "sha384-2IH3T69EIKYC4c+RXZifZRvaH5SRUdacJW7j6HtE5rQbvLhKKdawxq6vpIzJ7j9M"),
+    ("cytoscape-dagre@2.5.0/cytoscape-dagre.js",
+     "sha384-u69h9ebXeSjlg6q/rb1zKTRAGu/h8deCl0409xpS/QJctMKnc4M9Fzkm01VOQdeF"),
+)
 
 
 def rows_to_html(rows, clade_map, title="SampleType connections") -> str:
@@ -758,21 +768,28 @@ def rows_to_html(rows, clade_map, title="SampleType connections") -> str:
         for k, (c, _shape) in CLADE_STYLES.items()
         if any(n["clade"] == k for n in nodes)
     )
+    scripts = "".join(
+        f'<script src="{_CYTO_CDN}/{path}" integrity="{sri}" crossorigin="anonymous"></script>\n'
+        for path, sri in _CYTO_SCRIPTS
+    )
     return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_esc(title)}</title>
-<script src="{_CYTO_CDN}/cytoscape@3/dist/cytoscape.min.js"></script>
-<script src="{_CYTO_CDN}/dagre@0.8/dist/dagre.min.js"></script>
-<script src="{_CYTO_CDN}/cytoscape-dagre@2/cytoscape-dagre.js"></script>
-<style>
-html,body{{margin:0;height:100%;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1F2328}}
-header{{padding:10px 18px;border-bottom:1px solid #E1E4E8;background:#fff;display:flex;
-gap:16px;align-items:center;flex-wrap:wrap}}
+{scripts}<style>
+/* A flex column: the header takes what it needs (it wraps on narrow frames) and
+   the canvas fills the rest. Nothing may overflow the frame: one stray pixel
+   would show a scrollbar, narrow the canvas, hide the scrollbar, and repeat. */
+html,body{{margin:0;height:100%;overflow:hidden}}
+body{{display:flex;flex-direction:column;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1F2328}}
+header{{flex:none;padding:10px 18px;border-bottom:1px solid #E1E4E8;background:#fff;display:flex;
+gap:4px 16px;align-items:center;flex-wrap:wrap}}
 h1{{margin:0;font-size:15px;font-weight:700}}
 .sub{{color:#57606A;font-size:12px}}
 .lg{{font-size:12px;color:#444;display:inline-flex;align-items:center;gap:5px;margin-right:10px}}
 .lg i{{width:11px;height:11px;border-radius:3px;display:inline-block}}
-#cy{{position:absolute;top:52px;bottom:0;left:0;right:0;background:#FCFCFD}}
-#dp{{position:absolute;right:14px;top:66px;width:250px;background:#fff;border:1px solid #D0D7DE;
+main{{flex:1;min-height:0;position:relative}}
+#cy{{position:absolute;inset:0;background:#FCFCFD}}
+#dp{{position:absolute;right:14px;top:14px;width:250px;max-width:calc(100% - 28px);box-sizing:border-box;background:#fff;border:1px solid #D0D7DE;
 border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px rgba(0,0,0,.09);display:none;font-size:12.5px}}
 #dp b{{display:block;font-size:14px;margin-bottom:4px}}
 #dp ul{{margin:6px 0 0;padding-left:18px}}
@@ -780,7 +797,7 @@ border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px rgba(0,0,0,.09);displa
 <header><h1>{_esc(title)}</h1>
 <span class="sub">{len(nodes)} sample types &middot; {len(edges)} connections</span>{legend}
 <span class="sub">click a node or edge for detail</span></header>
-<div id="cy"></div><div id="dp"></div>
+<main><div id="cy"></div><div id="dp"></div></main>
 <script>
 var D={payload};
 var els=D.nodes.map(function(n){{return {{group:'nodes',data:{{
@@ -793,17 +810,18 @@ var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
   {{selector:'node',style:{{'background-color':'data(bg)','shape':'data(shape)','label':'data(label)',
     'text-valign':'center','text-halign':'center','color':'#fff','font-size':'11px','font-weight':'bold',
     'width':'96px','height':'62px','border-width':1,'border-color':'data(bg)',
-    'text-outline-color':'data(bg)','text-outline-width':'1px'}}}},
+    'text-outline-color':'data(bg)','text-outline-width':'1px','z-index-compare':'manual','z-index':1}}}},
   {{selector:'edge',style:{{'width':1.5,'line-color':'#999','target-arrow-color':'#999',
     'target-arrow-shape':'triangle','arrow-scale':0.9,'curve-style':'bezier','label':'data(label)',
-    'font-size':'10px','color':'#333','text-rotation':'autorotate','text-background-color':'#fff',
+    'font-size':'10px','color':'#333','text-rotation':'none','text-wrap':'wrap','text-max-width':'100px',
+    'z-index-compare':'manual','z-index':2,'text-background-color':'#fff',
     'text-background-opacity':0.9,'text-background-padding':'3px','text-margin-y':'-9px'}}}},
   {{selector:'edge:loop',style:{{'curve-style':'bezier','loop-direction':'-90deg','loop-sweep':'-45deg',
     'control-point-step-size':'110px','text-rotation':'none'}}}},
   {{selector:':selected',style:{{'border-color':'#A31F34','border-width':4,
     'line-color':'#A31F34','target-arrow-color':'#A31F34'}}}}
  ],
- layout:{{name:'dagre',rankDir:'TB',rankSep:85,nodeSep:45,edgeSep:18,padding:30,animate:false}},
+ layout:{{name:'dagre',rankDir:'TB',rankSep:100,nodeSep:70,edgeSep:18,padding:30,animate:false}},
  minZoom:0.2,maxZoom:3,wheelSensitivity:0.3,
  // Cytoscape draws to a <canvas>, so the diagram is a RASTER however vector the
  // data is. pixelRatio is read once at construction and defaults to the
@@ -812,20 +830,23 @@ var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
  // costs a little memory on a graph this size and nothing else.
  pixelRatio:2}});
 var dp=document.getElementById('dp');
-// Browser zoom (ctrl +) changes devicePixelRatio, and Cytoscape does not watch
-// for it -- the existing canvas is simply magnified, which is the blur. There is
-// no devicePixelRatio event, so the idiom is a matchMedia query on the CURRENT
-// ratio: it stops matching the instant the ratio changes, fires once, and has to
-// be re-armed at the new value. cy.resize() re-rasterises at that new ratio.
+// One debounced resize for every cause: the canvas box changing size (window,
+// iframe or header wrap, seen by a ResizeObserver) and browser zoom, which
+// changes devicePixelRatio without an event of its own. The idiom for that is a
+// matchMedia query on the CURRENT ratio: it fires once when the ratio changes
+// and is re-armed at the new value. cy.resize() re-rasterises at that ratio.
 (function(){{
+  var timer=null;
+  function resize(){{ clearTimeout(timer); timer=setTimeout(function(){{ cy.resize(); }},100); }}
   function watchRatio(){{
     var mq=window.matchMedia('(resolution: '+window.devicePixelRatio+'dppx)');
-    function onChange(){{ cy.resize(); watchRatio(); }}
+    function onChange(){{ resize(); watchRatio(); }}
     if(mq.addEventListener){{ mq.addEventListener('change',onChange,{{once:true}}); }}
     else if(mq.addListener){{ mq.addListener(onChange); }}
   }}
   try{{ watchRatio(); }}catch(e){{ /* no matchMedia: the diagram still works */ }}
-  window.addEventListener('resize',function(){{ cy.resize(); }});
+  if(window.ResizeObserver){{ new ResizeObserver(resize).observe(document.getElementById('cy')); }}
+  else{{ window.addEventListener('resize',resize); }}
 }})();
 function esc(s){{return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
 cy.on('tap','node',function(e){{var d=e.target.data();

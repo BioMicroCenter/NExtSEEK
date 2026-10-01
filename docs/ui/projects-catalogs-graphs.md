@@ -70,66 +70,43 @@ Everything below is inside the string returned by `rows_to_html` in
 `nextseek_api/services/sampletype_connections.py` (the `<style>` block and the script at the end).
 
 **Outer size.** On the project page the iframe is `width:100%; height:460px` (selector
-`.project-diagram` in the inline `<style>` of `projectPage.html`). In the fullscreen overlay it is
-`100%` by `100%` of the panel (`.modal-route-iframe`). There is no `scrolling` attribute on
-either iframe.
+`.project-diagram` in the inline `<style>` of `projectPage.html`). Below 768px the inline frame is
+hidden (a hidden lazy iframe never loads) and `.project-diagram-open`, a full-width "Open the Sample
+flow diagram" link, opens the same page in the full-screen overlay (`.modal-route-iframe`, `100%` by
+`100%` of the panel), so a phone never gets a thumbnail that captures touch scrolling.
 
-**Inside the frame**, the document is laid out like this:
+**Inside the frame** the document is a flex column that can never scroll:
 
 | Part | How it is placed |
 |---|---|
-| `html, body` | `margin:0; height:100%`. No `overflow:hidden`, so the frame document can scroll. No `<meta name="viewport">`. |
-| `<header>` | A normal in-flow flex row (`display:flex; flex-wrap:wrap; gap:16px; padding:10px 18px; border-bottom`). Holds the title, "N sample types, M connections", the clade legend, and the hint text. Its height is not fixed: it is about 43 px on a wide frame and grows by about 34 px for each wrapped line on narrow ones. |
-| `#cy` | `position:absolute; top:52px; bottom:0; left:0; right:0`. The 52 px is a hard-coded guess at the header height, not measured. Cytoscape reads this element's box. |
-| `#dp` (detail box) | `position:absolute; right:14px; top:66px; width:250px`, hidden until a node or edge is tapped. |
+| `html, body` | `margin:0; height:100%; overflow:hidden`; `body` is `display:flex; flex-direction:column`. Has a viewport meta tag. |
+| `<header>` | `flex:none`, a wrapping flex row with the title, "N sample types, M connections", the clade legend and the hint. Its height follows its content. |
+| `main` | `flex:1; min-height:0; position:relative`: everything the header leaves. |
+| `#cy` | `position:absolute; inset:0` inside `main`. Cytoscape reads this element's box. |
+| `#dp` (detail box) | `position:absolute; right:14px; top:14px` inside `main`, hidden until a node or edge is tapped. |
 
-Two consequences follow from this. First, when the header wraps past 52 px (narrow frames), its
-second line sits under the canvas, because `#cy` paints later, so the legend and hint are cut off.
-Second, nothing prevents the frame document from scrolling: a one pixel rounding overflow (likely
-at fractional browser zoom) shows scrollbars.
+**Resize handling** (script at the end of `rows_to_html`): one debounced (100 ms) `resize()` that
+calls `cy.resize()`. A `ResizeObserver` on `#cy` triggers it whenever the canvas box changes (window,
+iframe or a header wrap), and a `matchMedia('(resolution: <devicePixelRatio>dppx)')` watcher triggers
+it on browser zoom and re-arms at the new ratio. Cytoscape is created with `pixelRatio:2`.
 
-**Resize handling** (script at the end of `rows_to_html`):
+This replaced a layout with a fixed `top:52px` canvas under a header that could wrap, no
+`overflow:hidden`, and an undebounced `window` resize listener, which together could loop: a 1 px
+overflow showed a scrollbar, the frame narrowed, the canvas resized and the scrollbar went away.
 
-- Cytoscape is created with `pixelRatio:2`, so its canvas backing store is twice the box size in
-  each direction.
-- A `matchMedia('(resolution: <devicePixelRatio>dppx)')` watcher fires when browser zoom changes
-  the device pixel ratio, calls `cy.resize()`, and re-arms itself at the new ratio.
-- A plain `window` `resize` listener also calls `cy.resize()`, with no debounce and no check that
-  the box really changed.
+**Libraries.** Cytoscape, dagre and cytoscape-dagre load from unpkg at exact versions with
+`integrity` hashes (`_CYTO_SCRIPTS`). To upgrade one, change the version and recompute its hash
+(`curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`).
 
-The suspected flicker: a scrollbar appears, the viewport narrows, `resize` fires, `cy.resize()`
-re-rasterises the 2x canvas, and the scroll size changes for a frame. This chain was not observed
-in headless Chromium at device pixel ratio 1 (scroll size matched client size from 320 to 980 px
-wide); the ingredients are all in the code, and it was seen in a desktop browser on project "NAMs" (UI-081). The safe
-fix is to make scrolling impossible and the layout measured instead of guessed:
+### How edge labels are placed
 
-1. `html,body{overflow:hidden}` (Cytoscape has its own pan and zoom, the page never needs to scroll).
-2. `body{display:flex;flex-direction:column}`, `header{flex:0 0 auto}`, `#cy{flex:1 1 auto;min-height:0;position:relative}`
-   in place of the absolute `top:52px`; position `#dp` relative to `#cy`.
-3. Replace the `window` listener with one `ResizeObserver` on `#cy` that skips unchanged sizes, then
-   `cy.resize(); cy.fit(undefined, 30)`. Keep the device pixel ratio watcher.
-4. Optionally `scrolling="no"` on the iframe and a height such as `clamp(320px, 60vh, 460px)` in
-   `.project-diagram` for phones.
-
-Test at browser zoom 90, 110 and 125 percent and at device pixel ratio 2.
-
-### How edge labels are placed, and why they run under nodes
-
-The layout is `dagre` with `rankDir:'TB'`, `rankSep:85`, `nodeSep:45`, `edgeSep:18`, `padding:30`.
-Nodes are 96 by 62 px, so the visible gap between two ranks is about 85 px. The edge style sets
-`label:'data(label)'`, `font-size:10px`, `text-rotation:'autorotate'`, a white label background
-with 3 px padding, and `text-margin-y:-9px`. Autorotate turns the label to lie along the edge,
-which on a top-to-bottom layout is vertical. A long assay name such as "Immunohistochemistry"
-(about 105 px at 10 px type) is longer than the 85 px gap, so its ends run beneath the two nodes
-(Cytoscape draws node bodies over edge labels by z-order, and cytoscape-dagre does not reserve
-room for labels). The label text is built in `rows_to_html` as the first assay name sorted
-alphabetically, plus " +N" when the pair has more than one assay, so it is at most one name.
-Loop edges (`edge:loop`) already use `text-rotation:'none'`.
-
-Fix options, all in the `style` and `layout` objects of the same function: `text-rotation:'none'`
-with `text-wrap:'wrap'` and `text-max-width:'80px'`; a larger `rankSep` (about 140) and `nodeSep`;
-or scale `rankSep` with the longest label, computed in Python where `edges` is built
-(for example `max(85, 6.2 * longest + 40)`).
+The layout is `dagre` with `rankDir:'TB'`, `rankSep:100`, `nodeSep:70`, `edgeSep:18`, `padding:30`.
+Nodes are 96 by 62 px. Edge labels are level (`text-rotation:'none'`), wrap at 100 px, sit on a white
+background, and are drawn above the nodes (`z-index-compare:'manual'`, edges at `z-index` 2, nodes at
+1): cytoscape-dagre draws straight edges, so an edge that skips a rank puts its label beside a node
+of the middle rank, and the z-order keeps it readable there. The label text is built in
+`rows_to_html` as the first assay name sorted alphabetically, plus " +N" when the pair has more than
+one assay. Loop edges (`edge:loop`) use `text-rotation:'none'` too.
 
 ### Colours and shapes
 
@@ -218,9 +195,9 @@ The libraries' versions for the rest of the site are in [javascript.md](javascri
 | Change how the Sample flow looks (nodes, labels, legend, layout numbers, libraries) | `rows_to_html` in `nextseek_api/services/sampletype_connections.py` | The HTML is cached per project for an hour (`stconn:html:<id>`); clear the cache or wait. Doubled braces `{{ }}` are required inside the f-string. |
 | Change clade colours or node shapes in the flow | `CLADE_STYLES` in the same module | Keep in step with the curation template it mirrors. Catalog tints are a separate set of CSS tokens. |
 | Fix flicker or scrollbars in the flow | `<style>` and the resize block of `rows_to_html` (see the four steps above) | The project-page iframe (`.project-diagram` in `projectPage.html`) and the overlay iframe (`.modal-route-iframe`) load the same frame document; test both. |
-| Fix labels under nodes | `layout` (`rankSep`, `nodeSep`) and the `edge` style in `rows_to_html` | cytoscape-dagre ignores label size. |
+| Change label placement | `layout` (`rankSep`, `nodeSep`) and the `edge` style in `rows_to_html` | cytoscape-dagre ignores label size. |
 | Change cache lifetime or the empty-state message | `_ttl` and `connections_html` in `nextseek_api/services/project_connections.py`; the empty response in `project_connections` | Set `PROJECT_CONNECTIONS_CACHE_SECONDS` in settings for the lifetime. |
-| Resize the flow panel on the project page | `.project-diagram` in the inline CSS of `seek/templates/projectPage.html` | Height is fixed at 460 px. |
+| Resize the flow panel on the project page | `.project-diagram` in the inline CSS of `seek/templates/projectPage.html` | Height is fixed at 460 px; below 768px the panel is replaced by `.project-diagram-open`. |
 | Change Fullscreen behaviour | The "Modal-over-route" block in `themes/NextSeek/static/js/nextseek.js`; `.modal-route-*` in `themes/NextSeek/static/css/nextseek.css` | The URL is pushed into the address bar; a reload there shows the bare diagram without site navigation. `nextseek.js` and `nextseek.css` are served from `themes/NextSeek/static/` (see [styles.md](styles.md)). |
 | Change stat cards or sections on the project page | `seek/templates/projectPage.html`; data assembled in `project_page` in `seek/views/projects.py` | Each data source (graph rows, bundles, project context, counts) fails soft, so an empty section can mean a failed lookup, not no data. |
 | Change the projects list cards | `seek/templates/projectsList.html` | CSS is inline in the template. |
@@ -243,16 +220,12 @@ The libraries' versions for the rest of the site are in [javascript.md](javascri
   the target page, parses it, and injects `#content` (or `main`, or `body`). Page-level `<style>`
   from `extra_head` is not carried across, which is why the sample-counts table CSS lives in
   `nextseek.css` and not in `project_samples.html`.
-- **Django drops content outside blocks in a child template.** `admin_retrieval.html`, `clades.html`
-  and `internal_assays.html` each have a top-level `pages/seek_includes.html` include that never
-  renders; `projectsList.html` loads the `index` tag library
-  and does not use it. Harmless, but do not copy either.
+- **Django drops content outside blocks in a child template.** `projectsList.html` loads the `index`
+  tag library and does not use it. Harmless, but do not copy it.
 - **Sample tree v1 still ships its bytes.** `pages/samples.embed.html` includes
   `pages/samples_tree.embed.html` twice, each inside an HTML comment. Django runs `{% include %}`
   even inside `<!-- -->`, so the markup (about 520 lines with four CDN tags) is served on every
   sample page and never executes.
-- **`publish.html` and `publishAssets.html` have no route and no view that renders them.** Nothing
-  reaches them; do not edit them expecting a visible change.
 - **Two "clade" concepts.** The clades workbench edits the clade tables; the flow diagram, the
   catalogs and the project sample counts all read them. Changing a clade name or assignment shows
   up in the flow only after the cached HTML expires.
@@ -269,8 +242,5 @@ The libraries' versions for the rest of the site are in [javascript.md](javascri
 
 See [known-issues.md](known-issues.md#projects-catalogs-graphs). The ones that matter most here:
 
-- The Sample flow frame can show flickering scrollbars and clips its header on narrow widths
-  (no `overflow:hidden`, a fixed 52 px offset for `#cy`, unthrottled resize handlers).
-- Edge labels on the Sample flow run under nodes (`autorotate` with `rankSep:85`).
 - Sample flow and sample tree v2 load their libraries from public CDNs with no fallback message;
   catalog tables overflow on phones.

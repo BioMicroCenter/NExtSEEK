@@ -27,9 +27,8 @@ Start at [README.md](README.md) if you are new to the guide.
 So the theme folder beats everything for a shared name. `base.html`, `index.html`,
 `accounts/includes/user_panel.html` and `pages/menus/tree.html` resolve to
 `themes/NextSeek/templates/`, never to Mezzanine's packaged copies. Mezzanine's own templates are the
-last fallback. Pages that the theme does not override (for example the profile pages behind the
-`profile` and `profile_update` URL names) come from Mezzanine's packaged templates and extend the
-theme's `base.html`.
+last fallback. Mezzanine's account and profile pages answer 404 (see [pages.md](pages.md),
+"Mezzanine routes").
 
 The repo-root `templates/` folder (a Mezzanine scaffold: `base.html`, `accounts/`, `mobile/`,
 `pages/`) is in neither `DIRS` nor any app, so it is never loaded. Editing it changes nothing. There
@@ -51,7 +50,8 @@ body.nextseek-app
     .sidebar-foot              include includes/user_panel.html                   (pinned)
   .sidebar-scrim               z-index 999, visible only while body.sidebar-open
   div#main-wrapper             margin-left 256px; 0 below 992px
-    button.mobile-toggle.d-lg-none   hamburger, normal flow (not sticky)
+    div.mobile-topbar.d-lg-none      phone top bar, sticky: hamburger (button.mobile-toggle),
+                                     wordmark, and Sign in for visitors
     main#content.content     {% block main %}
     footer#footer.footer     include page-footer.embed.html
   <script> bootstrap bundle (CDN), js/nextseek.js, then {% block extra_js %}
@@ -68,6 +68,8 @@ after EasyUI. Third-party script tags here are security item SEC-0930-F (tracked
 |---|---|---|
 | `base.html` | `title` | `<title>` text |
 | `base.html` | `extra_head` | extra `<link>`/`<style>` in `<head>` |
+| `base.html` | `viewport` | the viewport `<meta>`; the chat page widens it (a second meta tag is not valid) |
+| `base.html` | `body_class` | extra classes on `<body>`; the chat page sets `page-chat` |
 | `base.html` | `left_panel` | sidebar nav; defaults to `nav.embed.html`, no page overrides it today |
 | `base.html` | `main` | the page content |
 | `base.html` | `extra_js` | scripts after `nextseek.js` |
@@ -86,10 +88,9 @@ Django drops anything in a child template that sits outside a block, so content 
 
 The Admin test is `is_superuser`, not `is_staff`, on purpose: the login code sets `is_staff` for every
 SEEK user, so `is_staff` would show the section to everyone (see the comment in the template). The
-user panel uses the same rule for its "Admin" or "Researcher" badge. The nav links are not filtered
-for anonymous visitors: a signed-out user sees every link except Admin, and a click on a protected
-page redirects to the login page (with a `next` target that is not always the page clicked, UI-021
-and UI-023).
+user panel uses the same rule for its "Admin" or "Researcher" badge. Signed-out visitors see only the
+links that work without a sign-in (Home, Documentation, Resources): every other Data link and the
+whole Quick Access group sit inside `{% if request.user.is_authenticated %}`.
 
 ### The user panel
 
@@ -99,7 +100,7 @@ accounts panel has two states:
 
 | State | Markup | Links |
 |---|---|---|
-| Signed in | `.user-panel`: avatar (first two letters of the username), name, role badge, three-dot button `.user-menu-btn` calling `toggleUserMenu()` | Profile (`{% url "profile" username %}`), Update profile (`profile_update`), Sign out (`{% url 'logout' %}?next=<path>`, Mezzanine's logout) |
+| Signed in | `.user-panel`: avatar (first two letters of the username), name, role badge, three-dot button `.user-menu-btn` calling `toggleUserMenu()` | Sign out (`{% url 'logout' %}?next=<path>`, Mezzanine's logout view at `/accounts/logout/`) |
 | Signed out | `.user-panel--anon` with `a.btn-signin` | `/login/?next=<current path>` |
 
 ### Footer
@@ -116,19 +117,19 @@ FAIRDATA logo) and the form (`.auth-panel-right`: username, password, "Stay sign
 then Sign up and Reset links). All of its CSS is inline in `{% block extra_head %}` of `login.html`,
 not in `nextseek.css`.
 
-- Served by `dmac.views.login_seek`, routed as `^login` and again as `^accounts/login/` in
-  `dmac/urls.py` (security items SEC-0930-A and SEC-0930-I, tracked privately).
+- Served by `dmac.views.login_seek`, routed as `^login/?$` and again as `^accounts/login/` in
+  `dmac/urls.py`. After signing in it follows `next` (decoded from the query string) when that is
+  a path on this site, and goes home otherwise.
 - Sign up: there is no signup template. `signup_seek` (in `dmac/views.py`) redirects to SEEK's own
-  `/signup` on `SEEK_PUBLIC_URL`. The `^accounts/signup/` route is placed before the Mezzanine
+  `/signup` on `SEEK_PUBLIC_URL`. The `^accounts/signup/$` route is placed before the Mezzanine
   catch-all on purpose, so Mezzanine's local signup form stays unreachable.
 - Reset password: the link goes to SEEK (`seek_forgot_password_url`), falling back to Mezzanine's
   reset URL if `SEEK_PUBLIC_URL` is unset.
 - Protected pages redirect anonymous users with `requires_seek_login_redirect` in
-  `seek/decorators.py`, which redirects to `/login/?next=<the literal the view passes>` (or a bare
-  `/login/` when it passes none) when the SEEK login check fails. The target is fixed at decoration
-  time, not taken from the request.
-- Legacy `/logout`: `logout_seek` in `dmac/views.py` (route `^logout$`) is broken and returns HTTP 500
-  (security item SEC-0930-D, tracked privately). The sidebar does not use it.
+  `seek/decorators.py` (or its helper `login_redirect` in inline checks), which sends them to
+  `/login/?next=<the page they asked for, with its query string>`. A view passes its own target
+  only where returning to the page makes no sense (the template download returns to its list).
+- Sign out is Mezzanine's `logout` URL (see the user panel); there is no other logout route.
 
 ### Home page
 
@@ -139,11 +140,11 @@ projects the caller may see: all for a superuser, membership-scoped otherwise, e
 unresolved). Each block has its own try/except, so a failing lookup leaves a zero instead of a 500.
 Logged-out visitors get the page too (security item SEC-0930-C, tracked privately).
 
-Template sections: `.dash-hero` (eyebrow, heading "Welcome, <username>" or "Welcome to NExtSEEK"),
+Template sections: `.dash-hero` (signed in: "Welcome back", "Welcome, <username>"; signed out:
+"Welcome to NExtSEEK" and a Sign in button, `.dash-signin`),
 `.dash-tiles` (three count tiles), `.dash-row` with `.dash-card` (recent samples) and `.dash-actions`
 (New sample, the Ask Nessie button include, Sample Types, Assays), and `.dash-projects` (logo grid).
-Styles are the `.dash-*` rules in `nextseek.css`. The eyebrow text is always "Welcome back", even for
-signed-out visitors.
+Styles are the `.dash-*` rules in `nextseek.css`.
 
 ### Breakpoints the shell uses
 
@@ -185,26 +186,16 @@ button" rules in `nextseek.css` (`.nessie-btn`). `nextseek.js` needs no handler 
 
 | Case | What is on screen | How to reach sign in or sign out |
 |---|---|---|
-| Home, signed out | hamburger top-left, then the dashboard. No Sign in link anywhere in the page body | hamburger, then the Sign in button at the bottom of the drawer (`.sidebar-foot`) |
-| Home, signed in | same, heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Profile, Update profile, Sign out |
+| Home, signed out | sticky top bar (hamburger, wordmark, Sign in), then the dashboard with a Sign in button in the hero | Sign in in the top bar or the hero; also at the bottom of the drawer |
+| Home, signed in | sticky top bar (hamburger, wordmark), heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Sign out |
 | Protected page, signed out | redirected (302) to `/login/`, usually with a `next` target; `/seek/assistant/` shows an access error instead (UI-020) | n/a |
-| `/login/` | brand strip (wordmark only) above the form; no sidebar, no hamburger | n/a |
-| `/seek/help/` (now a redirect to `/docs/`) | hamburger, article, footer (logo strip and copyright squeezed side by side) | hamburger |
+| `/login/` | crimson brand strip (wordmark, then the partner logos on a white card) above the form; no sidebar, no hamburger | n/a |
+| `/seek/help/` (now a redirect to `/docs/`) | top bar, article, footer (logo above the copyright line below 576px) | top bar |
 
-The drawer (seen in the 2026-09-30 phone review) shows the wordmark, all nav sections, Quick
-Access, and the Sign in button pinned at the bottom. Things that make sign in hard
-to find on a phone:
-
-- Sign in exists only in the drawer footer. The home body has no Sign in link.
-- `.sidebar` is `height: 100vh` with `overflow: hidden`. On mobile browsers `100vh` is taller than the
-  visible area while the address bar shows, so the pinned footer (Sign in) can sit under the browser
-  toolbar. `100dvh` would fix it. Not confirmed on a real phone.
-- `.mobile-toggle` is in normal flow (margin, no `position: sticky`), so it scrolls away with the
-  page and there is no other navigation after scrolling.
-- The drawer mode also applies to tablets and landscape phones (anything under 992px).
-- `.qa-cta` ("+ New sample") is full width on desktop, but the 991px touch-target rule sets
-  `display: inline-flex`, so on phones it shrinks to its content while Ask Nessie and the UID input
-  stay full width (visible in the screenshot).
+The drawer shows the wordmark, the nav sections, Quick Access (signed in only) and the user panel
+pinned at the bottom. It is `height: 100dvh` (with a `100vh` fallback for old browsers), so the pinned
+panel stays inside the visible area while a phone browser shows its toolbar. The drawer mode also
+applies to tablets and landscape phones (anything under 992px).
 
 The viewport meta tag is present in both full-document templates (`base.html`, `base_auth.html`).
 There are no other full-document templates in the theme or in `seek/templates`.
@@ -216,7 +207,7 @@ There are no other full-document templates in the theme or in `seek/templates`.
 | Change, add or reorder sidebar links | `themes/NextSeek/templates/nav.embed.html` | Active highlighting is automatic (prefix match) but only for hrefs starting with `/`. Submenus need a unique `id` matching the trigger's `href="#id"` |
 | Show a link to admins only | same file, inside `{% if request.user.is_superuser %}` | never use `is_staff` |
 | Give one page its own sidebar | override `{% block left_panel %}` in that page | no page does this today |
-| Change the hamburger | `base.html` (`button.mobile-toggle`), `nextseek.css` `.mobile-toggle` and the touch-target block | keep `d-lg-none` and the CSS breakpoint in step |
+| Change the phone top bar or hamburger | `base.html` (`div.mobile-topbar`, `button.mobile-toggle`), `nextseek.css` `.mobile-topbar`, `.mobile-toggle` and the touch-target block | keep `d-lg-none` and the CSS breakpoint in step; `nextseek.js` finds the hamburger by `.mobile-toggle` |
 | Change the drawer breakpoint | `nextseek.css` (two `991.98px` blocks) and `d-lg-none` in `base.html` | all three together |
 | Change sidebar width or colours | `nextseek.css` `:root` (`--sidebar-width`, `--ns-sidebar-bg`) | `#main-wrapper` margin uses the same variable |
 | Sign in, Sign out, Profile links | `themes/NextSeek/templates/accounts/includes/user_panel.html` | the `includes/user_panel.html` switch must keep including it |
@@ -251,16 +242,11 @@ There are no other full-document templates in the theme or in `seek/templates`.
 - The sidebar carries `role="dialog" aria-modal="true"` permanently, including on desktop where it is
   not a dialog.
 - `base_auth.html` has no jQuery, EasyUI or `nextseek.js`. Do not put shell widgets on the login page.
-- `content.embed.html` and `pages/menus/tree.html` in the theme are not used by the live shell; see
+- `pages/menus/tree.html` in the theme is not used by the live shell; see
   [legacy.md](legacy.md).
 
 ## Known issues
 
 Full list: [known-issues.md](known-issues.md#shell). The ones that matter most here:
 
-- Sign in on a phone is reachable only through the hamburger and the drawer footer, which may sit
-  under the browser toolbar (`100vh`), and the hamburger is not sticky.
-- Signed-out visitors see the whole sidebar and the home page, and the eyebrow says "Welcome back"
-  to them.
-- Login, legacy logout, login route and home page security items: SEC-0930-A, -C, -D and -I
-  (tracked privately).
+- Home page for logged-out visitors: security item SEC-0930-C (tracked privately).

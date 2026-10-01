@@ -122,7 +122,12 @@ describe("MessageBubble suggestion chips", () => {
     const chips = screen.getAllByTestId("suggestion-chip");
     expect(chips).toHaveLength(2);
     expect(chips[0]).toHaveTextContent("Only Converter");
-    expect(chips[0]).toHaveAttribute("title", "57 of 98 were Non-converter.");
+    // The reason sits behind a tap, not in a hover title.
+    expect(chips[0]).not.toHaveAttribute("title");
+    expect(screen.queryByText("57 of 98 were Non-converter.")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("suggestion-reason-toggle")[0]);
+    expect(screen.getByText("57 of 98 were Non-converter.")).toBeInTheDocument();
+    expect(screen.getAllByTestId("suggestion-reason-toggle")[0]).toHaveAttribute("aria-expanded", "true");
     expect(chips[0]).toHaveAttribute("data-source", "reviewer");
     expect(chips[0]).toHaveAttribute("data-suggestion-id", "b7-r0");
     expect(chips[0]).toBeEnabled();
@@ -170,7 +175,8 @@ describe("MessageBubble suggestion chips", () => {
     const chip = screen.getByTestId("suggestion-chip");
     expect(chip).toHaveTextContent("<b>Only</b> Converter");
     expect(chip.querySelector("b")).toBeNull();
-    expect(chip).toHaveAttribute("title", '<img src="x" onerror="alert(1)">');
+    fireEvent.click(screen.getByTestId("suggestion-reason-toggle"));
+    expect(screen.getByText('<img src="x" onerror="alert(1)">')).toBeInTheDocument();
     expect(document.querySelector("img")).toBeNull();
   });
 });
