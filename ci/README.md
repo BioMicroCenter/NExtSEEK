@@ -125,8 +125,12 @@ docstring lists the rules and what each skips.
 
 `ci/blocking_lanes.py` names, as globs in `BLOCKING_GLOBS`, the unit tests
 whose failure fails `ci-pytest.yml`: the graph_sync and graph_search tests
-under `nextseek_api/tests/`, and the Sample Search page's view and JavaScript
-tests under `seek/tests/`, whose two search boxes call graph_search. It needs only the standard library. It prints the
+under `nextseek_api/tests/`, the Sample Search page's view and JavaScript
+tests under `seek/tests/`, whose two search boxes call graph_search, the user docs
+tests (`seek/tests/test_docs_*.py`: every `/docs/` page renders and its links,
+anchors and images resolve) and the check that Nessie's docs snapshot matches those
+pages (`NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py`, so a docs edit
+lands with a fresh snapshot). It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module

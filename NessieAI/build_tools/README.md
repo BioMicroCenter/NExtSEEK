@@ -142,12 +142,10 @@ exercises the generators
 without MySQL client headers.
 
 The `integration` name is not a network lane: nothing here touches the network, and the
-ingester tests read small fixture docs directories under `tmp_path`.
+ingester tests read small fixture docs directories under `tmp_path`, except the snapshot
+check (`test_docs_snapshot_current.py`), which regenerates from the real `themes/NextSeek/docs/`.
 
-The failures this lane shows have two causes: three tests that shell out to `git show`
-against a pinned revision
-(`NessieAI/tests/build_tools/unit/test_gen_op_surfaces_claude_md.py:70-71`), which a
-container mount of a worktree cannot reach, and the two tests that run the generator CLI
+The failures this lane shows have one cause: the two tests that run the generator CLI
 in a subprocess with `NessieAI/dmac_assistant/src` first on its path, which hides the
 image's generated BAML client in a checkout that never ran `baml-cli generate`.
 
