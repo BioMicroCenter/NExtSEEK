@@ -394,6 +394,42 @@ def test_inventory_entries_are_attributed_to_a_sample_when_derivable(tmp_path):
     assert by_path["star_salmon/salmon.merged.gene_counts.tsv"].sample is None
 
 
+def test_an_output_named_only_by_its_folder_is_attributed_to_that_sample(tmp_path):
+    """Salmon writes every sample's quantification as `quant.sf` inside a
+    folder named after the sample. The basename names no sample, so the
+    folder is the only carrier -- matched exactly, never as a prefix."""
+    root = tmp_path / "run"
+    _minimal_run(root)
+    stats_dir = root / "multiqc" / "star_salmon" / "multiqc_report_data"
+    stats_dir.mkdir(parents=True)
+    (stats_dir / "multiqc_general_stats.txt").write_text(
+        "Sample\tstar-uniquely_mapped_percent\n"
+        "CONTROL_REP1\t89.16\n")
+
+    got = harvest.harvest_local(
+        str(root),
+        inventory=[
+            {"path": "salmon/CONTROL_REP1/quant.sf", "bytes": 100},
+            # A folder that only STARTS with a sample name is not that sample's.
+            {"path": "salmon/CONTROL_REP1_extra/quant.sf", "bytes": 100},
+            # A run-level folder names no sample.
+            {"path": "salmon/salmon/quant.sf", "bytes": 100},
+        ],
+        lookup_by_fastq=lambda p, types=None: [])
+
+    by_path = {o.path: o.sample for o in got.outputs}
+    assert by_path["salmon/CONTROL_REP1/quant.sf"] == "CONTROL_REP1"
+    assert by_path["salmon/CONTROL_REP1_extra/quant.sf"] is None
+    assert by_path["salmon/salmon/quant.sf"] is None
+
+
+def test_the_basename_still_wins_over_the_folder():
+    """A per-sample file in a per-sample folder keeps its basename attribution:
+    the folder fallback only fills a gap, it never overrides."""
+    assert harvest._sample_for_output_path(
+        "preprocessing/A/A_1.recal.bam", ["A", "A_1"]) == "A_1"
+
+
 def test_named_outputs_resolves_the_three_well_known_keys_from_a_synthetic_tree(tmp_path):
     root = tmp_path / "run"
     _minimal_run(root)

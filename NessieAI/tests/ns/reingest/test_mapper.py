@@ -1098,3 +1098,55 @@ def test_an_absent_reference_param_leaves_the_cell_blank():
     gex = next(r for r in result.rows if r.sample_type == "A.GEX")
     for attr in ("Link_ReferenceGenome", "AnnotationGTF", "Link_GTF"):
         assert attr not in gex.attributes
+
+
+def test_denovotranscripts_quant_sf_rows_each_carry_their_own_samples_file():
+    """Every sample's Salmon output is named `quant.sf`; only the folder says
+    whose it is. Attributed the way harvest attributes it, the committed map
+    must give each sample its own file, never one sample's file twice.
+
+    File_PrimaryData is a basename by convention (see _attach_checksum),
+    but a bare "quant.sf" on every row would make the rows indistinguishable
+    on the Samples sheet, so a basename two samples share keeps its folder."""
+    from NessieAI.ns.reingest import harvest
+
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    names = ["CONTROL_REP1", "CONTROL_REP2"]
+    run.outputs = [
+        manifest.OutputRecord(path=p, bytes=100,
+                              sample=harvest._sample_for_output_path(p, names))
+        for p in ("salmon/CONTROL_REP1/quant.sf", "salmon/CONTROL_REP2/quant.sf")]
+
+    result = mapper.apply(run, maps.load("denovotranscript"))
+
+    gex = {r.nfcore_sample: r for r in result.rows if r.sample_type == "A.GEX"}
+    assert {s: r.attributes["File_PrimaryData"].value for s, r in gex.items()} == {
+        "CONTROL_REP1": "CONTROL_REP1/quant.sf",
+        "CONTROL_REP2": "CONTROL_REP2/quant.sf",
+    }
+    assert {s: r.attributes["File_PrimaryData"].source_file for s, r in gex.items()} == {
+        "CONTROL_REP1": "salmon/CONTROL_REP1/quant.sf",
+        "CONTROL_REP2": "salmon/CONTROL_REP2/quant.sf",
+    }
+    assert gex["CONTROL_REP2"].attributes["Parent"].value == "D.SEQ-2"
+
+
+def test_a_basename_unique_to_its_sample_stays_bare():
+    """The folder is added only on a collision between samples: a BAM that
+    already names its sample keeps the house convention, a bare filename."""
+    run = _multi_sample_run(
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP1", d_seq_uid="D.SEQ-1",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD),
+        manifest.SampleRecord(nfcore_sample="CONTROL_REP2", d_seq_uid="D.SEQ-2",
+                              uid_resolution=manifest.RESOLUTION_LAUNCH_RECORD))
+    run.outputs = [
+        manifest.OutputRecord(path=f"star_salmon/{s}.markdup.sorted.bam", bytes=100, sample=s)
+        for s in ("CONTROL_REP1", "CONTROL_REP2")]
+    result = mapper.apply(run, maps.load("rnaseq"))
+    assert sorted(r.attributes["File_PrimaryData"].value
+                  for r in result.rows if r.sample_type == "A.ALN") == [
+        "CONTROL_REP1.markdup.sorted.bam", "CONTROL_REP2.markdup.sorted.bam"]

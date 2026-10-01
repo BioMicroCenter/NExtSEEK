@@ -614,7 +614,9 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     exists for the rare case a full path was stored, and the basename tier
     is what actually resolves the common case where only a filename was
     written down. Writing a directory-qualified path here would be the one
-    genuinely novel convention in the table.
+    genuinely novel convention in the table. The single exception, a
+    basename two samples share (Salmon's ``quant.sf``), keeps its immediate
+    folder -- see ``_file_primary_data_value``.
 
     Precedence: a no-op (row unchanged, for each attribute independently)
     when the rule has no primary file, nothing in the inventory matches
@@ -656,7 +658,8 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     if "File_PrimaryData" not in row.attributes:
         ambiguous = len(candidates) > 1 and len(checksummed) != 1
         row.attributes["File_PrimaryData"] = MappedAttribute(
-            attribute="File_PrimaryData", value=os.path.basename(primary.path),
+            attribute="File_PrimaryData",
+            value=_file_primary_data_value(rule, run_manifest, primary, sample_name),
             origin=ORIGIN_MAP, raw_key="", source_file=primary.path,
             candidates=[c.path for c in candidates] if ambiguous else [])
     if "Checksum_PrimaryData" in row.attributes:
@@ -667,6 +670,32 @@ def _attach_checksum(row: MappedRow, rule: maps.OutputRule,
     row.attributes["Checksum_PrimaryData"] = MappedAttribute(
         attribute="Checksum_PrimaryData", value=checksum, origin=ORIGIN_MAP,
         raw_key=f"$checksums.{primary.path}", source_file=primary.path)
+
+
+def _file_primary_data_value(rule: maps.OutputRule, run_manifest: manifest.RunManifest,
+                             primary: manifest.OutputRecord,
+                             sample_name: str | None) -> str:
+    """The basename, by house convention (see ``_attach_checksum``) -- unless
+    another SAMPLE's file under the same rule has the same basename, in
+    which case the immediate folder is kept: "CONTROL_REP1/quant.sf".
+
+    Salmon names every sample's output ``quant.sf``; a bare basename would
+    put the same string on every row of the Samples sheet. Only a collision
+    between samples counts: a per_run rule (``sample_name`` None) names one
+    file for the whole run, and two same-named candidates for ONE sample are
+    the tie-break ``_pick_primary`` already resolves and QA already reports,
+    not a reason to change what the cell looks like.
+    """
+    name = os.path.basename(primary.path)
+    if sample_name is None:
+        return name
+    collides = any(
+        o.sample != sample_name and os.path.basename(o.path) == name
+        for o in _primary_candidates(rule, run_manifest, None))
+    if not collides:
+        return name
+    folder = os.path.basename(os.path.dirname(primary.path))
+    return f"{folder}/{name}" if folder else name
 
 
 def _attach_secondary(row: MappedRow, rule: maps.OutputRule,

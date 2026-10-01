@@ -152,8 +152,18 @@ INVENTORY_GLOBS: tuple[str, ...] = (
     "**/*.vcf.gz",
     # The MultiQC html report -- named link $outputs.multiqc_report_html.
     "multiqc*/**/multiqc_report.html",
+    # nf-core/rnavar >=1.3 publishes its report under reports/, which the
+    # pattern above (anchored at a top-level multiqc* folder) never reaches.
+    "**/reports/multiqc/multiqc_report.html",
     # Contaminant screening reports -- named link $outputs.kraken2_report.
     "**/*.kraken2.report.txt",
+    # Text matrices whose names are not the rnaseq `*.merged.*` convention:
+    # nf-core/smrnaseq's merged miRNA counts, and Salmon's per-sample
+    # quantification (one `quant.sf` per sample folder; the folder names the
+    # sample -- see _sample_for_output_path). Exact names, not "*.tsv":
+    # every pipeline writes many TSVs, and the inventory count is capped.
+    "**/mirna_quant/mirtop/mirna.tsv",
+    "**/salmon/*/quant.sf",
 )
 
 MAX_FILE_BYTES = int(os.environ.get("NEXTSEEK_HARVEST_MAX_FILE_BYTES", 4_000_000))
@@ -682,8 +692,16 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
     known sample name matches this way (a name that is itself a prefix of
     another, e.g. "A" and "A_1"), the LONGEST match wins, so "A_1.bam" is
     attributed to "A_1", never mistakenly to "A".
+
+    When the basename names no sample, the immediate parent folder is tried,
+    by EXACT equality only: Salmon writes every sample's quantification as
+    "<sample>/quant.sf", so the folder is the only carrier there. Exact,
+    not prefix, because a folder is not a filename with a separator after
+    the sample -- "CONTROL_REP1_extra/" is not CONTROL_REP1's. The basename
+    is tried first and always wins, so no existing attribution changes.
     """
-    name = Path(rel_path).name
+    path = Path(rel_path)
+    name = path.name
     best: str | None = None
     for sample in sample_names:
         if not sample:
@@ -691,6 +709,8 @@ def _sample_for_output_path(rel_path: str, sample_names: list[str]) -> str | Non
         if name == sample or name.startswith(sample + ".") or name.startswith(sample + "_"):
             if best is None or len(sample) > len(best):
                 best = sample
+    if best is None and path.parent.name in sample_names and path.parent.name:
+        best = path.parent.name
     return best
 
 

@@ -557,6 +557,43 @@ def test_stage_run_dir_skips_the_real_multiqc_report_glob_reached_through_a_syml
     ), skipped
 
 
+@pytest.mark.parametrize("rel_path", [
+    "mirna_quant/mirtop/mirna.tsv",                 # nf-core/smrnaseq merged miRNA counts
+    "salmon/SAMPLE_1/quant.sf",                     # per-sample Salmon quantification
+    "reports/multiqc/multiqc_report.html",          # nf-core/rnavar >=1.3 MultiQC report
+])
+def test_stage_run_dir_inventories_the_outputs_the_stub_maps_name(tmp_path, monkeypatch, rel_path):
+    """Each path is a deliverable a committed map rule (or a named output)
+    points at. A rule's glob only ever matches the inventory, so a path the
+    inventory never lists makes that rule match nothing, silently."""
+    run_dir = tmp_path / "runs" / "a_run"
+    target = run_dir / rel_path
+    target.parent.mkdir(parents=True)
+    target.write_text("x")
+
+    monkeypatch.setattr(
+        ssh, "ssh_run_bytes",
+        lambda env, cmd, *, key_path, timeout=None: _run_stage_script_locally(
+            str(run_dir), [], inventory_patterns=harvest.INVENTORY_GLOBS))
+
+    staged = tmp_path / "staged"
+    staged.mkdir()
+    skipped, inventory = g._stage_run_dir(
+        _Cfg.LURIA_ENV, str(run_dir), str(run_dir.parent), str(staged), "/dev/null")
+
+    assert [entry["path"] for entry in inventory] == [rel_path]
+    assert skipped == []
+
+
+def test_every_inventory_glob_but_the_multiqc_one_starts_with_a_double_star():
+    """Only a leading "**" declines to follow a symlinked ancestor (see the
+    symlink tests above). The MultiQC pattern is the one reviewed exception,
+    with its own escape test; a new pattern must not quietly become a second."""
+    exceptions = {"multiqc*/**/multiqc_report.html"}
+    assert [p for p in harvest.INVENTORY_GLOBS
+            if not p.startswith("**/") and p not in exceptions] == []
+
+
 def test_stage_run_dir_enforces_the_inventory_file_count_cap(tmp_path, monkeypatch):
     """MAX_INVENTORY_FILES bounds the listing the same way MAX_FILES bounds
     staging -- cap hit reported, never a silent omission."""
