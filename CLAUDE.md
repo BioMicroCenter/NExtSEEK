@@ -30,6 +30,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | Add or change an endpoint | `nextseek-viewset` | `nextseek_api/CLAUDE.md`, `docs/endpoint-authorization-register.md`, `ci/README.md` |
 | Add a Django migration | | `nextseek_api/CLAUDE.md` (the chain forks; check heads first) |
 | Change a page, template or static file | | `docs/ui/README.md` (start here), `themes/README.md`, `seek/README.md` |
+| Edit the user docs (the site's `/docs/` pages) | | `themes/NextSeek/docs/README.md` (the page list), `docs/ui/docs-and-help.md` "Writing a docs page" |
 | Change settings, URLs or the SEEK login | | `dmac/README.md`, `dmac/CLAUDE.md` |
 | Work on ingest, attributes or assay registration | | `nextseek_api/README.md` (children table) |
 | Work on sample downloads | | `docs/sample-download-workflow.md`, `nextseek_api/services/README.md` |

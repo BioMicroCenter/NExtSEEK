@@ -32,6 +32,7 @@ Disk, RAM and network needs are in [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.1.
 | Harden an install before exposing it | [`NExtSTEPS.md`](NExtSTEPS.md) |
 | Understand the repo: every folder, skill and sub-doc | [`CLAUDE.md`](CLAUDE.md) |
 | Understand the AI assistant | [`NessieAI/README.md`](NessieAI/README.md) |
+| Read or edit the user docs (the site's `/docs/` pages) | [`themes/NextSeek/docs/README.md`](themes/NextSeek/docs/README.md) |
 | Find a cross-cutting doc | [`docs/INDEX.md`](docs/INDEX.md) |
 | Report a bug or request a feature | [`docs/ISSUE-CONVENTIONS.md`](docs/ISSUE-CONVENTIONS.md) |
 | Look up a `./startup.sh` subcommand | [`startup/README.md`](startup/README.md) |

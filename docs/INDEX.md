@@ -3,6 +3,7 @@
 Cross-cutting documentation only: things that belong to no single folder.
 A folder's own docs live beside its code (`README.md`, plus `CLAUDE.md` when it has rules).
 A doc that tracked code cites must itself be tracked, or the citation points at a folder README.
+The user docs that the site serves at `/docs/` are not here: they live in `themes/NextSeek/docs/` (start at its `README.md`).
 
 ## Current
 
