@@ -413,7 +413,7 @@ GRAPH_DIR = "graph"
 LABELS_OUTSIDE_FILE = "labels_outside_plan.json"
 GRAPH_COUNT_KEYS = ("labels_written", "labels_refreshed", "labels_new", "labels_renamed", "labels_protocol_filled",
                     "labels_changed", "labels_plural_missing", "labels_cleared", "in_study_added", "in_study_removed",
-                    "structural_gaps")
+                    "structural_gaps", "assay_edges_written", "assay_edge_partners_handed_off")
 
 
 def labels_outside_plan(live: list, planned: list) -> list:

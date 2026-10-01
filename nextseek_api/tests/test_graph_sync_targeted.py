@@ -152,6 +152,7 @@ class FakeGraph:
             q.MERGE_PEOPLE: lambda p: [],
             q.MERGE_MEMBER_OF: lambda p: [{"linked": len(p["rows"])}],
             q.MERGE_ASSAYS: self._merge_assays,
+            q.SAMPLE_LINEAGE_DEGREES: self._degrees,
             q.REPLACE_ASSAY_RUNS: self._replace_runs,
             q.REPLACE_ASSAY_CATALOG_EDGES: self._replace_catalog_edges,
             q.DELETE_GONE_ASSAY_EDGES: self._delete_gone_assay_edges,
@@ -391,6 +392,10 @@ class FakeGraph:
         return [{"child_id": e["child"], "parent_id": e["parent"], "element_id": eid, "props": dict(e["props"])}
                 for eid, e in self._between_samples() if e["props"].get("protocol_id") in p["ids"]]
 
+    def _degrees(self, p):
+        return [{"id": sid, "degree": sum(1 for e in self.edges.values() if sid in (e["child"], e["parent"]))}
+                for sid in p["ids"] if self._is_sample(sid)]
+
     # the assay layer (schema 1.3)
     def _merge_assays(self, p):
         for r in p["rows"]:
@@ -481,6 +486,9 @@ def graph():
     g = FakeGraph()
     for sid, type_id in ((10, 26), (11, 33), (12, 26), (13, 33)):
         g.add_sample(sid, type_id)
+    # the Assay node of internal assay 99, which SEEK assay 5 maps to (graph schema 1.3): a sync of these samples
+    # writes their INPUT_TO and OUTPUT_OF to it, and a missing one would be a structural gap
+    g.assay_nodes[99] = {"id": 99, "title": "Patient Visit", "has_context": True}
     return g
 
 
@@ -971,6 +979,124 @@ def test_an_equal_label_sends_no_write(env, tmp_path):
     assert env.graph.of(q.WRITE_EDGE_LABELS_NEW) == []
 
 
+# --- sync_samples: the assay edges (schema 1.3) ------------------------------------------------------
+
+U_P, U_C = "TIS-220119FLY-7", "D.SEQ-220119FLY-8"
+
+
+@pytest.fixture
+def with_assay(env):
+    """The Assay node of internal assay 99, which SEEK assay 5 maps to, as a graph at 1.3 holds it (the ``graph``
+    fixture seeds it)."""
+    assert 99 in env.graph.assay_nodes
+    return env
+
+
+def test_sync_samples_writes_the_assay_edges_of_the_sample_and_its_partner(with_assay, tmp_path):
+    graph = with_assay.graph
+    result = targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
+    assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}       # the parent the lineage step linked
+    assert (result["assay_edge_partners"], result["assay_edges_written"]) == (1, 2)
+    # the partners are read before the lineage step, and the edges written after it
+    assert (graph.first(q.LINEAGE_PAIRS_INCIDENT) < graph.first(q.WRITE_MISSING_LINEAGE)
+            < graph.first(q.REPLACE_SAMPLE_ASSAY_EDGES))
+
+
+def test_a_two_batch_upload_gives_the_first_batchs_parent_its_edge_when_the_child_arrives(with_assay, tmp_path):
+    graph, mysql = with_assay.graph, with_assay.mysql
+    mysql.samples.append(_sample(20, U_P, 26, {"UID": U_P, "Name": "parent-7"}))
+    mysql.assays[20] = [5]
+    targeted.sync_samples(graph, DB, [20], run_dir=str(tmp_path))
+    assert graph.assay_edges[20] == set()                          # a root so far
+
+    mysql.samples.append(_sample(21, U_C, 33, {"UID": U_C, "Parent": U_P}))
+    mysql.assays[21] = [5]
+    result = targeted.sync_samples(graph, DB, [21], run_dir=str(tmp_path))
+
+    assert graph.edge(21, 20) is not None
+    assert graph.assay_edges[21] == {("OUTPUT_OF", 99, (5,))}
+    assert graph.assay_edges[20] == {("INPUT_TO", 99, (5,))}
+    assert result["assay_edge_partners"] == 1
+
+
+def test_a_parent_edit_that_deletes_an_edge_rewrites_the_old_parent(with_assay, tmp_path):
+    graph, mysql = with_assay.graph, with_assay.mysql
+    mysql.assays[12] = [5, 6]
+    graph.add_edge(11, 12)                                          # 11 declares only U_T1 (sample 10) now
+    graph.assay_edges[12] = {("INPUT_TO", 99, (5,))}               # what that edge gave 12
+    targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+
+    assert graph.edge(11, 12) is None
+    assert graph.assay_edges[12] == set()
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
+    assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}
+
+
+def test_a_sample_gone_from_mysql_has_its_partners_rewritten_after_the_retire(with_assay, tmp_path):
+    graph = with_assay.graph
+    graph.add_sample(15, 33)
+    graph.add_edge(15, 10)
+    graph.assay_edges[15] = {("OUTPUT_OF", 99, (5,))}
+    graph.assay_edges[10] = {("INPUT_TO", 99, (5,))}
+    result = targeted.sync_samples(graph, DB, [15], run_dir=str(tmp_path))
+
+    assert 15 not in graph.nodes and 15 not in graph.assay_edges
+    assert graph.assay_edges[10] == set()
+    assert (graph.first(q.LINEAGE_PAIRS_INCIDENT) < graph.first(q.DELETE_RETIRED)
+            < graph.first(q.REPLACE_SAMPLE_ASSAY_EDGES))
+    assert result["assay_edge_partners"] == 1
+
+
+def test_a_partner_above_the_rewrite_max_gets_its_own_samples_row(with_assay, tmp_path, monkeypatch):
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(targeted, "PARTNER_REWRITE_MAX", 0)
+    result = targeted.sync_samples(with_assay.graph, DB, [11], run_dir=str(tmp_path))
+
+    assert queued == [("samples", "sample:10")]
+    assert 10 not in with_assay.graph.assay_edges
+    assert with_assay.graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
+    assert (result["assay_edge_partners"], result["assay_edge_partners_handed_off"]) == (0, 1)
+    assert result["assay_edge_partner_hub_ids"] == [10]
+
+
+def test_a_batch_of_roots_writes_no_assay_edge_and_counts_its_members(with_assay, tmp_path):
+    result = targeted.sync_samples(with_assay.graph, DB, [10, 12], run_dir=str(tmp_path))
+
+    assert result["status"] == "ok"
+    assert with_assay.graph.assay_edges[10] == set() and with_assay.graph.assay_edges[12] == set()
+    assert (result["assay_edges_written"], result["assay_edge_samples"]) == (0, 2)
+    # 10 is a member of SEEK assay 5 (mapped to 99) with no lineage inside it; 12's SEEK assay 6 has no mapping,
+    # which drift reports, so it is not counted here
+    assert result["assay_edge_members_without_role"] == 1
+
+
+def test_a_shared_pair_gets_one_edge_per_role_carrying_both_seek_ids(with_assay, tmp_path):
+    """The studies tool's share mode: 11 and its parent 10 are members of source assay 5 and of its clone 7 (study
+    71), both mapped to 99. Their samples row (the share's link unit) gives each one edge per role on the one Assay,
+    carrying both SEEK ids, never two edges to it."""
+    graph, mysql = with_assay.graph, with_assay.mysql
+    mysql.pairs.append((7, 99))
+    mysql.seek_studies.append((7, 71))
+    mysql.assays[10], mysql.assays[11] = [5, 7], [5, 7]
+    targeted.sync_samples(graph, DB, [10, 11], run_dir=str(tmp_path))
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5, 7))}
+    assert graph.assay_edges[10] == {("INPUT_TO", 99, (5, 7))}
+
+
+def test_an_assay_edge_whose_assay_node_is_missing_is_a_structural_gap(env, tmp_path):
+    """The 1.3 plan's A2: an edge the role rule gives to an Assay the graph does not hold yet (a mapping saved before
+    its assay_map drain ran) is left unwritten and counted as a structural gap, so the row stays open and retries."""
+    env.graph.assay_nodes.clear()
+    result = targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
+    assert result["assay_edges_dropped"] == 2
+    assert result["structural_gap_parts"]["assay_edges_dropped"] == 2
+    assert result["structural_gaps"] >= 2
+    assert targeted.UNTRACED_MARK in result["structural_gap_samples"][11]
+
+
 # --- sync_samples and retire_samples: the deletion rule --------------------------------------------
 
 def test_retires_an_id_mysql_no_longer_returns(env, tmp_path):
@@ -1309,6 +1435,7 @@ def assayed(env):
 
 
 def test_sync_assays_writes_the_assay_layer_onto_a_graph_without_one(env):
+    env.graph.assay_nodes.clear()
     env.graph.add_edge(11, 10)
     env.graph.add_edge(13, 11)
     result = targeted.sync_assays(env.graph, DB)

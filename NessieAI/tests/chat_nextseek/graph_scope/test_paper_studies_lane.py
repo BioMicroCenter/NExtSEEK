@@ -207,6 +207,8 @@ def test_paper_studies_lane_a_shared_paper_sample_links_the_destination_study(la
         "investigation_projects": lambda: [{"investigation_id": 101, "project_id": 3},
                                            {"investigation_id": 102, "project_id": 5}],
         "memberships": lambda: [], "studies": lambda: [dict(s) for s in SHARE_STUDIES],
+        # graph schema 1.3: sync_samples reads the assay mapping for the sample edges; none here, so no edge
+        "internal_assays": lambda: [], "assay_internal_pairs": lambda: [], "assay_studies": lambda: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)

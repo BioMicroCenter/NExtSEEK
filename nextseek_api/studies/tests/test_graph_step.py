@@ -181,6 +181,16 @@ def test_labels_outside_plan_compares_class_and_properties():
 
 
 @pytest.mark.django_db
+def test_the_graph_step_counts_the_assay_edges_its_syncs_rewrote(graph_env, monkeypatch):
+    # graph schema 1.3: the step's sync_samples calls rewrite the moved samples' INPUT_TO and OUTPUT_OF
+    run_dir, _plan = _applied(graph_env)
+    monkeypatch.setattr(targeted, "sync_samples", lambda d, db, ids, **kw: {
+        "status": targeted.OK, "assay_edges_written": 4, "assay_edge_partners_handed_off": 1})
+    result = graph_env.graph(run_dir)
+    assert (result.counts["assay_edges_written"], result.counts["assay_edge_partners_handed_off"]) == (4, 1)
+
+
+@pytest.mark.django_db
 def test_structural_gaps_end_done_and_point_at_graph_sync_health(graph_env, monkeypatch):
     run_dir, _plan = _applied(graph_env)
     monkeypatch.setattr(targeted, "sync_samples",

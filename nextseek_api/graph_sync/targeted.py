@@ -26,20 +26,23 @@ structural link was left unwritten for (``structural_gap_samples``); the drain k
 way raises: every step is idempotent, so the caller retries the whole call. ``sync_samples_of_type`` takes the lock
 once per chunk, so a long type sync lets other writers in between chunks.
 
-**Order of ``sync_samples``**, per chunk of ids: read the rows and the types the nodes point at now; retire the ids
-MySQL did not return; run ``run.catalog_sync`` when a row's type has no SampleType node or one holding another title,
-and when that is refused for SampleType titles held under other ids alone (a type recreated in SEEK under its old
-title, which only the nightly reconcile clears), leave the samples of those types out and name them; read the rest's
-projects, assay ids and parent tokens and project them; write the Project nodes they link to that the graph lacks;
-write the samples (the parent lists, and ``source_hash``, left null for a sample whose OF_TYPE or an IN_PROJECT could
-not be written, so the nightly reads it as changed); the declared lineage of these samples as children (create what is
-missing, then archive and delete what MySQL does not declare); label every edge incident to them, both directions, the
-ones just created included; the Study node of each of their SEEK studies, its Investigation node first, and IN_STUDY,
-which follows SEEK (``study_links``: a link SEEK no longer holds is removed only where the box's switch is on, archived
-first); ``declared: false`` Attribute nodes and the counts of attributes a sample fills for the first time, then one
-catalog sync to restamp the catalog hash when either changed; the touched types' counts; and, when a structural link
-was left unwritten, which samples it belongs to. A sample that cannot be projected is counted and skipped whole, its
-lineage included: its parent tokens could not be read, and reading them as none would delete every edge it has.
+**Order of ``sync_samples``**, per chunk of ids: read the rows, the types the nodes point at now and the lineage
+partners of every id (the other ends of their DERIVED_FROM edges); retire the ids MySQL did not return; run
+``run.catalog_sync`` when a row's type has no SampleType node or one holding another title, and when that is refused for
+SampleType titles held under other ids alone (a type recreated in SEEK under its old title, which only the nightly
+reconcile clears), leave the samples of those types out and name them; read the rest's projects, assay ids and parent
+tokens and project them; write the Project nodes they link to that the graph lacks; write the samples (the parent lists,
+and ``source_hash``, left null for a sample whose OF_TYPE or an IN_PROJECT could not be written, so the nightly reads it
+as changed); the declared lineage of these samples as children (create what is missing, then archive and delete what
+MySQL does not declare); label every edge incident to them, both directions, the ones just created included; the Study
+node of each of their SEEK studies, its Investigation node first, and IN_STUDY, which follows SEEK (``study_links``: a
+link SEEK no longer holds is removed only where the box's switch is on, archived first); ``declared: false`` Attribute
+nodes and the counts of attributes a sample fills for the first time, then one catalog sync to restamp the catalog hash
+when either changed; the INPUT_TO and OUTPUT_OF of the written samples and of their partners, read before the lineage
+step and after it (graph schema 1.3, D10; a partner above ``PARTNER_REWRITE_MAX`` edges gets its own ``samples`` row
+instead); the touched types' counts; and, when a structural link was left unwritten, which samples it belongs to. A
+sample that cannot be projected is counted and skipped whole, its lineage included: its parent tokens could not be read,
+and reading them as none would delete every edge it has.
 
 **Labels** (section 7.3). Each edge is labelled by ``labels.edge_labels`` from MySQL and classified against what it
 stores (``labels.classify``). Without the operator's approval ``new`` edges are written, and the writer's own guard
@@ -90,13 +93,17 @@ DERIVED_FROM_ARCHIVE_FILE = "derived_from_undeclared_archive.tsv"   # the full s
 EXAMPLES = 20             # examples kept per report list
 LIST_CAP = 1_000          # longest id list copied into a report
 
-# The counts of a by-id sync that mean a structural link was left unwritten: the sample's OF_TYPE or an IN_PROJECT,
-# its IN_STUDY row, a Study node for one of its SEEK studies, or a Study's IN_INVESTIGATION. A sample a report names
-# in structural_gap_samples is not done (the drain fails it on a row of its own, and its source_hash stays null for
-# the nightly); every other sample of the call is. A parent not yet uploaded (lineage_dropped) and an edge gone before
-# its label was written (labels_edges_missing) are expected states instead.
+# The counts of the assay layer that mean an edge was left unwritten: its Assay node (or a RUN_IN row's Study node)
+# was missing when the edge was written (graph schema 1.3; the 1.3 plan's A2).
+ASSAY_GAP_KEYS = ("assay_edges_dropped", "assay_runs_dropped")
+# The counts of a by-id sync that mean a structural link was left unwritten: the sample's OF_TYPE or an IN_PROJECT, its
+# IN_STUDY row, a Study node for one of its SEEK studies, a Study's IN_INVESTIGATION, or an INPUT_TO or OUTPUT_OF whose
+# Assay node is missing (ASSAY_GAP_KEYS; sync_assays reports the same two keys as gaps of its own). A sample a report
+# names in structural_gap_samples is not done (the drain fails it on a row of its own, and its source_hash stays null
+# for the nightly); every other sample of the call is. A parent not yet uploaded (lineage_dropped) and an edge gone
+# before its label was written (labels_edges_missing) are expected states instead.
 STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missing", "in_study_studies_missing",
-                       "seek_study_investigation_missing")
+                       "seek_study_investigation_missing", *ASSAY_GAP_KEYS)
 # How a gap the reads cannot trace to its samples names them: every written sample of its chunk carries it.
 UNTRACED_MARK = "not traced to a sample"
 UNTRACED_GAP = "{part} {count} in its chunk, " + UNTRACED_MARK
@@ -109,9 +116,10 @@ _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_label
 # instead. PROVISIONAL until the 1.3 plan's W11 sets it from scripts/graph_search/measure_assay_nodes.py.
 ASSAY_REWRITE_MAX = 100_000
 ASSAY_GUARD_SLOT_SUFFIX = "-assays"
-# The counts of the assay layer that mean an edge was left unwritten: its Assay node (or a RUN_IN row's Study node)
-# was missing when the edge was written. Each is a structural gap (the 1.3 plan's A2): the drain fails the row.
-ASSAY_GAP_KEYS = ("assay_edges_dropped", "assay_runs_dropped")
+# sync_samples (the 1.3 spec, D10): a lineage partner with more DERIVED_FROM edges than this is not rewritten inline;
+# it gets its own samples row, so a hub parent never holds batch upload's graph lock. PROVISIONAL until the 1.3
+# plan's W11 sets it from scripts/graph_search/measure_assay_nodes.py.
+PARTNER_REWRITE_MAX = 2_000
 _NO_ASSAY_EDGE_WRITES = {"assay_edge_samples": 0, "assay_edge_samples_missing": 0, "assay_edges_written": 0,
                          "assay_edges_dropped": 0, "assay_edge_members_without_role": 0}
 _STOP_KEYS = ("status", "schema_version", "writer_version", "lock_timeout_s")
@@ -439,6 +447,7 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
     gone = [i for i in wanted if i not in found]
     report.update(found=len(rows), missing_in_mysql=len(gone))
     old_types = _types_of_samples(driver, db, wanted)
+    partners_before = _partners(driver, db, wanted)
     if gone:
         report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
 
@@ -474,6 +483,9 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
                 # One catalog sync restamps the catalog hash for both (the lock nests). Refused for SampleType titles
                 # held under other ids, the writes above stand and the hash waits for the nightly.
                 report["catalog_resynced"] = "refused" if _catalog_sync(driver, db, cat) else OK
+    written_ids = sorted(p.id for p in projections)
+    partners = (partners_before | _partners(driver, db, written_ids)) - set(gone)
+    report.update(_rewrite_with_partners(driver, db, written_ids, partners, ctx))
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
     parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
@@ -495,8 +507,9 @@ def _gap_samples(driver, db, parts: dict, projections, links, tables) -> dict[in
     """Sample id to why the chunk's structural gaps (``parts``) name it, read after the writes under the same lock
     and only when a gap was counted: no SampleType node for its type; IN_PROJECT to project ids with no Project node,
     those SEEK's ``projects`` lacks named so; one of its SEEK studies whose Investigation node is missing. A part
-    whose reads do not account for the count its statement returned, and the two IN_STUDY parts (a sample or a Study
-    node gone between the write and the link, which no read here can place), name every written sample of the chunk
+    whose reads do not account for the count its statement returned, the two IN_STUDY parts (a sample or a Study
+    node gone between the write and the link, which no read here can place) and the two assay parts (an Assay node
+    missing for an edge of a written sample or of a partner) name every written sample of the chunk
     (``UNTRACED_GAP``), as the whole row failed before."""
     reasons: dict[int, dict[str, None]] = {}
     written = sorted(p.id for p in projections)
@@ -548,7 +561,7 @@ def _gap_samples(driver, db, parts: dict, projections, links, tables) -> dict[in
                 why = (f"investigation {inv}, which SEEK lacks" if inv not in in_seek
                        else f"no Investigation node for {inv}")
                 name(link["sample_id"], f"seek_study_investigation_missing (study {study_id}: {why})")
-    for part in ("in_study_samples_missing", "in_study_studies_missing"):
+    for part in ("in_study_samples_missing", "in_study_studies_missing", *ASSAY_GAP_KEYS):
         if parts.get(part):
             untraced(part)
     return {sample_id: "; ".join(texts) for sample_id, texts in sorted(reasons.items())}
@@ -856,6 +869,35 @@ def _rewrite_sample_edges(driver, db, ids, ctx: _Context) -> dict:
     report = writer.replace_sample_assay_edges(driver, db,
                                                assay_rules.sample_edge_rows({i: roles.get(i, {}) for i in ids}))
     report["assay_edge_members_without_role"] = assay_rules.members_without_role(ids, by_sample, by_seek, roles)
+    return report
+
+
+def _partners(driver, db, ids) -> set[int]:
+    """The other ends of the DERIVED_FROM edges between Sample nodes that touch ``ids``. Read-only."""
+    ids = {i for i in ids if _is_id(i)}
+    if not ids:
+        return set()
+    return {v for pair in writer.lineage_pairs_incident(driver, db, sorted(ids)) for v in pair
+            if _is_id(v) and v not in ids}
+
+
+def _rewrite_with_partners(driver, db, touched, partners, ctx: _Context) -> dict:
+    """The sample edges of ``touched`` and of their ``partners`` (D10). A partner with no Sample node is skipped; one
+    with more than ``PARTNER_REWRITE_MAX`` DERIVED_FROM edges gets its own ``samples`` row instead, which the loop
+    drains outside this write unit."""
+    touched = set(touched)
+    partners = sorted(set(partners) - touched)
+    degrees = writer.lineage_degrees(driver, db, partners) if partners else {}
+    inline = [p for p in partners if p in degrees and degrees[p] <= PARTNER_REWRITE_MAX]
+    hubs = [p for p in partners if degrees.get(p, 0) > PARTNER_REWRITE_MAX]
+    for hub in hubs:
+        hooks.enqueue("samples", f"sample:{hub}")
+    if hubs:
+        log.info("graph_sync: %d lineage partners have more than %d edges and get their own samples rows",
+                 len(hubs), PARTNER_REWRITE_MAX)
+    report = _rewrite_sample_edges(driver, db, sorted(touched | set(inline)), ctx)
+    report.update(assay_edge_partners=len(inline), assay_edge_partners_handed_off=len(hubs),
+                  assay_edge_partner_hub_ids=hubs[:EXAMPLES])
     return report
 
 
