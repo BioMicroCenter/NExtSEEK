@@ -241,14 +241,21 @@ class Claim:
     attempts: int
     worker_id: str
     lease_expires_at: datetime
+    last_error: str | None = None      # the row's last failure, as it stood when it was claimed
 
 
 def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None,
-                below_attempts: int = MAX_ATTEMPTS) -> list[dict]:
-    """Claimable rows, oldest first: not done, below the attempt limit (or ``below_attempts``, when lower), and no
-    lease or back-off still running; of ``kinds`` and with keys starting ``key_prefix`` when given."""
-    qs = (_outbox().filter(done_at__isnull=True, attempts__lt=min(MAX_ATTEMPTS, below_attempts))
+                below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[dict]:
+    """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
+    ``kinds`` and with keys starting ``key_prefix`` when given. ``below_attempts`` lowers the attempt bound for rows
+    whose ``last_error`` does not start with ``or_last_error_prefix``."""
+    qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
+    if below_attempts < MAX_ATTEMPTS:
+        fewer = Q(attempts__lt=below_attempts)
+        if or_last_error_prefix:
+            fewer |= Q(last_error__startswith=or_last_error_prefix)
+        qs = qs.filter(fewer)
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
     if key_prefix is not None:
@@ -268,7 +275,7 @@ def _take(worker_id: str, c: dict, now: datetime) -> Claim | None:
     if won != 1:
         return None
     got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
-           .values("id", "kind", "key", "payload", "enqueued_at", "attempts").first())
+           .values("id", "kind", "key", "payload", "enqueued_at", "attempts", "last_error").first())
     return None if got is None else Claim(worker_id=worker_id, lease_expires_at=lease, **got)
 
 
@@ -288,20 +295,22 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
     return None
 
 
-def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *,
-               now: datetime | None = None, below_attempts: int = MAX_ATTEMPTS) -> list[Claim]:
+def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: datetime | None = None,
+               below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[Claim]:
     """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
-    ``worker_id``, and only rows with fewer than ``below_attempts`` attempts. Each is the same compare-and-set as
-    ``claim_next``, so a row another worker took in between is skipped, and each counts its own attempt; a row this
-    worker already holds is not claimable (its lease runs). The drain uses it to run many single-sample rows as one
-    by-id sync (``loop``, A13), leaving out a row that has failed repeatedly."""
+    ``worker_id``, and only rows with fewer than ``below_attempts`` attempts or a ``last_error`` that starts with
+    ``or_last_error_prefix``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in
+    between is skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease
+    runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``, A13), leaving out a row that
+    has failed repeatedly unless its last failure says merging it cannot fail the others."""
     if not worker_id or len(worker_id) > WORKER_CHARS:
         raise ValueError(f"not a worker id: {worker_id!r}")
     if limit <= 0:
         return []
     now = now or timezone.now()
     out = []
-    for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts):
+    for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts,
+                         or_last_error_prefix=or_last_error_prefix):
         claim = _take(worker_id, c, now)
         if claim is not None:
             out.append(claim)

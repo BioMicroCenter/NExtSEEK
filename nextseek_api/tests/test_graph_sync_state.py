@@ -1249,6 +1249,27 @@ def test_claim_more_takes_claimable_rows_of_one_kind_and_key_prefix_oldest_first
 
 
 @pytest.mark.django_db
+def test_claim_more_also_takes_a_row_whose_last_error_starts_with_the_prefix_it_is_given():
+    errors = {0: ("gap: sample 0", 5), 1: ("RuntimeError: boom", 5), 2: (None, 0),
+              3: ("gap: sample 3", state.MAX_ATTEMPTS)}                       # dead whatever its error says
+    for n, (error, attempts) in errors.items():
+        state.enqueue("samples", f"sample:{n}", now=at(seconds=n))
+        GraphSyncOutbox.objects.filter(key=f"sample:{n}").update(attempts=attempts, last_error=error)
+
+    more = state.claim_more("w1", "samples", "sample:", 10, now=at(minutes=1), below_attempts=2,
+                            or_last_error_prefix="gap: ")
+
+    assert [(c.key, c.last_error) for c in more] == [("sample:0", "gap: sample 0"), ("sample:2", None)]
+
+
+@pytest.mark.django_db
+def test_a_claim_carries_the_rows_last_error():
+    state.enqueue("samples", "sample:7", now=T0)
+    GraphSyncOutbox.objects.filter(key="sample:7").update(last_error="gap: sample 7")
+    assert state.claim_next("w1", now=at(minutes=1)).last_error == "gap: sample 7"
+
+
+@pytest.mark.django_db
 def test_claim_more_takes_only_rows_below_the_attempts_it_is_given():
     for n in range(4):
         state.enqueue("samples", f"sample:{n}", now=at(seconds=n))

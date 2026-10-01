@@ -78,7 +78,8 @@ LIST_CAP = 1_000          # longest id list copied into a report
 STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missing", "in_study_studies_missing",
                        "seek_study_investigation_missing")
 # How a gap the reads cannot trace to its samples names them: every written sample of its chunk carries it.
-UNTRACED_GAP = "{part} {count} in its chunk, not traced to a sample"
+UNTRACED_MARK = "not traced to a sample"
+UNTRACED_GAP = "{part} {count} in its chunk, " + UNTRACED_MARK
 
 _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0,
                     "labels_skipped_changed": 0, "labels_edges_missing": 0, "labels_refresh_rows": 0,

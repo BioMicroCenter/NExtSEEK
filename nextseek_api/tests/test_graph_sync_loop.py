@@ -927,6 +927,52 @@ def test_a_row_that_failed_twice_drains_alone_so_the_healthy_rows_merged_with_it
 
 
 @pytest.mark.django_db
+def test_a_gap_that_names_many_samples_stays_one_merged_sync_and_a_fresh_edit_is_not_held_back(work, monkeypatch):
+    """A merged sync fails each sample its gap names on that sample's own row and closes the rest, so a row whose
+    last failure was a gap traced to it stays mergeable: forty gapped samples cost one sync a pass, not forty, and a
+    healthy edit enqueued meanwhile drains in the first pass after it arrives."""
+    gapped = set(range(1000, 1040))
+    state.enqueue("samples", "batch:reg:1:0", sorted(gapped) + [1040, 1041], now=before(minutes=1))
+    synced = []
+
+    def sync(driver, db, ids, **kwargs):
+        synced.append(list(ids))
+        named = {i: "in_project_missing (project ids SEEK lacks: 77)" for i in ids if i in gapped}
+        return {"status": targeted.OK, "structural_gaps": len(named),
+                "structural_gap_parts": {"in_project_missing": len(named)}, "structural_gap_samples": named}
+
+    monkeypatch.setattr(targeted, "sync_samples", sync)
+    hour = timedelta(seconds=state.backoff_s("samples"))
+    for n in range(3):
+        one_pass(work, now=T0 + n * hour)
+    state.enqueue("samples", "sample:5000", now=T0 + 2 * hour + timedelta(minutes=30))     # a healthy edit
+    one_pass(work, now=T0 + 3 * hour)
+
+    assert [len(ids) for ids in synced] == [42, 40, 40, 41] and synced[-1][-1] == 5000
+    assert row("samples", "sample:5000").done_at is not None
+    rows = GraphSyncOutbox.objects.filter(key__in=[f"sample:{i}" for i in gapped])
+    assert {(r.done_at, r.attempts) for r in rows} == {(None, 4)}
+    assert all(r.last_error.startswith(loop.TRACED_GAP_ERROR) for r in rows)
+
+
+@pytest.mark.django_db
+def test_a_gap_the_sync_could_not_trace_is_isolated_like_a_raise(work):
+    """An untraced gap names every sample of its chunk, healthy ones included, so merging such rows again could fail
+    a healthy one every time: they drain alone from their third claim, as a raise does."""
+    _single_rows(2)
+    reason = targeted.UNTRACED_GAP.format(part="in_study_samples_missing", count=1)
+    work.sync = {"status": targeted.OK, "structural_gaps": 1, "structural_gap_parts": {"in_study_samples_missing": 1},
+                 "structural_gap_samples": {1000: reason, 1001: reason}}
+    hour = timedelta(seconds=state.backoff_s("samples"))
+
+    for n in range(3):
+        one_pass(work, now=T0 + n * hour)
+
+    assert [c.args[2] for c in work.calls if c.name == "sync"] == [[1000, 1001], [1000, 1001], [1000], [1001]]
+    assert not row("samples", "sample:1000").last_error.startswith(loop.TRACED_GAP_ERROR)
+
+
+@pytest.mark.django_db
 def test_a_transient_failure_costs_one_merged_retry(work, monkeypatch):
     _single_rows(3)
     synced, failures = [], [RuntimeError("neo4j went away")]

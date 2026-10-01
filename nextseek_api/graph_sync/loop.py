@@ -15,9 +15,10 @@
    rows with it into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a
    ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed
    ``ALONE_AFTER_ATTEMPTS`` times since it was last written drains alone, so one sample whose sync raises cannot keep
-   failing the rows merged with it. A structural link a by-id sync left unwritten fails only the samples its report
-   names: such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each such
-   sample on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
+   failing the rows merged with it; a row whose last failure was a gap traced to it stays mergeable
+   (``TRACED_GAP_ERROR``). A structural link a by-id sync left unwritten fails only the samples its report names:
+   such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each such sample
+   on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
    (``state.hand_on_failed``), and every other row is done.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
@@ -87,6 +88,11 @@ MERGED_KEY_PREFIX = "sample:"          # the key of a single-sample row; a batch
 # a sync that raises on one sample fails every row merged with it, and the group, claimable again at one moment, would
 # otherwise re-merge until all of it was dead. A transient failure costs one merged retry.
 ALONE_AFTER_ATTEMPTS = 2
+# The start of the last_error of a row a structural gap failed, the gap traced to that row's own sample. Such a row
+# stays mergeable whatever its attempts: a merged sync fails each gapped sample on its own row and closes the rest, so
+# merging it cannot fail a healthy row, and isolating it would cost one sync per gapped sample, ahead of every fresh
+# write. An untraced gap names every sample of its chunk, healthy ones too, so its rows are isolated as a raise is.
+TRACED_GAP_ERROR = "structural links left unwritten: "
 
 # Closes every Django connection before each pass. Django refreshes connections only around a web request, so a
 # loop that lives for days keeps each one until MySQL drops it for idling, and every drain on it then fails with
@@ -363,6 +369,21 @@ def _refused(claim, exc, entry: dict, *, now: datetime, merged=()) -> dict:
     return _fail(claim, exc, entry, now=now, merged=merged)
 
 
+def _gap_error(row: str, why: str) -> str:
+    """The ``last_error`` of a row a structural gap failed: it starts with ``TRACED_GAP_ERROR`` only when the gap was
+    traced to the row's own sample, which keeps the row mergeable."""
+    if targeted.UNTRACED_MARK in why:
+        return f"{row}: structural links left unwritten, not traced to it: {why}"
+    return f"{TRACED_GAP_ERROR}{row}: {why}"
+
+
+def _may_merge(claim) -> bool:
+    """Whether more single-sample rows join this claim's sync: a single-sample ``samples`` row claimed at most
+    ``ALONE_AFTER_ATTEMPTS`` times, or one whose last failure was a gap traced to it (``TRACED_GAP_ERROR``)."""
+    return _merges(claim) and (claim.attempts <= ALONE_AFTER_ATTEMPTS
+                               or (claim.last_error or "").startswith(TRACED_GAP_ERROR))
+
+
 def _gapped(claim, result: dict, entry: dict, *, now: datetime, merged=(), label: str) -> dict:
     """A sync that left a structural link unwritten (``targeted.STRUCTURAL_GAP_KEYS``) is not done for the samples
     its report names in ``structural_gap_samples``, and is for every other one. A single-sample row of a named sample
@@ -383,14 +404,14 @@ def _gapped(claim, result: dict, entry: dict, *, now: datetime, merged=(), label
         if not gapped:
             state.finish_done(c, now=now)
         elif _merges(c):
-            state.finish_failed(c, f"{c.kind} {c.key}: structural links left unwritten: {named[gapped[0]]}",
-                                state.backoff_s(c.kind), now=now)
+            state.finish_failed(c, _gap_error(f"{c.kind} {c.key}", named[gapped[0]]), state.backoff_s(c.kind),
+                                now=now)
             rows_failed += 1
         else:
             handed_on += state.hand_on_failed(
                 c, MERGED_KIND,
-                {f"{MERGED_KEY_PREFIX}{i}": f"{MERGED_KIND} {MERGED_KEY_PREFIX}{i} (from {c.kind} {c.key}): "
-                                            f"structural links left unwritten: {named[i]}" for i in gapped},
+                {f"{MERGED_KEY_PREFIX}{i}": _gap_error(f"{MERGED_KIND} {MERGED_KEY_PREFIX}{i} (from {c.kind} {c.key})",
+                                                       named[i]) for i in gapped},
                 state.backoff_s(MERGED_KIND), now=now)
             state.finish_done(c, now=now)
     shown = "; ".join(f"{i}: {why}" for i, why in sorted(named.items())[:targeted.EXAMPLES])
@@ -477,12 +498,13 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
         if claim is None:
             break
         merged = ()
-        if _merges(claim) and claim.attempts <= ALONE_AFTER_ATTEMPTS:
+        if _may_merge(claim):
             # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each (A13). Merged
-            # rows count toward MAX_ROWS_PER_PASS like any other. A row that has failed twice merges with nothing.
+            # rows count toward MAX_ROWS_PER_PASS like any other. A row that has failed twice merges with nothing,
+            # unless its last failure was a gap traced to it.
             limit = min(writer.SAMPLE_CHUNK - 1, MAX_ROWS_PER_PASS - rows - 1)
             merged = state.claim_more(worker_id, MERGED_KIND, MERGED_KEY_PREFIX, limit, now=tick,
-                                      below_attempts=ALONE_AFTER_ATTEMPTS)
+                                      below_attempts=ALONE_AFTER_ATTEMPTS, or_last_error_prefix=TRACED_GAP_ERROR)
         entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
                            clock=(lambda: now) if pinned else dj_timezone.now, merged=merged)
         report["drained"].append(entry)
