@@ -7,11 +7,13 @@ same snapshot and input give the same plan.
    investigation has no bucket or several; it is the bucket; a new target's title is already a study of its
    investigation or of another; an existing target is missing or sits in another investigation; its title is longer
    than SEEK's column; SEEK's next study id is not above every graph ``Study.id`` (a new target only, T24).
-2. Samples (6.2). From ``assay_assets``: a sample in no assay, a sample with any assay in another investigation's
-   study, a sample whose source assay has no internal-assay mapping, a sample sharing no project with the target's
-   investigation: each is skipped whole for that target. A sample's source assays are its assays in the bucket; a
-   sample in none of them but in another study of the investigation is copied from there, never removed; a sample in
-   no assay but the target study's is ``no_change``.
+2. Samples (6.2). From ``assay_assets``: a sample in no assay, a sample with an assay in another investigation's
+   study that it shares no project with (a misfiling, ``cross_investigation``), a sample whose source assay has no
+   internal-assay mapping, a sample sharing no project with the target's investigation: each is skipped whole for
+   that target. A membership in another investigation's study is a share when the sample shares a project with that
+   investigation: it is ignored (neither a source nor removed) and the target is warned (``shared_elsewhere``). A
+   sample's source assays are its assays in the bucket; a sample in none of them but in another study of the
+   investigation is copied from there, never removed; a sample in no assay but the target study's is ``no_change``.
 3. Clones (6.3). Per target and source assay A: in an existing target, the one assay with A's title and the same set
    of internal assay ids is reused (several refuse the target); otherwise A is cloned. The payload is built from
    ``GET /assays/A`` (ontology fields keep only their uri; the study is the target, filled at apply; samples, data
@@ -77,6 +79,7 @@ STUDY_PAYLOAD_INVALID = "study_payload_invalid"
 SEEK_STUDY_ID_NOT_ABOVE_GRAPH = "seek_study_id_not_above_graph"
 
 SOURCE_ASSAY_SEVERAL_MAPPINGS = "source_assay_several_mappings"
+SHARED_ELSEWHERE = "shared_elsewhere"
 DESCRIPTION_DIFFERS = "description_differs"
 PMID_WITHOUT_DOI = "pmid_without_doi"
 
@@ -221,6 +224,7 @@ class _Work:
     copy: set = field(default_factory=set)                # samples whose sources are copy sources
     no_change: set = field(default_factory=set)
     clones: dict = field(default_factory=dict)            # source assay id -> ClonePlan
+    shared_elsewhere: set = field(default_factory=set)    # samples with a membership shared into another investigation
     existing_assay_ids: list = field(default_factory=list)
     payload: Optional[dict] = None
 
@@ -259,7 +263,24 @@ def _target_refusal(t: StudyTarget, snap: _Snapshot) -> tuple[Optional[str], str
     return None, ""
 
 
-def _decide_samples(targets, snap: _Snapshot, skipped: list) -> list[_Work]:
+def misfiled_assays(member, target_investigation: int, sample_projects, snap: _Snapshot) -> tuple[list, list]:
+    """``(misfiled, shared)``: the sample's assays (``member``) whose study sits in another investigation than
+    ``target_investigation``, split by whether the sample shares a project with that investigation (a share) or not (a
+    misfiling, as is an assay whose investigation is unknown). Both sorted. A known limit, accepted: when one of the
+    sample's projects is linked to both investigations, a misfiling reads as a share."""
+    misfiled, shared = [], []
+    for a in sorted(member):
+        inv = snap.investigation_of_assay(a)
+        if inv == target_investigation:
+            continue
+        if inv is not None and set(sample_projects) & snap.inv_projects(inv):
+            shared.append(a)
+        else:
+            misfiled.append(a)
+    return misfiled, shared
+
+
+def _decide_samples(targets, snap: _Snapshot, skipped: list, warnings: list) -> list[_Work]:
     """Steps 1 and 2 of the module docstring."""
     reader = snap.reader
     ordered = sorted(targets, key=lambda t: (t.investigation_id, t.key))
@@ -281,10 +302,16 @@ def _decide_samples(targets, snap: _Snapshot, skipped: list) -> list[_Work]:
             if not member:
                 _skip(skipped, t.key, [s], SAMPLE_IN_NO_ASSAY)
                 continue
-            elsewhere = sorted(a for a in member if snap.investigation_of_assay(a) != t.investigation_id)
-            if elsewhere:
-                _skip(skipped, t.key, [s], CROSS_INVESTIGATION, f"assays {elsewhere}")
+            misfiled, shared = misfiled_assays(member, t.investigation_id, projects.get(s, set()), snap)
+            if misfiled:
+                _skip(skipped, t.key, [s], CROSS_INVESTIGATION, f"assays {misfiled}")
                 continue
+            if shared:
+                w.shared_elsewhere.add(s)
+                member = {a: d for a, d in member.items() if a not in shared}
+                if not member:
+                    _skip(skipped, t.key, [s], SAMPLE_IN_NO_ASSAY, f"only in shared assays {shared}")
+                    continue
             in_bucket = sorted(a for a in member if snap.assays([a])[a].study_id == bucket)
             if in_bucket:
                 w.sources[s] = in_bucket
@@ -306,6 +333,9 @@ def _decide_samples(targets, snap: _Snapshot, skipped: list) -> list[_Work]:
                 continue
             del w.sources[s]
             w.copy.discard(s)
+        if w.shared_elsewhere:
+            warnings.append(PlanWarning(code=SHARED_ELSEWHERE, target_key=t.key,
+                                        detail=f"{len(w.shared_elsewhere)} samples"))
         works.append(w)
     return works
 
@@ -657,7 +687,7 @@ def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: 
     snap = _Snapshot(reader)
     skipped: list = []
     warnings: list = []
-    works = _decide_samples(associations.targets, snap, skipped)
+    works = _decide_samples(associations.targets, snap, skipped, warnings)
     lin = _lineage(reader, sorted({a for w in works for src in w.sources.values() for a in src}))
     _parent_check(works, lin, snap, skipped)
     works = _decide_clones(works, snap, skipped, warnings)

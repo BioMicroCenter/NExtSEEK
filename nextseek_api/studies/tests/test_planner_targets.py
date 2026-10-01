@@ -161,3 +161,26 @@ def test_helpers_digest_and_tokens():
     two = p.unit_digest([(101, 1, None), (101, 2, 2)], {2: ["TIS-260101AAA-1"], 1: []})
     assert one == two and one != p.unit_digest([(101, 1, 1), (101, 2, 2)], {1: [], 2: ["TIS-260101AAA-1"]})
     assert len(p.code_sha()) == 64
+
+
+def test_a_membership_in_another_investigation_is_a_share_when_the_sample_shares_its_project(alpha):
+    alpha.links.append((301, 2, 1))
+    alpha.sample_projects[2] = {3, 4}              # sample 2 was shared into project 4
+    result = plan(alpha, target([2, 3]))
+    assert skips(result) == []
+    movers = {i.sample_id for u in result.units for i in u.inserts if i.role == "mover"}
+    assert movers == {2, 3}
+    assert all(r.assay_id != 301 for u in result.units for r in u.removals)
+    assert [(w.code, w.target_key) for w in result.warnings] == [(p.SHARED_ELSEWHERE, "sheet:7:paper one")]
+
+
+def test_a_membership_in_another_investigation_without_its_project_is_still_a_misfiling(alpha):
+    alpha.links.append((301, 2, 1))                 # sample 2 keeps only project 3
+    result = plan(alpha, target([2, 3]))
+    assert skips(result) == [(2, p.CROSS_INVESTIGATION)]
+
+
+def test_a_sample_only_shared_elsewhere_and_in_no_assay_here_is_in_no_assay(alpha):
+    alpha.links.append((301, 5, 1))                 # sample 5: in no assay of investigation 7
+    alpha.sample_projects[5] = {3, 4}
+    assert skips(plan(alpha, target([5]))) == [(5, p.SAMPLE_IN_NO_ASSAY)]
