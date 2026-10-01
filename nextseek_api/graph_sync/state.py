@@ -68,12 +68,13 @@ LOCK_NAME = "nextseek_graph_write"
 # The outbox kinds and the key shapes each takes (the spec, section 12). A key the drain could not parse would sit in
 # the outbox as a dead row, so enqueue refuses it instead.
 _ONE_SAMPLE = re.compile(r"sample:\d+")
+_HUB = re.compile(r"assay_edges:\d+")      # a hub partner's own INPUT_TO and OUTPUT_OF (targeted.sync_assay_edges)
 _BATCH = re.compile(r"batch:\S+")          # batch:<job>:<n>, batch:backfill:<n>; the ids are the payload
 _TYPE = re.compile(r"type:\d+")
 _ALL = re.compile(r"\*")
 _SLOT = re.compile(r"slot:\S+")            # slot:<date> or slot:<ISO week>
 KEY_RULES: Mapping[str, tuple[re.Pattern, ...]] = MappingProxyType({
-    "samples": (_ONE_SAMPLE, _BATCH),
+    "samples": (_ONE_SAMPLE, _BATCH, _HUB),
     "samples_of_type": (_TYPE,),
     "retire": (_ONE_SAMPLE,),
     "catalog": (_ALL,),

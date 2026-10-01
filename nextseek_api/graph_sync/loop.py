@@ -14,14 +14,16 @@
    graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop. A claimed
    single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such rows with it
    into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a ``batch:`` row is one
-   sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed ``ALONE_AFTER_ATTEMPTS`` times
-   since it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it;
-   a row whose last failure was a gap traced to it stays mergeable (``TRACED_GAP_ERROR``), and so does a row waiting for
-   the catalog (``TITLE_CONFLICT_DEFERRAL``). A structural link a by-id sync left unwritten fails only the samples its
-   report names: such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each
-   such sample on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
-   (``state.hand_on_failed``), and every other row is done. A sample the sync left out because its type's SampleType
-   node cannot be written yet (``catalog_waiting_samples``) defers every row holding it, and only those.
+   sync of its own, and so is a hub partner's ``assay_edges:<id>`` row, which rewrites only that sample's INPUT_TO and
+   OUTPUT_OF (``targeted.sync_assay_edges``). Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed
+   ``ALONE_AFTER_ATTEMPTS`` times since it was last written drains alone, so one sample whose sync raises cannot keep
+   failing the rows merged with it; a row whose last failure was a gap traced to it stays mergeable
+   (``TRACED_GAP_ERROR``), and so does a row waiting for the catalog (``TITLE_CONFLICT_DEFERRAL``). A structural link a
+   by-id sync left unwritten fails only the samples its report names: such a sample's own row fails, a row of many
+   samples (a batch, a sample type) is closed and hands each such sample on as a ``sample:<id>`` row of its own that
+   keeps the row's attempts, failing time and back-off (``state.hand_on_failed``), and every other row is done. A sample
+   the sync left out because its type's SampleType node cannot be written yet (``catalog_waiting_samples``) defers every
+   row holding it, and only those.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at the
 writer's version, the loop claims nothing but the read-only drift check: the writing rows wait in the outbox,
@@ -269,7 +271,7 @@ def _schedule(opts: Options, now: datetime) -> list[dict]:
 
 def _ids_of(claim) -> list[int]:
     """The sample ids a row asks for: the id in its key, or the ids a batch left in its payload."""
-    if claim.key.startswith("sample:"):
+    if claim.key.startswith(("sample:", targeted.HUB_KEY_PREFIX)):
         return [int(claim.key.split(":", 1)[1])]
     return [int(i) for i in (claim.payload or [])]
 
@@ -283,6 +285,8 @@ def _apply(driver, db, claim, opts: Options, run_dir: str, merged=()) -> dict:
     """Do what one row asks, in this process, and return the entry point's report. ``merged`` are more
     single-sample rows claimed with a ``samples`` row: their ids join its one by-id sync, in claim order."""
     kind = claim.kind
+    if kind == "samples" and claim.key.startswith(targeted.HUB_KEY_PREFIX):
+        return targeted.sync_assay_edges(driver, db, _ids_of(claim))
     if kind == "samples":
         ids = list(dict.fromkeys(i for c in (claim, *merged) for i in _ids_of(c)))
         return targeted.sync_samples(driver, db, ids, run_dir=run_dir,

@@ -13,6 +13,8 @@ bring part of the graph up to date without a full sync:
   node with its title, description and investigation.
 - ``sync_assays(driver, db)``: the assay layer (graph schema 1.3): the Assay nodes, the members of every SEEK assay
   whose mapping moved, RUN_IN, ACCEPTED_BY and GENERATES, and the Assays gone from ``internal_assays``.
+- ``sync_assay_edges(driver, db, ids)``: the INPUT_TO and OUTPUT_OF of those samples alone, with no partner step (the
+  drain of a hub partner's ``assay_edges:<id>`` row).
 - ``preview_labels(driver, db, ids)``: read only, no lock: how an approved ``sync_samples`` would class each
   DERIVED_FROM edge incident to ``ids`` (the studies tool's label approval check).
 
@@ -40,10 +42,10 @@ node of each of their SEEK studies, its Investigation node first, and IN_STUDY, 
 link SEEK no longer holds is removed only where the box's switch is on, archived first); ``declared: false`` Attribute
 nodes and the counts of attributes a sample fills for the first time, then one catalog sync to restamp the catalog hash
 when either changed; the INPUT_TO and OUTPUT_OF of the written samples and of their partners, read before the lineage
-step and after it (graph schema 1.3, D10; a partner above ``PARTNER_REWRITE_MAX`` edges gets its own ``samples`` row
-instead); the touched types' counts; and, when a structural link was left unwritten, which samples it belongs to. A
-sample that cannot be projected is counted and skipped whole, its lineage included: its parent tokens could not be read,
-and reading them as none would delete every edge it has.
+step and after it (graph schema 1.3, D10; a partner above ``PARTNER_REWRITE_MAX`` edges gets its own ``samples`` row,
+``assay_edges:<id>``, instead); the touched types' counts; and, when a structural link was left unwritten, which
+samples it belongs to. A sample that cannot be projected is counted and skipped whole, its lineage included: its
+parent tokens could not be read, and reading them as none would delete every edge it has.
 
 **Labels** (section 7.3). Each edge is labelled by ``labels.edge_labels`` from MySQL and classified against what it
 stores (``labels.classify``). Without the operator's approval ``new`` edges are written, and the writer's own guard
@@ -124,6 +126,9 @@ ASSAY_GUARD_SLOT_SUFFIX = "-assays"
 # scripts/graph_search/measure_assay_nodes.py on production: its 99.9th percentile DERIVED_FROM degree, rounded up.
 # PROVISIONAL: production has not been measured yet; this is the plan's estimate, replaced by the measured value.
 PARTNER_REWRITE_MAX = 2_000
+# The outbox key a hub partner is handed off on (kind ``samples``). Its drain runs ``sync_assay_edges``, which rewrites
+# that sample's own INPUT_TO and OUTPUT_OF and has no partner step, so a hub whose partner is a hub hands nothing back.
+HUB_KEY_PREFIX = "assay_edges:"
 _NO_ASSAY_EDGE_WRITES = {"assay_edge_samples": 0, "assay_edge_samples_missing": 0, "assay_edges_written": 0,
                          "assay_edges_dropped": 0, "assay_edge_members_without_role": 0}
 _STOP_KEYS = ("status", "schema_version", "writer_version", "lock_timeout_s")
@@ -891,15 +896,15 @@ def _partners(driver, db, ids) -> set[int]:
 
 def _rewrite_with_partners(driver, db, touched, partners, ctx: _Context) -> dict:
     """The sample edges of ``touched`` and of their ``partners`` (D10). A partner with no Sample node is skipped; one
-    with more than ``PARTNER_REWRITE_MAX`` DERIVED_FROM edges gets its own ``samples`` row instead, which the loop
-    drains outside this write unit."""
+    with more than ``PARTNER_REWRITE_MAX`` DERIVED_FROM edges gets its own ``samples`` row instead
+    (``HUB_KEY_PREFIX``), which the loop drains outside this write unit with ``sync_assay_edges``."""
     touched = set(touched)
     partners = sorted(set(partners) - touched)
     degrees = writer.lineage_degrees(driver, db, partners) if partners else {}
     inline = [p for p in partners if p in degrees and degrees[p] <= PARTNER_REWRITE_MAX]
     hubs = [p for p in partners if degrees.get(p, 0) > PARTNER_REWRITE_MAX]
     for hub in hubs:
-        hooks.enqueue("samples", f"sample:{hub}")
+        hooks.enqueue("samples", f"{HUB_KEY_PREFIX}{hub}")
     if hubs:
         log.info("graph_sync: %d lineage partners have more than %d edges and get their own samples rows",
                  len(hubs), PARTNER_REWRITE_MAX)
@@ -907,6 +912,26 @@ def _rewrite_with_partners(driver, db, touched, partners, ctx: _Context) -> dict
     report.update(assay_edge_partners=len(inline), assay_edge_partners_handed_off=len(hubs),
                   assay_edge_partner_hub_ids=hubs[:EXAMPLES])
     return report
+
+
+def sync_assay_edges(driver, db, ids, *, lock_timeout_s: float = LOCK_WAIT_S) -> dict:
+    """Rewrite the INPUT_TO and OUTPUT_OF of the samples ``ids`` alone from the role rule, as the graph's lineage and
+    MySQL's memberships stand now: what the drain of a hub partner's ``assay_edges:<id>`` row runs (D10). No partner
+    step and nothing else of the samples is written, so a hub drained this way hands no other hub off. One write unit
+    (refused below the writer's version, only under the lock); an Assay edge left unwritten is a structural gap of
+    the call (``ASSAY_GAP_KEYS``), which fails the row so it retries."""
+    wanted = _ids(ids)
+    if not wanted:
+        return {"status": OK, "requested": 0}
+    ctx = _Context(None)
+
+    def work():
+        report = {"status": OK, "requested": len(wanted), **_rewrite_sample_edges(driver, db, wanted, ctx)}
+        parts = {key: int(report[key]) for key in ASSAY_GAP_KEYS if report.get(key)}
+        report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
+        return report
+
+    return _guarded(driver, db, lock_timeout_s, work)
 
 
 def _pairs_of(records) -> set[tuple[int, int]]:

@@ -52,6 +52,7 @@ def work(monkeypatch, tmp_path):
     """
     rec = SimpleNamespace(calls=[], launched=[], exits=[], version=writer.SCHEMA_VERSION,
                           sync=None, of_type=None, retire=None, catalog=None, relabel=None, small=None, assays=None,
+                          edges=None,
                           opts=loop.Options(run_root=str(tmp_path)))
 
     def step(name, default):
@@ -69,6 +70,7 @@ def work(monkeypatch, tmp_path):
     monkeypatch.setattr(targeted, "relabel_for_maps", step("relabel", {"status": targeted.OK}))
     monkeypatch.setattr(targeted, "sync_small_tables", step("small", {"status": targeted.OK}))
     monkeypatch.setattr(targeted, "sync_assays", step("assays", {"status": targeted.OK}))
+    monkeypatch.setattr(targeted, "sync_assay_edges", step("edges", {"status": targeted.OK}))
     monkeypatch.setattr(run, "catalog_sync", step("catalog", {"mode": "catalog", "status": "ok"}))
     monkeypatch.setattr(writer, "graphmeta", lambda driver, db: {"schema_version": rec.version})
 
@@ -1234,6 +1236,32 @@ def test_a_batch_row_is_never_merged_with_single_sample_rows(work):
     one_pass(work)
 
     assert [c.args[2] for c in work.calls if c.name == "sync"] == [[11, 12], [1000, 1001], [13]]
+
+
+@pytest.mark.django_db
+def test_a_hub_partners_row_rewrites_its_assay_edges_alone_and_merges_with_nothing(work):
+    """``targeted.sync_samples`` hands a hub partner off on an ``assay_edges:<id>`` row: its drain rewrites that
+    sample's own INPUT_TO and OUTPUT_OF (``targeted.sync_assay_edges``), not a by-id sync, and no single-sample row
+    rides with it."""
+    state.enqueue("samples", "assay_edges:10", now=before(minutes=40))
+    _single_rows(2)
+
+    one_pass(work)
+
+    assert [(c.name, c.args[2]) for c in work.calls if c.name in ("edges", "sync")] == [
+        ("edges", [10]), ("sync", [1000, 1001])]
+    assert row("samples", "assay_edges:10").done_at is not None
+
+
+@pytest.mark.django_db
+def test_a_hub_partners_row_whose_assay_edge_was_left_unwritten_fails_and_retries(work):
+    state.enqueue("samples", "assay_edges:10", now=before(minutes=40))
+    work.edges = {"status": targeted.OK, "structural_gaps": 1, "structural_gap_parts": {"assay_edges_dropped": 1}}
+
+    one_pass(work)
+
+    r = row("samples", "assay_edges:10")
+    assert (r.done_at, r.attempts) == (None, 1) and "assay_edges_dropped 1" in r.last_error
 
 
 @pytest.mark.django_db

@@ -18,7 +18,7 @@ import pytest
 from neo4j import RoutingControl
 
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.graph_sync import catalog, hooks, labels, projection, run, sources, state, study_links, targeted
+from nextseek_api.graph_sync import catalog, hooks, labels, loop, projection, run, sources, state, study_links, targeted
 from nextseek_api.graph_sync import writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.tests.graph_sync_study_fakes import StudyGraph
@@ -646,6 +646,7 @@ ENTRY_POINTS = {
     "relabel_for_maps": lambda d: targeted.relabel_for_maps(d, DB),
     "sync_small_tables": lambda d: targeted.sync_small_tables(d, DB),
     "sync_assays": lambda d: targeted.sync_assays(d, DB),
+    "sync_assay_edges": lambda d: targeted.sync_assay_edges(d, DB, [10]),
 }
 
 
@@ -1056,11 +1057,34 @@ def test_a_partner_above_the_rewrite_max_gets_its_own_samples_row(with_assay, tm
     monkeypatch.setattr(targeted, "PARTNER_REWRITE_MAX", 0)
     result = targeted.sync_samples(with_assay.graph, DB, [11], run_dir=str(tmp_path))
 
-    assert queued == [("samples", "sample:10")]
+    assert queued == [("samples", "assay_edges:10")]
     assert 10 not in with_assay.graph.assay_edges
     assert with_assay.graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
     assert (result["assay_edge_partners"], result["assay_edge_partners_handed_off"]) == (0, 1)
     assert result["assay_edge_partner_hub_ids"] == [10]
+
+
+def test_the_row_a_hub_partner_is_handed_off_on_hands_nothing_back(with_assay, tmp_path, monkeypatch):
+    """Two lineage partners both above PARTNER_REWRITE_MAX: draining the row the first sync hands the hub off on
+    rewrites the hub's own edges and hands nothing back, so the loop settles."""
+    graph, queued = with_assay.graph, []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(targeted, "PARTNER_REWRITE_MAX", 0)       # every sample with an edge is a hub
+    targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+    (handed,) = queued
+    state.check_item(*handed)
+    assert handed[0] == "samples" and handed[1].endswith(":10")
+
+    queued.clear()
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    claim = state.Claim(id=1, kind=handed[0], key=handed[1], payload=None, enqueued_at=now, attempts=1,
+                        worker_id="w", lease_expires_at=now)
+    result = loop._apply(graph, DB, claim, loop.Options(run_root=str(tmp_path)), str(tmp_path))
+
+    assert result["status"] == "ok"
+    assert queued == []
+    assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
 
 
 def test_a_batch_of_roots_writes_no_assay_edge_and_counts_its_members(with_assay, tmp_path):

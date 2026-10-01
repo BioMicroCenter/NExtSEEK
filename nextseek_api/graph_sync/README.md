@@ -98,7 +98,8 @@ leases, old run directories), puts the slots the schedule owes into the outbox, 
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
 memory returns when they end and a crash cannot take the loop with it. A claimed single-sample `samples` row takes up
 to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within the pass's 1,000 rows), whose outcome
-closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A row that has failed twice since
+closes, defers or fails every row it drained; a `batch:` row is one sync of its own, and so is an `assay_edges:` row.
+A row that has failed twice since
 it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it (a
 transient failure costs one merged retry); a row whose last failure was a gap traced to its own sample stays
 mergeable, since a merged sync fails each gapped sample alone. While SampleType titles are held under other ids in the
@@ -154,7 +155,8 @@ write landed.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|
-| `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill, the assay proxy (the members an assay links, unlinks or moves; the studies release's rows), and `sync_samples` itself for a hub partner | `targeted.sync_samples` |
+| `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill, the assay proxy (the members an assay links, unlinks or moves; the studies release's rows) | `targeted.sync_samples` |
+| `samples` | `assay_edges:<id>` | `sync_samples` and `retire_samples`, for a hub partner | `targeted.sync_assay_edges`: that sample's INPUT_TO and OUTPUT_OF only, with no partner step |
 | `samples_of_type` | `type:<id>` | the attribute API, the legacy attribute editor, the sample-type proxy | `targeted.sync_samples_of_type` |
 | `retire` | `sample:<id>` | the proxy destroy (delayed when SEEK did not answer), the legacy delete | `targeted.retire_samples`, which leaves an id MySQL still holds alone |
 | `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync` |
@@ -303,12 +305,13 @@ the same for every caller. SEEK assays are runs, not nodes; their ids ride on th
   `seek_assay_ids` (`assays.roles_for_pairs`). A member with no lineage inside its run gets no edge for it, and a
   SEEK assay with no mapping gives none; the drift check reports both. Two samples on one Assay did not come from
   each other: lineage is DERIVED_FROM only.
-- **Who rewrites them.** `sync_samples` rewrites the edges of the samples it writes and of their lineage partners,
-  read before the lineage step and after it; a partner with more than `targeted.PARTNER_REWRITE_MAX` DERIVED_FROM
-  edges gets its own `samples` row instead, so a hub parent never holds batch upload's lock. `targeted.sync_assays`,
-  run by the `assay_map` and `isa` drains and by the nightly sync, rewrites the members of every SEEK assay whose
-  mapping moved, and above `targeted.ASSAY_REWRITE_MAX` members enqueues a full sync. The full sync rewrites every
-  sample's edges from the roles its label pass collects.
+- **Who rewrites them.** `sync_samples` rewrites the edges of the samples it writes and of their lineage partners, read
+  before the lineage step and after it; a partner with more than `targeted.PARTNER_REWRITE_MAX` DERIVED_FROM edges gets
+  its own `samples` row instead (`assay_edges:<id>`), so a hub parent never holds batch upload's lock. That row's drain
+  rewrites the hub's own edges and nothing else, so a hub whose partner is a hub hands nothing back.
+  `targeted.sync_assays`, run by the `assay_map` and `isa` drains and by the nightly sync, rewrites the members of every
+  SEEK assay whose mapping moved, and above `targeted.ASSAY_REWRITE_MAX` members enqueues a full sync. The full sync
+  rewrites every sample's edges from the roles its label pass collects.
 - **RUN_IN records the mapping.** `sync_assays` reads a new mapping against the pairs `RUN_IN` holds, and replaces
   `RUN_IN` only after the members are rewritten, so a crash leaves the rest for the retry and a mapping no member
   has a role in is read once. That is why `--catalog`, which writes the nodes and the catalog edges, never writes

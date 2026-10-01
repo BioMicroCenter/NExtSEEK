@@ -144,6 +144,7 @@ def test_no_delay_changes_nothing_about_when_a_row_is_claimable():
     ("samples", "sample:7", None),
     ("samples", "batch:job-1:0", [1, 2]),
     ("samples", "batch:backfill:3", []),
+    ("samples", "assay_edges:7", None),
     ("samples_of_type", "type:12", None),
     ("retire", "sample:7", None),
     ("catalog", "*", None),
@@ -169,6 +170,8 @@ def test_every_kind_and_key_of_the_spec_is_accepted(kind, key, payload):
     ("samples", "batch:", [1]),                 # a batch key without a name
     ("samples_of_type", "type:x", None),
     ("retire", "batch:job-1:0", [1]),           # retire takes one sample at a time
+    ("samples", "assay_edges:7", [7]),          # a payload on a hub partner's key
+    ("retire", "assay_edges:7", None),          # a hub partner's row is a samples row
     ("catalog", "all", None),
     ("full", "2026-W38", None),
     ("samples", "sample:" + "9" * 200, None),   # longer than the column
