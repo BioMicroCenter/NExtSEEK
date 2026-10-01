@@ -105,6 +105,8 @@ class Skip(_Model):
     sample_id: Optional[int] = None
     reason: str
     detail: str = ""
+    uid: Optional[str] = None                # the skipped sample's UID and type, for the curators' worklist
+    sample_type_id: Optional[int] = None
 
 
 class PlanWarning(_Model):
@@ -128,7 +130,7 @@ class ClonePlan(_Model):
     seek_assay_id: Optional[int] = None
     payload: Optional[dict] = None
     placeholder_id: Optional[int] = None
-    group_source_assay_ids: list[int] = []       # a share's group (every source assay of one title and mapping)
+    group_source_assay_ids: list[int] = []       # the clone's group: every source assay of one title and mapping
     policy_from_study: Optional[int] = None      # a share's clone takes this SEEK study's policy (T33)
 
 

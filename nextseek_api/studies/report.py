@@ -19,8 +19,8 @@ PLAN_FILE = "plan.json"
 PLAN_TEXT = "plan.txt"
 UNMATCHED_JSON = "unmatched.json"
 UNMATCHED_CSV = "unmatched.csv"
-UNMATCHED_COLUMNS = ("reason", "target_key", "investigation_id", "study_title", "submitted", "sample_id",
-                     "provenance", "detail")
+UNMATCHED_COLUMNS = ("reason", "target_key", "investigation_id", "study_title", "submitted", "sample_id", "uid",
+                     "sample_type_id", "provenance", "detail")
 EXAMPLES = 20
 
 
@@ -32,14 +32,14 @@ def unmatched_rows(plan: StudyMovePlan, associations: AssociationSet) -> list[di
         rows.append({"reason": u.reason, "target_key": u.target_key,
                      "investigation_id": t.investigation_id if t else None,
                      "study_title": t.title if t else None, "submitted": u.submitted, "sample_id": None,
-                     "provenance": "; ".join(u.provenance), "detail": ""})
+                     "uid": None, "sample_type_id": None, "provenance": "; ".join(u.provenance), "detail": ""})
     for s in plan.skipped:
         t = about.get(s.target_key)
         found = (t.provenance.get(str(s.sample_id)) if t and s.sample_id is not None else None) or []
         rows.append({"reason": s.reason, "target_key": s.target_key,
                      "investigation_id": t.investigation_id if t else None, "study_title": t.title if t else None,
-                     "submitted": "; ".join(found), "sample_id": s.sample_id, "provenance": "; ".join(found),
-                     "detail": s.detail})
+                     "submitted": "; ".join(found), "sample_id": s.sample_id, "uid": s.uid,
+                     "sample_type_id": s.sample_type_id, "provenance": "; ".join(found), "detail": s.detail})
     return sorted(rows, key=lambda r: (r["reason"], r["investigation_id"] or -1, r["study_title"] or "",
                                        str(r["sample_id"] or ""), r["submitted"]))
 
@@ -58,7 +58,8 @@ def render_plan_text(plan: StudyMovePlan) -> str:
         for c in t.clones:
             what = (f"create (placeholder {c.placeholder_id})" if c.action == "create"
                     else f"reuse {c.seek_assay_id}")
-            out.append(f"    clone: {c.source_assay_id} -> {what}  {c.title!r}  internal {c.internal_assay_ids}")
+            sources = c.group_source_assay_ids if len(c.group_source_assay_ids) > 1 else c.source_assay_id
+            out.append(f"    clone: {sources} -> {what}  {c.title!r}  internal {c.internal_assay_ids}")
         u = units.get(t.key)
         if u:
             movers = sum(1 for x in u.inserts if x.role == "mover")
@@ -165,7 +166,8 @@ def write_share_run(run_dir, plan: StudyMovePlan, summary: dict) -> list[Path]:
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = [{"reason": s.reason, "target_key": s.target_key, "investigation_id": plan.targets[0].investigation_id,
              "study_title": plan.targets[0].title, "submitted": s.detail.split(":", 1)[0],
-             "sample_id": s.sample_id, "provenance": "", "detail": s.detail} for s in plan.skipped]
+             "sample_id": s.sample_id, "uid": s.uid, "sample_type_id": s.sample_type_id, "provenance": "",
+             "detail": s.detail} for s in plan.skipped]
     files = {SHARE_FILE: plan.share.to_json(), PLAN_FILE: plan.to_json(), PLAN_TEXT: render_share_text(plan),
              UNMATCHED_JSON: canonical_json(rows)}
     written = []

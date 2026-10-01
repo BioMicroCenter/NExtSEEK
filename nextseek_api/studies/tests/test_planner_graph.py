@@ -5,7 +5,7 @@ from nextseek_api.graph_sync import labels
 from nextseek_api.studies import planner as p
 from nextseek_api.studies import report
 from nextseek_api.studies.models import AssociationSet, StudyTarget
-from nextseek_api.studies.tests.conftest import LABEL_KEYS, FakeReader, apply_to_world
+from nextseek_api.studies.tests.conftest import LABEL_KEYS, FakeReader, add_sample, apply_to_world
 
 
 def target(ids, *, key="sheet:7:paper one", title="Paper One", doi="10.0000/one", pmid="1111", seek_study_id=None):
@@ -35,6 +35,42 @@ def test_one_doi_twice_is_one_entry_values_not_text(alpha):
     result = plan(alpha, target([3], key="sheet:7:paper a", title="Paper A", doi="10.0000/A"),
                   target([3], key="sheet:7:paper b", title="Paper B", doi=" 10.0000/a "))
     assert {r.sample_id: r.dois for r in result.publications}[3] == ["10.0000/A"]
+
+
+def test_a_replan_after_a_stop_publishes_the_finished_units_samples_and_parents(alpha):
+    a = dict(key="sheet:7:paper a", title="Paper A", doi="10.0000/a", pmid="1")
+    b = dict(key="sheet:7:paper b", title="Paper B", doi="10.0000/b", pmid="2")
+    first = plan(alpha, target([3], **a), target([4], **b))
+    apply_to_world(alpha, first.model_copy(update={"units": first.units[:1], "publications": []}))
+    again = plan(alpha, target([3], seek_study_id=100, **a), target([4], seek_study_id=101, **b))
+    assert {r.sample_id: r.dois for r in again.publications} == {
+        1: ["10.0000/b"], 2: ["10.0000/a"], 3: ["10.0000/a"], 4: ["10.0000/b"]}
+
+
+def test_a_replan_after_a_stop_publishes_a_parent_from_an_assay_its_child_has_left(alpha):
+    alpha.links.append((102, 3, 2))                     # 3 is in both bucket assays; its parent 2 only in 101
+    add_sample(alpha, 7, parents=(3,), assays=((102, 2),), kind="IMG")
+    a = dict(key="sheet:7:paper a", title="Paper A", doi="10.0000/a", pmid="1")
+    b = dict(key="sheet:7:paper b", title="Paper B", doi="10.0000/b", pmid="2")
+    first = plan(alpha, target([3], **a), target([7], **b))
+    apply_to_world(alpha, first.model_copy(update={"units": first.units[:1], "publications": []}))
+    again = plan(alpha, target([3], seek_study_id=100, **a), target([7], seek_study_id=101, **b))
+    assert {r.sample_id: r.dois for r in again.publications} == {
+        2: ["10.0000/a"], 3: ["10.0000/a", "10.0000/b"], 7: ["10.0000/b"]}
+
+
+def test_a_mover_already_in_its_reused_clone_gets_the_doi(alpha):
+    alpha.links.append((201, 3, 2))
+    result = plan(alpha, target([3], seek_study_id=21, title="Alpha Paper Existing"))
+    [unit] = result.units
+    assert [(r.assay_id, r.sample_id) for r in unit.removals] == [(101, 3)]
+    assert {r.sample_id for r in result.publications} == {2, 3}
+
+
+def test_a_replan_after_a_complete_run_publishes_nothing(alpha):
+    apply_to_world(alpha, plan(alpha, target([2, 3])))
+    again = plan(alpha, target([2, 3], seek_study_id=100))
+    assert again.units == [] and again.publications == []
 
 
 def test_a_pmid_without_a_doi_writes_nothing_and_warns(alpha):

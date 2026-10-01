@@ -111,11 +111,19 @@ def test_two_candidates_in_the_target_are_ambiguous(alpha):
     assert skips(result) == [(3, p.TARGET_ASSAY_AMBIGUOUS)]
 
 
-def test_two_source_assays_with_one_title_and_mapping_are_refused(alpha):
-    alpha.assays[104] = AssayRow(104, 20, "RNA-seq run")
+def test_two_source_assays_with_one_title_and_mapping_share_one_clone(alpha):
+    alpha.assays[104] = AssayRow(104, 20, "rna-seq RUN ")
     alpha.mapping[104] = [900]
     alpha.links.append((104, 3, 2))
-    assert skips(plan(alpha, target([3]))) == [(3, p.SOURCE_ASSAYS_SHARE_TITLE)]
+    result = plan(alpha, target([3]))
+    assert result.skipped == []
+    [clone] = result.targets[0].clones
+    assert (clone.source_assay_id, clone.group_source_assay_ids, clone.action, clone.title) == (
+        101, [101, 104], "create", "RNA-seq run")
+    [unit] = result.units
+    assert [(x.source_assay_id, x.sample_id, x.role) for x in unit.inserts] == [(101, 3, "mover"), (101, 2, "parent")]
+    assert [(r.assay_id, r.sample_id) for r in unit.removals] == [(101, 3), (104, 3)]
+    assert unit.source_assay_ids == [101, 104]
 
 
 def test_same_title_other_mapping_is_two_clones(alpha):
@@ -125,6 +133,37 @@ def test_same_title_other_mapping_is_two_clones(alpha):
     alpha.assay_reps[104] = alpha.assay_reps[101]
     clones = plan(alpha, target([3])).targets[0].clones
     assert [(c.source_assay_id, c.placeholder_id) for c in clones] == [(101, 302), (104, 303)]
+
+
+def test_an_existing_assay_of_the_title_with_another_mapping_is_not_reused(alpha):
+    alpha.mapping[201] = [905]
+    [clone] = plan(alpha, target([3], seek_study_id=21, title="Alpha Paper Existing")).targets[0].clones
+    assert (clone.action, clone.placeholder_id) == ("create", 302)
+
+
+def test_a_title_of_the_columns_length_is_accepted(alpha):
+    assert plan(alpha, target([3], title="x" * 255)).targets[0].study.action == "create"
+
+
+def test_units_run_by_investigation_then_key(alpha):
+    result = plan(alpha, target([6], key="graph_only:1", inv=8, title="Beta Paper"), target([3], key="graph_only:2"))
+    assert [(u.unit, u.target_key) for u in result.units] == [(1, "graph_only:2"), (2, "graph_only:1")]
+
+
+def test_two_targets_naming_one_study_are_both_refused(alpha):
+    result = plan(alpha, target([2], key="graph_only:90"), target([3], key="graph_only:91", title=" paper ONE"))
+    assert result.targets == [] and result.units == []
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+    assert all("graph_only:90" in s.detail and "graph_only:91" in s.detail for s in result.skipped)
+    existing = dict(seek_study_id=21, title="Alpha Paper Existing")
+    result = plan(alpha, target([2], key="a", **existing), target([3], key="b", **existing))
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+
+
+def test_two_targets_with_one_key_are_both_refused(alpha):
+    result = plan(alpha, target([2]), target([3], title="Paper Two"))
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+    assert all("sheet:7:paper one" in s.detail for s in result.skipped)
 
 
 def test_a_source_with_several_mappings_is_copied_whole_and_warned(alpha):

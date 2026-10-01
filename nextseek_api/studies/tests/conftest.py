@@ -137,7 +137,7 @@ class FakeReader:
             if sample is None:
                 continue
             meta = sample.get("meta", {})
-            out[sid] = {"id": sid, "uuid": sample["uuid"],
+            out[sid] = {"id": sid, "uuid": sample["uuid"], "sample_type_id": sample.get("type"),
                         "json_metadata": meta if isinstance(meta, str) else json.dumps(meta)}
         return out
 
@@ -293,7 +293,9 @@ def add_sample(world: World, sid: int, *, parents=(), assays=((101, 2),), kind="
 
 def apply_to_world(world: World, plan) -> dict:
     """What a complete apply would leave in SEEK, done to the World: new studies from ``next_study_id``, clones at
-    their placeholder ids with their source's mapping, the units' inserts and removals."""
+    their placeholder ids with their source's mapping, the units' inserts and removals, the publications."""
+    from nextseek_api.studies.apply import merge_publications
+
     next_id = world.next_study_id
     ids = {}
     for t in plan.targets:
@@ -318,6 +320,11 @@ def apply_to_world(world: World, plan) -> dict:
         world.links = [link for link in world.links if (link[0], link[1]) not in gone]
         for row in unit.project_inserts:
             world.sample_projects.setdefault(row.sample_id, set()).add(row.project_id)
+    for row in plan.publications:
+        meta = world.samples[row.sample_id]["meta"]
+        merged = merge_publications(json.dumps(meta), row.dois, row.pmids) if isinstance(meta, dict) else None
+        if merged:
+            meta["DOI"], meta["PMID"] = merged
     world.next_study_id = next_id
     return ids
 

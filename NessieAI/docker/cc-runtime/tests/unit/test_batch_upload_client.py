@@ -555,6 +555,28 @@ def test_a_sample_in_one_candidate_resolves_to_it():
     assert got == 260
 
 
+def test_a_sample_in_a_bucket_and_a_clone_resolves_to_the_bucket():
+    calls: list[str] = []
+    c = _bucket_world(calls, members={351: ["5"], 260: ["5"]})
+    assert c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=5) == 351
+
+
+def test_a_sample_in_two_clones_and_not_in_the_bucket_refuses():
+    calls: list[str] = []
+    c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (21, "Alpha Paper"),
+                                      261: (22, "Delta Study")}, members={260: ["5"], 261: ["5"]})
+    with pytest.raises(ValueError, match="ambiguous assay title: Comet Chip"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260, 261]}, {351, 260, 261}, sample_numeric_id=5)
+
+
+def test_a_failed_member_read_fails_closed_as_ambiguous():
+    calls: list[str] = []
+    c = _bucket_world(calls)
+    c.assay_samples = lambda ids: (_ for _ in ()).throw(RuntimeError("down"))
+    with pytest.raises(ValueError, match="could not read the candidates"):
+        c.resolve_assay_title("Comet Chip", {"Comet Chip": [351, 260]}, {351, 260}, sample_numeric_id=5)
+
+
 def test_buckets_of_two_investigations_refuse_naming_them():
     calls: list[str] = []
     c = _bucket_world(calls, studies={351: (20, "Alpha Unpublished"), 260: (22, "Beta Unpublished")})

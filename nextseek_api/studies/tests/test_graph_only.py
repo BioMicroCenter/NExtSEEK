@@ -60,3 +60,16 @@ def test_the_read_skips_seek_keyed_and_doi_less_nodes_in_its_statement():
     text = graph_only.GRAPH_ONLY_PAPERS
     assert "st.seek_study_id IS NULL" in text and "st.id IS NOT NULL" in text
     assert "toString(st.DOI)" in text and "toString(st.PMID)" in text
+
+
+def test_a_paper_with_no_title_is_unmatched_and_the_others_still_plan(alpha):
+    driver = _driver([_paper(90, title=None), _paper(91, title="Paper Two")], {90: [2], 91: [3]})
+    aset = graph_only.graph_only_associations(driver, "neo4j", "all", FakeReader(alpha))
+    assert [t.key for t in aset.targets] == ["graph_only:91"]
+    assert [(u.reason, u.target_key, u.submitted) for u in aset.unmatched] == [
+        (matching.STUDY_TITLE_BLANK, "graph_only:90", "2")]
+
+
+def test_the_read_counts_a_doubled_investigation_link_once():
+    assert "collect(DISTINCT i.id) AS investigation_ids" in graph_only.GRAPH_ONLY_PAPERS
+    assert "collect(DISTINCT i.title) AS investigation_titles" in graph_only.GRAPH_ONLY_PAPERS

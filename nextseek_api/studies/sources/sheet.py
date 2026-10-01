@@ -3,10 +3,12 @@
 One row per (study, sample): ``study_title``, ``investigation_title``, ``sample_uuid`` (also read as ``sample_uid``),
 and optionally ``study_description``, ``doi``, ``pmid``, ``seek_study_id``. Headers are trimmed and lowercased; UIDs
 are literal (a ``-PUB`` suffix is never stripped from a sheet); an entirely blank row is skipped and row numbers stay
-the sheet's; exact duplicate rows are dropped and counted. These stop the plan and write nothing (``SheetError``): a
-blank required cell, a study claimed under two investigations, a sample claimed under two investigations, two
-different values of one study's description, DOI, PMID or SEEK study id, and a study none of whose UIDs resolves.
-A UID that matches nothing is not a refusal: it is reported as unmatched. The package README holds the contract.
+the sheet's; exact duplicate rows are dropped and counted. A study is its title as the matching reads it (case and
+surrounding whitespace aside, ``title_key``), so two spellings of one title are one study, under the first row's
+spelling. These stop the plan and write nothing (``SheetError``): a blank required cell, a study claimed under two
+investigations, a sample claimed under two investigations, two different values of one study's description, DOI,
+PMID or SEEK study id, and a study none of whose UIDs resolves. A UID that matches nothing is not a refusal: it is
+reported as unmatched. The package README holds the contract.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from nextseek_api.studies.buckets import title_key
 from nextseek_api.studies.models import AssociationSet
 from nextseek_api.studies.sources.matching import UID_REASONS, RawTarget, clean, match_targets
 
@@ -137,7 +140,7 @@ def validate_rows(rows: list[SheetRow]) -> tuple[list[SheetRow], int]:
     duplicate_count = 0
     errors: list[str] = []
     for row in rows:
-        key = (row.study_title, row.sample_uuid)
+        key = (title_key(row.study_title), row.sample_uuid)
         previous = seen.get(key)
         if previous is not None:
             for name in PER_STUDY_FIELDS:
@@ -155,12 +158,12 @@ def validate_rows(rows: list[SheetRow]) -> tuple[list[SheetRow], int]:
             value = getattr(row, name)
             if value in ("", None):
                 continue
-            existing = first.get(row.study_title)
+            existing = first.get(title_key(row.study_title))
             if existing and existing[0] != value:
                 errors.append(f"row {row.row_number}: {name} for {row.study_title!r} conflicts with the value on "
                               f"row {existing[1]}")
             else:
-                first.setdefault(row.study_title, (value, row.row_number))
+                first.setdefault(title_key(row.study_title), (value, row.row_number))
     if errors:
         raise SheetError(errors)
     return deduped, duplicate_count
@@ -169,10 +172,11 @@ def validate_rows(rows: list[SheetRow]) -> tuple[list[SheetRow], int]:
 def validate_structure(rows: list[SheetRow]) -> None:
     """A study under one investigation; a sample under one investigation (it may sit in several of its studies)."""
     errors: list[str] = []
-    for study_title in sorted({r.study_title for r in rows}):
-        claimed = {r.investigation_title for r in rows if r.study_title == study_title}
+    for study in sorted({title_key(r.study_title) for r in rows}):
+        mine = [r for r in rows if title_key(r.study_title) == study]
+        claimed = {r.investigation_title for r in mine}
         if len(claimed) > 1:
-            errors.append(f"Study {study_title!r} is claimed under multiple investigations {sorted(claimed)}. "
+            errors.append(f"Study {mine[0].study_title!r} is claimed under multiple investigations {sorted(claimed)}. "
                           "Each study must belong to exactly one.")
     by_sample: dict[str, set[str]] = {}
     for r in rows:
@@ -193,9 +197,10 @@ def sheet_associations(path, sheet_name, reader, *, now: Optional[str] = None) -
     validate_structure(rows)
     raws: dict[str, RawTarget] = {}
     for r in rows:
-        raw = raws.get(r.study_title)
+        raw = raws.get(title_key(r.study_title))
         if raw is None:
-            raw = raws[r.study_title] = RawTarget(title=r.study_title, investigation_title=r.investigation_title)
+            raw = raws[title_key(r.study_title)] = RawTarget(title=r.study_title,
+                                                             investigation_title=r.investigation_title)
         for name, attr in (("study_description", "description"), ("doi", "doi"), ("pmid", "pmid"),
                            ("seek_study_id", "seek_study_id")):
             value = getattr(r, name)
@@ -203,12 +208,14 @@ def sheet_associations(path, sheet_name, reader, *, now: Optional[str] = None) -
                 setattr(raw, attr, value)
         raw.uids.append((r.sample_uuid, f"row {r.row_number}"))
     targets, unmatched = match_targets(list(raws.values()), reader)
+    # A study with no target whose unmatched rows are all UID misses had no UID resolve. Its rows carry its key,
+    # "sheet:<investigation>:<title key>", and the title key names one raw here.
+    planned = {t.key for t in targets}
     errors = []
-    for raw in raws.values():
-        mine = [u for u in unmatched if u.submitted in {v for v, _p in raw.uids}]
-        if len(mine) == len(raw.uids) and mine and all(u.reason in UID_REASONS for u in mine):
-            errors.append(f"Study {raw.title!r} has no resolvable samples: every sample_uuid failed to match a "
-                          "sample. Check the UID column and the sheet.")
+    for key in sorted({u.target_key for u in unmatched} - planned):
+        if all(u.reason in UID_REASONS for u in unmatched if u.target_key == key):
+            errors.append(f"Study {raws[key.split(':', 2)[2]].title!r} has no resolvable samples: every sample_uuid "
+                          "failed to match a sample. Check the UID column and the sheet.")
     if errors:
         raise SheetError(errors)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

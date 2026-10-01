@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from nextseek_api.studies.buckets import title_key
 from nextseek_api.studies.sources import dev_export, matching
 from nextseek_api.studies.tests.conftest import FakeDriver, FakeReader, uid
 
@@ -88,3 +89,18 @@ def test_an_unknown_export_version_is_refused(tmp_path, alpha):
     path.write_text(json.dumps({"export_version": 99, "studies": []}))
     with pytest.raises(ValueError, match="export_version"):
         dev_export.dev_associations(path, FakeReader(alpha), investigation_map={})
+
+
+def test_a_dev_uid_is_cleaned_before_its_pub_suffix_goes(tmp_path, alpha):
+    path = tmp_path / "dev.json"
+    path.write_text(json.dumps({"export_version": 1, "exported_at": "t", "skipped": [], "studies": [
+        {"dev_study_id": 12, "title": "Paper One", "description": None, "doi": "10.0000/one", "pmid": None,
+         "investigation_title": "Alpha Dev", "sample_uids": [U2 + "-PUB\u00a0"]}]}))
+    aset = dev_export.dev_associations(path, FakeReader(alpha), investigation_map={"alpha dev": "Alpha Investigation"})
+    assert aset.targets[0].sample_ids == [2] and aset.unmatched == []
+
+
+def test_the_export_counts_a_doubled_investigation_link_once_and_the_map_has_one_row_a_title():
+    assert "collect(DISTINCT i.title) AS investigation_titles" in dev_export.EXPORT_STUDIES
+    pairs = json.loads(dev_export.DEV_INVESTIGATIONS.read_text(encoding="utf-8"))["pairs"]
+    assert len({title_key(dev) for dev, _prod in pairs}) == len(pairs)

@@ -356,7 +356,10 @@ def _resolve_by_title(index, uid, sample_id, projects, title, title_index,
     if len(distinct) > 1:
         held = [a for a in distinct if (a, sample_id) in tiebreak.held]
         in_bucket = [a for a in distinct if a in tiebreak.in_bucket]
-        chosen = held[0] if len(held) == 1 else (in_bucket[0] if len(in_bucket) == 1 else None)
+        # A sample held by several candidates (a shared sample sits in two same-titled clones) may only get one it
+        # is already in: never a bucket it left.
+        pickable = [a for a in in_bucket if a in held] if len(held) > 1 else in_bucket
+        chosen = held[0] if len(held) == 1 else (pickable[0] if len(pickable) == 1 else None)
         if chosen is None:
             return ResolvedRow(
                 index=index, sample_uid=uid, sample_id=sample_id,
