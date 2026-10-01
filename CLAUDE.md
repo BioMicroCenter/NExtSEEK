@@ -50,12 +50,14 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | Skill | Use when | Path | Loads |
 |---|---|---|---|
 | `add-cc-op` | adding or wiring a `nextseek-*` op or CC tool; `ops.py` is the source of truth, never `plugin.json` or `discover_ops` | `.claude/skills/add-cc-op/SKILL.md` | auto (`/add-cc-op`) |
-| `deploy` | install, redeploy, rollback or post-deploy verification on any box | `.claude/skills/deploy/SKILL.md` | auto |
+| `deploy` | install, redeploy, rollback, post-deploy verification, or launching a box to a commit on origin/dev (needs a local `boxes.json`) | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
 | `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
 | `nessie-run-review` | triaging a finished nessie_tests run into an HTML review | `NessieAI/tests/nessie_tests/output-skill/SKILL.md` | by path |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | by path |
 <!-- END DOCS-MAP:skills -->
+
+What each skill does and what it needs locally: [`.claude/skills/README.md`](.claude/skills/README.md).
 
 Personal and external tools (session handoff, the parallel fix lane, the dmac-curation plugin) live outside this repo. The handoff skill writes only into ignored paths of the checkout (a local session-index `CLAUDE.md` and `reports/`, both under `.claude/`); the fix-lane skills work in their own worktrees and branches.
 
