@@ -109,6 +109,10 @@ def world(monkeypatch):
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "iter_seek_study_links": lambda: iter([(11, 7)]),
+        "internal_assays": lambda: [{"id": 99, "title": "Patient Visit"}],
+        "assay_internal_pairs": lambda: [(500, 99)],
+        "assay_studies": lambda: [(500, 7), (501, 7), (502, 7)],
+        "assay_context_rows": lambda: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -228,6 +232,13 @@ class Writers:
         self.calls = []
         self.ghosts = ghosts if ghosts is not None else NO_GHOSTS
         fakes = {
+            "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
+            "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
+                "accepted_by": len(accepted), "accepted_by_written": len(accepted),
+                "generates": len(generates), "generates_written": len(generates)},
+            "replace_assay_runs": lambda d, db, rows, studies, tables=None: {
+                "assay_runs": len(rows), "assay_runs_written": len(rows), "assay_runs_dropped": 0},
+            "delete_gone_assays": lambda d, db, ids: {"assays_deleted": 0, "assay_edges_deleted_with_gone_assays": 0},
             "find_ghosts": lambda d, db, ids, uuids: copy.deepcopy(self.ghosts),
             "delete_ghosts": lambda d, db, element_ids: {"ghosts_deleted": len(element_ids)},
             "archive_and_drop_child_of": lambda d, db, path, declared: {
@@ -858,7 +869,8 @@ def test_catalog_sync_holds_the_lock_and_records_a_run(world, monkeypatch, lock)
     assert lock.timeouts == [run.CATALOG_LOCK_TIMEOUT_S]
     assert graph.events[0] == "lock" and graph.events[-1] == "unlock"
     assert writers.names() == ["write_sample_types", "write_attributes", "write_attribute_counts",
-                               "write_sample_type_counts", "write_graphmeta"]
+                               "write_sample_type_counts", "write_assays", "replace_assay_catalog_edges",
+                               "delete_gone_assays", "write_graphmeta"]
     assert "label_maps_hash" not in writers.of("write_graphmeta")[0].kwargs
     record = _one_run("catalog")
     assert record.status == "ok" and record.counts_json["trigger"] == "command"
@@ -872,6 +884,25 @@ def test_catalog_sync_refuses_a_graph_not_at_the_writers_version(world, monkeypa
         run.catalog_sync(graph, "neo4j")
     assert writers.names() == []
     assert _one_run("catalog").status == "refused"
+
+
+def test_catalog_sync_writes_the_assay_nodes_and_catalog_edges_and_leaves_members_and_run_in_alone(
+        world, monkeypatch, lock):
+    """catalog_sync is what sync_samples calls for a missing type or a new undeclared key, inside its write unit:
+    no member rewrite belongs there, and RUN_IN records the mapping the members were last written from."""
+    graph = _catalog_graph()
+    writers = Writers(monkeypatch, graph)
+    report = run.catalog_sync(graph, "neo4j")
+
+    (nodes,) = writers.of("write_assays")
+    assert [n["id"] for n in nodes.args[2]] == [99]
+    (deleted,) = writers.of("delete_gone_assays")
+    assert deleted.args[2] == [99]
+    assert writers.of("replace_assay_runs") == []
+    for statement in (q.RUN_IN_PAIRS, q.SAMPLE_ASSAY_EDGE_PAIRS, q.LINEAGE_PAIRS_INCIDENT,
+                      q.REPLACE_SAMPLE_ASSAY_EDGES):
+        assert statement not in graph.queries()
+    assert report["steps"]["assays"]["assays"] == 1
 
 
 def test_catalog_sync_refuses_when_the_lock_is_not_acquired(world, monkeypatch, lock):

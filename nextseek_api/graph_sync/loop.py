@@ -8,20 +8,20 @@
    ``(kind, key)`` is unique, so a slot already there is left exactly as it is: the schedule asks, the outbox
    decides, and a slot missed while the loop was down runs once at the next pass, not once per day it missed;
 3. **the drain**: claim the oldest claimable row and apply it. ``samples``, ``samples_of_type``, ``retire``,
-   ``catalog``, ``assay_map``, ``protocol_map``, ``isa`` and ``membership`` run in this process, through the same
-   by-id entry points every other path uses. ``full``, ``reconcile`` and ``drift`` run as child
-   ``manage.py graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop.
-   A claimed single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such
-   rows with it into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a
-   ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed
-   ``ALONE_AFTER_ATTEMPTS`` times since it was last written drains alone, so one sample whose sync raises cannot keep
-   failing the rows merged with it; a row whose last failure was a gap traced to it stays mergeable
-   (``TRACED_GAP_ERROR``), and so does a row waiting for the catalog (``TITLE_CONFLICT_DEFERRAL``). A structural
-   link a by-id sync left unwritten fails only the samples its report names: such a sample's own row fails, a row of
-   many samples (a batch, a sample type) is closed and hands each such sample on as a ``sample:<id>`` row of its own
-   that keeps the row's attempts, failing time and back-off (``state.hand_on_failed``), and every other row is done.
-   A sample the sync left out because its type's SampleType node cannot be written yet (``catalog_waiting_samples``)
-   defers every row holding it, and only those.
+   ``catalog``, ``assay_map``, ``protocol_map``, ``isa`` and ``membership`` run in this process, through the same by-id
+   entry points every other path uses; ``assay_map`` and ``isa`` also run ``targeted.sync_assays`` after their own step
+   (graph schema 1.3 has no outbox kind of its own). ``full``, ``reconcile`` and ``drift`` run as child ``manage.py
+   graph_sync`` processes, so their memory returns when they end and a crash cannot kill the loop. A claimed
+   single-sample ``samples`` row (key ``sample:<id>``) takes up to ``writer.SAMPLE_CHUNK - 1`` more such rows with it
+   into ONE by-id sync, and that sync's outcome closes, defers or fails every row it drained; a ``batch:`` row is one
+   sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed ``ALONE_AFTER_ATTEMPTS`` times
+   since it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it;
+   a row whose last failure was a gap traced to it stays mergeable (``TRACED_GAP_ERROR``), and so does a row waiting for
+   the catalog (``TITLE_CONFLICT_DEFERRAL``). A structural link a by-id sync left unwritten fails only the samples its
+   report names: such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each
+   such sample on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
+   (``state.hand_on_failed``), and every other row is done. A sample the sync left out because its type's SampleType
+   node cannot be written yet (``catalog_waiting_samples``) defers every row holding it, and only those.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
 the loop claims nothing but the read-only drift check: the writing rows wait in the outbox, unclaimed, with their
@@ -294,10 +294,28 @@ def _apply(driver, db, claim, opts: Options, run_dir: str, merged=()) -> dict:
     if kind == "catalog":
         return run.catalog_sync(driver, db, record=opts.record, trigger=opts.trigger, run_dir=run_dir)
     if kind in ("assay_map", "protocol_map"):
-        return targeted.relabel_for_maps(driver, db, apply_label_changes=opts.apply_label_changes)
+        first = targeted.relabel_for_maps(driver, db, apply_label_changes=opts.apply_label_changes)
+        return _then_assays(driver, db, first, run_dir) if kind == "assay_map" else first
     if kind in ("isa", "membership"):
-        return targeted.sync_small_tables(driver, db, run_dir=run_dir)
+        first = targeted.sync_small_tables(driver, db, run_dir=run_dir)
+        return _then_assays(driver, db, first, run_dir) if kind == "isa" else first
     raise ValueError(f"the drain has no entry point for outbox kind {kind!r}")
+
+
+def _then_assays(driver, db, first: dict, run_dir: str) -> dict:
+    """``first``'s report, then ``targeted.sync_assays`` when ``first`` ended ``ok``: an assay mapped, renamed,
+    deleted or moved to another study reaches the assay layer through these two kinds. The row's status is the later
+    step's, so a busy lock in either defers the whole row, which is idempotent; an Assay edge or RUN_IN row the
+    later step left unwritten (its ``structural_gaps``) fails the row (``_gapped``), which retries."""
+    if (first or {}).get("status") != targeted.OK:
+        return first
+    assays = targeted.sync_assays(driver, db, run_dir=run_dir) or {}
+    out = {**first, "assays": assays, "status": assays.get("status")}
+    if assays.get("structural_gaps"):
+        out["structural_gaps"] = int(first.get("structural_gaps") or 0) + assays["structural_gaps"]
+        out["structural_gap_parts"] = {**(first.get("structural_gap_parts") or {}),
+                                       **(assays.get("structural_gap_parts") or {})}
+    return out
 
 
 def _text(error) -> str:

@@ -51,7 +51,7 @@ def work(monkeypatch, tmp_path):
     called with from its recorded call.
     """
     rec = SimpleNamespace(calls=[], launched=[], exits=[], version=writer.SCHEMA_VERSION,
-                          sync=None, of_type=None, retire=None, catalog=None, relabel=None, small=None,
+                          sync=None, of_type=None, retire=None, catalog=None, relabel=None, small=None, assays=None,
                           opts=loop.Options(run_root=str(tmp_path)))
 
     def step(name, default):
@@ -68,6 +68,7 @@ def work(monkeypatch, tmp_path):
     monkeypatch.setattr(targeted, "retire_samples", step("retire", {"status": targeted.OK}))
     monkeypatch.setattr(targeted, "relabel_for_maps", step("relabel", {"status": targeted.OK}))
     monkeypatch.setattr(targeted, "sync_small_tables", step("small", {"status": targeted.OK}))
+    monkeypatch.setattr(targeted, "sync_assays", step("assays", {"status": targeted.OK}))
     monkeypatch.setattr(run, "catalog_sync", step("catalog", {"mode": "catalog", "status": "ok"}))
     monkeypatch.setattr(writer, "graphmeta", lambda driver, db: {"schema_version": rec.version})
 
@@ -343,11 +344,58 @@ def test_every_in_process_kind_calls_its_own_function(work):
 
     one_pass(work)
 
-    assert names(work) == ["sync", "of_type", "retire", "catalog", "relabel", "relabel", "small", "small"]
+    assert names(work) == ["sync", "of_type", "retire", "catalog", "relabel", "assays", "relabel", "small", "assays",
+                           "small"]
     assert [c.args for c in work.calls if c.name == "sync"] == [(DRIVER, DB, [7])]
     assert [c.args for c in work.calls if c.name == "of_type"] == [(DRIVER, DB, 26)]
     assert [c.args for c in work.calls if c.name == "retire"] == [(DRIVER, DB, [9])]
     assert all(r.done_at is not None for r in GraphSyncOutbox.objects.all())
+
+
+@pytest.mark.django_db
+def test_the_assay_map_and_isa_drains_run_sync_assays_after_their_own_step(work):
+    state.enqueue("assay_map", "*", now=before(minutes=2))
+    state.enqueue("isa", "*", now=before(minutes=1))
+    one_pass(work)
+
+    assert names(work) == ["relabel", "assays", "small", "assays"]
+    drain_dir = os.path.join(str(work.opts.run_root), f"drain-{T0:%Y%m%dT%H%M%SZ}")
+    assert [c.kwargs["run_dir"] for c in work.calls if c.name == "assays"] == [drain_dir, drain_dir]
+    assert row("assay_map", "*").done_at is not None and row("isa", "*").done_at is not None
+
+
+@pytest.mark.django_db
+def test_sync_assays_waits_when_the_step_before_it_could_not_take_the_lock(work):
+    state.enqueue("assay_map", "*", now=before(minutes=1))
+    work.relabel = {"status": targeted.LOCK_TIMEOUT}
+    one_pass(work)
+    assert names(work) == ["relabel"]
+    r = row("assay_map", "*")
+    assert r.done_at is None and r.attempts == 0
+
+
+@pytest.mark.django_db
+def test_a_lock_timeout_in_sync_assays_defers_the_whole_row(work):
+    state.enqueue("isa", "*", now=before(minutes=1))
+    work.assays = {"status": targeted.LOCK_TIMEOUT}
+    report = one_pass(work)
+    (entry,) = [d for d in report["drained"] if d["kind"] == "isa"]
+    assert entry["outcome"] == loop.DEFERRED
+    assert row("isa", "*").attempts == 0
+
+
+@pytest.mark.django_db
+def test_an_assay_layer_gap_in_sync_assays_fails_the_row(work):
+    """The 1.3 plan's A2: an Assay edge or RUN_IN row sync_assays could not write (its Assay or Study node missing)
+    is a structural gap, so the assay_map row fails and retries instead of closing."""
+    state.enqueue("assay_map", "*", now=before(minutes=1))
+    work.assays = {"status": targeted.OK, "structural_gaps": 2,
+                   "structural_gap_parts": {"assay_edges_dropped": 1, "assay_runs_dropped": 1}}
+    report = one_pass(work)
+    (entry,) = [d for d in report["drained"] if d["kind"] == "assay_map"]
+    assert entry["outcome"] == loop.FAILED
+    r = row("assay_map", "*")
+    assert r.done_at is None and "assay_edges_dropped 1" in r.last_error
 
 
 @pytest.mark.django_db

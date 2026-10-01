@@ -47,12 +47,12 @@ Undeclared Attribute nodes are known only once every sample has been projected, 
 twice: the declared attributes before the sample pass (the design's order) and the full catalog after it. The
 counts follow the second write, because ``writer.write_attributes`` replaces each node's properties.
 
-``catalog_sync`` rewrites the catalog nodes only: SampleType, Attribute and HAS_ATTRIBUTE, their counts and GraphMeta.
-It keeps the undeclared Attribute nodes and the attribute sample counts a full sync wrote. A SampleType SEEK no
-longer has and no Sample reaches is deleted with its Attributes, archived first to ``sample_types_deleted.tsv`` in
-the run directory; one that still holds samples is kept and reported. It holds the lock, records a run, and refuses
-a graph that is not at the writer's schema version: stamping GraphMeta would otherwise turn a graph into 1.2 without
-the full sync that makes one.
+``catalog_sync`` rewrites the catalog nodes only: SampleType, Attribute and HAS_ATTRIBUTE, their counts, the Assay nodes
+with their ACCEPTED_BY and GENERATES (graph schema 1.3; ``assay_layer`` without RUN_IN), and GraphMeta. It keeps the
+undeclared Attribute nodes and the attribute sample counts a full sync wrote. A SampleType SEEK no longer has and no
+Sample reaches is deleted with its Attributes, archived first to ``sample_types_deleted.tsv`` in the run directory; one
+that still holds samples is kept and reported. It holds the lock, records a run, and refuses a graph that is not at the
+writer's schema version: stamping GraphMeta would otherwise turn a graph into 1.2 without the full sync that makes one.
 
 What is held across a run is one entry per sample in three indexes (sample ids, uuids and declared lineage pairs),
 and, from the sample pass to the label step, each sample's assay and SOP ids packed 8 bytes a link; the sample data
@@ -79,6 +79,7 @@ from django.utils import timezone as dj_timezone
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.graph_sync import catalog, labels, projection, sources, state, study_links, study_merge, writer
+from nextseek_api.graph_sync import assays as assay_rules
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, project_sample
 from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
@@ -786,6 +787,63 @@ def _seek_studies(driver, db, run_dir: str) -> dict:
     return {k: v for k, v in out.items() if k not in ("status", "dry_run", "remove")}
 
 
+# --- the assay layer (schema 1.3) ----------------------------------------------------------------
+
+@dataclass(frozen=True)
+class AssayState:
+    """What the assay layer is built from, read once from MySQL (the 1.3 spec, section 5.6, step 1)."""
+    catalog: assay_rules.AssayCatalog     # the Assay nodes, the ACCEPTED_BY and GENERATES rows, the reports
+    internal_by_seek: dict                # SEEK assay id to its internal assay ids, valid mapping rows only
+    runs: list                            # the RUN_IN rows (assay_rules.run_rows)
+    studies: dict                         # SEEK study id to its sources.studies() row (with description)
+    study_of: dict                        # SEEK assay id to its SEEK study id, None for none
+
+    @property
+    def ids(self) -> list[int]:
+        return self.catalog.ids
+
+
+def read_internal_by_seek() -> dict:
+    """The valid mapping alone, for a by-id sync that rewrites sample edges and needs nothing else."""
+    internal_ids = {row["id"] for row in sources.internal_assays()}
+    seek_ids = {seek_id for seek_id, _ in sources.assay_studies()}
+    return assay_rules.internal_by_seek(sources.assay_internal_pairs(), internal_ids, seek_ids)
+
+
+def read_assays() -> AssayState:
+    """Read internal_assays, the mapping, every SEEK assay's study, the curated catalog and the SEEK sample type
+    titles its codes are checked against, and build the layer. Reads only."""
+    internal = sources.internal_assays()
+    pairs = sources.assay_internal_pairs()
+    seek_studies = sources.assay_studies()
+    study_of = {seek_id: study_id for seek_id, study_id in seek_studies}
+    known = {t["title"] for t in sources.sample_types() if t.get("title")}
+    cat = assay_rules.build_catalog(internal, sources.assay_context_rows(), known, pairs=pairs,
+                                    seek_ids=set(study_of))
+    by_seek = assay_rules.internal_by_seek(pairs, {row["id"] for row in internal}, set(study_of))
+    studies = {int(s["id"]): s for s in sources.studies()}   # whole rows: title, description, investigation_id
+    return AssayState(cat, by_seek, assay_rules.run_rows(by_seek, seek_studies), studies, study_of)
+
+
+def assay_layer(driver, db, st: AssayState | None = None, *, runs: bool = True, delete_gone: bool = True) -> dict:
+    """Write the Assay nodes (spec 5.6, step 2) and ACCEPTED_BY and GENERATES (step 6); with ``runs``, RUN_IN
+    (step 5); with ``delete_gone``, delete the Assays gone from internal_assays (step 7). No sample edge is touched.
+
+    ``catalog_sync`` passes ``runs=False``: RUN_IN is what ``targeted.sync_assays`` reads new mappings against, so
+    only a run that rewrote the members may replace it. The full sync writes RUN_IN and the deletions itself, after
+    the sample edges."""
+    st = st if st is not None else read_assays()
+    report = {"assays": len(st.catalog.nodes), **assay_rules.report_counts(st.catalog.reports),
+              "assay_report_examples": assay_rules.report_examples(st.catalog.reports)}
+    report.update(writer.write_assays(driver, db, st.catalog.nodes))
+    report.update(writer.replace_assay_catalog_edges(driver, db, st.catalog.accepted_by, st.catalog.generates))
+    if runs:
+        report.update(writer.replace_assay_runs(driver, db, st.runs, st.studies))
+    if delete_gone:
+        report.update(writer.delete_gone_assays(driver, db, st.ids))
+    return report
+
+
 # --- the full sync -------------------------------------------------------------------------------
 
 @dataclass
@@ -1062,7 +1120,8 @@ def _catalog_plan(driver, db, report: dict) -> tuple[Catalog, list[dict], dict[s
 
 def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = CATALOG_LOCK_TIMEOUT_S,
                  record: bool = True, trigger: str = "command", run_dir: str | None = None) -> dict:
-    """Rewrite the catalog nodes only: SampleType, Attribute, HAS_ATTRIBUTE, their counts and GraphMeta.
+    """Rewrite the catalog nodes only: SampleType, Attribute, HAS_ATTRIBUTE, their counts, the Assay nodes with
+    ACCEPTED_BY and GENERATES, and GraphMeta.
 
     Undeclared Attribute nodes a full sync wrote are kept while their type exists and does not now declare the
     key, and every Attribute keeps its ``sample_count`` (a new one gets 0). GraphMeta keeps its ``label_maps_hash``.
@@ -1107,6 +1166,7 @@ def catalog_sync(driver, db, dry_run: bool = False, *, lock_timeout_s: float = C
             _step(report, "attribute_counts", writer.write_attribute_counts, driver, db,
                   {a["key"]: counts.get(a["key"], 0) for a in attributes})
             _step(report, "sample_type_counts", writer.write_sample_type_counts, driver, db)
+            _step(report, "assays", assay_layer, driver, db, runs=False)
             _step(report, "graphmeta", writer.write_graphmeta, driver, db, catalog_hash)
         report["status"] = "ok"
         return report

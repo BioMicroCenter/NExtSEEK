@@ -128,6 +128,8 @@ def world(monkeypatch):
         "iter_samples": iter_samples, "uuid_to_ids": uuid_to_ids,
         "iter_digest_rows": iter_digest_rows, "parent_identities": lambda uuids: {},
         "resolved_assay_map": lambda: {}, "sops_map": lambda: {}, "studies": lambda: [],
+        "internal_assays": lambda: [], "assay_internal_pairs": lambda: [], "assay_studies": lambda: [],
+        "assay_context_rows": lambda: [],
         "sample_projects": lambda: {k: sorted(set(v)) for k, v in PROJECT_LINKS.items()},
         "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
         "memberships": lambda: copy.deepcopy(MEMBERSHIPS),
@@ -156,6 +158,11 @@ class WriterRecorder:
         self.calls = []
         self.ghosts = ghosts if ghosts is not None else GHOSTS
         fakes = {
+            "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
+            "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
+                "accepted_by_written": len(accepted), "generates_written": len(generates)},
+            "replace_assay_runs": lambda d, db, rows, studies, tables=None: {"assay_runs_written": len(rows)},
+            "delete_gone_assays": lambda d, db, ids: {"assays_deleted": 0},
             "find_ghosts": lambda d, db, ids, uuids: copy.deepcopy(self.ghosts),
             "delete_ghosts": lambda d, db, element_ids: {"ghosts_deleted": len(element_ids)},
             "retire_samples": lambda d, db, ids, archive_path: {
@@ -478,7 +485,8 @@ def test_catalog_sync_keeps_undeclared_attributes_and_counts(world, monkeypatch)
     report = run.catalog_sync(FakeDriver(_attribute_state), "neo4j")
 
     assert rec.names() == ["write_sample_types", "write_attributes", "write_attribute_counts",
-                           "write_sample_type_counts", "write_graphmeta"]
+                           "write_sample_type_counts", "write_assays", "replace_assay_catalog_edges",
+                           "delete_gone_assays", "write_graphmeta"]
     keys = [r["key"] for r in rec.of("write_attributes")[0].args[2]]
     assert keys == ["26:Organ", "26:CellCount", "26:Collected", "33:Parent", "33:Lane"]
     assert rec.of("write_attribute_counts")[0].args[2] == {

@@ -10,6 +10,7 @@ import copy
 import json
 import os
 from collections import defaultdict
+from datetime import datetime, timezone
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -17,7 +18,8 @@ import pytest
 from neo4j import RoutingControl
 
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.graph_sync import catalog, labels, projection, run, sources, state, study_links, targeted, writer
+from nextseek_api.graph_sync import catalog, hooks, labels, projection, run, sources, state, study_links, targeted
+from nextseek_api.graph_sync import writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.tests.graph_sync_study_fakes import StudyGraph
 from nextseek_graph import schema
@@ -61,6 +63,15 @@ STUDY_LINKS = [{"sample_id": 10, "study_id": 70, "study_title": "Study seventy",
                 "investigation_id": 3},
                {"sample_id": 11, "study_id": 70, "study_title": "Study seventy", "study_description": None,
                 "investigation_id": 3}]
+# The assay layer (schema 1.3): SEEK assay 5 maps to internal assay 99, SEEK assay 6 to nothing; both run in study 70.
+INTERNAL = [{"id": 99, "title": "Patient Visit"}]
+PAIRS = [(5, 99)]
+SEEK_STUDIES = [(5, 70), (6, 70)]
+STUDIES = [{"id": 70, "title": "Study seventy (renamed)", "description": "About seventy", "investigation_id": 3}]
+CONTEXT = [{"id": 1, "internal_assay_id": 99, "assay_name": "Patient Visit", "alternative_assay_names": None,
+            "description": "A visit.", "tags": None, "parent_clade_type": None, "child_clade_type": None,
+            "required_parent_sample_types": "TIS", "optional_parent_sample_types": None,
+            "children_sample_types": "D.SEQ"}]
 
 # The labels the rule gives the two declared edges: 11 -> 10 (11 names U_T1, protocol P.SOP-1 is SOP 7) and
 # 13 -> 11 (13 names U_D1, no protocol). Both endpoints share assay 5, mapped to internal assay 99.
@@ -99,6 +110,12 @@ class FakeGraph:
         self.calls: list = []
         self.before_delete: list = []
         self._next = 0
+        self.assay_nodes: dict = {}          # Assay id -> properties
+        self.assay_edges: dict = {}          # Sample id -> {(type, Assay id, tuple of SEEK ids)}
+        self.runs: set = set()               # (Assay id, study id, tuple of SEEK ids)
+        self.catalog_edges: set = set()      # (type, code, Assay id, required, group)
+        self.faults: dict = {}               # statement -> the call numbers (from 1) that raise
+        self.fault_calls: dict = {}
         self.study = StudyGraph(is_sample=self._is_sample)
         self.handlers = {
             q.READ_GRAPHMETA: self._graphmeta,
@@ -134,6 +151,16 @@ class FakeGraph:
             q.DELETE_GONE_PEOPLE: lambda p: [],
             q.MERGE_PEOPLE: lambda p: [],
             q.MERGE_MEMBER_OF: lambda p: [{"linked": len(p["rows"])}],
+            q.MERGE_ASSAYS: self._merge_assays,
+            q.REPLACE_ASSAY_RUNS: self._replace_runs,
+            q.REPLACE_ASSAY_CATALOG_EDGES: self._replace_catalog_edges,
+            q.DELETE_GONE_ASSAY_EDGES: self._delete_gone_assay_edges,
+            q.DELETE_GONE_ASSAYS: self._delete_gone_assays,
+            q.RUN_IN_PAIRS: self._run_pairs,
+            q.SAMPLE_ASSAY_EDGE_PAIRS: self._edge_pairs,
+            q.SAMPLES_CARRYING_SEEK_ASSAYS: self._samples_carrying,
+            q.LINEAGE_PAIRS_INCIDENT: self._lineage_pairs_incident,
+            q.REPLACE_SAMPLE_ASSAY_EDGES: self._replace_sample_edges,
         }
         self.handlers.update(self.study.handlers())
 
@@ -142,6 +169,10 @@ class FakeGraph:
         params = parameters_ or {}
         read = kwargs.get("routing_") == RoutingControl.READ
         self.calls.append(SimpleNamespace(query=query, params=params, read=read, database=database_))
+        if query in self.faults:
+            self.fault_calls[query] = self.fault_calls.get(query, 0) + 1
+            if self.fault_calls[query] in self.faults[query]:
+                raise RuntimeError(f"injected failure on call {self.fault_calls[query]} of a statement")
         handler = self.handlers.get(query)
         if handler is None:
             raise AssertionError(f"FakeGraph does not know this statement: {query.strip()[:120]}")
@@ -328,6 +359,7 @@ class FakeGraph:
             sid = int(eid.split(":")[1])
             if self._is_sample(sid) and "synced_at" in self.nodes[sid]["props"]:
                 del self.nodes[sid]
+                self.assay_edges.pop(sid, None)
                 self.edges = {k: e for k, e in self.edges.items() if sid not in (e["child"], e["parent"])}
                 n += 1
         return [{"n": n}]
@@ -359,6 +391,88 @@ class FakeGraph:
         return [{"child_id": e["child"], "parent_id": e["parent"], "element_id": eid, "props": dict(e["props"])}
                 for eid, e in self._between_samples() if e["props"].get("protocol_id") in p["ids"]]
 
+    # the assay layer (schema 1.3)
+    def _merge_assays(self, p):
+        for r in p["rows"]:
+            self.assay_nodes[r["id"]] = dict(r)
+        return [{"written": len(p["rows"])}]
+
+    def _replace_runs(self, p):
+        self.runs = {(r["assay_id"], r["study_id"], tuple(r["seek_assay_ids"])) for r in p["rows"]
+                     if r["assay_id"] in self.assay_nodes and self.study.studies_by_seek(r["study_id"])}
+        return [{"linked": len(self.runs)}]
+
+    def _replace_catalog_edges(self, p):
+        titles = set(self.types.values())
+        accepted = {("ACCEPTED_BY", r["code"], r["assay_id"], r["required"], r["group"]) for r in p["accepted"]
+                    if r["code"] in titles and r["assay_id"] in self.assay_nodes}
+        generates = {("GENERATES", r["code"], r["assay_id"], None, r["group"]) for r in p["generates"]
+                     if r["code"] in titles and r["assay_id"] in self.assay_nodes}
+        self.catalog_edges = accepted | generates
+        return [{"accepted": len(accepted), "generates": len(generates)}]
+
+    def _delete_gone_assay_edges(self, p):
+        gone, budget, deleted = set(self.assay_nodes) - set(p["ids"]), p["batch"], 0
+        for sid in sorted(self.assay_edges):
+            for edge in sorted(self.assay_edges[sid]):
+                if deleted < budget and edge[1] in gone:
+                    self.assay_edges[sid].discard(edge)
+                    deleted += 1
+        for run_ in sorted(self.runs):
+            if deleted < budget and run_[0] in gone:
+                self.runs.discard(run_)
+                deleted += 1
+        for edge in sorted(self.catalog_edges, key=repr):
+            if deleted < budget and edge[2] in gone:
+                self.catalog_edges.discard(edge)
+                deleted += 1
+        return [{"deleted": deleted}]
+
+    def _delete_gone_assays(self, p):
+        gone = set(self.assay_nodes) - set(p["ids"])
+        for assay_id in gone:
+            del self.assay_nodes[assay_id]
+        for sid in self.assay_edges:
+            self.assay_edges[sid] = {e for e in self.assay_edges[sid] if e[1] not in gone}
+        self.runs = {r for r in self.runs if r[0] not in gone}
+        self.catalog_edges = {e for e in self.catalog_edges if e[2] not in gone}
+        return [{"deleted": len(gone)}]
+
+    def _run_pairs(self, p):
+        pairs = {(s, assay_id) for assay_id, _, seek_ids in self.runs for s in seek_ids}
+        return [{"seek_assay_id": s, "assay_id": a} for s, a in sorted(pairs)]
+
+    def _edge_pairs(self, p):
+        pairs = {(s, e[1]) for sid, edges in self.assay_edges.items() if self._is_sample(sid)
+                 for e in edges for s in e[2]}
+        return [{"seek_assay_id": s, "assay_id": a} for s, a in sorted(pairs)]
+
+    def _samples_carrying(self, p):
+        wanted = set(p["seek_ids"])
+        return [{"id": sid} for sid, edges in sorted(self.assay_edges.items())
+                if self._is_sample(sid) and any(wanted & set(e[2]) for e in edges)]
+
+    def _lineage_pairs_incident(self, p):
+        wanted = set(p["ids"])
+        pairs = {(e["child"], e["parent"]) for _, e in self._between_samples() if wanted & {e["child"], e["parent"]}}
+        return [{"child_id": c, "parent_id": pa} for c, pa in sorted(pairs)]
+
+    def _replace_sample_edges(self, p):
+        samples = inputs = outputs = 0
+        for r in p["rows"]:
+            if not self._is_sample(r["id"]):
+                continue
+            samples += 1
+            edges = set()
+            for rel, key in (("INPUT_TO", "inputs"), ("OUTPUT_OF", "outputs")):
+                for e in r[key]:
+                    if e["assay_id"] in self.assay_nodes:
+                        edges.add((rel, e["assay_id"], tuple(e["seek_assay_ids"])))
+                        inputs += rel == "INPUT_TO"
+                        outputs += rel == "OUTPUT_OF"
+            self.assay_edges[r["id"]] = edges
+        return [{"samples": samples, "inputs": inputs, "outputs": outputs}]
+
 
 # --- fixtures ------------------------------------------------------------------------------------
 
@@ -376,7 +490,9 @@ def mysql(monkeypatch):
     readers' arguments."""
     world = SimpleNamespace(samples=copy.deepcopy(SAMPLES), projects=copy.deepcopy(PROJECTS),
                             assays=copy.deepcopy(ASSAYS), assay_map=dict(ASSAY_MAP), sops=dict(SOPS),
-                            links=copy.deepcopy(STUDY_LINKS), reads=defaultdict(list))
+                            links=copy.deepcopy(STUDY_LINKS), reads=defaultdict(list),
+                            internal=copy.deepcopy(INTERNAL), pairs=list(PAIRS), seek_studies=list(SEEK_STUDIES),
+                            studies=copy.deepcopy(STUDIES), context=copy.deepcopy(CONTEXT))
 
     def rows_for(ids):
         wanted = set(ids)
@@ -428,8 +544,14 @@ def mysql(monkeypatch):
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
         "memberships": lambda: [{"person_id": 144, "project_id": 2, "has_left": False, "time_left_at": None}],
-        "studies": lambda: [{"id": 70, "title": "Study seventy (renamed)", "description": "About seventy",
-                             "investigation_id": 3}],
+        "studies": lambda: copy.deepcopy(world.studies),
+        "internal_assays": lambda: copy.deepcopy(world.internal),
+        "assay_internal_pairs": lambda: list(world.pairs),
+        "assay_studies": lambda: list(world.seek_studies),
+        "assay_context_rows": lambda: copy.deepcopy(world.context),
+        "sample_ids_in_assays": by_id("sample_ids_in_assays",
+                                      lambda ids: sorted({sid for sid, found in world.assays.items()
+                                                          if set(found) & set(ids)})),
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -514,6 +636,7 @@ ENTRY_POINTS = {
     "retire_samples": lambda d: targeted.retire_samples(d, DB, [15]),
     "relabel_for_maps": lambda d: targeted.relabel_for_maps(d, DB),
     "sync_small_tables": lambda d: targeted.sync_small_tables(d, DB),
+    "sync_assays": lambda d: targeted.sync_assays(d, DB),
 }
 
 
@@ -1170,6 +1293,203 @@ def test_a_sample_type_sync_names_the_gapped_samples_of_every_chunk(env, tmp_pat
     assert result["chunks"] == 2
     assert result["structural_gap_samples"] == {10: "in_project_missing (project ids SEEK lacks: 77)",
                                                 12: "in_project_missing (project ids SEEK lacks: 78)"}
+
+
+# --- sync_assays (schema 1.3) --------------------------------------------------------------------
+
+@pytest.fixture
+def assayed(env):
+    """Lineage 11 -> 10 and 13 -> 11 inside SEEK assay 5, and the assay layer a first sync_assays wrote for it."""
+    env.graph.add_edge(11, 10)
+    env.graph.add_edge(13, 11)
+    assert targeted.sync_assays(env.graph, DB)["status"] == "ok"
+    env.graph.calls.clear()
+    env.mysql.reads.clear()
+    return env
+
+
+def test_sync_assays_writes_the_assay_layer_onto_a_graph_without_one(env):
+    env.graph.add_edge(11, 10)
+    env.graph.add_edge(13, 11)
+    result = targeted.sync_assays(env.graph, DB)
+
+    assert result["status"] == "ok"
+    assert env.graph.assay_nodes == {99: {"id": 99, "title": "Patient Visit", "description": "A visit.",
+                                          "input_types": ["TIS"], "output_types": ["D.SEQ"], "has_context": True}}
+    assert env.graph.runs == {(99, 70, (5,))}
+    assert env.graph.catalog_edges == {("ACCEPTED_BY", "TIS", 99, True, 0), ("GENERATES", "D.SEQ", 99, None, 0)}
+    assert env.graph.assay_edges == {10: {("INPUT_TO", 99, (5,))},
+                                     11: {("OUTPUT_OF", 99, (5,)), ("INPUT_TO", 99, (5,))},
+                                     13: {("OUTPUT_OF", 99, (5,))}}
+    assert (result["assay_marks_added"], result["assay_members_to_rewrite"]) == (1, 3)
+    order = [env.graph.first(s) for s in (q.MERGE_ASSAYS, q.RUN_IN_PAIRS, q.REPLACE_SAMPLE_ASSAY_EDGES,
+                                          q.REPLACE_ASSAY_RUNS, q.REPLACE_ASSAY_CATALOG_EDGES, q.DELETE_GONE_ASSAYS)]
+    assert order == sorted(order)
+
+
+def test_a_second_sync_assays_marks_nothing_and_rewrites_no_member(assayed):
+    before = copy.deepcopy(assayed.graph.assay_edges)
+    result = targeted.sync_assays(assayed.graph, DB)
+    assert (result["assay_marks_added"], result["assay_marks_removed"]) == (0, 0)
+    assert assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES) == []
+    assert "sample_ids_in_assays" not in assayed.mysql.reads
+    assert assayed.graph.assay_edges == before
+
+
+def test_a_new_mapping_that_wins_no_edge_label_still_reaches_the_members(assayed):
+    """SEEK assay 5 gains a second internal assay, 120. The label rule keeps the smallest internal id (99), so
+    relabel_for_maps sees no change; sync_assays still gives every member its edge to Assay 120."""
+    assayed.mysql.internal.append({"id": 120, "title": "Visit two"})
+    assayed.mysql.pairs.append((5, 120))
+    result = targeted.sync_assays(assayed.graph, DB)
+
+    assert result["assay_marked_seek_ids"] == [5]
+    assert assayed.graph.assay_edges[10] == {("INPUT_TO", 99, (5,)), ("INPUT_TO", 120, (5,))}
+    assert assayed.graph.assay_edges[13] == {("OUTPUT_OF", 99, (5,)), ("OUTPUT_OF", 120, (5,))}
+    assert assayed.graph.runs == {(99, 70, (5,)), (120, 70, (5,))}
+    rewritten = [sorted(r["id"] for r in c.params["rows"]) for c in assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES)]
+    assert rewritten == [[10, 11, 13]]
+
+
+def test_a_mapping_no_member_has_a_role_in_is_marked_once_only(assayed):
+    """SEEK assay 6 (sample 12 alone, no lineage inside it) is mapped to 98: its member is read once and gets no
+    edge, and RUN_IN then records the mapping, so the next run reads nothing."""
+    assayed.mysql.internal.append({"id": 98, "title": "Sequencing run"})
+    assayed.mysql.pairs.append((6, 98))
+    first = targeted.sync_assays(assayed.graph, DB)
+    assert (first["assay_marked_seek_ids"], first["assay_members_to_rewrite"]) == ([6], 1)
+    assert first["assay_edge_members_without_role"] == 1
+    assert assayed.graph.assay_edges.get(12, set()) == set()
+    assert (98, 70, (6,)) in assayed.graph.runs
+
+    assayed.mysql.reads.clear()
+    second = targeted.sync_assays(assayed.graph, DB)
+    assert second["assay_marks_added"] == 0 and "sample_ids_in_assays" not in assayed.mysql.reads
+
+
+def test_a_seek_assay_deleted_from_seek_takes_its_id_off_the_sample_edges(assayed):
+    assayed.mysql.seek_studies = [(6, 70)]           # SEEK assay 5 is gone from assays
+    for sid in (10, 11, 13):
+        assayed.mysql.assays[sid] = []               # and so are its assay_assets rows; its dmac mapping lingers
+    result = targeted.sync_assays(assayed.graph, DB)
+
+    assert (result["assay_marks_removed"], result["assay_marked_seek_ids"]) == (1, [5])
+    assert all(assayed.graph.assay_edges[sid] == set() for sid in (10, 11, 13))
+    assert assayed.graph.runs == set()
+    assert 99 in assayed.graph.assay_nodes           # the internal assay itself is still there
+
+
+def test_an_internal_assay_deleted_in_the_admin_loses_its_sample_edges_and_then_its_node(assayed):
+    """Internal assay 98 (SEEK assay 6: sample 14 made from 12) is deleted with its mapping row while samples still
+    point at it. Its edges go, the members of Assay 99 are not touched, and the node goes last."""
+    graph, mysql = assayed.graph, assayed.mysql
+    graph.add_sample(14, 26)
+    graph.add_edge(14, 12)
+    mysql.assays[14] = [6]
+    mysql.internal.append({"id": 98, "title": "Sequencing run"})
+    mysql.pairs.append((6, 98))
+    targeted.sync_assays(graph, DB)
+    assert graph.assay_edges[14] == {("OUTPUT_OF", 98, (6,))} and graph.assay_edges[12] == {("INPUT_TO", 98, (6,))}
+    untouched = {sid: set(graph.assay_edges[sid]) for sid in (10, 11, 13)}
+    graph.calls.clear()
+
+    mysql.internal = [r for r in mysql.internal if r["id"] != 98]
+    mysql.pairs.remove((6, 98))
+    result = targeted.sync_assays(graph, DB)
+
+    assert result["status"] == "ok" and result["assay_marked_seek_ids"] == [6]
+    assert graph.assay_edges[12] == set() and graph.assay_edges[14] == set()
+    assert {sid: graph.assay_edges[sid] for sid in (10, 11, 13)} == untouched
+    assert sorted(r["id"] for c in graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES) for r in c.params["rows"]) == [12, 14]
+    assert 98 not in graph.assay_nodes and 99 in graph.assay_nodes
+    last_write = max(i for i, c in enumerate(graph.calls) if not c.read)
+    assert graph.calls[last_write].query == q.DELETE_GONE_ASSAYS
+    assert result["assays_deleted"] == 1
+
+
+def test_a_crash_between_member_chunks_leaves_the_rest_for_the_retry(assayed):
+    graph, mysql = assayed.graph, assayed.mysql
+    mysql.internal.append({"id": 120, "title": "Visit two"})
+    mysql.pairs[:] = [(5, 120)]                      # SEEK assay 5 moves from 99 to 120
+    graph.faults[q.REPLACE_SAMPLE_ASSAY_EDGES] = {2}
+    with pytest.raises(RuntimeError, match="injected failure"):
+        targeted.sync_assays(graph, DB, chunk=1)
+    assert graph.runs == {(99, 70, (5,))}             # still the mapping the edges were written from
+    assert graph.assay_edges[10] == {("INPUT_TO", 120, (5,))}                           # the first chunk landed
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,)), ("INPUT_TO", 99, (5,))}  # the second did not
+
+    graph.faults.clear()
+    retry = targeted.sync_assays(graph, DB, chunk=1)
+    assert retry["status"] == "ok" and retry["assay_marked_seek_ids"] == [5]
+    assert graph.assay_edges == {10: {("INPUT_TO", 120, (5,))},
+                                 11: {("OUTPUT_OF", 120, (5,)), ("INPUT_TO", 120, (5,))},
+                                 13: {("OUTPUT_OF", 120, (5,))}}
+    assert graph.runs == {(120, 70, (5,))}
+
+
+def test_above_the_rewrite_max_a_full_sync_is_enqueued_and_run_in_is_left_for_it(assayed, monkeypatch):
+    queued = []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    monkeypatch.setattr(targeted, "ASSAY_REWRITE_MAX", 2)
+    assayed.mysql.internal.append({"id": 120, "title": "Visit two"})
+    assayed.mysql.pairs.append((5, 120))
+    result = targeted.sync_assays(assayed.graph, DB, now=datetime(2026, 9, 25, 14, 0, tzinfo=timezone.utc))
+
+    assert result["status"] == "ok" and result["assay_rewrite_guard_tripped"] is True
+    assert queued == [("full", "slot:2026-09-25-assays")]
+    assert assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES) == [] and assayed.graph.of(q.REPLACE_ASSAY_RUNS) == []
+    assert assayed.graph.runs == {(99, 70, (5,))}
+    assert 120 in assayed.graph.assay_nodes and assayed.graph.of(q.REPLACE_ASSAY_CATALOG_EDGES)
+
+
+def test_an_assay_moved_to_another_study_moves_run_in_and_rewrites_no_member(assayed):
+    assayed.mysql.seek_studies = [(5, 71), (6, 70)]
+    assayed.mysql.studies.append({"id": 71, "title": "Study seventy-one", "description": None, "investigation_id": 3})
+    result = targeted.sync_assays(assayed.graph, DB)
+    assert assayed.graph.runs == {(99, 71, (5,))}
+    (study,) = assayed.graph.study.studies_by_seek(71)      # the studies release's node, SEEK's whole row
+    assert assayed.graph.study.studies[study]["title"] == "Study seventy-one"
+    # its Investigation is written before it (the studies release's A1), so it is never left under none
+    assert assayed.graph.first(q.MERGE_INVESTIGATIONS) < assayed.graph.first(q.MERGE_SEEK_STUDIES)
+    assert assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES) == [] and result["assay_members_to_rewrite"] == 0
+
+
+def test_members_false_writes_the_nodes_catalog_edges_and_deletions_only(assayed):
+    assayed.mysql.internal.append({"id": 120, "title": "Visit two"})
+    assayed.mysql.pairs.append((5, 120))
+    result = targeted.sync_assays(assayed.graph, DB, members=False)
+
+    assert result["status"] == "ok"
+    for statement in (q.RUN_IN_PAIRS, q.SAMPLE_ASSAY_EDGE_PAIRS, q.REPLACE_SAMPLE_ASSAY_EDGES, q.REPLACE_ASSAY_RUNS):
+        assert assayed.graph.of(statement) == []
+    assert 120 in assayed.graph.assay_nodes and assayed.graph.runs == {(99, 70, (5,))}
+    # RUN_IN still lacks (5, 120), so the next full run rewrites the members
+    assert targeted.sync_assays(assayed.graph, DB)["assay_marked_seek_ids"] == [5]
+
+
+def test_sync_assays_stops_at_a_member_chunk_that_cannot_take_the_lock(assayed):
+    assayed.mysql.internal.append({"id": 120, "title": "Visit two"})
+    assayed.mysql.pairs.append((5, 120))
+    assayed.lock.outcomes = [True, True, False]      # the nodes, the first member chunk, then busy
+    result = targeted.sync_assays(assayed.graph, DB, chunk=1)
+    assert result["status"] == "lock_timeout"
+    assert len(assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES)) == 1
+    assert assayed.graph.of(q.REPLACE_ASSAY_RUNS) == []
+
+
+def test_a_share_clone_mapped_to_the_same_internal_assay_adds_its_run_in_and_rewrites_no_member(assayed):
+    """The studies tool's share mode: a new SEEK assay 7 in study 71, mapped by a copied row to internal assay 99 and
+    holding no member yet (its mapping and its assay_map row come before the link unit). RUN_IN gains (99, 71) with
+    the clone's id alone and keeps (99, 70); it is marked once and rewrites no member."""
+    mysql = assayed.mysql
+    mysql.seek_studies.append((7, 71))
+    mysql.studies.append({"id": 71, "title": "Study seventy-one", "description": None, "investigation_id": 3})
+    mysql.pairs.append((7, 99))
+    first = targeted.sync_assays(assayed.graph, DB)
+    assert (first["assay_marked_seek_ids"], first["assay_members_to_rewrite"]) == ([7], 0)
+    assert assayed.graph.of(q.REPLACE_SAMPLE_ASSAY_EDGES) == []
+    assert assayed.graph.runs == {(99, 70, (5,)), (99, 71, (7,))}
+    assert targeted.sync_assays(assayed.graph, DB)["assay_marks_added"] == 0
 
 
 # --- sync_small_tables ---------------------------------------------------------------------------

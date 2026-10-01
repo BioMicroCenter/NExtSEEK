@@ -11,6 +11,8 @@ bring part of the graph up to date without a full sync:
 - ``relabel_for_maps(driver, db)``: the labels a change to the resolved assay map or to ``sops`` affects.
 - ``sync_small_tables(driver, db)``: projects, investigations, people and memberships, and every SEEK study's
   node with its title, description and investigation.
+- ``sync_assays(driver, db)``: the assay layer (graph schema 1.3): the Assay nodes, the members of every SEEK assay
+  whose mapping moved, RUN_IN, ACCEPTED_BY and GENERATES, and the Assays gone from ``internal_assays``.
 - ``preview_labels(driver, db, ids)``: read only, no lock: how an approved ``sync_samples`` would class each
   DERIVED_FROM edge incident to ``ids`` (the studies tool's label approval check).
 
@@ -47,6 +49,13 @@ under its id, a protocol filled where none was stored), only where the stored va
 with ``apply_label_changes=True``, then only where the stored values still equal those read. An edge a call creates
 has no label, so it is ``new`` and labelled in the same call (R15).
 
+**The assay layer** (the 1.3 spec, section 5.6). ``sync_assays`` reads its sources once and writes in write units of
+its own: the Assay nodes; each chunk of the members of a SEEK assay whose mapping moved; then RUN_IN, the catalog
+edges and the deletions. A mapping is new while RUN_IN lacks it, and RUN_IN is replaced only after the members, so a
+crash leaves the rest for the retry. Above ``ASSAY_REWRITE_MAX`` members it enqueues a full sync instead and leaves
+RUN_IN as it was. An Assay edge or RUN_IN row it could not write (``ASSAY_GAP_KEYS``) is a structural gap of the
+whole call: the drain fails the row, which retries.
+
 **Archives.** ``retired.tsv``, ``derived_from_undeclared_archive.tsv`` and ``in_study_removed.tsv`` are appended in
 ``run_dir``; without one, in a new ``targeted-<UTC time>`` directory under ``$GS_RUN_DIR``, else under
 ``<LOG_DIR>/graph_sync``, created only when a row is archived. The writer writes and flushes each archive before the
@@ -65,7 +74,8 @@ from datetime import datetime, timezone
 from django.conf import settings
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
-from nextseek_api.graph_sync import catalog, labels, run, sources, state, study_links, writer
+from nextseek_api.graph_sync import catalog, hooks, labels, run, sources, state, study_links, writer
+from nextseek_api.graph_sync import assays as assay_rules
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, parent_lists, project_sample
 from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
@@ -94,6 +104,17 @@ UNTRACED_GAP = "{part} {count} in its chunk, " + UNTRACED_MARK
 _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0,
                     "labels_skipped_changed": 0, "labels_edges_missing": 0, "labels_refresh_rows": 0,
                     "labels_refreshed": 0, "labels_refresh_skipped_changed": 0, "labels_refresh_edges_missing": 0}
+
+# sync_assays (the 1.3 spec, section 5.6, step 4): above this many members to rewrite, a full sync is enqueued
+# instead. PROVISIONAL until the 1.3 plan's W11 sets it from scripts/graph_search/measure_assay_nodes.py.
+ASSAY_REWRITE_MAX = 100_000
+ASSAY_GUARD_SLOT_SUFFIX = "-assays"
+# The counts of the assay layer that mean an edge was left unwritten: its Assay node (or a RUN_IN row's Study node)
+# was missing when the edge was written. Each is a structural gap (the 1.3 plan's A2): the drain fails the row.
+ASSAY_GAP_KEYS = ("assay_edges_dropped", "assay_runs_dropped")
+_NO_ASSAY_EDGE_WRITES = {"assay_edge_samples": 0, "assay_edge_samples_missing": 0, "assay_edges_written": 0,
+                         "assay_edges_dropped": 0, "assay_edge_members_without_role": 0}
+_STOP_KEYS = ("status", "schema_version", "writer_version", "lock_timeout_s")
 
 # --- statements ----------------------------------------------------------------------------------
 
@@ -168,6 +189,12 @@ def _default_run_dir() -> str:
     return os.path.join(base, "targeted-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
 
 
+def _stop(total: dict, part: dict) -> dict:
+    """``total`` with the refusal or lock timeout of ``part``: its status and what says why."""
+    total.update({k: v for k, v in part.items() if k in _STOP_KEYS})
+    return total
+
+
 def _add(total: dict, part: dict) -> dict:
     """Add ``part``'s counts into ``total``: numbers are summed, nested dicts merged, lists joined up to
     ``EXAMPLES`` entries, and any other value (a status, a path) taken from the latest part that has one."""
@@ -207,6 +234,7 @@ class _Context:
         self._catalog = None
         self._maps = None
         self._tables = None
+        self._internal_by_seek = None
 
     def archive(self, name: str) -> str:
         return os.path.join(self.run_dir, name)
@@ -228,6 +256,15 @@ class _Context:
             sops = sources.sops_map()
             self._maps = (sources.resolved_assay_map(), sops, labels.sop_title_index(sops))
         return self._maps
+
+    def internal_by_seek(self) -> dict:
+        """SEEK assay id to its internal assay ids (``run.read_internal_by_seek``), read on first use."""
+        if self._internal_by_seek is None:
+            self._internal_by_seek = run.read_internal_by_seek()
+        return self._internal_by_seek
+
+    def use_internal_by_seek(self, mapping: dict) -> None:
+        self._internal_by_seek = mapping
 
 
 def _refusal(driver, db) -> dict | None:
@@ -568,9 +605,7 @@ def sync_samples_of_type(driver, db, type_id, *, run_dir: str | None = None, app
     for ids in sources.ids_of_type(type_id, chunk):
         part = _guarded(driver, db, lock_timeout_s, lambda ids=ids: _sync_ids(driver, db, ids, ctx))
         if part["status"] != OK:
-            total.update({k: v for k, v in part.items() if k in ("status", "schema_version", "writer_version",
-                                                                  "lock_timeout_s")})
-            return total
+            return _stop(total, part)
         _add(total, part)
         total["chunks"] += 1
     return total
@@ -796,6 +831,133 @@ def relabel_for_maps(driver, db, *, apply_label_changes: bool = False, lock_time
     """
     ctx = _Context(None, apply_label_changes)
     return _guarded(driver, db, lock_timeout_s, lambda: _relabel(driver, db, ctx, chunk))
+
+
+# --- sync_assays (schema 1.3) --------------------------------------------------------------------
+
+def assay_guard_slot_key(now=None) -> str:
+    """The outbox key of the full sync the member guard schedules: one slot per UTC day, apart from the weekly slot
+    and the reconcile's guard slot."""
+    moment = now or datetime.now(timezone.utc)
+    return f"slot:{moment.astimezone(timezone.utc).date().isoformat()}{ASSAY_GUARD_SLOT_SUFFIX}"
+
+
+def _rewrite_sample_edges(driver, db, ids, ctx: _Context) -> dict:
+    """Replace the INPUT_TO and OUTPUT_OF of the samples ``ids`` with what the role rule gives them now: all of their
+    own DERIVED_FROM pairs, and the SEEK assays of every partner (one hop of writes, two of reads)."""
+    ids = _ids(i for i in ids if _is_id(i))
+    if not ids:
+        return dict(_NO_ASSAY_EDGE_WRITES)
+    pairs = writer.lineage_pairs_incident(driver, db, ids)
+    endpoints = sorted({v for pair in pairs for v in pair if _is_id(v)} | set(ids))
+    by_sample = sources.sample_assay_ids_for(endpoints)
+    by_seek = ctx.internal_by_seek()
+    roles = assay_rules.roles_for_pairs(pairs, by_sample, by_seek)
+    report = writer.replace_sample_assay_edges(driver, db,
+                                               assay_rules.sample_edge_rows({i: roles.get(i, {}) for i in ids}))
+    report["assay_edge_members_without_role"] = assay_rules.members_without_role(ids, by_sample, by_seek, roles)
+    return report
+
+
+def _pairs_of(records) -> set[tuple[int, int]]:
+    return {(r["seek_assay_id"], r["assay_id"]) for r in records
+            if _is_id(r["seek_assay_id"]) and _is_id(r["assay_id"])}
+
+
+def _marked(driver, db, st) -> dict:
+    """Step 3: the (SEEK assay, Assay) pairs whose mapping moved, and their SEEK assays. Read-only.
+
+    A new pair is one MySQL holds and RUN_IN does not; RUN_IN is replaced only after the members are rewritten, so
+    the pair stays new until then. A SEEK assay with no study never reaches RUN_IN, so its new pairs are read against
+    the sample edges. A pair RUN_IN or a sample edge holds and MySQL does not is a removed mapping, a SEEK assay
+    deleted from SEEK or an internal assay deleted."""
+    mysql = {(seek_id, assay_id) for seek_id, assay_ids in st.internal_by_seek.items() for assay_id in assay_ids}
+    runs = _pairs_of(_records(_run(driver, db, q.RUN_IN_PAIRS, read=True)))
+    edges = _pairs_of(_records(_run(driver, db, q.SAMPLE_ASSAY_EDGE_PAIRS, read=True)))
+    added = {(s, a) for s, a in mysql if (s, a) not in (runs if st.study_of.get(s) is not None else edges)}
+    removed = (runs | edges) - mysql
+    return {"added": sorted(added), "removed": sorted(removed), "seek_ids": sorted({s for s, _ in added | removed})}
+
+
+def _members(driver, db, seek_ids) -> list[int]:
+    """The samples a marked SEEK assay touches: its members in assay_assets, and the samples whose edges carry it."""
+    found = set(sources.sample_ids_in_assays(seek_ids))
+    for batch in _batches(seek_ids, writer.REL_CHUNK):
+        found.update(r["id"] for r in _records(_run(driver, db, q.SAMPLES_CARRYING_SEEK_ASSAYS, {"seek_ids": batch},
+                                                      read=True)) if _is_id(r["id"]))
+    return sorted(found)
+
+
+def sync_assays(driver, db, *, members: bool = True, run_dir: str | None = None,
+                lock_timeout_s: float = LOCK_WAIT_S, chunk: int = writer.SAMPLE_CHUNK, now=None) -> dict:
+    """Bring the assay layer up to date from MySQL (the 1.3 spec, section 5.6), in its order:
+
+    1. read ``internal_assays``, the mapping, ``assays.study_id`` and ``assay_context`` (``run.read_assays``);
+    2. merge the Assay nodes (nothing deleted yet);
+    3. mark the SEEK assays whose mapping moved (``_marked``);
+    4. rewrite the sample edges of their members, ``chunk`` at a time, each chunk its own write unit; above
+       ``ASSAY_REWRITE_MAX`` members, enqueue a full sync instead and skip step 5;
+    5. replace RUN_IN, giving a study with no Study node one;
+    6. replace ACCEPTED_BY and GENERATES;
+    7. delete the Assays gone from ``internal_assays``, their edges first.
+
+    ``members=False`` runs steps 1, 2, 6 and 7 only. Steps 2, each chunk of 4, and 5 to 7 together are write units:
+    each refuses a graph not at the writer's version and takes the graph-write lock, and the first that cannot
+    stops the run with its ``status`` (``not_at_version``, ``lock_timeout``) and the counts written before it. An
+    error part way raises; every step is idempotent and step 3 reads the graph, so the retry finishes the work.
+    ``now`` dates the guard's full-sync slot (the clock when omitted).
+    """
+    refused = _refusal(driver, db)
+    if refused is not None:
+        return refused
+    st = run.read_assays()
+    ctx = _Context(run_dir)
+    ctx.use_internal_by_seek(st.internal_by_seek)
+    total = {"status": OK, "members": members, "assays": len(st.catalog.nodes),
+             **assay_rules.report_counts(st.catalog.reports), "assay_marks_added": 0, "assay_marks_removed": 0,
+             "assay_members_to_rewrite": 0, "assay_rewrite_guard_tripped": False}
+    part = _guarded(driver, db, lock_timeout_s, lambda: {"status": OK, **writer.write_assays(driver, db,
+                                                                                             st.catalog.nodes)})
+    if part["status"] != OK:
+        return _stop(total, part)
+    _add(total, part)
+
+    write_runs = members
+    if members:
+        marked = _marked(driver, db, st)
+        total.update(assay_marks_added=len(marked["added"]), assay_marks_removed=len(marked["removed"]),
+                     assay_marked_seek_ids=marked["seek_ids"][:LIST_CAP])
+        ids = _members(driver, db, marked["seek_ids"]) if marked["seek_ids"] else []
+        total["assay_members_to_rewrite"] = len(ids)
+        if len(ids) > ASSAY_REWRITE_MAX:
+            write_runs = False
+            total["assay_rewrite_guard_tripped"] = True
+            total["full_sync_enqueued"] = hooks.enqueue("full", assay_guard_slot_key(now))
+            log.warning("graph_sync: %d members to rewrite is above ASSAY_REWRITE_MAX (%d); a full sync is enqueued "
+                        "and RUN_IN is left for it", len(ids), ASSAY_REWRITE_MAX)
+        else:
+            for batch in _batches(ids, chunk):
+                part = _guarded(driver, db, lock_timeout_s,
+                                lambda batch=batch: {"status": OK, **_rewrite_sample_edges(driver, db, batch, ctx)})
+                if part["status"] != OK:
+                    return _stop(total, part)
+                _add(total, part)
+
+    def tail():
+        report = {"status": OK}
+        if write_runs:
+            report.update(writer.replace_assay_runs(driver, db, st.runs, st.studies, tables=ctx.seek_tables()))
+        report.update(writer.replace_assay_catalog_edges(driver, db, st.catalog.accepted_by, st.catalog.generates))
+        report.update(writer.delete_gone_assays(driver, db, st.ids))
+        return report
+
+    part = _guarded(driver, db, lock_timeout_s, tail)
+    if part["status"] != OK:
+        return _stop(total, part)
+    _add(total, part)
+    parts = {key: int(total[key]) for key in ASSAY_GAP_KEYS if total.get(key)}
+    total.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
+    return total
 
 
 # --- sync_small_tables ---------------------------------------------------------------------------
