@@ -182,10 +182,13 @@ def run_link_unit(conn, unit, journal, clone_ids: dict, *, run_id: str,
         digest, rows = current_digest(conn, unit.source_assay_ids, lock=True)
     else:
         digest, rows = share_digest_now(conn, unit, share_project_id, lock=True), []
-    if clones:
-        _source_rows(conn, clones, lock=True)
+    held = _source_rows(conn, clones, lock=True) if clones else []
     if digest != unit.digest:
         raise LinkRefused("digest_mismatch", f"unit {unit.unit}: its source assays changed since the plan")
+    taken = {(r["assay_id"], r["asset_id"]) for r in held} & {(a, s) for a, s, _d in inserts}
+    if share_project_id is not None and taken:   # a share's clone adopted at apply already holds a planned link
+        raise LinkRefused("clone_changed", f"unit {unit.unit}: {len(taken)} planned link(s) already in a destination "
+                                           "assay")
     removal_pairs = sorted({(r.assay_id, r.sample_id) for r in unit.removals})
     doomed = [r for r in rows if (r["assay_id"], r["asset_id"]) in set(removal_pairs)]
     planned_projects = sorted({(x.project_id, x.sample_id) for x in unit.project_inserts})

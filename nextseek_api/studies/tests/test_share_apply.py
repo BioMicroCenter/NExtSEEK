@@ -15,8 +15,8 @@ from nextseek_api.studies.journal import JOURNAL_FILE, read_journal
 from nextseek_api.studies.models import ShareInput
 from nextseek_api.studies.models_db import SampleShare
 from nextseek_api.studies.seek import ADOPT_POLL_S, ADOPT_WAIT_S, SeekError
-from nextseek_api.studies.tests.conftest import (PASSWORD, U3, U4, U5, FakeReader, links_of, outbox_of,
-                                                 projects_of)
+from nextseek_api.studies.tests.conftest import (PASSWORD, U3, U4, U5, FakeReader, add_sample, links_of, outbox_of,
+                                                 projects_of, seed, uid)
 
 
 def _events(row):
@@ -258,3 +258,47 @@ def test_a_share_failed_for_a_stale_plan_is_never_queued_again(share_env):
     answer = share_env.step(row)
     assert (answer.status_code, answer.code) == (409, "share_not_applicable") and "plan_stale" in answer.message
     assert SampleShare.objects.get(pk=row.pk).state == "apply_failed"
+
+
+def _assays_in_40(env):
+    return sorted(i for i, (study, _t) in env.session.assays.items() if study == 40)
+
+
+def test_two_shares_planned_before_either_applies_make_one_destination_assay(share_env):
+    add_sample(share_env.world, 7, assays=((101, 2),))
+    seed(share_env.engine, share_env.world)
+    first, second = share_env.planned(U3), share_env.planned(uid(7, kind="D.SEQ"))
+    share_env.step(first)
+    share_env.step(first)
+    assert share_env.unit(first) == "applied"
+    answer = share_env.step(second)
+    assert (answer.status_code, answer.state) == (202, "queued") and len(share_env.session.posts) == 1
+    assert ("clone", "adopted") in _events(second)
+    assert share_env.unit(second) == "applied" and _assays_in_40(share_env) == [402]
+    assert {s for a, s, _d in links_of(share_env.engine) if a == 402} == {2, 3, 7}
+
+
+def test_a_group_assay_made_by_another_share_but_not_mapped_yet_answers_busy(share_env):
+    add_sample(share_env.world, 7, assays=((101, 2),))
+    seed(share_env.engine, share_env.world)
+    first, second = share_env.planned(U3), share_env.planned(uid(7, kind="D.SEQ"))
+    share_env.step(first)                                                  # 402 made, its mapping not yet written
+    answer = share_env.step(second)
+    assert (answer.status_code, answer.code) == (409, "busy") and len(share_env.session.posts) == 1
+    share_env.step(first)
+    assert share_env.step(second).state == "queued" and _assays_in_40(share_env) == [402]
+
+
+def test_an_adopted_assay_already_holding_a_planned_link_ends_the_share_plan_stale(share_env):
+    share_env.world.sample_projects[1] |= {5}           # project rows the first share does not change, so the
+    share_env.world.sample_projects[2] |= {5}           # second's digest still matches: the clone check refuses it
+    seed(share_env.engine, share_env.world)
+    first, second = share_env.planned(U3), share_env.planned(uid(2, kind="D.SEQ"))
+    share_env.step(first)
+    share_env.step(first)
+    assert share_env.unit(first) == "applied"
+    assert share_env.step(second).state == "queued"                        # adopts 402, which holds sample 2
+    assert share_env.unit(second) == "apply_failed"
+    assert SampleShare.objects.get(pk=second.pk).error["code"] == "plan_stale"
+    assert sorted(s for a, s, _d in links_of(share_env.engine) if a == 402) == [2, 3]
+    assert _assays_in_40(share_env) == [402]

@@ -20,7 +20,7 @@ from pydantic import ValidationError
 
 from nextseek_api.graph_sync import hooks
 from nextseek_api.studies import apply as apply_mod
-from nextseek_api.studies import links, planner, preflight, report, share_jobs
+from nextseek_api.studies import links, mapping, planner, preflight, report, share_jobs
 from nextseek_api.studies.journal import JOURNAL_FILE, Journal, journal_state, read_journal
 from nextseek_api.studies.models import ShareInput, StudyMovePlan
 from nextseek_api.studies.seek import ADOPT_POLL_S, ADOPT_WAIT_S, WRITE_TIMEOUT_S, SeekError, SeekUnknownOutcome
@@ -184,6 +184,30 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
                 if since is not None and (stamp - since).total_seconds() < ADOPT_WAIT_S:
                     return StepAnswer(202, share.state, done, left, retry_after_s=ADOPT_POLL_S,
                                       code=CLONE_OUTCOME_UNKNOWN, message="checking whether SEEK finished a create")
+            else:
+                # One clone per group (title, internal assays): another share may have made this group's assay in D
+                # since the plan. Adopt it; one whose mapping is not written yet is another share mid-apply.
+                fresh = [i for i in session.find_assay(inp.destination_study_id, c.title) if i not in excluded]
+                have = mapping.internal_ids(fresh) if fresh else {}
+                same = [i for i in fresh if have[i] == set(c.internal_assay_ids)]
+                if len(same) > 1:
+                    share_jobs.to_apply_failed(share, {"code": "destination_changed"})
+                    return StepAnswer(409, share.state, done, left, code="destination_changed",
+                                      message=f"study {inp.destination_study_id} now holds several assays {same} of "
+                                              f"the group {c.title!r}: decide in SEEK, then make a new share")
+                if same:
+                    journal.append("clone", "adopted", target_key=target.key, source_assay_id=c.source_assay_id,
+                                   seek_id=same[0])
+                    clone_ids[key] = same[0]
+                    excluded.add(same[0])
+                    done, left = done + 1, left - 1
+                    continue
+                unmapped = [i for i in fresh if not have[i]]
+                if unmapped:
+                    return StepAnswer(409, share.state, done, left, code="busy",
+                                      message=f"study {inp.destination_study_id} gained assay(s) {unmapped} titled "
+                                              f"{c.title!r} with no internal assays yet (another share may be making "
+                                              "it): call again shortly; if this stays, look in SEEK")
             try:
                 rep = session.get_assay(c.source_assay_id)
                 policy = ((session.get_study(inp.destination_study_id).get("data") or {}).get("attributes")
@@ -250,7 +274,7 @@ def run_share_unit(share, owner: str) -> str:
                                              share_project_id=plan.share.destination_project_id)
         except links.LinkRefused as exc:
             journal.append("links", "refused", unit=unit.unit, reason=exc.reason, detail=exc.detail)
-            code = "plan_stale" if exc.reason == "digest_mismatch" else exc.reason
+            code = "plan_stale" if exc.reason in ("digest_mismatch", "clone_changed") else exc.reason
             share_jobs.finish_apply(share, owner, state="apply_failed", error={"code": code, "detail": exc.detail})
             return "apply_failed"
         journal.append("links", "committed", unit=unit.unit)

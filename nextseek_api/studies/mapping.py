@@ -30,6 +30,16 @@ def insert_clone_mappings(pairs) -> list[list[int]]:
     return sorted([int(r), int(a), int(i)] for r, a, i in rows if (a, i) in wanted_set)
 
 
+def internal_ids(assay_ids) -> dict[int, set[int]]:
+    """Each assay's internal assay ids as the dmac database holds them now (no row: an empty set)."""
+    ids = sorted({int(a) for a in assay_ids})
+    out: dict[int, set[int]] = {a: set() for a in ids}
+    for a, i in Assays_internal_assays.objects.using(settings.NEXTSEEK_DATABASE).filter(
+            assay_id__in=ids, internal_assay_id__isnull=False).values_list("assay_id", "internal_assay_id"):
+        out[int(a)].add(int(i))
+    return out
+
+
 def delete_clone_mappings(rows) -> dict:
     db = settings.NEXTSEEK_DATABASE
     deleted = 0
