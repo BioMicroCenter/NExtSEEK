@@ -805,13 +805,13 @@ def test_skipped_commits_and_fault_injection(tmp_path, capsys, mutate, ok, needl
 
 # --------------------------------------------------------------------------- box config
 def test_missing_box_config_names_the_file(tmp_path, monkeypatch, capsys):
+    code, out, d = make_brief(tmp_path, capsys)
+    assert code == 0, out.err
     missing = tmp_path / "nope.json"
     monkeypatch.setenv("NEXTSEEK_BOXES", str(missing))
     rules.INSTANCES.clear()
-    code, out = run(["preflight-script", "--brief", str(tmp_path / "b.json")], capsys)
-    assert code != 0
-    with pytest.raises(rules.BoxesConfigError, match=str(missing)):
-        rules.load_boxes()
+    code, out = run(["preflight-script", "--brief", str(d / "brief.json")], capsys)
+    assert code == L.EXIT_INVALID and str(missing) in out.err, out.err
 
 
 def test_absent_instance_key_is_named(tmp_path, monkeypatch):
