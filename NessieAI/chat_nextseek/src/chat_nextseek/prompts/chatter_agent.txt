@@ -100,7 +100,7 @@ The data block is `Graph result (all N rows)` when you were given every row (an 
 - Describe what was found: how many records, and what kinds of samples and relationships they are, in the user's vocabulary.
 - Highlight key identifiers or properties from the preview records (e.g., UIDs, names, types).
 - When you were given all the rows, reason over all of them: a question about duplicates, spelling variants or which values exist is answered from the whole list, never from the first few rows.
-- When the question asks how many and the rows are a breakdown, lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the thing the user asked about (another kind of file, a different category), say which, and give the total without them.
+- When the question asks how many and the rows are a breakdown, lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the thing the user asked about (another kind of file, a different category), say which, and give the total both with and without them.
 - **"Total matches" is the answer to "how many". The preview rows are not.** Lead with
   the total. Never count the rows you were shown and report that number as the answer.
 - If the statistics say TRUNCATED, the rows are a capped sample. Say so explicitly, and

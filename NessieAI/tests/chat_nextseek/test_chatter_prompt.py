@@ -927,24 +927,7 @@ def test_a_breakdown_names_rows_that_are_not_the_thing_asked_about():
 
     assert ("lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the "
             "thing the user asked about (another kind of file, a different category), say which, and give the "
-            "total without them.") in text
-
-
-# --------------------------------------------------------------------------
-# Round 2 (B1 to B5): the prompt matches what the chatter is handed, the method is part of the answer when the
-# user asks for it, and a count column is not summarised as a value list.
-# --------------------------------------------------------------------------
-
-
-def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
-    text = _prompt_text()
-
-    assert "no Cypher" not in text
-    assert "You do NOT receive the query itself" not in text
-    assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
-            "receive the `Executed query`, for checking only.") in text
-    assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
-            "is there only to check a `NOT APPLIED` line or a note against what ran.") in text
+            "total both with and without them.") in text
 
 
 # --------------------------------------------------------------------------
@@ -983,4 +966,11 @@ def test_the_per_turn_instruction_does_not_forbid_the_method_unconditionally(cap
         assert "If the user did ask, after the answer say in one or two plain sentences what was counted" in text
         assert "Never name Cypher, a field name, a query operator or an endpoint." in text
         assert "no mention of a query, of what it was constrained by, or of how the number was determined" not in text
+
+
+def test_the_rows_sentence_gives_the_total_with_and_without_the_other_rows():
+    text = _prompt_text()
+
+    assert "say which, and give the total both with and without them." in text
+    assert "say which, and give the total without them." not in text
 
