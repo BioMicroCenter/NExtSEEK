@@ -78,6 +78,7 @@ def test_every_page_renders_and_every_link_resolves(client):
     # A TOC entry with no file is reported by test_every_page_file_is_in_the_toc.
     written = [slug for slug in TOC_SLUGS if (pages.DOCS_DIR / f"{slug}.md").is_file()]
     rendered = {slug: client.get(f"/docs/{slug}/") for slug in written}
+    used = set()
     ids = {slug: set(re.findall(r'id="([^"]+)"', r.context["body"])) for slug, r in rendered.items()}
     problems = []
     for slug, r in rendered.items():
@@ -92,6 +93,7 @@ def test_every_page_renders_and_every_link_resolves(client):
             elif anchor and anchor not in ids[target]:
                 problems.append(f"{slug}: links to missing heading {target}#{anchor}")
         for ref in re.findall(r'(?:src|href)="/static/([^"]+)"', body):
+            used.add(ref)
             if not (THEME_STATIC / ref).is_file():
                 problems.append(f"{slug}: missing static file {ref}")
         for ref in re.findall(r'(?:src|href)="([^"]+)"', body):
@@ -99,6 +101,10 @@ def test_every_page_renders_and_every_link_resolves(client):
                 problems.append(f"{slug}: unrewritten relative link {ref}")
         if re.search(r'<img(?![^>]*\balt="[^"]+")', body):
             problems.append(f"{slug}: an image without alt text")
+    if set(TOC_SLUGS) == set(written):
+        # The repo is public and every byte stays in its history: no image nobody shows.
+        on_disk = {p.relative_to(THEME_STATIC).as_posix() for p in (THEME_STATIC / "docs").rglob("*") if p.is_file()}
+        problems += [f"unused image {ref}" for ref in sorted(on_disk - used)]
     assert not problems, "\n".join(problems)
 
 

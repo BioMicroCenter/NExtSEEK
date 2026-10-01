@@ -718,6 +718,7 @@ body.sidebar-open .sidebar-scrim { display: block; }
 .docs-article code {
     font-family: var(--ns-font-mono);
     font-size: 0.875em;
+    color: var(--ns-ink);
     background: var(--ns-sidebar-hover);
     border-radius: 4px;
     padding: 0.1em 0.35em;
