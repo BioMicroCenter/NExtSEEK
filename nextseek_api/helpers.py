@@ -317,6 +317,16 @@ class SeekAPIClient:
         self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
         return self._request('DELETE', f'/samples/{sample_id}', request)
 
+    # ---- Deletes the studies tool's rollback makes (an empty study or assay only) ----
+
+    def delete_study(self, request, study_id: str):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('DELETE', f'/studies/{study_id}', request)
+
+    def delete_assay(self, request, assay_id: str):
+        self.session.headers.update({'Content-Type': JSONAPI_ACCEPT})
+        return self._request('DELETE', f'/assays/{assay_id}', request)
+
     # ---- Streaming content blob download ----
 
     def stream_content_blob(self, request, path: str, accept: str = '*/*',

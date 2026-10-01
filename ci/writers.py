@@ -472,6 +472,16 @@ WRITERS: tuple[Writer, ...] = (
            reconcile="NO_GRAPH_EFFECT",
            note="the graph agent's Cypher scope prover: a pure module with no driver, whose keyword list names "
                 "the write clauses it refuses; it sends no statement"),
+    Writer(id="WR-33",
+           sites=("nextseek_api/studies/seek.py::SeekSession.create_study",
+                  "nextseek_api/studies/seek.py::SeekSession.create_assay",
+                  "nextseek_api/studies/seek.py::SeekSession.delete_study",
+                  "nextseek_api/studies/seek.py::SeekSession.delete_assay"),
+           tables=("studies", "assays"),
+           how=("seek_client",),
+           reconcile="RECONCILE_OPERATOR",
+           note="the studies tool's SEEK session (manage.py studies); the hook replaces this code when its apply "
+                "and rollback land in this package"),
 )
 
 
