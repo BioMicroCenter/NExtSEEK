@@ -37,21 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 1. Phone shell and sign-in
-
-Files: `themes/NextSeek/templates/base.html`, `themes/NextSeek/templates/accounts/includes/user_panel.html`,
-`themes/NextSeek/templates/index.html`, `themes/NextSeek/templates/page-footer.embed.html`,
-`themes/NextSeek/static/css/nextseek.css` (`.sidebar`, `.sidebar-foot`, `.mobile-toggle`, `.footer`,
-`.footer-content`).
-
-1. [UI-001](#shell): logged out on a phone, the only Sign in control is at the bottom of the drawer and
-   the home page has none.
-2. [UI-002](#shell): the hamburger scrolls away with the page.
-3. [UI-003](#shell): the drawer is `100vh` tall and its pinned footer cannot be scrolled into view, so
-   it may sit under a phone browser toolbar (do this with UI-001).
-4. [UI-004](#shell): the footer text is squeezed into a one-word-wide column on every page at phone width.
-5. [UI-005](#shell): the logged-out home page says "Welcome back".
-
 ### 2. Broken routes and login next targets
 
 Files: `seek/decorators.py` (`requires_seek_login_redirect`), `seek/views/search.py` (`smartSearch`),
@@ -130,13 +115,7 @@ The sidebar, drawer, top bar, footer, user panel and home page. See [shell.md](s
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-001 | broken | Logged out on a phone, the only Sign in control is at the bottom of the off-canvas drawer; the home page has no Sign in at all | live 2026-09-30 | `base.html` `.sidebar-foot` including `includes/user_panel.html` (anonymous branch, `.btn-signin`); `index.html` hero | Add a Sign in button to the phone top bar next to the hamburger and a Sign in link in the anonymous home hero |
-| UI-002 | broken | On a phone the hamburger scrolls away with the page; after scrolling there is no way to open the menu | live 2026-09-30 | `base.html` `button.mobile-toggle`; `nextseek.css` `.mobile-toggle` | Make it (or a thin top bar holding it) `position: sticky; top: 0` below 992px |
-| UI-003 | confusing | The drawer is `position: fixed; height: 100vh` with `overflow: hidden` (only `.sidebar-nav` scrolls), so on phone browsers with a collapsing toolbar its footer (Sign in, user menu) may sit under the toolbar and cannot be scrolled to. Not confirmed on a real phone | code | `nextseek.css` `.sidebar`, `.sidebar-foot` | `height: 100dvh` with a `100vh` fallback |
-| UI-004 | confusing | On every page at phone width the footer squeezes "(c) 2026 NExtSEEK - MIT BioMicro Center" into a one-word-wide column beside the partner logo | live 2026-09-30 | `page-footer.embed.html` `.footer-content`; `nextseek.css` defines `.footer` and `.footer-content` twice (two blocks, the second "direction-C polish") | Merge the two rule sets; `flex-wrap: wrap` and stack logo above text under 576px |
-| UI-005 | confusing | The logged-out home page eyebrow says "Welcome back" | live 2026-09-30 | `index.html` `.dash-eyebrow` | Branch on `user.is_authenticated`; say "Welcome" or name the site for visitors |
 | UI-006 | confusing | In the drawer, "+ New sample" becomes a narrow chip while the Nessie button and UID box above it are full width | code | `nextseek.css` `.qa-cta` (switches to `inline-flex` in the touch media block) | Keep `display: flex` and match the side margins of `.qa-input` |
-| UI-007 | confusing | Logged-out visitors see the whole sidebar (upload, queries, catalogs) and are bounced to sign in on each click | code | `nav.embed.html` Data and Quick Access groups | Hide data links for anonymous users, or mark them with a lock and a "sign in to use" hint |
 | UI-008 | confusing | The sidebar is `role="dialog" aria-modal="true"` at all times, including on desktop where it is not a dialog; screen readers treat the rest of the page as inert | code | `base.html` `aside#sidebar` | Set the dialog roles from JS only while the phone drawer is open |
 | UI-009 | confusing | The "Profile" item in the user menu never renders (the `profile` URL is not registered), and "Update profile" opens Mezzanine's local profile form, not the SEEK profile | code | `accounts/includes/user_panel.html` (`{% url "profile" ... as profile_url %}`, `profile_update` link) | Remove the dead Profile branch; point "Update profile" at SEEK or drop it |
 | UI-010 | debt | Sidebar submenus are toggled twice: by Bootstrap's `data-bs-toggle` and by a manual click handler that calls `Collapse.toggle()` | code | `themes/NextSeek/static/js/nextseek.js` (submenu handler on `[data-bs-toggle="collapse"]`) | Remove the manual handler |

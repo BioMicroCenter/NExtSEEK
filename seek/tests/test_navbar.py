@@ -93,3 +93,74 @@ class TestNavbarAssetsCleanup:
         css = _theme_file("static/css/nextseek.css").read_text()
         assert ".sidebar-section-toggle" in css
         assert ".nessie-btn" in css
+
+
+def _render_nav_and_shell(user):
+    """base.html (with the nav and the phone top bar) through the home view."""
+    from dmac.views import home
+    req = RequestFactory().get("/seek/search/?tab=simple")
+    req.user = user
+    with patch("dmac.views._home_projects", return_value=[]):
+        return home(req).content.decode()
+
+
+class TestVisitorShell:
+    """Logged out: only links that work without a sign-in, and a Sign in button that
+    a phone user can reach without opening the drawer (UI-001, UI-002, UI-007)."""
+
+    def _anon(self):
+        from django.contrib.auth.models import AnonymousUser
+        return _render_nav_and_shell(AnonymousUser())
+
+    def _nav(self, html):
+        return html[html.index('class="sidebar-nav-inner"'):html.index("</nav>")]
+
+    def test_visitor_nav_hides_links_that_need_a_sign_in(self):
+        nav = self._nav(self._anon())
+        for href in ("/seek/search/", "/seek/samples/upload/", "/seek/datafile/query/",
+                     "/seek/projects/", "/seek/templates/", "/seek/sampletypes/",
+                     "/seek/assistant/"):
+            assert f'href="{href}"' not in nav, href
+        assert 'id="search-uid"' not in nav
+
+    def test_visitor_nav_keeps_home_docs_and_resources(self):
+        nav = self._nav(self._anon())
+        assert 'href="/"' in nav
+        assert "Documentation" in nav
+        assert 'href="/seek/help/"' in nav
+
+    def test_phone_top_bar_offers_sign_in_back_to_this_page(self):
+        html = self._anon()
+        bar = html[html.index('class="mobile-topbar'):html.index('<main')]
+        assert 'class="mobile-toggle"' in bar
+        assert 'href="/login/?next=/seek/search/%3Ftab%3Dsimple"' in bar
+
+    def test_signed_in_user_gets_no_sign_in_in_the_top_bar(self):
+        user = MagicMock()
+        user.is_superuser = False
+        html = _render_nav_and_shell(user)
+        bar = html[html.index('class="mobile-topbar'):html.index('<main')]
+        assert "Sign in" not in bar
+        assert 'href="/seek/search/"' in self._nav(html)
+
+
+class TestShellCss:
+    def test_phone_top_bar_is_sticky(self):
+        css = _theme_file("static/css/nextseek.css").read_text()
+        block = css[css.index(".mobile-topbar {"):]
+        block = block[:block.index("}")]
+        assert "position: sticky" in block and "top: 0" in block
+
+    def test_drawer_uses_the_dynamic_viewport_height(self):
+        css = _theme_file("static/css/nextseek.css").read_text()
+        block = css[css.index(".sidebar {"):]
+        assert "height: 100dvh" in block[:block.index("}")]
+
+    def test_footer_is_defined_once_and_wraps(self):
+        import re
+        css = _theme_file("static/css/nextseek.css").read_text()
+        # one top-level rule each (media-query tweaks are indented)
+        assert len(re.findall(r"^\.footer \{", css, re.M)) == 1
+        assert len(re.findall(r"^\.footer-content \{", css, re.M)) == 1
+        block = css[css.index(".footer-content {"):]
+        assert "flex-wrap: wrap" in block[:block.index("}")]

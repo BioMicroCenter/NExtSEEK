@@ -43,7 +43,7 @@
 {% else %}
   <div class="user-panel user-panel--anon">
     <a class="btn btn-sm btn-signin"
-       href="/login/?next={{ request.path }}">
+       href="/login/?next={{ request.get_full_path|urlencode }}">
       <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
     </a>
   </div>

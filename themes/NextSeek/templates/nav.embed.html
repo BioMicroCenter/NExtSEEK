@@ -1,4 +1,8 @@
 {% load static i18n %}
+{% comment %}
+  Visitors see only links that work without a sign-in: Home, Documentation and
+  Resources. Everything else needs a SEEK login and would bounce them to /login/.
+{% endcomment %}
 <nav class="sidebar-nav-inner" aria-label="{% trans 'Main navigation' %}">
 
   <!-- Data ------------------------------------- -->
@@ -12,6 +16,7 @@
         </a>
       </li>
 
+      {% if request.user.is_authenticated %}
       <li class="nav-item">
         <a href="/seek/search/" class="nav-link">
           <i class="bi bi-collection" aria-hidden="true"></i><span>{% trans "Sample Search" %}</span>
@@ -46,6 +51,8 @@
         </a>
       </li>
 
+      {% endif %}
+
       <li class="nav-item">
         <a href="#usefulInfoSubmenu" class="nav-link" data-bs-toggle="collapse" aria-expanded="false">
           <i class="bi bi-info-circle" aria-hidden="true"></i><span>{% trans "Useful Info" %}</span>
@@ -53,15 +60,18 @@
         </a>
         <ul class="collapse submenu" id="usefulInfoSubmenu">
           <li><a href="https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/" class="nav-link" target="_blank" rel="noopener"><i class="bi bi-book" aria-hidden="true"></i>{% trans "Documentation" %}<i class="bi bi-box-arrow-up-right ms-auto" aria-hidden="true" style="font-size:0.65rem;opacity:0.5;"></i></a></li>
+          {% if request.user.is_authenticated %}
           <li><a href="/seek/templates/" class="nav-link"><i class="bi bi-download" aria-hidden="true"></i>{% trans "Templates" %}</a></li>
           <li><a href="/seek/sampletypes/" class="nav-link"><i class="bi bi-diagram-2" aria-hidden="true"></i>{% trans "Sample Types" %}</a></li>
           <li><a href="/seek/assays/" class="nav-link"><i class="bi bi-clipboard-data" aria-hidden="true"></i>{% trans "Assays" %}</a></li>
+          {% endif %}
         </ul>
       </li>
 
     </ul>
   </div>
 
+  {% if request.user.is_authenticated %}
   <!-- Quick Access ------------------------------ -->
   <div class="sidebar-section">
     <span class="sidebar-section-label">{% trans "Quick Access" %}</span>
@@ -79,6 +89,7 @@
       <span class="qa-plus" aria-hidden="true">+</span> {% trans "New sample" %}
     </a>
   </div>
+  {% endif %}
 
   <!-- Admin (superusers only) ------------------- -->
   {% comment %}

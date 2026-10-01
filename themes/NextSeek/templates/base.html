@@ -75,15 +75,27 @@
     <!-- Main wrapper -->
     <div id="main-wrapper">
 
-        <!-- Mobile toggle (only visible on narrow viewports) -->
-        <button class="mobile-toggle d-lg-none"
-                type="button"
-                aria-label="{% trans 'Open navigation' %}"
-                aria-controls="sidebar"
-                aria-expanded="false"
-                onclick="openSidebar()">
-            <i class="bi bi-list"></i>
-        </button>
+        <!-- Phone top bar (only visible on narrow viewports); sticky so the
+             menu stays reachable after scrolling -->
+        <div class="mobile-topbar d-lg-none">
+            <button class="mobile-toggle"
+                    type="button"
+                    aria-label="{% trans 'Open navigation' %}"
+                    aria-controls="sidebar"
+                    aria-expanded="false"
+                    onclick="openSidebar()">
+                <i class="bi bi-list"></i>
+            </button>
+            <a href="/" class="sidebar-wordmark">
+                <span class="wm-hi">N</span>Ext<span class="wm-hi">SEEK</span>
+            </a>
+            {% if not request.user.is_authenticated %}
+            <a class="btn btn-sm btn-signin ms-auto"
+               href="/login/?next={{ request.get_full_path|urlencode }}">
+                <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
+            </a>
+            {% endif %}
+        </div>
 
         <!-- Page content -->
         <main id="content" class="content">

@@ -7,15 +7,20 @@
 <div class="dashboard">
 
   <header class="dash-hero">
+    {% if request.user.is_authenticated %}
     <p class="dash-eyebrow">{% trans "Welcome back" %}</p>
     <h1 class="dash-h1">
-      {% if request.user.is_authenticated %}
-        {% blocktrans with name=request.user.username %}Welcome, {{ name }}{% endblocktrans %}
-      {% else %}
-        {% trans "Welcome to NExtSEEK" %}
-      {% endif %}
+      {% blocktrans with name=request.user.username %}Welcome, {{ name }}{% endblocktrans %}
     </h1>
     <p class="dash-sub">{% trans "Pick up where you left off, or jump into something new." %}</p>
+    {% else %}
+    <p class="dash-eyebrow">{% trans "MIT BioMicro Center" %}</p>
+    <h1 class="dash-h1">{% trans "Welcome to NExtSEEK" %}</h1>
+    <p class="dash-sub">{% trans "Sign in with your SEEK account to search, upload and ask Nessie." %}</p>
+    <a class="btn btn-signin dash-signin" href="/login/?next=/">
+      <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
+    </a>
+    {% endif %}
   </header>
 
   <div class="dash-tiles">

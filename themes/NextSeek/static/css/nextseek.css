@@ -108,6 +108,7 @@ h1, h2, h3, h4, h5, h6 {
     left: 0;
     width: var(--sidebar-width);
     height: 100vh;
+    height: 100dvh;
     background-color: var(--ns-sidebar-bg);
     border-right: 1px solid var(--ns-border);
     z-index: 1000;
@@ -271,30 +272,41 @@ h1, h2, h3, h4, h5, h6 {
    ================================================ */
 
 .footer {
-    height: var(--footer-height);
-    background-color: var(--ns-footer-bg);
-    border-top: 1px solid var(--ns-border);
+    flex-shrink: 0;
+    min-height: var(--footer-height);
     display: flex;
     align-items: center;
-    flex-shrink: 0;
+    background: var(--ns-footer-bg);
+    border-top: 1px solid var(--ns-border);
+    padding: 0.85rem 1.5rem;
+    font-size: 0.8rem;
+    color: var(--ns-muted);
 }
 .footer-content {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem 1rem;
     width: 100%;
-    padding: 0 1.75rem;
+    max-width: 1280px;
+    margin: 0 auto;
 }
+.footer-brand { flex-shrink: 0; }
 .footer-brand img {
     height: 20px;
-    opacity: 0.65;
+    width: auto;
+    opacity: 0.85;
     transition: opacity var(--ns-transition);
 }
-.footer-brand img:hover { opacity: 0.9; }
+.footer-brand img:hover { opacity: 1; }
 .footer-text {
     font-size: 0.78rem;
     color: var(--ns-muted);
     font-family: var(--ns-font-body);
+}
+@media (max-width: 575.98px) {
+    .footer-content { flex-direction: column; align-items: flex-start; }
 }
 
 /* ================================================
@@ -1295,10 +1307,23 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 }
 
 /* ================================================
-   Mobile toggle (replaces the header hamburger)
+   Phone top bar: hamburger, wordmark and, for visitors, Sign in.
+   Sticky so the menu stays reachable after scrolling.
    ================================================ */
+.mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 990; /* under the drawer (1000) and its scrim (999) */
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.85rem;
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+    background: var(--ns-sidebar-bg);
+    border-bottom: 1px solid var(--ns-border);
+}
+.mobile-topbar .btn-signin { white-space: nowrap; }
 .mobile-toggle {
-    margin: 0.85rem 0 0 0.85rem;
     width: 36px; height: 36px;
     border: 1px solid var(--ns-border);
     border-radius: 7px;
@@ -1311,29 +1336,6 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 
 /* Remove the now-unused header.height layout reservation */
 .content { margin-top: 0; }
-
-/* ================================================
-   Footer — direction-C polish
-   ================================================ */
-.footer {
-    background: var(--ns-footer-bg);
-    border-top: 1px solid var(--ns-border);
-    padding: 0.85rem 1.5rem;
-    font-size: 0.8rem;
-    color: var(--ns-muted);
-}
-.footer-content {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    max-width: 1280px;
-    margin: 0 auto;
-}
-.footer-brand img {
-    max-height: 28px;
-    width: auto;
-    opacity: 0.85;
-}
 
 /* ================================================
    Home dashboard
@@ -1365,6 +1367,14 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
     font-size: 0.95rem;
     color: var(--ns-body);
     margin: 0;
+}
+.dash-signin {
+    margin-top: 0.85rem;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1.1rem;
 }
 
 .dash-tiles {
