@@ -549,15 +549,19 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
     return per_id, archives
 
 
-def _read_archives(paths) -> list[dict]:
+def _read_archives(paths, skipped: list) -> list[dict]:
+    """The links the IN_STUDY archives at ``paths`` hold, once each. A line without its five fields was cut short by a
+    crash, which came before its delete: it describes no removed link, so it is skipped and named as
+    ``<archive>:<line number>`` in ``skipped`` (a cut inside the last field, ``path``, leaves the link whole)."""
     rows, seen = [], set()
     for path in paths:
         with open(path, encoding="utf-8") as fh:
             if fh.readline() != writer.IN_STUDY_ARCHIVE_HEADER:
                 raise ValueError(f"{path} is not an IN_STUDY archive")
-            for line in fh:
+            for number, line in enumerate(fh, start=2):
                 fields = line.rstrip("\n").split("\t")
-                if len(fields) < 3 or not fields[0]:
+                if len(fields) != 5 or not fields[0]:
+                    skipped.append(f"{path}:{number}")
                     continue
                 key = (int(fields[0]), _opt_int(fields[1]), _opt_int(fields[2]))
                 if key not in seen:
@@ -656,8 +660,9 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
     id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
-    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal lines a crash cut
-    short are skipped and named in ``journal_lines_skipped`` (``read_journals``)."""
+    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal and archive lines
+    a crash cut short are skipped and named in ``journal_lines_skipped`` (``read_journals``) and
+    ``archive_lines_skipped`` (``_read_archives``)."""
     skipped: list[str] = []
     journals, archives = read_journals(paths, skipped)
     if run_root is not None:
@@ -665,11 +670,12 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         if missing:
             raise ValueError("other merge journals name the same study ids; give them too, so a crash and its rerun "
                              "(or a later approval) are undone together: " + ", ".join(missing))
-    archive_rows = _read_archives(archives)
+    archive_skipped: list[str] = []
+    archive_rows = _read_archives(archives, archive_skipped)
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
               "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": [],
-              "journal_lines_skipped": skipped}
+              "journal_lines_skipped": skipped, "archive_lines_skipped": archive_skipped}
     todo = []
     for x in sorted(journals):
         entry = journals[x]

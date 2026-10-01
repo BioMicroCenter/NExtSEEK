@@ -979,3 +979,29 @@ def test_a_crash_finished_in_another_run_directory_stays_one_cycle_after_a_rerun
     assert result["status"] == "ok"
     assert _snapshot(world.graph) == before
 
+
+# --- an archive line a crash cut short, a --studies run that removed no link ------------------------------------------
+
+def test_undo_skips_and_reports_an_archive_line_a_crash_cut_short(world, tmp_path):
+    """A kill during an archive's append can leave ``1001\\t13\\t1`` where ``1001\\t13\\t13\\t...`` was meant (Study 13
+    is a merged node, keyed by id and seek_study_id), and the next append ends that line first, so it looks whole.
+    Read as a link it would link 1001 to Study 1, a paper. A line without its five fields describes no delete (each
+    line is written before its delete): it is skipped and named, and the lines around it are restored."""
+    _seek(world, 13, "Cedar Unpublished")
+    merged = world.graph.add_study(id=13, seek_study_id=13, title="Cedar Unpublished", investigation=world.inv[101])
+    world.graph.add_study(id=1, title="Elm paper", DOI="10.9999/e1", investigation=world.inv[101])
+    for sample_id in (1001, 1002, 1003):
+        world.graph.add_sample(sample_id)
+    world.graph.link(1001, merged)
+    run_dir = tmp_path / "s1"
+    run_dir.mkdir()
+    archive = run_dir / study_links.ARCHIVE_FILE
+    archive.write_text(writer.IN_STUDY_ARCHIVE_HEADER + "1002\t13\t13\t5:abc:9\tstudies\n1001\t13\t1",
+                       encoding="utf-8")
+    writer._append_rows(str(archive), writer.IN_STUDY_ARCHIVE_HEADER, ["1003\t13\t13\t5:abc:11\tby_id\n"])
+    result = study_merge.undo(world.graph, DB, [str(run_dir)])
+    assert result["status"] == "ok"
+    assert (result["archive_rows"], result["archive_restored"]) == (2, 2)
+    assert result["archive_lines_skipped"] == [f"{archive}:3"]
+    assert world.graph.keys_of(1001) == world.graph.keys_of(1002) == world.graph.keys_of(1003) == {("seek", 13)}
+
