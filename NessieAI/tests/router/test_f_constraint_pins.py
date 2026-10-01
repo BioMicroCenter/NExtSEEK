@@ -71,8 +71,12 @@ def test_no_new_migrations():                        # Global Constraint
         # Pin updated for the batch assay-registration endpoint: 0020 creates the
         # single AssayRegistrationJob table and its one declared index, nothing else.
         "nextseek_api/migrations/0020_assayregistrationjob.py",
+        # Pin updated for graph_sync: 0021 creates the outbox and run tables, 0023 adds the outbox's failing_since
+        # column; neither touches the router's tables.
+        "nextseek_api/migrations/0021_graph_sync_outbox_and_run.py",
         # Pin updated for the ledger's task link: 0022 adds one nullable TurnLedger -> QueryTask FK, nothing else.
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
+        "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
