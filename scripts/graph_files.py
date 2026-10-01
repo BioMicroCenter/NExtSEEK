@@ -68,7 +68,6 @@ AREAS = {
     "NessieAI/tests/schema_rag/": "Schema RAG",
     "NessieAI/": "NS engine",
     "nextseek_api/batch_upload/": "Batch upload",
-    "nextseek_api/batch_delete/": "Batch upload",
     "nextseek_api/attributes/": "Attribute API",
     "nextseek_api/assay_registration/": "Assay registration",
     "nextseek_api/graph_search/": "Graph search and sync",

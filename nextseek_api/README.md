@@ -87,7 +87,6 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retr
 | `assay_registration/` | batch registration of samples as SEEK assay members: three superuser-gated routes, a job row, a drain loop, a Neo4j label recompute | `nextseek_api/assay_registration/README.md` |
 | `assistant/` | the API half of the assistant: ORM models (including the `eval_*` tables), wire models, the progress WebSocket consumer, session and pipeline adapters, OpenAPI descriptions, `excel_export.py`, and the granular-op HTTP contract `CONTRACT.md` | `nextseek_api/assistant/README.md` |
 | `attributes/` | the native attribute API: a catalog plus plan-then-execute mutations | `nextseek_api/attributes/README.md` |
-| `batch_delete/` | pydantic models for delete eligibility; no views, no ORM | this row |
 | `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7, stage 6 syncing this job's samples through `graph_sync/`; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
 | `cc_assistant/` | Django shell for Container-CC; engine at `NessieAI/cc/`. Never rename the app label or the Celery tasks `cc_assistant.upload` and `cc_assistant.sweep_cc_summaries` | `NessieAI/cc/README.md` |
 | `graph_search/` | the engine behind `POST /nextseek_api/samples/graph_search/`: scope from MySQL membership, a Cypher query builder, the catalog cache and page hydration | `nextseek_api/graph_search/README.md` |
