@@ -114,6 +114,27 @@ def test_a_name_with_no_catalog_row_maps_to_a_study_title_that_exists():
     assert hits == {"Zed Paper": ("study", "Zed-Paper", True)}
 
 
+def test_the_block_header_names_the_three_levels():
+    block = gctx.render_project_titles({"Alpha Cohort": "Gamma Lab"}, {"Alpha Cohort": "investigation"})
+    assert block.startswith(
+        "PROJECTS NAMED IN THIS QUESTION (the exact title each is stored under and whether it is a project, an "
+        "investigation or a study, found through the project catalog's names and alternative names; scope on "
+        "this title, STEP 5):")
+
+
+def test_the_prompt_tells_the_agent_to_scope_on_an_investigation_or_study_title():
+    assert ("a PROJECTS NAMED IN THIS QUESTION block after it gives the exact title that project, investigation or "
+            "study is stored under (STEP 5).") in PROMPT
+    bullet = PROMPT[PROMPT.index("- **A name the PROJECTS NAMED IN THIS QUESTION block gives as an investigation"):]
+    bullet = bullet[:bullet.index('- **"Study X"')]
+    assert "WHERE inv.title = $investigation_title" in bullet
+    assert "(s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation)" in bullet
+    assert "`WHERE st.title = $study_title` for a study" in bullet
+    assert "The block's title wins over the name as the user wrote it." in bullet
+    # the bullet sits after the project bullet and before the "Study X" bullet
+    assert PROMPT.index("A project the entity step resolved") < PROMPT.index("A name the PROJECTS NAMED") < PROMPT.index('- **"Study X"')
+
+
 def test_the_block_names_the_level():
     block = gctx.render_project_titles({"Alpha Cohort": "Gamma Lab"}, {"Alpha Cohort": "investigation"})
     assert '- "Alpha Cohort" is the investigation titled "Gamma Lab"' in block

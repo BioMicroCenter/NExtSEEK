@@ -774,7 +774,7 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
 
 
 def project_titles_for(names, project_rows, titles) -> dict[str, str]:
-    """Each project name the entity step resolved, mapped to the ``Project.title`` it is stored under.
+    """Each project name the entity step resolved, mapped to the title it is stored under.
 
     The entity step resolves a project to the projects catalog's name ("Impact"), and the graph stores the SEEK
     title ("IMPAcTb"). The Project-only view of ``container_titles_for``: only titles in ``titles`` are named.
@@ -784,10 +784,12 @@ def project_titles_for(names, project_rows, titles) -> dict[str, str]:
 
 
 def render_project_titles(mapping: dict[str, str], levels: dict[str, str] | None = None) -> str:
-    """The block telling the graph agent which ``Project.title`` each resolved project is ("" for none)."""
+    """The block telling the graph agent which title, at which level, each resolved project is stored under
+    ("" for none)."""
     if not mapping:
         return ""
     lines = [f"- {_quote(name)} is the {(levels or {}).get(name, 'project')} titled {_quote(title)}"
              for name, title in mapping.items()]
-    return ("PROJECTS NAMED IN THIS QUESTION (the exact Project.title each is stored under, found through the "
-            "project catalog's names and alternative names; scope on this title, STEP 5):\n" + "\n".join(lines))
+    return ("PROJECTS NAMED IN THIS QUESTION (the exact title each is stored under and whether it is a project, an "
+            "investigation or a study, found through the project catalog's names and alternative names; scope on "
+            "this title, STEP 5):\n" + "\n".join(lines))
