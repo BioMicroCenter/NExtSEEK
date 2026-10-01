@@ -380,7 +380,7 @@ class SopProxyViewSet(viewsets.ViewSet):
                 return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
         # Resolve path param to SEEK id
-        seek_id = _resolve_uid_to_seek_id(uid, "sops")
+        seek_id = _resolve_uid_to_seek_id(uid, "sops", as_written_only=True)
         if seek_id is None and isinstance(update_req.data.id, str):
             seek_id = update_req.data.id
         if seek_id is None:

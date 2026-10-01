@@ -109,3 +109,10 @@ class TestResolution:
 def test_a_numbered_publication_resolves_from_the_bare_uid():
     found, spelling = resolve_uid_with_suffix("PAT-230522GRI-7", lambda s: "5" if s == "PAT-230522GRI-7-PUB1" else None)
     assert (found, spelling) == ("5", "PAT-230522GRI-7-PUB1")
+
+
+def test_as_written_only_tries_one_spelling():
+    assert uid_spellings("A-1-PUB2", as_written_only=True) == ["A-1-PUB2"]
+    seen = []
+    assert resolve_uid_with_suffix("A-1", lambda s: seen.append(s), as_written_only=True) == (None, None)
+    assert seen == ["A-1"]
