@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 MANIFEST_ID=""
 MODE=""
+ANSWERS=""
 ROWS=""
 EXISTING=""
 while [ $# -gt 0 ]; do
@@ -19,17 +20,20 @@ while [ $# -gt 0 ]; do
     --manifest-id=*) MANIFEST_ID="${1#--manifest-id=}"; shift ;;
     --mode) MODE="$2"; shift 2 ;;
     --mode=*) MODE="${1#--mode=}"; shift ;;
+    --answers) ANSWERS="$2"; shift 2 ;;
+    --answers=*) ANSWERS="${1#--answers=}"; shift ;;
     --rows) ROWS="$2"; shift 2 ;;
     --rows=*) ROWS="${1#--rows=}"; shift ;;
     --existing-parent-uids) EXISTING="$2"; shift 2 ;;
     --existing-parent-uids=*) EXISTING="${1#--existing-parent-uids=}"; shift ;;
     --help)
-      echo "Usage: nextseek-build-upload-xlsx --manifest-id <id> [--mode {new,update}]"
+      echo "Usage: nextseek-build-upload-xlsx --manifest-id <id> [--mode {new,update}] [--answers '<json>']"
       echo "       nextseek-build-upload-xlsx --rows '<json array>' [--existing-parent-uids <csv>]"
       echo ""
       echo "manifest-id form (current): <id> comes from nextseek-run-harvest's result."
       echo "  --mode new (default) renders the analysis children; --mode update renders"
       echo "  the D.SEQ QC backfill."
+      echo "  --answers '<json>' applies the curator's answers to this run's flags ({fill, choose, place})."
       echo ""
       echo "rows form (legacy): each row is"
       echo "  {\"SampleType\": \"A.*\", \"json_metadata\": {\"Parent\": \"<UID>\", ...}, \"assay_ids\": [..]}."
@@ -43,6 +47,10 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$MANIFEST_ID" ]; then
+  if [ -n "$ANSWERS" ]; then
+    exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent build-upload-xlsx \
+      --manifest-id "$MANIFEST_ID" --mode "${MODE:-new}" --answers "$ANSWERS"
+  fi
   exec python "$SCRIPT_DIR/_nextseek_runner.py" --agent build-upload-xlsx \
     --manifest-id "$MANIFEST_ID" --mode "${MODE:-new}"
 fi

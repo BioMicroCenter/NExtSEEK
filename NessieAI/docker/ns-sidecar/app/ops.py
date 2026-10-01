@@ -166,6 +166,8 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
         body = {"manifest_id": args["manifest_id"]}
         if args.get("mode"):
             body["mode"] = args["mode"]
+        if args.get("answers"):
+            body["answers"] = args["answers"]
     else:
         # .get(..., "") rather than args["rows"]: server.py dispatches req.args,
         # the RAW pre-validation dict, not the validated model (validate_op_args

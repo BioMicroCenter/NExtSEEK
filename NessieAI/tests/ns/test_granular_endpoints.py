@@ -381,3 +381,13 @@ class ReingestEndpointTests(GranularEndpointBase):
                                     {"manifest_id": "abc123", "mode": "new"}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(Proposal.objects.count(), 0)
+
+    def test_build_upload_xlsx_forwards_answers_to_the_op(self):
+        with patch("nextseek_api.services.assistant.run_op",
+                   return_value={"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                                 "answers_deferred": [], "builds": []}) as run_op:
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new",
+                                     "answers": '{"fill": []}'}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(run_op.call_args.args[1]["answers"], '{"fill": []}')

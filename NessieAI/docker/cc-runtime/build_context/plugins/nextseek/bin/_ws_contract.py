@@ -157,11 +157,14 @@ class _BuildUploadXlsxArgs(BaseModel):
     existing_parent_uids: str = ""
     manifest_id: str = ""
     mode: str = "new"
+    answers: str = ""
 
     @model_validator(mode="after")
     def _exactly_one_of_manifest_id_or_rows(self) -> "_BuildUploadXlsxArgs":
         if bool(self.manifest_id) == bool(self.rows):
             raise ValueError("exactly one of manifest_id or rows is required")
+        if self.answers and not self.manifest_id:
+            raise ValueError("answers need manifest_id")
         return self
 
 

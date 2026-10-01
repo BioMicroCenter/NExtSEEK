@@ -513,6 +513,8 @@ def _dispatch_build_upload_xlsx(args):
         body = {"manifest_id": manifest_id}  # pragma: no cover
         if getattr(args, "mode", None):  # pragma: no cover
             body["mode"] = args.mode  # pragma: no cover
+        if getattr(args, "answers", None):  # pragma: no cover
+            body["answers"] = args.answers  # pragma: no cover
     else:  # pragma: no cover
         body = {"rows": args.rows}  # pragma: no cover
         if getattr(args, "existing_parent_uids", None):  # pragma: no cover
@@ -560,6 +562,7 @@ def main() -> None:
     p.add_argument("--allow-failed-run", action="store_true")  # for run-harvest
     p.add_argument("--paths")  # for run-checksum (comma-separated relative paths)
     p.add_argument("--rows")  # for build-upload-xlsx (legacy: JSON rows)
+    p.add_argument("--answers")  # for build-upload-xlsx (curator answers JSON; needs --manifest-id)
     p.add_argument("--existing-parent-uids")  # for build-upload-xlsx (legacy: Parent QA)
     p.add_argument("--manifest-id")  # for build-upload-xlsx (id of a manifest) and, optionally,
                                       # run-checksum (id of the manifest to fold checksums into)

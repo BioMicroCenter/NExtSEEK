@@ -329,6 +329,10 @@ class BuildUploadXlsxRequest(BaseModel):
         None, description="Current: id of a manifest saved by run-harvest.")
     mode: str = Field("new", description="'new' (create analysis children) or "
                                           "'update' (backfill existing D.SEQ samples).")
+    answers: Optional[str] = Field(
+        None, description="Optional JSON: the curator's answers to this run's flags "
+                          "({fill, choose, place}); see NessieAI/ns/reingest/answers.py. "
+                          "Requires manifest_id.")
     use_prod: bool = False
     session_id: Optional[UUID] = Field(
         None, description="Optional chat session to attach the workbook bundle to.")
