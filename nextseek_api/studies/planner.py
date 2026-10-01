@@ -24,9 +24,10 @@ same snapshot and input give the same plan.
 4. Links (6.4). Per source assay A: the movers are the targets' samples whose source assay is A; each goes into its
    target's clone with its direction in A (1 where A holds none); each parent of a mover that is a member of A goes
    in with direction 1 and stays in A. A member stays in A when it is not a mover or one of its children in A stays
-   (a fixpoint); the others leave A, each in the last unit, in apply order, that moves it. A parent that shares no
-   project with the investigation skips its child (``parent_project_mismatch``). One unit per target, ordered by
-   investigation and key, each with the digest its source assays must have just before it runs.
+   (a fixpoint); the others leave A, each in the last unit, in apply order, that moves it out of A or brings it in
+   from A as a parent, so a run stopped between units never leaves an edge without a shared assay. A parent that
+   shares no project with the investigation skips its child (``parent_project_mismatch``). One unit per target,
+   ordered by investigation and key, each with the digest its source assays must have just before it runs.
 5. Publications (6.5): one row per sample the run's units insert, movers and parents, across the whole run: every
    DOI of the targets that touch it (with its PMID, blank where none), in unit order, a DOI compared case-insensitively.
    A target with a PMID and no DOI writes nothing and is warned about.
@@ -541,6 +542,13 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
                                                  role="parent"))
                     planned.add(par)
 
+    # A member leaves A in the last unit that needs it there: one moving it out, or one bringing it in from A as a
+    # parent. Leaving earlier, a stop between the two units would let the replan move the child without it.
+    needed: dict = defaultdict(set)
+    for (i, a), ms in movers.items():
+        needed[(i, a)] |= {s for s in ms if s not in works[i].copy}
+        for m in ms:
+            needed[(i, a)] |= lin.parents.get((a, m), set())
     removals: dict = defaultdict(list)
     removed: set = set()
     bucket_assays = sorted({a for w in works for s, src in w.sources.items() if s not in w.copy for a in src})
@@ -555,7 +563,7 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
                     stays.add(m)
                     grew = True
         for s in sorted(moving - stays):
-            last = max(i for i in range(len(works)) if s in movers.get((i, a), set()) and s not in works[i].copy)
+            last = max(i for i in range(len(works)) if s in needed.get((i, a), ()))
             removals[last].append((a, s))
             removed.add(s)
 

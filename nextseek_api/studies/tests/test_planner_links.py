@@ -19,6 +19,15 @@ def moves(unit):
             [(r.assay_id, r.sample_id) for r in unit.removals])
 
 
+def stopped_after(world, result, n):
+    """What a run stopped after its first ``n`` units leaves: every study and clone, those units' links, no DOI."""
+    return apply_to_world(world, result.model_copy(update={"units": result.units[:n], "publications": []}))
+
+
+def shared(world, child, parent) -> set:
+    return {a for a, s, _d in world.links if s == child} & {a for a, s, _d in world.links if s == parent}
+
+
 def test_a_leaf_moves_its_parent_is_added_and_stays(alpha):
     [unit] = plan(alpha, target([3])).units
     assert moves(unit) == ([(3, 2, "mover"), (2, 1, "parent")], [(101, 3)])
@@ -118,3 +127,20 @@ def test_a_mover_the_fixpoint_keeps_is_no_change_on_the_replan(alpha):
     again = plan(alpha, target([2], seek_study_id=100))
     assert again.units == [] and again.no_change == {"sheet:7:paper one": [2]}
     assert again.targets[0].clones[0].action == "reuse"
+
+
+PAPER_A, PAPER_B = dict(key="sheet:7:paper a", title="Paper A"), dict(key="sheet:7:paper b", title="Paper B")
+
+
+def test_a_parent_a_later_unit_brings_in_leaves_its_bucket_assay_in_that_unit(alpha):
+    a, b = plan(alpha, target([2], **PAPER_A), target([3], **PAPER_B)).units
+    assert moves(a) == ([(2, 2, "mover"), (1, 1, "parent")], [])
+    assert moves(b) == ([(3, 2, "mover"), (2, 1, "parent")], [(101, 2), (101, 3)])
+
+
+def test_a_stop_between_units_then_a_replan_keeps_every_edge_on_a_shared_assay(alpha):
+    stopped_after(alpha, plan(alpha, target([2], **PAPER_A), target([3], **PAPER_B)), 1)
+    again = plan(alpha, target([2], seek_study_id=100, **PAPER_A), target([3], seek_study_id=101, **PAPER_B))
+    assert again.skipped == []
+    apply_to_world(alpha, again)
+    assert shared(alpha, 3, 2) and shared(alpha, 2, 1)
