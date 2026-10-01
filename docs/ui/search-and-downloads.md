@@ -105,7 +105,6 @@ The initial tab comes from `?tab=simple|advanced|retrieve` in the ready handler 
 | POST `/seek/samples/delete/` (`allids` or `alluids`) | delete buttons | `views/samples.py: sampleDelete` (POST only, login) |
 | POST `/seek/samples/export/`, then GET `/seek/exports/<token>/<file>` | "Export samples to Import", Simple toolbar only | `views/samples.py: sampleExport`; `views/exports.py` serves per-user files |
 | GET `/seek/sample_timeline/<uid>/` | "View Timeline", Simple toolbar (client only allows UIDs starting `NHP` and containing `FLY`) | `sample_timeline` TemplateView in `seek/urls.py` (security item SEC-0930-G, tracked privately) |
-| GET `/seek/samples/publishlist/<ids>/` (new tab) | "Publish samples to FairdomHub", Simple and Advanced toolbars | no route exists (404); the `/seek/samples/publish/` argument the buttons pass is never requested |
 | POST `/nextseek_api/samples/advanced_search/` | `/seek/newsearch/` only | `nextseek_api` (older engine) |
 | GET/POST `/nextseek_api/data_files/`, `/sops/`, `.../download/` | Data File and SOP Query | `nextseek_api` services |
 
@@ -189,17 +188,16 @@ search include is tracked as security item SEC-0930-H (tracked privately).
 
 ## Gotchas
 
-- Dead embeds still leak in. `searchAdvanced_stable.embed.html` ("Send to Sample Retrieval") calls
-  `retriveAdvanced()`, which exists only in the unincluded `searchAdvanced_retrieval.embed.html`.
-  Deleting that "dead" file would not change today's behaviour (the call already throws), but
-  check callers before removing any embed.
-- Global function collisions. The Advanced grid's `deleteSamples(dg, url_delete)` and the Deletion
-  tab's `deleteSamples(url_delete)` are both global and both on `/seek/search/`; the later include
-  wins. The Simple tab avoids this with a `simple_` prefix. See `seek/templates/pages/` and the
-  collision list in [javascript.md](javascript.md).
-- `downloadSops` is defined in `sops_table.embed.html`, but `datafile_table.embed.html` has a
-  button calling `downloadSops` while defining `downloadDataFiles`, so Data File "Download selected"
-  does nothing. Fix by editing the button, and remember the SOP copy.
+- Global function collisions. Every embed on `/seek/search/` defines plain global functions, and a
+  later include silently replaces an earlier function of the same name. The grids prefix theirs
+  (`simple_`, `advanced_`), and `test_no_two_scripts_on_the_page_define_the_same_function` in
+  `seek/tests/test_sample_search_page.py` fails on a new clash. See the collision list in
+  [javascript.md](javascript.md).
+- "Send to Sample Retrieval" (Advanced toolbar) collects the ticked UIDs with
+  `nsCollectSelectedUids`, switches to the Retrieval tab and fills `#retrieval_uids`; the user then
+  presses Retrieve Samples.
+- `datafile_table.embed.html` and `sops_table.embed.html` are near copies; a toolbar button must call
+  the function its own embed defines (`downloadDataFiles`, `downloadSops`).
 - Tab query string: in `searchAdvanced.html` the ready handler maps `new-retrieve` to index 3 (which
   is now Sample Deletion) and `delete` to index 4 (no such tab). Only `simple`, `advanced` and
   `retrieve` behave.
@@ -228,9 +226,5 @@ search include is tracked as security item SEC-0930-H (tracked privately).
 See [known-issues.md#search-and-downloads](known-issues.md#search-and-downloads). The ones that
 matter most:
 
-- Advanced tab "Delete samples" runs the wrong `deleteSamples` (name collision) and never reaches
-  the delete endpoint.
-- Data File Query "Download selected" calls an undefined function; "Publish samples to FairdomHub"
-  opens a URL with no route, and "Send to Sample Retrieval" throws on a missing function.
 - The phone form cannot search without a keyword and offers no download, and the filter row and
   select-all act only on the loaded page, not the full total.

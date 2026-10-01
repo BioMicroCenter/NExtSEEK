@@ -37,18 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 4. Broken buttons on search
-
-Files: `seek/templates/pages/searchAdvanced_stable.embed.html`,
-`seek/templates/pages/searchAdvanced_deletion.embed.html`, `seek/templates/pages/samples_stable.embed.html`,
-`seek/templates/pages/datafile_table.embed.html`, `seek/templates/searchAdvanced.html`.
-
-13. [UI-060](#search-and-downloads): Advanced tab "Delete samples" runs the wrong function and never deletes.
-14. [UI-061](#search-and-downloads): "Publish samples to FairdomHub" (Simple and Advanced tabs) opens a
-    URL that returns 404.
-15. [UI-062](#search-and-downloads): "Send to Sample Retrieval" switches tab and then throws.
-16. [UI-063](#search-and-downloads): Data File Query "Download selected" does nothing.
-
 ### 5. Login page
 
 Files: `themes/NextSeek/templates/login.html` (inline `<style>`), `themes/NextSeek/templates/base_auth.html`.
@@ -119,10 +107,6 @@ downloads. See [search-and-downloads.md](search-and-downloads.md).
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-060 | broken | Advanced tab "Delete samples" asks for confirmation and then never reaches the delete endpoint: two global functions are named `deleteSamples`, and the Deletion tab's version (loaded later) replaces the Advanced one | code | `pages/searchAdvanced_stable.embed.html` `deleteSamples(dg, url)`; `pages/searchAdvanced_deletion.embed.html` `deleteSamples(url)`; both included by `searchAdvanced.html` | Rename the grid version (for example `advanced_deleteSamples`), like the `simple_` set |
-| UI-061 | broken | "Publish samples to FairdomHub" on the Simple and Advanced tabs opens `/seek/samples/publishlist/<ids>/` in a new tab, which has no route (404). The `/seek/samples/publish/` argument the buttons pass is never requested | live 2026-09-30 (404); code | `pages/samples_stable.embed.html` `simple_publishSamplesAjax`; `pages/searchAdvanced_stable.embed.html` `publishSamplesAjax` | Remove both buttons and functions, or add the routes |
-| UI-062 | broken | "Send to Sample Retrieval" switches to the Retrieval tab and then throws: it writes to `#input_searchUIDs` (not on the page; the box is `#retrieval_uids`) and calls `retriveAdvanced`, which exists only in an orphan template | code | `pages/searchAdvanced_stable.embed.html` (the send-to-retrieval function) | Set `#retrieval_uids` via `textbox('setValue')` and drop the `retriveAdvanced` call |
-| UI-063 | broken | Data File Query "Download selected" does nothing: the button calls `downloadSops`, which is not defined on that page (the function is `downloadDataFiles`) | code | `pages/datafile_table.embed.html` toolbar button | Call `downloadDataFiles` |
 | UI-064 | confusing | `?tab=new-retrieve` opens the Deletion tab and `?tab=delete` selects a tab index that does not exist | code | `searchAdvanced.html` tab-selection block | Map `retrieve` to 2 and `delete` to 3; drop `new-retrieve` |
 | UI-065 | confusing | The Advanced grid's UID column has no filter box: the filter list names field `uuid`, the column is `uid` | code | `searchAdvanced.html` `nsEnableColumnFilters(dg, ['uuid', ...])` | Use `'uid'` |
 | UI-066 | confusing | The filter row and Select-all act only on the loaded page of rows, while the header shows the full total | code | `searchAdvanced.html`; `pages/samples_stable.embed.html` | Label them "this page", or load all before filtering |

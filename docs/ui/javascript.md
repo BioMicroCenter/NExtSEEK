@@ -173,7 +173,8 @@ Global-name collisions to watch when adding a function to any page:
   `endEditing`, and leaks an undeclared `jsonlist` global from `jsonconvertstrings`. A page-level function
   with one of these names silently replaces or is replaced by it, depending on load order.
 - Page templates each define globals such as `getCookie`, `lab_options`, `type_options`, `template_options`,
-  `uploadSamples`, `validateSamples`. Two included partials that define the same name overwrite each other.
+  `uploadSamples`, `validateSamples`. Two included partials that define the same name overwrite each other
+  (the search page has a test for this; see [search-and-downloads.md](search-and-downloads.md) "Gotchas").
 - Hidden coupling: `samples_stable.embed.html` and `searchAdvanced_stable.embed.html` call
   `nsSearchState`, `nsSearchFetch`, `nsSearchRun`, `nsCsrfToken`, `nsResizeGridsIn` and `NS_*` constants
   defined in `searchAdvanced.html`. They only work when included from it.
@@ -226,8 +227,6 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 
 | URL | Called from | Effect |
 |---|---|---|
-| `/seek/samples/publishlist/<ids>/` | the "Publish samples to FairdomHub" buttons in `pages/samples_stable.embed.html` and `pages/searchAdvanced_stable.embed.html`, opened with `window.open` | 404 tab on the live search page |
-| `/seek/samples/publish/` | same buttons pass it as an argument, but `publishSamplesAjax` and `simple_publishSamplesAjax` never request it | none |
 | `/seek/searchAssets/`, `/seek/publish_investigations/id=` | unrouted publish pages only | no user effect today |
 | `/dmac/upload/`, `/dmac/dmac/` | `dmac/templates/pages/*` (unrouted) | no user effect today |
 
@@ -332,7 +331,6 @@ and its static files after an app restart (collectstatic runs at start); see
 
 See [known-issues.md](known-issues.md#javascript). The ones that matter most:
 
-- The "Publish samples to FairdomHub" buttons on the live search page open a URL that no `urls.py` routes (404).
 - Third-party script loading (unpkg, skypack, jsDelivr) is security item SEC-0930-F, tracked
   privately; separately, the sample tree breaks silently if skypack fails.
 - Five CSRF patterns coexist, and `datagrid-custom.js` sends a literal `{{ csrf_token }}` from a static file.

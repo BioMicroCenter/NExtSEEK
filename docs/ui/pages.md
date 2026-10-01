@@ -216,7 +216,6 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 - `error.html` is returned with HTTP 200 for "not in this project", so monitors and `ci/routes.py` cannot tell it from a page.
 - A theme template edit shows on the next request; a `seek/templates/` edit needs `./startup.sh rebuild`. On a worktree, the compose bind mount serves the compose directory's theme, not the worktree's.
 - The user panel is included from `base.html` through `includes/user_panel.html`, which includes `accounts/includes/user_panel.html`. The "Profile" menu item there never renders because the profile URLs are disabled in Mezzanine.
-- Hard-coded `/seek/samples/publish/` and `/seek/samples/publishlist/` targets on the search page do not resolve; the routes do not exist.
 - Adding a route to `dmac/urls.py` without `_PROJECT_LEVEL` leaves CI green and the route unowned.
 
 ## Known issues
