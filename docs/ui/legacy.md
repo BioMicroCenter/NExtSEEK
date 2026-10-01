@@ -59,7 +59,6 @@ To really disable it, use `{# ... #}` or `{% comment %}` around the includes, or
 
 | Path | What it is | Evidence | Confidence |
 |---|---|---|---|
-| `static/js/sample_timeline/` leftovers: `assets/index-*.css`, `assets/index-*.js`, `favicon.ico`, `index.html`, `manifest.json`, `robots.txt`, and the nested `sample_timeline/sample_timeline/` copy | Files from an older build layout next to the current `assets/js/` and `assets/asset/` | The template names only the `assets/js/*` and `assets/asset/*` files | likely |
 | `static/test/image.jpg` | A test image, published under `/static/test/` | No reference found | likely |
 | `dmac/conversion.pyc`, `dmac/__init__.pyc` | Stale bytecode tracked in git next to the sources | `git ls-files dmac` lists them | check-first (not UI) |
 
@@ -145,7 +144,7 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 | likely | Rest of repo-root `templates/` (accounts, blog, email, errors, generic, includes, pages, base, index, search_results) | Not on loader path; package copies render | `themes/README.md` mentions it, update it |
 | likely | One of the two identical EasyUI copies | `diff -rq` identical | Decide which `STATICFILES_DIRS` entry keeps it. The theme copy is the one `themes/README.md` documents |
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
-| likely | `static/js/sample_timeline/` leftovers and the nested duplicate, `static/js/dag/d3neo4j.*`, `static/test/image.jpg` | No references | Load `/seek/sample_timeline/` and a sample page afterwards |
+| likely | `static/js/dag/d3neo4j.*`, `static/test/image.jpg` | No references | Load `/seek/sample_timeline/` and a sample page afterwards |
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
 | check-first | `static/js/buildtree/` | Unreferenced but a large experiment | Ask the operator |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
