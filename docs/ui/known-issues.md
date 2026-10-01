@@ -37,16 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 3. "+ New sample" on phones
-
-Files: `seek/templates/batchUpload.html`, `seek/templates/pages/batch_upload.embed.html`,
-`themes/NextSeek/templates/nav.embed.html` (Quick Access), `themes/NextSeek/templates/index.html`
-(upload tile), `themes/NextSeek/static/css/nextseek.css` (`.qa-cta`, `.easyui-mobile-notice`).
-
-11. [UI-040](#upload-and-samples): "+ New sample" opens a page with a "desktop-only" banner and a form cut
-    off on the right.
-12. [UI-006](#shell): in the drawer, "+ New sample" shrinks to a small chip beside full-width controls.
-
 ### 4. Broken buttons on search
 
 Files: `seek/templates/pages/searchAdvanced_stable.embed.html`,
@@ -91,7 +81,6 @@ The sidebar, drawer, top bar, footer, user panel and home page. See [shell.md](s
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-006 | confusing | In the drawer, "+ New sample" becomes a narrow chip while the Nessie button and UID box above it are full width | code | `nextseek.css` `.qa-cta` (switches to `inline-flex` in the touch media block) | Keep `display: flex` and match the side margins of `.qa-input` |
 | UI-008 | confusing | The sidebar is `role="dialog" aria-modal="true"` at all times, including on desktop where it is not a dialog; screen readers treat the rest of the page as inert | code | `base.html` `aside#sidebar` | Set the dialog roles from JS only while the phone drawer is open |
 | UI-009 | confusing | The "Profile" item in the user menu never renders (the `profile` URL is not registered), and "Update profile" opens Mezzanine's local profile form, not the SEEK profile | code | `accounts/includes/user_panel.html` (`{% url "profile" ... as profile_url %}`, `profile_update` link) | Remove the dead Profile branch; point "Update profile" at SEEK or drop it |
 | UI-010 | debt | Sidebar submenus are toggled twice: by Bootstrap's `data-bs-toggle` and by a manual click handler that calls `Collapse.toggle()` | code | `themes/NextSeek/static/js/nextseek.js` (submenu handler on `[data-bs-toggle="collapse"]`) | Remove the manual handler |
@@ -118,10 +107,7 @@ timeline. See [upload-and-samples.md](upload-and-samples.md).
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-040 | broken | Logged in on a phone, "+ New sample" opens the Assay Sheet Upload page with a "desktop-only" banner and the form cut off on the right (EasyUI tabs and layout with fixed 700 to 800 px heights, a 70% table, a 600 px minimum textarea) | live 2026-09-30 | `seek/templates/batchUpload.html`; `seek/templates/pages/batch_upload.embed.html` (`#messages` textarea) | Short term: hide or disable the CTA under 992px with a "desktop only" hint. Long term: a single-column Bootstrap form without fixed sizes |
-| UI-041 | confusing | Data and protocol upload is unusable at phone width and, unlike Assay Sheet Upload, shows no desktop-only notice | code | `seek/templates/dataFileUpload.html` (`#messages` with `min-width:600px`) | Add `.easyui-mobile-notice`; replace `min-width:600px` with `min-width:0` |
 | UI-042 | confusing | For a non-supervisor, the creator list on the upload pages has an entry only for the last lab in the list, whatever labs the user belongs to (the dict is reset inside the lab loop) | code | `seek/views/upload.py` `batchUpload` and `datafileUpload` (`all_lab_users`) | Initialise `all_lab_users` once, before the loop |
-| UI-043 | confusing | The home tile says "Upload an assay sheet or single sample", but there is no single-sample form | code | `themes/NextSeek/templates/index.html` upload tile | Reword to what exists |
 | UI-044 | confusing | The info icon next to each template in the templates picker appears only on hover, so touch users never see it | code | `seek/templates/templatesList.html` `.tpl-item-info` | Show it always under `@media (hover: none)` |
 | UI-045 | debt | The timeline root element carries two `id` attributes; the `#timeline-root` rule never applies | code | `seek/templates/sample_timeline.html` (`<div id="root" id="timeline-root">`) | Keep one id, or wrap |
 | UI-046 | debt | The sample timeline is a built React bundle with no source in the repo, so it cannot be changed or rebuilt | code | `static/js/sample_timeline/` | Find and commit the source, or document where it lives |
@@ -184,7 +170,6 @@ Project list and page, the Sample flow diagram, catalog pages, admin catalogs an
 | UI-101 | confusing | Login page, desktop: the partner logo strip renders as a flat pale bar (`filter: brightness(0) invert(1)`, opacity .55, 22 px tall on crimson); on phones it is hidden | live 2026-09-30 | `themes/NextSeek/templates/login.html` inline `<style>` (partner logo rules and the phone media block) | Use a white logo asset at full opacity and a larger height; show it in the phone layout |
 | UI-102 | confusing | The login page uses Source Sans 3 and Playfair Display; the app uses Inter. The `--ns-font-*` tokens name Inter first, which is not loaded on auth pages | code | `themes/NextSeek/templates/base_auth.html` font link vs `base.html` | Load the same font link, or add an explicit auth font token |
 | UI-103 | confusing | Monospace text renders as Courier New: JetBrains Mono and Fira Code are named but never loaded | code | `nextseek.css` `:root` `--ns-font-mono` | Use `ui-monospace, SFMono-Regular, Menlo, monospace`, or load the font |
-| UI-104 | confusing | Upload message boxes with `min-width: 600px` force page-level horizontal scroll on phones | code | `pages/batch_upload.embed.html` (`#messages` textarea); `dataFileUpload.html` (`#messages` div) | `min-width: 0; width: 100%` |
 | UI-105 | debt | About 260 `!important` declarations make overrides order-dependent | code | `nextseek.css` ("EasyUI Theme Overrides" holds about half; the datagrid retune, search-tab and workbench sections most of the rest) | Scope EasyUI overrides under one class and drop `!important` where specificity suffices |
 | UI-106 | debt | Nine templates declare a blue zebra-row colour (`.datagrid-row-alt { background: #e6f2ff }`) that never shows, because `nextseek.css` forces `.datagrid-row-alt` to `var(--ns-bg)` with `!important`; readers think rows are blue-striped | code | `.datagrid-row-alt` rules in page `<style>` blocks (list in [styles.md](styles.md)) | Delete the nine dead rules |
 | UI-107 | debt | Unused legacy variables in `:root` (`--primary-color`, `--sidebar-bg`, `--sidebar-text`, `--sidebar-hover`, `--sidebar-active`, `--content-bg`, `--header-bg`, `--footer-bg`, `--ns-header-bg`). `--sidebar-width` and `--header-height` are in use | code | `nextseek.css` `:root` | Delete after a fresh grep |

@@ -164,3 +164,29 @@ class TestShellCss:
         assert len(re.findall(r"^\.footer-content \{", css, re.M)) == 1
         block = css[css.index(".footer-content {"):]
         assert "flex-wrap: wrap" in block[:block.index("}")]
+
+
+class TestNewSampleOnPhones:
+    """UI-040, UI-006: phones are told the upload is desktop-only before the tap,
+    the drawer CTA keeps its full width, and the upload pages scroll instead of clipping."""
+
+    def test_both_new_sample_controls_carry_the_desktop_only_hint(self):
+        nav = _render_a_page_with_the_nav()
+        cta = nav[nav.index('class="qa-cta"'):]
+        assert "desktop-only-hint" in cta[:cta.index("</a>")]
+        home = _theme_file("templates/index.html").read_text()
+        tile = home[home.index('class="dash-action accent"'):]
+        assert "desktop-only-hint" in tile[:tile.index("</a>")]
+
+    def test_hint_shows_only_on_phones_and_the_cta_stays_full_width(self):
+        css = _theme_file("static/css/nextseek.css").read_text()
+        assert ".desktop-only-hint { display: none; }" in css
+        touch = css[css.index("/* ---------- Touch targets"):]
+        touch = touch[touch.index(".qa-cta {"):]
+        assert "inline-flex" not in touch[:touch.index("}")]
+
+    def test_upload_pages_have_no_fixed_minimum_width(self):
+        root = Path(settings.BASE_DIR) / "seek" / "templates"
+        for name in ("pages/batch_upload.embed.html", "dataFileUpload.html"):
+            assert "min-width:600px" not in (root / name).read_text(), name
+        assert "easyui-mobile-notice" in (root / "dataFileUpload.html").read_text()

@@ -252,7 +252,7 @@ Keep the `--ns-*` names and prune and extend the single `:root` block. As a targ
 - Bootstrap, Bootstrap Icons and the fonts come from CDNs; EasyUI and `nextseek.css` are local.
   Offline or blocked networks lose Bootstrap, icons and fonts but still get the HTML. A `glyphicon`
   class never renders.
-- Fixed pixel sizes in templates (textareas with `min-width: 600px`, file inputs at 220px, the
+- Fixed pixel sizes in templates (file inputs at 220px, the
   `.attrs-table` at 1120px inside a scroll wrapper) are what break phone layouts, not the stylesheet.
 
 Owner docs: `themes/README.md` (what the theme depends on, static and CDN notes), `themes/CLAUDE.md`.

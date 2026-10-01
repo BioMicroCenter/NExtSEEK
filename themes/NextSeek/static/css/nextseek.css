@@ -1009,6 +1009,19 @@ body.sidebar-open .sidebar-scrim { display: block; }
 }
 .qa-cta .qa-plus { font-weight: 700; line-height: 1; }
 
+/* "+ New sample" on phones: the upload pages are desktop-only, so say so
+   before the tap (the pages themselves show .easyui-mobile-notice). */
+.desktop-only-hint { display: none; }
+@media (max-width: 767.98px) {
+    .desktop-only-hint {
+        display: inline;
+        font-size: 0.72rem;
+        font-weight: 500;
+        color: var(--ns-muted);
+    }
+    .qa-cta .desktop-only-hint { margin-left: auto; }
+}
+
 /* ---------- Nessie promoted button (navbar + home) ---------- */
 .nessie-btn {
     display: flex;
@@ -1612,8 +1625,6 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
     }
     .qa-cta {
         min-height: 44px;
-        display: inline-flex;
-        align-items: center;
     }
 }
 
