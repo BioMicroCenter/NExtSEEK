@@ -412,7 +412,9 @@ The pure modules, the state machine, the hooks and the command are unit-tested i
 (`ci/README.md` "Running and testing"), test files `nextseek_api/tests/test_graph_sync_*.py`. Those globs block CI,
 so a test added there fails a job from the commit that adds it. `./startup.sh rebuild` runs `--drift` afterwards and
 writes a `## Graph drift` section into the CI record; the smoke suite reads the status endpoint
-(`ci/smoke/test_graph_sync_status.py`).
+(`ci/smoke/test_graph_sync_status.py`). The writer's study and assay statements also run on a private, throwaway
+Neo4j in the graph scope lane (`NessieAI/tests/chat_nextseek/graph_scope/lane.sh`): `test_study_links_lane.py` and
+`test_assay_layer_lane.py` there.
 Every `./startup.sh ci` and `rebuild`, production included, also asks `manage.py graph_sync_health` in the app
 container, which judges the same body with `health.py` (`startup/README.md` "Graph sync health on every box").
 A run against real data happens only in the throwaway lane, never against
