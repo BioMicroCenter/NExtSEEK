@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 
 _ROOT = os.environ.get("NEXTSEEK_BUILD_RECORDS_DIR") or os.path.join(
     os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs", "reingest_builds")
@@ -53,15 +54,24 @@ def write(*, path, artifact_key, sample_type, mode, manifest_id, disposition,
     }
     owner = _owner_dir(user_id)
     os.makedirs(owner, exist_ok=True)
-    with open(os.path.join(owner, f"{record['build_id']}.json"), "w", encoding="utf-8") as fh:
-        json.dump(record, fh, indent=2)
+    final = os.path.join(owner, f"{record['build_id']}.json")
+    with tempfile.NamedTemporaryFile("w", dir=owner, delete=False, suffix=".tmp",
+                                     encoding="utf-8") as fh:
+        tmp = fh.name
+        try:
+            json.dump(record, fh, indent=2)
+        except BaseException:
+            fh.close()
+            os.unlink(tmp)
+            raise
+    os.replace(tmp, final)
     return {k: v for k, v in record.items() if k != "path"}
 
 
 def load(build_id: str, user_id) -> dict:
     if not isinstance(build_id, str) or not _BUILD_ID.fullmatch(build_id):
         raise BuildRecordError(f"not a build id: {build_id!r}")
-    if not user_id:
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
         raise BuildRecordError("no signed-in user")
     path = os.path.join(_owner_dir(user_id), f"{build_id}.json")
     try:
@@ -69,3 +79,5 @@ def load(build_id: str, user_id) -> dict:
             return json.load(fh)
     except FileNotFoundError:
         raise BuildRecordError(f"no build {build_id[:12]} for this user") from None
+    except (OSError, ValueError) as exc:
+        raise BuildRecordError(f"build {build_id[:12]} record is unreadable") from exc

@@ -18,10 +18,13 @@ Any other exception raised by an agent maps to AGENT_FAILED at the viewset layer
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Callable
 
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
+
+logger = logging.getLogger(__name__)
 
 
 class OpValidationError(ValueError):
@@ -1454,7 +1457,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         try:
             ids = project_ids_for_uids_strict(sorted(existing_parent_uids))
         except RuntimeError as exc:
-            return None, f"project lookup failed: {exc}"
+            logger.warning("reingest: project lookup failed: %s", exc)
+            return None, "project lookup failed (catalog unreachable)"
         if len(ids) == 1:
             return ids[0], ""
         if not ids:

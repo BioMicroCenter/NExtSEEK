@@ -321,6 +321,20 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()["code"], "VALIDATION")
 
+    def test_build_upload_xlsx_endpoint_passes_the_signed_in_user(self):
+        captured = {}
+
+        def _run_op(*args, **kwargs):
+            captured["session"] = kwargs.get("session")
+            return {"saved_files": {}, "qa": {}, "reply": "", "proposals": [],
+                    "answers_deferred": [], "builds": []}
+
+        with patch("nextseek_api.services.assistant.run_op", side_effect=_run_op):
+            resp = self.client.post(f"{self.BASE}/build-upload-xlsx/",
+                                    {"manifest_id": "abc123", "mode": "new"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(captured["session"].user.pk, self.user.pk)
+
     def test_build_upload_xlsx_endpoint_is_routed_and_returns_bundle(self):
         with patch("nextseek_api.services.assistant.run_op",
                    return_value={"summary": {}, "saved_files": {}, "rows": []}):

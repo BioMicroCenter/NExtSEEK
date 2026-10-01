@@ -162,3 +162,35 @@ def test_parents_in_two_projects_leave_no_project_and_say_why(rows, tmp_path, mo
     result = _new(tmp_path, _save_manifest(tmp_path, monkeypatch))
     assert all(b["project_id"] is None and "2 projects" in b["project_note"]
                for b in result["builds"])
+
+
+@patch(CATALOG)
+def test_a_project_lookup_outage_hides_driver_text(rows, tmp_path, monkeypatch):
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+
+    def _down(uids):
+        raise RuntimeError("secret-host:3306 down")
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.project_ids_for_uids_strict",
+                        _down)
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    result = _new(tmp_path, _save_manifest(tmp_path, monkeypatch))
+    assert result["builds"]
+    assert all(b["project_id"] is None
+               and b["project_note"] == "project lookup failed (catalog unreachable)"
+               for b in result["builds"])
+    assert not any("secret-host" in b["project_note"] for b in result["builds"])
+
+
+@patch(CATALOG)
+def test_parents_in_no_project_say_so(rows, tmp_path, monkeypatch):
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.project_ids_for_uids_strict",
+                        lambda uids: [])
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    result = _new(tmp_path, _save_manifest(tmp_path, monkeypatch))
+    assert result["builds"]
+    assert all(b["project_id"] is None
+               and b["project_note"] == "the parent samples belong to no project"
+               for b in result["builds"])
