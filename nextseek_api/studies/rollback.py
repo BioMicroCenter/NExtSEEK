@@ -10,13 +10,15 @@ reverse from its journal.
    refuses the rollback before any write;
 4. per clone, once it holds nothing but the SOP links its creation copied from its source: those links (SEEK refuses
    to delete an assay holding any asset), its internal-assay rows (``assay_map`` enqueued), then the clone in SEEK;
-   a clone that still holds samples keeps its links and rows and is listed. Then the studies, deleted once empty. SEEK's 404 reads as already gone; any other refusal is listed for the operator; ``isa`` enqueued;
+   a clone that still holds samples keeps its links and rows and is listed. Then the studies, deleted once empty.
+   SEEK's 404 reads as already gone; any other refusal is listed for the operator; ``isa`` enqueued;
 5. ``sync_samples`` with the approval over the sync ids of the units this scope committed: the bucket's IN_STUDY
    comes back from MySQL (the switch stays on). It first reads the live label preview and stops, writing nothing
    more, when an edge it would write under approval is not one the undo accounts for: the labels MySQL gives once the
-   undo's own changes are made (read before the undo, saved in the run directory, and corrected by what the undo could not
-   restore), against the graph's stored labels. Deleting that saved file and running again accepts them. A deleted study's SEEK-keyed Study node stays (Study nodes of SEEK
-   studies are not deleted; gate G reports it as ``12.studies.nodes_not_in_seek``).
+   undo's own changes are made (read before the undo, saved in the run directory, and corrected by what the undo
+   could not restore), against the graph's stored labels. Deleting that saved file and running again accepts them.
+   A deleted study's SEEK-keyed Study node stays (Study nodes of SEEK studies are not deleted; gate G reports it as
+   ``12.studies.nodes_not_in_seek``).
 
 Every undo line carries the investigation it undoes (None for the whole run), so a second investigation's rollback
 still undoes its own parts, and apply and the graph step refuse only the scopes a rollback touched.
@@ -298,9 +300,10 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
                 counts["not_deleted"].append(["assay", clone, "not empty"])
                 undo_line("done", "clone", seek_id=clone, deleted=False, reason="not empty")
                 continue
-            with apply_mod._connection() as conn:
-                links.unlink_clone_sops(conn, clone, sops, lambda rows, c=clone: undo_line(
-                    "intent", "sops", seek_id=c, rows=rows))
+            if sops:
+                with apply_mod._connection() as conn:
+                    links.unlink_clone_sops(conn, clone, sops, lambda rows, c=clone: undo_line(
+                        "intent", "sops", seek_id=c, rows=rows))
             rows = [r for r in st.map_rows or [] if r[1] == clone]
             held = {(r[1], r[2]) for r in rows}
             rows += mapping.rows_holding([p for p in st.map_pairs or [] if p[0] == clone and tuple(p) not in held])

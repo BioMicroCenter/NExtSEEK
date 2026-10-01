@@ -217,7 +217,7 @@ def test_a_share_undo_deletes_only_the_journaled_pairs_and_reports_one_gone(tmp_
     assert outbox_of(seek_db)[-1] == ("samples", "batch:studies:share-1:undo:1", [1, 2])
 
 
-# --- what the unit checks and reports, each rule pinned by a test -------------------------------------------------------
+# --- what the unit checks and reports, each rule pinned by a test ----------------------------------------------------
 
 def test_a_planned_pair_already_in_its_target_assay_refuses_the_unit_before_any_write(tmp_path, seek_db, unit):
     with seek_db.begin() as conn:     # another writer links sample 3 to the clone after the plan

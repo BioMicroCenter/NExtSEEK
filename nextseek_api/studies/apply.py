@@ -78,13 +78,6 @@ class _Stop(Exception):
         super().__init__(message)
 
 
-def load_run(run_dir):
-    run_dir = Path(run_dir)
-    plan = StudyMovePlan.from_file(run_dir / PLAN_FILE)
-    lines, bad = read_journal(run_dir / JOURNAL_FILE)
-    return plan, journal_state(lines), bad
-
-
 def scope_refusal(plan: StudyMovePlan, investigation: Optional[int]) -> Optional[str]:
     if investigation is not None and all(t.investigation_id != investigation for t in plan.targets):
         return f"investigation {investigation} has no target in this plan"
