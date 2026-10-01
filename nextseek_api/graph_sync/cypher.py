@@ -569,6 +569,7 @@ RETURN elementId(x) AS element_id, labels(x) AS labels, x.id AS id,
        EXISTS { MATCH (x)-[:IN_STUDY]->(l:Study) WHERE elementId(l) = $l } AS on_l
 """
 # Move these sources' IN_STUDY from K to L, whatever their label: MERGE the link to L, then delete every edge to K.
+# MERGE yields one row per edge a source already holds to L (parallel edges), so the count is of distinct sources.
 MOVE_IN_STUDY = """
 UNWIND $sources AS xid
 MATCH (x) WHERE elementId(x) = xid
@@ -578,20 +579,25 @@ MATCH (x)-[e:IN_STUDY]->(k)
 WITH x, l, collect(e) AS edges
 MERGE (x)-[:IN_STUDY]->(l)
 FOREACH (e IN edges | DELETE e)
-RETURN count(x) AS moved
+RETURN count(DISTINCT x) AS moved
 """
-# The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION and
-# L is still the legacy node of $study_id. For a merge_other_investigation, L's IN_INVESTIGATION moves to
-# $new_investigation. K is deleted, L gains seek_study_id, and a DOI or PMID that is '' goes.
+# The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION, L
+# is still the legacy node of $study_id, and no node but K carries seek_study_id $study_id. For a
+# merge_other_investigation, L's IN_INVESTIGATION moves to $new_investigation, which must be K's Investigation. K's
+# IN_INVESTIGATION is deleted, then K with a plain DELETE: a link to K that another writer commits after the check
+# makes the transaction fail instead of going with K. L gains seek_study_id, and a DOI or PMID that is '' goes.
 FINISH_STUDY_MERGE = """
 CYPHER 25
 MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id IS NULL AND l.id = $study_id
+  AND NOT EXISTS { MATCH (o:Study) WHERE o.seek_study_id = $study_id AND elementId(o) <> coalesce($k, '') }
 OPTIONAL MATCH (k:Study) WHERE elementId(k) = $k
 WITH l, k
-WHERE ($k IS NULL AND k IS NULL)
-   OR (k IS NOT NULL AND NOT EXISTS { (k)<-[:IN_STUDY]-() }
-       AND COUNT { (k)--() } = COUNT { (k)-[:IN_INVESTIGATION]->() }
-       AND COUNT { (k)-[:IN_INVESTIGATION]->() } <= 1)
+WHERE (($k IS NULL AND k IS NULL)
+       OR (k IS NOT NULL AND NOT EXISTS { (k)<-[:IN_STUDY]-() }
+           AND COUNT { (k)--() } = COUNT { (k)-[:IN_INVESTIGATION]->() }
+           AND COUNT { (k)-[:IN_INVESTIGATION]->() } <= 1))
+  AND ($new_investigation IS NULL
+       OR EXISTS { MATCH (k)-[:IN_INVESTIGATION]->(i:Investigation) WHERE elementId(i) = $new_investigation })
 CALL (l) {
   MATCH (l)-[old:IN_INVESTIGATION]->(i)
   WHERE $new_investigation IS NOT NULL AND elementId(i) <> $new_investigation
@@ -601,7 +607,11 @@ CALL (l) {
   MATCH (i:Investigation) WHERE elementId(i) = $new_investigation
   MERGE (l)-[:IN_INVESTIGATION]->(i)
 }
-FOREACH (_ IN CASE WHEN k IS NULL THEN [] ELSE [1] END | DETACH DELETE k)
+CALL (k) {
+  MATCH (k)-[e:IN_INVESTIGATION]->()
+  DELETE e
+}
+FOREACH (_ IN CASE WHEN k IS NULL THEN [] ELSE [1] END | DELETE k)
 SET l.seek_study_id = $study_id
 FOREACH (_ IN CASE WHEN l.DOI = '' THEN [1] ELSE [] END | REMOVE l.DOI)
 FOREACH (_ IN CASE WHEN l.PMID = '' THEN [1] ELSE [] END | REMOVE l.PMID)
@@ -610,8 +620,9 @@ RETURN count(l) AS merged
 
 # Undo, step 1, one transaction: while L is the only node carrying seek_study_id $study_id, restore L's journaled
 # properties (seek_study_id goes with them) and its journaled IN_INVESTIGATION, and re-create K with its journaled
-# properties and IN_INVESTIGATION when the journal holds one. Returns no row when L is not in that state; otherwise
-# how many IN_INVESTIGATION L holds after it (0 when its journaled Investigation node is gone).
+# properties and IN_INVESTIGATION when the journal holds one. Neo4j hands a freed element id to a new node, so each
+# Investigation is matched by its journaled element id AND id; one that matches neither is not linked. Returns no
+# row when L is not in that state; otherwise how many IN_INVESTIGATION L and the new K hold after it.
 UNMERGE_STUDY_NODES = """
 CYPHER 25
 MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id = $study_id
@@ -624,6 +635,7 @@ CALL (l) {
 }
 CALL (l) {
   MATCH (i:Investigation) WHERE elementId(i) = $l_investigation
+    AND (i.id = $l_investigation_id OR (i.id IS NULL AND $l_investigation_id IS NULL))
   MERGE (l)-[:IN_INVESTIGATION]->(i)
 }
 CALL () {
@@ -633,37 +645,49 @@ CALL () {
   WITH k
   CALL (k) {
     MATCH (i:Investigation) WHERE elementId(i) = $k_investigation
+      AND (i.id = $k_investigation_id OR (i.id IS NULL AND $k_investigation_id IS NULL))
     MERGE (k)-[:IN_INVESTIGATION]->(i)
   }
-  RETURN collect(elementId(k)) AS new_k
+  RETURN collect(elementId(k)) AS new_k, sum(COUNT { (k)-[:IN_INVESTIGATION]->() }) AS k_investigations
 }
-RETURN elementId(l) AS l, new_k, COUNT { (l)-[:IN_INVESTIGATION]->() } AS l_investigations
+RETURN elementId(l) AS l, new_k, COUNT { (l)-[:IN_INVESTIGATION]->() } AS l_investigations, k_investigations
 """
-# Undo, step 2: rows are {source, on_both}. A source journaled "on both" gets its edge to K and keeps its edge to L;
-# one journaled "only on K" that still links to L gets its edge to K and loses its edges to L; any other is skipped.
+# Undo: what each journaled source's element id names now ($element_ids), so a source a new node replaced is told
+# apart from one that is gone. Read-only.
+UNDO_SOURCE_NODES = """
+UNWIND $element_ids AS eid
+OPTIONAL MATCH (x) WHERE elementId(x) = eid
+RETURN eid AS element_id, x IS NOT NULL AS found, x.id AS id, coalesce(labels(x), []) AS labels
+"""
+# Undo, step 2: rows are {source, id, labels, on_both}, a source matched by its element id AND its journaled id and
+# labels (a type label aside, which a sample type's rename changes), since Neo4j hands a freed element id to a new
+# node. Only a source that still links to L goes back: one journaled "on both" gets its edge to K and keeps its edge
+# to L; one journaled "only on K" gets its edge to K and loses its edges to L. A source whose link to L a later
+# removal took, its archive not given, is skipped either way, which keeps it true to SEEK.
 UNMERGE_MOVE_BACK = """
 UNWIND $rows AS r
-MATCH (x) WHERE elementId(x) = r.source
+MATCH (x) WHERE elementId(x) = r.source AND (x.id = r.id OR (x.id IS NULL AND r.id IS NULL))
+  AND all(label IN r.labels WHERE label IN labels(x))
 MATCH (k:Study) WHERE elementId(k) = $k
 MATCH (l:Study) WHERE elementId(l) = $l
 OPTIONAL MATCH (x)-[e:IN_STUDY]->(l)
 WITH x, k, r, collect(e) AS on_l
-WHERE r.on_both OR size(on_l) > 0
+WHERE size(on_l) > 0
 MERGE (x)-[:IN_STUDY]->(k)
 FOREACH (e IN CASE WHEN r.on_both THEN [] ELSE on_l END | DELETE e)
-RETURN count(x) AS restored
+RETURN count(DISTINCT x) AS restored
 """
 # Re-create archived IN_STUDY links: rows are {sample_id, study_id, seek_study_id} as in_study_removed.tsv holds
 # them. A Study is found by id when the archive names one, else by seek_study_id on a node with no id; a sample or a
-# Study that is gone restores nothing.
+# Study that is gone restores nothing. The count is of rows that found their link's two ends, not of MERGE's rows.
 RESTORE_IN_STUDY = """
 UNWIND $rows AS r
 MATCH (s:Sample {id: r.sample_id})
 OPTIONAL MATCH (a:Study {id: r.study_id})
 OPTIONAL MATCH (b:Study {seek_study_id: r.seek_study_id}) WHERE r.study_id IS NULL AND b.id IS NULL
-WITH s, coalesce(a, b) AS st WHERE st IS NOT NULL
+WITH r, s, coalesce(a, b) AS st WHERE st IS NOT NULL
 MERGE (s)-[:IN_STUDY]->(st)
-RETURN count(*) AS restored
+RETURN count(DISTINCT r) AS restored
 """
 
 # --- gate G's reads of the small tables (family 14) and of IN_PROJECT (check 2) ------------------------------------

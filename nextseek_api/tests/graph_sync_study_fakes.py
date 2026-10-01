@@ -150,6 +150,7 @@ class StudyGraph:
             q.MOVE_IN_STUDY: self._move,
             q.FINISH_STUDY_MERGE: self._finish,
             q.UNMERGE_STUDY_NODES: self._unmerge,
+            q.UNDO_SOURCE_NODES: self._source_nodes,
             q.UNMERGE_MOVE_BACK: self._move_back,
             q.RESTORE_IN_STUDY: self._restore,
         }
@@ -322,10 +323,12 @@ class StudyGraph:
         return rows
 
     def _move(self, p):
+        """MERGE to L yields one row per edge the source then holds to L, so the statement's count is of sources only
+        when it counts them DISTINCT; the fake answers whichever the statement asks, so a row count shows here too."""
         self._moves += 1
         if self.fail_moves_after is not None and self._moves > self.fail_moves_after:
             raise RuntimeError("the connection to Neo4j was lost")
-        moved = 0
+        sources = rows = 0
         for src in p["sources"]:
             edges = [e for e, (s, st) in self.in_study.items() if s == src and st == p["k"]]
             if not edges:
@@ -334,18 +337,23 @@ class StudyGraph:
                 self.link(src, p["l"])
             for e in edges:
                 del self.in_study[e]
-            moved += 1
-        return [{"moved": moved}]
+            sources += 1
+            rows += sum(1 for s, st in self.in_study.values() if s == src and st == p["l"])
+        return [{"moved": sources if "count(DISTINCT x)" in q.MOVE_IN_STUDY else rows}]
 
     def _finish(self, p):
         legacy = self.studies.get(p["l"])
         if legacy is None or legacy.get("seek_study_id") is not None or legacy.get("id") != p["study_id"]:
             return [{"merged": 0}]
         k = p["k"]
+        if any(e != k and props.get("seek_study_id") == p["study_id"] for e, props in self.studies.items()):
+            return [{"merged": 0}]
         if k is not None:
             if (k not in self.studies or any(st == k for _, st in self.in_study.values()) or self.other_rels[k]
                     or len(self.in_investigation[k]) > 1):
                 return [{"merged": 0}]
+        if p["new_investigation"] is not None and (k is None or p["new_investigation"] not in self.in_investigation[k]):
+            return [{"merged": 0}]
         if p["new_investigation"] is not None:
             self.in_investigation[p["l"]] = [p["new_investigation"]]
         if k is not None:
@@ -363,23 +371,43 @@ class StudyGraph:
         if any(e != p["l"] and props.get("seek_study_id") == p["study_id"] for e, props in self.studies.items()):
             return []
         self.studies[p["l"]] = {k: v for k, v in p["l_props"].items() if v is not None}
-        self.in_investigation[p["l"]] = [p["l_investigation"]] if p["l_investigation"] in self.investigations else []
-        new_k = []
+        self.in_investigation[p["l"]] = ([p["l_investigation"]]
+                                         if self._is_investigation(p["l_investigation"], p["l_investigation_id"])
+                                         else [])
+        new_k, k_investigations = [], 0
         if p["k_props"] is not None:
             eid = self.add_study(**p["k_props"])
-            if p["k_investigation"] in self.investigations:
+            if self._is_investigation(p["k_investigation"], p["k_investigation_id"]):
                 self.in_investigation[eid] = [p["k_investigation"]]
             new_k.append(eid)
-        return [{"l": p["l"], "new_k": new_k, "l_investigations": len(self.in_investigation[p["l"]])}]
+            k_investigations = len(self.in_investigation[eid])
+        return [{"l": p["l"], "new_k": new_k, "l_investigations": len(self.in_investigation[p["l"]]),
+                 "k_investigations": k_investigations}]
+
+    def _is_investigation(self, element_id, inv_id) -> bool:
+        """An Investigation found by element id AND id, as the undo matches one."""
+        return element_id in self.investigations and self.investigations[element_id]["id"] == inv_id
+
+    def _same_source(self, r) -> bool:
+        src = self.sources.get(r["source"])
+        return src is not None and src["id"] == r["id"] and set(r["labels"]) <= src["labels"]
+
+    def _source_nodes(self, p):
+        out = []
+        for eid in p["element_ids"]:
+            src = self.sources.get(eid)
+            out.append({"element_id": eid, "found": src is not None, "id": None if src is None else src["id"],
+                        "labels": [] if src is None else sorted(src["labels"])})
+        return out
 
     def _move_back(self, p):
         restored = 0
         for r in p["rows"]:
             src = r["source"]
-            if src not in self.sources or p["k"] not in self.studies or p["l"] not in self.studies:
+            if not self._same_source(r) or p["k"] not in self.studies or p["l"] not in self.studies:
                 continue
             on_l = [e for e, (s, st) in self.in_study.items() if s == src and st == p["l"]]
-            if not (r["on_both"] or on_l):
+            if not on_l:
                 continue
             if not any(s == src and st == p["k"] for s, st in self.in_study.values()):
                 self.link(src, p["k"])
@@ -403,5 +431,5 @@ class StudyGraph:
             for st in targets:
                 if not any(s == src and t == st for s, t in self.in_study.values()):
                     self.link(src, st)
-                restored += 1
+            restored += bool(targets)
         return [{"restored": restored}]

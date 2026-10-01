@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 JOURNAL_FILE = "study_merge.tsv"
 REPORT_FILE = "study_merge.json"
 JOURNAL_HEADER = "study_id\trecord\tpayload\n"
-OK, FAILED, DRY_RUN, PARTIAL = "ok", "failed", "dry_run", "partial"
+OK, FAILED, DRY_RUN, PARTIAL, REFUSED = "ok", "failed", "dry_run", "partial", "refused"
 
 ALREADY_MERGED = "already_merged"
 SEEK_ONLY = "seek_only"
@@ -237,8 +237,14 @@ def _sources(driver, db, element_id: str) -> list[dict]:
             for r in _records(_run(driver, db, q.STUDY_SOURCES, {"element_id": element_id}, read=True))]
 
 
-def _detail(driver, db, sel: Selection) -> dict:
-    """The samples on L, on K and on both, K's other sources, and what ``--studies`` will do to them. Read-only."""
+def _detail(driver, db, sel: Selection, acting_ids=frozenset()) -> dict:
+    """The samples on L, on K and on both, K's other sources, and what ``--studies`` will do to them. Read-only.
+
+    ``studies_preview`` counts every sample once from SEEK's studies alone: ``kept`` (SEEK files it under X),
+    ``leaves`` (SEEK files it under other studies only, so its link to X goes, a paper sample's included) and
+    ``no_seek_study`` (SEEK files it under none: kept and reported). ``paper_samples`` counts, besides, the samples
+    that are also on a graph-only paper; a link to the legacy node of an id in ``acting_ids`` is not a paper link,
+    since that node becomes a SEEK study's."""
     x = sel.study_id
     on_l = _sources(driver, db, sel.legacy.element_id)
     on_k = [] if sel.seek_keyed is None else _sources(driver, db, sel.seek_keyed.element_id)
@@ -250,12 +256,13 @@ def _detail(driver, db, sel: Selection) -> dict:
     for link in sources.seek_study_links_for(everyone):
         seek_of.setdefault(int(link["sample_id"]), set()).add(int(link["study_id"]))
     current = writer.sample_studies(driver, db, everyone)
+    not_papers = set(acting_ids) | {x}
     preview = Counter()
     for sample_id in everyone:
         links = current.get(sample_id, [])
-        if any(link["seek_study_id"] is None and link["id"] != x for link in links):
+        if any(link["seek_study_id"] is None and link["id"] not in not_papers for link in links):
             preview["paper_samples"] += 1
-        elif not seek_of.get(sample_id):
+        if not seek_of.get(sample_id):
             preview["no_seek_study"] += 1
         elif x in seek_of[sample_id]:
             preview["kept"] += 1
@@ -282,22 +289,49 @@ def _left_empty(index: Index, selections) -> list[dict]:
     return out
 
 
+def format_approval(kinds: dict) -> str:
+    """The approval line: ``id:kind`` for each id, ascending, comma-separated (``3:merge,6:rekey_in_place``)."""
+    return ",".join(f"{int(x)}:{kinds[x]}" for x in sorted(kinds, key=int))
+
+
+def parse_approval(text: str) -> dict:
+    """An approval line read back: ``{id: kind}`` in the order given, a bare id mapping to None. Raises ValueError
+    for a part that is not an id or ``id:kind`` with a kind of ``KINDS``, and for one id given two kinds."""
+    approved: dict[int, str | None] = {}
+    for part in (text or "").split(","):
+        study_id, sep, kind = (p.strip() for p in part.strip().partition(":"))
+        if not study_id.isdigit():
+            raise ValueError(f"not a SEEK study id: {part.strip()!r}")
+        if sep and kind not in KINDS:
+            raise ValueError(f"not a merge kind: {kind!r} (study {study_id})")
+        x, kind = int(study_id), (kind if sep else None)
+        if x in approved and approved[x] != kind:
+            raise ValueError(f"study {x} is given two kinds: {approved[x]} and {kind}")
+        approved[x] = kind
+    return approved
+
+
 def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
     """The merge's dry run: each SEEK study id's kind and the facts the operator approves from (the spec's section
-    5.4). ``ids`` None means every id some Study carries; ``detail`` reads each acting id's samples too. Read-only."""
+    5.4). ``ids`` None means every id some Study carries; ``detail`` reads each acting id's samples too. Read-only.
+
+    ``approval_line`` is what the operator approves: every id of an acting kind with that kind (``format_approval``),
+    a merge_other_investigation included, so approving the line leaves no acting id behind. Those ids are also listed
+    apart in ``merge_other_investigation``, with the Investigations they would leave empty."""
     index = read_index(driver, db)
     wanted = study_ids(index) if ids is None else sorted({int(i) for i in ids})
     selections = [classify(index, x) for x in wanted]
     report = {"ids": wanted, "kinds": {s.study_id: s.kind for s in selections},
               "counts": dict(Counter(s.kind for s in selections)), "studies": []}
+    acting = frozenset(s.study_id for s in selections if s.kind in ACTING)
     for sel in selections:
         if sel.kind == SEEK_ONLY:
             continue
         entry = _entry(sel)
         if detail and sel.kind in ACTING:
-            entry.update(_detail(driver, db, sel))
+            entry.update(_detail(driver, db, sel, acting))
         report["studies"].append(entry)
-    report["approval_line"] = ",".join(str(s.study_id) for s in selections if s.kind in (MERGE, REKEY_IN_PLACE))
+    report["approval_line"] = format_approval({s.study_id: s.kind for s in selections if s.kind in ACTING})
     report["merge_other_investigation"] = [s.study_id for s in selections if s.kind == MERGE_OTHER_INVESTIGATION]
     report["id_collisions"] = [s.study_id for s in selections if s.kind == ID_COLLISION]
     report["legacy_only"] = [s.study_id for s in selections if s.kind == LEGACY_ONLY]
@@ -322,8 +356,11 @@ def _journaled_node(node: StudyNode | None) -> dict | None:
 
 def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     x, legacy, keyed = sel.study_id, sel.legacy, sel.seek_keyed
+    # L's own sources go in the plan line, before any write: an undo moves every other source it then finds on L
+    # (one that reached study X through the key after the merge) to the re-created K.
     _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
-                                   "seek_keyed": _journaled_node(keyed)}])
+                                   "seek_keyed": _journaled_node(keyed),
+                                   "legacy_sources": _sources(driver, db, legacy.element_id)}])
     if keyed is not None and sel.kind != REKEY_IN_PLACE:
         while True:
             rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
@@ -349,30 +386,59 @@ def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     _journal(journal, x, "done", [{"kind": sel.kind}])
 
 
-def apply(driver, db, expected: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
-    """Merge or rekey each id of ``expected`` (id to the kind the operator approved, from ``plan``), in id order,
-    under the caller's hold of the graph-write lock (the spec's section 5.3). Each id is read again first: an
-    ``already_merged`` id is counted and not written; an id whose kind changed stops the run before its first write,
-    ids done before it staying done (``status: failed``). Every step is journaled to ``study_merge.tsv`` in
-    ``run_dir`` before its write; a rerun given the same ``run_dir`` appends to it and finishes a merge a crash
-    stopped. Raises RuntimeError when a move or the last step does not do what was read."""
+def _unfinished_kinds(journal: str) -> dict:
+    """Per study id, the kind of the first ``plan`` line of an attempt this journal holds no ``done`` line for: the
+    kind a rerun into it is held to. A line that cannot be read (a crash cut it short) describes no write; skipped."""
+    pending: dict[int, str] = {}
+    if not os.path.isfile(journal):
+        return pending
+    with open(journal, encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t", 2)
+            if len(parts) != 3 or not parts[0].isdigit():
+                continue
+            x, record = int(parts[0]), parts[1]
+            if record == "done":
+                pending.pop(x, None)
+            elif record == "plan" and x not in pending:
+                try:
+                    pending[x] = json.loads(parts[2])["kind"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+    return pending
+
+
+def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
+    """Merge or rekey each id of ``approved`` (id to the kind the operator approved from the dry run's approval
+    line), in id order, under the caller's hold of the graph-write lock (the spec's section 5.3). Each id's kind is
+    read again first: an ``already_merged`` id is counted and not written; an id that reads another kind than its
+    approved one stops the run before its first write, ids done before it staying done. A rerun given the same
+    ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
+    a merge by the match that moved every source before a crash, and now reads rekey_in_place, is still finished.
+    The status is ``refused`` when the run stopped before writing anything, ``failed`` when it stopped part way.
+    Every step is journaled to ``study_merge.tsv`` in ``run_dir`` before its write. Raises RuntimeError when a move
+    or the last step does not do what was read."""
     run_dir = os.path.abspath(run_dir)
     journal = os.path.join(run_dir, JOURNAL_FILE)
+    journaled = _unfinished_kinds(journal)
     result = {"status": OK, "run_dir": run_dir, "journal": journal, "merged": [], "already_merged": [],
               "stopped_at": None}
-    for x in sorted(int(i) for i in expected):
+    for x in sorted(int(i) for i in approved):
         sel = classify(read_index(driver, db), x)
         if sel.kind == ALREADY_MERGED:
             result["already_merged"].append(x)
             continue
-        if expected[x] == MERGE and sel.kind == REKEY_IN_PLACE and sel.seek_keyed is not None:
+        expected = journaled.get(x, approved[x])
+        if expected == MERGE and sel.kind == REKEY_IN_PLACE and sel.seek_keyed is not None:
             # A merge by the match whose every source moved before a crash stopped it: K holds no IN_STUDY now, so
             # the id reads rekey_in_place, whose last step is the merge's own. Finish it as that.
             log.info("study %s: its merge moved every source before it stopped; finishing it", x)
-        elif sel.kind != expected[x] or sel.kind not in ACTING:
-            result.update(status=FAILED, stopped_at=x,
-                          problem=f"study {x} reads {sel.kind} now, not {expected[x]}; it and every later id are "
-                                  "left as they are")
+        elif sel.kind != expected or sel.kind not in ACTING:
+            source = (f"its journal's {expected}, from a run it did not finish" if x in journaled
+                      else f"{expected}, as approved")
+            result.update(status=FAILED if result["merged"] else REFUSED, stopped_at=x,
+                          problem=f"study {x} reads {sel.kind} now, not {source}; it and every later id are left "
+                                  "as they are: run the dry run again and approve what it prints")
             return result
         _merge_one(driver, db, sel, journal, batch)
         result["merged"].append({"study_id": x, "kind": sel.kind})
@@ -388,7 +454,10 @@ def _opt_int(text: str):
 def read_journals(paths) -> tuple[dict, list]:
     """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
     and/or ``in_study_removed.tsv``), and the archives found. The first ``plan`` line of an id wins (a crash and its
-    rerun journal the same nodes); sources are merged by element id. Raises ValueError for a path that is neither."""
+    rerun journal the same nodes); sources, and the legacy node's own sources of every plan line, are merged by
+    element id (a source a crashed run moved is in its ``source`` lines, which take precedence in the undo).
+    ``legacy_sources_known`` is False when a plan line holds no list of them. Raises ValueError for a path that is
+    neither."""
     per_id: dict[int, dict] = {}
     archives: list[str] = []
     for raw in paths:
@@ -414,10 +483,16 @@ def read_journals(paths) -> tuple[dict, list]:
                 raise ValueError(f"{journal} is not a study merge journal")
             for line in fh:
                 study_id, record, payload = line.rstrip("\n").split("\t", 2)
-                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}})
+                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}, "legacy_sources": {},
+                                                          "legacy_sources_known": True})
                 data = json.loads(payload)
-                if record == "plan" and entry["plan"] is None:
-                    entry["plan"] = data
+                if record == "plan":
+                    if entry["plan"] is None:
+                        entry["plan"] = data
+                    if "legacy_sources" not in data:
+                        entry["legacy_sources_known"] = False
+                    for source in data.get("legacy_sources") or []:
+                        entry["legacy_sources"].setdefault(source["element_id"], source)
                 elif record == "source":
                     entry["sources"].setdefault(data["element_id"], data)
     return per_id, archives
@@ -457,14 +532,86 @@ def _undo_state(index: Index, x: int, plan_payload: dict):
     return None, "the legacy node and the nodes carrying this seek_study_id are not as the merge left them"
 
 
-def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK) -> dict:
+def _class_labels(labels) -> list[str]:
+    """A node's labels without a sample type's label (``T_...``), which a rename of the type changes."""
+    return sorted(label for label in labels or [] if not schema.is_type_label(label))
+
+
+def _same_node(journaled: dict, now: dict | None) -> bool:
+    """Whether the node a journaled element id names now is the journaled node. Neo4j hands a freed element id to a
+    new node, so its ``id`` and labels (a type label aside) must match too."""
+    return bool(now and now["found"]) and now["id"] == journaled.get("id") and set(
+        _class_labels(journaled.get("labels"))) <= set(now["labels"])
+
+
+def _nodes_now(driver, db, element_ids, batch: int) -> dict:
+    """What each element id names now: ``{element id: {"found", "id", "labels"}}``. Read-only."""
+    out = {}
+    for part in _batches(list(element_ids), batch):
+        for r in _records(_run(driver, db, q.UNDO_SOURCE_NODES, {"element_ids": part}, read=True)):
+            out[r["element_id"]] = {"found": bool(r["found"]), "id": r["id"], "labels": list(r["labels"] or [])}
+    return out
+
+
+def _identity(element_id: str, journaled: dict) -> dict:
+    return {"element_id": element_id, "id": journaled.get("id"), "labels": _class_labels(journaled.get("labels"))}
+
+
+def _not_restored(study_id: int, node: str, investigation: dict | None) -> dict:
+    investigation = investigation or {}
+    return {"study_id": study_id, "node": node,
+            "investigation": {"id": investigation.get("id"), "title": investigation.get("title")}}
+
+
+def unlisted_journals(run_root: str, paths, study_ids) -> list[str]:
+    """The merge journals under ``run_root`` (``<run root>/<run directory>/study_merge.tsv``) that ``paths`` do not
+    name and that hold a ``plan`` line for one of ``study_ids``: a crashed merge and its rerun into another run
+    directory, or a later approval of the same id, are undone only together."""
+    given = set()
+    for raw in paths:
+        path = os.path.realpath(raw)
+        given.add(os.path.join(path, JOURNAL_FILE) if os.path.isdir(path) else path)
+    wanted, found = {int(x) for x in study_ids}, []
+    root = os.path.realpath(run_root)
+    if not os.path.isdir(root):
+        return found
+    for name in sorted(os.listdir(root)):
+        journal = os.path.join(root, name, JOURNAL_FILE)
+        if journal in given or not os.path.isfile(journal):
+            continue
+        with open(journal, encoding="utf-8", errors="replace") as fh:
+            named = {int(p[0]) for p in (line.split("\t", 2) for line in fh)
+                     if len(p) == 3 and p[1] == "plan" and p[0].isdigit()}
+        if named & wanted:
+            found.append(journal)
+    return found
+
+
+def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK,
+         run_root: str | None = None) -> dict:
     """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
     section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
-    carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
-    step finds it done and goes on); then every archived link whose sample and Study still exist is re-created; then
-    each journaled source goes back to K ("on both" keeps its link to L too). ``dry_run`` reports each id's state and
-    writes nothing."""
+    carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that step
+    finds it done and goes on); then every archived link whose sample and Study still exist is re-created, in the same
+    call and before any source moves, so a link ``--studies`` removed from the merged node comes back on L and then
+    moves to K with the rest (given in a later call it would stay on L); then each journaled source goes back to K
+    ("on both" keeps its link to L too), and every other source on L that is not one of L's own journaled sources
+    reached study X through the key after the merge (an upload, a ``--studies`` link) and moves to K too, listed in
+    ``arrived_after_merge``; where the journal holds no K (a rekey in place of a node with none) they stay on L, are
+    listed in ``arrived_left_on_legacy``, and the status is ``partial``. ``dry_run`` reports each id's state and
+    writes nothing. With ``run_root``, a merge journal under it that names one of the ids and is not among ``paths``
+    raises ValueError before anything is read from the graph.
+
+    Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
+    Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
+    id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
+    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``."""
     journals, archives = read_journals(paths)
+    if run_root is not None:
+        missing = unlisted_journals(run_root, paths, journals)
+        if missing:
+            raise ValueError("other merge journals name the same study ids; give them too, so a crash and its rerun "
+                             "(or a later approval) are undone together: " + ", ".join(missing))
     archive_rows = _read_archives(archives)
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
@@ -481,7 +628,8 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
             continue
         todo.append([x, entry, state_, found])
         report["studies"].append({"study_id": x, "state": state_, "sources": len(entry["sources"]),
-                                  "moved_back": 0, "skipped": 0})
+                                  "moved_back": 0, "skipped": 0, "sources_replaced": [], "arrived_after_merge": [],
+                                  "arrived_moved": 0, "arrived_left_on_legacy": []})
     if dry_run:
         return report
     for item in todo:
@@ -490,11 +638,14 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
             continue
         plan_payload = entry["plan"]
         keyed = plan_payload["seek_keyed"]
+        l_inv = plan_payload["legacy"]["investigation"] or {}
+        k_inv = None if keyed is None else (keyed["investigation"] or {})
         records = _records(_run(driver, db, q.UNMERGE_STUDY_NODES, {
             "l": plan_payload["legacy"]["element_id"], "study_id": x, "l_props": plan_payload["legacy"]["props"],
-            "l_investigation": plan_payload["legacy"]["investigation"]["element_id"],
+            "l_investigation": l_inv.get("element_id"), "l_investigation_id": l_inv.get("id"),
             "k_props": None if keyed is None else keyed["props"],
-            "k_investigation": None if keyed is None else keyed["investigation"]["element_id"]}))
+            "k_investigation": None if k_inv is None else k_inv.get("element_id"),
+            "k_investigation_id": None if k_inv is None else k_inv.get("id")}))
         if not records:
             report["refused"].append({"study_id": x, "reason": "the legacy node changed between the read and the "
                                                                "write"})
@@ -503,20 +654,63 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         new_k = list(records[0]["new_k"] or [])
         item[3] = new_k[0] if new_k else None
         if not records[0]["l_investigations"]:
-            report["investigation_not_restored"].append(x)
+            report["investigation_not_restored"].append(_not_restored(x, "legacy", l_inv))
+        if new_k and not records[0]["k_investigations"]:
+            report["investigation_not_restored"].append(_not_restored(x, "seek_keyed", k_inv))
     for rows in _batches(archive_rows, batch):
         report["archive_restored"] += _one(_run(driver, db, q.RESTORE_IN_STUDY, {"rows": rows}), "restored")
     by_id = {s["study_id"]: s for s in report["studies"]}
     for x, entry, state_, keyed_eid in todo:
-        if state_ is None or keyed_eid is None:
+        if state_ is None:
             continue
-        rows = [{"source": eid, "on_both": s["place"] == "on_both"} for eid, s in sorted(entry["sources"].items())]
-        moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
-                                                                "k": keyed_eid, "rows": part}), "restored")
-                    for part in _batches(rows, batch))
-        by_id[x].update(moved_back=moved, skipped=len(rows) - moved)
+        if keyed_eid is not None:
+            _move_back(driver, db, entry, keyed_eid, by_id[x], batch)
+        _move_arrivals(driver, db, entry, keyed_eid, by_id[x], batch)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
-    if report["refused"]:
+    if (report["refused"] or report["investigation_not_restored"]
+            or any(s["arrived_left_on_legacy"] for s in report["studies"])):
         report["status"] = PARTIAL
     return report
+
+
+def _move_back(driver, db, entry: dict, keyed_eid: str, study: dict, batch: int) -> None:
+    """Step 2: each journaled K source that is still the journaled node goes back to K."""
+    journaled = entry["sources"]
+    now = _nodes_now(driver, db, sorted(journaled), batch)
+    same = [eid for eid in sorted(journaled) if _same_node(journaled[eid], now.get(eid))]
+    kept = set(same)
+    replaced = [_identity(eid, journaled[eid]) for eid in sorted(journaled)
+                if eid not in kept and now.get(eid, {}).get("found")]
+    rows = [dict(_identity(eid, journaled[eid]), source=eid, on_both=journaled[eid]["place"] == "on_both")
+            for eid in same]
+    moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
+                                                            "k": keyed_eid, "rows": part}), "restored")
+                for part in _batches(rows, batch))
+    study.update(moved_back=moved, skipped=len(journaled) - moved, sources_replaced=replaced)
+
+
+def _move_arrivals(driver, db, entry: dict, keyed_eid: str | None, study: dict, batch: int) -> None:
+    """Every source on L now that is neither a journaled K source nor one of L's own journaled sources (each matched
+    by element id, id and labels) reached study X through the key after the merge: it goes to K, or, with no K to
+    go to, stays and is listed. A journal from before L's sources were journaled says nothing about arrivals."""
+    if not entry["legacy_sources_known"]:
+        study["arrived_after_merge"] = None
+        return
+    legacy_eid = entry["plan"]["legacy"]["element_id"]
+    known = (entry["sources"], entry["legacy_sources"])
+    arrived = []
+    for source in _sources(driver, db, legacy_eid):
+        now = {"found": True, "id": source["id"], "labels": source["labels"]}
+        if not any(source["element_id"] in j and _same_node(j[source["element_id"]], now) for j in known):
+            arrived.append(_identity(source["element_id"], source))
+    study["arrived_after_merge"] = arrived
+    if not arrived:
+        return
+    if keyed_eid is None:
+        study["arrived_left_on_legacy"] = arrived
+        return
+    rows = [dict(a, source=a["element_id"], on_both=False) for a in arrived]
+    study["arrived_moved"] = sum(
+        _one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": legacy_eid, "k": keyed_eid, "rows": part}), "restored")
+        for part in _batches(rows, batch))

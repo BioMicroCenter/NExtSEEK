@@ -157,7 +157,10 @@ def test_the_plan_reads_every_kind(graph):
     from nextseek_api.graph_sync import study_merge
     report = study_merge.plan(graph.driver, DB)
     assert report["kinds"] == EXPECTED_KINDS
-    assert report["approval_line"] == "1,2,4,5,6,7" and report["merge_other_investigation"] == [3]
+    assert report["approval_line"] == ("1:merge,2:merge,3:merge_other_investigation,4:rekey_in_place,"
+                                       "5:rekey_in_place,6:merge,7:rekey_in_place")
+    assert study_merge.parse_approval(report["approval_line"]) == APPROVED
+    assert report["merge_other_investigation"] == [3]
     assert report["id_collisions"] == [8] and report["legacy_only"] == [14]
 
 
@@ -430,6 +433,202 @@ def test_an_investigation_held_only_by_a_gone_seek_studys_node_leaves_the_graph(
     lines = (tmp_path / writer.INVESTIGATIONS_DELETED_FILE).read_text(encoding="utf-8").splitlines()
     assert [line.split("\t")[:2] for line in lines[1:]] == [["9", "Gone with its study"]]
 
+
+# --- the merge's statements on shapes the module's fixture lacks ----------------------------------------------------
+
+_SPLIT_PAIR = (
+    "CREATE (i:Investigation {id: 101, title: 'Alder Investigation'}), "
+    "(l:Study {id: 1, title: 'Alder Unpublished', DOI: '', PMID: ''})-[:IN_INVESTIGATION]->(i), "
+    "(k:Study {seek_study_id: 1, title: 'Alder Unpublished'})-[:IN_INVESTIGATION]->(i), "
+    "(a:Sample {id: 1001, uuid: 'TIS-000000LNE-1001'})-[:IN_STUDY]->(l), (a)-[:IN_STUDY]->(k), "
+    "(b:Sample {id: 1002, uuid: 'TIS-000000LNE-1002'})-[:IN_STUDY]->(k), "
+    "(:GraphMeta {schema_version: '1.2', catalog_hash: 'lane'})")
+
+
+def _split_pair(lane, monkeypatch, *extra):
+    """SEEK study 1 split: L (the empty marker) and K, both under Investigation 101; sample 1001 on both, 1002 only on
+    K. SEEK holds study 1 under investigation 101. ``extra`` statements run after the load."""
+    from nextseek_api.graph_sync import sources
+    _load(lane, [_SPLIT_PAIR, *extra])
+    monkeypatch.setattr(sources, "studies", lambda: [
+        {"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101}])
+    monkeypatch.setattr(sources, "investigations", lambda: [
+        {"id": 101, "title": "Alder Investigation", "description": None}])
+
+
+def test_a_source_with_two_edges_to_the_legacy_node_moves_once(studies_lane, monkeypatch, tmp_path):
+    """MERGE to L matches both of 1001's parallel edges to L: the batch still counts one source, the merge finishes,
+    and every link ends on the merged node."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch,
+                "MATCH (a:Sample {id: 1001}), (l:Study {id: 1}) CREATE (a)-[:IN_STUDY]->(l)")
+    result = study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok" and result["merged"] == [{"study_id": 1, "kind": "merge"}]
+    assert studies_lane.read("MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek") == [
+        {"id": 1, "seek": 1}]
+    assert _keys(studies_lane, 1001) == [("seek", 1), ("seek", 1)] and _keys(studies_lane, 1002) == [("seek", 1)]
+
+
+def _element_ids(lane, label, key):
+    return {r["key"]: r["element_id"] for r in lane.read(
+        f"MATCH (n:{label}) RETURN elementId(n) AS element_id, coalesce(n.{key}, -1) AS key")}
+
+
+def _finish(lane, **params):
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync.writer import _one, _run
+    return _one(_run(lane.driver, DB, q.FINISH_STUDY_MERGE,
+                     {"study_id": 1, "new_investigation": None, **params}), "merged")
+
+
+def test_the_last_step_refuses_a_second_node_carrying_the_key(studies_lane, monkeypatch):
+    """FINISH with no seek-keyed node to delete, while another node already carries seek_study_id 1: it writes
+    nothing, so two nodes never share the key."""
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e")
+    legacy = _element_ids(studies_lane, "Study", "id")[1]
+    assert _finish(studies_lane, l=legacy, k=None) == 0
+    assert studies_lane.read("MATCH (st:Study {seek_study_id: 1}) RETURN count(st) AS n") == [{"n": 1}]
+
+
+def test_the_last_step_never_leaves_the_legacy_node_under_no_investigation(studies_lane, monkeypatch):
+    """A merge_other_investigation whose new Investigation is not the seek-keyed node's: nothing is written, and L
+    keeps its own Investigation."""
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e",
+                "MATCH (l:Study {id: 1})-[e:IN_INVESTIGATION]->() DELETE e "
+                "CREATE (l)-[:IN_INVESTIGATION]->(:Investigation {id: 901, title: 'Alder Investigation'})")
+    nodes = _element_ids(studies_lane, "Study", "id")
+    assert _finish(studies_lane, l=nodes[1], k=nodes[-1], new_investigation="no-such-element") == 0
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == [{"id": 901}]
+
+
+def test_the_last_step_fails_on_a_link_that_arrives_after_its_check(studies_lane, monkeypatch):
+    """Another transaction links a sample to K and holds its commit while FINISH runs: FINISH reads K as empty, waits
+    on K's lock, and once the link commits its delete of K must fail rather than take the link with it."""
+    import threading
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e")
+    nodes = _element_ids(studies_lane, "Study", "id")
+    outcome = {}
+
+    def finish():
+        try:
+            outcome["merged"] = _finish(studies_lane, l=nodes[1], k=nodes[-1])
+        except Exception as exc:  # noqa: BLE001 - the outcome under test is the error itself
+            outcome["error"] = exc
+
+    session = studies_lane.driver.session()
+    tx = session.begin_transaction()
+    worker = threading.Thread(target=finish)
+    committed = False
+    try:
+        tx.run("MATCH (s:Sample {id: 1002}), (k:Study {seek_study_id: 1}) CREATE (s)-[:IN_STUDY]->(k)").consume()
+        worker.start()
+        worker.join(3)
+        assert worker.is_alive(), "FINISH did not wait on the seek-keyed node's lock"
+        tx.commit()
+        committed = True
+    finally:
+        if not committed:
+            tx.rollback()
+        session.close()
+        worker.join(60)
+    assert "error" in outcome, outcome
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+    nodes = studies_lane.read("MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek")
+    assert sorted((r["id"] or 0, r["seek"] or 0) for r in nodes) == [(0, 1), (1, 0)]
+
+
+_OTHER_INVESTIGATION = ("MATCH (l:Study {id: 1})-[e:IN_INVESTIGATION]->() DELETE e "
+                        "CREATE (l)-[:IN_INVESTIGATION]->(:Investigation {id: 901, title: 'Alder Investigation'})")
+
+
+def _rewrite_journal(run_dir, old_new: dict):
+    """Replace element ids in a journal: what an undo reads after Neo4j handed a freed element id to another node."""
+    from nextseek_api.graph_sync import study_merge
+    path = run_dir / study_merge.JOURNAL_FILE
+    text = path.read_text(encoding="utf-8")
+    for old, new in old_new.items():
+        text = text.replace(json.dumps(old), json.dumps(new))
+    path.write_text(text, encoding="utf-8")
+
+
+def test_undo_matches_each_source_and_investigation_by_its_id_too(studies_lane, monkeypatch, tmp_path):
+    """After a merge_other_investigation, sample 1001 (on both) is retired and the emptied legacy Investigation
+    deleted; an Attribute and a new Investigation hold the element ids the journal names (rewritten here, as reuse
+    would leave them). The undo links neither, names the Investigation, and reports the source as replaced."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch, _OTHER_INVESTIGATION)
+    old = {**_element_ids(studies_lane, "Sample", "id"), "inv": _element_ids(studies_lane, "Investigation", "id")[901]}
+    result = study_merge.apply(studies_lane.driver, DB, {1: "merge_other_investigation"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok"
+    studies_lane.write("MATCH (s:Sample {id: 1001}) DETACH DELETE s")
+    studies_lane.write("MATCH (i:Investigation {id: 901}) DETACH DELETE i")
+    studies_lane.write("CREATE (:Attribute {name: 'attr'}), (:Investigation {id: 41, title: 'Juniper Investigation'})")
+    new = {"sample": _element_ids(studies_lane, "Attribute", "id")[-1],
+           "inv": _element_ids(studies_lane, "Investigation", "id")[41]}
+    _rewrite_journal(tmp_path, {old[1001]: new["sample"], old["inv"]: new["inv"]})
+
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert studies_lane.read("MATCH (a:Attribute)-[:IN_STUDY]->() RETURN count(a) AS n") == [{"n": 0}]
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == []
+    assert [i["investigation"]["id"] for i in undone["investigation_not_restored"]] == [901]
+    assert [s["id"] for s in undone["studies"][0]["sources_replaced"]] == [1001]
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+
+
+def test_undo_after_neo4j_reuses_a_retired_sources_element_id(studies_lane, monkeypatch, tmp_path):
+    """The same without rewriting anything, where Neo4j can be made to reuse an element id within a bounded wait:
+    sample 1001 (on both) is retired after the merge and new Attribute nodes are created until one takes its element
+    id. Skips when Neo4j reuses none in time."""
+    import time
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch)
+    study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    freed = _element_ids(studies_lane, "Sample", "id")[1001]
+    studies_lane.write("MATCH (s:Sample {id: 1001}) DETACH DELETE s")
+    # Freed ids are handed out again after a short delay, oldest first, and earlier tests freed many: create in bulk.
+    deadline, taken = time.monotonic() + 45, False
+    while not taken and time.monotonic() < deadline:
+        made = studies_lane.driver.execute_query(
+            "UNWIND range(1, 1000) AS i CREATE (a:Attribute {name: 'probe'}) RETURN elementId(a) AS e", database_=DB)
+        taken = freed in {r["e"] for r in made.records}
+        if not taken:
+            time.sleep(1)
+    if not taken:
+        pytest.skip("Neo4j reused no freed element id within 45 s")
+    studies_lane.write("MATCH (a:Attribute) WHERE elementId(a) <> $e DETACH DELETE a", {"e": freed})
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert studies_lane.read("MATCH (a:Attribute)-[:IN_STUDY]->() RETURN count(a) AS n") == [{"n": 0}]
+    assert [s["id"] for s in undone["studies"][0]["sources_replaced"]] == [1001]
+
+
+def test_undo_after_the_nightly_deleted_the_legacy_investigation_is_partial(studies_lane, monkeypatch, tmp_path):
+    """A merge_other_investigation leaves the legacy Investigation empty and the nightly deletes it (no Study holds
+    it, SEEK lacks it). The undo cannot restore it: the legacy study comes back under none, the undo names it, and its
+    status is partial (the command exits 1)."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch, _OTHER_INVESTIGATION)
+    assert study_merge.apply(studies_lane.driver, DB, {1: "merge_other_investigation"},
+                             run_dir=str(tmp_path))["status"] == "ok"
+    studies_lane.write("MATCH (i:Investigation {id: 901}) WHERE NOT EXISTS { (i)<-[:IN_INVESTIGATION]-() } "
+                       "DETACH DELETE i")
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert undone["status"] == "partial"
+    assert undone["investigation_not_restored"] == [
+        {"study_id": 1, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == []
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+
+
+def test_undo_links_an_on_both_source_back_only_while_it_links_to_the_legacy_node(studies_lane, monkeypatch,
+                                                                                    tmp_path):
+    """1001 sat on both nodes; after the merge a removal SEEK made (its archive not given to the undo) took its link
+    to the merged node. The undo does not link it to the seek-keyed node again."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch)
+    study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    studies_lane.write("MATCH (:Sample {id: 1001})-[e:IN_STUDY]->() DELETE e")
+    assert study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])["status"] == "ok"
+    assert _keys(studies_lane, 1001) == [] and _keys(studies_lane, 1002) == [("seek", 1)]
 
 
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
