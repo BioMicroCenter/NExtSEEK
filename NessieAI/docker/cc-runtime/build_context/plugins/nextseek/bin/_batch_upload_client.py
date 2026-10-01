@@ -140,7 +140,8 @@ class BatchUploadClient:
         sample_numeric_id: int | str | None = None,
     ) -> int:
         """One in-project candidate: it. Several: the one the sample is in (when a sample is named), else the one in
-        an Unpublished study, else ValueError('ambiguous assay title: ...'), as the registration resolver decides."""
+        an Unpublished study (one the sample is in, when it is in several), else ValueError('ambiguous assay title:
+        ...'), as the registration resolver decides."""
         candidates = [int(item) for item in title_map.get(title, [])]
         if not candidates:
             raise ValueError(f"assay title not accessible: {title}")
@@ -149,6 +150,7 @@ class BatchUploadClient:
             return in_project[0]
         if not in_project:
             raise ValueError(f"ambiguous assay title: {title}")
+        holding: list[int] = []
         try:
             if sample_numeric_id is not None:
                 members = self.assay_samples(in_project)
@@ -164,8 +166,10 @@ class BatchUploadClient:
         except Exception as exc:  # noqa: BLE001 - fail closed: an unreadable candidate never picks one
             raise ValueError(f"ambiguous assay title: {title} (could not read the candidates: "
                              f"{type(exc).__name__})") from exc
-        if len(in_bucket) == 1:
-            return in_bucket[0]
+        # A sample several candidates hold (a shared sample in two same-titled clones) only gets one it is in.
+        pickable = [item for item in in_bucket if item in holding] if len(holding) > 1 else in_bucket
+        if len(pickable) == 1:
+            return pickable[0]
         raise ValueError(f"ambiguous assay title: {title} (candidates {in_project}; "
                          f"in an Unpublished study: {in_bucket or 'none'})")
 

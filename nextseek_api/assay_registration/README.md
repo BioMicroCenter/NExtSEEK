@@ -80,8 +80,9 @@ other.
   `internal_assays` into the sample's own project
   (`nextseek_api/assay_registration/resolver.py:147-152`). A title that reaches several assays
   of the sample's project resolves to the one the sample is already in, else to the one in the
-  investigation's Unpublished study (the rule of `nextseek_api/studies/buckets.py`); otherwise
-  it is refused as `assay_ambiguous_in_project`.
+  investigation's Unpublished study (the rule of `nextseek_api/studies/buckets.py`; a sample
+  several candidates hold gets that one only if it is among them); otherwise it is refused as
+  `assay_ambiguous_in_project`.
 - `planner.py` splits the resolved rows into what will be written, what is already present,
   and what is skipped (`nextseek_api/assay_registration/planner.py:72-96`), reading existing
   membership ids with `MIN(id)` under a `GROUP BY` because `assay_assets` has no unique

@@ -317,6 +317,14 @@ class TestTitleTiebreak:
         resolved, _ = self._resolve(memberships=[(131, 100, 9000), (140, 100, 9001)])
         assert resolved.assay_id == 131
 
+    def test_a_sample_in_two_clones_and_not_in_the_bucket_stays_ambiguous(self):
+        resolved, _ = self._resolve(
+            title_assays=self.BUCKET_AND_CLONE + [("imaging", 141, 3, "Imaging")],
+            buckets=self.BUCKETS + [(22, 6, "Delta Study")], assay_studies=self.STUDIES + [(141, 22)],
+            memberships=[(140, 100, 9001), (141, 100, 9002)])
+        assert resolved.error.code == "assay_ambiguous_in_project"
+        assert "the sample is in [140, 141]" in resolved.error.message
+
     def test_buckets_of_two_investigations_in_one_project_stay_ambiguous(self):
         resolved, _ = self._resolve(buckets=[(20, 5, "Alpha Unpublished"), (22, 6, "Beta Unpublished")],
                                     assay_studies=[(131, 20), (140, 22)])
