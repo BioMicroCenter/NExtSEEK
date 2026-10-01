@@ -144,6 +144,10 @@ def render_share_text(plan: StudyMovePlan) -> str:
     for g in s.get("groups", []):
         what = f"reuse {g['destination_assay_id']}" if g["action"] == "reuse" else "create (destination's policy)"
         out.append(f"  {g['source_assay_ids']} {g['title']!r} internal {g['internal_assay_ids']} -> {what}")
+    policy = s.get("clone_policy")
+    if policy:
+        out.append(f"Each assay created takes the destination study's policy: access {policy.get('access')}, "
+                   f"permissions {policy.get('permissions')}")
     links = s.get("links", {})
     out += ["", f"Links to insert: {links.get('mover', 0)} movers, {links.get('parent', 0)} parents; "
                 f"project rows to add: {s.get('project_rows', 0)}; parents brought: {s.get('parents_count', 0)}",

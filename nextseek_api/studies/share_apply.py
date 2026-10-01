@@ -208,11 +208,12 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
                                       message=f"study {inp.destination_study_id} gained assay(s) {unmapped} titled "
                                               f"{c.title!r} with no internal assays yet (another share may be making "
                                               "it): call again shortly; if this stays, look in SEEK")
+            if c.policy is None:   # never the source's policy: the plan read the destination study's (T33)
+                return StepAnswer(409, share.state, done, left, code="plan_changed",
+                                  message="the plan holds no destination policy for this assay: make a new share")
             try:
                 rep = session.get_assay(c.source_assay_id)
-                policy = ((session.get_study(inp.destination_study_id).get("data") or {}).get("attributes")
-                          or {}).get("policy")
-                payload = planner.fill_study(planner.clone_payload(rep, policy=policy), inp.destination_study_id)
+                payload = planner.fill_study(planner.clone_payload(rep, policy=c.policy), inp.destination_study_id)
             except SeekError as exc:
                 return _seek_answer(exc, share.state, done, left)
             except (ValidationError, KeyError, TypeError, ValueError) as exc:

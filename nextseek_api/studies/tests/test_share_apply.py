@@ -87,10 +87,11 @@ def test_each_call_makes_at_most_one_post_then_maps_and_queues(share_env):
     assert GraphSyncOutbox.objects.filter(kind="assay_map").exists()
 
 
-def test_the_clone_takes_the_destination_studys_policy(share_env):
+def test_the_clone_takes_the_destination_studys_policy_even_when_seek_hides_it(share_env):
+    del share_env.world.study_reps[40]["data"]["attributes"]["policy"]      # SEEK's GET to one who cannot manage D
     share_env.step(share_env.planned(U3))
     [payload] = share_env.session.payloads
-    assert payload["data"]["attributes"]["policy"] == share_env.world.study_reps[40]["data"]["attributes"]["policy"]
+    assert payload["data"]["attributes"]["policy"] == share_env.world.policies[40]
     assert payload["data"]["relationships"]["study"]["data"]["id"] == "40"
 
 

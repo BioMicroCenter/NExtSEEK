@@ -10,7 +10,8 @@ carry as they carry a move. ``plan_share`` reads, decides and writes nothing:
    source project, less the destination study's), none being ``no_source_assay``; one with no internal-assay row
    makes it ``source_assay_unmapped``.
 4. Groups by (title, internal-assay set): the destination study's one assay of a group is reused; none: one clone,
-   made at apply with the destination study's policy; several: the group's samples are ``target_assay_ambiguous``.
+   made at apply with the destination study's policy, read here from SEEK's tables (none readable refuses the share,
+   ``destination_policy_unreadable``); several: the group's samples are ``target_assay_ambiguous``.
 5. Inserts: each sample into its groups' destination assays with its direction in the group's smallest source assay
    it is in; each direct parent that is a member of one of those source assays into that group's destination assay
    with direction 1 (a grandparent never); the destination project for every sample and parent lacking it. A sample
@@ -37,6 +38,7 @@ SOURCE_PROJECT_UNKNOWN = "source_project_unknown"
 DESTINATION_PROJECT_UNKNOWN = "destination_project_unknown"
 DESTINATION_STUDY_UNKNOWN = "destination_study_unknown"
 DESTINATION_STUDY_NOT_IN_DESTINATION_PROJECT = "destination_study_not_in_destination_project"
+DESTINATION_POLICY_UNREADABLE = "destination_policy_unreadable"
 NOT_IN_SOURCE_PROJECT = "not_in_source_project"
 NO_SOURCE_ASSAY = "no_source_assay"
 SOURCE_ASSAY_UNMAPPED = planner.SOURCE_ASSAY_UNMAPPED
@@ -159,6 +161,12 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
     for src in sources.values():
         for a in src:
             group_sources[group_of[a]].add(a)
+    policy = None
+    if any(not dest_by_group.get(g) for g in group_sources):
+        policy = reader.study_policy(d)
+        if policy is None:
+            raise ShareRefused(DESTINATION_POLICY_UNREADABLE, f"study {d}: its policy could not be read from SEEK's "
+                                                              "tables, so an assay made in it could not take it")
     placeholder = reader.max_assay_id()
     clones: dict = {}
     for g in sorted(group_sources):
@@ -169,7 +177,8 @@ def plan_share(inp: ShareInput, reader, *, run_id: str, now: Optional[str] = Non
             clones[g] = ClonePlan(action="reuse", seek_assay_id=dest_by_group[g][0], **common)
         else:
             placeholder += 1
-            clones[g] = ClonePlan(action="create", placeholder_id=placeholder, policy_from_study=d, **common)
+            clones[g] = ClonePlan(action="create", placeholder_id=placeholder, policy_from_study=d, policy=policy,
+                                  **common)
 
     # 5. inserts: movers, then direct parents in their source assay, then the destination project
     source_assays = sorted({a for ids in group_sources.values() for a in ids})
@@ -292,6 +301,7 @@ def _summary(plan: StudyMovePlan, uid_of: dict, shared: list, parents: dict) -> 
     listed = [{"uid": uid_of.get(par), "child_uid": uid_of.get(child), "source_assay_id": a,
                "link": (ref, par) in planned_parents, "project": par in parent_projects}
               for (ref, par), (child, a) in sorted(parents.items(), key=lambda kv: (kv[0][1], kv[0][0]))]
+    policy = next((c.policy for c in plan.targets[0].clones if c.action == "create"), None)
     needing = Counter(c.after_class for c in plan.graph.move + plan.graph.pending
                       if c.after_class != labels.EQUAL and c.after_class not in labels.WRITABLE_WITHOUT_APPROVAL)
     inp = plan.share
@@ -303,6 +313,7 @@ def _summary(plan: StudyMovePlan, uid_of: dict, shared: list, parents: dict) -> 
         "groups": [{"source_assay_ids": c.group_source_assay_ids, "title": c.title,
                     "internal_assay_ids": sorted(set(c.internal_assay_ids)), "action": c.action,
                     "destination_assay_id": c.seek_assay_id} for c in plan.targets[0].clones],
+        "clone_policy": policy,
         "links": {"mover": sum(1 for x in (unit.inserts if unit else []) if x.role == "mover"),
                   "parent": len(planned_parents)},
         "project_rows": len(unit.project_inserts) if unit else 0,

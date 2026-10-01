@@ -60,6 +60,8 @@ def test_a_group_without_one_is_cloned_with_the_destination_studys_policy(share)
     result = plan(share, U3)
     [clone] = result.targets[0].clones
     assert (clone.action, clone.payload, clone.policy_from_study, clone.placeholder_id) == ("create", None, 40, 402)
+    assert clone.policy == share.policies[40] and result.summary["clone_policy"] == share.policies[40]
+    assert "access view" in report.render_share_text(result)
     assert (clone.title, clone.internal_assay_ids) == ("RNA-seq run", [900])
     t = result.targets[0]
     assert (t.key, t.investigation_id, t.study.action, t.study.seek_study_id) == ("share:40", 9, "existing", 40)
@@ -187,3 +189,12 @@ def test_the_run_directory_files(share, tmp_path):
     assert sorted(p.name for p in written) == sorted([report.SHARE_FILE, report.PLAN_FILE, report.PLAN_TEXT,
                                                       report.UNMATCHED_JSON, report.UNMATCHED_CSV])
     assert "TIS-260101ZZZ-9" in (tmp_path / report.UNMATCHED_CSV).read_text()
+
+
+def test_an_unreadable_destination_policy_refuses_a_share_that_creates_an_assay(share):
+    del share.policies[40]
+    with pytest.raises(sh.ShareRefused) as exc:
+        plan(share, U3)
+    assert exc.value.code == sh.DESTINATION_POLICY_UNREADABLE
+    result = plan(share, U4)                              # only a reused group: no policy needed
+    assert [c.action for c in result.targets[0].clones] == ["reuse"] and result.summary["clone_policy"] is None

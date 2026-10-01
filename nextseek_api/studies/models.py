@@ -130,6 +130,7 @@ class ClonePlan(_Model):
     placeholder_id: Optional[int] = None
     group_source_assay_ids: list[int] = []       # a share's group (every source assay of one title and mapping)
     policy_from_study: Optional[int] = None      # a share's clone takes this SEEK study's policy (T33)
+    policy: Optional[dict] = None                # that policy, read from SEEK's tables when the share is planned
 
 
 class TargetPlan(_Model):

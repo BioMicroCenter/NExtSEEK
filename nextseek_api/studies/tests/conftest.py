@@ -57,6 +57,7 @@ class World:
     assay_reps: dict = field(default_factory=dict)              # assay id -> GET body
     study_reps: dict = field(default_factory=dict)              # study id -> GET body
     projects: set = field(default_factory=set)                  # SEEK's project ids
+    policies: dict = field(default_factory=dict)                # study id -> its policy, as SEEK's tables give it
 
     def assay_map(self) -> dict:
         out = {}
@@ -196,6 +197,9 @@ class FakeReader:
     def study_representation(self, study_id):
         self.calls.append(f"GET /studies/{study_id}")
         return self.w.study_reps[study_id]
+
+    def study_policy(self, study_id):
+        return self.w.policies.get(study_id)
 
 
 class FakeDriver:
@@ -642,6 +646,8 @@ def share_world() -> World:
     w.projects |= {5}
     w.assay_reps[401] = assay_rep(401, "Imaging run", study_id=40)
     w.study_reps[40] = study_rep(40, "Delta Study")
+    w.policies[40] = {"access": "view", "permissions": [{"resource": {"id": "5", "type": "projects"},
+                                                         "access": "manage"}]}
     return w
 
 
