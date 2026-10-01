@@ -56,6 +56,7 @@ class World:
     sops: dict = field(default_factory=dict)
     assay_reps: dict = field(default_factory=dict)              # assay id -> GET body
     study_reps: dict = field(default_factory=dict)              # study id -> GET body
+    projects: set = field(default_factory=set)                  # SEEK's project ids
 
     def assay_map(self) -> dict:
         out = {}
@@ -157,6 +158,12 @@ class FakeReader:
     def investigation_projects(self, ids):
         return {i: set(self.w.investigation_projects.get(i, set())) for i in ids}
 
+    def project_ids_present(self, ids):
+        return {int(i) for i in ids if int(i) in self.w.projects}
+
+    def project_investigations(self, project_id):
+        return {inv for inv, projects in self.w.investigation_projects.items() if project_id in projects}
+
     def next_study_id(self):
         return self.w.next_study_id
 
@@ -257,6 +264,7 @@ def alpha_world() -> World:
         internal_titles={900: "RNA-seq", 901: "Imaging", 902: "Beta"},
         sample_projects={1: {3}, 2: {3}, 3: {3}, 4: {3}, 5: {3}, 6: {4}},
         sops={7: "P.SOP-1"},
+        projects={3, 4},
     )
     w.assay_reps = {a: assay_rep(a, row.title, study_id=row.study_id) for a, row in w.assays.items()}
     w.study_reps = {20: study_rep(20, "Alpha Unpublished"), 21: study_rep(21, "Alpha Paper Existing"),

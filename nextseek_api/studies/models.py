@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-PLAN_VERSION = 1
+PLAN_VERSION = 1   # the share's fields joined version 1 with defaults: no plan existed before them
 
 
 def canonical_json(data) -> str:
@@ -88,6 +88,16 @@ class AssociationSet(_Model):
         return canonical_json(self.core())
 
 
+class ShareInput(_Model):
+    """A share's request (tool spec 16.2): samples of one project linked into an existing study of another."""
+
+    sample_uids: list[str]
+    source_project_id: int
+    destination_project_id: int
+    destination_study_id: int
+    created_at: str
+
+
 # --- the plan ----------------------------------------------------------------------------------------------------
 
 class Skip(_Model):
@@ -118,6 +128,8 @@ class ClonePlan(_Model):
     seek_assay_id: Optional[int] = None
     payload: Optional[dict] = None
     placeholder_id: Optional[int] = None
+    group_source_assay_ids: list[int] = []       # a share's group (every source assay of one title and mapping)
+    policy_from_study: Optional[int] = None      # a share's clone takes this SEEK study's policy (T33)
 
 
 class TargetPlan(_Model):
@@ -146,6 +158,12 @@ class LinkRemoval(_Model):
     sample_id: int
 
 
+class ProjectInsert(_Model):
+    project_id: int
+    sample_id: int
+    role: Literal["mover", "parent"]
+
+
 class LinkUnit(_Model):
     unit: int
     target_key: str
@@ -155,6 +173,7 @@ class LinkUnit(_Model):
     inserts: list[LinkInsert]
     removals: list[LinkRemoval]
     sync_ids: list[int]
+    project_inserts: list[ProjectInsert] = []    # a share's projects_samples rows (tool spec 16.2 step 4)
 
 
 class PublicationRow(_Model):
@@ -206,6 +225,8 @@ class StudyMovePlan(_Model):
     empty_bucket_assays: list[int]
     warnings: list[PlanWarning]
     summary: dict
+    mode: Literal["move", "share"] = "move"
+    share: Optional[ShareInput] = None
 
     def creates_study(self) -> bool:
         return any(t.study.action == "create" for t in self.targets)

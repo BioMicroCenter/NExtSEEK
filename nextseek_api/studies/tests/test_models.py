@@ -63,3 +63,26 @@ def test_a_plan_round_trips_and_says_whether_it_creates_a_study(tmp_path):
     assert again == plan
     assert again.graph.sync_ids == {1: [3, 4]}
     assert again.creates_study()
+
+
+def test_the_share_input_and_project_rows_refuse_extra_keys_and_hash_stably():
+    inp = models.ShareInput(sample_uids=["TIS-260101AAA-2"], source_project_id=3, destination_project_id=5,
+                            destination_study_id=40, created_at="t")
+    assert inp.sha256() == models.ShareInput.model_validate_json(inp.to_json()).sha256()
+    with pytest.raises(ValidationError):
+        models.ProjectInsert(project_id=5, sample_id=1, role="parent", colour="blue")
+    with pytest.raises(ValidationError):
+        models.ProjectInsert(project_id=5, sample_id=1, role="child")
+
+
+def test_a_move_plan_defaults_to_move_and_loads_without_the_share_fields():
+    plan = models.StudyMovePlan(
+        plan_version=models.PLAN_VERSION, created_at="t", code_sha="c", associations_sha256="a", run_id="r",
+        buckets={}, seek_next_study_id=100, targets=[], units=[models.LinkUnit(
+            unit=1, target_key="k", investigation_id=7, source_assay_ids=[101], digest="d", inserts=[], removals=[],
+            sync_ids=[1])], publications=[], graph=models.GraphPlan(), skipped=[], no_change={},
+        empty_bucket_assays=[], warnings=[], summary={})
+    assert (plan.mode, plan.share, plan.units[0].project_inserts) == ("move", None, [])
+    older = json.loads(plan.to_json())
+    del older["mode"], older["share"], older["units"][0]["project_inserts"]
+    assert models.StudyMovePlan.model_validate(older) == plan

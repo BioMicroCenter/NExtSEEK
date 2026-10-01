@@ -94,3 +94,11 @@ def test_sample_rows_and_the_uid_index_come_from_graph_syncs_readers(reader, mon
     r, _ = reader([])
     assert r.sample_rows([4])[4]["uuid"] == "u4"
     assert r.uuid_index(["TIS-260101AAA-1"]) == {"TIS-260101AAA-1": [1]}
+
+
+def test_the_share_reads_projects_and_a_projects_investigations(reader):
+    r, rows = reader([("FROM projects WHERE", [(3,), (5,)]),
+                      ("FROM investigations_projects WHERE project_id", [(7,), (9,)])])
+    assert r.project_ids_present([3, 5, 404]) == {3, 5}
+    assert r.project_investigations(5) == {7, 9}
+    assert rows.sent[1][2] == [5]

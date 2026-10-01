@@ -89,6 +89,17 @@ class SnapshotReader:
                 out.setdefault(int(inv), set()).add(int(project))
         return out
 
+    def project_ids_present(self, ids) -> set:
+        found = set()
+        for chunk in _chunks(ids):
+            found.update(int(r[0]) for r in self._seek(f"SELECT id FROM projects WHERE id IN ({_holes(len(chunk))})",
+                                                       chunk))
+        return found
+
+    def project_investigations(self, project_id: int) -> set:
+        return {int(r[0]) for r in self._seek("SELECT investigation_id FROM investigations_projects "
+                                              "WHERE project_id = %s", [int(project_id)])}
+
     def next_study_id(self) -> int:
         try:
             self._seek("SET SESSION information_schema_stats_expiry = 0")
