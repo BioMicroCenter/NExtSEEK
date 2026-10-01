@@ -7,6 +7,8 @@ a foreign parent, and through a foreign sample between two visible ones; orphans
 with and without project_ids. Studies hold visible, foreign and mixed samples, and one investigation holds a study of
 another project beside its own. Investigations carry project_id and IN_PROJECT; people are MEMBER_OF projects.
 Catalog SampleType and Attribute nodes carry cross-project statistics, and a GraphMeta node carries the catalog hash.
+The Assay layer of graph schema 1.3 sits on the lineage: one Assay per assay the DERIVED_FROM rows name, INPUT_TO and
+OUTPUT_OF from their samples, and RUN_IN, ACCEPTED_BY and GENERATES.
 A visible child's parent_titles name its foreign parent.
 
 Every value carries a marker saying who may read it: ``ZQF`` followed by the project ids whose members may see it
@@ -142,7 +144,52 @@ CATALOG = [
     {"title": "SLD", "sample_count": 5, "description": "slide ZQFCAT", "attributes": []},
     {"title": "CHM", "sample_count": 2, "description": "chemical ZQFCAT", "attributes": []},
 ]
-GRAPH_META = {"schema_version": "1.2", "catalog_hash": "hash ZQFCAT", "synced_at": "2026-09-18T00:00:00Z"}
+# The Assay layer (graph schema 1.3, docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md section 4). An
+# Assay is a catalog node, the same for every caller, so its values carry no marker: every caller may read them. Its
+# sample edges follow the role rule over DERIVED_FROM above (the parent went into the assay, the child came out of it),
+# one SEEK run per DERIVED_FROM row, so a sample's edges are visible exactly when the sample is. RUN_IN, ACCEPTED_BY
+# and GENERATES are here so an admin reads them; a caller who is not an admin is refused them.
+ASSAYS = [
+    {"id": 1, "title": "Dissection", "other_names": ["Tissue Collection"], "input_types": ["MUS"],
+     "output_types": ["TIS"], "has_context": True},
+    {"id": 2, "title": "Staining", "other_names": ["Histology"], "input_types": ["TIS"], "output_types": ["SLD"],
+     "has_context": True},
+    {"id": 3, "title": "Treatment", "input_types": ["CHM"], "output_types": ["TIS", "MUS"], "has_context": False},
+]
+RUN_BASE = 900  # the SEEK run of DERIVED_FROM row k
+
+
+def assay_links() -> list[dict]:
+    """One row per (sample, role, Assay), by the role rule over DERIVED_FROM: ``{"uuid", "role", "assay", "runs"}``.
+    ORPHAN_LINKS make none: an OrphanSample end is skipped."""
+    runs: dict[tuple[str, str, str], list[int]] = {}
+    for k, (child, parent, assay, _protocol) in enumerate(DERIVED_FROM):
+        runs.setdefault((child, "OUTPUT_OF", assay), []).append(RUN_BASE + k)
+        runs.setdefault((parent, "INPUT_TO", assay), []).append(RUN_BASE + k)
+    return [{"uuid": uuid, "role": role, "assay": assay, "runs": sorted(ids)}
+            for (uuid, role, assay), ids in sorted(runs.items())]
+
+
+def assay_runs_in() -> list[dict]:
+    """``{"assay", "study", "runs"}``: each run belongs to the study of the sample it made."""
+    study_of = {uid: study["id"] for study in STUDIES for uid in study["samples"]}
+    runs: dict[tuple[str, int], list[int]] = {}
+    for k, (child, _parent, assay, _protocol) in enumerate(DERIVED_FROM):
+        if child in study_of:
+            runs.setdefault((assay, study_of[child]), []).append(RUN_BASE + k)
+    return [{"assay": assay, "study": study, "runs": sorted(ids)} for (assay, study), ids in sorted(runs.items())]
+
+
+def assay_catalog_edges() -> tuple[list[dict], list[dict]]:
+    """(ACCEPTED_BY rows, GENERATES rows) from each Assay's type lists: every input required, one group per code."""
+    accepted = [{"type": code, "assay": a["title"], "group": g}
+                for a in ASSAYS for g, code in enumerate(a.get("input_types", []))]
+    generates = [{"type": code, "assay": a["title"], "group": g}
+                 for a in ASSAYS for g, code in enumerate(a.get("output_types", []))]
+    return accepted, generates
+
+
+GRAPH_META = {"schema_version": "1.3", "catalog_hash": "hash ZQFCAT", "synced_at": "2026-09-18T00:00:00Z"}
 
 CALLERS: dict[str, tuple[int, ...] | None] = {"projects_1_3": (1, 3), "project_2": (2,), "no_projects": (),
                                               "admin": None}
@@ -191,6 +238,18 @@ def load(tx) -> None:
            "sample_count: a.sample_count, top_values: a.top_values, top_counts: a.top_counts, declared: a.declared})",
            rows=CATALOG).consume()
     tx.run("MATCH (s:Sample), (t:SampleType) WHERE s.type = t.title CREATE (s)-[:OF_TYPE]->(t)").consume()
+    tx.run("UNWIND $rows AS row CREATE (a:Assay) SET a = row", rows=ASSAYS).consume()
+    for role in ("INPUT_TO", "OUTPUT_OF"):
+        tx.run(f"UNWIND $rows AS row MATCH (s:Sample {{uuid: row.uuid}}), (a:Assay {{title: row.assay}}) "
+               f"CREATE (s)-[:{role} {{seek_assay_ids: row.runs}}]->(a)",
+               rows=[link for link in assay_links() if link["role"] == role]).consume()
+    tx.run("UNWIND $rows AS row MATCH (a:Assay {title: row.assay}), (st:Study {id: row.study}) "
+           "CREATE (a)-[:RUN_IN {seek_assay_ids: row.runs}]->(st)", rows=assay_runs_in()).consume()
+    accepted, generates = assay_catalog_edges()
+    tx.run("UNWIND $rows AS row MATCH (t:SampleType {title: row.type}), (a:Assay {title: row.assay}) "
+           "CREATE (t)-[:ACCEPTED_BY {required: true, group: row.group}]->(a)", rows=accepted).consume()
+    tx.run("UNWIND $rows AS row MATCH (a:Assay {title: row.assay}), (t:SampleType {title: row.type}) "
+           "CREATE (a)-[:GENERATES {group: row.group}]->(t)", rows=generates).consume()
     tx.run("CREATE (g:GraphMeta) SET g = $props", props=GRAPH_META).consume()
 
 

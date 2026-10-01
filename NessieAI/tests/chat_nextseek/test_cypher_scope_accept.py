@@ -29,6 +29,7 @@ from chat_nextseek.cypher_scope import (
 from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import SCOPE_PARAM, GraphScope
 
+from NessieAI.tests.chat_nextseek.graph_scope import fixture_graph
 from NessieAI.tests.chat_nextseek.graph_scope.battery import (
     ACCEPTED,
     TAUGHT,
@@ -248,3 +249,20 @@ def test_prover_module_is_pure():
     # The door imports nextseek_graph.schema (standard library only, nothing done at import) or loads that file by its
     # path, and nothing else: no driver, Django, agent or config reaches the prover through it.
     assert imports_of(graph_contract) == {"__future__", "importlib.util", "pathlib", "types", "nextseek_graph"}
+
+
+# --------------------------------------------------------------------------- #
+# The lane fixture's Assay layer (graph schema 1.3)
+# --------------------------------------------------------------------------- #
+
+def test_the_lane_fixture_s_assay_layer_follows_the_role_rule():
+    links = {(link["uuid"], link["role"], link["assay"]): link["runs"] for link in fixture_graph.assay_links()}
+    for k, (child, parent, assay, _protocol) in enumerate(fixture_graph.DERIVED_FROM):
+        assert fixture_graph.RUN_BASE + k in links[(child, "OUTPUT_OF", assay)]
+        assert fixture_graph.RUN_BASE + k in links[(parent, "INPUT_TO", assay)]
+    assert not {uuid for uuid, _, _ in links} & {orphan["uuid"] for orphan in fixture_graph.ORPHANS}
+    assert {a["title"] for a in fixture_graph.ASSAYS} == {row[2] for row in fixture_graph.DERIVED_FROM}
+    assert fixture_graph.forbidden_markers(repr(fixture_graph.ASSAYS), ()) == [], "every caller may read an Assay"
+    assert fixture_graph.GRAPH_META["schema_version"] == "1.3"
+    staining = {uuid for (uuid, role, assay) in links if role == "INPUT_TO" and assay == "Staining"}
+    assert staining == {"TIS-230102AAA-2", "TIS-230202BBB-2", "TIS-230402DDD-2"}
