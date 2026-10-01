@@ -219,12 +219,12 @@ def _bulk_prefetch_assay_links(
     return existing
 
 
-def _bulk_delete_assay_links(
-    removals: List[Tuple[int, int]], conn: Connection
-) -> int:
-    """Bulk DELETE assay_assets rows by (assay_id, asset_id) pairs.
+def delete_assay_links(removals: List[Tuple[int, int]], conn: Connection) -> int:
+    """Bulk DELETE assay_assets Sample rows by (assay_id, asset_id) pairs, 1,000 pairs a statement.
 
-    Returns count of rows targeted for deletion.
+    Every row of a pair goes (assay_assets has no unique key on the pair). Returns the number of pairs given, not the
+    rows deleted. Batch upload's update path and the studies tool both delete links through this one function. It
+    stays here, not in associations.py, whose module the registration executor imports and keeps free of any DELETE.
     """
     if not removals:
         return 0
@@ -441,7 +441,7 @@ def bulk_update_samples(
             additions.append((aid, sid, "Sample", direction, None, None))
 
     # ── Step 5: Bulk DELETE removed assay links ──────────────────────────
-    _bulk_delete_assay_links(removals, conn)
+    delete_assay_links(removals, conn)
 
     # ── Step 6: Bulk INSERT new assay links ──────────────────────────────
     batch_insert_assay_assets(additions, conn)

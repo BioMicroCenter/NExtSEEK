@@ -163,7 +163,7 @@ WRITERS: tuple[Writer, ...] = (
                 "hook writes it after the commit when that was refused"),
     Writer(id="WR-02",
            sites=("nextseek_api/batch_upload/update.py::bulk_update_samples",
-                  "nextseek_api/batch_upload/update.py::_bulk_delete_assay_links"),
+                  "nextseek_api/batch_upload/update.py::delete_assay_links"),
            tables=("samples", "assay_assets"),
            how=("sql",),
            hook="hooks.enqueue", hook_site="nextseek_api/batch_upload/insert.py::process_batches",
