@@ -1155,6 +1155,20 @@ def test_small_tables_has_no_dry_run_and_refuses_one_before_connecting(graphdb, 
     assert graphdb.uris == []
 
 
+@pytest.mark.parametrize("argv", [["--samples", "7"], ["--once"], ["--loop"], ["--verify"], ["--drift"],
+                                  ["--investigation-counts", "--instance", "local"], ["--small-tables"]])
+def test_a_mode_that_would_ignore_dry_run_refuses_it_before_connecting(graphdb, monkeypatch, argv):
+    """--samples and a pass of the loop would write anyway, and the read-only modes have nothing to leave out: every
+    mode but those that honour --dry-run refuses it, exit 2, before any driver is opened."""
+    monkeypatch.setattr(targeted, "sync_samples", lambda *a, **kw: pytest.fail("a dry run synced samples"))
+    monkeypatch.setattr(loop, "run_pass", lambda *a, **kw: pytest.fail("a dry run drained the outbox"))
+    monkeypatch.setattr(loop, "run_forever", lambda *a, **kw: pytest.fail("a dry run started the loop"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *argv, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "--dry-run" in str(exc.value)
+    assert graphdb.uris == []
+
+
 def test_small_tables_needs_the_flag_on_the_live_graph(graphdb, settings):
     settings.NEO4J_DATABASE = dict(LIVE)
     with pytest.raises(CommandError) as exc:

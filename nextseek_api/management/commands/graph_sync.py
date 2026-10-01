@@ -27,7 +27,8 @@
 | ``--small-tables`` | rewrite SEEK's small tables once, as an ``isa`` row and the nightly reconcile do | yes |
 
 ``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile``, ``--labels``, ``--merge-studies``,
-``--unmerge-studies`` and ``--studies`` read without writing and print their counts. A written ``--full`` and the
+``--unmerge-studies`` and ``--studies`` read without writing and print their counts, and ``--requeue-dead`` list the
+rows it would put back; every other mode refuses it, exit 2, before connecting. A written ``--full`` and the
 three study modes make their own run directory, ``<kind>-<UTC time>`` under the loop's run root, when ``--run-dir``
 names none, and print it; ``--unmerge-studies`` saves its result there whether it ends ok, partial or part way.
 ``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``, ``--labels``) is the operator's approval to
@@ -44,13 +45,13 @@ opens no Neo4j connection at all.
 
 Exit status: 0 on success; 1 when a check fails, a run failed part way, or ``--full``, ``--catalog`` or
 ``--reconcile`` could not take the graph-write lock, which another write held past its wait (the loop retries it);
-2 on a refusal, which means nothing was written; 3 when ``--drift`` could not complete. ``--merge-studies``,
-``--unmerge-studies`` and ``--studies`` exit 1 when they stop part way or find the graph-write lock busy, and 2 on a
-refusal (the graph's version, an id the merge does not act on, an approved id with no kind, an id that reads another
-kind than its approved one before anything was written, two Study nodes sharing a ``seek_study_id``, a path that holds
-no journal). With ``--json`` stdout holds only the JSON result; progress goes to stderr. The package, its
-modules and the graph it writes: ``nextseek_api/graph_sync/README.md`` and ``docs/neo4j-schema.md`` section
-"v1.2".
+2 on a refusal, which means nothing was written (``--dry-run`` given to a mode that does not honour it is one); 3
+when ``--drift`` could not complete. ``--merge-studies``, ``--unmerge-studies`` and ``--studies`` exit 1 when they
+stop part way or find the graph-write lock busy, and 2 on a refusal (the graph's version, an id the merge does not
+act on, an approved id with no kind, an id that reads another kind than its approved one before anything was
+written, two Study nodes sharing a ``seek_study_id``, a path that holds no journal). With ``--json`` stdout holds
+only the JSON result; progress goes to stderr. The package, its modules and the graph it writes:
+``nextseek_api/graph_sync/README.md`` and ``docs/neo4j-schema.md`` section "v1.2".
 """
 from __future__ import annotations
 
@@ -79,6 +80,10 @@ MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples", "labels"})
+# The modes that honour --dry-run. Every other one refuses it before connecting: --samples, --small-tables and a pass
+# of the loop would write anyway, and the read-only modes have nothing to leave out.
+DRY_RUN_MODES = ("full", "catalog", "reconcile", "labels", "merge_studies", "unmerge_studies", "studies",
+                 "requeue_dead")
 DRIFT_FILE = drift.RESULT_FILE
 TRIGGER_CHARS = 64
 
@@ -194,6 +199,10 @@ def load_bench_keys(path: str) -> frozenset:
     return frozenset(keys)
 
 
+def _flag(mode: str) -> str:
+    return mode.replace("_", "-")
+
+
 def _mode(options: dict) -> str:
     """Which mode was asked for; argparse has already made sure exactly one was."""
     for name in MODES:
@@ -254,7 +263,8 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", action="store_true",
                             help="With --full, --catalog, --reconcile, --labels, --merge-studies, --unmerge-studies or "
                                  "--studies: read MySQL and the graph, write nothing, print the counts. With "
-                                 "--requeue-dead: list the dead rows, change nothing.")
+                                 "--requeue-dead: list the dead rows, change nothing. Any other mode refuses it, "
+                                 "exit 2.")
         parser.add_argument("--chunk", type=_positive_int, default=writer.SAMPLE_CHUNK,
                             help="Samples per MySQL page and per write transaction (default %(default)s).")
         parser.add_argument("--run-dir", metavar="PATH",
@@ -299,9 +309,10 @@ class Command(BaseCommand):
             self._check_approval(options["merge_studies"])
         if options["kind"] is not None and mode != "requeue_dead":
             raise CommandError("--kind belongs to --requeue-dead")
-        if mode == "small_tables" and options["dry_run"]:
-            raise CommandError("--small-tables has no --dry-run: it rewrites a few hundred rows whole; --drift reads "
-                               "what they would change", returncode=2)
+        if options["dry_run"] and mode not in DRY_RUN_MODES:
+            raise CommandError(f"--{_flag(mode)} has no --dry-run and would ignore it; refused, nothing done. "
+                               "--dry-run belongs to " + ", ".join(f"--{_flag(m)}" for m in DRY_RUN_MODES)
+                               + " (--drift reads what a write would change)", returncode=2)
         if mode == "requeue_dead":
             # The dmac outbox only: no Neo4j settings are read and no driver is opened.
             return self._requeue_dead(options)

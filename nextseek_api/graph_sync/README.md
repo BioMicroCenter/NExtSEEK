@@ -62,8 +62,10 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--studies` | make every sample's IN_STUDY follow SEEK once, removing stale links whatever the switch says | yes |
 
 Options that apply to more than one mode: `--json` puts only the JSON result on stdout and sends progress to
-stderr; `--dry-run` makes `--full`, `--catalog`, `--labels`, `--merge-studies`, `--unmerge-studies` and
-`--studies` read everything and write nothing; a written `--full` and the three study modes make their own run
+stderr; `--dry-run` makes `--full`, `--catalog`, `--reconcile`, `--labels`, `--merge-studies`, `--unmerge-studies`
+and `--studies` read everything and write nothing, and `--requeue-dead` list what it would put back; every other mode
+refuses it, exit 2, before connecting (`--samples`, `--small-tables` and a pass of the loop would write anyway); a
+written `--full` and the three study modes make their own run
 directory, `<kind>-<UTC time>` under the run root (`--run-root`, else `$GS_RUN_DIR`, else `graph_sync` under the log
 directory), when `--run-dir` names none, and print it; `--chunk` is the page and transaction size; `--no-record`
 leaves `graph_sync_run` alone; `--bench-keys FILE` (with `--full`) is a JSON list of attribute keys the index budget
@@ -81,7 +83,7 @@ Exit status:
 |---|---|
 | 0 | success, and for `--drift` and `--verify` no failing check |
 | 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it); or a study mode stopped part way or found the lock busy; or `--unmerge-studies` ended `partial` |
-| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, an approved id without its kind, or an id that reads another kind than its approved one before anything was written; two Study nodes sharing a `seek_study_id`; a path `--unmerge-studies` finds no journal in, or a merge journal under the run root naming its ids that it was not given; or a run directory a hand run cannot make |
+| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, an approved id without its kind, or an id that reads another kind than its approved one before anything was written; two Study nodes sharing a `seek_study_id`; a path `--unmerge-studies` finds no journal in, or a merge journal under the run root naming its ids that it was not given; or a run directory a hand run cannot make; or `--dry-run` given to a mode that does not honour it |
 | 3 | the run could not complete |
 
 ## The loop
