@@ -1884,6 +1884,19 @@ def test_write_edge_label_refreshes_refuses_any_other_class_before_sending(store
     assert driver.calls == []
 
 
+def test_write_edge_label_refreshes_refuses_a_rename_that_would_add_an_assay():
+    """An edge stored with singular fields only: renaming its title would also write the plural lists, and a second
+    internal assay the pair shares would reach the edge without approval (R17)."""
+    computed = dict(REFRESH_LABELS, internal_assay_ids=[99, 120], internal_assay_titles=["New name", "Other assay"])
+    stored = dict(REFRESH_LABELS, internal_assay_title="Old name", internal_assay_ids=None,
+                  internal_assay_titles=None)
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="changed label needs the operator's approval"):
+        w.write_edge_label_refreshes(driver, "neo4j",
+                                     [{"child_id": 11, "parent_id": 10, "labels": computed, "stored": stored}])
+    assert driver.calls == []
+
+
 def test_write_edge_label_refreshes_needs_the_stored_values():
     row = _refresh_row(internal_assay_title="Old name")
     del row["stored"]

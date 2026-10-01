@@ -240,9 +240,11 @@ Rules:
    all null, and the write statement itself checks that, so a label written between a read and the write is kept. An
    edge that keeps its assay ids and whose internal assay title was renamed (`renamed`), or whose protocol was filled
    where none was stored (`protocol_filled`), is written too, only where all seven stored values still equal those
-   read. Every other difference, any change of which assay an edge carries, is classified per edge (`new`, `equal`,
-   `plural_missing`, `renamed`, `protocol_filled`, `changed`, `cleared`) and reported per property; it is written
-   only with the operator's opt-in (`--apply-label-changes` for one command run,
+   read. On an edge stored without plural lists that write fills them, so it is made only when the rule's list holds
+   the edge's one internal assay; otherwise the edge is `changed`. Every other difference, any change of which assay
+   an edge carries, is classified per edge (`new`, `equal`, `plural_missing`, `renamed`, `protocol_filled`,
+   `changed`, `cleared`) and reported per property; it is written only with the operator's opt-in
+   (`--apply-label-changes` for one command run,
    `NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply` for the loop), and then only where all seven stored values still equal
    those read. `graph_sync --labels` applies the rule to every edge at once.
 5. **A missing plural list is not a difference to write.** On an edge whose singular fields match the rule, absent

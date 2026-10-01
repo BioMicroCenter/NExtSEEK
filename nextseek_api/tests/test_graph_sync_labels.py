@@ -332,6 +332,28 @@ class TestClassify:
                   "empty plural title": dict(self.COMPUTED, internal_assay_titles=[""])}[computed]
         assert labels.classify(self._stored(**stored), wanted) == cls
 
+    # An edge stored before the plural lists existed: a refresh writes the lists too, so it needs no approval only
+    # when the rule's list holds that edge's one internal assay (R17); a second shared assay would be added unread.
+    TWO_ASSAYS = _labels(10, 50, "Internal Alpha", [50, 60], ["Internal Alpha", "IA 60"], 5, "SOP Five")
+    NO_LISTS = {"internal_assay_ids": _ABSENT, "internal_assay_titles": _ABSENT}
+
+    @pytest.mark.parametrize("stored, computed, cls", [
+        ({"internal_assay_title": "Old"}, "one", "renamed"),
+        ({"internal_assay_title": "Old"}, "two", "changed"),
+        ({"protocol_id": None, "protocol_title": None}, "one", "protocol_filled"),
+        ({"protocol_id": None, "protocol_title": None}, "two", "changed"),
+        ({"internal_assay_title": "Old", "protocol_id": None, "protocol_title": None}, "two", "changed"),
+        ({}, "two", "plural_missing"),
+        ({"internal_assay_title": "Old", "internal_assay_ids": [50], "internal_assay_titles": _ABSENT}, "two",
+         "changed"),
+    ], ids=["renamed, one assay", "renamed, a second assay", "protocol filled, one assay",
+            "protocol filled, a second assay", "renamed and filled, a second assay", "no other difference",
+            "ids stored, a second assay"])
+    def test_a_refresh_without_plural_lists_adds_no_assay(self, stored, computed, cls):
+        wanted = {"one": self.COMPUTED, "two": self.TWO_ASSAYS}[computed]
+        edge = self._stored(**dict(self.NO_LISTS, **stored))
+        assert labels.classify(edge, wanted) == cls
+
     def test_changed_when_a_list_holds_the_same_entries_in_another_order(self):
         computed = _labels(10, 5, "A", [5, 50], ["A", "B"])
         stored = dict(computed, internal_assay_ids=[50, 5], internal_assay_titles=["B", "A"])

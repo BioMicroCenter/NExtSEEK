@@ -161,7 +161,12 @@ def differences(stored: Mapping | None, computed: Mapping) -> list[str]:
 def _is_refresh(stored: Mapping, computed: Mapping, rest: list[str]) -> bool:
     """Whether every differing key (``rest``) is a title renamed under the same ids or a protocol filled where none was
     stored. The ids (``assay_id``, ``internal_assay_id`` and, when stored, ``internal_assay_ids``) are not in ``rest``,
-    so they are equal: the edge carries the same assay."""
+    so they are equal: the edge carries the same assay. On an edge stored without ``internal_assay_ids`` the refresh
+    writes the rule's list too, so it must hold only the edge's own internal assay: a second one would be added
+    without approval."""
+    filled_ids = list(computed.get("internal_assay_ids") or ())
+    if stored.get("internal_assay_ids") is None and filled_ids != [computed.get("internal_assay_id")]:
+        return False
     for key in rest:
         if key == "internal_assay_title":
             value = computed.get(key)
@@ -193,7 +198,8 @@ def classify(stored: Mapping | None, computed: Mapping) -> str:
     - `cleared`: every other difference is a stored value the rule would remove (a null, or an empty list).
     - `changed`: a stored value the rule would replace with another.
 
-    A missing plural list never makes an edge `changed` by itself.
+    A missing plural list never makes an edge `changed` by itself. Beside a rename or a filled protocol it does when
+    the rule's list holds more than the edge's own internal assay: that write would add an assay, which needs approval.
     """
     stored = stored or {}
     diff = differences(stored, computed)

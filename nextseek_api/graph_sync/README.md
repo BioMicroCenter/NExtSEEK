@@ -203,7 +203,8 @@ written together, never a subset, and every edge graph_sync creates is labelled 
 What is written without the operator's approval is a **new** label (an edge whose three singular assay fields are
 all null, guarded in the Cypher itself; on such an edge a stored protocol is kept), a **rename** (the edge keeps its
 assay ids and an internal assay title changed under them: `renamed`) and a **filled protocol** (a protocol where none
-was stored: `protocol_filled`), the last two only where the stored values still equal the ones read. Every other
+was stored: `protocol_filled`), the last two only where the stored values still equal the ones read, and on an edge
+stored without plural lists only when the rule's list holds the edge's one internal assay. Every other
 difference, any change of which assay an edge carries, is classified per edge (`new`, `equal`, `plural_missing`,
 `renamed`, `protocol_filled`, `changed`, `cleared`), counted per property in the run's report (`labels_*`,
 `labels_by_property`, `labels_examples`) and left alone. `--apply-label-changes`, or
