@@ -1,6 +1,6 @@
 <title>__TITLE__</title>
 <style>
-/* House palette, taken unchanged from output-skill/templates/report.html.tpl so
+/* House palette, taken unchanged from nessie-run-review/templates/report.html.tpl so
    the two reports read as one family. Only the layout below it is new. */
 :root{
   --ground:#F4F6F8; --surface:#FFFFFF; --surface-2:#E9EEF3; --raise:#FFFFFF;

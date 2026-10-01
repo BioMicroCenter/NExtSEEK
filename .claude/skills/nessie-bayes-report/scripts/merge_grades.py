@@ -3,7 +3,7 @@
 
 A hyphenated directory is not a Python identifier, so nothing under this one can
 be imported -- and a script that cannot be imported cannot be unit tested. Both
-scripts in the sibling `output-skill/` rotted for exactly that reason, and
+scripts in the sibling `nessie-run-review/` scripts rotted for exactly that reason, and
 nothing noticed until `test_output_skill_scripts.py` loaded them by path. So this
 file exists only to give SKILL.md a path to name; every decision it would
 otherwise encode lives in `NessieAI/tests/nessie_tests/output_skill_bayesian/merge_grades.py`,
@@ -16,9 +16,9 @@ from __future__ import annotations
 import pathlib
 import sys
 
-# This script ships INSIDE the harness (NessieAI/tests/nessie_tests/
-# output-skill-bayesian/scripts/), so the repo root is six levels up.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[5]))
+# This script lives in .claude/skills/nessie-bayes-report/scripts/, so the repo root
+# is four levels up.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4]))
 
 from NessieAI.tests.nessie_tests.output_skill_bayesian import merge_grades  # noqa: E402
 
