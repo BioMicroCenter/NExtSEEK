@@ -99,7 +99,7 @@ def world(monkeypatch):
     """Install the fixed MySQL world into ``sources``; tests may change the returned state before a run."""
     state = {"assay_links": copy.deepcopy(ASSAY_LINKS), "identities": dict(IDENTITIES),
              "samples": copy.deepcopy(SAMPLES), "assay_requests": [], "identity_requests": [],
-             "recent": [], "recent_requests": []}
+             "recent": [], "recent_requests": [], "pairs": [(7, 99)]}
 
     def recent_sample_ids(since, limit):
         state["recent_requests"].append((since, limit))
@@ -146,6 +146,11 @@ def world(monkeypatch):
         "iter_seek_study_links": lambda: iter(()),
         "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
         "investigation_projects": lambda: [],
+        "internal_assays": lambda: [{"id": 99, "title": "Patient Visit"}],
+        "assay_internal_pairs": lambda: list(state["pairs"]),
+        "assay_studies": lambda: [(7, 40), (8, 40), (9, 40)],
+        "assay_context_rows": lambda: [{"id": 1, "internal_assay_id": 99, "assay_name": "Patient Visit",
+                                        "required_parent_sample_types": "TIS", "children_sample_types": "D.SEQ"}],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -188,6 +193,16 @@ class GateWorld:
         self.in_project_extra = 0
         self.catalog = [{"id": 26, "title": "TIS", "label": "T_TIS", "titles": ["Organ"]},
                         {"id": 33, "title": "D.SEQ", "label": "T_D_SEQ", "titles": ["Parent", "Protocol"]}]
+        # Family 13: the assay layer a correct 1.3 sync writes for the world (SEEK assay 7 maps to 99; 11 came out
+        # of 10 inside it; 12 and 13 share only the unmapped 8). ``unsampled_edges`` are edges on samples the
+        # sampled check does not read: the exhaustive count sees them.
+        self.assay_ids = [99]
+        self.runs = [{"assay_id": 99, "study_id": 40, "seek_assay_ids": [7]}]
+        self.catalog_edges = [
+            {"type": "ACCEPTED_BY", "code": "TIS", "assay_id": 99, "required": True, "group_index": 0},
+            {"type": "GENERATES", "code": "D.SEQ", "assay_id": 99, "required": None, "group_index": 0}]
+        self.sample_edges = {10: [("INPUT_TO", 99, [7])], 11: [("OUTPUT_OF", 99, [7])]}
+        self.unsampled_edges = 0
 
     def __call__(self, query, params):
         nodes = self.nodes
@@ -253,6 +268,17 @@ class GateWorld:
             return [dict(m) for m in self.members]
         if query == q.ORPHAN_IN_STUDY:
             return [{"n": 0}]
+        if query == verify.ASSAY_IDS:
+            return [{"id": i} for i in self.assay_ids]
+        if query == verify.RUN_IN_ROWS:
+            return [dict(r) for r in self.runs]
+        if query == verify.CATALOG_EDGE_ROWS:
+            return [dict(r) for r in self.catalog_edges]
+        if query == verify.SAMPLED_ASSAY_EDGES:
+            return [{"id": i, "type": t, "assay_id": a, "seek_assay_ids": s}
+                    for i in params["ids"] for t, a, s in self.sample_edges.get(i, [])]
+        if query == verify.SAMPLE_ASSAY_EDGE_COUNT:
+            return [{"n": sum(len(e) for e in self.sample_edges.values()) + self.unsampled_edges}]
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -270,11 +296,17 @@ def _named(result, name):
 
 # --- the whole gate ------------------------------------------------------------------------------
 
-def test_gate_g_passes_with_checks_9_to_11_on_the_graph_a_correct_1_2_sync_writes(world):
+def test_gate_g_passes_on_the_graph_a_correct_sync_writes(world):
     result = _gate(GateWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 13)} | {"14"}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 15)}
+    for name in ("13.assays.ids", "13.assays.run_in", "13.assays.catalog_edges", "13.assays.sampled_sample_edges",
+                 "13.assays.sample_edge_count"):
+        check = _named(result, name)
+        assert check["pass"] is True
+    assert result["stats"]["assays"]["sampled_with_edges"] == 2
+    assert result["stats"]["assays"]["sample_edges_expected"] == 2
     for name in ("9.lineage.labels", "10.samples.no_t_label_without_sample", "11.samples.parent_lists"):
         check = _named(result, name)
         assert (check["expected"], check["actual"], check["pass"]) == (0, 0, True)
@@ -866,3 +898,66 @@ def test_an_investigation_whose_project_links_differ_fails(world, monkeypatch):
     graph.investigations[0]["project_ids"] = []
     check = _named(_gate(graph), "14.small.investigations_differ")
     assert (check["actual"], check["detail"]) == (1, [3])
+
+
+# --- check 13: the assay layer (schema 1.3) ------------------------------------------------------
+
+def test_check_13_fails_a_stale_extra_sample_edge(world):
+    graph = GateWorld(_graph_nodes())
+    graph.sample_edges[12] = [("OUTPUT_OF", 99, [8])]       # 12 and 13 share only the unmapped SEEK assay 8
+    result = _gate(graph)
+    check = _named(result, "13.assays.sampled_sample_edges")
+    assert (check["actual"], check["pass"]) == (1, False)
+    assert check["detail"] == [{"id": 12, "missing": [], "extra": [("OUTPUT_OF", 99, (8,))]}]
+
+
+def test_check_13_fails_a_seek_id_too_many_and_a_role_missing(world):
+    graph = GateWorld(_graph_nodes())
+    graph.sample_edges[10] = [("INPUT_TO", 99, [7, 9])]
+    del graph.sample_edges[11]
+    check = _named(_gate(graph), "13.assays.sampled_sample_edges")
+    assert check["actual"] == 2
+    assert check["detail"] == [
+        {"id": 10, "missing": [("INPUT_TO", 99, (7,))], "extra": [("INPUT_TO", 99, (7, 9))]},
+        {"id": 11, "missing": [("OUTPUT_OF", 99, (7,))], "extra": []}]
+
+
+def test_check_13_fails_a_missing_assay_a_moved_run_in_and_a_missing_catalog_edge(world):
+    graph = GateWorld(_graph_nodes())
+    graph.assay_ids = []
+    graph.runs = [{"assay_id": 99, "study_id": 41, "seek_assay_ids": [7]}]
+    graph.catalog_edges = graph.catalog_edges[:1]
+    result = _gate(graph)
+    assert _named(result, "13.assays.ids")["detail"] == {"missing_in_graph": [99], "not_in_mysql": []}
+    assert _named(result, "13.assays.run_in")["actual"] == 2
+    assert _named(result, "13.assays.catalog_edges")["actual"] == 1
+    assert result["pass"] is False
+
+
+def test_the_assay_constraint_and_index_are_expected():
+    assert "assay_id_unique" in verify.EXPECTED_CONSTRAINTS
+    assert "assay_title" in verify.EXPECTED_INDEXES
+
+
+def test_check_13_counts_every_sample_edge_so_a_dropped_one_fails_outside_the_sample(world):
+    """The 1.3 plan's A2: an edge left unwritten on a sample the random draw missed still fails gate G, through the
+    exhaustive count of INPUT_TO and OUTPUT_OF against the role rule over every declared pair."""
+    graph = GateWorld(_graph_nodes())
+    graph.unsampled_edges = -1
+    result = _gate(graph)
+    check = _named(result, "13.assays.sample_edge_count")
+    assert (check["expected"], check["actual"], check["pass"]) == (2, 1, False)
+    assert _named(result, "13.assays.sampled_sample_edges")["pass"] is True
+
+
+def test_a_shared_pair_passes_check_13(world):
+    """The studies tool's share mode: 10 and 11 are members of SEEK assay 7 and of its clone 9, both mapped to 99
+    (here in one study); each holds one edge per role carrying both ids, and RUN_IN one row carrying both."""
+    world["assay_links"][10], world["assay_links"][11] = [7, 9], [7, 9]
+    world["pairs"].append((9, 99))
+    graph = GateWorld(_graph_nodes())
+    graph.runs = [{"assay_id": 99, "study_id": 40, "seek_assay_ids": [7, 9]}]
+    graph.sample_edges = {10: [("INPUT_TO", 99, [7, 9])], 11: [("OUTPUT_OF", 99, [7, 9])]}
+    result = _gate(graph)
+    for name in ("13.assays.run_in", "13.assays.sampled_sample_edges", "13.assays.sample_edge_count"):
+        assert _named(result, name)["pass"] is True, name

@@ -25,6 +25,13 @@ with a ``reason``; nothing else is read). Its checks, under these names:
 - ``catalog.sample_types``, ``catalog.types_with_attribute_set_diff`` (titles), ``catalog.type_properties_differ``
   (``label``, ``deprecated``), ``catalog.attribute_properties_differ`` (``value_type``, ``required``, ``pos``) and
   ``catalog.type_counts_stale``: the graph's catalog against the one MySQL declares, each expecting 0;
+- ``catalog.assays``: the Assay ids against ``internal_assays``', expecting none apart (graph schema 1.3); and three
+  reports for the curators that never fail: ``assays.unmapped_seek_assays_with_members`` (SEEK assays with members
+  and no internal mapping, D9), ``assays.members_without_role`` (memberships of a mapped SEEK assay that carry no
+  role: no lineage inside the run) and ``assays.labels_disagree_with_assay_titles`` (edge labels still naming an
+  Assay by a title it lost in a rename the relabel has not reached yet; renames relabel without approval since the
+  studies release, A12, so a count that stays means a rename that reached MySQL without an ``assay_map`` row or a
+  relabel that failed);
 - gate G's checks under their own names (``verify.gate_g``), without the named accounts of the merged dataset.
 
 An input that cannot be read fails its check rather than skipping it (capabilities.md for
@@ -38,6 +45,9 @@ from __future__ import annotations
 import logging
 import re
 import time
+from array import array
+from bisect import bisect_left
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,6 +83,19 @@ UUIDS_ON_NODES = """
 UNWIND $uuids AS uuid
 MATCH (s:Sample {uuid: uuid})
 RETURN DISTINCT s.uuid AS uuid
+"""
+# The assay layer (graph schema 1.3): every (sample, SEEK assay) a sample edge carries, and the singular labels of
+# the DERIVED_FROM edges with the edges holding each.
+MEMBER_SEEK_PAIRS = """
+MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(:Assay)
+UNWIND r.seek_assay_ids AS seek_assay_id
+RETURN s.id AS id, seek_assay_id
+"""
+EDGE_ASSAY_LABELS = """
+MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
+WHERE e.internal_assay_id IS NOT NULL
+RETURN e.assay_id AS assay_id, e.internal_assay_id AS internal_assay_id,
+       e.internal_assay_title AS internal_assay_title, count(*) AS edges
 """
 
 
@@ -473,6 +496,63 @@ def _check_catalog(driver, db, cat, checks: list, stats: dict) -> None:
     _check_catalog_properties(driver, db, cat, checks, stats)
 
 
+def _check_assays(driver, db, checks: list, stats: dict) -> None:
+    """The assay layer against MySQL (graph schema 1.3): the Assay id set fails when it differs, as the SampleType
+    set does in ``_check_catalog``; the three findings of the module docstring are reported and never fail.
+
+    Memory: the (sample, SEEK assay) pairs the sample edges carry, packed 8 bytes each and sorted, and one stream of
+    ``assay_assets`` checked against them by bisection."""
+    st = run.read_assays()
+    graph_ids = {r["id"] for r in _records(_run(driver, db, verify.ASSAY_IDS, read=True))}
+    only_mysql = sorted(set(st.ids) - graph_ids)
+    only_graph = sorted(graph_ids - set(st.ids), key=str)
+    _check(checks, "catalog.assays", 0, len(only_mysql) + len(only_graph),
+           detail={"only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES]})
+
+    def pack(result):
+        codes = array("q")   # built here, so a retried read starts clean
+        for record in result:
+            sample_id, seek_id = record["id"], record["seek_assay_id"]
+            if run._is_packable(sample_id) and run._is_packable(seek_id):
+                codes.append(run.encode_pair(sample_id, seek_id))
+        return array("q", sorted(codes))
+
+    held = _run(driver, db, MEMBER_SEEK_PAIRS, read=True, transformer=pack)
+    unmapped: Counter = Counter()
+    without_role: Counter = Counter()
+    for sample_id, seek_id in sources.iter_assay_links():
+        if seek_id not in st.internal_by_seek:
+            unmapped[seek_id] += 1
+            continue
+        packable = run._is_packable(sample_id) and run._is_packable(seek_id)
+        code = run.encode_pair(sample_id, seek_id) if packable else None
+        i = bisect_left(held, code) if code is not None else len(held)
+        if i == len(held) or held[i] != code:
+            without_role[seek_id] += 1
+    _check(checks, "assays.unmapped_seek_assays_with_members", "any", len(unmapped), passed=True,
+           detail={"members": sum(unmapped.values()),
+                   "largest": [[s, n] for s, n in unmapped.most_common(EXAMPLES)]})
+    _check(checks, "assays.members_without_role", "any", sum(without_role.values()), passed=True,
+           detail={"largest": [[s, n] for s, n in without_role.most_common(EXAMPLES)]})
+
+    titles = {node["id"]: node.get("title") for node in st.catalog.nodes}
+    stale, examples = 0, []
+    for r in _records(_run(driver, db, EDGE_ASSAY_LABELS, read=True)):
+        internal_id = r["internal_assay_id"]
+        if internal_id not in st.internal_by_seek.get(r["assay_id"], ()):
+            continue   # an unmapped SEEK assay's fallback label, or a mapping that moved: the relabel's to report
+        if r["internal_assay_title"] != titles.get(internal_id):
+            stale += int(r["edges"] or 0)
+            if len(examples) < EXAMPLES:
+                examples.append({"assay_id": r["assay_id"], "internal_assay_id": internal_id,
+                                 "stored_title": r["internal_assay_title"], "assay_title": titles.get(internal_id),
+                                 "edges": int(r["edges"] or 0)})
+    _check(checks, "assays.labels_disagree_with_assay_titles", "any", stale, passed=True, detail=examples)
+    stats["assays"] = {"mysql_assays": len(st.ids), "graph_assays": len(graph_ids),
+                       "unmapped_seek_assays": len(unmapped), "unmapped_members": sum(unmapped.values()),
+                       "members_without_role": sum(without_role.values()), "labels_disagree": stale}
+
+
 def _differing(mysql: dict, graph: dict, keys: tuple) -> list[dict]:
     """By id, over the ids both sides hold, the entries whose ``keys`` differ (a missing key reads as None)."""
     out = []
@@ -530,6 +610,7 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
     cat = _timed(timings, "detection", _check_detection, driver, db, chunk, checks, stats)
     if cat is not None:
         _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
+    _timed(timings, "assays", _check_assays, driver, db, checks, stats)
     text = _capabilities_text()
     if text is None:
         # Unreadable is a failure, not a skip: a skipped check reads as a passing one.

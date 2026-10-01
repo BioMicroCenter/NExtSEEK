@@ -15,6 +15,7 @@ import pytest
 from django.db import connection
 from neo4j import RoutingControl
 
+from nextseek_api.graph_sync import assays as assay_rules
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import drift, run, sources, verify, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
@@ -22,6 +23,14 @@ from nextseek_api.graph_sync.projection import project_sample
 from nextseek_graph import schema
 
 T0 = datetime(2026, 9, 15, 2, 30, tzinfo=dt_timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def no_assay_layer(monkeypatch):
+    """Every drift check reads the assay layer (graph schema 1.3); an empty one unless a test builds its own."""
+    empty = run.AssayState(assay_rules.build_catalog([], [], set()), {}, [], {}, {})
+    monkeypatch.setattr(run, "read_assays", lambda: empty)
+    monkeypatch.setattr(sources, "iter_assay_links", lambda: iter(()))
 
 
 class FakeDriver:
@@ -127,6 +136,8 @@ class DriftGraph:
             # what supplies the names; TestTheAssistantsInvestigationNamesMustResolve covers failure.
             return [{"title": title, "nodes": 1, "samples": self.investigation_samples}
                     for title in params["titles"]]
+        if query in (verify.ASSAY_IDS, drift.MEMBER_SEEK_PAIRS, drift.EDGE_ASSAY_LABELS):
+            return []
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -288,6 +299,8 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
                      "catalog.sample_types", "catalog.types_with_attribute_set_diff",
                      "catalog.type_properties_differ", "catalog.attribute_properties_differ",
                      "catalog.type_counts_stale",
+                     "catalog.assays", "assays.unmapped_seek_assays_with_members", "assays.members_without_role",
+                     "assays.labels_disagree_with_assay_titles",
                      "catalog.assistant_investigations",
                      "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
@@ -577,6 +590,44 @@ class TestContextCoverageIsReportedNotEnforced:
         checks, stats = _run_catalog_checks(cat, rows)
         assert stats["catalog"]["types_without_context"] == 1
         assert not any("context" in name for name in checks)
+
+
+class TestTheAssayLayerIsComparedAndReported:
+    @staticmethod
+    def _state():
+        internal = [{"id": 99, "title": "Patient Visit"}, {"id": 98, "title": "Sequencing run"}]
+        return run.AssayState(assay_rules.build_catalog(internal, [], set()), {5: (99,), 6: (98,)}, [], {},
+                              {5: 70, 6: 70})
+
+    def test_a_missing_assay_fails_and_the_curators_findings_are_only_reported(self, monkeypatch):
+        monkeypatch.setattr(run, "read_assays", self._state)
+        monkeypatch.setattr(sources, "iter_assay_links",
+                            lambda: iter([(10, 5), (11, 5), (12, 6), (13, 13), (14, 13)]))
+
+        def respond(query, params):
+            if query == verify.ASSAY_IDS:
+                return [{"id": 99}]
+            if query == drift.MEMBER_SEEK_PAIRS:
+                return [{"id": 10, "seek_assay_id": 5}, {"id": 11, "seek_assay_id": 5}]
+            if query == drift.EDGE_ASSAY_LABELS:
+                return [{"assay_id": 5, "internal_assay_id": 99, "internal_assay_title": "Patient visit (old)",
+                         "edges": 4},
+                        {"assay_id": 6, "internal_assay_id": 98, "internal_assay_title": "Sequencing run", "edges": 2},
+                        {"assay_id": 13, "internal_assay_id": 13, "internal_assay_title": "Unmapped run", "edges": 1}]
+            raise AssertionError(f"unexpected statement: {query}")
+
+        checks, stats = [], {}
+        drift._check_assays(FakeDriver(respond), "neo4j", checks, stats)
+        named = {c["name"]: c for c in checks}
+
+        assert named["catalog.assays"]["pass"] is False
+        assert named["catalog.assays"]["detail"] == {"only_in_mysql": [98], "only_in_graph": []}
+        unmapped = named["assays.unmapped_seek_assays_with_members"]
+        assert (unmapped["actual"], unmapped["detail"]["largest"]) == (1, [[13, 2]])
+        assert named["assays.members_without_role"]["actual"] == 1          # 12 in SEEK assay 6
+        assert named["assays.labels_disagree_with_assay_titles"]["actual"] == 4
+        assert all(c["pass"] for name, c in named.items() if name != "catalog.assays")
+        assert stats["assays"]["members_without_role"] == 1
 
 
 # --- the assistant's investigation names (the POC's CI hook) --------------------------------------

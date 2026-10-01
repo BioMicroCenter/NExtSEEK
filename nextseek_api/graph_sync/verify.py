@@ -25,10 +25,10 @@ present, carries a few examples. Each name starts with the gate G check it belon
 7. ``metadata``: for the random samples, the node's properties minus system keys equal the projection of the
    sample's ``json_metadata`` (canonical JSON; a date is ``{"$date": "<ISO date>"}``, so a date stored as a
    string does not pass for one). Their ``uuid``, ``type``, ``title`` and ``search_text`` equal the projection's too.
-8. ``schema``, ``catalog``, ``graphmeta``: every v1.1 constraint and index exists and every index is ONLINE; the
-   catalog builds with no label collision in MySQL or the graph; no SampleType lacks ``id`` or ``label``; one
-   GraphMeta node, at the writer's schema version; and no label or relationship type outside the contract's sets for
-   the graph (``nextseek_graph.schema``; every ``T_`` label is allowed).
+8. ``schema``, ``catalog``, ``graphmeta``: every v1.1 and v1.3 constraint and index exists and every index is ONLINE;
+   the catalog builds with no label collision in MySQL or the graph; no SampleType lacks ``id`` or ``label``; one
+   GraphMeta node, at the writer's schema version; and no label or relationship type outside the contract's sets for the
+   graph (``nextseek_graph.schema``; every ``T_`` label is allowed).
 9. ``lineage.labels``: every declared DERIVED_FROM between two Sample nodes is compared with batch upload's label
    rule fed from MySQL (``labels.edge_labels``) and classified (``labels.classify``). It fails on an edge whose
    endpoints share an assay the rule resolves and whose three singular assay fields are all null: the gap that got
@@ -46,6 +46,11 @@ present, carries a few examples. Each name starts with the gate G check it belon
     sample's links to studies of its paper's own investigation, and samples SEEK places in no study, excepted).
     Always reported: the switch, id collisions, SEEK-keyed nodes SEEK lacks, samples kept with no SEEK study,
     OrphanSample links and paper samples with the links withheld from them.
+13. ``assays`` (graph schema 1.3): the Assay ids are ``internal_assays``' ids; RUN_IN equals the rows the mapping
+    and ``assays.study_id`` give; ACCEPTED_BY and GENERATES equal the parsed catalog; for the random samples, each
+    one's whole set of INPUT_TO and OUTPUT_OF (type, Assay, SEEK ids) equals the role rule over its declared lineage,
+    so a stale extra edge fails as a missing one does; and the graph's count of INPUT_TO and OUTPUT_OF equals the role
+    rule over every declared pair, so an edge left unwritten on a sample the draw missed fails too.
 14. ``small``: the small tables follow SEEK: the Project nodes (id and title), the Investigation nodes (id, title and
     their projects through IN_PROJECT) and every MEMBER_OF (person, project, has_left). An Investigation node SEEK
     lacks fails, unless a Study still holds it (``investigations_not_in_seek_held``, reported): a Study of a SEEK study
@@ -63,6 +68,8 @@ properties and classifies each as it arrives; it holds one assay-id tuple per li
 and one resolved protocol per child that names one. The sampled checks read the random samples plus the
 strata (the constants above): at most about 6,600 samples on a graph of 110 types, 15 projects and a busy week.
 Check 12 reads every Study node once and streams every Sample's IN_STUDY in keyset pages against SEEK's ordered links.
+Check 13 reads the assay layer's rows (hundreds), for the random samples their declared lineage from the pairs check 1
+already holds and their edges by id, and packs the role rule over every declared pair 8 bytes a role to count it.
 """
 from __future__ import annotations
 
@@ -82,6 +89,7 @@ from django.db import connections
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.graph_search.scope import ScopeUnavailable, resolve_scope
+from nextseek_api.graph_sync import assays as assay_rules
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import labels, run, sources, study_links, study_merge, writer
 from nextseek_api.graph_sync.projection import SYSTEM_KEYS, label_for, parent_lists, project_sample
@@ -108,8 +116,10 @@ SAMPLED_BATCH = 1_000
 LABEL_RULE_CACHE = 100_000   # distinct (child assays, parent assays, protocol) inputs whose labels check 9 keeps
 
 # The names gate G expects, from the contract's 1.1 groups (nextseek_graph/schema.py).
-EXPECTED_CONSTRAINTS = tuple(name for name, _label, _prop in schema.UNIQUE_CONSTRAINTS_V11)
-EXPECTED_INDEXES = tuple(name for name, _label, _prop in schema.RANGE_INDEXES_V11) + (schema.FULLTEXT_INDEX,)
+EXPECTED_CONSTRAINTS = tuple(name for name, _label, _prop in (*schema.UNIQUE_CONSTRAINTS_V11,
+                                                                *schema.UNIQUE_CONSTRAINTS_V13))
+EXPECTED_INDEXES = (tuple(name for name, _label, _prop in (*schema.RANGE_INDEXES_V11, *schema.RANGE_INDEXES_V13))
+                    + (schema.FULLTEXT_INDEX,))
 # "Protocol" and "protocol" both end in this as JSON keys. A child's metadata without it names no protocol, which
 # spares parsing most children's metadata a second time.
 _PROTOCOL_KEY_TAIL = 'rotocol"'
@@ -197,6 +207,30 @@ T_LABEL_WITHOUT_SAMPLE_EXAMPLES = """
 MATCH (n) WHERE NOT n:Sample AND any(l IN labels(n) WHERE l STARTS WITH 'T_')
 RETURN n.id AS id, labels(n) AS labels
 LIMIT $limit
+"""
+# Check 13: the assay layer (graph schema 1.3).
+ASSAY_IDS = "MATCH (a:Assay) RETURN a.id AS id"
+RUN_IN_ROWS = """
+MATCH (a:Assay)-[r:RUN_IN]->(st:Study)
+RETURN a.id AS assay_id, st.seek_study_id AS study_id, r.seek_assay_ids AS seek_assay_ids
+"""
+CATALOG_EDGE_ROWS = """
+MATCH (t:SampleType)-[r:ACCEPTED_BY]->(a:Assay)
+RETURN 'ACCEPTED_BY' AS type, t.title AS code, a.id AS assay_id, r.required AS required, r.group AS group_index
+UNION ALL
+MATCH (a:Assay)-[r:GENERATES]->(t:SampleType)
+RETURN 'GENERATES' AS type, t.title AS code, a.id AS assay_id, null AS required, r.group AS group_index
+"""
+SAMPLED_ASSAY_EDGES = """
+UNWIND $ids AS id
+MATCH (s:Sample {id: id})-[r:INPUT_TO|OUTPUT_OF]->(a:Assay)
+RETURN s.id AS id, type(r) AS type, a.id AS assay_id, r.seek_assay_ids AS seek_assay_ids
+"""
+# Every INPUT_TO and OUTPUT_OF, from the relationship count store (no label in the pattern, so no node is read).
+SAMPLE_ASSAY_EDGE_COUNT = """
+CALL () { MATCH ()-[r:INPUT_TO]->() RETURN count(r) AS inputs }
+CALL () { MATCH ()-[r:OUTPUT_OF]->() RETURN count(r) AS outputs }
+RETURN inputs + outputs AS n
 """
 
 # advanced_search's scope rule in SQL.
@@ -798,6 +832,59 @@ def _example(bucket: list, value) -> None:
         bucket.append(value)
 
 
+def _edge_key(rel: str, assay_id, seek_ids) -> tuple:
+    return rel, assay_id, tuple(sorted(seek_ids or ()))
+
+
+def _check_assays(driver, db, st, mysql: _MySQLSide, assays: dict, sampled: dict, checks: list, stats: dict) -> None:
+    graph_ids = {r["id"] for r in _records(_read(driver, db, ASSAY_IDS))}
+    missing = sorted(set(st.ids) - graph_ids)
+    extra = sorted(graph_ids - set(st.ids), key=_sort_key)
+    _check(checks, "13.assays.ids", 0, len(missing) + len(extra),
+           detail={"missing_in_graph": missing[:EXAMPLES], "not_in_mysql": extra[:EXAMPLES]})
+
+    want = {(r["assay_id"], r["study_id"], tuple(r["seek_assay_ids"])) for r in st.runs}
+    got = {(r["assay_id"], r["study_id"], tuple(sorted(r["seek_assay_ids"] or ())))
+           for r in _records(_read(driver, db, RUN_IN_ROWS))}
+    _check(checks, "13.assays.run_in", 0, len(want ^ got),
+           detail={"missing_in_graph": sorted(want - got, key=repr)[:EXAMPLES],
+                   "not_in_mysql": sorted(got - want, key=repr)[:EXAMPLES]})
+
+    want = ({("ACCEPTED_BY", r["code"], r["assay_id"], r["required"], r["group"]) for r in st.catalog.accepted_by}
+            | {("GENERATES", r["code"], r["assay_id"], None, r["group"]) for r in st.catalog.generates})
+    got = {(r["type"], r["code"], r["assay_id"], r["required"], r["group_index"])
+           for r in _records(_read(driver, db, CATALOG_EDGE_ROWS))}
+    _check(checks, "13.assays.catalog_edges", 0, len(want ^ got),
+           detail={"missing_in_graph": sorted(want - got, key=repr)[:EXAMPLES],
+                   "not_in_mysql": sorted(got - want, key=repr)[:EXAMPLES]})
+
+    ids = sorted(i for i in sampled if _is_id(i))   # a sampled sample with no node fails check 7
+    wanted = set(ids)
+    pairs = [pair for pair in map(run.decode_pair, mysql.lineage) if pair[0] in wanted or pair[1] in wanted]
+    roles = assay_rules.roles_for_pairs(pairs, assays, st.internal_by_seek)
+    expected = {row["id"]: ({_edge_key("INPUT_TO", e["assay_id"], e["seek_assay_ids"]) for e in row["inputs"]}
+                            | {_edge_key("OUTPUT_OF", e["assay_id"], e["seek_assay_ids"]) for e in row["outputs"]})
+                for row in assay_rules.sample_edge_rows({i: roles.get(i, {}) for i in ids})}
+    found: dict = {i: set() for i in ids}
+    for start in range(0, len(ids), SAMPLED_BATCH):
+        for r in _records(_read(driver, db, SAMPLED_ASSAY_EDGES, {"ids": ids[start:start + SAMPLED_BATCH]})):
+            found.setdefault(r["id"], set()).add(_edge_key(r["type"], r["assay_id"], r["seek_assay_ids"]))
+    wrong = [{"id": i, "missing": sorted(expected[i] - found[i]), "extra": sorted(found[i] - expected[i])}
+             for i in ids if expected[i] != found[i]]
+    stats["assays"] = {"assays": len(st.ids), "run_in_rows": len(st.runs), "sampled_compared": len(ids),
+                       "sampled_with_edges": sum(1 for i in ids if expected[i])}
+    _check(checks, "13.assays.sampled_sample_edges", 0, len(wrong), detail=wrong[:EXAMPLES])
+
+    roles = run.RoleCodes(st.internal_by_seek)
+    for code in mysql.lineage:
+        child, parent = run.decode_pair(code)
+        roles.add_edge(child, parent, assays.get(child), assays.get(parent))
+    want_edges = sum(len(sample_roles) for _, sample_roles in roles.by_sample())
+    got_edges = _one(_read(driver, db, SAMPLE_ASSAY_EDGE_COUNT), "n")
+    stats["assays"]["sample_edges_expected"] = want_edges
+    _check(checks, "13.assays.sample_edge_count", want_edges, got_edges)
+
+
 def _check_studies(driver, db, checks: list, stats: dict) -> None:
     """Family 12: the Study layer follows SEEK (docs/neo4j-schema.md, v1.2 "Study nodes and IN_STUDY"). The duplicate
     check always expects 0; the checks of ``STUDY_CHECKS_ENFORCED_WHEN_FOLLOWING`` expect 0 only where the box's
@@ -968,6 +1055,7 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
         cat, catalog_error = None, str(exc)
     sops = sources.sops_map()
     assay_map = sources.resolved_assay_map()
+    assay_state = run.read_assays()
     since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RECENT_DAYS)
     recent_ids = frozenset(sources.recent_sample_ids(since, RECENT_CAP))
     mysql = _timed(timings, "mysql_scan", _scan_mysql, chunk, sample_size, random.Random(seed),
@@ -995,5 +1083,6 @@ def gate_g(driver, db, sample_size: int = SAMPLE_SIZE, *, seed: int | None = Non
     _timed(timings, "10.samples", _check_type_labels, driver, db, checks)
     _timed(timings, "11.samples", _check_parent_lists, mysql, sampled, checks, stats)
     _timed(timings, "12.studies", _check_studies, driver, db, checks, stats)
+    _timed(timings, "13.assays", _check_assays, driver, db, assay_state, mysql, assays, sampled, checks, stats)
     _timed(timings, "14.small", _check_small_tables, driver, db, checks, stats)
     return {"checks": checks, "pass": all(c["pass"] for c in checks), "stats": stats}

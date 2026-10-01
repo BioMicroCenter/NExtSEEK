@@ -582,8 +582,10 @@ def test_the_writer_label_rule_is_the_contract():
 
 def test_the_writer_composed_names_equal_their_groups():
     assert projection.SYSTEM_KEYS == schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
-    assert verify.EXPECTED_CONSTRAINTS == tuple(name for name, _, _ in schema.UNIQUE_CONSTRAINTS_V11)
-    assert verify.EXPECTED_INDEXES == (tuple(name for name, _, _ in schema.RANGE_INDEXES_V11)
+    assert verify.EXPECTED_CONSTRAINTS == tuple(
+        name for name, _, _ in (*schema.UNIQUE_CONSTRAINTS_V11, *schema.UNIQUE_CONSTRAINTS_V13))
+    assert verify.EXPECTED_INDEXES == (tuple(name for name, _, _ in (*schema.RANGE_INDEXES_V11,
+                                                                      *schema.RANGE_INDEXES_V13))
                                        + (schema.FULLTEXT_INDEX,))
     # The census (8.schema.unknown_labels, 8.schema.unknown_relationship_types) allows every version's names from
     # 1.1 on, 1.3's included as soon as they are in the contract, so a box's census never fails the Assay layer.
