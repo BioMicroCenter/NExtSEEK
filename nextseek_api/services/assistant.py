@@ -116,6 +116,7 @@ from rest_framework.authentication import (
     BasicAuthentication,
     TokenAuthentication,
 )
+from nextseek_api.assistant.turn_pass_auth import TurnPassAuthentication
 
 # Re-exported: these two moved to nextseek_api/authentication.py (NessieAI Phase B, B1).
 # Other nextseek_api modules still import them from here, so keep both names importable.
@@ -296,7 +297,10 @@ def _artifact_content_type(path) -> str:
 class AssistantViewSet(viewsets.ViewSet):
     """ViewSet for the NExtSEEK Assistant (multi-agent chat)."""
 
-    authentication_classes = [TokenAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
+    # The turn pass first (spec piece 1); CCAssistantViewSet deliberately does not list it, so a pass can never
+    # start a Container-CC turn.
+    authentication_classes = [TurnPassAuthentication, TokenAuthentication, CsrfExemptSessionAuthentication,
+                              BasicAuthentication]
     permission_classes = [IsAuthenticated, UserInParticipatingProject]
 
     # ------------------------------------------------------------------

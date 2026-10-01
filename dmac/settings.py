@@ -379,6 +379,9 @@ LOGGING = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        # A Container-CC turn pass (spec piece 1): answers only `Authorization: NextseekTurn`, and refuses any
+        # route outside its allow table before the view runs. First, so a pass is never read as anything else.
+        'nextseek_api.assistant.turn_pass_auth.TurnPassAuthentication',
         'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',

@@ -67,3 +67,16 @@ class SeekPersonAuthenticationScheme(OpenApiAuthenticationExtension):
                 "description": "NExtSEEK username and password using HTTP Basic authentication.",
             },
         ]
+
+
+class TurnPassAuthenticationScheme(OpenApiAuthenticationExtension):
+    """The Container-CC turn pass (``Authorization: NextseekTurn <pass>``)."""
+
+    target_class = "nextseek_api.assistant.turn_pass_auth.TurnPassAuthentication"
+    name = "turnPass"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "apiKey", "in": "header", "name": "Authorization",
+            "description": "A Container-CC turn pass, sent as `NextseekTurn <pass>`.",
+        }
