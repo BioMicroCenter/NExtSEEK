@@ -278,6 +278,11 @@ REGISTRY: list[Route] = [
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
           note="home dashboard; each tile query is separately guarded, so 200 "
                "does not prove the database is answering"),
+    Route(pattern=r"^docs/(?:(?P<slug>[\w-]+)/)?$", path="/docs/",
+          effect="reads",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
+          note="the user docs, markdown under themes/NextSeek/docs/; /docs/ shows the "
+               "first page and seek/tests/test_docs_pages.py renders every page"),
     Route(pattern=r"^accounts/login/", path="/accounts/login/",
           effect="external",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
@@ -366,7 +371,8 @@ REGISTRY: list[Route] = [
                "rendered no assays to scrape a link from"),
     Route(pattern=r"^seek/^help/$", path="/seek/help/",
           effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200),
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=301,
+          note="the old Getting Started page; a permanent redirect to /docs/"),
     Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,

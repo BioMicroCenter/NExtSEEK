@@ -57,6 +57,10 @@ EXCLUDED_PREFIXES = (
     # "fixing" a link would corrupt the fixture the tests assert against.
     "NessieAI/tests/chat_nextseek/fixtures/nfcore/",
     "NessieAI/docker/cc-runtime/docs/",
+    # The user docs served at /docs/. They link app pages by site path (/seek/templates/),
+    # which R4 would read as a missing repo file; seek/tests/test_docs_pages.py checks
+    # their links, images and emails instead.
+    "themes/NextSeek/docs/",
     "NessieAI/docker/cc-runtime/build_context/",
     "NessieAI/docker/cc-runtime/container/",
     # The same trees at their locations before the NessieAI move.

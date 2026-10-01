@@ -52,6 +52,7 @@ _PROJECT_LEVEL = {
     "^accounts/login/",
     "^accounts/signup/",
     "^media/(?P<path>.*)$",
+    "^docs/(?:(?P<slug>[\\w-]+)/)?$",
 }
 
 # '(?P<name>...)' with no parenthesis of its own inside, which is every named

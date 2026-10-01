@@ -91,8 +91,8 @@ unreachable second entry (`ci/routes.py:882-899`, `ci/routes.py:924`).
 ### The gate
 
 `live_patterns()` walks Django's resolver and returns the patterns CI owns:
-everything under `nextseek_api/` or `seek/`, plus seven project-level patterns
-listed at `ci/gate/live_routes.py:47-55`. The Django admin and every DRF
+everything under `nextseek_api/` or `seek/`, plus eight project-level patterns
+listed at `ci/gate/live_routes.py:47-56`. The Django admin and every DRF
 format-suffix twin are dropped from the denominator entirely rather than declared
 (`ci/gate/live_routes.py:36-42`, `ci/gate/live_routes.py:62-68`). A `path()`
 route using converter syntax raises `NotImplementedError` instead of being

@@ -13,6 +13,8 @@ import seek.urls
 import api_app.urls
 import nextseek_api.urls
 
+from seek.views.pages import docs_page
+
 from . import views
 
 
@@ -46,6 +48,8 @@ if settings.USE_MODELTRANSLATION:
 
 urlpatterns += [
     re_path("^$", views.home, name="home"),
+    # The user docs: public, outside the i18n prefix, and ahead of the mezzanine catch-all.
+    re_path(r"^docs/(?:(?P<slug>[\w-]+)/)?$", docs_page, name="docs"),
     # Must precede the mezzanine catch-all below: mezzanine.urls includes its own
     # ^accounts/signup/ view, and "^" matches everything, so a signup route placed
     # after it is unreachable and users get Mezzanine's local signup form instead

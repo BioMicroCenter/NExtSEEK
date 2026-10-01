@@ -16,7 +16,7 @@ from .search import (newSearch, remote, runSampleSearch, sampleSearch, sampleSea
 from .admin import (adminClades, adminRetrieveSamples, assayAssociationSave, cladeDelete, cladeSampleTypesSave, cladeSave, cladesSyncSampleTypes, get_children_uids, internalAssayDelete, internalAssaySave, internalAssaySuggestions, internalAssays, parse_children_uids, parse_json_metadata, sample_retrieval_data, syncInternalAssays)
 from .projects import (project_connections, project_page, project_samples, projects)
 from .timeline import (download_nhp_data, fetch_event_data, get_nhp_data, nhp_info)
-from .pages import (getting_started)
+from .pages import (getting_started, docs_page)
 from .exports import (exportFile)
 from .shared import report
 
@@ -48,6 +48,7 @@ __all__ = [
     'get_children_uids',
     'get_nhp_data',
     'getting_started',
+    'docs_page',
     'internalAssayDelete',
     'internalAssaySave',
     'internalAssaySuggestions',
