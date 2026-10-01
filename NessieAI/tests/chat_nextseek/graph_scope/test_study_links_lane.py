@@ -631,6 +631,41 @@ def test_undo_links_an_on_both_source_back_only_while_it_links_to_the_legacy_nod
     assert _keys(studies_lane, 1001) == [] and _keys(studies_lane, 1002) == [("seek", 1)]
 
 
+_FIR_PAPER = ("CREATE (i:Investigation {id: 101, title: 'Alder Investigation'}), "
+              "(l:Study {id: 6, title: 'Fir paper', DOI: '10.9999/f6'})-[:IN_INVESTIGATION]->(i), "
+              "(:Sample {id: 1001, uuid: 'TIS-000000LNE-1001'})-[:IN_STUDY]->(l), "
+              "(:GraphMeta {schema_version: '1.2', catalog_hash: 'lane'})")
+
+
+@pytest.mark.parametrize("order", [("m1", "m2"), ("m2", "m1")])
+def test_undo_of_two_merge_cycles_of_one_id_restores_the_latest_whatever_the_order(studies_lane, monkeypatch,
+                                                                                    tmp_path, order):
+    """A paper of SEEK study 6 with no seek-keyed node is rekeyed in place and that is undone; the nightly's write
+    of every SEEK study's node then makes the study's node, empty; the id is rekeyed again with it, and sample 1002
+    reaches the study through the key. Given both run directories, in either order, the undo restores the state
+    before the second rekey: the seek-keyed node comes back, and 1002 moves to it."""
+    from nextseek_api.graph_sync import sources, study_merge, writer
+    _load(studies_lane, [_FIR_PAPER])
+    seek = [{"id": 6, "title": "Fir paper", "description": None, "investigation_id": 101}]
+    monkeypatch.setattr(sources, "studies", lambda: [dict(row) for row in seek])
+    monkeypatch.setattr(sources, "investigations", lambda: [
+        {"id": 101, "title": "Alder Investigation", "description": None}])
+    driver = studies_lane.driver
+    assert study_merge.apply(driver, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path / "m1"))["status"] == "ok"
+    assert study_merge.undo(driver, DB, [str(tmp_path / "m1")])["status"] == "ok"
+    writer.write_seek_study_nodes(driver, DB, seek)
+    assert study_merge.classify(study_merge.read_index(driver, DB), 6).kind == "rekey_in_place"
+    assert study_merge.apply(driver, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path / "m2"))["status"] == "ok"
+    studies_lane.write("MATCH (st:Study {seek_study_id: 6}) "
+                       "CREATE (:Sample {id: 1002, uuid: 'TIS-000000LNE-1002'})-[:IN_STUDY]->(st)")
+
+    undone = study_merge.undo(driver, DB, [str(tmp_path / d) for d in order])
+    assert undone["status"] == "ok" and undone["studies"][0]["arrived_moved"] == 1
+    assert studies_lane.read("MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek ORDER BY id") == [
+        {"id": 6, "seek": None}, {"id": None, "seek": 6}]
+    assert _keys(studies_lane, 1001) == [("id", 6)] and _keys(studies_lane, 1002) == [("seek", 6)]
+
+
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
 
 _CONNECTIONS_GRAPH = [

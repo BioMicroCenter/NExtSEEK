@@ -848,3 +848,85 @@ def test_undo_links_no_study_to_an_investigation_that_took_the_journaled_ones_el
     assert world.graph.in_investigation[legacy] == []
     assert result["investigation_not_restored"] == [
         {"study_id": 3, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]
+
+
+# --- two merge cycles of one id, a relabelled source, a journal line cut short ----------------------------------------
+
+def _rekey_twice(world, tmp_path):
+    """A paper of SEEK study 6 with no seek-keyed node is rekeyed in place (m1) and that is undone; the nightly then
+    writes the study's node, empty; the id is rekeyed again, now with that node (m2); and sample 1002 reaches the
+    study through the key."""
+    _seek(world, 6, "Fir paper")
+    legacy = world.graph.add_study(id=6, title="Fir paper", DOI="10.9999/f6", investigation=world.inv[101])
+    world.graph.add_sample(1001)
+    world.graph.link(1001, legacy)
+    assert study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path / "m1"))["status"] == "ok"
+    assert study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])["status"] == "ok"
+    world.graph.add_study(seek_study_id=6, title="Fir paper", investigation=world.inv[101])
+    assert _kind(world, 6).kind == "rekey_in_place"
+    assert study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path / "m2"))["status"] == "ok"
+    world.graph.add_sample(1002)
+    world.graph.link(1002, legacy)
+    return legacy
+
+
+@pytest.mark.parametrize("order", [("m1", "m2"), ("m2", "m1")])
+def test_undo_of_two_merge_cycles_of_one_id_restores_the_latest_whatever_the_order(world, tmp_path, order):
+    """Both cycles' run directories must be given (every merge journal naming the id), and the undo restores the
+    state before the latest cycle, whichever comes first: the seek-keyed node comes back and the sample that arrived
+    after the merge moves to it."""
+    legacy = _rekey_twice(world, tmp_path)
+    undone = study_merge.undo(world.graph, DB, [str(tmp_path / d) for d in order])
+    assert undone["status"] == "ok"
+    (keyed,) = world.graph.studies_by_seek(6)
+    assert keyed != legacy and "id" not in world.graph.studies[keyed]
+    assert world.graph.keys_of(1001) == {("id", 6)} and world.graph.keys_of(1002) == {("seek", 6)}
+
+
+@pytest.mark.parametrize("order", [("m1", "m2"), ("m2", "m1")])
+def test_undo_takes_each_source_from_the_latest_merge_cycle_whatever_the_order(world, tmp_path, order):
+    """1002 sat only on the seek-keyed node at the first merge and on both nodes at the second: the undo of the
+    second keeps its link to the legacy node, whichever run directory comes first."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m2"))
+    assert study_merge.undo(world.graph, DB, [str(tmp_path / d) for d in order])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_undo_reads_two_cycles_in_one_run_directory(world, tmp_path):
+    """Merged, undone and merged again into the same run directory: the undo restores the state before the second
+    merge, as it does for two directories."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    study_merge.undo(world.graph, DB, [str(tmp_path)])
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert study_merge.undo(world.graph, DB, [str(tmp_path)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)}
+
+
+def test_undo_leaves_the_legacy_nodes_own_sample_on_it_after_it_became_an_orphan(world, tmp_path):
+    """A sample of the legacy node's own, relabelled Sample to OrphanSample after the merge, is the journaled node
+    still (same element id, same id): not an arrival, so it is not moved to the seek-keyed node."""
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    world.graph.sources["s:1001"]["labels"] = {"OrphanSample"}
+    undone = study_merge.undo(world.graph, DB, [str(tmp_path)])
+    assert undone["status"] == "ok" and undone["studies"][0]["arrived_after_merge"] == []
+    assert world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_a_journal_line_cut_short_is_skipped_by_the_rerun_and_the_undo_and_reported(world, tmp_path):
+    """A crash cut the first plan line short (a large one is several MB). The rerun starts its own lines on a new line,
+    and the undo skips the cut line, as the apply does (it describes no write), and names it."""
+    _split(world)
+    journal = tmp_path / study_merge.JOURNAL_FILE
+    journal.write_text(study_merge.JOURNAL_HEADER + '1\tplan\t{"kind": "merge", "legac', encoding="utf-8")
+    assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))["status"] == "ok"
+    assert journal.read_text(encoding="utf-8").splitlines()[1] == '1\tplan\t{"kind": "merge", "legac'
+    undone = study_merge.undo(world.graph, DB, [str(tmp_path)])
+    assert undone["status"] == "ok" and undone["journal_lines_skipped"] == [f"{journal}:2"]
+    assert world.graph.keys_of(1002) == {("seek", 1)} and world.graph.keys_of(1003) == {("id", 1), ("seek", 1)}

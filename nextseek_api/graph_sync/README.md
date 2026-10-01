@@ -214,12 +214,14 @@ and approve what it prints. A rerun with the same `--run-dir` finishes a merge a
 journal recorded; one that stops on such an id exits 1, not 2, since the earlier attempt may have written, and
 `--unmerge-studies` with that run directory puts back what it moved.
 
-`--unmerge-studies` takes, in one call, every merge run directory of the ids it undoes (a crashed run and its rerun;
-for a whole box, the second approval's after `--studies` too) and every run directory whose `in_study_removed.tsv`
+`--unmerge-studies` takes, in one call and in any order, every merge run directory of the ids it undoes (a crashed run
+and its rerun; for a whole box, the second approval's after `--studies` too; for an id merged, undone and merged
+again, both merges', and it undoes the latest) and every run directory whose `in_study_removed.tsv`
 should come back (a `--studies` run's, and after the switch went on the drain's, reconcile's and full sync's while
 they are kept): the archived links come back before the sources move. It finds every merge journal under the run root
 itself and refuses (exit 2) while one that names its ids is not given. It reports a journaled source whose element id
-now names another node (`sources_replaced`, never written) and a sample that reached a merged study after the merge
+now names another node (`sources_replaced`, never written), a journal line a crash cut short, which it skips as the
+merge does (`journal_lines_skipped`), and a sample that reached a merged study after the merge
 (moved to the re-created seek-keyed node, `arrived_after_merge`), and ends `partial` (exit 1) when it refused an id,
 could not restore an Investigation, or had to leave such a sample on a legacy node with no seek-keyed node to move to.
 Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories

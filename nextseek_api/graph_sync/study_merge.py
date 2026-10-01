@@ -28,6 +28,7 @@ import logging
 import os
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import sources, study_links, writer
@@ -357,10 +358,12 @@ def _journaled_node(node: StudyNode | None) -> dict | None:
 def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     x, legacy, keyed = sel.study_id, sel.legacy, sel.seek_keyed
     # L's own sources go in the plan line, before any write: an undo moves every other source it then finds on L
-    # (one that reached study X through the key after the merge) to the re-created K.
+    # (one that reached study X through the key after the merge) to the re-created K. The UTC time orders this
+    # attempt among the others of the same id, in whatever journals and order an undo is given them.
     _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
                                    "seek_keyed": _journaled_node(keyed),
-                                   "legacy_sources": _sources(driver, db, legacy.element_id)}])
+                                   "legacy_sources": _sources(driver, db, legacy.element_id),
+                                   "at": datetime.now(timezone.utc).isoformat(timespec="microseconds")}])
     if keyed is not None and sel.kind != REKEY_IN_PLACE:
         while True:
             rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
@@ -456,14 +459,24 @@ def _opt_int(text: str):
     return int(text) if text not in ("", None) else None
 
 
-def read_journals(paths) -> tuple[dict, list]:
+def _attempt(at: str, plan: dict | None) -> dict:
+    return {"at": at, "plan": plan, "sources": {}, "done": False}
+
+
+def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
     """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
-    and/or ``in_study_removed.tsv``), and the archives found. The first ``plan`` line of an id wins (a crash and its
-    rerun journal the same nodes); sources, and the legacy node's own sources of every plan line, are merged by
-    element id (a source a crashed run moved is in its ``source`` lines, which take precedence in the undo).
-    ``legacy_sources_known`` is False when a plan line holds no list of them. Raises ValueError for a path that is
-    neither."""
-    per_id: dict[int, dict] = {}
+    and/or ``in_study_removed.tsv``), and the archives found. Raises ValueError for a path that is neither.
+
+    Each ``plan`` line starts an attempt, which owns the ``source`` and ``done`` lines after it in its journal, and the
+    attempts of an id are ordered by the UTC time their plan line carries, so the order of ``paths`` changes nothing.
+    Only the latest cycle counts: the attempts after the last one before the newest that ended ``done``. A merge
+    undone and approved again is a new cycle; a crash and its rerun, in one run directory or two, are one. Of that
+    cycle the first plan line wins (a crash and its rerun journal the same nodes), and its sources, and the legacy
+    node's own sources of each plan line, are merged by element id (a source a crashed run moved is in its ``source``
+    lines, which take precedence in the undo). ``legacy_sources_known`` is False when a plan line holds no list of
+    them. A line that cannot be read (a crash cut it short) describes no write, as the apply reads it: it is skipped,
+    and named as ``<journal>:<line number>`` in ``skipped`` when given."""
+    attempts: dict[int, list] = {}
     archives: list[str] = []
     for raw in paths:
         path = os.path.abspath(raw)
@@ -483,23 +496,43 @@ def read_journals(paths) -> tuple[dict, list]:
             raise ValueError(f"not a journal or a run directory: {path}")
         if journal is None:
             continue
+        current: dict[int, dict] = {}
         with open(journal, encoding="utf-8") as fh:
             if fh.readline() != JOURNAL_HEADER:
                 raise ValueError(f"{journal} is not a study merge journal")
-            for line in fh:
-                study_id, record, payload = line.rstrip("\n").split("\t", 2)
-                entry = per_id.setdefault(int(study_id), {"plan": None, "sources": {}, "legacy_sources": {},
-                                                          "legacy_sources_known": True})
-                data = json.loads(payload)
+            for number, line in enumerate(fh, start=2):
+                try:
+                    study_id, record, payload = line.rstrip("\n").split("\t", 2)
+                    x, data = int(study_id), json.loads(payload)
+                except ValueError:
+                    if skipped is not None:
+                        skipped.append(f"{journal}:{number}")
+                    continue
                 if record == "plan":
-                    if entry["plan"] is None:
-                        entry["plan"] = data
-                    if "legacy_sources" not in data:
-                        entry["legacy_sources_known"] = False
-                    for source in data.get("legacy_sources") or []:
-                        entry["legacy_sources"].setdefault(source["element_id"], source)
-                elif record == "source":
-                    entry["sources"].setdefault(data["element_id"], data)
+                    current[x] = _attempt(str(data.get("at") or ""), data)
+                    attempts.setdefault(x, []).append(current[x])
+                    continue
+                if x not in current:                      # lines whose plan line could not be read
+                    current[x] = _attempt("", None)
+                    attempts.setdefault(x, []).append(current[x])
+                if record == "source":
+                    current[x]["sources"].setdefault(data["element_id"], data)
+                elif record == "done":
+                    current[x]["done"] = True
+    per_id: dict[int, dict] = {}
+    for x, found in attempts.items():
+        found.sort(key=lambda a: a["at"])                   # stable: lines with no time keep the order read
+        ended = [i for i, a in enumerate(found[:-1]) if a["done"]]
+        cycle = found[ended[-1] + 1:] if ended else found
+        plans = [a["plan"] for a in cycle if a["plan"] is not None]
+        entry = per_id[x] = {"plan": plans[0] if plans else None, "sources": {}, "legacy_sources": {},
+                             "legacy_sources_known": all("legacy_sources" in p for p in plans)}
+        for a in cycle:
+            for element_id, source in a["sources"].items():
+                entry["sources"].setdefault(element_id, source)
+        for plan in plans:
+            for source in plan.get("legacy_sources") or []:
+                entry["legacy_sources"].setdefault(source["element_id"], source)
     return per_id, archives
 
 
@@ -610,8 +643,10 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
     id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
-    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``."""
-    journals, archives = read_journals(paths)
+    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal lines a crash cut
+    short are skipped and named in ``journal_lines_skipped`` (``read_journals``)."""
+    skipped: list[str] = []
+    journals, archives = read_journals(paths, skipped)
     if run_root is not None:
         missing = unlisted_journals(run_root, paths, journals)
         if missing:
@@ -620,7 +655,8 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     archive_rows = _read_archives(archives)
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
-              "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": []}
+              "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": [],
+              "journal_lines_skipped": skipped}
     todo = []
     for x in sorted(journals):
         entry = journals[x]
@@ -697,8 +733,9 @@ def _move_back(driver, db, entry: dict, keyed_eid: str, study: dict, batch: int)
 
 def _move_arrivals(driver, db, entry: dict, keyed_eid: str | None, study: dict, batch: int) -> None:
     """Every source on L now that is neither a journaled K source nor one of L's own journaled sources (each matched
-    by element id, id and labels) reached study X through the key after the merge: it goes to K, or, with no K to
-    go to, stays and is listed. A journal from before L's sources were journaled says nothing about arrivals."""
+    by element id and id; its labels may have changed since, a never-synced sample relabelled OrphanSample, say)
+    reached study X through the key after the merge: it goes to K, or, with no K to go to, stays and is listed. A
+    journal from before L's sources were journaled says nothing about arrivals."""
     if not entry["legacy_sources_known"]:
         study["arrived_after_merge"] = None
         return
@@ -706,9 +743,9 @@ def _move_arrivals(driver, db, entry: dict, keyed_eid: str | None, study: dict, 
     known = (entry["sources"], entry["legacy_sources"])
     arrived = []
     for source in _sources(driver, db, legacy_eid):
-        now = {"found": True, "id": source["id"], "labels": source["labels"]}
-        if not any(source["element_id"] in j and _same_node(j[source["element_id"]], now) for j in known):
-            arrived.append(_identity(source["element_id"], source))
+        eid = source["element_id"]
+        if not any(eid in j and j[eid].get("id") == source["id"] for j in known):
+            arrived.append(_identity(eid, source))
     study["arrived_after_merge"] = arrived
     if not arrived:
         return

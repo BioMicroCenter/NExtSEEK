@@ -163,12 +163,17 @@ def _sorted_ids(ids) -> list:
 
 def _append_rows(path: str, header: str, lines: list[str]) -> None:
     """Append ``lines`` to the TSV at ``path``, the header first when the file is new or empty, and flush them to
-    disk, so an archive is complete before the delete it precedes. Raises OSError when it cannot be written."""
+    disk, so an archive is complete before the delete it precedes. A last line a crash cut short is ended first, so
+    the new lines never run on from it. Raises OSError when it cannot be written."""
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, "a", encoding="utf-8", newline="") as fh:
+    with open(path, "a+b") as fh:
         if fh.tell() == 0:
-            fh.write(header)
-        fh.writelines(lines)
+            fh.write(header.encode("utf-8"))
+        else:
+            fh.seek(-1, os.SEEK_END)
+            if fh.read(1) != b"\n":
+                fh.write(b"\n")
+        fh.write("".join(lines).encode("utf-8"))
         fh.flush()
         os.fsync(fh.fileno())
 
