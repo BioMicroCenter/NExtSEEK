@@ -6,19 +6,18 @@
 moved to `nextseek_api`. It is 20 tracked files totalling 6,660 lines, all Python
 (counted 2026-09-03 with `git ls-files api_app | xargs wc -l`).
 
-Its central fact is a single commented-out line. The app is still installed at
-`dmac/settings.py:173`, and `dmac/urls.py:13` still imports its URLconf at module scope,
-but the `include()` that would mount that URLconf under `/api/` is commented out at
-`dmac/urls.py:28`, while the replacement app is mounted live one line below, at
-`dmac/urls.py:29`. So `api_app/urls.py` is executed on every boot and its seven patterns
-are built and then discarded: **no HTTP request reaches any code in this directory.**
+Its central fact is that nothing mounts it. The app is still installed at
+`dmac/settings.py:173`, but `dmac/urls.py` neither imports nor includes its URLconf (the
+import and the commented-out `^api/` include were removed), and the replacement app is
+mounted live in `dmac/urls.py` as `^nextseek_api/`. **No HTTP request reaches any code in
+this directory, and nothing imports `api_app/urls.py` at boot.**
 Measured against the running local stack on 2026-09-03, `/api/samples/` and
 `/api/rest-auth/login/` both return 404 while `/nextseek_api/samples/` returns 401.
 
 The directory holds three groups that have almost nothing to do with each other:
 
 1. **The Django/DRF app**: `urls.py`, `views.py`, `serializers.py`, plus empty
-   `models.py`, `admin.py` and `tests.py` scaffolding. Imported at boot, never routed.
+   `models.py`, `admin.py` and `tests.py` scaffolding. Never routed; only the installed-app files load.
 2. **Seven standalone command-line utilities** written against Python 2: four HTTP
    clients of group 1, two checksum tools, and one schema reporter.
 3. **A sample-lineage batch job** (`dbconn_mysql.py` and `updateTrees.py`) that talks
@@ -40,8 +39,7 @@ routes, a `dj_rest_auth` mount, and two upload endpoints) wrapped by
 `format_suffix_patterns` at `api_app/urls.py:22`. None of them is registered anywhere.
 Nothing else in the tree mounts them: an exhaustive `/usr/bin/grep -rn "api_app"` over
 the worktree, excluding `.git/`, this session's `.superpowers/` scratch and this pair's
-own two documents, leaves `dmac/urls.py:28` as the sole line placing this URLconf inside
-an `include()`, and every surviving hit is confirmed tracked with `git ls-files`.
+own two documents, finds no line placing this URLconf inside an `include()`.
 
 That absence has one consequence outside the boundary. `dj_rest_auth` is in
 `INSTALLED_APPS` at `dmac/settings.py:172` and is mounted exactly once, at
@@ -50,16 +48,18 @@ though `TokenAuthentication` is the first default authenticator at `dmac/setting
 The CI/CD spec reached the same conclusion independently at
 `docs/archive/2026-09/2026-09-01-nextseek-ci-cd-full-spec.md:315-317` (now archived).
 
-### The imported surface: what actually executes at boot
+### The imported surface: what executes at boot
 
-`import api_app.urls` at `dmac/urls.py:13` pulls in `api_app/views.py`, which pulls in
-`api_app/serializers.py` and four `seek` modules. So these load on every start:
+Only the installed-app files load: `INSTALLED_APPS` makes Django import `api_app/apps.py`
+and `api_app/models.py`. Before the URLconf import was removed from `dmac/urls.py`,
+`api_app/urls.py`, `views.py` and `serializers.py` also loaded on every start; they no
+longer do:
 
 | File | What loads | Live? |
 |---|---|---|
-| `api_app/urls.py` | seven patterns, then thrown away | imported, unrouted |
-| `api_app/views.py` | ten view classes, six named by the URLconf | imported, unreachable |
-| `api_app/serializers.py` | three serializer classes | imported, unreachable |
+| `api_app/urls.py` | seven patterns | not imported, unrouted |
+| `api_app/views.py` | ten view classes, six named by the URLconf | not imported |
+| `api_app/serializers.py` | three serializer classes | not imported |
 | `api_app/apps.py` | `ApiAppConfig` (`api_app/apps.py:5-6`) | live, does nothing |
 | `api_app/models.py` | imports `models`, defines none: `api_app/models.py:4-6` | live, empty |
 | `api_app/admin.py` | imports `admin`, registers nothing: `api_app/admin.py:4-6` | live, empty |
@@ -115,8 +115,7 @@ Two filenames appear twice in this boundary, and reading them settles which copy
   the top-level class instead: `api_app/updateTrees.py:18` and
   `api_app/remoteJob/updateTrees.py:19` name the identical module path. An exhaustive
   `/usr/bin/grep -rnE "^[[:space:]]*(from|import)[[:space:]]+api_app"` over the worktree,
-  excluding `.git/` and `.superpowers/`, returns exactly three lines: those two plus
-  `dmac/urls.py:13`. So the `remoteJob` connector is unreachable by any import in the
+  excluding `.git/` and `.superpowers/`, returns exactly two lines, those two. So the `remoteJob` connector is unreachable by any import in the
   repo, and it does not shadow the top-level one.
 - `api_app/updateTrees.py` is the successor and `api_app/remoteJob/updateTrees.py` the
   ancestor. The successor reads the parent key as `Parent`
@@ -166,14 +165,12 @@ This is a Python package, so both edges are import edges; they were derived by g
 the worktree rather than recalled, with `.git/` and `.superpowers/` excluded and every
 surviving hit checked against `git ls-files`.
 
-**Depended on by: the complete inbound list is one line.**
+**Depended on by: the complete inbound list is one line (config, not an import).**
 
-- `dmac/urls.py:13` imports `api_app.urls` at module scope, which is why this dead code
-  still costs import time and still breaks the boot if it raises.
 - `dmac/settings.py:173` lists the app, which is config rather than an import, and is
   what makes Django load `api_app/models.py` and `api_app/apps.py` as well.
 - Nothing else: that same `/usr/bin/grep -rnE` import search over the worktree returns
-  three lines in total, and the other two (`api_app/updateTrees.py:18` and
+  two lines in total, both (`api_app/updateTrees.py:18` and
   `api_app/remoteJob/updateTrees.py:19`) are internal to this boundary.
 
 Two hits look like inbound edges and are not, so they are excluded rather than listed:

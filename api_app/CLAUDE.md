@@ -2,11 +2,10 @@
 
 ## Invariants
 
-- **This package must keep importing cleanly even though it serves no traffic.**
-  `dmac/urls.py:13` binds it into the root URLconf at module scope, so any exception
-  raised while loading `api_app/urls.py`, `api_app/views.py` or `api_app/serializers.py`
-  takes the whole site down at boot, including the routes registered at
-  `dmac/urls.py:29` that have nothing to do with this app.
+- **Only `api_app/apps.py`, `models.py` and `admin.py` load at boot, through
+  `INSTALLED_APPS`.** `dmac/urls.py` no longer imports `api_app/urls.py`, so `views.py`
+  and `serializers.py` are not loaded by anything. Keep the three installed-app files
+  importable, or Django refuses to start.
 - **Do not move `MySQLdb` out of `api_app/dbconn_mysql.py:3` into a lazy import.** That
   module is the only connector either lineage script constructs (`api_app/updateTrees.py:18`,
   `api_app/remoteJob/updateTrees.py:19`), and both run outside Django's request cycle
@@ -22,8 +21,8 @@
   only call sites in `api_app/views.py:75`, `api_app/views.py:202` and
   `api_app/views.py:210`; removing the directory without also removing
   `seek/sample/api.py:244`, `seek/sample/api.py:38` and `seek/sample/api.py:280` leaves
-  three uncallable public methods behind, and removing `dmac/urls.py:13` and
-  `dmac/settings.py:173` is required or Django refuses to start.
+  three uncallable public methods behind, and removing `dmac/settings.py:173` is
+  required or Django refuses to start.
 
 ## Landmines
 

@@ -122,11 +122,9 @@ a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); t
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
 (`handler404`, `handler500` in `dmac/urls.py`).
 
-There is one legacy include, and it is disabled rather than deleted: `^api/` pointing at
-`api_app.urls` is commented out at `dmac/urls.py:28`, while `dmac/urls.py:13` still
-imports that URLconf at module scope and `dmac/settings.py:173` still installs the app.
-So `api_app`'s models and its URLconf module both load on every boot, and none of its
-routes are reachable.
+The old `^api/` include of `api_app.urls` and its import are gone from `dmac/urls.py`;
+`dmac/settings.py:173` still installs `api_app`, so its models load on every boot, and
+none of its routes are reachable.
 
 ### Server entry points
 
