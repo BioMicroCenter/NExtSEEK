@@ -335,7 +335,8 @@ class Command(BaseCommand):
         record, trigger = not options["no_record"], options["trigger"]
         try:
             if mode == "catalog":
-                result = run.catalog_sync(driver, db, dry_run=options["dry_run"], record=record, trigger=trigger)
+                result = run.catalog_sync(driver, db, dry_run=options["dry_run"], record=record, trigger=trigger,
+                                          run_dir=run_dir)
                 if run_dir and not options["dry_run"]:
                     _save(run_dir, "catalog_sync.json", result)
             else:

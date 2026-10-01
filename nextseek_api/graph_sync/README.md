@@ -48,9 +48,9 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 |---|---|---|
 | `--loop` | never returns: housekeeping, the schedule, then the drain, once every `--interval` seconds (default 5) | through its passes |
 | `--once` | one pass of the loop | as above |
-| `--full` | the whole ordered sync (`run.py`'s module docstring). Its preflight writes nothing and refuses before the first write on any problem it finds | yes |
+| `--full` | the whole ordered sync (`run.py`'s module docstring). Its preflight writes nothing and refuses before the first write on any problem it finds, except SampleType title conflicts alone: then it retires the samples MySQL lacks first and checks the titles once more | yes |
 | `--catalog` | the SampleType and Attribute catalog only | yes |
-| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved | yes |
+| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
@@ -203,7 +203,8 @@ written together, never a subset, and every edge graph_sync creates is labelled 
 What is written without the operator's approval is a **new** label (an edge whose three singular assay fields are
 all null, guarded in the Cypher itself; on such an edge a stored protocol is kept), a **rename** (the edge keeps its
 assay ids and an internal assay title changed under them: `renamed`) and a **filled protocol** (a protocol where none
-was stored: `protocol_filled`), the last two only where the stored values still equal the ones read. Every other
+was stored: `protocol_filled`), the last two only where the stored values still equal the ones read, and on an edge
+stored without plural lists only when the rule's list holds the edge's one internal assay. Every other
 difference, any change of which assay an edge carries, is classified per edge (`new`, `equal`, `plural_missing`,
 `renamed`, `protocol_filled`, `changed`, `cleared`), counted per property in the run's report (`labels_*`,
 `labels_by_property`, `labels_examples`) and left alone. `--apply-label-changes`, or
@@ -268,7 +269,7 @@ A dry run writes no file.
 | `in_study_removed.tsv` | any path that removes an IN_STUDY link | sample id, the Study's `seek_study_id` and `id`, the edge's element id and the path that removed it, before the delete |
 | `study_links.json` | `--studies` | samples read and differing, links added, removed and withheld, paper samples, samples kept with no SEEK study, OrphanSample links |
 | `sample_types_deleted.tsv` | the catalog step (`--full`, `--catalog`, the reconcile, the drain) | each SampleType node deleted because SEEK lost it and no Sample reaches it: id, title, label, attribute keys |
-| `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it: id, title, project ids |
+| `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it (only a Study node SEEK still has, or a graph-only paper Study node, holds one): id, title, project ids |
 | `gate_g.json`, `catalog_sync.json` | `--verify`, `--catalog` | that run's report, with `--run-dir` |
 
 ## The modules

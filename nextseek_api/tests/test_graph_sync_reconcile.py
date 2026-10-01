@@ -387,17 +387,66 @@ def test_refuses_a_graph_not_at_the_writers_version_and_does_nothing(steps, tmp_
     assert GraphSyncRun.objects.get(kind="reconcile").status == "refused"
 
 
-def test_a_catalog_sync_that_refuses_still_writes_the_small_tables_and_the_relabel(steps, tmp_path):
+_CONFLICT = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
+_OTHER = "the graph is at schema '1.1', not '1.2'; run a full sync first, which brings it there"
+
+
+def _refusal(*problems, conflicts=True):
+    report = {"mode": "catalog", "sample_type_title_conflicts": [{"title": "TIS", "graph_id": 9, "mysql_id": 26}]
+              if conflicts else []}
+    return run.PreflightError(list(problems), report)
+
+
+@pytest.mark.parametrize("refusal", [_refusal(_OTHER, conflicts=False), _refusal(_CONFLICT, _OTHER)],
+                         ids=["another reason", "title conflicts beside another reason"])
+def test_a_catalog_sync_that_refuses_still_writes_the_small_tables_and_the_relabel(steps, tmp_path, refusal):
     """Neither reads the catalog: a night whose catalog refuses still writes the Investigation, Project, Person and
-    Study nodes and the relabel; detection and the sample steps, which build the catalog, do not run."""
-    problem = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
-    steps.catalog = run.PreflightError([problem], {"mode": "catalog"})
+    Study nodes and the relabel; detection and the sample steps, which build the catalog, do not run. Only a refusal
+    for nothing but title conflicts goes on to the retire (R19)."""
+    steps.catalog = refusal
+    steps.detection = _detection(extra=[9])
     result = _reconcile(tmp_path)
 
     assert result["status"] == "refused"
-    assert result["problems"] == [problem]
+    assert result["problems"] == refusal.problems
     assert result["stopped_at"] == "catalog"
     assert _names(steps) == ["catalog", "small_tables", "relabel"]
+
+
+def test_a_catalog_refused_only_for_title_conflicts_retires_then_tries_once_more(steps, tmp_path):
+    """R19: a type deleted in SEEK with its samples (no hook sees either) and recreated under its old title. The old
+    node still holds Sample nodes only the retire step removes, so the catalog refuses: detection and the retire run,
+    the catalog is tried once more, and the night goes on without a second retire."""
+    steps.catalog = [_refusal(_CONFLICT), None]
+    steps.detection = _detection(changed=[11], extra=[9, 3])
+    result = _reconcile(tmp_path)
+
+    assert result["status"] == "ok"
+    assert "problems" not in result and "stopped_at" not in result
+    assert result["catalog_retried"] == [_CONFLICT]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "build_catalog", "detect", "retire", "catalog",
+                             "sync_samples", "study_links"]
+    assert _one(steps, "retire").ids == [3, 9] and _one(steps, "sync_samples").ids == [11]
+    assert set(result["steps"]) >= {"small_tables", "relabel", "retire", "catalog_retry", "samples", "study_links"}
+
+
+def test_a_second_title_conflict_refusal_stops_the_run_after_the_retire(steps, tmp_path):
+    steps.catalog = [_refusal(_CONFLICT), _refusal(_CONFLICT)]
+    steps.detection = _detection(changed=[11], extra=[9])
+    result = _reconcile(tmp_path)
+
+    assert (result["status"], result["stopped_at"], result["problems"]) == ("refused", "catalog_retry", [_CONFLICT])
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "build_catalog", "detect", "retire", "catalog"]
+
+
+@pytest.mark.django_db
+def test_a_title_conflict_night_whose_guard_trips_retires_nothing(steps, tmp_path):
+    steps.catalog = [_refusal(_CONFLICT), None]
+    steps.detection = _detection(extra=list(range(1, 30)), mysql_samples=100)
+    result = _reconcile(tmp_path)
+
+    assert result["status"] == "guard_tripped" and result["catalog_retried"] == [_CONFLICT]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "build_catalog", "detect"]
 
 
 @pytest.mark.django_db

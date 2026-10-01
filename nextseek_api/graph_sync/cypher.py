@@ -260,18 +260,23 @@ MERGE (i:Investigation {id: r.id})
 SET i.title = r.title, i.description = r.description, i.project_id = r.project_id
 """
 DELETE_INVESTIGATION_IN_PROJECT = "MATCH (:Investigation)-[e:IN_PROJECT]->(:Project) DELETE e"
+# A Study holds its Investigation while SEEK still has its study ($study_ids, SEEK's study ids) or when it is a
+# graph-only paper (no seek_study_id). SEEK deletes an investigation after its studies and a Study node is never
+# deleted here, so the node of a gone SEEK study holds nothing; it loses its IN_INVESTIGATION with the Investigation.
+_INVESTIGATION_HELD = """EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study)
+         WHERE st.seek_study_id IS NULL OR st.seek_study_id IN $study_ids }"""
 # Investigation nodes whose id SEEK no longer has: those no Study holds, with what their archive records, are deleted;
-# the others are counted (a Study node is never deleted here, so its Investigation stays).
+# the others are counted.
 INVESTIGATIONS_GONE = """
 MATCH (i:Investigation) WHERE i.id IS NOT NULL AND NOT i.id IN $ids
 RETURN elementId(i) AS element_id, i.id AS id, i.title AS title,
        [(i)-[:IN_PROJECT]->(p:Project) | p.id] AS project_ids,
-       EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) } AS held
+       """ + _INVESTIGATION_HELD + """ AS held
 ORDER BY id
 """
 DELETE_INVESTIGATIONS = """
 UNWIND $element_ids AS eid
-MATCH (i:Investigation) WHERE elementId(i) = eid AND NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) }
+MATCH (i:Investigation) WHERE elementId(i) = eid AND NOT """ + _INVESTIGATION_HELD + """
 DETACH DELETE i
 RETURN count(*) AS deleted
 """
@@ -667,7 +672,7 @@ GRAPH_PROJECTS = "MATCH (p:Project) RETURN p.id AS id, p.title AS title"
 GRAPH_INVESTIGATIONS = """
 MATCH (i:Investigation)
 RETURN i.id AS id, i.title AS title, [(i)-[:IN_PROJECT]->(p:Project) | p.id] AS project_ids,
-       EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) } AS held
+       """ + _INVESTIGATION_HELD + """ AS held
 """
 GRAPH_MEMBER_OF = """
 MATCH (pe:Person)-[m:MEMBER_OF]->(p:Project)

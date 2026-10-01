@@ -667,19 +667,50 @@ def test_a_gone_investigation_no_study_holds_is_archived_then_deleted_and_a_held
 
     driver = FakeDriver(responder)
     counts = w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
-                                            archive_path=str(archive))
+                                            archive_path=str(archive), seek_study_ids=[])
     assert archive.read_text(encoding="utf-8").splitlines() == [w.INVESTIGATIONS_ARCHIVE_HEADER.rstrip("\n"),
                                                                 "7\tGone\t3,5"]
     assert driver.calls_of(q.DELETE_INVESTIGATIONS)[0].params["element_ids"] == ["4:i:7"]
     assert (counts["investigations_deleted"], counts["investigations_not_in_seek_held"]) == (1, 1)
-    assert "NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) }" in q.DELETE_INVESTIGATIONS
+    assert "NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study)" in q.DELETE_INVESTIGATIONS
+
+
+def test_a_gone_investigation_is_held_only_by_a_live_seek_study_or_a_paper_node(tmp_path):
+    """R18: SEEK deletes an investigation after its studies and this release deletes no Study node, so a node whose
+    SEEK study is gone does not hold its Investigation. The read and the delete's own re-check both take SEEK's study
+    ids; a Study with no seek_study_id (a graph-only paper) still holds."""
+    gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [], "held": False}]
+
+    def responder(query, params):
+        if query == q.INVESTIGATIONS_GONE:
+            return gone
+        return [{"deleted": len(params["element_ids"])}] if query == q.DELETE_INVESTIGATIONS else []
+
+    driver = FakeDriver(responder)
+    w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                   archive_path=str(tmp_path / "a.tsv"), seek_study_ids=[42, 41, 42])
+    assert driver.calls_of(q.INVESTIGATIONS_GONE)[0].params["study_ids"] == [41, 42]
+    assert driver.calls_of(q.DELETE_INVESTIGATIONS)[0].params["study_ids"] == [41, 42]
+    held = ("EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study) "
+            "WHERE st.seek_study_id IS NULL OR st.seek_study_id IN $study_ids }")
+    for statement in (q.INVESTIGATIONS_GONE, q.DELETE_INVESTIGATIONS, q.GRAPH_INVESTIGATIONS):
+        assert " ".join(held.split()) in " ".join(statement.split())
+
+
+def test_the_investigation_deletes_need_seeks_study_ids(tmp_path):
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="SEEK's study ids"):
+        w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                       archive_path=str(tmp_path / "a.tsv"))
+    assert driver.calls == []
 
 
 def test_an_empty_investigation_list_refuses_to_delete_every_investigation(tmp_path):
     driver = FakeDriver(lambda query, params: [{"element_id": "4:i:7", "id": 7, "title": "x", "project_ids": [],
                                                 "held": False}] if query == q.INVESTIGATIONS_GONE else [])
     with pytest.raises(ValueError, match="every Investigation"):
-        w.write_investigation_projects(driver, "neo4j", [], [], archive_path=str(tmp_path / "a.tsv"))
+        w.write_investigation_projects(driver, "neo4j", [], [], archive_path=str(tmp_path / "a.tsv"),
+                                       seek_study_ids=[])
     assert q.DELETE_INVESTIGATIONS not in driver.queries() and q.MERGE_INVESTIGATIONS not in driver.queries()
 
 
@@ -1881,6 +1912,19 @@ def test_write_edge_label_refreshes_refuses_any_other_class_before_sending(store
     driver = FakeDriver()
     with pytest.raises(ValueError, match="approval"):
         w.write_edge_label_refreshes(driver, "neo4j", [_refresh_row(**stored)])
+    assert driver.calls == []
+
+
+def test_write_edge_label_refreshes_refuses_a_rename_that_would_add_an_assay():
+    """An edge stored with singular fields only: renaming its title would also write the plural lists, and a second
+    internal assay the pair shares would reach the edge without approval (R17)."""
+    computed = dict(REFRESH_LABELS, internal_assay_ids=[99, 120], internal_assay_titles=["New name", "Other assay"])
+    stored = dict(REFRESH_LABELS, internal_assay_title="Old name", internal_assay_ids=None,
+                  internal_assay_titles=None)
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="changed label needs the operator's approval"):
+        w.write_edge_label_refreshes(driver, "neo4j",
+                                     [{"child_id": 11, "parent_id": 10, "labels": computed, "stored": stored}])
     assert driver.calls == []
 
 

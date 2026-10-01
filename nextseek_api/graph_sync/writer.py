@@ -514,20 +514,25 @@ def write_people_and_memberships(driver, db, rows: list[dict]) -> dict:
 
 
 def write_investigation_projects(driver, db, investigations: list[dict], links: list[dict], *,
-                                 archive_path: str | None = None) -> dict:
+                                 archive_path: str | None = None, seek_study_ids=None) -> dict:
     """MERGE every SEEK Investigation on ``id`` and replace every ``(:Investigation)-[:IN_PROJECT]->(:Project)``.
 
     ``Investigation.project_id`` is the investigation's lowest linked project id, and absent when it has none (the
     connections endpoint reads the IN_PROJECT links instead). With ``archive_path`` an Investigation node whose id
     SEEK no longer has and that no Study holds is appended to that archive (id, title, project ids), flushed, and
-    deleted; one a Study still holds is kept and counted in ``investigations_not_in_seek_held``. An empty
-    ``investigations`` with nodes to delete raises ValueError before anything is written, as ``write_projects``
-    refuses an empty project list.
+    deleted; one a Study still holds is kept and counted in ``investigations_not_in_seek_held``. A Study holds it
+    only while SEEK still has its study (``seek_study_ids``, every SEEK study id, required with ``archive_path``) or
+    when it is a graph-only paper (no ``seek_study_id``); the node of a gone SEEK study stays and loses its
+    IN_INVESTIGATION. An empty ``investigations`` with nodes to delete raises ValueError before anything is written,
+    as ``write_projects`` refuses an empty project list.
     """
     deleted = held = 0
     if archive_path:
+        if seek_study_ids is None:
+            raise ValueError("deleting Investigation nodes needs SEEK's study ids, to know which Study still holds one")
         ids = sorted({int(i["id"]) for i in investigations})
-        gone = _records(_run(driver, db, q.INVESTIGATIONS_GONE, {"ids": ids}, read=True))
+        study_ids = sorted({int(s) for s in seek_study_ids})
+        gone = _records(_run(driver, db, q.INVESTIGATIONS_GONE, {"ids": ids, "study_ids": study_ids}, read=True))
         deletable = [g for g in gone if not g["held"]]
         held = len(gone) - len(deletable)
         if deletable and not ids:
@@ -538,7 +543,8 @@ def write_investigation_projects(driver, db, investigations: list[dict], links: 
                                                              ",".join(str(p) for p in sorted(g["project_ids"] or []))))
                           + "\n" for g in deletable])
             deleted = _one(_run(driver, db, q.DELETE_INVESTIGATIONS,
-                                {"element_ids": [g["element_id"] for g in deletable]}), "deleted")
+                                {"element_ids": [g["element_id"] for g in deletable], "study_ids": study_ids}),
+                           "deleted")
     project_of: dict[int, int] = {}
     link_rows, seen = [], set()
     for link in links:

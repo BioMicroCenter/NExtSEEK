@@ -238,7 +238,7 @@ class Writers:
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows)},
-            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
                 "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
@@ -548,6 +548,64 @@ def test_graph_only_samples_follow_the_deletion_rule(world, monkeypatch, tmp_pat
     assert (report["retired_deleted"], report["retired_orphaned"]) == (1, 1)
 
 
+# A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title: the old node still
+# holds a Sample node MySQL lacks, so its title reads as held under another id until that sample is retired (R19).
+_TITLE_CONFLICT = [{"title": "TIS", "graph_id": 9, "mysql_id": 26}]
+_GONE_SAMPLE = {"element_id": "4:s:99", "id": 99, "uuid": "TIS-X-99", "type": "TIS", "synced": True,
+                "incident_edges": 2}
+
+
+def _conflicts_then(graph, *answers):
+    """Answer the title-conflict read with each of ``answers`` in turn."""
+    pending, real = list(answers), graph.answer
+
+    def answer(query, params):
+        if query == q.SAMPLE_TYPE_TITLE_CONFLICTS:
+            return pending.pop(0), {}
+        return real(query, params)
+
+    graph.answer = answer
+    return pending
+
+
+def test_a_title_held_only_by_a_gone_types_samples_is_retired_then_checked_once_more(world, monkeypatch, tmp_path,
+                                                                                    lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT, [])
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    report = _full(graph, tmp_path)
+
+    assert report["status"] == "ok" and report["problems"] == [] and pending == []
+    assert (report["title_conflicts_retried"], report["sample_type_title_conflicts"]) == (_TITLE_CONFLICT, [])
+    assert len(writers.of("retire_samples")) == 1 and report["retired_deleted"] == 1
+    assert writers.names().index("retire_samples") < writers.names().index("delete_ghosts")
+    assert (tmp_path / run.RETIRED_FILE).read_text().splitlines()[1:] == ["99\tTIS-X-99\tTIS\t2"]
+
+
+def test_a_title_conflict_the_retire_does_not_clear_still_refuses(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT, _TITLE_CONFLICT)
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    with pytest.raises(run.PreflightError, match="SampleType titles are held under other ids"):
+        _full(graph, tmp_path)
+
+    assert pending == [] and writers.names() == ["find_ghosts", "retire_samples"]
+
+
+def test_a_title_conflict_beside_another_problem_refuses_without_retiring(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    graph.study_duplicates = [{"seek_study_id": 3, "nodes": 2}]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT)
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    with pytest.raises(run.PreflightError):
+        _full(graph, tmp_path)
+
+    assert pending == [] and writers.names() == ["find_ghosts"]
+
+
 # --- the lock, the run record and the outbox -----------------------------------------------------
 
 def test_the_lock_is_held_for_the_whole_run(world, monkeypatch, tmp_path, lock):
@@ -708,7 +766,8 @@ def test_the_sample_types_and_investigations_steps_archive_what_they_delete_in_t
     (types,) = writers.of("write_sample_types")
     (invs,) = writers.of("write_investigation_projects")
     assert types.kwargs == {"archive_path": str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE)}
-    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE)}
+    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE),
+                           "seek_study_ids": [7, 8, 9]}
 
 
 def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():

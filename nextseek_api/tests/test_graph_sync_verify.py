@@ -803,6 +803,27 @@ def test_an_investigation_seek_lacks_that_a_study_holds_is_reported_not_failed(w
     assert (held["actual"], held["pass"], held["detail"]) == (1, True, [7])
 
 
+def test_an_investigation_held_only_by_a_gone_seek_studys_node_fails(world, monkeypatch):
+    """R18: a Study node whose SEEK study is gone does not hold its Investigation, so gate G reads the held column
+    with SEEK's study ids, and an Investigation only such a node links to fails as one SEEK lacks."""
+    monkeypatch.setattr(sources, "studies", lambda: [{"id": 42, "title": "Live", "description": None,
+                                                     "investigation_id": None}])
+    graph = GateWorld(_graph_nodes())
+    holders = {7: [41], 8: [42], 9: [None]}        # an Investigation SEEK lacks: the seek_study_id of each holder
+    real = graph.__call__
+
+    def answer(query, params):
+        if query == q.GRAPH_INVESTIGATIONS:
+            return [{"id": i, "title": "x", "project_ids": [],
+                     "held": any(k is None or k in params["study_ids"] for k in keys)} for i, keys in holders.items()]
+        return real(query, params)
+
+    result = verify.gate_g(FakeDriver(answer), "neo4j", sample_size=10, seed=7, accounts=())
+    gone = _named(result, "14.small.investigations_not_in_seek")
+    assert (gone["actual"], gone["pass"], gone["detail"]) == (1, False, [7])
+    assert _named(result, "14.small.investigations_not_in_seek_held")["detail"] == [8, 9]
+
+
 def test_an_investigation_whose_project_links_differ_fails(world, monkeypatch):
     monkeypatch.setattr(sources, "investigations", lambda: [{"id": 3, "title": "TCGA", "description": None}])
     monkeypatch.setattr(sources, "investigation_projects", lambda: [{"investigation_id": 3, "project_id": 16},

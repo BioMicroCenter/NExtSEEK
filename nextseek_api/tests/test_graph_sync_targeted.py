@@ -1106,6 +1106,25 @@ def test_small_tables_archive_then_delete_an_investigation_seek_lost_that_no_stu
     assert lines[1].split("\t")[:2] == ["9", "Gone"]
 
 
+def test_small_tables_delete_an_investigation_held_only_by_a_gone_seek_studys_node(env, tmp_path):
+    """R18: SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. A node
+    whose SEEK study is gone no longer holds its Investigation, which is archived and deleted; the node stays, without
+    its IN_INVESTIGATION. A paper node, and the node of a study SEEK still has, still hold theirs."""
+    s = env.graph.study
+    dead_inv = s.add_investigation(9, "Gone with its study")
+    dead = s.add_study(seek_study_id=41, title="A gone study", investigation=dead_inv)
+    paper_inv = s.add_investigation(8, "A paper's")
+    s.add_study(id=40, title="A paper", investigation=paper_inv)
+    live_inv = s.add_investigation(7, "Left by study seventy")
+    s.add_study(seek_study_id=70, title="Study seventy", investigation=live_inv)
+    result = targeted.sync_small_tables(env.graph, DB, run_dir=str(tmp_path))
+    assert dead_inv not in s.investigations and dead in s.studies and s.in_investigation[dead] == []
+    assert paper_inv in s.investigations and live_inv in s.investigations
+    assert (result["investigations_deleted"], result["investigations_not_in_seek_held"]) == (1, 2)
+    lines = (tmp_path / writer.INVESTIGATIONS_DELETED_FILE).read_text(encoding="utf-8").splitlines()
+    assert [line.split("\t")[:2] for line in lines[1:]] == [["9", "Gone with its study"]]
+
+
 # --- the one MySQL reader of its own -------------------------------------------------------------
 
 class _Cursor:

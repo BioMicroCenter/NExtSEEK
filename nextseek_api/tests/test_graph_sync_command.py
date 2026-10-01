@@ -171,7 +171,7 @@ class WriterRecorder:
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows),
                                                                  "memberships_dropped": 0},
-            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
                 "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "write_missing_lineage": lambda d, db, pairs, chunk=10_000: {
@@ -395,12 +395,15 @@ def test_full_sync_refuses_when_a_sample_cannot_be_projected(world, monkeypatch,
 
 
 def test_full_sync_refuses_when_a_graph_sample_type_holds_a_title_under_another_id(world, monkeypatch, tmp_path):
+    """The graph-only sample is retired first and the titles are checked once more (R19); the title is still held,
+    so the run refuses before any other write."""
     rec = WriterRecorder(monkeypatch)
     driver = FakeDriver(lambda query, params: [{"title": "TIS", "graph_id": 5, "mysql_id": 26}]
                         if query == q.SAMPLE_TYPE_TITLE_CONFLICTS else [])
     with pytest.raises(run.PreflightError, match="sample_type_title_conflicts"):
         run.full_sync(driver, "neo4j", run_dir=str(tmp_path))
-    assert rec.names() == ["find_ghosts"]
+    assert rec.names() == ["find_ghosts", "retire_samples"]
+    assert [c.query for c in driver.calls].count(q.SAMPLE_TYPE_TITLE_CONFLICTS) == 2
 
 
 def test_full_sync_refuses_on_a_label_collision(world, monkeypatch, tmp_path):
@@ -857,7 +860,17 @@ def test_catalog_dry_run_calls_catalog_sync_dry(graphdb, monkeypatch):
     seen = {}
     monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
     call_command("graph_sync", "--catalog", "--dry-run", stdout=StringIO(), stderr=StringIO())
-    assert seen == {"dry_run": True, "record": True, "trigger": "command"}
+    assert seen == {"dry_run": True, "record": True, "trigger": "command", "run_dir": None}
+
+
+def test_catalog_archives_into_the_run_dir_it_saves_its_report_in(graphdb, monkeypatch, tmp_path):
+    """A hand ``--catalog --run-dir X``: the catalog sync's ``sample_types_deleted.tsv`` goes into X beside
+    ``catalog_sync.json``, not into a new catalog-<UTC time> directory."""
+    seen = {}
+    monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    call_command("graph_sync", "--catalog", "--run-dir", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert seen["run_dir"] == str(tmp_path) and seen["dry_run"] is False
+    assert (tmp_path / "catalog_sync.json").exists()
 
 
 def test_verify_json_prints_the_gate_and_exits_1_when_it_fails(graphdb, monkeypatch):
