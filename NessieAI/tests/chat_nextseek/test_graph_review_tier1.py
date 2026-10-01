@@ -687,8 +687,8 @@ def test_d1_another_short_value_and_field():
 
 
 def test_d2_added_words_that_are_a_negation_are_not_exempt():
-    rv = _free_text_turn("How many widgets are Hispanic or Latino?", "hispanic or latino", "T_WID", "Ethnicity",
-                         ["Hispanic or Latino", "Not Hispanic or Latino"])
+    rv = _free_text_turn("How many widgets are plain widget type?", "plain widget", "T_WID", "Ethnicity",
+                         ["Plain Widget", "Not Plain Widget"])
     assert _check(rv, "unapplied_value").fired
 
 
@@ -702,3 +702,25 @@ def test_d2_another_field_and_its_negation():
     rv = _free_text_turn("How many gadgets have a complete response?", "complete response", "T_GAD", "Outcome",
                          ["Complete Response", "Non-Complete Response"])
     assert _check(rv, "unapplied_value").fired
+
+
+def _equality_turn(question, cy, lab, attr, values):
+    inp = ReviewInput(question=question, cypher=cy, parameters={}, keyword_fields={}, rows=[{"n": 7}], count=1,
+                      total=1, ok=True, error=None, reply_draft=None)
+    cat = DictCatalog({f"{lab}.@name": [["Widget", 100]], f"{lab}.*": [[attr, len(values)]],
+                       f"{lab}.{attr}": [[v, 5] for v in values]})
+    return review_tier1(inp, cat)
+
+
+def test_a_short_stored_code_the_question_never_names_does_not_fire_the_unapplied_branch():
+    rv = _equality_turn("How many TB widgets are there?",
+                        "MATCH (s:T_WID)\nWHERE s.Diagnosis = 'tuberculosis'\nRETURN count(s) AS n",
+                        "T_WID", "Code", ["TB", "XY"])
+    assert not _check(rv, "unapplied_value").fired
+
+
+def test_a_short_stored_code_on_another_field_does_not_fire_either():
+    rv = _equality_turn("How many MS gadgets are there?",
+                        "MATCH (s:T_GAD)\nWHERE s.Condition = 'multiple sclerosis'\nRETURN count(s) AS n",
+                        "T_GAD", "Abbrev", ["MS", "CF"])
+    assert not _check(rv, "unapplied_value").fired
