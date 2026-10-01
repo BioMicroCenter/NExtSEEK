@@ -286,3 +286,14 @@ def test_download_timeout_is_cut_to_the_time_left(monkeypatch, tmp_path):
     payload = {"P.1": {"ok": True, "data": {"data": {"attributes": {"content_blobs": [{"link": "http://x/b"}]}}}}}
     pr.download_and_extract_protocol_blobs(payload, tmp_path, deadline=time.monotonic() + 5)
     assert seen and all(0 < t <= 5 for t in seen)
+
+
+def test_configure_run_records_the_user_message_count_for_the_launch_gate(tmp_path):
+    state = _configure_run_state(tmp_path, {})
+    state["messages"] = [{"role": "user", "content": "run it"},
+                         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "{}"}]},
+                         {"role": "user", "content": "yes"}]
+    out = json.loads(at.tool_configure_run(_Cfg(), state, {"pipeline_key": "smrnaseq",
+                                                           "params": {"mirtrace_species": "hsa"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert state["launch_built_at_user_msgs"] == 2
