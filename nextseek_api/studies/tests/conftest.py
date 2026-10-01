@@ -310,3 +310,122 @@ def apply_to_world(world: World, plan) -> dict:
         world.links = [link for link in world.links if (link[0], link[1]) not in gone]
     world.next_study_id = next_id
     return ids
+
+
+# --- SEEK's link tables on SQLite (tasks 17 onward) ----------------------------------------------
+
+from contextlib import contextmanager  # noqa: E402
+
+from sqlalchemy import create_engine, event, text  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+
+@pytest.fixture
+def seek_db(monkeypatch):
+    """assay_assets and samples on one SQLite connection, dmac's graph_sync_outbox in an attached ``dmac`` schema.
+    The registration planner's schema-qualified reads name ``main``."""
+    from nextseek_api.assay_registration import planner as registration_planner
+
+    engine = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
+
+    @event.listens_for(engine, "connect")
+    def _connect(dbapi_conn, _record):
+        dbapi_conn.isolation_level = None
+        dbapi_conn.execute("ATTACH DATABASE ':memory:' AS dmac")
+
+    @event.listens_for(engine, "begin")
+    def _begin(conn):
+        conn.exec_driver_sql("BEGIN")
+
+    with engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE assay_assets (id INTEGER PRIMARY KEY AUTOINCREMENT, assay_id INTEGER, "
+                             "asset_id INTEGER, version INTEGER, created_at TEXT, updated_at TEXT, "
+                             "relationship_type_id INTEGER, asset_type TEXT, direction INTEGER)")
+        conn.exec_driver_sql("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, json_metadata TEXT)")
+        conn.exec_driver_sql("CREATE TABLE dmac.graph_sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, "
+                             "key TEXT, payload TEXT, enqueued_at TEXT, attempts INTEGER, UNIQUE (kind, key))")
+    monkeypatch.setattr(registration_planner, "_seek_db", lambda: "main")
+    return engine
+
+
+@contextmanager
+def sqlite_connection(engine):
+    with engine.connect() as conn:
+        trans = conn.begin()
+        try:
+            yield conn
+            trans.commit()
+        except BaseException:
+            trans.rollback()
+            raise
+
+
+def seed(engine, world: World) -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM assay_assets")
+        conn.exec_driver_sql("DELETE FROM samples")
+        for assay, sample, direction in world.links:
+            conn.execute(text("INSERT INTO assay_assets (assay_id, asset_id, version, created_at, updated_at, "
+                              "relationship_type_id, asset_type, direction) VALUES (:a, :s, 1, "
+                              "'2026-01-01 00:00:00', '2026-01-01 00:00:00', NULL, 'Sample', :d)"),
+                         {"a": assay, "s": sample, "d": direction})
+        for sid, sample in world.samples.items():
+            meta = sample.get("meta", {})
+            conn.execute(text("INSERT INTO samples (id, uuid, json_metadata) VALUES (:i, :u, :m)"),
+                         {"i": sid, "u": sample["uuid"], "m": meta if isinstance(meta, str) else json.dumps(meta)})
+
+
+def links_of(engine) -> list:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text("SELECT assay_id, asset_id, direction FROM assay_assets "
+                                                    "ORDER BY id")).fetchall()]
+
+
+def rows_of(engine) -> list:
+    with engine.connect() as conn:
+        return [tuple(r) for r in conn.execute(text("SELECT id, assay_id, asset_id FROM assay_assets "
+                                                    "ORDER BY id")).fetchall()]
+
+
+def outbox_of(engine) -> list:
+    with engine.connect() as conn:
+        return [(k, key, json.loads(p)) for k, key, p in conn.execute(text(
+            "SELECT kind, key, payload FROM dmac.graph_sync_outbox ORDER BY id")).fetchall()]
+
+
+class FakeSeekMetadata:
+    """samples.json_metadata as the backfill's cursor and graph_sync's ``samples_by_ids`` both read it."""
+
+    def __init__(self, world: World):
+        self.metadata = {sid: (s["meta"] if isinstance(s["meta"], str) else json.dumps(s["meta"]))
+                         for sid, s in world.samples.items()}
+        self.updated: list = []
+        self._result: list = []
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        params = list(params or [])
+        if sql.lstrip().startswith("SELECT"):
+            self._result = [(sid, self.metadata[sid]) for sid in params if sid in self.metadata]
+        else:
+            new, sample_id = params
+            self.metadata[sample_id] = new
+            self.updated.append(sample_id)
+
+    def fetchall(self):
+        return self._result
+
+    def samples_by_ids(self, ids):
+        return [{"id": i, "uuid": "", "title": "", "sample_type_id": 1, "json_metadata": self.metadata[i]}
+                for i in sorted(ids) if i in self.metadata]
+
+    def meta(self, sample_id) -> dict:
+        return json.loads(self.metadata[sample_id])

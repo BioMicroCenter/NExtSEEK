@@ -476,12 +476,15 @@ WRITERS: tuple[Writer, ...] = (
            sites=("nextseek_api/studies/seek.py::SeekSession.create_study",
                   "nextseek_api/studies/seek.py::SeekSession.create_assay",
                   "nextseek_api/studies/seek.py::SeekSession.delete_study",
-                  "nextseek_api/studies/seek.py::SeekSession.delete_assay"),
-           tables=("studies", "assays"),
-           how=("seek_client",),
+                  "nextseek_api/studies/seek.py::SeekSession.delete_assay",
+                  "nextseek_api/studies/mapping.py::insert_clone_mappings",
+                  "nextseek_api/studies/mapping.py::delete_clone_mappings",
+                  "nextseek_api/studies/links.py::undo_link_unit"),
+           tables=("studies", "assays", "assay_assets", "assays_internal_assays"),
+           how=("seek_client", "orm", "sql"),
            reconcile="RECONCILE_OPERATOR",
-           note="the studies tool's SEEK session (manage.py studies); the hook replaces this code when its apply "
-                "and rollback land in this package"),
+           note="the studies tool (manage.py studies): its SEEK session, the clones' internal-assay rows and a "
+                "link unit's undo; the hook replaces this code when its apply and rollback land in this package"),
 )
 
 
