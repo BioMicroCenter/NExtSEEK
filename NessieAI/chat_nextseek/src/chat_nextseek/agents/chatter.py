@@ -249,6 +249,17 @@ def _type_names(config: Any) -> dict[str, str]:
     }
 
 
+def _type_tags(config: Any) -> dict[str, list[str]]:
+    """``{SampleType: [tag phrases]}`` from the catalog's sample type rows (``Tags`` is comma separated)."""
+    catalog = getattr(config, "MIN_SAMPLETYPES", None)
+    if not isinstance(catalog, list):
+        return {}
+    return {
+        str(item["SampleType"]): [t.strip() for t in str(item.get("Tags") or "").split(",") if t.strip()]
+        for item in catalog if isinstance(item, dict) and item.get("SampleType")
+    }
+
+
 def _type_names_block(config: Any, rows: list) -> str:
     """Catalog names for the sample type codes in the rows, so the writer does not invent them
     (a Scientist-by-type question, Pilot A v2: D.MSP was called "Mass Spectrometry Peptide")."""
@@ -687,6 +698,7 @@ def chatter_agent_answer(
         user_query=user_query,
         container_aliases=_container_aliases(config),
         type_names=_type_names(config),
+        type_tags=_type_tags(config),
     )
 
     def _fmt_entities(items: Any) -> str:
