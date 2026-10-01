@@ -245,12 +245,10 @@ class Claim:
 
 
 def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None,
-                below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None,
-                except_last_error_prefix: str | None = None) -> list[dict]:
+                below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[dict]:
     """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
     ``kinds`` and with keys starting ``key_prefix`` when given. ``below_attempts`` lowers the attempt bound for rows
-    whose ``last_error`` does not start with ``or_last_error_prefix``; a row whose ``last_error`` starts with
-    ``except_last_error_prefix`` is left out."""
+    whose ``last_error`` does not start with ``or_last_error_prefix``."""
     qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
     if below_attempts < MAX_ATTEMPTS:
@@ -258,8 +256,6 @@ def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_p
         if or_last_error_prefix:
             fewer |= Q(last_error__startswith=or_last_error_prefix)
         qs = qs.filter(fewer)
-    if except_last_error_prefix:
-        qs = qs.exclude(last_error__startswith=except_last_error_prefix)
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
     if key_prefix is not None:
@@ -300,12 +296,10 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
 
 
 def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: datetime | None = None,
-               below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None,
-               except_last_error_prefix: str | None = None) -> list[Claim]:
+               below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[Claim]:
     """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
     ``worker_id``, and only rows with fewer than ``below_attempts`` attempts or a ``last_error`` that starts with
-    ``or_last_error_prefix``, and none whose ``last_error`` starts with ``except_last_error_prefix``. Each is the
-    same compare-and-set as ``claim_next``, so a row another worker took in
+    ``or_last_error_prefix``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in
     between is skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease
     runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``), leaving out a row that
     has failed repeatedly unless its last failure says merging it cannot fail the others."""
@@ -316,7 +310,7 @@ def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: d
     now = now or timezone.now()
     out = []
     for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts,
-                         or_last_error_prefix=or_last_error_prefix, except_last_error_prefix=except_last_error_prefix):
+                         or_last_error_prefix=or_last_error_prefix):
         claim = _take(worker_id, c, now)
         if claim is not None:
             out.append(claim)

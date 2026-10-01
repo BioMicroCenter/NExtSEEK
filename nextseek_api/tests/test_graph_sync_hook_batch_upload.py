@@ -290,6 +290,20 @@ class TestStageSixCallsSyncSamples:
         assert "1199" not in caplog.text and "project ids SEEK lacks" not in caplog.text
         assert "'in_project_missing': 200" in caplog.text
 
+    def test_samples_left_waiting_for_the_catalog_keep_the_jobs_rows_open_and_log_a_count(self, monkeypatch, caplog):
+        """A sync that left samples out until SampleType titles held under other ids clear did not do the job's work:
+        its rows stay open for the loop, and the info line carries a count, not up to 5,000 reasons."""
+        from nextseek_api.graph_sync import targeted
+        waiting = {i: "sample type 9 has no current SampleType node" for i in range(1000, 1200)}
+        monkeypatch.setattr(targeted, "sync_samples", lambda driver, db, ids, **kw: {
+            "status": "ok", "structural_gaps": 0, "catalog_waiting_samples": waiting})
+        monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: _config()))
+        with caplog.at_level("INFO", logger=orch.__name__), pytest.MonkeyPatch.context() as mp:
+            _fake_driver(mp)
+            assert orch._run_graph_sync(sorted(waiting)) == "catalog_waiting"
+        assert "200 samples, first 1000, 1001, 1002, 1003, 1004" in caplog.text
+        assert "1199" not in caplog.text and "no current SampleType node" not in caplog.text
+
     def test_a_graph_that_is_not_configured_is_never_connected_to(self, monkeypatch):
         disabled = _config(enabled=False)
         monkeypatch.setattr(orch.Neo4jConfig, "from_django_settings", classmethod(lambda cls: disabled))

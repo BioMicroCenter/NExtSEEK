@@ -1073,29 +1073,89 @@ def test_a_deferred_merged_sync_puts_every_row_back_without_an_attempt(work):
     assert {(r.done_at, r.attempts, r.claimed_by, r.failing_since) for r in rows} == {(None, 0, None, None)}
 
 
+WAITING_WHY = "sample type 9 has no current SampleType node ('Tissue' is held by type 3 in the graph)"
+
+
+def _waiting(*ids, **more):
+    """A by-id sync's report that left ``ids`` out for a SampleType title held under another id, and names them."""
+    return {"status": targeted.OK, "catalog_waiting_samples": {i: WAITING_WHY for i in ids}, **more}
+
+
 @pytest.mark.django_db
-def test_rows_a_title_conflict_deferred_drain_alone_so_a_healthy_row_merged_with_them_is_freed(work, monkeypatch):
-    """The refusal does not say which samples of a merged sync needed the catalog, so every row it drained waits;
-    each then drains alone until it syncs, and no other row takes one into its merge."""
-    _single_rows(3)                    # 1000 needs the refused catalog sync; 1001 and 1002 do not
+def test_a_sync_that_left_samples_waiting_for_the_catalog_defers_only_their_rows(work):
+    """Only the nightly reconcile clears a title held under another id, so the rows of the samples a sync left out
+    wait without an attempt, never dying and never failing; every other row it drained is done."""
+    _single_rows(3)
+    work.sync = _waiting(1001)
+
+    report = one_pass(work)
+
+    r = row("samples", "sample:1001")
+    assert (r.done_at, r.attempts, r.failing_since) == (None, 0, None)
+    assert r.lease_expires_at == T0 + timedelta(seconds=loop.TITLE_CONFLICT_BACKOFF_S)
+    assert r.last_error == f"{loop.TITLE_CONFLICT_DEFERRAL}samples sample:1001: {WAITING_WHY}"
+    assert [row("samples", f"sample:{i}").done_at is not None for i in (1000, 1002)] == [True, True]
+    assert report["counts"] == {loop.DONE: 2 + 3, loop.DEFERRED: 1, loop.FAILED: 0}    # + the three slots
+    assert state.failing_rows(now=T0)["total"] == 0
+
+
+@pytest.mark.django_db
+def test_rows_waiting_for_the_catalog_merge_with_fresh_writes_and_hold_none_of_them_back(work, monkeypatch):
+    """The outcome is per sample, so a waiting row stays mergeable: at its next claim it rides in one sync with the
+    rows written since, which close while it waits again."""
+    _single_rows(3)                    # 1000 is of a type whose node cannot be written yet; 1001 and 1002 are not
     wait = loop.TITLE_CONFLICT_BACKOFF_S
-    state.enqueue("samples", "sample:2000", now=before(seconds=1), delay_s=wait + 1)    # claimable with them
     synced = []
 
     def sync(driver, db, ids, **kwargs):
         synced.append(list(ids))
-        if 1000 in ids:
-            raise _title_conflict_refusal()
-        return {"status": targeted.OK}
+        return _waiting(1000) if 1000 in ids else {"status": targeted.OK}
 
     monkeypatch.setattr(targeted, "sync_samples", sync)
     one_pass(work, now=T0)
+    state.enqueue("samples", "sample:2000", now=T0 + timedelta(seconds=wait - 60))   # a fresh write meanwhile
+    state.enqueue("samples", "sample:2001", now=T0 + timedelta(seconds=wait - 30))
     one_pass(work, now=T0 + timedelta(seconds=wait))
 
-    assert synced == [[1000, 1001, 1002], [2000], [1000], [1001], [1002]]
-    assert [row("samples", f"sample:{i}").done_at is not None for i in (1000, 1001, 1002, 2000)] == [
-        False, True, True, True]
+    assert synced == [[1000, 1001, 1002], [1000, 2000, 2001]]
+    assert [row("samples", f"sample:{i}").done_at is not None for i in (1000, 1001, 1002, 2000, 2001)] == [
+        False, True, True, True, True]
     assert row("samples", "sample:1000").attempts == 0
+
+
+@pytest.mark.django_db
+def test_a_batch_or_type_row_holding_a_waiting_sample_waits_and_one_holding_none_is_done(work):
+    state.enqueue("samples", "batch:reg:1:0", [11, 12], now=before(minutes=3))
+    state.enqueue("samples", "batch:reg:1:1", [13], now=before(minutes=2))
+    state.enqueue("samples_of_type", "type:9", now=before(minutes=1))
+    work.sync = _waiting(12)
+    work.of_type = {"status": targeted.OK, "sample_type_id": 9, "catalog_waiting_samples": {40: WAITING_WHY}}
+
+    one_pass(work)
+
+    batch = row("samples", "batch:reg:1:0")
+    assert (batch.done_at, batch.attempts, batch.payload) == (None, 0, [11, 12])
+    assert batch.last_error == f"{loop.TITLE_CONFLICT_DEFERRAL}samples batch:reg:1:0: {WAITING_WHY}"
+    kind = row("samples_of_type", "type:9")
+    assert (kind.done_at, kind.attempts) == (None, 0)
+    assert kind.last_error.startswith(f"{loop.TITLE_CONFLICT_DEFERRAL}samples_of_type type:9: ")
+    # batch:reg:1:1 ran its own sync, which named sample 12 too; it holds only 13, so it is done.
+    assert row("samples", "batch:reg:1:1").done_at is not None
+
+
+@pytest.mark.django_db
+def test_a_sync_with_waiting_and_gapped_samples_defers_fails_and_closes_each_row_by_its_own_samples(work):
+    _single_rows(3)
+    work.sync = _waiting(1000, **{k: v for k, v in _gap(1001).items() if k != "status"})
+
+    report = one_pass(work)
+
+    waiting, gapped, healthy = (row("samples", f"sample:{i}") for i in (1000, 1001, 1002))
+    assert (waiting.done_at, waiting.attempts, waiting.failing_since) == (None, 0, None)
+    assert (gapped.done_at, gapped.attempts, gapped.failing_since) == (None, 1, T0)
+    assert gapped.last_error.startswith(loop.TRACED_GAP_ERROR)
+    assert healthy.done_at is not None
+    assert report["counts"] == {loop.DONE: 1 + 3, loop.DEFERRED: 1, loop.FAILED: 1}    # + the three slots
 
 
 @pytest.mark.django_db
