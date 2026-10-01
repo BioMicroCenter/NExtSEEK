@@ -172,6 +172,66 @@ def assays_for_titles(titles: List[str], conn) -> Dict[str, List[Tuple[int, int,
     return out
 
 
+def assay_study_ids(assay_ids: List[int], conn) -> Dict[int, int]:
+    """assay_id -> study_id, for the candidates of an ambiguous title only."""
+    out: Dict[int, int] = {}
+    if not assay_ids:
+        return out
+    db = _seek_db()
+    for chunk in _in_chunks(sorted(set(assay_ids))):
+        holes, params = _placeholders("a", chunk)
+        sql = text(f"SELECT id, study_id FROM {db}.assays WHERE id IN ({holes})")
+        for assay_id, study_id in conn.execute(sql, params).fetchall():
+            if study_id is not None:
+                out[int(assay_id)] = int(study_id)
+    return out
+
+
+@dataclass(frozen=True)
+class TitleTiebreak:
+    """What decides a title that reaches several assays of the sample's projects (the studies tool's clones keep their
+    source assay's title): the (assay_id, sample_id) pairs the samples already hold among the candidates, and the
+    candidates whose study is an investigation's Unpublished study."""
+
+    held: frozenset = frozenset()
+    in_bucket: frozenset = frozenset()
+
+
+def _ambiguous_titles(rows, counts, uid_to_sample, sample_projects, title_index) -> List[Tuple[int, List[int]]]:
+    """(sample_id, candidate assay ids) for every title row whose title reaches several assays of its projects."""
+    out: List[Tuple[int, List[int]]] = []
+    for row in rows:
+        if row.assay_id is not None or row.assay is None:
+            continue
+        uid = row.sample_uid.strip()
+        sample_id = uid_to_sample.get(uid) if counts.get(uid, 0) == 1 else None
+        projects = sample_projects.get(sample_id, set()) if sample_id is not None else set()
+        if not projects:
+            continue
+        distinct = sorted({a for a, p, _t in title_index.get(_norm(row.assay), []) if p in projects})
+        if len(distinct) > 1:
+            out.append((sample_id, distinct))
+    return out
+
+
+def _title_tiebreak(pending: List[Tuple[int, List[int]]], conn) -> TitleTiebreak:
+    """Three batched reads, made only when some title is ambiguous: the samples' memberships in the candidates, the
+    buckets, and each candidate's study."""
+    if not pending:
+        return TitleTiebreak()
+    from nextseek_api.studies.buckets import bucket_study_ids
+
+    from .planner import existing_membership_ids  # planner imports this module
+
+    candidates = sorted({a for _s, ids in pending for a in ids})
+    pairs = sorted({(a, s) for s, ids in pending for a in ids})
+    held = frozenset(existing_membership_ids(pairs, conn))
+    buckets = bucket_study_ids(conn)
+    study_of = assay_study_ids(candidates, conn)
+    in_bucket = frozenset(a for a in candidates if study_of.get(a) in buckets.study_ids)
+    return TitleTiebreak(held=held, in_bucket=in_bucket)
+
+
 def _norm(title: str) -> str:
     return title.strip().lower()
 
@@ -195,6 +255,8 @@ def resolve(rows: List[RegistrationRow], conn) -> List[ResolvedRow]:
 
     titles = sorted({_norm(r.assay) for r in rows if r.assay is not None})
     title_index = assays_for_titles(titles, conn)
+    tiebreak = _title_tiebreak(
+        _ambiguous_titles(rows, counts, uid_to_sample, sample_projects, title_index), conn)
 
     resolved: List[ResolvedRow] = []
     for index, row in enumerate(rows):
@@ -244,7 +306,7 @@ def resolve(rows: List[RegistrationRow], conn) -> List[ResolvedRow]:
                                            row.assay_id, assay_projects))
         else:
             resolved.append(_resolve_by_title(index, uid, sample_id, projects,
-                                              row.assay, title_index))
+                                              row.assay, title_index, tiebreak))
     return resolved
 
 
@@ -271,7 +333,8 @@ def _resolve_by_id(index, uid, sample_id, projects, assay_id, assay_projects) ->
                        assay_id=assay_id, project_id=min(shared))
 
 
-def _resolve_by_title(index, uid, sample_id, projects, title, title_index) -> ResolvedRow:
+def _resolve_by_title(index, uid, sample_id, projects, title, title_index,
+                      tiebreak: TitleTiebreak = TitleTiebreak()) -> ResolvedRow:
     candidates = title_index.get(_norm(title), [])
     if not candidates:
         return ResolvedRow(
@@ -291,13 +354,19 @@ def _resolve_by_title(index, uid, sample_id, projects, title, title_index) -> Re
                 title))
     distinct = sorted({a for a, _, _ in in_project})
     if len(distinct) > 1:
-        return ResolvedRow(
-            index=index, sample_uid=uid, sample_id=sample_id,
-            error=_err(
-                "assay_ambiguous_in_project",
-                f"'{title}' resolves to {len(distinct)} assays in the sample's "
-                f"project: {distinct}. Retry naming one with `assay_id`.",
-                title))
+        held = [a for a in distinct if (a, sample_id) in tiebreak.held]
+        in_bucket = [a for a in distinct if a in tiebreak.in_bucket]
+        chosen = held[0] if len(held) == 1 else (in_bucket[0] if len(in_bucket) == 1 else None)
+        if chosen is None:
+            return ResolvedRow(
+                index=index, sample_uid=uid, sample_id=sample_id,
+                error=_err(
+                    "assay_ambiguous_in_project",
+                    f"'{title}' resolves to {len(distinct)} assays in the sample's "
+                    f"project: {distinct}; the sample is in {held or 'none'}, and in an "
+                    f"Unpublished study: {in_bucket or 'none'}. Retry naming one with `assay_id`.",
+                    title))
+        in_project = [(a, p, t) for (a, p, t) in in_project if a == chosen]
     # sorted(), not in_project[0]: assays_for_titles has no ORDER BY, and MySQL
     # guarantees no row order without one. When one assay reaches two or more of
     # the sample's own projects, an unsorted index makes the reported project_id

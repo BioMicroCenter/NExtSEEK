@@ -72,13 +72,16 @@ other.
 
 - `resolver.py` turns submitted rows into `(sample_id, assay_id, project_id)` or a typed
   error, in a fixed number of batch queries over the whole submission
-  (`nextseek_api/assay_registration/resolver.py:184-185`). It counts uid matches rather than
+  (`nextseek_api/assay_registration/resolver.py:243-244`). It counts uid matches rather than
   testing existence (`nextseek_api/assay_registration/resolver.py:68-71`), reads the SEEK and
   NExtSEEK schema names from settings aliases rather than hardcoding them
   (`nextseek_api/assay_registration/resolver.py:35-40`), chunks every `IN` clause at 1000
   (`nextseek_api/assay_registration/resolver.py:30-32`), and resolves an assay title through
   `internal_assays` into the sample's own project
-  (`nextseek_api/assay_registration/resolver.py:147-152`).
+  (`nextseek_api/assay_registration/resolver.py:147-152`). A title that reaches several assays
+  of the sample's project resolves to the one the sample is already in, else to the one in the
+  investigation's Unpublished study (the rule of `nextseek_api/studies/buckets.py`); otherwise
+  it is refused as `assay_ambiguous_in_project`.
 - `planner.py` splits the resolved rows into what will be written, what is already present,
   and what is skipped (`nextseek_api/assay_registration/planner.py:72-96`), reading existing
   membership ids with `MIN(id)` under a `GROUP BY` because `assay_assets` has no unique
