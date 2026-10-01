@@ -1163,7 +1163,7 @@ def test_a_gpt_keyword_over_the_gpt_type_label_is_applied():
 
 # --- A2 (N8): a type reached only through a tag the user did not write is not asked for ---------------------------------
 
-_TAGS = {"QZ": ["crystal lattice", "geode"], "WV": ["oscillation trace", "WV"]}
+_TAGS = {"QZ": ["crystal lattice", "geode", "mineral assembly"], "WV": ["oscillation trace", "WV", "spectral analysis"]}
 
 
 def _type_scope(question, *, code="QZ", name="Quartz Specimen", parser_code=None, cypher="MATCH (s:T_OTHER) RETURN count(s) AS n"):
@@ -1213,3 +1213,22 @@ def test_an_everyday_name_still_asks_for_its_type():
     """"CC mice": the question writes "mice", an everyday name of MUS; the query counted none of it."""
     scope = _type_scope("How many CC mice are there?", code="MUS", name="Mouse")
     assert any("MUS" in label for label in scope.not_applied), scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many mineral assemblies do we hold?"),       # y -> ies
+    ("WV", "Wave Record", "How many spectral analyses are stored?"),             # is -> es
+    ("QZ", "Quartz Specimen", "How many mineral assembly records are there?"),  # the singular still counts
+])
+def test_a_tag_written_in_an_ies_or_es_plural_keeps_the_caveat(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert any(code in label for label in scope.not_applied), scope.not_applied
+
+
+@pytest.mark.parametrize("code, name, question", [
+    ("QZ", "Quartz Specimen", "How many mineral assemblers do we hold?"),
+    ("WV", "Wave Record", "How many spectral analysts are there?"),
+])
+def test_a_longer_word_on_a_tag_stem_is_not_the_tag(code, name, question):
+    scope = _type_scope(question, code=code, name=name)
+    assert not scope.not_applied, scope.not_applied

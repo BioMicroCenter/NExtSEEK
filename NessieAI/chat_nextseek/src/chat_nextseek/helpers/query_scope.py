@@ -563,13 +563,19 @@ def _common_name_is_applied(keyword: str, haystack: str) -> bool:
 
 
 def _phrase_written(question: str, phrase: str) -> bool:
-    """The question writes ``phrase`` as whole words (a plural allowed): "libraries" is not "library" and "cc" is
-    not inside "occurrence"."""
+    """The question writes ``phrase`` as whole words, its last word singular or plural ("traces", "libraries" for
+    "library", "analyses" for "analysis"); "cc" is not inside "occurrence"."""
     words = [w for w in re.split(r"[^a-z0-9]+", str(phrase or "").lower()) if w]
     if not words:
         return False
-    form = r"[^a-z0-9]+".join(re.escape(w) for w in words)
-    return re.search(r"(?<![a-z0-9])" + form + r"(?:s|es)?(?![a-z0-9])", (question or "").lower()) is not None
+    last = words[-1]
+    plurals = [re.escape(last) + r"(?:s|es)?"]
+    if len(last) > 3 and last.endswith("y"):
+        plurals.append(re.escape(last[:-1]) + "ies")
+    if len(last) > 3 and last.endswith("is"):
+        plurals.append(re.escape(last[:-2]) + "es")
+    form = r"[^a-z0-9]+".join([*(re.escape(w) for w in words[:-1]), "(?:" + "|".join(plurals) + ")"])
+    return re.search(r"(?<![a-z0-9])" + form + r"(?![a-z0-9])", (question or "").lower()) is not None
 
 
 def _type_is_written(question: str, code: str, name: str | None, tags: list[str] | None) -> bool:
