@@ -111,6 +111,10 @@ or are dead. The inline JavaScript inside them is not untested: a Node harness
 lifts the script body out of `templatesList.html` verbatim and runs it against a
 stub DOM (`seek/tests/js/harness.js:3-9`).
 
+`seek/templatetags/` holds two tag libraries: `vite_assets`, the tag the chat page uses to emit the
+committed chat bundle's hashed script and stylesheet tags from its Vite manifest (`docs/ui/chat-frontend.md`),
+and `index`, a list-index filter that only `projectsList.html` loads and never uses (`docs/ui/known-issues.md` UI-211).
+
 ## Running and testing
 
 The suite is 23 test modules under `seek/tests/`. Two of them are structural
