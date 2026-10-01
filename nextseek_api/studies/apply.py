@@ -392,7 +392,10 @@ def apply_study_moves(run_dir, session, driver, db, *, investigation: Optional[i
                 if stop.unit_refused and done:
                     keys = {u.target_key for u in units if u.unit in done}
                     dois = {t.doi.strip().casefold() for t in targets if t.key in keys and (t.doi or "").strip()}
-                    counts.update(_publications(journal, st, plan, targets, investigation, dois=dois))
+                    try:
+                        counts.update(_publications(journal, st, plan, targets, investigation, dois=dois))
+                    except _Stop as also:
+                        raise _Stop(STOPPED, f"{stop.message}; {also.message}") from also
                 raise
             counts.update(_publications(journal, st, plan, targets, investigation))
         except _Stop as stop:

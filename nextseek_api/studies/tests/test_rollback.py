@@ -434,3 +434,12 @@ def test_the_final_sync_refuses_a_label_the_undo_does_not_imply(undo_env, monkey
     assert result.status == a.STOPPED and not any(c[0] == "sync" for c in undo_env.calls)
     assert (run_dir / a.GRAPH_DIR / rollback.LABELS_OUTSIDE_UNDO_FILE).exists()
     assert sorted(links_of(undo_env.engine)) == sorted(ORIGINAL)
+
+
+@pytest.mark.django_db
+def test_a_rollback_that_died_part_way_closes_the_run_to_apply(undo_env):
+    run_dir, _plan = _applied(undo_env)
+    assert undo_env.rollback(run_dir).status == a.DONE
+    truncate_journal_after(run_dir, "undo", "intent")   # the first undo part started; the crash beat the rest
+    assert undo_env.apply(run_dir).status == a.REFUSED
+    assert a.graph_step(run_dir, None, "neo4j", approve_label_changes=True).status == a.REFUSED
