@@ -317,7 +317,9 @@ the same for every caller. SEEK assays are runs, not nodes; their ids ride on th
 - **RUN_IN records the mapping.** `sync_assays` reads a new mapping against the pairs `RUN_IN` holds, and replaces
   `RUN_IN` only after the members are rewritten, so a crash leaves the rest for the retry and a mapping no member
   has a role in is read once. That is why `--catalog`, which writes the nodes and the catalog edges, never writes
-  `RUN_IN`.
+  `RUN_IN`. A mapping or an internal assay written by SQL outside the admin (the context generator, hand SQL)
+  enqueues no `assay_map` row, so run `graph_sync --catalog` right after it, or the rows of the samples it touches
+  fail until the nightly sync writes the Assay node.
 - **Deletion.** An Assay whose id left `internal_assays` loses its edges in batches, then its node. `RUN_IN`,
   `ACCEPTED_BY` and `GENERATES` are replaced whole on each write, and a sample's `INPUT_TO` and `OUTPUT_OF` whenever
   it is rewritten.
