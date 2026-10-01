@@ -21,11 +21,6 @@ Measured 2026-09-03 with `find` and `wc -l` over this directory: 24 Python files
 SEEK auth and home view module (333 lines), `dmac/__init__.py` is empty, and the
 remaining twelve are the legacy layer (4,364 lines).
 
-Two files here are compiled Python 2.7 bytecode: `dmac/conversion.pyc` and
-`dmac/__init__.pyc`, whose first four bytes are the 2.7 magic number `03 f3 0d 0a`,
-read with `od`. A `find` for `*.pyc` outside any `__pycache__` across the whole worktree
-returns exactly those two.
-
 ## Surface
 
 The surface here has two shapes, and they need separating.
@@ -121,10 +116,6 @@ location and `DEBUG` is off under Docker, so Django serves it with a view of its
 a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); the rest of
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
 (`handler404`, `handler500` in `dmac/urls.py`).
-
-The old `^api/` include of `api_app.urls` and its import are gone from `dmac/urls.py`;
-`dmac/settings.py:173` still installs `api_app`, so its models load on every boot, and
-none of its routes are reachable.
 
 ### Server entry points
 
@@ -285,9 +276,7 @@ modules.
   `startup/steps/config.py:167`, inspected by `startup/steps/validate.py:63`, and required
   by `scripts/run_tests.sh:37-41`.
 
-Three kinds of hit are excluded and are worth naming. `api_app/dbconn_mysql.py:13` defines
-its own `DBconn_mysql` class and is a separate copy, not a consumer of
-`dmac/dbconn_mysql.py`. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
+Two kinds of hit are excluded and are worth naming. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
 in this repo and does not live here. And `nextseek_api/permissions.py:10` names
 `dmac.views.userSynchronization` inside a comment explaining a security gate, not in code.
 

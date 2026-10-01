@@ -296,7 +296,7 @@ def test_tests_migrations_and_history_are_not_scanned():
 
 def test_the_application_and_its_tools_are_scanned():
     for rel in ("nextseek_api/services/samples.py", "seek/views/admin.py", "dmac/dbtable_clades.py",
-                "api_app/views.py", "NessieAI/cc/cc_engine.py", "scripts/graph_search/parity.py",
+                "NessieAI/cc/cc_engine.py", "scripts/graph_search/parity.py",
                 "startup/steps/seed.py", "ci/writers.py"):
         assert writer_scan.is_scanned(rel), rel
 

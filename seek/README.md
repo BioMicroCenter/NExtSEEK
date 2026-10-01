@@ -203,12 +203,10 @@ omitted from the list below.
 
 - Django itself: `dmac/settings.py:145` installs the app, and `dmac/urls.py:12`
   imports its URL conf.
-- `api_app/`: `api_app/views.py:11-14` and `api_app/serializers.py:2-3` take
-  `Samples`, `Data_files`, `DBtable_sample`, `DBtable_data_files` and `SeekDB`.
 - `nextseek_api/` is the heaviest consumer, reaching the models
   (`nextseek_api/services/users.py:39`,
   `nextseek_api/services/template_catalog.py:20`), the SEEK login wrapper
-  (`nextseek_api/seek_api_helpers.py:5`, `nextseek_api/views.py:25`), the
+  (`nextseek_api/views.py:25`), the
   table layer (`nextseek_api/models.py:16-17`) and the timeline services
   (`nextseek_api/views.py:27-28`).
   `nextseek_api/management/commands/fill_study_publications.py:29` is the only

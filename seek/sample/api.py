@@ -1,4 +1,4 @@
-"""The endpoints the api_app and nextseek_api packages call."""
+"""The endpoints the nextseek_api package calls."""
 
 from ..dbtable_sampleattribute import DBtable_sampleattribute
 from ..dbtable_sampletype import DBtable_sampletype

@@ -155,7 +155,7 @@ EasyUI layout of fixed `height:1500px` with an `easyui-tabs` tree panel (`height
 `pages/samples_tree_new.embed.html` (an SVG graph drawn by the ES module `static/js/dag/dag.js`,
 with a fullscreen button) and a "Sample info" panel of attribute rows plus a "Download All Samples"
 button that calls `nsDownloadSamples(...)` from `static/js/ns_sample_download.js` (the same script
-that `newSearch.html` and `searchAdvanced.html` load; see `docs/sample-download-workflow.md`).
+that `searchAdvanced.html` loads; see `docs/sample-download-workflow.md`).
 
 The old v1 tree is included twice, each time inside HTML comments (`<!-- {% include "pages/samples_tree.embed.html" %} -->`),
 but Django still renders includes inside HTML comments, so that template is evaluated twice and its

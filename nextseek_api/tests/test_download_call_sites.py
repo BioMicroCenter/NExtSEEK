@@ -16,15 +16,11 @@ LIVE = [
     "searchAdvanced.html",
     "pages/searchAdvanced_stable.embed.html",
     "pages/samples_stable.embed.html",
-    "pages/searchAdvanced_newretrieval.embed.html",
-    "newSearch.html",
-    "pages/samples_new_stable.embed.html",
-    "pages/searchAdvanced_new_stable.embed.html",
 ]
 
 # Where the helper script tag must appear. samples.embed.html carries its own
 # because samples.html only wraps it; the other two are the rendered pages.
-LOADERS = ["pages/samples.embed.html", "searchAdvanced.html", "newSearch.html"]
+LOADERS = ["pages/samples.embed.html", "searchAdvanced.html"]
 
 
 @pytest.mark.parametrize("name", LIVE)

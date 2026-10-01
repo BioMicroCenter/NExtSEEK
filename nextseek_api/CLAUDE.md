@@ -53,14 +53,6 @@ from this file.
 
 ## Landmines
 
-- **`nextseek_api/tests.py` is dead code that still looks live.** A regular package
-  shadows a same-named module, so `nextseek_api.tests` resolves to
-  `nextseek_api/tests/__init__.py:2` and never to the file beside it, which runs to
-  `nextseek_api/tests.py:2171`; confirmed on 2026-09-03 with `importlib.util.find_spec`
-  against this checkout. Pytest will not collect it either: the config sets no `python_files` key
-  (`pyproject.toml:146-148`), so only the two built-in patterns apply and `tests.py`
-  matches neither. Editing it changes nothing that runs, and `.coveragerc:4` already
-  omits it.
 - **Nothing under this directory collects without a *configured* Django, not merely an
   installed one.** `nextseek_api/conftest.py:3` imports `django.contrib.auth.models` at
   module scope, which needs `INSTALLED_APPS`. On 2026-09-03 a host run of the one module
@@ -92,14 +84,6 @@ from this file.
   `dmac/urls.py:29`, and `dmac/urls.py:60` points the 404 handler at Mezzanine's page
   view, so a typo'd or retired API path returns HTML. Verified with Django's resolver on
   2026-09-03. A client parsing JSON gets a parse error rather than a status it can act on.
-- **Three modules here are superseded sketches, not the SEEK client.**
-  `nextseek_api/seek_api.py:15-33` prints its response instead of returning it, and
-  `nextseek_api/example.py:6` is a worked example nothing calls. A grep over every `.py`
-  file in the tree for imports of `nextseek_api.seek_api`, `nextseek_api.seek_api_helpers`
-  or `nextseek_api.example` returns only their own test modules under `nextseek_api/tests/`
-  plus `nextseek_api/example.py:2` itself; `.coveragerc:9` already drops one of the three
-  from coverage. Reach for `nextseek_api/helpers.py:123` instead, or ship an endpoint that
-  silently returns `None`.
 - **Two ViewSets in this directory are unreachable over HTTP yet still constrain the
   validator.** `nextseek_api/views.py:395` and `nextseek_api/views.py:549` are registered
   only in the commented-out lines at `nextseek_api/urls.py:15-16`, while five of their

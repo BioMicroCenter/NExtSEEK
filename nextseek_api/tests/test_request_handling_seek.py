@@ -313,17 +313,6 @@ def test_each_legacy_delete_button_posts_with_the_csrf_token(name):
     assert "'csrfmiddlewaretoken': '{{ csrf_token }}'" in text
 
 
-def test_the_new_search_page_posts_deletions_with_the_csrf_token():
-    text = (ROOT / "seek" / "templates" / "newSearch.html").read_text()
-    start = text.index("async function deleteSamplesExecute(")
-    block = text[start:text.index("async function deleteSamples(", start)]
-    assert "/seek/samples/delete/?" not in block
-    assert 'fetch("/seek/samples/delete/"' in block
-    assert 'method: "POST"' in block
-    assert "body: params" in block
-    assert '"X-CSRFToken": getCookie("csrftoken")' in block
-
-
 def test_the_deletion_tab_renders_the_csrf_token_into_its_request():
     request = RequestFactory().get("/seek/search/")
     template = engines["django"].from_string(

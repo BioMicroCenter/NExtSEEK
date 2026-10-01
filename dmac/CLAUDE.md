@@ -125,8 +125,7 @@ not fail locally; it fails somewhere else.
   `"MYSQL"` or `'MYSQL'` returns two lines: that branch, and an unrelated assertion at
   `NessieAI/tests/chat_nextseek/test_e2e_playwright_trio.py:38`. No call site passes it. Its module scope
   still reads settings at `dmac/dbconn_mysql.py:10-11`, so it costs an import without ever
-  serving a query. `api_app/dbconn_mysql.py:13` is a different class in a different
-  package; do not treat the two as one.
+  serving a query.
 - **The SEEK password is written into the Django session.** `dmac/views.py:128` stores it
   alongside the username. Sessions are database-backed (`django.contrib.sessions` is
   installed at `dmac/settings.py:152` and no `SESSION_ENGINE` overrides the default) and

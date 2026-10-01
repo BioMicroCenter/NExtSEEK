@@ -44,7 +44,6 @@ Several old and new variants are both live. Do not delete a file only because a 
 
 | Old | New | Status |
 |---|---|---|
-| `searchAdvanced.html` and its embeds (`samples_search`, `samples_stable`, `searchAdvanced_search`, `searchAdvanced_stable`, `searchAdvanced_deletion`) | `newSearch.html` and its embeds (`samples_newsearch`, `samples_new_stable`, `searchAdvanced_newsearch`, `searchAdvanced_new_stable`, `searchAdvanced_newretrieval`, `searchAdvanced_newdeletion`) | Both live. `/seek/search/` renders the old set, `/seek/newsearch/` the new one (`seek/views/search.py`, routes in `seek/urls.py`). No theme or seek template links to `/seek/newsearch/`; it is reachable by typing the URL. `nextseek_api/tests/test_download_call_sites.py` lists some templates of each set in `LIVE`. |
 | `pages/samples_tree.embed.html` (Sample Tree v1) | `pages/samples_tree_new.embed.html` (v2, loads `static/js/dag/dag.js`) | v2 is the visible tab. v1 is still executed, see the next section. |
 
 ### The v1 sample tree is commented out but still runs
@@ -59,8 +58,6 @@ To really disable it, use `{# ... #}` or `{% comment %}` around the includes, or
 
 | Path | What it is | Evidence | Confidence |
 |---|---|---|---|
-| `static/test/image.jpg` | A test image, published under `/static/test/` | No reference found | likely |
-| `dmac/conversion.pyc`, `dmac/__init__.pyc` | Stale bytecode tracked in git next to the sources | `git ls-files dmac` lists them | check-first (not UI) |
 
 ### Templates that nothing reaches
 
@@ -89,9 +86,8 @@ Removing `mezzanine.blog` from `INSTALLED_APPS` is a check-first item: it has mi
 | Item | Count |
 |---|---|
 | `themes/NextSeek/static/jquery-easyui-1.5.2/` | 458 files |
-| `static/jquery-easyui-1.5.2/` | 458 files, `diff -rq` reports it identical to the theme copy; tracked in git |
 
-`STATICFILES_DIRS` lists both `/app/themes/NextSeek/static` and `/app/static`, `STATIC_ROOT` is `/static`, and nginx serves `/static/` straight from that folder (`location /static/` in `docker/nginx.conf`). collectstatic therefore merges the two copies into one published tree. The `demo/` and `demo-mobile/` folders (security item SEC-0930-E, tracked privately) were deleted from both copies on 2026-10-01; a box that already ran collectstatic keeps the old files in `STATIC_ROOT` until that folder is cleaned.
+`STATICFILES_DIRS` lists both `/app/themes/NextSeek/static` and `/app/static`, `STATIC_ROOT` is `/static`, and nginx serves `/static/` straight from that folder (`location /static/` in `docker/nginx.conf`). collectstatic merges the two folders into one published tree. The repo-root copy of EasyUI was identical to the theme copy and was removed on 2026-10-01. The `demo/` and `demo-mobile/` folders (security item SEC-0930-E, tracked privately) were deleted from both copies on 2026-10-01; a box that already ran collectstatic keeps the old files in `STATIC_ROOT` until that folder is cleaned.
 
 The live app uses only `jquery.min.js`, `jquery.easyui.min.js`, the default theme's `easyui.css` and the shared `icon.css` from this tree (`themes/NextSeek/templates/base.html`), plus the `locale/`, `src/` and `plugins/` folders if a page loads them. The rest of the vendored tree must stay.
 
@@ -107,8 +103,6 @@ A name search over every `.html`, `.py`, `.css` and `.js` in `seek`, `themes/Nex
 | Generic widget leftovers, same folder | `ajax-loader.gif`, `alpha.png`, `blank.gif`, `clear.png`, `loading.gif`, `hue.png`, `saturation.png`, `ribbon.png`, `vt-menu.png`, `mappin-default.png`, `select2-spinner.gif`, `minus.png`, `plus.png`, five `sort_*.png` |
 | Subfolders of that folder | `colorblind-friendly/`, `dropzone/`, `flags/`, `gradient/`, `invoice/`, `jcrop/`, `jqueryui/`, `partners/`, `pattern/`, `realestate/`, `splash/`, `superbox/`, `versions/`, `voicecommand/`, `favicon/` |
 | Stock Bootstrap and Mezzanine | `static/css/bootstrap*.css`, `static/css/mezzanine.css`, `static/fonts/glyphicons-*`, `static/js/bootstrap*.js`, `static/js/html5shiv.js`, `static/js/respond.min.js`. No template loads them (the stock root `templates/base.html` that did is deleted). Mezzanine admin may load its own copies, hence check-first |
-| D3 experiment | `static/js/buildtree/` (d3 libraries, `dndTree*.js`, `flare.json`, a saved "Tree Layout in D3.js" page) |
-| Extra DAG files | `static/js/dag/d3neo4j.js`, `static/js/dag/d3neo4j.css`. Only `dag/dag.js` is loaded (`pages/samples_tree_new.embed.html`) |
 
 Live images that look like leftovers: `img/favicon.png` (the favicon links in the theme `base.html`), `img/favicon.ico` (`base_auth.html`), `img/bmc-header-800.png`, `img/nessie-logo.png`, `img/timeline-icon-external-link.png`. Keep them.
 
@@ -124,16 +118,11 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 
 | Confidence | Candidate | Evidence | Extra step before deleting |
 |---|---|---|---|
-| likely | One of the two identical EasyUI copies | `diff -rq` identical | Decide which `STATICFILES_DIRS` entry keeps it. The theme copy is the one `themes/README.md` documents |
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
-| likely | `static/js/dag/d3neo4j.*`, `static/test/image.jpg` | No references | Load `/seek/sample_timeline/` and a sample page afterwards |
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
-| check-first | `static/js/buildtree/` | Unreferenced but a large experiment | Ask the operator |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
 | check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
-| check-first | `newSearch.html` and its six `*_new*` embeds | Live by URL; the test's `LIVE` list names some of them | Decide to promote (add a nav link) or retire; update the test either way |
 | check-first | `pages/samples_tree.embed.html` | Still included (inside HTML comments) by `pages/samples.embed.html` | Remove or convert both include lines first |
-| check-first | `dmac/conversion.pyc`, `dmac/__init__.pyc` | Tracked bytecode, not UI | Separate cleanup |
 
 ### Checks to rerun before deleting anything
 
@@ -145,7 +134,7 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 4. Tests that name the file. `grep -rn "<file name>" nextseek_api/tests seek/tests ci`. `nextseek_api/tests/test_download_call_sites.py` parametrizes over its `LIVE` files, so deleting one of those fails that test until the list is edited.
 5. Static files. `grep -rn "<name>"` over templates, CSS, `nextseek.js`, `static/js/custom`, `static/js/chat_assistant` and `NessieAI/chat_frontend/src`. Also grep for the parent folder name, since JS may build paths. The chat bundle under `static/` is committed and minified, so grep it too.
 6. collectstatic. After deleting static files, run `collectstatic` (on the box, not a laptop; see [ci-and-deploy.md](ci-and-deploy.md)) and compare the published tree with the previous one. Both `static/` and `themes/NextSeek/static/` feed `STATIC_ROOT`, so a file deleted from one folder may still be published from the other.
-7. Live probe after deploy. Load the home page, `/seek/search/`, `/seek/newsearch/`, a sample detail page, `/seek/sample_timeline/` and a Mezzanine admin page, and confirm no broken images or 500s.
+7. Live probe after deploy. Load the home page, `/seek/search/`, a sample detail page, `/seek/sample_timeline/` and a Mezzanine admin page, and confirm no broken images or 500s.
 
 ## Where to edit
 
@@ -153,7 +142,6 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 |---|---|
 | Really hide Sample Tree v1 | `pages/samples.embed.html`: replace the two `<!-- ... -->` blocks around the `samples_tree.embed.html` includes with `{# #}` or `{% comment %}`, or delete the includes |
 | Retire an old template | Run the checks above and delete the file. If it is in the `LIVE` list of `nextseek_api/tests/test_download_call_sites.py`, edit that list too |
-| Promote or retire `/seek/newsearch/` | Add a link in `themes/NextSeek/templates/nav.embed.html` to promote, or remove the route in `seek/urls.py`, the `newSearch` view in `seek/views/search.py` and the six `*_new*` embeds; update the test's `LIVE` list and `LOADERS` |
 | Remove the blog | Operator decision first. Then `mezzanine.blog` in `INSTALLED_APPS` (`dmac/settings.py`), migration state, and the blog templates |
 
 ## Gotchas
