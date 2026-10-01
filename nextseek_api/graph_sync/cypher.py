@@ -576,18 +576,23 @@ MERGE (x)-[:IN_STUDY]->(l)
 FOREACH (e IN edges | DELETE e)
 RETURN count(DISTINCT x) AS moved
 """
-# The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION and
-# L is still the legacy node of $study_id. For a merge_other_investigation, L's IN_INVESTIGATION moves to
-# $new_investigation. K is deleted, L gains seek_study_id, and a DOI or PMID that is '' goes.
+# The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION, L
+# is still the legacy node of $study_id, and no node but K carries seek_study_id $study_id. For a
+# merge_other_investigation, L's IN_INVESTIGATION moves to $new_investigation, which must be K's Investigation. K's
+# IN_INVESTIGATION is deleted, then K with a plain DELETE: a link to K that another writer commits after the check
+# makes the transaction fail instead of going with K. L gains seek_study_id, and a DOI or PMID that is '' goes.
 FINISH_STUDY_MERGE = """
 CYPHER 25
 MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id IS NULL AND l.id = $study_id
+  AND NOT EXISTS { MATCH (o:Study) WHERE o.seek_study_id = $study_id AND elementId(o) <> coalesce($k, '') }
 OPTIONAL MATCH (k:Study) WHERE elementId(k) = $k
 WITH l, k
-WHERE ($k IS NULL AND k IS NULL)
-   OR (k IS NOT NULL AND NOT EXISTS { (k)<-[:IN_STUDY]-() }
-       AND COUNT { (k)--() } = COUNT { (k)-[:IN_INVESTIGATION]->() }
-       AND COUNT { (k)-[:IN_INVESTIGATION]->() } <= 1)
+WHERE (($k IS NULL AND k IS NULL)
+       OR (k IS NOT NULL AND NOT EXISTS { (k)<-[:IN_STUDY]-() }
+           AND COUNT { (k)--() } = COUNT { (k)-[:IN_INVESTIGATION]->() }
+           AND COUNT { (k)-[:IN_INVESTIGATION]->() } <= 1))
+  AND ($new_investigation IS NULL
+       OR EXISTS { MATCH (k)-[:IN_INVESTIGATION]->(i:Investigation) WHERE elementId(i) = $new_investigation })
 CALL (l) {
   MATCH (l)-[old:IN_INVESTIGATION]->(i)
   WHERE $new_investigation IS NOT NULL AND elementId(i) <> $new_investigation
@@ -597,7 +602,11 @@ CALL (l) {
   MATCH (i:Investigation) WHERE elementId(i) = $new_investigation
   MERGE (l)-[:IN_INVESTIGATION]->(i)
 }
-FOREACH (_ IN CASE WHEN k IS NULL THEN [] ELSE [1] END | DETACH DELETE k)
+CALL (k) {
+  MATCH (k)-[e:IN_INVESTIGATION]->()
+  DELETE e
+}
+FOREACH (_ IN CASE WHEN k IS NULL THEN [] ELSE [1] END | DELETE k)
 SET l.seek_study_id = $study_id
 FOREACH (_ IN CASE WHEN l.DOI = '' THEN [1] ELSE [] END | REMOVE l.DOI)
 FOREACH (_ IN CASE WHEN l.PMID = '' THEN [1] ELSE [] END | REMOVE l.PMID)

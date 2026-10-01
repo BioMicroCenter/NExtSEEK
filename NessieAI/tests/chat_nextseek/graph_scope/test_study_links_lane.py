@@ -415,6 +415,74 @@ def test_a_source_with_two_edges_to_the_legacy_node_moves_once(studies_lane, mon
     assert _keys(studies_lane, 1001) == [("seek", 1), ("seek", 1)] and _keys(studies_lane, 1002) == [("seek", 1)]
 
 
+def _element_ids(lane, label, key):
+    return {r["key"]: r["element_id"] for r in lane.read(
+        f"MATCH (n:{label}) RETURN elementId(n) AS element_id, coalesce(n.{key}, -1) AS key")}
+
+
+def _finish(lane, **params):
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync.writer import _one, _run
+    return _one(_run(lane.driver, DB, q.FINISH_STUDY_MERGE,
+                     {"study_id": 1, "new_investigation": None, **params}), "merged")
+
+
+def test_the_last_step_refuses_a_second_node_carrying_the_key(studies_lane, monkeypatch):
+    """FINISH with no seek-keyed node to delete, while another node already carries seek_study_id 1: it writes
+    nothing, so two nodes never share the key."""
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e")
+    legacy = _element_ids(studies_lane, "Study", "id")[1]
+    assert _finish(studies_lane, l=legacy, k=None) == 0
+    assert studies_lane.read("MATCH (st:Study {seek_study_id: 1}) RETURN count(st) AS n") == [{"n": 1}]
+
+
+def test_the_last_step_never_leaves_the_legacy_node_under_no_investigation(studies_lane, monkeypatch):
+    """A merge_other_investigation whose new Investigation is not the seek-keyed node's: nothing is written, and L
+    keeps its own Investigation."""
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e",
+                "MATCH (l:Study {id: 1})-[e:IN_INVESTIGATION]->() DELETE e "
+                "CREATE (l)-[:IN_INVESTIGATION]->(:Investigation {id: 901, title: 'Alder Investigation'})")
+    nodes = _element_ids(studies_lane, "Study", "id")
+    assert _finish(studies_lane, l=nodes[1], k=nodes[-1], new_investigation="no-such-element") == 0
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == [{"id": 901}]
+
+
+def test_the_last_step_fails_on_a_link_that_arrives_after_its_check(studies_lane, monkeypatch):
+    """Another transaction links a sample to K and holds its commit while FINISH runs: FINISH reads K as empty, waits
+    on K's lock, and once the link commits its delete of K must fail rather than take the link with it."""
+    import threading
+    _split_pair(studies_lane, monkeypatch, "MATCH (x)-[e:IN_STUDY]->() DELETE e")
+    nodes = _element_ids(studies_lane, "Study", "id")
+    outcome = {}
+
+    def finish():
+        try:
+            outcome["merged"] = _finish(studies_lane, l=nodes[1], k=nodes[-1])
+        except Exception as exc:  # noqa: BLE001 - the outcome under test is the error itself
+            outcome["error"] = exc
+
+    session = studies_lane.driver.session()
+    tx = session.begin_transaction()
+    worker = threading.Thread(target=finish)
+    committed = False
+    try:
+        tx.run("MATCH (s:Sample {id: 1002}), (k:Study {seek_study_id: 1}) CREATE (s)-[:IN_STUDY]->(k)").consume()
+        worker.start()
+        worker.join(3)
+        assert worker.is_alive(), "FINISH did not wait on the seek-keyed node's lock"
+        tx.commit()
+        committed = True
+    finally:
+        if not committed:
+            tx.rollback()
+        session.close()
+        worker.join(60)
+    assert "error" in outcome, outcome
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+    nodes = studies_lane.read("MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek")
+    assert sorted((r["id"] or 0, r["seek"] or 0) for r in nodes) == [(0, 1), (1, 0)]
+
+
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
 
 _CONNECTIONS_GRAPH = [

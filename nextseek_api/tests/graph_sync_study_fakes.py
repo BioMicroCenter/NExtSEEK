@@ -341,10 +341,14 @@ class StudyGraph:
         if legacy is None or legacy.get("seek_study_id") is not None or legacy.get("id") != p["study_id"]:
             return [{"merged": 0}]
         k = p["k"]
+        if any(e != k and props.get("seek_study_id") == p["study_id"] for e, props in self.studies.items()):
+            return [{"merged": 0}]
         if k is not None:
             if (k not in self.studies or any(st == k for _, st in self.in_study.values()) or self.other_rels[k]
                     or len(self.in_investigation[k]) > 1):
                 return [{"merged": 0}]
+        if p["new_investigation"] is not None and (k is None or p["new_investigation"] not in self.in_investigation[k]):
+            return [{"merged": 0}]
         if p["new_investigation"] is not None:
             self.in_investigation[p["l"]] = [p["new_investigation"]]
         if k is not None:

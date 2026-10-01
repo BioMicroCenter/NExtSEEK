@@ -445,6 +445,19 @@ def test_the_last_step_refuses_a_seek_keyed_node_that_gained_a_relationship(worl
     assert keyed in world.graph.studies
 
 
+def test_the_last_step_refuses_a_second_node_that_took_the_key_meanwhile(world, tmp_path):
+    _, keyed = _split(world)
+
+    def meanwhile(query, params):
+        if query == q.FINISH_STUDY_MERGE:
+            world.graph.add_study(seek_study_id=1, title="Someone else", investigation=world.inv[101])
+
+    world.graph.before_write = meanwhile
+    with pytest.raises(RuntimeError, match="last step"):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert keyed in world.graph.studies
+
+
 def test_a_match_merge_that_moved_every_source_before_a_crash_is_finished_by_a_rerun(world, tmp_path):
     """A paper that is also a SEEK study, split. After its last move and before its last step the seek-keyed node
     holds no IN_STUDY, so the id reads rekey_in_place; the rerun of the approved merge finishes it with the same last
