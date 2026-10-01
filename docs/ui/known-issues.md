@@ -30,12 +30,11 @@ Area pages: [shell](shell.md), [pages](pages.md), [upload and samples](upload-an
 
 ## Fix first
 
-Twenty items in seven batches. Take the batches in this order; each is small enough for one commit
-or one short branch. How each reaches a box differs (see [ci-and-deploy.md](ci-and-deploy.md)):
-theme templates show after a `git pull` (bind mount); theme CSS, JS and images need an app restart
-after the pull, because static is collected at container start; `seek/templates/`, the repo-root
-`static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
-committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
+Empty. The seven batches picked on 2026-09-30 (phone shell and sign-in, login redirects, "+ New sample"
+on phones, the search toolbar buttons, the login logos, the Sample flow frame, Nessie on phones) were
+fixed on 2026-10-01, with the operator's rulings on the publish buttons, the visitor menu, the
+Mezzanine pages and the dead code; `ci/smoke/test_ui_shell.py` guards them on a deployed box. Pick
+the next batch from the **broken** rows below, grouped by the files they touch.
 
 ## shell
 
