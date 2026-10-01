@@ -95,3 +95,67 @@ def test_paper_studies_retire_never_touches_a_seek_keyed_study(fresh, tmp_path):
     report = paper_studies.retire_paper_links(fresh.driver, DB, 801, [70001], tmp_path / "x.tsv")
     assert report == {"paper_links_found": 0, "paper_links_retired": 0}
     assert _count(fresh, "MATCH (:Sample {id: 70001})-[e:IN_STUDY]->() RETURN count(e) AS n") == 2
+
+
+# --- the share mode: a shared paper sample's drain (tool spec 16.8) -----------------------------------------------
+
+SHARE_FIXTURE = """
+CREATE (:GraphMeta {schema_version: $version, catalog_hash: 'lane'})
+CREATE (:SampleType {id: 26, title: 'TIS'})
+CREATE (a:Investigation {id: 101, title: 'Alder Investigation'})
+CREATE (b:Investigation {id: 102, title: 'Birch Investigation'})
+CREATE (:Study {seek_study_id: 1, title: 'Alder Unpublished'})-[:IN_INVESTIGATION]->(a)
+CREATE (:Study {seek_study_id: 3, title: 'Birch Study'})-[:IN_INVESTIGATION]->(b)
+CREATE (p:Study {id: 9, title: 'A paper', DOI: '10.0000/lane.9'})-[:IN_INVESTIGATION]->(a)
+CREATE (:Sample {id: 1003, uuid: 'TIS-260101LNE-1003'})-[:IN_STUDY]->(p)
+"""
+SHARE_TYPES = [{"id": 26, "title": "TIS", "uuid": "st-26", "description": "Tissue"}]
+SHARE_STUDIES = [{"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101},
+                 {"id": 3, "title": "Birch Study", "description": None, "investigation_id": 102}]
+
+
+def test_paper_studies_lane_a_shared_paper_sample_links_the_destination_study(lane, monkeypatch, tmp_path):
+    """After a share, sample 1003 (on graph-only paper 9 of investigation 101) is a member of study 1's assay 11 and
+    of study 3's assay 31, and holds projects 3 and 5. One by-id sync with the switch on writes project 5 (property and
+    IN_PROJECT) and the IN_STUDY to study 3; study 1, in the paper's own investigation, stays withheld."""
+    from nextseek_api.graph_sync import sources, study_links, targeted, writer
+    from nextseek_graph import schema
+
+    with lane.driver.session() as session:
+        session.run("MATCH (n) DETACH DELETE n").consume()
+        session.run(SHARE_FIXTURE, version=schema.SCHEMA_VERSION).consume()
+    row = {"id": 1003, "uuid": "TIS-260101LNE-1003", "title": "s1003", "sample_type_id": 26,
+           "json_metadata": json.dumps({"UID": "TIS-260101LNE-1003"})}
+    links = [{"sample_id": 1003, "study_id": s["id"], "study_title": s["title"], "study_description": None,
+              "investigation_id": s["investigation_id"]} for s in SHARE_STUDIES]
+    patches = {
+        "samples_by_ids": lambda ids: [dict(row)] if 1003 in set(ids) else [],
+        "sample_projects_for": lambda ids: {1003: [3, 5]} if 1003 in set(ids) else {},
+        "sample_assay_ids_for": lambda ids: {1003: [11, 31]} if 1003 in set(ids) else {},
+        "uuid_to_ids_for": lambda tokens: {}, "parent_identities": lambda uuids: {},
+        "seek_study_links_for": lambda ids: [dict(link) for link in links if link["sample_id"] in set(ids)],
+        "resolved_assay_map": lambda: {11: (900, "RNA-seq"), 31: (900, "RNA-seq")}, "sops_map": lambda: {},
+        "sample_types": lambda: [dict(t) for t in SHARE_TYPES], "sample_attributes": lambda: [],
+        "sample_attribute_types": lambda: {}, "type_context": lambda: {}, "type_clades": lambda: {},
+        "deprecated_titles": lambda: set(), "attribute_meanings": lambda: {},
+        "projects": lambda: [{"id": 3, "title": "Alder"}, {"id": 5, "title": "Birch"}],
+        "investigations": lambda: [{"id": 101, "title": "Alder Investigation", "description": None},
+                                   {"id": 102, "title": "Birch Investigation", "description": None}],
+        "investigation_projects": lambda: [{"investigation_id": 101, "project_id": 3},
+                                           {"investigation_id": 102, "project_id": 5}],
+        "memberships": lambda: [], "studies": lambda: [dict(s) for s in SHARE_STUDIES],
+    }
+    for name, fn in patches.items():
+        monkeypatch.setattr(sources, name, fn)
+    monkeypatch.setenv(study_links.SWITCH_ENV, "follow")
+    try:
+        result = targeted.sync_samples(lane.driver, DB, [1003], run_dir=str(tmp_path))
+        assert result["status"] == targeted.OK, result
+        check = writer.share_graph_check(lane.driver, DB, [1003], project_id=5, study_id=3)
+        assert {k: check[k] for k in ("found", "has_project", "in_project", "in_study", "paper",
+                                      "paper_in_study")} == {"found": 1, "has_project": 1, "in_project": 1,
+                                                             "in_study": 1, "paper": 1, "paper_in_study": 1}
+        assert _count(lane, "MATCH (:Sample {id: 1003})-[e:IN_STUDY]->(:Study {seek_study_id: 1}) "
+                            "RETURN count(e) AS n") == 0
+    finally:
+        lane.reload()
