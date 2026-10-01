@@ -484,7 +484,9 @@ WRITERS: tuple[Writer, ...] = (
            how=("seek_client", "orm", "sql", "none"),
            hook="hooks.enqueue",
            hook_site=("nextseek_api/studies/apply.py::apply_study_moves",
-                      "nextseek_api/studies/rollback.py::rollback_study_moves"),
+                      "nextseek_api/studies/rollback.py::rollback_study_moves",
+                      "nextseek_api/studies/share_apply.py::apply_step",
+                      "nextseek_api/studies/share_apply.py::run_share_unit"),
            note="the studies tool (manage.py studies): SEEK studies and cloned assays as the operator, the clones' "
                 "internal-assay rows, and sample links moved through WR-01's and WR-02's functions, and project "
                 "rows for a share through WR-01's batch_insert_projects_samples; samples rows go in each unit's "

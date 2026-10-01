@@ -130,6 +130,10 @@ uv run --no-sync python manage.py recover_attribute_sync_jobs \
 # this runs -- the URL then reports `accepted`, 0 of N, forever.
 uv run --no-sync python manage.py run_assay_registration_jobs --interval 5 &
 
+# Drains the sample-share queue: plans a share's dry run, then runs its link unit once the admin's apply
+# calls have made its clones. POST /nextseek_api/sample-shares/ answers 202, and nothing plans it unless this runs.
+uv run --no-sync python manage.py run_share_jobs --interval 5 &
+
 # --- graph sync loop (BEGIN) -----------------------------------------------
 # Graph 2.0's own sync: the schedule (nightly reconcile, nightly drift, weekly
 # full sync), the outbox drain, and the heavy runs as its own child processes.

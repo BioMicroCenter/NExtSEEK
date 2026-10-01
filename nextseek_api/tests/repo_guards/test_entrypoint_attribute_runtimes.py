@@ -96,6 +96,12 @@ class TestEveryRuntimeStarts:
         assert "manage.py recover_attribute_sync_jobs" in calls
         assert "manage.py run_assay_registration_jobs" in calls
 
+    def test_the_share_worker_starts_with_no_broker(self, tmp_path):
+        """The studies tool's share worker drains its MySQL job rows by lease, like the registration loop."""
+        _, calls = _run_entrypoint(tmp_path)
+        line = _line_for(calls, "run_share_jobs")
+        assert "CELERY_BROKER_URL=<unset>" in line and "celery" not in line
+
     def test_migrate_failure_starts_none_of_them(self, tmp_path):
         """The fail-fast guard must cover the processes the fold added, not just
         the two it was written for."""
@@ -108,6 +114,7 @@ class TestEveryRuntimeStarts:
             "dispatch_attribute_outbox",
             "recover_attribute_sync_jobs",
             "run_assay_registration_jobs",
+            "run_share_jobs",
         ):
             assert absent not in calls, absent
 

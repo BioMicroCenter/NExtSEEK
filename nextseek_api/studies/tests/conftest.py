@@ -613,6 +613,8 @@ def truncate_journal_after(run_dir, step, event) -> None:
 
 # --- the share mode (tasks S3 onward) ----------------------------------------------------------------------------
 
+import datetime as _dt  # noqa: E402
+
 def share_world() -> World:
     """alpha_world plus a destination: investigation 9 (project 5) holding study 40 "Delta Study", whose assay 401
     "Imaging run" maps to internal assay 901 as source assay 102 does. Samples 1 to 4 are in project 3."""
@@ -631,3 +633,79 @@ def share_world() -> World:
 @pytest.fixture
 def share() -> World:
     return share_world()
+
+
+PASSWORD = "Sh4re pass:wordé"
+U3, U4, U5 = uid(3, kind="D.SEQ"), uid(4, kind="IMG"), uid(5)
+T0 = _dt.datetime(2026, 1, 1, tzinfo=_dt.timezone.utc)
+
+
+class ShareSession(FakeSession):
+    """FakeSession with the two GETs a share's apply call makes, and the payloads it POSTed."""
+
+    def __init__(self, world, **kw):
+        super().__init__(**kw)
+        self.world, self.payloads = world, []
+        self._password = PASSWORD
+
+    def get_assay(self, assay_id):
+        return self.world.assay_reps[assay_id]
+
+    def get_study(self, study_id):
+        return self.world.study_reps[study_id]
+
+    def create_assay(self, payload):
+        self.payloads.append(payload)
+        return super().create_assay(payload)
+
+
+@pytest.fixture
+def share_env(tmp_path, share, seek_db, monkeypatch, settings, db):
+    """share_world with a second new group (assay 105, sample 5) ready to share and apply: SEEK's links on
+    SQLite, the session faked, the studies release's checks passed. ``planned(*uids)`` plans a share by the
+    worker's pass; ``step(row)`` is one apply call; ``unit(row)`` the worker's unit pass."""
+    from django.contrib.auth import get_user_model
+
+    from nextseek_api.graph_sync import targeted
+    from nextseek_api.studies import apply as apply_mod
+    from nextseek_api.studies import preflight, share_apply, share_jobs
+    from nextseek_api.studies.models import ShareInput
+
+    settings.LOG_DIR = str(tmp_path / "logs")
+    share.assays[105] = AssayRow(105, 20, "Proteomics run")
+    share.mapping[105] = [903]
+    share.internal_titles[903] = "Proteomics"
+    share.assay_reps[105] = assay_rep(105, "Proteomics run", study_id=20)
+    share.links.append((105, 5, 1))
+    seed(seek_db, share)
+    monkeypatch.setattr(apply_mod, "_connection", lambda: sqlite_connection(seek_db))
+    monkeypatch.setattr(apply_mod, "_unit_outbox_exists",
+                        lambda key: any(k == key for _kind, k, _p in outbox_of(seek_db)))
+    monkeypatch.setattr(preflight, "_switch_follows", lambda: True)
+    monkeypatch.setattr(preflight, "_acting_merge_ids", lambda driver, db: [])
+    monkeypatch.setattr(targeted, "_refusal", lambda driver, db: None)
+    user = get_user_model().objects.create(username="operator", is_superuser=True)
+    session = ShareSession(share, next_assay=402, engine=seek_db)
+    env = SimpleNamespace(world=share, engine=seek_db, session=session, user=user, now=T0)
+
+    def planned(*uids):
+        row = share_jobs.create_share(ShareInput(sample_uids=list(uids), source_project_id=3,
+                                                 destination_project_id=5, destination_study_id=40,
+                                                 created_at="t"), user)
+        assert share_jobs.claim(row, "w1")
+        share_apply.plan_job(row, "w1", reader=FakeReader(share), now=T0)
+        row.refresh_from_db()
+        return row
+
+    def step(row, sha=None):
+        row.refresh_from_db()
+        return share_apply.apply_step(row, session, None, "neo4j", plan_sha256=sha or row.plan_sha256,
+                                      reader=FakeReader(share), now=env.now)
+
+    def unit(row):
+        row.refresh_from_db()
+        assert share_jobs.claim(row, "w2")
+        return share_apply.run_share_unit(row, "w2")
+
+    env.planned, env.step, env.unit = planned, step, unit
+    return env

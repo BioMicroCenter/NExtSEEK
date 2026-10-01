@@ -289,6 +289,8 @@ def apply_study_moves(run_dir, session, driver, db, *, investigation: Optional[i
                       reader=None) -> RunResult:
     run_dir = Path(run_dir)
     plan, st, _bad = load_run(run_dir)
+    if plan.mode == "share":
+        return RunResult(REFUSED, "a share is applied through the sample-shares endpoint, not --mode apply")
     if plan.plan_version != PLAN_VERSION or plan.code_sha != code_sha():
         return RunResult(REFUSED, "the plan was made by other code: plan again")
     if st.undo_parts:
