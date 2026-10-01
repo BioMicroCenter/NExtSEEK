@@ -14,7 +14,8 @@ A share takes samples of a source project P and links them into an existing stud
   in D first (one per title and internal-assay set) and copies the source assay's internal-assay mapping to it;
 - each sample keeps the direction it has in its source assay;
 - each direct parent of a sample that is a member of the same source assay comes too, as an input (direction 1);
-  a grandparent does not;
+  a grandparent does not, and neither does a parent outside the source project (the dry run lists it with its
+  projects, so it can be shared from its own project);
 - every shared sample and every parent brought gets project Q.
 
 It only adds. It never removes a sample from an assay or a project, never creates a study, never writes a
@@ -60,10 +61,14 @@ seconds.
 - `groups`: each group's source assay ids, title and internal assays, and whether the destination assay is reused
   (its id) or will be created;
 - `links`: the links to insert, by role (`mover`, `parent`); `project_rows`: the project rows to add;
-- `parents` and `parents_count`: each parent brought, with the child and the source assay that brought it;
+- `parents` and `parents_count`: each parent brought, with the child and the source assay that brought it (the
+  first 50; the run directory's `parents.csv` lists every one);
+- `parents_outside_source_project` and its count: each parent skipped because it is not in the source project,
+  with its child, the source assay and its projects;
+- `clone_policy`: the policy each assay the share creates will take (D's, read from SEEK's tables);
 - `label_changes_needing_approval`: lineage label changes the graph would only write with the operator's
   approval (normally none; section 6);
-- `plan_sha256` and `run_dir` (the run directory's name under the box's log directory).
+- `plan_sha256` and `run_dir`, the run directory's name; on the box it is `<LOG_DIR>/studies/<run_dir>`.
 
 **Apply.** `POST $NEXTSEEK_URL/nextseek_api/sample-shares/<share_id>/apply/` with `{"plan_sha256": "<the plan's
 sha>"}`, then act on the answer:
@@ -75,7 +80,7 @@ sha>"}`, then act on the answer:
 | `202` `queued` | every destination assay exists; the links are queued | stop calling; poll the share |
 
 Then poll the share until `applied` (its `receipt` gives the links written, the project rows added and the outbox
-key) or `apply_failed`. Last, `GET .../sample-shares/<share_id>/?verify=graph` (section 4).
+key), `apply_failed` or `rolled_back`. Last, `GET .../sample-shares/<share_id>/?verify=graph` (section 4).
 
 ## 4. What changes where
 
@@ -86,13 +91,15 @@ key) or `apply_failed`. Last, `GET .../sample-shares/<share_id>/?verify=graph` (
   `project_ids` and an IN_PROJECT edge) and an IN_STUDY to D. A sample that sits on a graph-only paper study of
   D's own investigation is not linked to D (it keeps its paper link until the paper moves); a paper sample shared
   into another investigation's study is. `?verify=graph` counts `found`, `has_project`, `in_project`, `in_study`,
-  `paper` and `paper_in_study`, lists up to 50 ids with no node, and gives the outbox row's state (`pending`,
-  `done`, `failed`, `dead` or `missing`).
+  `paper` and `paper_in_study`, lists up to 50 ids with no node, and gives the worst state of the share's outbox
+  rows, one per 5,000 samples (`dead`, `failed`, `missing`, `pending` or `done`).
 - **NExtSEEK's access** reads `projects_samples` and the graph's project ids, so the destination project's members
   see the samples in graph search, the download API and Nessie as soon as the row drains.
 - **SEEK's own UI.** No sharing policy is changed. SEEK lists a shared sample under Q and on the destination
   assay's page, but a member of Q who could not see it before sees it as a hidden item and cannot open it in SEEK.
-  An assay the share creates takes D's policy, so it is visible as D is. If people need the samples in SEEK's UI
+  An assay the share creates takes D's policy, read from SEEK's tables when the share is planned (SEEK's API
+  shows a study's policy only to someone who can manage it) and shown in the dry run as `clone_policy`, so it is
+  visible as D is. If people need the samples in SEEK's UI
   too, a SEEK admin changes the samples' sharing in SEEK, outside this tool.
 
 ## 5. Project changes made directly in SEEK
@@ -108,15 +115,17 @@ share the source assay and its destination twin, both mapped to the same interna
 keeps an edge's `assay_id`. When `label_changes_needing_approval` is not empty (a reused destination assay with a
 smaller id than its source, or a protocol renamed under its id), the operator writes them after the share with the
 studies tool's graph step on the share's run directory:
-`manage.py studies --mode graph --run-dir <run> --approve-label-changes --i-mean-the-live-graph`.
+`manage.py studies --mode graph --run-dir <LOG_DIR>/studies/<run_dir> --approve-label-changes
+--i-mean-the-live-graph`.
 
 ## 7. Undo
 
 A share is undone from a shell on the box, by the operator only, with the studies tool's rollback on its run
-directory: `manage.py studies --mode rollback --run-dir <run> --seek-login <login>`, first without `--confirm` to
-read what it would undo, then with it. It deletes the links and project rows the share wrote (only those still
-there), the created assays' internal-assay rows and then the created assays in SEEK (never a reused one), and
-resyncs the samples. There is no undo route.
+directory: `manage.py studies --mode rollback --run-dir <LOG_DIR>/studies/<run_dir> --seek-login <login>`, first
+without `--confirm` to read what it would undo, then with it. It deletes the links and project rows the share wrote
+(only those still there; a project row stays when the sample is still linked into a study of that project, and the
+undo reports it), the created assays' internal-assay rows and then the created assays in SEEK (never a reused one),
+and resyncs the samples. The share then reads `rolled_back` and is never applied again. There is no undo route.
 
 ## 8. Limits and error codes
 
@@ -130,20 +139,24 @@ resyncs the samples. There is no undo route.
 | `same_project` | the share's `error` (`refused`) | source and destination are one project | pick another destination |
 | `source_project_unknown`, `destination_project_unknown`, `destination_study_unknown` | `refused` | an id is not SEEK's | check the ids |
 | `destination_study_not_in_destination_project` | `refused` | D's investigation is not linked to Q | check the study and project |
+| `destination_policy_unreadable` | `refused` | an assay would be created in D, but D's policy cannot be read from SEEK's tables | ask the operator to check D's sharing in SEEK |
 | `plan_failed` | the share's `error` | planning raised | report it with the share id |
 | `not_found` | read, apply (`404`) | no share has this id | check the id |
 | `seek_credential_missing` | apply (`401`) | no SEEK login came with the call | send Basic or use a session |
 | `seek_identity_mismatch`, `seek_refused` | apply (`403`) | the SEEK login is not the caller's, or SEEK refused it | stop; fix the login or the SEEK rights |
-| `share_not_applicable` | apply (`409`) | the share is not planned, applying or apply_failed | read its state |
-| `plan_changed` | apply (`409`) | the sha is not the share's plan | read the share again |
+| `share_not_applicable` | apply (`409`) | the share is not planned, applying or apply_failed, or it failed for good (`plan_stale`, `destination_changed`) | read its state; make a new share if it says so |
+| `share_rolled_back` | apply (`409`) | the share's run was undone | make a new share |
+| `plan_changed` | apply (`409`) | the sha is not the share's plan, or the plan was made by code since updated on the box | read the share again; for other code, make a new share |
 | `nothing_to_apply` | apply (`409`) | every sample reads `no_change` | nothing to do |
 | `not_ready` | apply (`409`) | the studies release is not finished on this box | ask the operator |
-| `busy` | apply (`409`) | another studies run holds the lock | wait and call again |
-| `destination_changed` | apply (`409`) | D moved or is gone | make a new share |
+| `busy` | apply (`409`) | another studies run holds the lock, or another share is making an assay of the same group in D | wait and call again |
+| `destination_changed` | apply (`409`) | D moved or is gone, or now holds several assays of one group | decide in SEEK if needed, then make a new share |
 | `clone_outcome_ambiguous` | apply (`409`) | several assays match a create whose answer was lost | decide in SEEK, then ask the operator |
 | `seek_payload_rejected`, `clone_payload_invalid` | apply (`422`) | SEEK refused, or could not be sent, an assay's payload | report it with the message |
-| `seek_error` | apply (`502`) | SEEK answered 5xx or could not be reached | call again later |
-| `plan_stale` | the share's `error` (`apply_failed`) | those samples' links changed since the dry run | make a new share; finished work reads `no_change` |
+| `seek_error` | apply (`502`) | SEEK answered 5xx or could not be reached, or three creates of one assay got no answer and nothing shows in SEEK | call again later; after three creates, look in SEEK first |
+| `graph_unavailable` | read with `verify=graph`, apply (`503`) | the graph, or the share's run directory, cannot be read; nothing was written | call again later |
+| `plan_stale` | the share's `error` (`apply_failed`) | those samples' links or project rows changed since the dry run | make a new share; finished work reads `no_change` |
+| any other code (`unit_state_unknown`, `worker_error`, ...) | the share's `error` (`apply_failed`, `plan_failed`) | the link unit or the share worker stopped | report it with the share id; do not retry |
 
 ## 9. Links
 
