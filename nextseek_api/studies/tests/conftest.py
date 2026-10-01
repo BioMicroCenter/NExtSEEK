@@ -316,6 +316,8 @@ def apply_to_world(world: World, plan) -> dict:
                 world.links.append((assay, x.sample_id, x.direction))
         gone = {(r.assay_id, r.sample_id) for r in unit.removals}
         world.links = [link for link in world.links if (link[0], link[1]) not in gone]
+        for row in unit.project_inserts:
+            world.sample_projects.setdefault(row.sample_id, set()).add(row.project_id)
     world.next_study_id = next_id
     return ids
 
@@ -595,3 +597,25 @@ def truncate_journal_after(run_dir, step, event) -> None:
         if (line["step"], line["event"]) == (step, event):
             break
     path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+
+# --- the share mode (tasks S3 onward) ----------------------------------------------------------------------------
+
+def share_world() -> World:
+    """alpha_world plus a destination: investigation 9 (project 5) holding study 40 "Delta Study", whose assay 401
+    "Imaging run" maps to internal assay 901 as source assay 102 does. Samples 1 to 4 are in project 3."""
+    w = alpha_world()
+    w.investigations[9] = "Delta Investigation"
+    w.investigation_projects[9] = {5}
+    w.studies.append(StudyRow(40, 9, "Delta Study", None))
+    w.assays[401] = AssayRow(401, 40, "Imaging run")
+    w.mapping[401] = [901]
+    w.projects |= {5}
+    w.assay_reps[401] = assay_rep(401, "Imaging run", study_id=40)
+    w.study_reps[40] = study_rep(40, "Delta Study")
+    return w
+
+
+@pytest.fixture
+def share() -> World:
+    return share_world()

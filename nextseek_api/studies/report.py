@@ -122,3 +122,59 @@ def progress(run_dir) -> dict:
         "publications_done": st.pubs_done, "apply_done": st.apply_done, "graph_done": st.graph_done,
         "undone": st.undone, "journal_unreadable_lines": bad,
     }
+
+
+# --- the share mode (tool spec 16.7) ------------------------------------------------------------------------------
+
+SHARE_FILE = "share.json"
+
+
+def share_summary(plan: StudyMovePlan, *, run_dir_name: str, plan_sha256: str) -> dict:
+    """The GET answer's summary of a share's dry run: the plan's own summary, its sha and its run directory's name."""
+    return {**plan.summary, "plan_sha256": plan_sha256, "run_dir": run_dir_name}
+
+
+def render_share_text(plan: StudyMovePlan) -> str:
+    s, share = plan.summary, plan.share
+    out = [f"Studies tool share {plan.run_id} (created {plan.created_at}, code {plan.code_sha[:12]})",
+           f"Share: project {share.source_project_id} -> project {share.destination_project_id}, "
+           f"study {share.destination_study_id}; {len(share.sample_uids)} UIDs submitted", "", "Outcomes:"]
+    out += [f"  {code}: {n}" for code, n in s.get("outcomes", {}).items()]
+    out += ["", "Groups (source assays -> destination assay):"]
+    for g in s.get("groups", []):
+        what = f"reuse {g['destination_assay_id']}" if g["action"] == "reuse" else "create (destination's policy)"
+        out.append(f"  {g['source_assay_ids']} {g['title']!r} internal {g['internal_assay_ids']} -> {what}")
+    links = s.get("links", {})
+    out += ["", f"Links to insert: {links.get('mover', 0)} movers, {links.get('parent', 0)} parents; "
+                f"project rows to add: {s.get('project_rows', 0)}; parents brought: {s.get('parents_count', 0)}",
+            f"Label changes needing approval after the drain: {s.get('label_changes_needing_approval') or 'none'}",
+            "  (renamed and protocol_filled edges are written by the loop without approval)"]
+    for unit in plan.units:
+        out.append(f"Unit {unit.unit}: {len(unit.inserts)} inserts, {len(unit.project_inserts)} project rows, "
+                   f"{len(unit.sync_ids)} samples to sync, digest {unit.digest[:12]}")
+    if not plan.units:
+        out.append("Nothing to apply.")
+    return "\n".join(out) + "\n"
+
+
+def write_share_run(run_dir, plan: StudyMovePlan, summary: dict) -> list[Path]:
+    """A share's run directory: ``share.json`` (the request), ``plan.json``, ``plan.txt``, ``unmatched.json`` and
+    ``unmatched.csv`` (every UID or sample not shared, with its reason)."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    rows = [{"reason": s.reason, "target_key": s.target_key, "investigation_id": plan.targets[0].investigation_id,
+             "study_title": plan.targets[0].title, "submitted": s.detail.split(":", 1)[0],
+             "sample_id": s.sample_id, "provenance": "", "detail": s.detail} for s in plan.skipped]
+    files = {SHARE_FILE: plan.share.to_json(), PLAN_FILE: plan.to_json(), PLAN_TEXT: render_share_text(plan),
+             UNMATCHED_JSON: canonical_json(rows)}
+    written = []
+    for name, text in files.items():
+        (run_dir / name).write_text(text, encoding="utf-8")
+        written.append(run_dir / name)
+    with (run_dir / UNMATCHED_CSV).open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=UNMATCHED_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: "" if row[k] is None else row[k] for k in UNMATCHED_COLUMNS})
+    written.append(run_dir / UNMATCHED_CSV)
+    return written
