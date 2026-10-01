@@ -1036,6 +1036,72 @@ def test_a_parent_edit_that_deletes_an_edge_rewrites_the_old_parent(with_assay, 
     assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}
 
 
+def _fail_once_after(monkeypatch, gone):
+    """``sources.sample_assay_ids_for`` raises once, the first time it is read after ``gone()`` holds (a MySQL
+    connection lost after the destructive step, as on 2026-09-30); every other read answers."""
+    real, state_ = sources.sample_assay_ids_for, {"raised": False}
+
+    def flaky(ids):
+        if gone() and not state_["raised"]:
+            state_["raised"] = True
+            raise RuntimeError("MySQL server has gone away")
+        return real(ids)
+
+    monkeypatch.setattr(sources, "sample_assay_ids_for", flaky)
+
+
+def _drain(graph, queued, tmp_path):
+    """Drain every row ``queued`` holds through the loop's entry point, as the loop would."""
+    now = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    for n, (kind, key) in enumerate(list(queued)):
+        claim = state.Claim(id=n, kind=kind, key=key, payload=None, enqueued_at=now, attempts=1, worker_id="w",
+                            lease_expires_at=now)
+        assert loop._apply(graph, DB, claim, loop.Options(run_root=str(tmp_path)), str(tmp_path))["status"] == "ok"
+
+
+def test_a_failure_after_the_lineage_step_hands_the_old_partner_its_own_row(with_assay, tmp_path, monkeypatch):
+    """The partners are read before the lineage step deletes an undeclared edge. A failure after that step loses
+    them: the retry reads the partners again, and the old parent is no longer one. So the failure enqueues a samples
+    row for each partner read before, and that row's drain clears the old parent's INPUT_TO."""
+    graph, mysql, queued = with_assay.graph, with_assay.mysql, []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    mysql.assays[12] = [5, 6]
+    graph.add_edge(11, 12)                                          # 11 declares only U_T1 (sample 10) now
+    graph.assay_edges[12] = {("INPUT_TO", 99, (5,))}               # what that edge gave 12
+    _fail_once_after(monkeypatch, lambda: graph.edge(11, 12) is None)
+
+    with pytest.raises(RuntimeError):
+        targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))
+    assert queued == [("samples", "sample:12")]
+    targeted.sync_samples(graph, DB, [11], run_dir=str(tmp_path))  # the drain's retry of 11's own row
+    assert graph.assay_edges[12] == {("INPUT_TO", 99, (5,))}       # 12 is no partner of 11 any more
+    _drain(graph, queued, tmp_path)
+
+    assert graph.edge(11, 12) is None
+    assert graph.assay_edges[12] == set()
+    assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
+
+
+def test_a_failure_after_the_retire_hands_the_retired_samples_partner_its_own_row(with_assay, tmp_path, monkeypatch):
+    graph, queued = with_assay.graph, []
+    monkeypatch.setattr(hooks, "enqueue", lambda kind, key, payload=None, **kw: queued.append((kind, key)) or True)
+    graph.add_sample(15, 33)
+    graph.add_edge(15, 10)
+    graph.assay_edges[15] = {("OUTPUT_OF", 99, (5,))}
+    graph.assay_edges[10] = {("INPUT_TO", 99, (5,))}
+    _fail_once_after(monkeypatch, lambda: 15 not in graph.nodes)
+
+    with pytest.raises(RuntimeError):
+        targeted.retire_samples(graph, DB, [15], run_dir=str(tmp_path))
+    assert queued == [("samples", "sample:10")]
+    targeted.retire_samples(graph, DB, [15], run_dir=str(tmp_path))
+    assert graph.assay_edges[10] == {("INPUT_TO", 99, (5,))}       # 15 is gone, so the retry reads no partner
+    _drain(graph, queued, tmp_path)
+
+    assert 15 not in graph.nodes
+    assert graph.assay_edges[10] == set()
+
+
 def test_a_sample_gone_from_mysql_has_its_partners_rewritten_after_the_retire(with_assay, tmp_path):
     graph = with_assay.graph
     graph.add_sample(15, 33)

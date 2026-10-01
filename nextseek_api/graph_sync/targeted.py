@@ -75,6 +75,7 @@ import json
 import logging
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from django.conf import settings
@@ -308,6 +309,20 @@ def _guarded(driver, db, lock_timeout_s: float, work) -> dict:
 
 # --- sync_samples --------------------------------------------------------------------------------
 
+@contextmanager
+def _partners_on_failure(partners):
+    """On an exception, a ``samples`` row for each of ``partners``, then the exception. The partners are read before
+    a step that can stop them being partners (the lineage step deletes an undeclared edge; a retired sample is
+    deleted), so the retry, which reads them again from the graph, would leave their INPUT_TO and OUTPUT_OF as they
+    were: their own rows rewrite them (``hooks.enqueue`` never raises)."""
+    try:
+        yield
+    except Exception:
+        for partner in sorted(partners):
+            hooks.enqueue("samples", f"sample:{partner}")
+        raise
+
+
 def _types_of_samples(driver, db, ids) -> set[int]:
     found: set[int] = set()
     for batch in _batches(ids, writer.REL_CHUNK):
@@ -457,51 +472,52 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
     report.update(found=len(rows), missing_in_mysql=len(gone))
     old_types = _types_of_samples(driver, db, wanted)
     partners_before = _partners(driver, db, wanted)
-    if gone:
-        report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
+    with _partners_on_failure(partners_before):
+        if gone:
+            report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
 
-    projections, links = [], []
-    if rows:
-        cat = ctx.catalog()
-        report["catalog_synced_for_types"], waiting = _ensure_sample_types(driver, db, rows, cat)
-        if waiting:
-            report["catalog_waiting_samples"] = {r["id"]: waiting[r["sample_type_id"]]
-                                                 for r in rows if r["sample_type_id"] in waiting}
-            rows = [r for r in rows if r["sample_type_id"] not in waiting]
-    if rows:
-        projections, metas, tokens, errors = _project_rows(rows, cat)
-        report.update(projected=len(projections), projection_errors=len(errors),
-                      projection_error_examples=errors[:EXAMPLES])
-        if projections:
-            report.update(writer.merge_missing_projects(
-                driver, db, {pid for proj in projections for pid in proj.props.get("project_ids") or ()},
-                ctx.seek_tables().projects))
-            report.update(writer.write_samples(driver, db, projections))
-            written = {p.id for p in projections}
-            report.update(_lineage(driver, db, [r for r in rows if r["id"] in written], tokens, ctx))
-            report.update(_label_edges(driver, db, writer.edges_incident(driver, db, sorted(written)), ctx, metas))
-            links = sources.seek_study_links_for(sorted(written))
-            report.update(writer.write_seek_studies(driver, db, links, sorted(written), remove=ctx.follow_seek,
-                                                    archive_path=ctx.archive(study_links.ARCHIVE_FILE),
-                                                    tables=ctx.seek_tables()))
-            undeclared = _undeclared_attributes(driver, db, projections, cat)
-            counted = _attribute_counts(driver, db, projections)
-            report.update(undeclared)
-            report.update(counted)
-            if undeclared["undeclared_attributes_created"] or counted["attribute_counts_raised"]:
-                # One catalog sync restamps the catalog hash for both (the lock nests). Refused for SampleType titles
-                # held under other ids, the writes above stand and the hash waits for the nightly.
-                report["catalog_resynced"] = "refused" if _catalog_sync(driver, db, cat) else OK
-    written_ids = sorted(p.id for p in projections)
-    partners = (partners_before | _partners(driver, db, written_ids)) - set(gone)
-    report.update(_rewrite_with_partners(driver, db, written_ids, partners, ctx))
-    report["sample_type_counts_set"] = _set_type_counts(driver, db,
-                                                        old_types | {p.sample_type_id for p in projections})
-    parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
-    report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
-    if parts:
-        report["structural_gap_samples"] = _gap_samples(driver, db, parts, projections, links, ctx.seek_tables())
-    return report
+        projections, links = [], []
+        if rows:
+            cat = ctx.catalog()
+            report["catalog_synced_for_types"], waiting = _ensure_sample_types(driver, db, rows, cat)
+            if waiting:
+                report["catalog_waiting_samples"] = {r["id"]: waiting[r["sample_type_id"]]
+                                                     for r in rows if r["sample_type_id"] in waiting}
+                rows = [r for r in rows if r["sample_type_id"] not in waiting]
+        if rows:
+            projections, metas, tokens, errors = _project_rows(rows, cat)
+            report.update(projected=len(projections), projection_errors=len(errors),
+                          projection_error_examples=errors[:EXAMPLES])
+            if projections:
+                report.update(writer.merge_missing_projects(
+                    driver, db, {pid for proj in projections for pid in proj.props.get("project_ids") or ()},
+                    ctx.seek_tables().projects))
+                report.update(writer.write_samples(driver, db, projections))
+                written = {p.id for p in projections}
+                report.update(_lineage(driver, db, [r for r in rows if r["id"] in written], tokens, ctx))
+                report.update(_label_edges(driver, db, writer.edges_incident(driver, db, sorted(written)), ctx, metas))
+                links = sources.seek_study_links_for(sorted(written))
+                report.update(writer.write_seek_studies(driver, db, links, sorted(written), remove=ctx.follow_seek,
+                                                        archive_path=ctx.archive(study_links.ARCHIVE_FILE),
+                                                        tables=ctx.seek_tables()))
+                undeclared = _undeclared_attributes(driver, db, projections, cat)
+                counted = _attribute_counts(driver, db, projections)
+                report.update(undeclared)
+                report.update(counted)
+                if undeclared["undeclared_attributes_created"] or counted["attribute_counts_raised"]:
+                    # One catalog sync restamps the catalog hash for both (the lock nests). Refused for SampleType
+                    # titles held under other ids, the writes above stand and the hash waits for the nightly.
+                    report["catalog_resynced"] = "refused" if _catalog_sync(driver, db, cat) else OK
+        written_ids = sorted(p.id for p in projections)
+        partners = (partners_before | _partners(driver, db, written_ids)) - set(gone)
+        report.update(_rewrite_with_partners(driver, db, written_ids, partners, ctx))
+        report["sample_type_counts_set"] = _set_type_counts(driver, db,
+                                                            old_types | {p.sample_type_id for p in projections})
+        parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
+        report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
+        if parts:
+            report["structural_gap_samples"] = _gap_samples(driver, db, parts, projections, links, ctx.seek_tables())
+        return report
 
 
 def _project_text(ids, in_seek) -> str:
@@ -658,9 +674,10 @@ def retire_samples(driver, db, ids, *, run_dir: str | None = None, lock_timeout_
         if gone:
             old_types = _types_of_samples(driver, db, gone)
             partners = _partners(driver, db, gone)
-            report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
-            report.update(_rewrite_with_partners(driver, db, [], partners, ctx))
-            report["sample_type_counts_set"] = _set_type_counts(driver, db, old_types)
+            with _partners_on_failure(partners):
+                report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
+                report.update(_rewrite_with_partners(driver, db, [], partners, ctx))
+                report["sample_type_counts_set"] = _set_type_counts(driver, db, old_types)
         return report
 
     result = _guarded(driver, db, lock_timeout_s, work)
