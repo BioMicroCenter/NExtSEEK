@@ -803,6 +803,27 @@ def test_an_investigation_seek_lacks_that_a_study_holds_is_reported_not_failed(w
     assert (held["actual"], held["pass"], held["detail"]) == (1, True, [7])
 
 
+def test_a_seek_row_naming_a_project_seek_lacks_is_counted_not_compared(world, monkeypatch):
+    """No writer can link a project SEEK no longer has (the statements MATCH the Project node), so such a membership or
+    investigation link is left out of the comparison and counted in the stats, never drift."""
+    monkeypatch.setattr(sources, "memberships", lambda: [
+        {"person_id": 1, "project_id": 2, "has_left": False, "time_left_at": None},
+        {"person_id": 1, "project_id": 99, "has_left": False, "time_left_at": None}])
+    monkeypatch.setattr(sources, "investigations", lambda: [{"id": 3, "title": "TCGA", "description": None}])
+    monkeypatch.setattr(sources, "investigation_projects", lambda: [{"investigation_id": 3, "project_id": 16},
+                                                                    {"investigation_id": 3, "project_id": 99}])
+    graph = GateWorld(_graph_nodes())
+    graph.investigations.append({"id": 3, "title": "TCGA", "project_ids": [16], "held": False})
+    result = _gate(graph)
+    for name in ("14.small.member_of_differs", "14.small.investigations_differ"):
+        check = _named(result, name)
+        assert (check["actual"], check["pass"]) == (0, True), name
+    small = result["stats"]["small"]
+    assert (small["memberships_project_not_in_seek"], small["investigation_links_project_not_in_seek"]) == (1, 1)
+    graph.members.clear()                                           # a membership SEEK has still differs
+    assert _named(_gate(graph), "14.small.member_of_differs")["actual"] == 1
+
+
 def test_an_investigation_whose_project_links_differ_fails(world, monkeypatch):
     monkeypatch.setattr(sources, "investigations", lambda: [{"id": 3, "title": "TCGA", "description": None}])
     monkeypatch.setattr(sources, "investigation_projects", lambda: [{"investigation_id": 3, "project_id": 16},
