@@ -266,7 +266,7 @@ def test_the_prompt_describes_the_executed_query_and_its_one_exception():
     text = _prompt_text()
 
     assert "- `Executed query`: on a graph turn, the query that ran and its parameters." in text
-    assert "Never quote it, name it or describe its parts in the reply." in text
+    assert "Never quote it, and never name its syntax, a field name or an operator in the reply." in text
     assert "ONE EXCEPTION, AND ONLY ONE." in text
     assert "If you are not sure the query carries it, disclose it." in text
     # the rule that the reply never names the mechanics is untouched
@@ -691,7 +691,7 @@ def test_a_code_and_its_expansion_are_not_both_written():
 # left the instruction block contradicting it.
 
 _PERMISSION = "You may name WHAT was searched"
-_PROHIBITION = "Do not say how the answer was found"
+_PROHIBITION = "Unless the user asked how the answer was found, do not say how it was found"
 
 
 def _count_turn(captured, *, total, rows=None, notes=None, not_applied_keywords=None):
@@ -927,4 +927,92 @@ def test_a_breakdown_names_rows_that_are_not_the_thing_asked_about():
 
     assert ("lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the "
             "thing the user asked about (another kind of file, a different category), say which, and give the "
-            "total without them.") in text
+            "total both with and without them.") in text
+
+
+# --------------------------------------------------------------------------
+# Round 2 (B1 to B5): the prompt matches what the chatter is handed, the method is part of the answer when the
+# user asks for it, and a count column is not summarised as a value list.
+# --------------------------------------------------------------------------
+
+
+def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
+    text = _prompt_text()
+
+    assert "no Cypher" not in text
+    assert "You do NOT receive the query itself" not in text
+    assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
+            "receive the `Executed query`, for checking only.") in text
+    assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
+            "is there only to check a `NOT APPLIED` line or a note against what ran.") in text
+
+
+def test_the_prompt_lets_the_user_ask_how_the_answer_was_found():
+    text = _prompt_text()
+
+    assert ("and, when the user asks how the answer was found, to say in plain words what was counted. Never "
+            "quote it, and never name its syntax, a field name or an operator in the reply.") in text
+    assert ("When the user asks how the answer was found, that is part of the answer: after the answer, say in "
+            "one or two plain sentences what was counted, which records, of which type, under which "
+            "conditions.") in text
+
+
+def test_the_per_turn_instruction_does_not_forbid_the_method_unconditionally(captured):
+    for question in ("how did you get that number", "what did you count", "walk me through it"):
+        text = _graph_turn(captured, question=question, rows=[{"n": 12}],
+                           cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+
+        assert "Unless the user asked how the answer was found, do not say how it was found" in text
+        assert "If the user did ask, after the answer say in one or two plain sentences what was counted" in text
+        assert "Never name Cypher, a field name, a query operator or an endpoint." in text
+        assert "no mention of a query, of what it was constrained by, or of how the number was determined" not in text
+
+
+def test_the_rows_sentence_gives_the_total_with_and_without_the_other_rows():
+    text = _prompt_text()
+
+    assert "say which, and give the total both with and without them." in text
+    assert "say which, and give the total without them." not in text
+
+
+def test_the_one_exception_no_longer_promises_a_not_contains_override():
+    text = _prompt_text()
+
+    assert ("(the project or investigation title it names, or a sample type label that names the thing asked "
+            "for, such as T_D_FLOW for flow cytometry data)") in text
+    assert "a NOT ... CONTAINS that removes" not in text
+
+
+def test_a_count_column_is_not_summarised_as_a_value_list():
+    rows = [{"uuid": f"U-{i}", "Format": f"f{i % 3}", "n": 5 if i < 10 else 7} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate=True)
+
+    assert "- Format:" in block
+    assert "- n:" not in block
+
+
+def test_a_different_aggregate_shape_also_skips_its_numeric_column():
+    rows = [{"value": f"v{i % 2}", "total": 4, "mean": 1.5} for i in range(8)]
+    rows = [dict(r, **{"count(*)": 3}) for r in rows]
+    block = _counts(rows, shown=2, aggregate=True)
+
+    assert "- value:" in block
+    assert "- count(*):" not in block
+    assert "- total:" not in block
+
+
+def test_a_numeric_column_of_a_plain_record_list_is_still_counted():
+    rows = [{"uuid": f"U-{i}", "Passage": 3 if i < 5 else 4, "Organ": "Lung"} for i in range(8)]
+    block = _counts(rows, shown=2)
+
+    assert "- Passage: 3 5, 4 3" in block
+
+
+def test_a_count_query_turn_leaves_its_count_column_out_of_the_value_counts(captured):
+    rows = [{"value": f"f{i % 3}", "n": 40 - (i % 2)} for i in range(600)]
+    text = _graph_turn(captured, question="which formats", rows=rows, total=600,
+                       cypher="MATCH (s:Sample) RETURN s.Fmt AS value, count(*) AS n ORDER BY n DESC")
+
+    assert "- value:" in text
+    assert "- n:" not in text
+

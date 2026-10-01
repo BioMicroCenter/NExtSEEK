@@ -173,6 +173,7 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
 _VALUE_COLUMNS_MAX = 8
 _VALUE_TOP_MAX = 8
 _VALUE_CLIP = 60
+_AGGREGATE_CYPHER_RE = re.compile(r"\b(?:count|sum|avg|min|max)\s*\(", re.I)
 _VALUE_COUNTS_CHARS_MAX = 3000
 
 
@@ -181,7 +182,7 @@ def _is_identity_key(key: Any) -> bool:
     return k in ("id", "uuid", "uid") or k.endswith(("_id", "_uuid", "_uid"))
 
 
-def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str:
+def _value_counts_block(all_rows: list, shown: int, capped: bool = False, aggregate: bool = False) -> str:
     """The values of each returned column across the WHOLE result, not the preview.
 
     ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
@@ -189,7 +190,9 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str
     cost a pass over a list. Sibling of ``_type_histogram_block``.
 
     Only emitted when the preview is short of the full set. Identity keys and type columns are left out, and so is
-    a column where no value repeats (a column of names): its counts say nothing the preview does not.
+    a column where no value repeats (a column of names): its counts say nothing the preview does not. On an
+    aggregate result (``aggregate``) a column whose values are all numbers is a count or a sum, not a value list:
+    listing how often each count occurs misleads the writer, so it is left out.
     """
     if shown >= len(all_rows):
         return ""
@@ -203,6 +206,10 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False) -> str
     lines: list[str] = []
     size = 0
     for key in keys:
+        if aggregate and all(
+            isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool) for r in rows if r.get(key) is not None
+        ) and any(r.get(key) is not None for r in rows):
+            continue
         counts: dict[str, int] = {}
         empty = 0
         for row in rows:
@@ -815,7 +822,8 @@ def chatter_agent_answer(
             + _type_histogram_block(all_rows, len(records))
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
-                                                             and total_matches > len(all_rows)))
+                                                             and total_matches > len(all_rows)),
+                                  aggregate=bool(_AGGREGATE_CYPHER_RE.search(str((graph_plan or {}).get("cypher") or ""))))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")
@@ -953,9 +961,10 @@ def chatter_agent_answer(
             "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
             "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
             if disclosure_qualifies else
-            "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
-            "search is not part of the reply: no mention of a query, of what it was constrained by, or of "
-            "how the number was determined.\n"
+            "- Unless the user asked how the answer was found, do not say how it was found: nothing about "
+            "this result needs qualifying, so the search is not part of the reply. If the user did ask, after "
+            "the answer say in one or two plain sentences what was counted: which records, of which type, "
+            "under which conditions. Never name Cypher, a field name, a query operator or an endpoint.\n"
         )
         + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
