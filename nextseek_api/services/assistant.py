@@ -217,6 +217,20 @@ def _chat_config_for(request, req):
     return _select_chat_config(request, req)
 
 
+def _request_login(request) -> tuple[str | None, str | None]:
+    """The (username, password) this request acts as downstream.
+
+    A Basic header first, then the Django session; under a turn pass, only the login the turn holds
+    (``resolve_seek_auth``), so a pass never picks up a session's login.
+    """
+    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
+    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
+        return basic_tuple[0], basic_tuple[1]
+    if is_turn_pass(request):
+        return None, None
+    return request.session.get("username"), request.session.get("password")
+
+
 # ----------------------------------------------------------------------
 # Granular ops (native) — shared helpers
 # ----------------------------------------------------------------------
@@ -256,22 +270,21 @@ def _granular_chat_config(request, req) -> ChatConfig:
     which refuses every graph query.
     """
     chat_config = _chat_config_for(request, req)
-    basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-    if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-        api_user, api_pass = basic_tuple
-    else:
-        api_user = request.session.get("username")
-        api_pass = request.session.get("password")
+    api_user, api_pass = _request_login(request)
     prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
     if prod_config is not None and chat_config is prod_config:
         if chat_config.API_USER and chat_config.API_PASS:
             api_user = chat_config.API_USER
             api_pass = chat_config.API_PASS
     cfg = copy.copy(chat_config)
-    if api_user:
-        cfg.API_USER = api_user
-    if api_pass:
-        cfg.API_PASS = api_pass
+    if is_turn_pass(request):
+        # A pass acts only as its own turn's user, never as the shared config's login.
+        cfg.API_USER, cfg.API_PASS = api_user or "", api_pass or ""
+    else:
+        if api_user:
+            cfg.API_USER = api_user
+        if api_pass:
+            cfg.API_PASS = api_pass
     from chat_nextseek.graph_scope import GraphScope, with_scope
 
     plain = plain_scope(request.user)
@@ -574,6 +587,14 @@ class AssistantViewSet(viewsets.ViewSet):
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        if is_turn_pass(request) and not all(_request_login(request)):
+            # The turn's login is gone: never fall back to the service login.
+            return _error_response(
+                "Authentication required",
+                "The turn's login is no longer held.",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
         if req.session_id:
             # Explicit session_id — validate ownership
             try:
@@ -604,13 +625,8 @@ class AssistantViewSet(viewsets.ViewSet):
 
         adapter = DictSessionAdapter(chat_session)
 
-        # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+        # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
+        api_user, api_pass = _request_login(request)
 
         chat_config = _chat_config_for(request, req)
 
@@ -692,6 +708,14 @@ class AssistantViewSet(viewsets.ViewSet):
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        if is_turn_pass(request) and not all(_request_login(request)):
+            # The turn's login is gone: never fall back to the service login.
+            return _error_response(
+                "Authentication required",
+                "The turn's login is no longer held.",
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
         # Resolve session (same logic as /query/)
         if req.session_id:
             try:
@@ -719,6 +743,7 @@ class AssistantViewSet(viewsets.ViewSet):
             user=request.user,
             query=req.query,
             status="running",
+            parent_cc_turn=request.auth if is_turn_pass(request) else None,
         )
 
         resolved_session_id = str(chat_session.session_id)
@@ -728,13 +753,8 @@ class AssistantViewSet(viewsets.ViewSet):
         send_event = make_db_event_callback(task_id_str, resolved_session_id)
         adapter = DictSessionAdapter(chat_session)
 
-        # Resolve credentials: try Basic auth header first, fall back to session
-        basic_tuple, _ = resolve_seek_auth(request, ["BASIC", "SESSION"])
-        if basic_tuple and basic_tuple[0] and basic_tuple[1]:
-            api_user, api_pass = basic_tuple
-        else:
-            api_user = request.session.get("username")
-            api_pass = request.session.get("password")
+        # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
+        api_user, api_pass = _request_login(request)
 
         chat_config = _chat_config_for(request, req)
 

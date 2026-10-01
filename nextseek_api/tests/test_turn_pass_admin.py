@@ -114,4 +114,5 @@ def test_an_admins_pass_keeps_the_admins_graph_scope(admin):
     cfg = _granular_chat_config(pass_request(turn), SimpleNamespace(use_prod=False))
     assert scope_of(cfg).is_admin is True
     asks_prod = _granular_chat_config(pass_request(turn), SimpleNamespace(use_prod=True))
-    assert asks_prod.API_USER == "service"  # never the prod config, even when the body asks for it
+    # never the prod config, even when the body asks for it; the login is the turn's own (Task 6)
+    assert asks_prod.API_USER == admin.username
