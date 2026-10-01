@@ -1,12 +1,35 @@
 {
   "map_version": 1,
   "pipeline": "nf-core/denovotranscript",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=1.2,<2",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
   "derived_metrics": [],
-  "outputs": [],
-  "provenance_attributes": {},
+  "outputs": [
+    {
+      "glob": "salmon/*/quant.sf",
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "transcript_quant",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Pseudo_Aligner": "Salmon",
+        "Notes": "Transcript-level Salmon quantification against this run's de novo assembly (evigene okayset), not a reference transcriptome."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "Link_QualityControl": "$outputs.multiqc_report_html"
+  },
   "qc_attributes": {
     "Link_QC": {
       "from": "$outputs.multiqc_report_html", "target": "D.SEQ",

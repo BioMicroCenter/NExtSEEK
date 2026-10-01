@@ -1,12 +1,35 @@
 {
   "map_version": 1,
   "pipeline": "nf-core/smrnaseq",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=2.4,<3",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
   "derived_metrics": [],
-  "outputs": [],
-  "provenance_attributes": {},
+  "outputs": [
+    {
+      "glob": "mirna_quant/mirtop/mirna.tsv",
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "mirna_counts",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Notes": "miRNA counts from mirtop, isomiRs collapsed to their miRNA. Quantified against miRBase (or MirGeneDB), not the genome."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome",
+    "Link_QualityControl": "$outputs.multiqc_report_html"
+  },
   "qc_attributes": {
     "Link_QC": {
       "from": "$outputs.multiqc_report_html", "target": "D.SEQ",

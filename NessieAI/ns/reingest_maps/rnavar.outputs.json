@@ -1,12 +1,47 @@
 {
   "map_version": 1,
   "pipeline": "nf-core/rnavar",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=1.3,<2",
   "accepts_parent_types": ["D.SEQ", "A.ALN", "A.VCF"],
   "harvest_globs": [],
   "derived_metrics": [],
-  "outputs": [],
-  "provenance_attributes": {},
+  "outputs": [
+    {
+      "glob": "preprocessing/*/*.recal.bam",
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "secondary_data_glob": "preprocessing/*/*.recal.bam.bai",
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome"
+      }
+    },
+    {
+      "glob": "variant_calling/*/*.haplotypecaller.filtered.vcf.gz",
+      "sample_type": "A.VCF",
+      "assay": "Variant Calling Analysis",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Scientist": "@nextseek_user",
+        "Software": "GATK4 HaplotypeCaller",
+        "FilterMethod": "GATK VariantFiltration hard filters; failing records are labelled in FILTER, not removed"
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path"
+  },
   "qc_attributes": {
     "Link_QC": {
       "from": "$outputs.multiqc_report_html", "target": "D.SEQ",

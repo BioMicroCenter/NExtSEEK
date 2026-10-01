@@ -1,11 +1,28 @@
 {
   "map_version": 1,
   "pipeline": "nf-core/rnafusion",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=4.1,<5",
   "accepts_parent_types": ["D.SEQ", "A.ALN"],
   "harvest_globs": [],
   "derived_metrics": [],
-  "outputs": [],
+  "outputs": [
+    {
+      "glob": "star/*.Aligned.sortedByCoord.out.bam",
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "secondary_data_glob": "star/*.Aligned.sortedByCoord.out.bam.bai",
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "STAR",
+        "Genome": "$params.genome"
+      }
+    }
+  ],
   "provenance_attributes": {},
   "qc_attributes": {
     "Link_QC": {

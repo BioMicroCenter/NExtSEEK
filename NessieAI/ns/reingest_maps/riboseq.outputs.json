@@ -1,12 +1,55 @@
 {
   "map_version": 1,
   "pipeline": "nf-core/riboseq",
-  "applies_to_versions": "",
+  "applies_to_versions": ">=1.2,<2",
   "accepts_parent_types": ["D.SEQ"],
   "harvest_globs": [],
   "derived_metrics": [],
-  "outputs": [],
-  "provenance_attributes": {},
+  "outputs": [
+    {
+      "glob": "alignment/star/sorted/*.genome.sorted.bam",
+      "sample_type": "A.ALN",
+      "assay": "Genome Alignment",
+      "cardinality": "per_sample",
+      "primary_data": true,
+      "secondary_data_glob": "alignment/star/sorted/*.genome.sorted.bam.bai",
+      "attributes": {
+        "DataType": "BAM",
+        "Name": "@fastq_stem",
+        "Scientist": "@nextseek_user",
+        "SampleCreationDate": "@run_date",
+        "Aligner": "$params.aligner",
+        "Genome": "$params.genome"
+      }
+    },
+    {
+      "glob": "quantification/salmon/salmon.merged.gene_counts.tsv",
+      "sample_type": "A.GEX",
+      "assay": "Gene Expression Analysis",
+      "cardinality": "per_run",
+      "primary_data": true,
+      "include_provenance": true,
+      "attributes": {
+        "Matrix": "gene_counts",
+        "Name": "@gex_name",
+        "Scientist": "@nextseek_user",
+        "Lab": "@lab",
+        "SampleCreationDate": "@run_date",
+        "DataType": "TSV",
+        "Notes": "One matrix across every library in the run: the samplesheet type column (riboseq, rnaseq, tiseq) says which columns are ribosome footprints and which are total RNA."
+      }
+    }
+  ],
+  "provenance_attributes": {
+    "Pipeline": "$pipeline.name",
+    "PipelineVersion": "$pipeline.version",
+    "Aligner": "$params.aligner",
+    "ReferenceGenome": "$params.genome",
+    "Link_ReferenceGenome": "@genome_path",
+    "AnnotationGTF": "@gtf_path",
+    "Link_GTF": "@gtf_path",
+    "Link_QualityControl": "$outputs.multiqc_report_html"
+  },
   "qc_attributes": {
     "Link_QC": {
       "from": "$outputs.multiqc_report_html", "target": "D.SEQ",
