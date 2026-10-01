@@ -318,10 +318,12 @@ class StudyGraph:
         return rows
 
     def _move(self, p):
+        """MERGE to L yields one row per edge the source then holds to L, so the statement's count is of sources only
+        when it counts them DISTINCT; the fake answers whichever the statement asks, so a row count shows here too."""
         self._moves += 1
         if self.fail_moves_after is not None and self._moves > self.fail_moves_after:
             raise RuntimeError("the connection to Neo4j was lost")
-        moved = 0
+        sources = rows = 0
         for src in p["sources"]:
             edges = [e for e, (s, st) in self.in_study.items() if s == src and st == p["k"]]
             if not edges:
@@ -330,8 +332,9 @@ class StudyGraph:
                 self.link(src, p["l"])
             for e in edges:
                 del self.in_study[e]
-            moved += 1
-        return [{"moved": moved}]
+            sources += 1
+            rows += sum(1 for s, st in self.in_study.values() if s == src and st == p["l"])
+        return [{"moved": sources if "count(DISTINCT x)" in q.MOVE_IN_STUDY else rows}]
 
     def _finish(self, p):
         legacy = self.studies.get(p["l"])
@@ -399,5 +402,5 @@ class StudyGraph:
             for st in targets:
                 if not any(s == src and t == st for s, t in self.in_study.values()):
                     self.link(src, st)
-                restored += 1
+            restored += bool(targets)
         return [{"restored": restored}]

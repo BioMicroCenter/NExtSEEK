@@ -380,6 +380,40 @@ def test_a_gone_empty_sample_type_and_investigation_leave_the_graph(studies_lane
     assert studies_lane.read("MATCH (i:Investigation) RETURN i.id AS id ORDER BY id") == [{"id": 5}, {"id": 6}]
 
 
+# --- the merge's statements on shapes the module's fixture lacks ----------------------------------------------------
+
+_SPLIT_PAIR = (
+    "CREATE (i:Investigation {id: 101, title: 'Alder Investigation'}), "
+    "(l:Study {id: 1, title: 'Alder Unpublished', DOI: '', PMID: ''})-[:IN_INVESTIGATION]->(i), "
+    "(k:Study {seek_study_id: 1, title: 'Alder Unpublished'})-[:IN_INVESTIGATION]->(i), "
+    "(a:Sample {id: 1001, uuid: 'TIS-000000LNE-1001'})-[:IN_STUDY]->(l), (a)-[:IN_STUDY]->(k), "
+    "(b:Sample {id: 1002, uuid: 'TIS-000000LNE-1002'})-[:IN_STUDY]->(k), "
+    "(:GraphMeta {schema_version: '1.2', catalog_hash: 'lane'})")
+
+
+def _split_pair(lane, monkeypatch, *extra):
+    """SEEK study 1 split: L (the empty marker) and K, both under Investigation 101; sample 1001 on both, 1002 only on
+    K. SEEK holds study 1 under investigation 101. ``extra`` statements run after the load."""
+    from nextseek_api.graph_sync import sources
+    _load(lane, [_SPLIT_PAIR, *extra])
+    monkeypatch.setattr(sources, "studies", lambda: [
+        {"id": 1, "title": "Alder Unpublished", "description": None, "investigation_id": 101}])
+    monkeypatch.setattr(sources, "investigations", lambda: [
+        {"id": 101, "title": "Alder Investigation", "description": None}])
+
+
+def test_a_source_with_two_edges_to_the_legacy_node_moves_once(studies_lane, monkeypatch, tmp_path):
+    """MERGE to L matches both of 1001's parallel edges to L: the batch still counts one source, the merge finishes,
+    and every link ends on the merged node."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch,
+                "MATCH (a:Sample {id: 1001}), (l:Study {id: 1}) CREATE (a)-[:IN_STUDY]->(l)")
+    result = study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok" and result["merged"] == [{"study_id": 1, "kind": "merge"}]
+    assert studies_lane.read("MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek") == [
+        {"id": 1, "seek": 1}]
+    assert _keys(studies_lane, 1001) == [("seek", 1), ("seek", 1)] and _keys(studies_lane, 1002) == [("seek", 1)]
+
 
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
 

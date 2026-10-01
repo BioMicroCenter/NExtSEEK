@@ -394,6 +394,15 @@ def test_a_source_with_parallel_edges_moves_once(world, tmp_path):
     assert world.graph.keys_of(1002) == {("seek", 1)}
 
 
+def test_a_source_with_two_edges_to_the_legacy_node_counts_once(world, tmp_path):
+    """MERGE to L matches both of a source's parallel edges to L, so the batch's check counts sources, not rows."""
+    legacy, keyed = _split(world, on_l=(), on_k=(1002,), on_both=(1003,))
+    world.graph.link(1003, legacy)
+    result = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok" and keyed not in world.graph.studies
+    assert world.graph.keys_of(1002) == world.graph.keys_of(1003) == {("seek", 1)}
+
+
 def test_a_crash_between_batches_is_finished_by_a_rerun_into_the_same_journal(world, tmp_path):
     _split(world, on_l=(), on_k=(1002, 1004), on_both=())
     world.graph.fail_moves_after = 1

@@ -564,6 +564,7 @@ RETURN elementId(x) AS element_id, labels(x) AS labels, x.id AS id,
        EXISTS { MATCH (x)-[:IN_STUDY]->(l:Study) WHERE elementId(l) = $l } AS on_l
 """
 # Move these sources' IN_STUDY from K to L, whatever their label: MERGE the link to L, then delete every edge to K.
+# MERGE yields one row per edge a source already holds to L (parallel edges), so the count is of distinct sources.
 MOVE_IN_STUDY = """
 UNWIND $sources AS xid
 MATCH (x) WHERE elementId(x) = xid
@@ -573,7 +574,7 @@ MATCH (x)-[e:IN_STUDY]->(k)
 WITH x, l, collect(e) AS edges
 MERGE (x)-[:IN_STUDY]->(l)
 FOREACH (e IN edges | DELETE e)
-RETURN count(x) AS moved
+RETURN count(DISTINCT x) AS moved
 """
 # The merge's last step, one transaction: only while K (when there is one) holds nothing but one IN_INVESTIGATION and
 # L is still the legacy node of $study_id. For a merge_other_investigation, L's IN_INVESTIGATION moves to
@@ -646,19 +647,19 @@ WITH x, k, r, collect(e) AS on_l
 WHERE r.on_both OR size(on_l) > 0
 MERGE (x)-[:IN_STUDY]->(k)
 FOREACH (e IN CASE WHEN r.on_both THEN [] ELSE on_l END | DELETE e)
-RETURN count(x) AS restored
+RETURN count(DISTINCT x) AS restored
 """
 # Re-create archived IN_STUDY links: rows are {sample_id, study_id, seek_study_id} as in_study_removed.tsv holds
 # them. A Study is found by id when the archive names one, else by seek_study_id on a node with no id; a sample or a
-# Study that is gone restores nothing.
+# Study that is gone restores nothing. The count is of rows that found their link's two ends, not of MERGE's rows.
 RESTORE_IN_STUDY = """
 UNWIND $rows AS r
 MATCH (s:Sample {id: r.sample_id})
 OPTIONAL MATCH (a:Study {id: r.study_id})
 OPTIONAL MATCH (b:Study {seek_study_id: r.seek_study_id}) WHERE r.study_id IS NULL AND b.id IS NULL
-WITH s, coalesce(a, b) AS st WHERE st IS NOT NULL
+WITH r, s, coalesce(a, b) AS st WHERE st IS NOT NULL
 MERGE (s)-[:IN_STUDY]->(st)
-RETURN count(*) AS restored
+RETURN count(DISTINCT r) AS restored
 """
 
 # --- gate G's reads of the small tables (family 14) and of IN_PROJECT (check 2) ------------------------------------
