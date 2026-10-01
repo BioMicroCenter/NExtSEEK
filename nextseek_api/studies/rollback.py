@@ -14,7 +14,7 @@ reverse from its journal.
 5. ``sync_samples`` with the approval over the sync ids of the units this scope committed: the bucket's IN_STUDY
    comes back from MySQL (the switch stays on). It first reads the live label preview and stops, writing nothing
    more, when an edge it would write under approval is not one the undo accounts for: the labels MySQL gives once the
-   undo's own changes are made (read before the undo, saved in ``graph/``, and corrected by what the undo could not
+   undo's own changes are made (read before the undo, saved in the run directory, and corrected by what the undo could not
    restore), against the graph's stored labels. Deleting that saved file and running again accepts them. A deleted study's SEEK-keyed Study node stays (Study nodes of SEEK
    studies are not deleted; gate G reports it as ``12.studies.nodes_not_in_seek``).
 
@@ -235,7 +235,7 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
         todo_units = [u for u in committed if u.unit not in st.undone_units]
         ids = sorted({s for u in committed for s in plan.graph.sync_ids.get(u.unit, [])})
         suffix = "" if investigation is None else f"-{investigation}"
-        implied_path = graph_dir / LABELS_UNDO_FILE.format(suffix)
+        implied_path = run_dir / LABELS_UNDO_FILE.format(suffix)
         # A rerun finds what the first pass implied (read before its undo) saved; recomputing it from MySQL after
         # the undo would agree with any live state.
         implied = (json.loads(implied_path.read_text(encoding="utf-8")) if implied_path.exists() else None)
@@ -287,7 +287,6 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
             reports[unit.unit] = report
         if implied is None:   # what the undo could not restore stays as MySQL holds it
             implied = _implied(inputs, *_undo_effects(st, todo_units, reports))
-            graph_dir.mkdir(parents=True, exist_ok=True)
             implied_path.write_text(json.dumps(implied, sort_keys=True), encoding="utf-8")
 
         copied: dict = {}
@@ -328,12 +327,11 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool, investi
         live = targeted.preview_labels(driver, db, ids) if ids else []
         outside = labels_outside_plan(live, _as_planned(implied))
         if outside:
-            graph_dir.mkdir(parents=True, exist_ok=True)
-            (graph_dir / LABELS_OUTSIDE_UNDO_FILE).write_text(json.dumps(outside, sort_keys=True, default=str),
-                                                             encoding="utf-8")
+            (run_dir / LABELS_OUTSIDE_UNDO_FILE).write_text(json.dumps(outside, sort_keys=True, default=str),
+                                                           encoding="utf-8")
             undo_line("stopped", "sync", edges=len(outside))
             return RunResult(STOPPED, f"MySQL and SEEK are undone, but {len(outside)} edge(s) would be written that "
-                                      f"the undo does not account for (see {graph_dir / LABELS_OUTSIDE_UNDO_FILE}); "
+                                      f"the undo does not account for (see {run_dir / LABELS_OUTSIDE_UNDO_FILE}); "
                                       "the graph keeps their labels. Look at them; to write them with the approval "
                                       f"anyway, delete {implied_path} and run the rollback again", counts)
         for chunk in _batches(ids, apply_mod.SYNC_CALL_IDS):

@@ -432,7 +432,7 @@ def test_the_final_sync_refuses_a_label_the_undo_does_not_imply(undo_env, monkey
                         _live(["assay_id", "internal_assay_id", "internal_assay_title"]))
     result = undo_env.rollback(run_dir)
     assert result.status == a.STOPPED and not any(c[0] == "sync" for c in undo_env.calls)
-    assert (run_dir / a.GRAPH_DIR / rollback.LABELS_OUTSIDE_UNDO_FILE).exists()
+    assert (run_dir / rollback.LABELS_OUTSIDE_UNDO_FILE).exists() and not (run_dir / a.GRAPH_DIR).exists()
     assert sorted(links_of(undo_env.engine)) == sorted(ORIGINAL)
 
 

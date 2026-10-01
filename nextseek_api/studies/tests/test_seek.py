@@ -190,6 +190,20 @@ def test_the_lookups_compare_titles_in_python(monkeypatch):
     assert session.find_assay(101, "RNA-seq run") == [501, 502]
 
 
+def test_an_assays_link_count_can_leave_out_the_sops_it_copied(monkeypatch):
+    import sqlite3
+
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE assay_assets (assay_id INTEGER, asset_id INTEGER, asset_type TEXT)")
+    db.executemany("INSERT INTO assay_assets VALUES (?, ?, ?)",
+                   [(302, 7, "Sop"), (302, 8, "Sop"), (302, 7, "Sample"), (303, 7, "Sop")])
+    monkeypatch.setattr(s, "_seek_rows", lambda sql, params: db.execute(sql.replace("%s", "?"), params).fetchall())
+    session, _ = _session()
+    assert session.assay_link_count(302) == 3
+    assert session.assay_link_count(302, except_sops=[7]) == 2      # the Sample row 7 still counts
+    assert session.assay_link_count(302, except_sops=[7, 8]) == 1
+
+
 # --- the share endpoint's credential: the caller's own (tool spec 16.6, T39) ----------------------------------------
 
 def _request(**meta):
