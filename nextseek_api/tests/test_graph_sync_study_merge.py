@@ -672,6 +672,27 @@ def test_an_arrival_on_a_rekey_with_no_seek_keyed_node_is_reported_and_the_undo_
     assert world.graph.keys_of(1011) == world.graph.keys_of(1001) == {("id", 5)}
 
 
+def test_undo_restores_every_node_then_every_archive_then_the_sources_in_one_call(world, tmp_path):
+    """Pinned order: step 1 for every id, then the archives, then step 2, all in one call. With the archives last a
+    link --studies removed from a merged node would come back on the legacy node after its sources had moved, and
+    stay there (the Task 10 review's probe)."""
+    _split(world)
+    _split(world, sid=2, on_l=(2001,), on_k=(2002,), on_both=(2003,))
+    study_merge.apply(world.graph, DB, {1: "merge", 2: "merge"}, run_dir=str(tmp_path / "m1"))
+    world.links = [(1001, 1), (1002, 2), (1003, 1), (2001, 2), (2002, 2), (2003, 2)]
+    study_links.rebuild_in_study(world.graph, DB, remove=True, run_dir=str(tmp_path / "s1"))
+    world.graph.calls.clear()
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(tmp_path / "s1")])
+    assert result["status"] == "ok" and result["archive_restored"] == 1
+    steps = [c.query for c in world.graph.calls
+             if c.query in (q.UNMERGE_STUDY_NODES, q.RESTORE_IN_STUDY, q.UNMERGE_MOVE_BACK)]
+    assert [query for i, query in enumerate(steps) if i == 0 or steps[i - 1] != query] == [
+        q.UNMERGE_STUDY_NODES, q.RESTORE_IN_STUDY, q.UNMERGE_MOVE_BACK]
+    assert steps.count(q.UNMERGE_STUDY_NODES) == 2
+    # 1002 is back on study 1's node; --studies linked it to study 2 after the merge, so it arrived there.
+    assert world.graph.keys_of(1002) == {("seek", 1), ("seek", 2)}
+
+
 def test_undo_refuses_an_id_another_node_now_carries(world, tmp_path):
     _split(world)
     study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
