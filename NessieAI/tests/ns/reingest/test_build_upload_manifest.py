@@ -197,6 +197,8 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     # monkeypatch.setenv, so patch the module attribute directly instead
     # (same pattern as test_run_harvest_op.py's _patch_harvest).
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     _patch_seek_required(monkeypatch)
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
@@ -227,6 +229,8 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
     `_save_manifest`'s own kwarg) for a caller that needs a specific
     inventory shape, e.g. an ambiguous per_run rule shared by every sample."""
     monkeypatch.setattr(store_mod, "_ROOT", str(tmp_path / "manifests"))
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     _patch_seek_required(monkeypatch)
     sample_names = [f"SAMPLE_{i}" for i in range(1, n + 1)]
     samples = [
@@ -604,7 +608,7 @@ def test_ambiguous_primary_data_reaches_the_reply_through_the_full_dispatch(
     # The envelope shape (Global Constraints: build-upload-xlsx never writes
     # to NExtSEEK) must stay exactly these keys -- `ambiguous_primary`
     # is a local that feeds the reply text, never a key of its own.
-    assert set(result) == {"saved_files", "qa", "reply", "proposals", "answers_deferred"}
+    assert set(result) == {"saved_files", "qa", "reply", "proposals", "answers_deferred", "builds"}
 
 
 @patch("nextseek_api.services.context_catalog._sample_type_rows")

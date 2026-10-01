@@ -134,3 +134,31 @@ def test_no_answers_renders_the_same_cells_as_before(rows, tmp_path, monkeypatch
     empty = _new(tmp_path / "b", manifest_id, {})
     assert plain["qa"] == empty["qa"]
     assert _aln_meta(plain) == _aln_meta(empty)
+
+
+@patch(CATALOG)
+def test_each_rendered_workbook_leaves_a_build_record(rows, tmp_path, monkeypatch):
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.project_ids_for_uids_strict",
+                        lambda uids: [14])
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    manifest_id = _save_manifest(tmp_path, monkeypatch)
+    result = _new(tmp_path, manifest_id)
+    keys = {b["artifact_key"] for b in result["builds"]}
+    assert keys == set(result["saved_files"])
+    for build in result["builds"]:
+        assert build["build_id"] == build_records.sha256_of(result["saved_files"][build["artifact_key"]])
+        assert build["project_id"] == 14 and build["mode"] == "new"
+
+
+@patch(CATALOG)
+def test_parents_in_two_projects_leave_no_project_and_say_why(rows, tmp_path, monkeypatch):
+    from NessieAI.ns.reingest import build_records
+    monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.project_ids_for_uids_strict",
+                        lambda uids: [14, 56])
+    rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
+    result = _new(tmp_path, _save_manifest(tmp_path, monkeypatch))
+    assert all(b["project_id"] is None and "2 projects" in b["project_note"]
+               for b in result["builds"])

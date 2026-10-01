@@ -20,6 +20,7 @@ import logging
 import os
 import queue
 import threading
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -1160,8 +1161,16 @@ class AssistantViewSet(viewsets.ViewSet):
         chat_config = _granular_chat_config(request, req)
         # parse and graph both run parser_agent, which reads results_history off
         # the session — build a (transient) session for both, else parser_agent
-        # crashes on None. Other ops don't touch the session.
-        session = self._granular_session(request, req) if op in ("parse", "graph") else None
+        # crashes on None. build-upload-xlsx needs only the user (below); the
+        # other ops don't touch the session.
+        if op in ("parse", "graph"):
+            session = self._granular_session(request, req)
+        elif op == "build-upload-xlsx":
+            # The build record is filed under this user, and Scientist is
+            # this user (mapper's @nextseek_user); without a session both are blank.
+            session = SimpleNamespace(user=request.user)
+        else:
+            session = None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
         # report + generate-submission both persist real artifacts to disk (the

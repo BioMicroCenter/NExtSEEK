@@ -393,6 +393,35 @@ def assay_ids_for_parents_strict(
         ) from exc
 
 
+def project_ids_for_uids_strict(uids: list[str]) -> list[int]:
+    """Distinct SEEK project ids of the samples with these UIDs, sorted.
+
+    An upload needs exactly one project; the caller decides what zero or
+    several mean. An outage RAISES rather than returning [], for the same
+    reason assay_ids_for_parents_strict does.
+    """
+    clean = sorted({str(u).strip() for u in uids if str(u or "").strip()})
+    if not clean:
+        return []
+    from django.db import connection
+
+    placeholders = ", ".join(["%s"] * len(clean))
+    sql = f"""
+        SELECT DISTINCT ps.project_id
+          FROM samples AS s
+          JOIN projects_samples AS ps ON ps.sample_id = s.id
+         WHERE s.uuid IN ({placeholders})
+         ORDER BY ps.project_id
+    """
+    try:
+        with connection.cursor() as cur:
+            cur.execute(sql, clean)
+            return [int(r[0]) for r in cur.fetchall()]
+    except Exception as exc:
+        raise RuntimeError(
+            f"project catalog unreachable for {len(clean)} UID(s): {exc}") from exc
+
+
 def next_name_ordinal_strict(sample_type: str, prefix: str) -> int:
     """1 + the highest N among existing ``<prefix>_<N>`` Names on ``sample_type``.
 

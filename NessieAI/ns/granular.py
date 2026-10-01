@@ -1125,13 +1125,14 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
 
     from NessieAI.ns.reingest import mapper, maps, proposals, report as user_report
     from NessieAI.ns.reingest import answers as answers_mod
+    from NessieAI.ns.reingest import build_records
     from NessieAI.ns.reingest.notes import compose as compose_notes
     from NessieAI.ns.reingest.store import load_manifest
     from NessieAI.ns.reingest_qa import HARD, HARD_REJECT, Finding, NO_ATTRIBUTES_TO_WRITE, qa_rows
     from NessieAI.ns.upload_workbook import MODE_NEW, MODE_UPDATE, render_upload_workbook
     from nextseek_api.services.reingest_lookups import (
         attributes_for, known_sample_types, lab_code_from_uid,
-        lab_for_code_strict, next_name_ordinal_strict)
+        lab_for_code_strict, next_name_ordinal_strict, project_ids_for_uids_strict)
 
     def _slug(name: str) -> str:
         # Artifact keys are word characters only; the download route accepts
@@ -1449,6 +1450,21 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             answered_by=f"{user_label} on {today}")
         final = _assemble(result.rows)
 
+    def _project() -> tuple[int | None, str]:
+        try:
+            ids = project_ids_for_uids_strict(sorted(existing_parent_uids))
+        except RuntimeError as exc:
+            return None, f"project lookup failed: {exc}"
+        if len(ids) == 1:
+            return ids[0], ""
+        if not ids:
+            return None, "the parent samples belong to no project"
+        return None, f"the parent samples span {len(ids)} projects ({ids}); upload one project at a time"
+
+    project_id, project_note = _project()
+    user_id = getattr(user, "pk", None)
+    builds: list[dict] = []
+
     saved_files, qa = {}, {}
     reports_by_type = final.reports_by_type
     for sample_type, built in reports_by_type.items():
@@ -1464,6 +1480,12 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         render_upload_workbook(sample_type, type_rows, path, mode=mode,
                                provenance=final.provenance_by_type.get(sample_type))
         saved_files[safe_key] = path
+        builds.append(build_records.write(
+            path=path, artifact_key=safe_key, sample_type=sample_type, mode=mode,
+            manifest_id=manifest_id, disposition=built.disposition,
+            open_warnings=built.soft, row_count=len(type_rows),
+            project_id=project_id, project_note=project_note,
+            answers_digest=answers.digest(), user_id=user_id))
 
     # A HARD_REJECT sample type's own workbook was skipped above (the
     # `continue` two lines up), so asking the reader to confirm a
@@ -1524,6 +1546,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         "reply": reply,
         "proposals": pending,
         "answers_deferred": answers_deferred,
+        "builds": builds,
     }
 
 
