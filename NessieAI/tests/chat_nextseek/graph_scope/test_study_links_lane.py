@@ -550,6 +550,36 @@ def test_undo_after_neo4j_reuses_a_retired_sources_element_id(studies_lane, monk
     assert [s["id"] for s in undone["studies"][0]["sources_replaced"]] == [1001]
 
 
+def test_undo_after_the_nightly_deleted_the_legacy_investigation_is_partial(studies_lane, monkeypatch, tmp_path):
+    """A merge_other_investigation leaves the legacy Investigation empty and the nightly deletes it (no Study holds
+    it, SEEK lacks it). The undo cannot restore it: the legacy study comes back under none, the undo names it, and its
+    status is partial (the command exits 1)."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch, _OTHER_INVESTIGATION)
+    assert study_merge.apply(studies_lane.driver, DB, {1: "merge_other_investigation"},
+                             run_dir=str(tmp_path))["status"] == "ok"
+    studies_lane.write("MATCH (i:Investigation {id: 901}) WHERE NOT EXISTS { (i)<-[:IN_INVESTIGATION]-() } "
+                       "DETACH DELETE i")
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert undone["status"] == "partial"
+    assert undone["investigation_not_restored"] == [
+        {"study_id": 1, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == []
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+
+
+def test_undo_links_an_on_both_source_back_only_while_it_links_to_the_legacy_node(studies_lane, monkeypatch,
+                                                                                    tmp_path):
+    """1001 sat on both nodes; after the merge a removal SEEK made (its archive not given to the undo) took its link
+    to the merged node. The undo does not link it to the seek-keyed node again."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch)
+    study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    studies_lane.write("MATCH (:Sample {id: 1001})-[e:IN_STUDY]->() DELETE e")
+    assert study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])["status"] == "ok"
+    assert _keys(studies_lane, 1001) == [] and _keys(studies_lane, 1002) == [("seek", 1)]
+
+
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
 
 _CONNECTIONS_GRAPH = [

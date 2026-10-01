@@ -403,7 +403,7 @@ class StudyGraph:
             if not self._same_source(r) or p["k"] not in self.studies or p["l"] not in self.studies:
                 continue
             on_l = [e for e, (s, st) in self.in_study.items() if s == src and st == p["l"]]
-            if not (r["on_both"] or on_l):
+            if not on_l:
                 continue
             if not any(s == src and st == p["k"] for s, st in self.in_study.values()):
                 self.link(src, p["k"])

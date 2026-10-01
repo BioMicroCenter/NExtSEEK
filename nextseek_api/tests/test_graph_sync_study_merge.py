@@ -723,9 +723,47 @@ def test_undo_reports_a_legacy_investigation_that_is_gone(world, tmp_path):
     study_merge.apply(world.graph, DB, {3: "merge_other_investigation"}, run_dir=str(tmp_path / "m1"))
     del world.graph.investigations[legacy_inv]
     result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "partial"
     assert result["investigation_not_restored"] == [
         {"study_id": 3, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]
     assert world.graph.in_investigation[legacy] == []
+
+
+def test_an_on_both_source_whose_link_was_removed_since_is_not_linked_again(world, tmp_path):
+    """SEEK moved 1002 (only on K) and 1003 (on both) to study 12 after the merge, and the rebuild removed their
+    links to study 1; its archive is not given. Neither is linked to study 1 again: an "on both" source goes back to K
+    only while it still links to L, as an "only on K" one does."""
+    _split(world)
+    _seek(world, 12, "Larch Study")
+    world.graph.add_study(seek_study_id=12, title="Larch Study", investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    world.links = [(1001, 1), (1002, 12), (1003, 12)]
+    study_links.rebuild_in_study(world.graph, DB, remove=True, run_dir=str(tmp_path / "s1"))
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert result["status"] == "ok"
+    assert world.graph.keys_of(1002) == world.graph.keys_of(1003) == {("seek", 12)}
+
+
+def test_undo_refuses_unless_given_every_merge_journal_naming_its_ids(world, tmp_path):
+    """A crash and its rerun into a new run directory: an undo given only the rerun's directory would leave what the
+    crashed run moved on the legacy node. With the run root, it finds the other journal and refuses, writing
+    nothing; given both, it restores the split exactly."""
+    _split(world, on_l=(1001,), on_k=(1002, 1004), on_both=(1003,))
+    before = _snapshot(world.graph)
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "merge_studies-1"), batch=1)
+    world.graph.fail_moves_after = None
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "merge_studies-2"), batch=1)
+    (tmp_path / "unrelated").mkdir()
+    writes = len(world.graph.writes())
+    with pytest.raises(ValueError, match="merge_studies-1"):
+        study_merge.undo(world.graph, DB, [str(tmp_path / "merge_studies-2")], run_root=str(tmp_path))
+    assert len(world.graph.writes()) == writes
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "merge_studies-2"),
+                                               str(tmp_path / "merge_studies-1" / study_merge.JOURNAL_FILE)],
+                              run_root=str(tmp_path))
+    assert result["status"] == "ok" and _snapshot(world.graph) == before
 
 
 def _retire(g, sample_id):

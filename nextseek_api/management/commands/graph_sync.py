@@ -457,20 +457,32 @@ class Command(BaseCommand):
         """Undo merges from their journals (``study_merge.undo``); every path is checked before anything is read or
         written, and the undo runs under the graph-write lock, recorded as a run."""
         paths, as_json = options["unmerge_studies"], options["json"]
+        run_root = options["run_root"] or loop.default_run_root()
         try:
-            study_merge.read_journals(paths)
+            journals, _ = study_merge.read_journals(paths)
+            missing = study_merge.unlisted_journals(run_root, paths, journals)
         except ValueError as exc:
             raise CommandError(f"graph_sync --unmerge-studies: {exc}", returncode=2) from exc
+        if missing:
+            raise CommandError("graph_sync --unmerge-studies: refused, nothing written: other merge journals under "
+                               f"{run_root} name the same study ids; give them too: " + ", ".join(missing),
+                               returncode=2)
         if options["dry_run"]:
-            result = study_merge.undo(driver, db, paths, dry_run=True)
+            result = study_merge.undo(driver, db, paths, dry_run=True, run_root=run_root)
             result["mode"] = "unmerge_studies"
             self._emit(result, as_json)
             return
         handle = None if options["no_record"] else state.start_run("unmerge_studies", trigger=options["trigger"])
         try:
             with state.graph_write_lock(targeted.LOCK_WAIT_S) as held:
-                result = (study_merge.undo(driver, db, paths) if held
+                result = (study_merge.undo(driver, db, paths, run_root=run_root) if held
                           else {"status": "lock_timeout", "lock_timeout_s": targeted.LOCK_WAIT_S})
+        except ValueError as exc:
+            # The undo's own checks of its paths, journals and archives, which run before it writes: an archive it
+            # cannot read, or a merge journal naming the same ids that appeared while this run waited for the lock.
+            if handle is not None:
+                handle.finish("refused", counts={"error": _text(exc)})
+            raise CommandError(f"graph_sync --unmerge-studies: refused, nothing written: {exc}", returncode=2) from exc
         except Exception as exc:
             if handle is not None:
                 handle.finish("failed", counts={"error": _text(exc)})

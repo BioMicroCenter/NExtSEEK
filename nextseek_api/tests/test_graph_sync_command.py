@@ -1459,6 +1459,20 @@ def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tm
     assert exc.value.returncode == 2 and studies_cmd.calls == []
 
 
+def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names_its_ids(graphdb, studies_cmd,
+                                                                                          tmp_path):
+    root = tmp_path / "root"
+    for name in ("merge_studies-a", "merge_studies-b"):
+        (root / name).mkdir(parents=True)
+        (root / name / study_merge.JOURNAL_FILE).write_text(
+            study_merge.JOURNAL_HEADER + '3\tplan\t{"kind": "merge"}\n', encoding="utf-8")
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", str(root / "merge_studies-b"), "--run-root", str(root),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "merge_studies-a" in str(exc.value)
+    assert studies_cmd.calls == [] and studies_cmd.runs == []
+
+
 def test_an_undo_that_refused_an_id_exits_1(graphdb, studies_cmd, tmp_path):
     studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}]}
     with pytest.raises(CommandError) as exc:

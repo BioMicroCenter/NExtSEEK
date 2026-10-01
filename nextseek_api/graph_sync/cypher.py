@@ -656,8 +656,9 @@ RETURN eid AS element_id, x IS NOT NULL AS found, x.id AS id, coalesce(labels(x)
 """
 # Undo, step 2: rows are {source, id, labels, on_both}, a source matched by its element id AND its journaled id and
 # labels (a type label aside, which a sample type's rename changes), since Neo4j hands a freed element id to a new
-# node. A source journaled "on both" gets its edge to K and keeps its edge to L; one journaled "only on K" that still
-# links to L gets its edge to K and loses its edges to L; any other is skipped.
+# node. Only a source that still links to L goes back: one journaled "on both" gets its edge to K and keeps its edge
+# to L; one journaled "only on K" gets its edge to K and loses its edges to L. A source whose link to L a later
+# removal took, its archive not given, is skipped either way, which keeps it true to SEEK.
 UNMERGE_MOVE_BACK = """
 UNWIND $rows AS r
 MATCH (x) WHERE elementId(x) = r.source AND (x.id = r.id OR (x.id IS NULL AND r.id IS NULL))
@@ -666,7 +667,7 @@ MATCH (k:Study) WHERE elementId(k) = $k
 MATCH (l:Study) WHERE elementId(l) = $l
 OPTIONAL MATCH (x)-[e:IN_STUDY]->(l)
 WITH x, k, r, collect(e) AS on_l
-WHERE r.on_both OR size(on_l) > 0
+WHERE size(on_l) > 0
 MERGE (x)-[:IN_STUDY]->(k)
 FOREACH (e IN CASE WHEN r.on_both THEN [] ELSE on_l END | DELETE e)
 RETURN count(DISTINCT x) AS restored

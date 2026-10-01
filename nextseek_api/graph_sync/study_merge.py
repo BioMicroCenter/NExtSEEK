@@ -563,7 +563,32 @@ def _not_restored(study_id: int, node: str, investigation: dict | None) -> dict:
             "investigation": {"id": investigation.get("id"), "title": investigation.get("title")}}
 
 
-def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK) -> dict:
+def unlisted_journals(run_root: str, paths, study_ids) -> list[str]:
+    """The merge journals under ``run_root`` (``<run root>/<run directory>/study_merge.tsv``) that ``paths`` do not
+    name and that hold a ``plan`` line for one of ``study_ids``: a crashed merge and its rerun into another run
+    directory, or a later approval of the same id, are undone only together."""
+    given = set()
+    for raw in paths:
+        path = os.path.realpath(raw)
+        given.add(os.path.join(path, JOURNAL_FILE) if os.path.isdir(path) else path)
+    wanted, found = {int(x) for x in study_ids}, []
+    root = os.path.realpath(run_root)
+    if not os.path.isdir(root):
+        return found
+    for name in sorted(os.listdir(root)):
+        journal = os.path.join(root, name, JOURNAL_FILE)
+        if journal in given or not os.path.isfile(journal):
+            continue
+        with open(journal, encoding="utf-8", errors="replace") as fh:
+            named = {int(p[0]) for p in (line.split("\t", 2) for line in fh)
+                     if len(p) == 3 and p[1] == "plan" and p[0].isdigit()}
+        if named & wanted:
+            found.append(journal)
+    return found
+
+
+def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK,
+         run_root: str | None = None) -> dict:
     """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
     section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
     carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
@@ -572,13 +597,19 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     not one of L's own journaled sources reached study X through the key after the merge (an upload, a ``--studies``
     link) and moves to K too, listed in ``arrived_after_merge``; where the journal holds no K (a rekey in place of a
     node with none) they stay on L, are listed in ``arrived_left_on_legacy``, and the status is ``partial``.
-    ``dry_run`` reports each id's state and writes nothing.
+    ``dry_run`` reports each id's state and writes nothing. With ``run_root``, a merge journal under it that names
+    one of the ids and is not among ``paths`` raises ValueError before anything is read from the graph.
 
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
     id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
-    or replaced is named in ``investigation_not_restored``."""
+    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``."""
     journals, archives = read_journals(paths)
+    if run_root is not None:
+        missing = unlisted_journals(run_root, paths, journals)
+        if missing:
+            raise ValueError("other merge journals name the same study ids; give them too, so a crash and its rerun "
+                             "(or a later approval) are undone together: " + ", ".join(missing))
     archive_rows = _read_archives(archives)
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
@@ -635,7 +666,8 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         _move_arrivals(driver, db, entry, keyed_eid, by_id[x], batch)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
-    if report["refused"] or any(s["arrived_left_on_legacy"] for s in report["studies"]):
+    if (report["refused"] or report["investigation_not_restored"]
+            or any(s["arrived_left_on_legacy"] for s in report["studies"])):
         report["status"] = PARTIAL
     return report
 
