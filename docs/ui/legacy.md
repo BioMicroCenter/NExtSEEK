@@ -120,7 +120,7 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 |---|---|---|---|
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
-| check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
+| check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | No template loads them since the root `templates/base.html` was deleted; Mezzanine admin may | Load the Mezzanine admin pages and compare |
 | check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
 | check-first | `pages/samples_tree.embed.html` | Still included (inside HTML comments) by `pages/samples.embed.html` | Remove or convert both include lines first |
 
