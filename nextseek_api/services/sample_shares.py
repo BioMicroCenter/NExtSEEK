@@ -57,28 +57,49 @@ def _status_url(share_id) -> str:
     return reverse("nextseek_api:sample-shares-detail", kwargs={"share_id": str(share_id)})
 
 
+class GraphUnavailable(Exception):
+    """No Neo4j is configured for this app."""
+
+
+def _graph_errors() -> tuple:
+    from neo4j.exceptions import DriverError, Neo4jError
+
+    return GraphUnavailable, DriverError, Neo4jError
+
+
 @contextmanager
 def _graph():
     """The configured Neo4j, for the apply step's preflight and the read-only check; closed at once."""
     from neo4j import GraphDatabase
 
     config = getattr(settings, "NEO4J_DATABASE", None) or {}
-    with GraphDatabase.driver(config["URI"], auth=config["AUTH"]) as driver:
+    if not config.get("URI"):
+        raise GraphUnavailable("NEO4J_DATABASE names no URI")
+    with GraphDatabase.driver(config["URI"], auth=config.get("AUTH")) as driver:
         yield driver, config.get("NAME") or "neo4j"
 
 
-def _outbox_state(row) -> str:
-    """The share unit's first outbox row (its commit marker): pending, done, failed, dead or missing."""
-    if not row.run_dir:
-        return "missing"
-    found = GraphSyncOutbox.objects.filter(kind="samples", key=links.unit_key(row.run_dir, 1)).first()
-    if found is None:
-        return "missing"
-    if found.done_at is not None:
-        return "done"
-    if found.attempts >= outbox_state.MAX_ATTEMPTS:
-        return "dead"
-    return "failed" if found.failing_since else "pending"
+#: worst last: a row never written (an after-commit enqueue that failed) never drains, so it reads worse than pending
+OUTBOX_STATES = ("done", "pending", "missing", "failed", "dead")
+
+
+def _outbox_state(plan) -> str:
+    """The worst state over every ``samples`` outbox row of the share's unit (one per ``SAMPLE_CHUNK`` ids, the first
+    under the unit's key): done, pending, missing, failed or dead; missing when the unit has none yet."""
+    keys = [k for u in plan.units for k, _part in links.outbox_rows(links.unit_key(plan.run_id, u.unit), u.sync_ids)]
+    found = {r.key: r for r in GraphSyncOutbox.objects.filter(kind="samples", key__in=keys)}
+    states = []
+    for key in keys:
+        row = found.get(key)
+        if row is None:
+            states.append("missing")
+        elif row.done_at is not None:
+            states.append("done")
+        elif row.attempts >= outbox_state.MAX_ATTEMPTS:
+            states.append("dead")
+        else:
+            states.append("failed" if row.failing_since else "pending")
+    return max(states, key=OUTBOX_STATES.index) if states else "missing"
 
 
 def _status(row, graph=None) -> dict:
@@ -93,8 +114,8 @@ def _status(row, graph=None) -> dict:
 
 
 def _graph_check(row) -> dict:
-    """``?verify=graph``: the share's sample and parent ids (its unit's sync ids) read in the graph, and its outbox
-    row's state."""
+    """``?verify=graph``: the share's sample and parent ids (its unit's sync ids) read in the graph, and the worst
+    state of its unit's outbox rows."""
     from nextseek_api.graph_sync import writer
     from nextseek_api.studies.models import StudyMovePlan
     from nextseek_api.studies.report import PLAN_FILE
@@ -104,7 +125,7 @@ def _graph_check(row) -> dict:
     with _graph() as (driver, db):
         found = writer.share_graph_check(driver, db, ids, project_id=plan.share.destination_project_id,
                                          study_id=plan.share.destination_study_id)
-    return {**found, "outbox": _outbox_state(row)}
+    return {**found, "outbox": _outbox_state(plan)}
 
 
 class SampleShareViewSet(viewsets.ViewSet):
@@ -155,7 +176,7 @@ class SampleShareViewSet(viewsets.ViewSet):
         parameters=[OpenApiParameter("verify", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False,
                                      enum=["graph"])],
         responses={200: SampleShareStatus, 401: JsonApiErrorResponse, 403: JsonApiErrorResponse,
-                   404: JsonApiErrorResponse},
+                   404: JsonApiErrorResponse, 503: JsonApiErrorResponse},
         tags=["SampleShares"],
         examples=[OpenApiExample("A planned share", value={
             "share_id": SHARE_ID_EXAMPLE, "state": "planned", "created_at": "2026-01-01T00:00:00+00:00",
@@ -169,7 +190,14 @@ class SampleShareViewSet(viewsets.ViewSet):
             row = self._row(share_id)
         except _LOOKUP_FAILURES:
             return _error("not_found", "no share has this id", 404)
-        graph = _graph_check(row) if request.query_params.get("verify") == "graph" and row.run_dir else None
+        graph = None
+        if request.query_params.get("verify") == "graph" and row.run_dir:
+            try:
+                graph = _graph_check(row)
+            except (OSError, ValueError, *_graph_errors()) as exc:
+                log.warning("sample share %s: the graph check could not run: %s", row.share_id, type(exc).__name__)
+                return _error("graph_unavailable", f"the graph check could not run ({type(exc).__name__}): the graph "
+                                                   "or the share's run directory cannot be read", 503)
         return Response(_status(row, graph), status=200)
 
     @extend_schema(
@@ -178,7 +206,7 @@ class SampleShareViewSet(viewsets.ViewSet):
         request=SampleShareApplyRequest,
         responses={200: SampleShareStep, 202: SampleShareStep, 401: JsonApiErrorResponse, 403: JsonApiErrorResponse,
                    404: JsonApiErrorResponse, 409: JsonApiErrorResponse, 422: JsonApiErrorResponse,
-                   502: JsonApiErrorResponse},
+                   502: JsonApiErrorResponse, 503: JsonApiErrorResponse},
         tags=["SampleShares"],
         examples=[
             OpenApiExample("Apply", value={"plan_sha256": "0" * 64}, request_only=True),
@@ -209,12 +237,16 @@ class SampleShareViewSet(viewsets.ViewSet):
             return _error(code, exc.message, 403)
         except SeekError as exc:
             return _error("seek_error", exc.message, 502)
-        with _graph() as (driver, db):
-            answer = share_apply.apply_step(row, session, driver, db, plan_sha256=body.plan_sha256)
+        try:
+            with _graph() as (driver, db):   # the graph is read only by the preflight, before any write
+                answer = share_apply.apply_step(row, session, driver, db, plan_sha256=body.plan_sha256)
+        except _graph_errors() as exc:
+            log.warning("sample share %s: the graph could not be read: %s", row.share_id, type(exc).__name__)
+            return _error("graph_unavailable", f"the graph could not be read ({type(exc).__name__}): call again "
+                                               "later; nothing was written", 503)
         if answer.status_code >= 400:
             return _error(answer.code or "error", answer.message or answer.code or "", answer.status_code)
-        row.refresh_from_db()
-        return Response(SampleShareStep(share_id=str(row.share_id), state=row.state, clones_done=answer.clones_done,
+        return Response(SampleShareStep(share_id=str(row.share_id), state=answer.state, clones_done=answer.clones_done,
                                         clones_remaining=answer.clones_remaining, retry_after_s=answer.retry_after_s,
                                         code=answer.code, message=answer.message,
                                         status_url=_status_url(row.share_id)).model_dump(),
