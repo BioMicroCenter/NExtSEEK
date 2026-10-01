@@ -6,8 +6,10 @@ module only turns them into compact text. The rows are read by field name, so an
 
 The text has three parts (spec section 4.2):
 
-1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with
-   ``docs/neo4j-schema.md`` v1.1 by a test;
+1. the structure, hand-owned text in ``prompts/graph_schema_structure.txt``, kept consistent with the graph
+   contract by its test; on a graph at 1.3 or later ``prompts/graph_schema_structure_assays.txt`` (the Assay
+   section, held to the contract's 1.3 names by the same test) is appended, and the first line names the graph's
+   version (``structure_for``);
 2. the type index, one line per sample type (a deprecated one only while it still holds samples);
 3. at most ``MAX_TYPES`` resolved types, each with its K most-filled attributes in full and the rest by name,
    each with its sample count.
@@ -27,7 +29,15 @@ import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from chat_nextseek.graph_contract import schema
+
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
+# The Assay section (graph schema 1.3). Appended to the structure only for a graph at ASSAY_SCHEMA_VERSION or later, on
+# the default prompts and on every prompt variant alike (spec 2026-09-25-graph-assay-nodes-design.md section 6.1).
+ASSAY_STRUCTURE_PATH: Path = STRUCTURE_PATH.with_name("graph_schema_structure_assays.txt")
+ASSAY_SCHEMA_VERSION = "1.3"   # compared with schema.at_least, the contract's version rule
+# The version the structure file describes (its first line names it), and the oldest version a rendering names.
+STRUCTURE_SCHEMA_VERSION = (1, 2)
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
 # The vocabulary blocks' own bound (render_vocabulary, and the committed-files path in agents/graph.py). Set from
@@ -54,6 +64,7 @@ _STOP_RE = re.compile(r"[.;!?](?=\s|$)")
 _KEY_PREFIX_RE = re.compile(r"^\d+:")
 _BLOCK_JOIN = "\n\n"
 _WORD_RE = re.compile(r"[a-z0-9]+")
+_TITLE_VERSION_RE = re.compile(r"\A(# NExtSEEK graph schema v)\d+\.\d+")
 # Words that name no vocabulary entry: the English glue of a question, and the words nearly every question
 # uses to ask for a block at all (sample, data, study, assay, protocol and the like).
 _PLAIN_WORDS = frozenset("""
@@ -375,6 +386,34 @@ def load_structure() -> str:
     return STRUCTURE_PATH.read_text(encoding="utf-8").strip()
 
 
+def load_assay_structure() -> str:
+    """The hand-owned Assay section (graph schema 1.3), without trailing blank lines."""
+    return ASSAY_STRUCTURE_PATH.read_text(encoding="utf-8").strip()
+
+
+def schema_version_named(schema_version: Any) -> str:
+    """The version the structure names for a graph at ``schema_version`` (``GraphMeta.schema_version``, or the
+    committed file's): the graph's own ``major.minor``, or 1.2, the version the structure file describes, when the
+    graph's is older, unknown or not a version at all."""
+    major, minor = max(schema.version_tuple(schema_version) or STRUCTURE_SCHEMA_VERSION, STRUCTURE_SCHEMA_VERSION)
+    return f"{major}.{minor}"
+
+
+def structure_for(structure: str | None, schema_version: Any) -> str:
+    """The structure text for a graph at ``schema_version``.
+
+    ``structure`` is an evaluation prompt variant's text, None for the file. Its first line, when it is the file's
+    title, names the graph's version (``schema_version_named``); on a graph at ``ASSAY_SCHEMA_VERSION`` or later the
+    Assay section follows it, whichever structure was given. An unknown version gets no Assay section.
+    """
+    text = load_structure() if structure is None else structure
+    named = schema_version_named(schema_version)
+    text = _TITLE_VERSION_RE.sub(lambda m: m.group(1) + named, text, count=1)
+    if schema.at_least(schema_version, ASSAY_SCHEMA_VERSION):
+        text = text + "\n\n" + load_assay_structure()
+    return text
+
+
 def _assemble(structure: str, index: str, titles: list[str], sections: list[str], k: int, tail_counts: bool,
               omitted: list[str]) -> str:
     parts = [structure, index]
@@ -440,9 +479,11 @@ def fit_graph_context(snapshot, details, *, k: int = 25, budget: int = BUDGET_BY
     budget only when they alone do. Anything given up is in the result (``stepped_down``) and printed.
 
     ``structure`` replaces the hand-owned structure file for one call: an evaluation prompt variant's
-    ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file.
+    ``graph_schema_structure.txt`` (``prompt_variants.py``). None, the default, reads the file. Either way
+    ``structure_for`` fits it to the snapshot's ``schema_version``: the version its first line names, and the Assay
+    section from 1.3 on.
     """
-    structure = load_structure() if structure is None else structure
+    structure = structure_for(structure, _get(snapshot, "schema_version"))
     index = render_type_index(_get(snapshot, "index") or ())
     details = list(details or ())[:MAX_TYPES]
     titles = [str(_get(d, "title")) for d in details]

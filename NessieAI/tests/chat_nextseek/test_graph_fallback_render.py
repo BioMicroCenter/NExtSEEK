@@ -431,3 +431,20 @@ def test_the_live_message_is_the_rendered_catalog_under_the_same_heading(monkeyp
     plan, llm = _turn(monkeypatch, _config())
     assert plan.context_mode == "catalog"
     assert llm.schema_message() == LIVE_HEADING + gctx.render_graph_context(snapshot, [])
+
+
+# --- graph schema 1.3: the heading names the version the structure names --------------------------------------------
+
+HEADING_13 = LIVE_HEADING.replace("(v1.2 ", "(v1.3 ")
+
+
+def test_a_live_13_graph_sends_the_assay_section_under_a_13_heading(monkeypatch):
+    snapshot = gcat.CatalogSnapshot(catalog_hash="h1", synced_at=None, has_usage=False, index=(), guard={},
+                                    schema_version="1.3")
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: snapshot)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: gcat.Vocabulary((), (), (), (), (), (), ()))
+    plan, llm = _turn(monkeypatch, _config())
+    assert plan.context_mode == "catalog"
+    assert llm.schema_message() == HEADING_13 + gctx.render_graph_context(snapshot, [])
+    assert gctx.load_assay_structure() in llm.schema_message()

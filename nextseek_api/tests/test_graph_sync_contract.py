@@ -34,7 +34,8 @@ NESSIE = REPO_ROOT / "NessieAI" / "chat_nextseek" / "src" / "chat_nextseek"
 CAPTURE_PATH = NESSIE / "context" / "neo4j_schema.json"
 # The structure prompts the graph agent sends, each with the newest schema version whose names it may use. The first
 # is the base text every graph turn reads; a file the agent appends for a later version is listed with that version.
-STRUCTURE_FILES = ((NESSIE / "prompts" / "graph_schema_structure.txt", "1.2"),)
+STRUCTURE_FILES = ((NESSIE / "prompts" / "graph_schema_structure.txt", "1.2"),
+                   (NESSIE / "prompts" / "graph_schema_structure_assays.txt", "1.3"))
 
 _CYPHER_WORD = re.compile(r"\b(MATCH|MERGE|CREATE|DELETE|SET|RETURN|UNWIND)\b")
 _SUFFIX = re.compile(r"_V(\d)(\d+)$")

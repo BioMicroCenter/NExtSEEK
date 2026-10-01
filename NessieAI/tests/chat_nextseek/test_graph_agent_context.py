@@ -10,6 +10,7 @@ otherwise.
 Every test drives a fake LLM client and a patched catalog reader; nothing reaches Neo4j or a model.
 """
 
+import dataclasses
 import importlib.util
 import json
 import re
@@ -525,3 +526,32 @@ def test_the_schema_snapshot_is_exported_as_portable():
 
     assert portable.graph_schema_snapshot is graph_mod.graph_schema_snapshot
     assert "graph_schema_snapshot" in portable.__all__
+
+
+# --- graph schema 1.3: the live turn, the graph-schema op and the MCP resource read the Assay section ---------------
+
+
+def test_the_schema_snapshot_of_a_13_graph_carries_the_assay_section(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    out = graph_mod.graph_schema_snapshot(_config(), types=["TIS"])
+    assert out["schema_version"] == "1.3"
+    assert out["schema"].startswith(gctx.structure_for(None, "1.3") + "\n\n")
+
+
+def test_the_live_schema_header_names_a_13_graphs_version(monkeypatch, live):
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    llm = FakeLLM(GOOD)
+    run(monkeypatch, llm, entity={"sampletypes": [{"code": "TIS"}]})
+    schema = llm.calls[0]["messages"][1]["content"]
+    assert schema.splitlines()[0].startswith("GRAPH SCHEMA (v1.3 structure, ")
+    assert schema.splitlines()[1] == "# NExtSEEK graph schema v1.3, for writing read-only Cypher"
+    assert gctx.load_assay_structure() in schema
+
+
+def test_the_mcp_neo4j_schema_resource_on_a_13_graph(monkeypatch, tmp_path):
+    server = _mcp_server()
+    (tmp_path / "neo4j_schema.json").write_text('{"from": "the committed file"}', encoding="utf-8")
+    monkeypatch.setattr(server, "_cfg", lambda: SimpleNamespace(CONTEXT_DIR=str(tmp_path)))
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: dataclasses.replace(SNAPSHOT, schema_version="1.3"))
+    text = server.context_resource("neo4j-schema")
+    assert text.startswith(gctx.structure_for(None, "1.3") + "\n\n" + gctx.render_type_index(SNAPSHOT.index))

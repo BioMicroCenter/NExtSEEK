@@ -157,7 +157,8 @@ _CONTEXT_MAP = {
 
 
 def _live_neo4j_schema() -> str | None:
-    """The v1.1 structure and sample type index when the graph catalog is live, else None.
+    """The structure (with the Assay section on a graph at 1.3 or later, ``graph_context.structure_for``) and the
+    sample type index when the graph catalog is live, else None.
 
     The same text the graph agent reads, without the per-question sections. None means the committed
     neo4j_schema.json is served (a graph that is down, or not synced to v1.1).
@@ -166,7 +167,8 @@ def _live_neo4j_schema() -> str | None:
         snapshot = graph_catalog.get_snapshot(_cfg())
     except Exception:  # noqa: BLE001 (any failure serves the committed file)
         return None
-    return graph_context.load_structure() + "\n\n" + graph_context.render_type_index(snapshot.index) + "\n"
+    return (graph_context.structure_for(None, getattr(snapshot, "schema_version", None)) + "\n\n"
+            + graph_context.render_type_index(snapshot.index) + "\n")
 
 
 @mcp.resource("nextseek://context/{name}")

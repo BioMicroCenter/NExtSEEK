@@ -41,8 +41,10 @@ def detail(title, attributes=(), *, label=None, name=None, summary=None, clade=N
                            never_filled=never_filled)
 
 
-def snapshot(index=(), *, has_usage=True):
-    return SimpleNamespace(catalog_hash="h1", synced_at=None, has_usage=has_usage, index=tuple(index), guard={})
+def snapshot(index=(), *, has_usage=True, schema_version=None):
+    extra = {} if schema_version is None else {"schema_version": schema_version}
+    return SimpleNamespace(catalog_hash="h1", synced_at=None, has_usage=has_usage, index=tuple(index), guard={},
+                           **extra)
 
 
 def vocab(**overrides):
@@ -87,7 +89,8 @@ def test_constants():
 
 
 def test_module_is_pure():
-    """No Neo4j, no config, no Django: only the standard library."""
+    """No Neo4j, no config, no Django: only the standard library, and the graph contract (standard library only too,
+    nextseek_graph/schema.py), whose version rule decides which structure a graph gets."""
     tree = ast.parse(Path(gc.__file__).read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
@@ -95,7 +98,8 @@ def test_module_is_pure():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, "relative import in a pure module"
-            imported.add(node.module.split(".")[0])
+            if node.module != "chat_nextseek.graph_contract":
+                imported.add(node.module.split(".")[0])
     assert imported <= {"__future__", "json", "re", "pathlib", "typing", "collections"}, imported
 
 
@@ -615,3 +619,101 @@ def test_the_rollback_block_removes_the_whole_assay_layer_then_resyncs_at_12():
 def test_the_intro_names_v13():
     intro = SCHEMA_DOC_PATH.read_text(encoding="utf-8").split("\n## ", 1)[0]
     assert "the assay nodes (v1.3)" in intro
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Graph schema 1.3: the Assay section, appended by version (spec 2026-09-25-graph-assay-nodes-design.md section 6.1)
+# ---------------------------------------------------------------------------------------------------------------
+
+# The operator reviewed this text word by word before it was committed; a change to it is a change to what every
+# graph turn on a 1.3 graph reads.
+ASSAY_STRUCTURE_TEXT = """\
+## Assays (schema 1.3)
+(:Assay {id, title, other_names, description, tags, input_types, optional_input_types, output_types,
+  parent_clade, child_clade})   one per assay kind, the same for every caller
+(:Sample)-[:INPUT_TO {seek_assay_ids}]->(:Assay)    the sample went into the assay
+(:Sample)-[:OUTPUT_OF {seek_assay_ids}]->(:Assay)   the sample came out of it
+11. Lineage is DERIVED_FROM only. Two samples on one Assay did not come from each other: never pair samples through
+   an Assay. "Went into / came out of / used in X" and "which assays": use the Assay, matching
+   toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]. Went through X:
+   WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. Studies that ran X: the IN_STUDY of
+   those samples. "Underwent / processed via X" stays the DERIVED_FROM edge test of STEP 4.
+"""
+
+
+def test_the_assay_section_is_the_reviewed_text():
+    assert gc.ASSAY_STRUCTURE_PATH.name == "graph_schema_structure_assays.txt"
+    assert gc.ASSAY_STRUCTURE_PATH.parent == gc.STRUCTURE_PATH.parent
+    assert gc.ASSAY_STRUCTURE_PATH.read_text(encoding="utf-8") == ASSAY_STRUCTURE_TEXT
+    assert gc.load_assay_structure() == ASSAY_STRUCTURE_TEXT.strip()
+
+
+def test_the_assay_section_is_compact():
+    # It goes into every graph turn on a 1.3 graph, beside the main file's 5,400 bytes.
+    assert len(gc.ASSAY_STRUCTURE_PATH.read_bytes()) <= 1024
+
+
+def test_the_structure_file_names_the_version_it_describes_on_its_first_line():
+    assert gc.load_structure().splitlines()[0] == "# NExtSEEK graph schema v1.2, for writing read-only Cypher"
+    assert gc.STRUCTURE_SCHEMA_VERSION == (1, 2) and gc.ASSAY_SCHEMA_VERSION == "1.3"
+
+
+@pytest.mark.parametrize("version, named", [
+    (None, "1.2"), ("1.1", "1.2"), ("1.2", "1.2"), ("1.3", "1.3"), (" 1.3 ", "1.3"), ("1.10", "1.10"),
+    ("2.0", "2.0"), ("x", "1.2"), (3, "1.2"),
+])
+def test_the_version_a_structure_names(version, named):
+    assert gc.schema_version_named(version) == named
+
+
+@pytest.mark.parametrize("version", [None, "1.1", "1.2", "x"])
+def test_below_13_the_structure_is_the_file_alone(version):
+    text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=5)], schema_version=version), [])
+    assert text.startswith(gc.load_structure() + "\n\n")
+    assert "## Assays (schema 1.3)" not in text and "INPUT_TO" not in text
+
+
+@pytest.mark.parametrize("version", ["1.3", "1.4", "1.10"])
+def test_from_13_the_assay_section_follows_the_structure_and_the_first_line_names_the_version(version):
+    text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=5)], schema_version=version),
+                                   [tis_detail()])
+    first = gc.load_structure().replace("# NExtSEEK graph schema v1.2,", f"# NExtSEEK graph schema v{version},", 1)
+    assert text.startswith(first + "\n\n" + gc.load_assay_structure() + "\n\n## ")
+    assert text.index("## Assays (schema 1.3)") < text.index("TIS :T_TIS") < text.index("### TIS :T_TIS")
+
+
+def test_a_variant_structure_gets_the_assay_section_on_a_13_graph_and_keeps_its_own_first_line():
+    variant = "V2 STRUCTURE TEXT"
+    on_13 = gc.render_graph_context(snapshot([], schema_version="1.3"), [], structure=variant)
+    assert on_13.startswith(variant + "\n\n" + gc.load_assay_structure() + "\n\n")
+    on_12 = gc.render_graph_context(snapshot([], schema_version="1.2"), [], structure=variant)
+    assert on_12.startswith(variant + "\n\n## ") and "## Assays" not in on_12
+
+
+def test_structure_for_is_what_the_renderer_sends():
+    assert gc.structure_for(None, "1.2") == gc.load_structure()
+    assert gc.structure_for(None, "1.3") == (gc.load_structure().replace(" v1.2,", " v1.3,", 1) + "\n\n"
+                                             + gc.load_assay_structure())
+
+
+def test_a_heavy_triple_still_renders_at_k_25_with_its_tail_counts_on_a_13_graph():
+    snap, details = heavy_triple()
+    snap.schema_version = "1.3"
+    fit = gc.fit_graph_context(snap, details)
+    assert "## Assays (schema 1.3)" in fit.text
+    assert (fit.k, fit.tail_counts, fit.omitted, fit.stepped_down) == (25, True, (), False)
+    assert fit.size <= gc.BUDGET_BYTES
+
+
+# What the file may name against the doc (labels, relationship types, properties of 1.3 or earlier) is the
+# contract test's structure group, which R9 extends by this file (below). What stays here is policy: which of the 1.3
+# relationships the text teaches.
+
+
+def test_the_13_structure_teaches_the_two_relationships_a_non_admin_may_walk_and_not_the_admin_only_three():
+    text = gc.structure_for(None, "1.3")
+    assert {"INPUT_TO", "OUTPUT_OF"} <= set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
+    shouted = {tok for tok in re.findall(r"\b[A-Z]+(?:_[A-Z]+)+\b", text) if not tok.startswith("T_")}
+    assert not shouted & {"RUN_IN", "ACCEPTED_BY", "GENERATES"}, "the admin-only relationships are not taught"
+    assert dict(re.findall(r"\[:([A-Z_]+) \{([^}]*)\}\]", " ".join(gc.load_assay_structure().split()))) == {
+        "INPUT_TO": "seek_assay_ids", "OUTPUT_OF": "seek_assay_ids"}

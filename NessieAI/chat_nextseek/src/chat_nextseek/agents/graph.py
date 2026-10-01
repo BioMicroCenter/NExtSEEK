@@ -2200,8 +2200,9 @@ def _shape_refusal(shapes: list[_Shape]) -> str:
 
 
 # The graph agent's schema message heading, on a live turn and on a fallback alike: both send the structure, the
-# sample type index and the resolved types' sections (none on a fallback), rendered the same way.
-SCHEMA_HEADING = ("GRAPH SCHEMA (v1.2 structure, sample type index and the resolved sample types; this is the "
+# sample type index and the resolved types' sections (none on a fallback), rendered the same way. It names the version
+# the structure names (graph_context.schema_version_named): the graph's GraphMeta.schema_version on a live turn.
+SCHEMA_HEADING = ("GRAPH SCHEMA (v{version} structure, sample type index and the resolved sample types; this is the "
                   "schema):\n")
 # The vocabulary message heading, on a live turn and on an admin's fallback alike (_committed_vocabulary).
 VOCABULARY_HEADING = "GRAPH VOCABULARY (values stored in the graph; match names against these):\n"
@@ -2221,6 +2222,12 @@ def _plain(value) -> dict:
     if value is None:
         return {}
     return value.model_dump() if hasattr(value, "model_dump") else dict(value)
+
+
+def schema_heading(schema_version) -> str:
+    """``SCHEMA_HEADING`` for a graph at ``schema_version``: ``GRAPH SCHEMA (v1.3 structure, ...`` on a 1.3 graph, and
+    v1.2 for an older or unknown version, as the structure's own first line says (``graph_context.structure_for``)."""
+    return SCHEMA_HEADING.format(version=graph_context.schema_version_named(schema_version))
 
 
 def _variant_structure(config) -> str | None:
@@ -2607,14 +2614,14 @@ def graph_agent(
     # Why the committed schema stands in, and how old it is; logged already, carried on every plan returned below.
     context_fallback = None if catalog is not None else context._asdict()
     if catalog is not None:
-        schema_message = SCHEMA_HEADING + catalog.schema
+        schema_message = schema_heading(getattr(catalog.snapshot, "schema_version", None)) + catalog.schema
         vocabulary_messages = [VOCABULARY_HEADING + catalog.vocabulary] if catalog.vocabulary else []
     else:
         # The committed schema rendered in the live shape under the live heading (SCH-F13), so the model reads what
         # it reads on a live turn but for freshness. It says nothing to the model about the fallback: that is loud
         # already in the WARNING and the turn's debug (context_fallback). The schema text reads only the type codes
         # from the committed vocabulary; an admin's committed titles are the vocabulary message, as live.
-        schema_message = SCHEMA_HEADING + _render_committed_schema(config)
+        schema_message = schema_heading(None) + _render_committed_schema(config)
         committed_vocabulary = _committed_vocabulary(config, user_query)
         vocabulary_messages = [VOCABULARY_HEADING + committed_vocabulary] if committed_vocabulary else []
 
