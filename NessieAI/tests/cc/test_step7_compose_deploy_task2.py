@@ -294,7 +294,7 @@ def test_host_label_dev_smoke_values_valid(tmp_path, host_label):
     assert all_ok, checks
 
 
-@pytest.mark.parametrize("host_label", ["MBP", "taishajo-mbp", "linux-dev-vm", "prod", "", "Dev-Vm"])
+@pytest.mark.parametrize("host_label", ["MBP", "dev-mbp", "linux-dev-vm", "prod", "", "Dev-Vm"])
 def test_host_label_rejects_everything_else(tmp_path, host_label):
     repo, bundle, tracker, sha = _bundle(tmp_path)
     _full_bundle(bundle, tracker, deploy_commit=sha, host_label=host_label)
@@ -1116,7 +1116,7 @@ def test_screenshot_with_manual_review_recorded_passes(tmp_path):
     _write_fake_png(bundle / "step7_ui.png")
     (bundle / "secret_scan_report.json").write_text(json.dumps({
         "clean": True,
-        "screenshots": {"step7_ui.png": {"method": "manual_review", "reviewer": "taishajo"}},
+        "screenshots": {"step7_ui.png": {"method": "manual_review", "reviewer": "reviewer"}},
     }), encoding="utf-8")
 
     all_ok, checks = validate_run(bundle, repo_root=repo)

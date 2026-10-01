@@ -96,7 +96,7 @@ with no database, network or settings dependency.
 
 `seek/timeline/` is a 10-module NHP timeline subtree with its own MySQL
 connection pool (`seek/timeline/core/database.py:7-16`) rather than Django's,
-reached through `seek/views/timeline.py:1-11`.
+reached through `seek/views/timeline.py:1-11`. Its own doc: `seek/timeline/README.md`.
 
 ### Templates
 
@@ -110,6 +110,10 @@ that did not; it is gone, replaced by the theme's `docs/page.html`. The remainin
 or are dead. The inline JavaScript inside them is not untested: a Node harness
 lifts the script body out of `templatesList.html` verbatim and runs it against a
 stub DOM (`seek/tests/js/harness.js:3-9`).
+
+`seek/templatetags/` holds two tag libraries: `vite_assets`, the tag the chat page uses to emit the
+committed chat bundle's hashed script and stylesheet tags from its Vite manifest (`docs/ui/chat-frontend.md`),
+and `index`, a list-index filter that only `projectsList.html` loads and never uses (`docs/ui/known-issues.md` UI-211).
 
 ## Running and testing
 
@@ -203,12 +207,10 @@ omitted from the list below.
 
 - Django itself: `dmac/settings.py:145` installs the app, and `dmac/urls.py:12`
   imports its URL conf.
-- `api_app/`: `api_app/views.py:11-14` and `api_app/serializers.py:2-3` take
-  `Samples`, `Data_files`, `DBtable_sample`, `DBtable_data_files` and `SeekDB`.
 - `nextseek_api/` is the heaviest consumer, reaching the models
   (`nextseek_api/services/users.py:39`,
   `nextseek_api/services/template_catalog.py:20`), the SEEK login wrapper
-  (`nextseek_api/seek_api_helpers.py:5`, `nextseek_api/views.py:25`), the
+  (`nextseek_api/views.py:25`), the
   table layer (`nextseek_api/models.py:16-17`) and the timeline services
   (`nextseek_api/views.py:27-28`).
   `nextseek_api/management/commands/fill_study_publications.py:29` is the only

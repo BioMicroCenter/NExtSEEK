@@ -30,9 +30,7 @@ So the theme folder beats everything for a shared name. `base.html`, `index.html
 last fallback. Mezzanine's account and profile pages answer 404 (see [pages.md](pages.md),
 "Mezzanine routes").
 
-The repo-root `templates/` folder (a Mezzanine scaffold: `base.html`, `accounts/`, `mobile/`,
-`pages/`) is in neither `DIRS` nor any app, so it is never loaded. Editing it changes nothing. There
-is also no device detection: `MIDDLEWARE` has no `TemplateForDeviceMiddleware` and nothing defines
+There is no device detection: `MIDDLEWARE` has no `TemplateForDeviceMiddleware` and nothing defines
 `DEVICE_USER_AGENTS`, so Mezzanine's `mobile/` templates are never chosen. One responsive template
 set serves phones and desktops.
 
@@ -223,7 +221,6 @@ There are no other full-document templates in the theme or in `seek/templates`.
 
 ## Gotchas
 
-- Editing the repo-root `templates/` folder does nothing. Edit `themes/NextSeek/templates/`.
 - Theme beats app: a template with the same name in `themes/NextSeek/templates/` silently shadows one
   in `seek/templates/` or Mezzanine.
 - nginx caches `/static/` for 30 days. `nextseek.css` and `nextseek.js` are loaded through

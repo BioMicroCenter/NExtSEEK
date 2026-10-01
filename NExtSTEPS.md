@@ -131,8 +131,8 @@ docker compose exec db mysql -uroot -p<old-root-pw> \
   -e "ALTER USER 'root'@'%' IDENTIFIED BY '<new-root-pw>'; \
       ALTER USER 'seek_db_user'@'%' IDENTIFIED BY '<new-app-pw>'; \
       FLUSH PRIVILEGES;"
-# then edit docker/db.env to match, then:
-docker compose up -d --force-recreate nextseek
+# then edit docker/db.env to match, then recreate the three services that read it:
+docker compose up -d --no-deps --force-recreate nextseek seek seek_workers
 ```
 
 ### 2b. Neo4j

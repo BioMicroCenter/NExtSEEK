@@ -23,6 +23,7 @@ Flipping the route alone would not have been progress on the second one: with
 it also carried are unresolvable by construction, so the case would have gone from
 failing on one criterion to failing on four. Hence the rewrite.
 """
+import os
 import json
 import pathlib
 import re
@@ -416,7 +417,7 @@ def test_the_case_still_asserts_something_evaluable_on_every_turn():
 # are not merely satisfiable by anything.
 # --------------------------------------------------------------------------- #
 
-_EVIDENCE = pathlib.Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = pathlib.Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 

@@ -1,0 +1,15 @@
+# deploy launch watcher @@TAG@@. Rendered by launch.py. ONE connection that loops ON the box.
+H=@@HOME@@; ST=$H/launch-@@TAG@@.status; L=$H/launch-@@TAG@@
+UNTIL="${UNTIL:-ALL_DONE}"   # ALL_DONE, or FIRST_CASE to stop after the first harness case line
+for i in $(seq 1 @@LOOPS@@); do
+  last=$(cat $L/nessie-*.log 2>/dev/null | grep -E '^\[ *[0-9]+/' | tail -1 | cut -c1-140)
+  echo "$(date -u +%H:%M:%S) [$(tail -1 $ST 2>/dev/null)] $last"
+  grep -q ALL_DONE $ST 2>/dev/null && break
+  [ "$UNTIL" = FIRST_CASE ] && [ -n "$last" ] && break
+  sleep 60
+done
+echo "=== STATUS"; cat $ST
+echo "=== REBUILD"; grep -hE "✗|✓|stopped before" $L/proxy.log $L/app.log $L/cc.log $L/sidecar.log 2>/dev/null | tail -40
+echo "=== CHECKS"; cat $L/checks.log 2>/dev/null
+echo "=== CI"; grep -E "^(FAILED|ERROR) |CI passed|CI failed" $L/ci.log 2>/dev/null | tail -25
+echo "=== NESSIE"; for f in $L/nessie-*.log; do [ -f "$f" ] && { echo "-- $f"; grep -vE "W042|HINT:" "$f" | grep -E '^\[ *[0-9]+/|passed|failed|xpass|GATE|cost' | tail -120; }; done

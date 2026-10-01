@@ -3,9 +3,8 @@
 ``requests`` encodes ``auth=(user, password)`` with Latin-1 inside
 ``HTTPBasicAuth.__call__``, so any credential carrying a character outside
 that range raises ``UnicodeEncodeError`` during request preparation, before a
-socket is ever opened. #52 fixed six sites in ``nextseek_api/seek_api.py`` and
-``nextseek_api/seek_api_helpers.py``, neither of which has a live caller. The
-same defect survived in ``seek/``, where it does serve traffic:
+socket is ever opened. #52 fixed six sites in two nextseek_api modules that have since been
+retired. The same defect survived in ``seek/``, where it served traffic:
 
 * ``seek/views.py`` -- ``templatesList()`` used to hand a real logged-in user's
   SEEK password to ``requests.get(auth=...)`` when checking project membership.

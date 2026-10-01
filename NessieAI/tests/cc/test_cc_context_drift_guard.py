@@ -136,14 +136,14 @@ EXPECTED_BAKED_ONLY = frozenset({
 # work removed _fetch_neo4j_schema / _ensure_neo4j_schema / _ensure_schema_file from
 # ChatConfig (pinned by NessieAI/tests/chat_nextseek/test_graph_catalog.py), so every name
 # below is a committed file that changes only by hand or, for the three graph fallback files,
-# by scripts/graph_schema_fallback.py. Three database exports in this
-# directory ARE still rewritten daily (min_sampletypes_db.json, min_assays_db.json,
-# projects_db.json, by _ensure_context_files) — those are baked, so they are not listed here.
+# by scripts/graph_schema_fallback.py. Five database exports in this
+# directory ARE still rewritten daily (sampletypes_db.json, min_sampletypes_db.json,
+# assays_db.json, min_assays_db.json, projects_db.json, by _ensure_context_files); the three
+# min/projects ones are baked, so they are not listed here, the two full catalogs are.
 EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
     "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
     "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
-    "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
     # The NS-side fallback the graph agent uses when the live catalog cannot be read
@@ -162,11 +162,6 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
     # nextseek-api-read hands its parser plan to the same in-app API agent.
     "scope_fallback_endpoints.json",
-    # The nf-core pipeline selector's catalogs (seqera/nfcore_atlas.py, seqera/param_atlas.py). The
-    # selector runs in the app's pipeline agent; the CC agent never selects or configures a pipeline
-    # itself, so it does not need a copy.
-    "nfcore_rna_atlas.json",
-    "nfcore_param_atlas.json",
 })
 
 # ---------------------------------------------------------------------------

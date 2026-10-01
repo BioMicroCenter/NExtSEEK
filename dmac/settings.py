@@ -170,7 +170,6 @@ INSTALLED_APPS = (
     "rest_framework",
     "rest_framework.authtoken",
     "dj_rest_auth",
-    "api_app",
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "corsheaders",

@@ -1,6 +1,13 @@
 ---
 name: deploy
-description: Use when deploying, redeploying, rolling back, or verifying the NExtSEEK stack, including a greenfield install on a new box, shipping a code or config change to a running instance, rollback, or post-deploy verification. Routes to DEPLOYMENT.md (the authoritative runbook) and enforces the non-negotiable deployment-hygiene gates.
+description: >-
+  Use when deploying, redeploying, rolling back, verifying or launching the NExtSEEK stack: a
+  greenfield install, shipping a code or config change to a running instance, rollback, post-
+  deploy verification, or a launch ("rebuild it at dev", "deploy to prod") that takes one box to
+  a commit already on origin/dev, rebuilds the named images, runs CI, asks and grades the Nessie
+  questions and reports. Routes to DEPLOYMENT.md (the authoritative runbook), enforces the
+  deployment-hygiene gates, and carries the launch scripts. Box hosts, accounts and paths come
+  from a local boxes.json, never from git.
 ---
 
 # NExtSEEK deploy
@@ -75,3 +82,79 @@ but produces a loud banner and red doctor check. Do not bypass this with raw
 
 After any deploy: run the DEPLOYMENT.md §6 checklist end-to-end and report
 the results honestly, including anything skipped.
+
+## Launch a box to a commit
+
+The launch flow takes ONE box to exactly a commit already on `origin/dev`, rebuilds what the
+brief names, runs CI, asks the brief's Nessie questions, grades the replies, reviews the commits
+it shipped, and reports. It never merges, rebases, commits or pushes. Use it when handed a launch
+brief (an instance, an expected sha, the images to rebuild, CI, Nessie questions) or told to
+rebuild or launch at an instance.
+
+**One-time setup:** create the local box config `~/.config/nextseek/boxes.json` (or set
+`NEXTSEEK_BOXES`) from [`boxes.example.json`](boxes.example.json); fields in
+[`references/boxes.md`](references/boxes.md). It is outside the repo and never committed. A missing
+file or key stops the scripts with a message naming it.
+
+You fill small JSON forms; `.claude/skills/deploy/scripts/launch.py` validates them and writes the preflight script,
+the runner, the watcher, the commit review, the facts and the report. Every rule (known reds,
+stop conditions, the nightly time windows, image needs, budgets, the one-ssh rule) lives in
+`.claude/skills/deploy/scripts/rules.py`. Never hand-write or hand-edit a file the script writes: fix the form and rerun.
+
+`K=.claude/skills/deploy/scripts`, `S=<your scratchpad>`, run every step as `uv run $K/launch.py ...`.
+The launch folder `D` is printed by step 1 (`<reports_dir>/<instance>-launch-<TAG>/`).
+
+| # | Step | Command | You write |
+|---|---|---|---|
+| 1 | Brief | `brief --form $S/brief-form.json` | the brief form (`references/brief-form.md`) |
+| 2 | Preflight | `preflight-script --brief $D/brief.json > $S/pre.sh`, then `ssh --brief $D/brief.json --purpose preflight --script $S/pre.sh --out $D/preflight.out`, then `preflight --brief $D/brief.json` | nothing |
+| 3 | Commit review | `git -C <workstation_repo> fetch -q origin`, `commits --brief $D/brief.json`, fill `$D/commit-review-form.json`, `review --brief $D/brief.json --form $D/commit-review-form.json` | the review (`references/commit-review.md`) |
+| 4 | Deliver the review | `review` prints `DELIVER:`. A named parent: SendMessage to it NOW, before building, with the full text of `$D/commit-review.md`. Parent null: it stays in your report | the message |
+| 5 | Runner | `runner --brief $D/brief.json`; announce one line (what, why, cost or "free", minutes); `ssh --brief $D/brief.json --purpose start` | the announcement |
+| 6 | Watch | `ssh --brief $D/brief.json --purpose watch --script $D/runner/watch.sh --out $D/watch.out`, with Bash `run_in_background: true`; wait for the notice | nothing |
+| 7 | Pull | `ssh --brief $D/brief.json --purpose pull` | nothing |
+| 8 | Judge | `judge --brief $D/brief.json`, then read `facts.json`, the logs and every Nessie reply (`references/nessie-questions.md`) | nothing yet |
+| 9 | Report | fill the null slots of `$D/report-form.json` (`references/report-form.md`), `report --brief $D/brief.json` | the judgement only |
+
+Your final message is the text of `$D/LAUNCH-REPORT.md`. Examples of each form are in `examples/`.
+
+### Exit codes (every subcommand)
+
+| Code | Means | Do |
+|---|---|---|
+| 0 | ok | next step |
+| 2 | the form, the call or the box config is wrong | read the message, fix the FORM or the config, rerun |
+| 3 | the output exists | pick up where you were; `--force` only to redo your own step |
+| 5 | a stop rule fired | stop and report the printed problems to the supervisor (`report --no-facts` from `examples/report-stopped.json`); never work around one |
+| 6 | outside the time window | report the next allowed start; do not start |
+| 7 | the one-connection rule refused the ssh | report; `--after-failure "<operator's words>"` only when the operator clears a retry |
+
+### Per instance
+
+| instance | Read |
+|---|---|
+| `dev` | `references/dev.md`, `references/runner.md` |
+| `prod` | `references/prod.md`, `references/runner.md` |
+| `local` | `references/local.md`: no rebuild, no CI, no stack; the brief script refuses one without a quoted ruling |
+
+For every instance: `references/ci.md` (reading CI), `references/nessie-questions.md` (cases, re-pin, grading).
+
+### Launch guard rails
+
+- **Run exactly the brief's steps.** Anything else is a `proposals` row in the report, and runs
+  only if `allowed_extras` names it.
+- **Only `launch.py ssh` touches a box.** It builds the transport, holds one lock per launch, and
+  shuts the door after a failed connection.
+- **No secrets** anywhere you write or print: name `CI_WRITE_PASS`, `NEO4J_AUTH`,
+  `MYSQL_ROOT_PASSWORD`, never their values.
+- **Never, on any box:** `./startup.sh reset`, `docker compose pull`, `docker compose up` without
+  `--no-deps`, `--volumes` or a volume prune, `git stash/commit/revert/reset`, edits to `.env`,
+  `docker/nextseek.env` or `dmac/local_settings.py`, a full graph sync, a DB write.
+- **Red flags:** a refused script step is a report, not a manual retry (exit 5, 6, 7); never
+  tweak a rendered runner (re-render from a corrected brief); a sha that moved by a commit is a
+  stop, the supervisor decides what ships; grade every Nessie reply, the report refuses a
+  question without a verdict and evidence; never start the local stack (it runs out of memory).
+
+Run the launch tests with
+`uv run --no-project --with pytest --with pydantic python -m pytest .claude/skills/deploy/tests -q -p no:cacheprovider`
+(they read `boxes.example.json`, never your real config).

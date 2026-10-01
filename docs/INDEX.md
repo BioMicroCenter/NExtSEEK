@@ -3,6 +3,7 @@
 Cross-cutting documentation only: things that belong to no single folder.
 A folder's own docs live beside its code (`README.md`, plus `CLAUDE.md` when it has rules).
 A doc that tracked code cites must itself be tracked, or the citation points at a folder README.
+The user docs that the site serves at `/docs/` are not here: they live in `themes/NextSeek/docs/` (start at its `README.md`).
 
 ## Current
 
@@ -13,6 +14,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
 | [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
+| [`graph/README.md`](graph/README.md) | generated | seeing which files and folders depend on which: the file-level code graph, its picture and an interactive view; regenerate with `scripts/graph_files.py` | |
 | [`ui/README.md`](ui/README.md) | guide | changing anything a user sees: the shell, a page, styles, scripts, the project graphs, the Nessie chat page, help pages; every open UI problem is in [`ui/known-issues.md`](ui/known-issues.md) | |
 | [`nfcore-capability-expansion.md`](nfcore-capability-expansion.md) | explanation | answering "what analyses can Nessie run?" in plain English, for a non-engineer | |
 | [`2026-08-07-pipeline-param-inference-design.md`](2026-08-07-pipeline-param-inference-design.md) | design | inferring species and library facts from NExtSEEK metadata to fill nf-core params. Approved, not yet built: the modules and audit script it cites do not exist in the tree | |

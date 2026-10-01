@@ -41,7 +41,7 @@ mechanically rather than recalled:
 | `ci/gate/test_route_registry.py` | the two blocking completeness tests, and the skeleton a missing route is reported with |
 | `ci/gate/test_route_effects.py` | what each route writes, checked against `ci/writers.py` in both directions, plus the report-only tripwire |
 | `ci/gate/test_live_routes_unit.py` | pure-string tests for `suggest_path` |
-| `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R10 |
+| `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R11 |
 | `ci/gate/test_docs_map.py` | runs the docs map check in the blocking gate step |
 | `ci/blocking_lanes.py` | `BLOCKING_GLOBS`, `expand()`, `unmatched()`, `main()`: the unit tests whose failure fails `ci-pytest.yml` |
 | `ci/gate/test_blocking_lanes.py` | every blocking glob matches a file, and the expansion is never empty |
@@ -117,8 +117,10 @@ python3 and git: every folder and skill has its row in the maps, every index
 lists its folder, every relative link and backticked repo path resolves, every
 `FILE` §N names a real heading, no README or CLAUDE.md is orphaned, the root
 `CLAUDE.md` stays under its line cap, the literals guard tests pin are present,
-no fenced command uses a retired form, and no doc carries an email or a
-personal home path. Each failure prints the row or fix to apply. Its module
+no fenced command uses a retired form, no doc carries an email or a
+personal home path, and every folder down to depth 3 has a README.md or sits on
+the `R11_EXEMPT` list in the script (each pattern there has a reason, and one
+that matches no folder fails). Each failure prints the row or fix to apply. Its module
 docstring lists the rules and what each skips.
 
 ### The blocking lanes
@@ -391,10 +393,10 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
 - Not a consumer: `startup/cli.py:40-44` restates `("local", "dev", "prod")` as
   its own constant and says in the comment above it that `startup/` never imports
   `ci/`. It is a deliberate duplicate, not an edge.
-- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`,
-  `CLAUDE.md` and `CITATIONS.txt` in a sibling boundary that cites a path here.
+- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`
+  and `CLAUDE.md` in a sibling boundary that cites a path here.
   The registry names its two consuming environments and the application is
   neither of them (`ci/routes.py:5-6`); no module under `dmac/`, `seek/`,
-  `nextseek_api/`, `NessieAI/` or `api_app/` appears at all, because the
+  `nextseek_api/` or `NessieAI/` appears at all, because the
   grep above returns six `.py` files outside `ci/` and all six are
   `scripts/dump_routes.py` or under `startup/`.

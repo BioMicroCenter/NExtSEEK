@@ -15,7 +15,7 @@ def test_no_dropbox_reply_copy():
 
 def test_no_laptop_or_host_bind_default_path():
     cfg = (CC / "cc_config.py").read_text()
-    assert "/Users/taishajoseph" not in cfg
+    assert "/Users/" not in cfg
     # G7-10: the /srv/dmac/users host-bind default is retired too — the neutral
     # default is the dmac-cc-users named volume.
     assert "/srv/dmac/users" not in cfg

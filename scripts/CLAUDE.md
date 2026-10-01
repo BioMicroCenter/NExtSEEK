@@ -91,6 +91,6 @@ root (Landmines, above); everything else in that selection is expected to pass.
   and the dependency edges in both directions.
 - See `ci/README.md` for how the route-registry gate consumes the dumper.
 - See `docs/ISSUE-CONVENTIONS.md` for the issue taxonomy these validators own.
-- See `.claude/skills/nextseek-viewset/SKILL.md` for when to run the ViewSet validator.
+- See `.claude/skills/nextseek-create-endpoint/SKILL.md` for when to run the ViewSet validator.
 - See `nextseek_api/batch_upload/README.md` for the live E2E program's context.
 - See `NessieAI/history/INDEX.md` for the Plan 018 tooling that used to live here.

@@ -1,3 +1,4 @@
+import os
 from NessieAI.tests.nessie_tests import consistency as c
 
 
@@ -289,7 +290,7 @@ def test_a_member_stopped_at_its_time_limit_does_not_outage_the_group():
 # Replay: the tenth case, reconstructed from the stored run.
 # --------------------------------------------------------------------------- #
 
-_TURNS = Path("/home/cdemu/nessie-run-seed6b/turns.json")
+_TURNS = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"), "turns.json")
 _CORPUS = Path(__file__).resolve().parents[1] / "corpus.json"
 
 

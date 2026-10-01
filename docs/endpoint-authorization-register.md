@@ -132,7 +132,7 @@ they all take the unfiltered branch today, and they would all become project-sco
 
 | # | Consumer | Entry point | Identity it authenticates as |
 |---|---|---|---|
-| 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/samples/retrieve/"`; loaded by `seek/templates/newSearch.html:3`, `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
+| 1 | Browser sample-download controls | `static/js/ns_sample_download.js:10` sets `ENDPOINT = "/nextseek_api/samples/retrieve/"`; loaded by `seek/templates/searchAdvanced.html:3`, `seek/templates/pages/samples.embed.html:1` | Django session cookie + CSRF, i.e. the logged-in user |
 | 2 | NExtSEEK assistant (`chat_nextseek` engine, in-process) | endpoint allowlisted at `NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:39`; outbound Basic auth built at `:132` from `config.API_USER/API_PASS`; report path at `NessieAI/chat_nextseek/src/chat_nextseek/reports/metadata.py:66` | The caller. `nextseek_api/services/assistant.py:235-250` and `:744-749` overwrite `API_USER`/`API_PASS` on a per-request `ChatConfig` copy with the credentials `resolve_seek_auth` returned |
 | 3 | Container-CC agent, via the ns-sidecar | sidecar forwards ops to `/nextseek_api/assistant/{op}/` (`NessieAI/docker/ns-sidecar/app/ns_client.py:97`); the `api-read` op reaches this path because it is allowlisted at `NessieAI/ns/read_safe_endpoints.json:27` and gated by `NessieAI/ns/write_gate.py:94` | The caller. The sidecar holds no credentials of its own; per-request Basic auth is built from the `ns_login` frame at `NessieAI/docker/ns-sidecar/app/server.py:40-47` |
 | 4 | LLM endpoint catalogs that steer both engines toward it | `NessieAI/chat_nextseek/src/chat_nextseek/context/min_api_endpoints.json:3`, `.../min_api_endpoints_enriched.json:3,71`, which the cc-agent image bakes into `/app/plugins/nextseek/context/` through the `chat_nextseek` named context | n/a, prompt context |
@@ -338,9 +338,8 @@ memberships would silently fork records rather than update them. Any scoping add
 explicit "N rows withheld by scope" signal first, which is question 4 in the headline section.
 
 **A3. The blast radius is every search surface at once**, and all of them authenticate as the
-real end user (no service account): the SEEK simple-search page
-(`seek/templates/pages/samples_newsearch.embed.html:95`), the advanced-search page
-(`seek/templates/pages/searchAdvanced_newsearch.embed.html:157`), the `chat_nextseek` NS engine,
+real end user (no service account): the SEEK search pages,
+the `chat_nextseek` NS engine,
 and container-CC through both the sidecar `api-read` op and the direct client in A2.
 
 `sample-tree` had none of these properties: one production consumer, no write path downstream,
