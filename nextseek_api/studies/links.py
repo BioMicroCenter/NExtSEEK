@@ -230,6 +230,27 @@ def run_link_unit(conn, unit, journal, clone_ids: dict, *, run_id: str,
     return UnitResult(inserted=inserted, outbox_in_transaction=in_tx, sample_ids=sorted(set(unit.sync_ids)))
 
 
+def unlink_clone_sops(conn, assay_id: int, sop_ids, on_rows) -> list[dict]:
+    """Rollback, for a clone about to be deleted: its ``Sop`` rows for ``sop_ids`` (the SOPs its creation copied from
+    its source assay; SEEK refuses to delete an assay that holds any asset), read in full and locked, handed to
+    ``on_rows`` (the journal line) before they are deleted, in the caller's transaction. The graph reads only
+    ``Sample`` rows, so no outbox row is needed."""
+    if not sop_ids:
+        return []
+    holes, params = _params("p", sorted({int(i) for i in sop_ids}))
+    params["a"] = int(assay_id)
+    where = f"assay_id = :a AND asset_type = 'Sop' AND asset_id IN ({holes})"
+    sql = (f"SELECT id, assay_id, asset_id, version, created_at, updated_at, relationship_type_id, asset_type, "
+           f"direction FROM assay_assets WHERE {where} ORDER BY id")
+    if conn.dialect.name == "mysql":
+        sql += " FOR UPDATE"
+    rows = [dict(zip(ROW_COLUMNS, (_jsonable(v) for v in r))) for r in conn.execute(text(sql), params).fetchall()]
+    if rows:
+        on_rows(rows)
+        conn.execute(text(f"DELETE FROM assay_assets WHERE {where}"), params)
+    return rows
+
+
 def undo_link_unit(conn, unit_number: int, unit_state: dict, journal, *, run_id: str) -> dict:
     inserted = (unit_state.get("prepared") or {}).get("inserted") or []
     deleted = (unit_state.get("intent") or {}).get("deleted_rows") or []

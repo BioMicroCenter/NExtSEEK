@@ -193,14 +193,15 @@ def test_a_share_rolls_back_through_the_tool(share_env, monkeypatch):
     calls = []
     monkeypatch.setattr(targeted, "sync_samples", lambda d, db, ids, **kw: calls.append(list(ids))
                         or {"status": targeted.OK})
-    monkeypatch.setattr(paper_studies, "restore_paper_links", lambda *a: {})
+    monkeypatch.setattr(paper_studies, "restore_paper_links", lambda *a, **kw: {})
+    monkeypatch.setattr(targeted, "preview_labels", lambda d, db, ids: [])
     before = (links_of(share_env.engine), projects_of(share_env.engine))
     row = share_env.planned(U3, U4)
     share_env.step(row)
     share_env.step(row)
     assert share_env.unit(row) == "applied"
     result = rollback.rollback_study_moves(share_apply.run_dir_of(row), share_env.session, None, "neo4j",
-                                           confirm=True)
+                                           confirm=True, reader=FakeReader(share_env.world))
     assert result.status == "done"
     assert (sorted(links_of(share_env.engine)), projects_of(share_env.engine)) == (sorted(before[0]), before[1])
     assert share_env.session.deleted == [("assay", 402)] and calls == [[1, 2, 3, 4]]

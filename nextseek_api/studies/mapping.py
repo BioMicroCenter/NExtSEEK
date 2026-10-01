@@ -30,6 +30,17 @@ def insert_clone_mappings(pairs) -> list[list[int]]:
     return sorted([int(r), int(a), int(i)] for r, a, i in rows if (a, i) in wanted_set)
 
 
+def rows_holding(pairs) -> list[list[int]]:
+    """The ``[id, assay_id, internal_assay_id]`` rows that hold ``pairs`` now: a clone's rows a crash left out of
+    ``map.done``."""
+    wanted = {(int(a), int(i)) for a, i in pairs}
+    if not wanted:
+        return []
+    rows = Assays_internal_assays.objects.using(settings.NEXTSEEK_DATABASE).filter(
+        assay_id__in=sorted({a for a, _i in wanted})).values_list("id", "assay_id", "internal_assay_id")
+    return sorted([int(r), int(a), int(i)] for r, a, i in rows if (a, i) in wanted)
+
+
 def delete_clone_mappings(rows) -> dict:
     db = settings.NEXTSEEK_DATABASE
     deleted = 0

@@ -255,5 +255,11 @@ class SeekSession:
     def study_assay_count(self, study_id: int) -> int:
         return int(_seek_rows("SELECT COUNT(*) FROM assays WHERE study_id = %s", [study_id])[0][0])
 
-    def assay_link_count(self, assay_id: int) -> int:
-        return int(_seek_rows("SELECT COUNT(*) FROM assay_assets WHERE assay_id = %s", [assay_id])[0][0])
+    def assay_link_count(self, assay_id: int, *, except_sops=()) -> int:
+        """The assay's ``assay_assets`` rows (SEEK deletes an assay only when it holds none), leaving out its ``Sop``
+        rows for ``except_sops``."""
+        sql, params = "SELECT COUNT(*) FROM assay_assets WHERE assay_id = %s", [assay_id]
+        if except_sops:
+            sql += f" AND NOT (asset_type = 'Sop' AND asset_id IN ({', '.join(['%s'] * len(except_sops))}))"
+            params += [int(i) for i in except_sops]
+        return int(_seek_rows(sql, params)[0][0])
