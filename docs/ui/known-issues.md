@@ -37,15 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 7. Nessie on phones
-
-Files: `NessieAI/chat_frontend/src/components/Sessions/SessionSidebar.tsx`,
-`NessieAI/chat_frontend/src/EmbeddedApp.tsx`, `NessieAI/chat_frontend/src/components/Layout/CompactToolbar.tsx`,
-`seek/templates/smartSearch.html`, then the committed bundle under `static/js/chat_assistant/`.
-
-20. [UI-160](#chat-frontend): logged in on a phone, the Nessie page is unusable (rail takes the width,
-    prompt one word per line, composer a sliver).
-
 ## shell
 
 The sidebar, drawer, top bar, footer, user panel and home page. See [shell.md](shell.md).
@@ -159,10 +150,6 @@ The embedded Nessie chat (React bundle) and its Django host page. See [chat-fron
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-160 | broken | Logged in on a phone, the Nessie page is unusable: the session rail takes most of the width, the conversation shows its prompt one word per line, the composer is a sliver, and the About and Debug buttons crowd the top | live 2026-09-30 | `NessieAI/chat_frontend/src/components/Sessions/SessionSidebar.tsx` (fixed `w-[260px]`); `src/EmbeddedApp.tsx`; `src/components/Layout/CompactToolbar.tsx` (the embedded top bar, labels always shown; `HeaderBar.tsx` is the standalone one); `seek/templates/smartSearch.html` | Collapse the rail by default or make it an overlay below about 768px; move About and Debug into a menu on narrow widths |
-| UI-161 | confusing | The chat root is `calc(100vh - 60px)` inside the padded page with a footer, so the page scrolls on top of the chat's own scroll, and the composer can sit under phone toolbars or the keyboard | code | `seek/templates/smartSearch.html` `#chat-assistant-root` inline style | `100dvh` and a `min-height: 0` flex chain, or a full-bleed page class for the chat |
-| UI-162 | confusing | After sending, the textarea loses focus; the user must click before typing the next question | code | `src/components/ChatPanel/MessageInput.tsx` (disabled while busy, never re-focused) | Re-focus when the turn ends; prefer `readOnly` to `disabled` |
-| UI-163 | confusing | Screen-reader users hear nothing when a reply or error arrives (no `aria-live` or `role="log"`) | code | `src/components/ChatPanel/MessageList.tsx` | `role="log" aria-live="polite"` on the list; `aria-expanded` on Search Details |
 | UI-164 | debt | Replies appear whole after the turn completes; only the step list moves while waiting | code | `src/components/ChatPanel/MessageBubble.tsx`; `src/lib/services/chatApi.ts` | Needs partial-text events from the backend first |
 | UI-165 | debt | Dark tokens ship but nothing applies `.dark`, so the chat is always light | code | `src/index.embedded.css` (`#chat-assistant-root.dark`) | Decide with the Django theme; toggle the class on the root if wanted |
 | UI-166 | debt | No Tailwind preflight and unprefixed utilities: Bootstrap base styles leak into chat elements and chat utilities are global on the page | code | `src/index.embedded.css` imports | Prefix Tailwind or add a scoped reset under `#chat-assistant-root` |
