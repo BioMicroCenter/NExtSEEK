@@ -729,6 +729,37 @@ def test_html_is_a_self_contained_cytoscape_page():
     assert "'width':'96px','height':'62px'" in page   # uniform nodes
 
 
+def test_html_frame_cannot_overflow_into_a_scrollbar_loop():
+    """UI-081: the canvas fills a flex column (no fixed offset under a header that
+    can wrap), the page never shows scrollbars, and one debounced observer resizes."""
+    page = rows_to_html(ROWS, CLADES)
+    assert "html,body{margin:0;height:100%;overflow:hidden}" in page
+    assert "top:52px" not in page
+    assert "flex-direction:column" in page and "main{flex:1;min-height:0" in page
+    assert "ResizeObserver" in page and "setTimeout" in page
+    assert "window.addEventListener('resize',function(){ cy.resize(); })" not in page
+
+
+def test_html_edge_labels_stay_level_and_ranks_leave_room_for_them():
+    """UI-082: rotated labels ran under nodes. Labels stay level, wrap, and are drawn
+    above the nodes, so an edge that skips a rank cannot hide its label under one."""
+    page = rows_to_html(ROWS, CLADES)
+    edge = page[page.index("{selector:'edge',"):]
+    edge = edge[:edge.index("}}")]
+    assert "'text-rotation':'none'" in edge and "'text-wrap':'wrap'" in edge
+    assert "'z-index-compare':'manual','z-index':2" in edge
+    assert "rankSep:100,nodeSep:70" in page
+
+
+def test_html_loads_pinned_libraries_with_integrity():
+    page = rows_to_html(ROWS, CLADES)
+    scripts = re.findall(r"<script src=\"([^\"]+)\"([^>]*)>", page)
+    assert len(scripts) == 3
+    for src, attrs in scripts:
+        assert re.search(r"@\d+\.\d+\.\d+/", src), src
+        assert 'integrity="sha384-' in attrs and 'crossorigin="anonymous"' in attrs
+
+
 def test_html_embeds_every_node_and_collapses_pairs_to_one_edge():
     page = rows_to_html(ROWS, CLADES)
     data = json.loads(re.search(r"var D=(\{.*?\});\n", page, re.S).group(1))

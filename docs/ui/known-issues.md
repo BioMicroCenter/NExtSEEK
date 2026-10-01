@@ -37,17 +37,6 @@ after the pull, because static is collected at container start; `seek/templates/
 `static/`, Python and `nextseek_api/` need `./startup.sh rebuild`; the chat batch also needs the
 committed bundle rebuilt (see [chat-frontend.md](chat-frontend.md)).
 
-### 6. Sample flow iframe
-
-Files: `nextseek_api/services/sampletype_connections.py` (the HTML page string the connections view
-returns: `html,body`, `#cy`, the `layout` options and the `resize` listeners), `seek/templates/projectPage.html`
-(`.project-diagram`, the iframe).
-
-18. [UI-080](#projects-catalogs-graphs): on a phone the Sample flow is an unreadable thumbnail and its
-    legend is hidden under the canvas.
-19. [UI-081](#projects-catalogs-graphs): on desktop the Sample flow panel shows both scrollbars, which flash;
-    edge labels such as "Immunohistochemistry" run under nodes (UI-082, same file, same commit).
-
 ### 7. Nessie on phones
 
 Files: `NessieAI/chat_frontend/src/components/Sessions/SessionSidebar.tsx`,
@@ -122,17 +111,13 @@ Project list and page, the Sample flow diagram, catalog pages, admin catalogs an
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-080 | broken | Logged in on a phone, the project page's Sample flow is an unreadable thumbnail and its legend is hidden under the canvas (the header wraps taller than the fixed 52 px offset of the canvas) | live 2026-09-30 | `nextseek_api/services/sampletype_connections.py` page string (`#cy{position:absolute;top:52px}`); `seek/templates/projectPage.html` `.project-diagram` (460 px) | Flex column (header, then canvas filling the rest); on phones show a static preview with an "Open diagram" link |
-| UI-081 | confusing | On desktop (project "NAMs") the Sample flow panel shows both scrollbars, and they flash. Seen by the operator; not reproduced on the one project the CI account can open, at 12 window sizes and zoom levels with classic scrollbars (the frame fit exactly every time), so confirm the fix on "NAMs" in the operator's own browser | live 2026-09-30 (operator screenshot) | `sampletype_connections.py` page string (`html,body{height:100%}` with no `overflow:hidden`; `resize` listener and devicePixelRatio watcher both call `cy.resize()`) | `overflow: hidden` on `html, body`, flex layout instead of `top:52px`, one debounced `ResizeObserver` |
-| UI-082 | confusing | Edge labels run under nodes (for example "Immunohistochemistry" under the TIS node) | live 2026-09-30 | `sampletype_connections.py` edge style (`text-rotation: autorotate`) and `layout` (`rankSep: 85`) | `text-rotation: none`, wrap labels, raise `rankSep` to about 140 |
-| UI-083 | confusing | On phones the 460 px diagram iframe captures touch scrolling; leaving it needs a two-finger pan | code | `seek/templates/projectPage.html` iframe; Cytoscape panning in `sampletype_connections.py` | Enable panning only after a tap, or show a static preview on phones (with UI-080) |
 | UI-084 | confusing | The Fullscreen overlay puts `/seek/projects/<id>/connections/` in the address bar; a reload there shows the bare diagram with no site navigation | code | `themes/NextSeek/static/js/nextseek.js` modal-route handler | Add a "Back to project" link in the frame header, or do not push the URL |
 | UI-085 | confusing | Catalog tables (3 to 7 columns) overflow sideways on phones | code | `themes/NextSeek/templates/includes/attribute_definitions_table.html`; `nextseek.css` catalog table rules | Wrap in an `overflow-x: auto` container; hide Description under 768px |
 | UI-086 | confusing | On the project list, the FAIRDATA link is a `<span onclick>` inside the card's `<a>`: not keyboard reachable, and a tap may open the project page instead | code | `seek/templates/projectsList.html` `.project-card`, `.fairdata-link` | Make the card a `<div>` with a stretched-link title and a real sibling `<a target="_blank" rel="noopener">` |
 | UI-087 | confusing | Clades, Internal assays, SOPs and Data files pages use fixed pixel heights and EasyUI grids with no desktop-only notice on phones. On a phone, Data File Query, SOP Query, Sample Query and `/seek/newsearch/` lay out EasyUI tab strips and grid headers thousands of pixels wide, clipped at the edge | live 2026-09-30 (the four query pages); code (others) | `seek/templates/clades.html`, `internal_assays.html`, `sopsPage.html`, `dataFilesPage.html` | Add `.easyui-mobile-notice` like the upload pages |
 | UI-088 | confusing | The project page "Data files" tile shows a per-project count but links to the global data-file search | code | `seek/templates/projectPage.html` Data files tile | Link with a project filter once the page supports one |
 | UI-089 | confusing | The sample tree (v2) shows "Loading..." forever if its CDN imports or the tree API call fail; its edge tooltips are hover-only, so unreachable or sticky on touch | code | `static/js/dag/dag.js` | Wrap in try/catch and show a message; show tooltips on tap |
-| UI-090 | debt | Sample flow and the sample tree load their libraries from public CDNs (unpkg, skypack) with no fallback, so a blocked CDN leaves an empty panel with no message. Third-party script loading is security item SEC-0930-F, tracked privately | code | `sampletype_connections.py` `_CYTO_CDN`; `static/js/dag/dag.js` imports | Vendor the libraries under `static/js/` and show a message when loading fails |
+| UI-090 | debt | Sample flow and the sample tree load their libraries from public CDNs (unpkg, skypack) with no fallback, so a blocked CDN leaves an empty panel with no message (the Sample flow's are pinned with integrity hashes; the tree's are not). Third-party script loading is security item SEC-0930-F, tracked privately | code | `sampletype_connections.py` `_CYTO_CDN`; `static/js/dag/dag.js` imports | Vendor the libraries under `static/js/` and show a message when loading fails |
 | UI-092 | broken | Seven sample type detail pages (MDL, SLD, SNSR, SUB, VIR, D.ADDCP, D.ADMP on dev) get HTTP 409 from the attribute definitions request; the script never checks the status, so the table wrongly says no attribute definitions are recorded | live 2026-09-30 | `themes/NextSeek/templates/includes/attribute_definitions_table.html` (POST `/nextseek_api/attributes/search/?page_size=5000`); the attributes search view in `nextseek_api` | Find why the search returns 409 for these types; show an error in the table instead of nothing |
 | UI-093 | broken | Links to `/seek/sampletypes/A.MET/`, `A.RPPA/`, `D.ARR/` and `LYS/` return 404. A.MET, A.RPPA and D.ARR are SEEK types with no curated row; LYS has a row marked deprecated, which the detail view drops | live 2026-09-30 | `seek/templates/templatesList.html` info link (`.tpl-item-info`, fed by `template_catalog.load_catalog`, which keeps SEEK types with no context row); `sampleTypeDetail.html` lineage chips, whose `known` set in `context_catalog.load_sample_types` includes deprecated rows | Link only codes the detail page can show, or render a "not in the catalog" page instead of a 404 |
 | UI-094 | confusing | The samples page of the largest project did not answer within 30 seconds | live 2026-09-30 (`/seek/projects/1/samples/`) | `seek/views/projects.py` `project_samples` | Page the query server-side; show the first page fast |
