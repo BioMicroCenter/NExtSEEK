@@ -3,7 +3,8 @@ reverse from its journal.
 
 1. the graph step's paper nodes and links, restored from ``graph/`` (``paper_studies.restore_paper_links``);
 2. the publications: old text back where the new text still stands (``restore_publication_text``);
-3. the units, last first, each one transaction (``links.undo_link_unit``);
+3. the units, last first, each one transaction (``links.undo_link_unit``; a share's unit also deletes the
+   ``projects_samples`` rows it journaled);
 4. the clones' internal-assay rows; ``assay_map`` enqueued;
 5. the clones, then the studies, deleted in SEEK once empty; a refusal is listed for the operator; ``isa`` enqueued;
 6. ``sync_samples`` with the approval over the run's sync ids: the bucket's IN_STUDY comes back from MySQL (the switch
@@ -109,7 +110,9 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool,
                 report = links.undo_link_unit(conn, unit.unit, st.units[unit.unit], journal, run_id=plan.run_id)
             journal.append("undo", "done", part="unit", unit=unit.unit, deleted=report["deleted"],
                            reinserted=report["reinserted"], not_deleted_changed=report["not_deleted_changed"],
-                           not_reinserted=report["not_reinserted"])
+                           not_reinserted=report["not_reinserted"],
+                           project_pairs_deleted=report["project_pairs_deleted"],
+                           project_pairs_gone=report["project_pairs_gone"])
             if not report["outbox_in_transaction"]:   # chunked as in its transaction (links.outbox_rows)
                 for key, part in links.outbox_rows(links.undo_key(plan.run_id, unit.unit), report["sample_ids"]):
                     hooks.enqueue("samples", key, part)

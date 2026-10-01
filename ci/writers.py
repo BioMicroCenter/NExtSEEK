@@ -480,14 +480,15 @@ WRITERS: tuple[Writer, ...] = (
                   "nextseek_api/studies/mapping.py::insert_clone_mappings",
                   "nextseek_api/studies/mapping.py::delete_clone_mappings",
                   "nextseek_api/studies/links.py::undo_link_unit"),
-           tables=("studies", "assays", "assay_assets", "assays_internal_assays", "samples"),
+           tables=("studies", "assays", "assay_assets", "assays_internal_assays", "samples", "projects_samples"),
            how=("seek_client", "orm", "sql", "none"),
            hook="hooks.enqueue",
            hook_site=("nextseek_api/studies/apply.py::apply_study_moves",
                       "nextseek_api/studies/rollback.py::rollback_study_moves"),
            note="the studies tool (manage.py studies): SEEK studies and cloned assays as the operator, the clones' "
-                "internal-assay rows, and sample links moved through WR-01's and WR-02's functions; samples rows go "
-                "in each unit's transaction"),
+                "internal-assay rows, and sample links moved through WR-01's and WR-02's functions, and project "
+                "rows for a share through WR-01's batch_insert_projects_samples; samples rows go in each unit's "
+                "transaction"),
 )
 
 

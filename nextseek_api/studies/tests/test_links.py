@@ -7,8 +7,8 @@ from sqlalchemy import text
 from nextseek_api.studies import links
 from nextseek_api.studies import planner as p
 from nextseek_api.studies.journal import JOURNAL_FILE, Journal, journal_state, read_journal
-from nextseek_api.studies.models import AssociationSet, StudyTarget
-from nextseek_api.studies.tests.conftest import (FakeReader, links_of, outbox_of, rows_of, seed,
+from nextseek_api.studies.models import AssociationSet, ProjectInsert, StudyTarget
+from nextseek_api.studies.tests.conftest import (FakeReader, links_of, outbox_of, projects_of, rows_of, seed,
                                                  sqlite_connection)
 
 ORIGINAL = [(101, 1, 1), (101, 2, 2), (101, 3, 2), (102, 1, 1), (102, 4, 2), (301, 6, 1)]
@@ -124,3 +124,94 @@ def test_a_unit_writes_one_outbox_row_per_chunk_the_first_under_the_unit_key(tmp
                                   ("samples", "batch:studies:run-1:1:1", [3])]
     assert links.outbox_rows("batch:studies:run-1:1", [3, 2, 3]) == [("batch:studies:run-1:1", [2]),
                                                                       ("batch:studies:run-1:1:1", [3])]
+
+
+# --- a share's unit: project rows (tool spec 16.2 step 4, T36) ------------------------------------------------------
+
+SHARE_CLONES = {("share:40", 101): 402}
+
+
+def _share_plan(world):
+    from nextseek_api.studies import share as sh
+    from nextseek_api.studies.models import ShareInput
+
+    inp = ShareInput(sample_uids=[world.samples[2]["uuid"]], source_project_id=3, destination_project_id=5,
+                     destination_study_id=40, created_at="t")
+    return sh.plan_share(inp, FakeReader(world), run_id="share-1", now="t")
+
+
+def _run_share(seek_db, unit, tmp_path):
+    with sqlite_connection(seek_db) as conn:
+        return links.run_link_unit(conn, unit, Journal(tmp_path / JOURNAL_FILE, run_id="share-1"), SHARE_CLONES,
+                                   run_id="share-1", share_project_id=5)
+
+
+@pytest.fixture
+def share_unit(share, seek_db):
+    seed(seek_db, share)
+    return _share_plan(share).units[0]
+
+
+def test_a_share_unit_adds_links_project_rows_and_one_outbox_row(tmp_path, seek_db, share_unit):
+    result = _run_share(seek_db, share_unit, tmp_path)
+    assert {(a, s, d) for a, s, d in links_of(seek_db) if a == 402} == {(402, 2, 2), (402, 1, 1)}
+    assert {(5, 1), (5, 2)} <= set(projects_of(seek_db))
+    assert outbox_of(seek_db) == [("samples", "batch:studies:share-1:1", [1, 2])] and result.outbox_in_transaction
+    lines = read_journal(tmp_path / JOURNAL_FILE)[0]
+    assert lines[0]["project_inserts"] == [[5, 1], [5, 2]] and lines[1]["project_pairs_inserted"] == [[5, 1], [5, 2]]
+
+
+def test_a_project_pair_present_before_the_unit_is_neither_inserted_nor_journaled(tmp_path, seek_db, share):
+    share.sample_projects[1] |= {5}
+    seed(seek_db, share)
+    unit = _share_plan(share).units[0]
+    assert [(r.project_id, r.sample_id) for r in unit.project_inserts] == [(5, 2)]
+    unit = unit.model_copy(update={"project_inserts": [*unit.project_inserts,
+                                                       ProjectInsert(project_id=5, sample_id=1, role="parent")]})
+    _run_share(seek_db, unit, tmp_path)
+    assert read_journal(tmp_path / JOURNAL_FILE)[0][-1]["project_pairs_inserted"] == [[5, 2]]
+    assert projects_of(seek_db).count((5, 1)) == 1
+
+
+def test_a_failure_after_the_project_insert_rolls_both_back(tmp_path, seek_db, share_unit, monkeypatch):
+    before = projects_of(seek_db)
+    monkeypatch.setattr(links, "existing_membership_ids", lambda pairs, conn: {})
+    with pytest.raises(links.LinkRefused):
+        _run_share(seek_db, share_unit, tmp_path)
+    assert projects_of(seek_db) == before and not any(a == 402 for a, _s, _d in links_of(seek_db))
+    assert outbox_of(seek_db) == []
+
+
+def test_the_read_back_refuses_when_a_project_pair_is_missing(tmp_path, seek_db, share_unit, monkeypatch):
+    monkeypatch.setattr(links, "batch_insert_projects_samples", lambda project_id, ids, conn: 0)
+    with pytest.raises(links.LinkRefused) as exc:
+        _run_share(seek_db, share_unit, tmp_path)
+    assert exc.value.reason == "readback_missing" and "project" in exc.value.detail
+
+
+def test_a_share_digest_ignores_unplanned_samples_and_sees_planned_ones(tmp_path, seek_db, share_unit):
+    with seek_db.begin() as conn:
+        conn.execute(text("INSERT INTO assay_assets (assay_id, asset_id, asset_type, direction) "
+                          "VALUES (101, 5, 'Sample', 1)"))
+    _run_share(seek_db, share_unit, tmp_path)
+    with seek_db.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM assay_assets WHERE assay_id = 402")
+        conn.exec_driver_sql("DELETE FROM projects_samples WHERE project_id = 5")
+        conn.exec_driver_sql("DELETE FROM dmac.graph_sync_outbox")
+        conn.execute(text("INSERT INTO projects_samples (project_id, sample_id) VALUES (5, 2)"))
+    with pytest.raises(links.LinkRefused) as exc:
+        _run_share(seek_db, share_unit, tmp_path)
+    assert exc.value.reason == "digest_mismatch"
+
+
+def test_a_share_undo_deletes_only_the_journaled_pairs_and_reports_one_gone(tmp_path, seek_db, share_unit):
+    _run_share(seek_db, share_unit, tmp_path)
+    with seek_db.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM projects_samples WHERE project_id = 5 AND sample_id = 2")
+    state = journal_state(read_journal(tmp_path / JOURNAL_FILE)[0]).units[1]
+    with sqlite_connection(seek_db) as conn:
+        report = links.undo_link_unit(conn, 1, state, Journal(tmp_path / JOURNAL_FILE, run_id="share-1"),
+                                      run_id="share-1")
+    assert (report["project_pairs_deleted"], report["project_pairs_gone"]) == (1, [[5, 2]])
+    assert not any(p == 5 for p, _s in projects_of(seek_db)) and (3, 1) in projects_of(seek_db)
+    assert outbox_of(seek_db)[-1] == ("samples", "batch:studies:share-1:undo:1", [1, 2])

@@ -352,6 +352,7 @@ def seek_db(monkeypatch):
                              "asset_id INTEGER, version INTEGER, created_at TEXT, updated_at TEXT, "
                              "relationship_type_id INTEGER, asset_type TEXT, direction INTEGER)")
         conn.exec_driver_sql("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, json_metadata TEXT)")
+        conn.exec_driver_sql("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
         conn.exec_driver_sql("CREATE TABLE dmac.graph_sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, "
                              "key TEXT, payload TEXT, enqueued_at TEXT, attempts INTEGER, UNIQUE (kind, key))")
     monkeypatch.setattr(registration_planner, "_seek_db", lambda: "main")
@@ -374,6 +375,11 @@ def seed(engine, world: World) -> None:
     with engine.begin() as conn:
         conn.exec_driver_sql("DELETE FROM assay_assets")
         conn.exec_driver_sql("DELETE FROM samples")
+        conn.exec_driver_sql("DELETE FROM projects_samples")
+        for sid, projects in sorted(world.sample_projects.items()):
+            for project_id in sorted(projects):
+                conn.execute(text("INSERT INTO projects_samples (project_id, sample_id) VALUES (:p, :s)"),
+                             {"p": project_id, "s": sid})
         for assay, sample, direction in world.links:
             conn.execute(text("INSERT INTO assay_assets (assay_id, asset_id, version, created_at, updated_at, "
                               "relationship_type_id, asset_type, direction) VALUES (:a, :s, 1, "
@@ -395,6 +401,12 @@ def rows_of(engine) -> list:
     with engine.connect() as conn:
         return [tuple(r) for r in conn.execute(text("SELECT id, assay_id, asset_id FROM assay_assets "
                                                     "ORDER BY id")).fetchall()]
+
+
+def projects_of(engine) -> list:
+    with engine.connect() as conn:
+        return sorted(tuple(r) for r in conn.execute(text("SELECT project_id, sample_id FROM projects_samples"))
+                      .fetchall())
 
 
 def outbox_of(engine) -> list:
