@@ -7,8 +7,10 @@
 - ``studies_release_refusal``: the studies release is done on this box: its switch reads ``follow`` and its merge
   would act on no id.
 - ``graph_version_refusal``: the graph is at the writer's version (``targeted._refusal``).
-- ``apply_refusal``: the buckets are still the plan's, the release is done, and for a plan that creates a study SEEK's
-  next study id is still above every graph ``Study.id``.
+- ``apply_refusal``: the buckets are still the plan's, the release is done, the existing studies and reused assays
+  the plan names are still in SEEK, no study to create that this run has not started is already in its investigation
+  under its title (a plan applied after a newer plan of the same study ran), and for a plan that creates a study
+  SEEK's next study id is still above every graph ``Study.id``.
 """
 from __future__ import annotations
 
@@ -82,7 +84,7 @@ def graph_version_refusal(driver, db) -> Optional[str]:
     return f"the graph is at schema {refused['schema_version']!r}, not the writer's {refused['writer_version']}"
 
 
-def apply_refusal(plan, targets, driver, db, reader) -> Optional[str]:
+def apply_refusal(plan, targets, driver, db, reader, *, session=None, st=None) -> Optional[str]:
     now = reader.buckets()
     for inv in sorted({t.investigation_id for t in targets}):
         if now.bucket_of(inv) != plan.buckets.get(inv):
@@ -90,6 +92,21 @@ def apply_refusal(plan, targets, driver, db, reader) -> Optional[str]:
     refused = studies_release_refusal(driver, db)
     if refused:
         return refused
+    existing = sorted({t.study.seek_study_id for t in targets if t.study.action == "existing"})
+    gone = sorted(set(existing) - {s.id for s in reader.studies()}) if existing else []
+    if gone:
+        return f"the plan's existing studies {gone[:20]} are no longer in SEEK: plan again"
+    reused = sorted({c.seek_assay_id for t in targets for c in t.clones if c.action == "reuse"})
+    gone = sorted(set(reused) - set(reader.assays(reused))) if reused else []
+    if gone:
+        return f"the plan's reused assays {gone[:20]} are no longer in SEEK: plan again"
+    if session is not None:
+        started = set(st.studies) if st is not None else set()
+        for t in targets:
+            if t.study.action == "create" and t.key not in started and session.find_study(t.investigation_id,
+                                                                                         t.title):
+                return (f"investigation {t.investigation_id} already holds a study titled {t.title!r} that this run "
+                        "did not create: plan again")
     if any(t.study.action == "create" for t in targets):
         next_id, graph_max = reader.next_study_id(), reader.graph_max_study_id()
         if graph_max is not None and next_id <= graph_max:
