@@ -1838,7 +1838,8 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
 # variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
 # OPTIONAL MATCH clauses, a variable carried by WITH (bare or aliased), an undirected or alternated relationship, an
 # untyped or variable-length relationship to an Assay, a variable-length INPUT_TO or OUTPUT_OF path between two
-# samples (the Assay unnamed in the middle), and shortestPath. An anonymous sample node is a sample of its own.
+# samples (the Assay unnamed in the middle), shortestPath, and one Assay node pattern written twice with the same
+# inline map. An anonymous sample node is a sample of its own.
 #
 # A row scope is the statement between UNIONs. An EXISTS, COUNT or COLLECT subquery and a pattern comprehension are
 # scopes of their own: a link inside one whose sample is local to it makes no pairs; a link whose two ends are both
@@ -2058,11 +2059,26 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
         return sum(1 for keyword, kw_start, _, _ in scan.clauses
                    if keyword == "UNION" and kw_start in stops and kw_start < pos and not chain(kw_start))
 
+    # An Assay node pattern written twice with the same inline map, `(:Assay {title: $x})`, named or not, is one Assay
+    # in its row scope: both patterns share one key. Equal maps are compared as written, whitespace aside; an equality
+    # in WHERE, a collect or an UNWIND is not followed.
+    same: dict = {}
+    for element in _node_patterns(scan):
+        m = _NODE_PATTERN_RE.match(masked, element[0])
+        if not (_an_assay(scan, element) and m and m.group("props")):
+            continue
+        where = chain(element[0])
+        scope = ("sub", where[-1][0]) if where else ("part", part_at(element[0]))
+        written = re.sub(r"\s+", "", cypher[m.start("props"):m.end("props")])
+        same[keys.get(element[0], ("#node", element[0]))] = map_key = ("#map", written, scope)
+        home.setdefault(map_key, scope)
+
     pairs: dict = {}  # (scope, Assay key) -> {sample key: (position, display)}
     shown: dict = {}  # Assay key -> its text
     for pos, sample, assay, assay_text in links:
         s_key = keys.get(sample[0], ("#node", sample[0]))
         a_key = assay if assay[0] == "#assay" else keys.get(assay[0], ("#node", assay[0]))
+        a_key = same.get(a_key, a_key)
         home.setdefault(a_key, ("sub", chain(pos)[-1][0]) if chain(pos) else ("part", part_at(pos)))
         shown.setdefault(a_key, assay_text)
         display = sample[3] or " ".join(cypher[sample[0]:sample[1]].split())

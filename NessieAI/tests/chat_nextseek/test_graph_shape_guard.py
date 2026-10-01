@@ -691,6 +691,12 @@ ASSAY_JOINS = [
                                               "WHERE EXISTS { (p)-[:INPUT_TO]->(a) } RETURN count(*) AS n"),
     ("inside_a_count_subquery", "MATCH (a:Assay) RETURN a.title AS t, "
                                 "COUNT { (c:Sample)-[:OUTPUT_OF]->(a)<-[:INPUT_TO]-(p:Sample) } AS pairs"),
+    # one Assay node pattern written twice with the same inline map is one Assay
+    ("same_map_twice_anonymous", "MATCH (i:Sample)-[:INPUT_TO]->(:Assay {title: $x}), "
+                                 "(o:Sample)-[:OUTPUT_OF]->(:Assay {title:$x}) "
+                                 "RETURN i.uuid AS input, o.uuid AS output"),
+    ("same_map_twice_named", "MATCH (i:Sample)-[:INPUT_TO]->(a1:Assay {title: $x}) "
+                             "MATCH (o:Sample)-[:OUTPUT_OF]->(a2:Assay {title: $x}) RETURN count(*) AS pairs"),
 ]
 
 ASSAY_SINGLES = [
