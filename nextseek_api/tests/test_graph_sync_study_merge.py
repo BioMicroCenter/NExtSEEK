@@ -1005,3 +1005,16 @@ def test_undo_skips_and_reports_an_archive_line_a_crash_cut_short(world, tmp_pat
     assert result["archive_lines_skipped"] == [f"{archive}:3"]
     assert world.graph.keys_of(1001) == world.graph.keys_of(1002) == world.graph.keys_of(1003) == {("seek", 13)}
 
+
+def test_undo_takes_a_studies_run_directory_that_removed_no_link(world, tmp_path):
+    """``--studies`` writes its archive only when it removes a link, so a run that removed none leaves only
+    ``study_links.json``. Given with the merge's directory it restores nothing, and the undo goes on."""
+    _split(world)
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    studies_dir = tmp_path / "s1"
+    studies_dir.mkdir()
+    (studies_dir / study_links.REPORT_FILE).write_text('{"mode": "studies", "in_study_removed": 0}', encoding="utf-8")
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(studies_dir)])
+    assert result["status"] == "ok" and (result["archives"], result["archive_rows"]) == ([], 0)
+    assert _snapshot(world.graph) == before

@@ -1556,6 +1556,17 @@ def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tm
     assert exc.value.returncode == 2 and studies_cmd.calls == []
 
 
+def test_unmerge_studies_takes_a_studies_run_directory_that_removed_no_link(graphdb, studies_cmd, tmp_path):
+    """``--studies`` writes its archive only when it removes a link, so its run directory can hold only its report."""
+    studies_cmd.rebuild = {"status": "ok", "in_study_removed": 0}
+    call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    (studies_dir,) = tmp_path.glob("study_links-*")
+    first = _journal_dir(tmp_path, "m1")
+    call_command("graph_sync", "--unmerge-studies", f"{first},{studies_dir}", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls[-1] == ("undo", [first, str(studies_dir)], False)
+
+
 def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names_its_ids(graphdb, studies_cmd,
                                                                                           tmp_path):
     root = tmp_path / "root"

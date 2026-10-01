@@ -476,7 +476,8 @@ def _attempt(at: str, plan: dict | None) -> dict:
 
 def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
     """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
-    and/or ``in_study_removed.tsv``), and the archives found. Raises ValueError for a path that is neither.
+    and/or ``in_study_removed.tsv``), and the archives found. A ``--studies`` run directory that removed no link holds
+    only ``study_links.json``: nothing to restore. Raises ValueError for a path that is none of these.
 
     Each ``plan`` line starts an attempt, which owns the ``source`` and ``done`` lines after it in its journal, and the
     attempts of an id are ordered by the UTC time their plan line carries, so the order of ``paths`` changes nothing.
@@ -500,9 +501,9 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
                 archives.append(archive)
             if os.path.isfile(candidate):
                 journal = candidate
-            elif not os.path.isfile(archive):
-                raise ValueError(f"{path} holds no journal ({JOURNAL_FILE}) and no archive "
-                                 f"({study_links.ARCHIVE_FILE})")
+            elif not (os.path.isfile(archive) or os.path.isfile(os.path.join(path, study_links.REPORT_FILE))):
+                raise ValueError(f"{path} holds no journal ({JOURNAL_FILE}), no archive "
+                                 f"({study_links.ARCHIVE_FILE}) and no --studies report ({study_links.REPORT_FILE})")
         elif os.path.isfile(path):
             journal = path
         else:
