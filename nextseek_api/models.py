@@ -3179,3 +3179,6 @@ from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # no
 
 # The graph_sync outbox and run record (nextseek_api/graph_sync/models_db.py); imported here so Django discovers them.
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun  # noqa: E402,F401
+
+# The studies tool's share jobs (nextseek_api/studies/models_db.py); imported here so Django discovers them.
+from nextseek_api.studies.models_db import SampleShare  # noqa: E402,F401
