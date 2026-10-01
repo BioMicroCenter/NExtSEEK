@@ -11,8 +11,8 @@ recognizer for one fixed grammar (spec section 5.3), classifies every node and r
   graph_search's clause, ``any(p IN s.project_ids WHERE p IN $projects)``, rendered with generated names.
 - A ``Project`` gets ``p.id IN $__scope_projects``.
 - An ``Assay`` (graph schema 1.3) is a catalog node, the same for every caller: no predicate, every property reads.
-  A name that may hold an Assay (``_Names.assay``) proves no joined node: an Assay is visible to everyone and
-  contains nothing.
+  ``INPUT_TO`` and ``OUTPUT_OF`` reach it, at fixed length, from a scoped sample. A name that may hold an Assay
+  (``_Names.assay``) proves no joined node: an Assay is visible to everyone and contains nothing.
 - A ``Study``, ``Investigation`` or ``Person`` carries no ``project_ids``; it must be joined, by a relationship
   pattern in the same pattern list, as the container of something visible: the study of a scoped sample, the
   investigation of such a study or of the caller's project, a member of the caller's project (``prove_joined``).
@@ -72,7 +72,11 @@ PROJECT_LABEL = schema.PROJECT
 JOINED_LABELS = frozenset({schema.STUDY, schema.INVESTIGATION, schema.PERSON})
 ASSAY_LABEL = schema.ASSAY   # graph schema 1.3: a catalog kind, the contract's name
 LINEAGE_RELATIONSHIP = schema.DERIVED_FROM
-FIXED_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.IN_INVESTIGATION, schema.IN_PROJECT, schema.MEMBER_OF})
+# Policy sets (the contract spec, D6): contract constants, pinned by literals in test_cypher_scope_accept.py.
+FIXED_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.IN_INVESTIGATION, schema.IN_PROJECT, schema.MEMBER_OF,
+                                 schema.INPUT_TO, schema.OUTPUT_OF})
+# INPUT_TO and OUTPUT_OF join a sample, which carries the sample clause, to an Assay (``finalize`` checks the ends).
+ASSAY_RELATIONSHIPS = frozenset({schema.INPUT_TO, schema.OUTPUT_OF})
 FULLTEXT_PROCEDURE = "db.index.fulltext.queryNodes"
 FULLTEXT_INDEX = schema.FULLTEXT_INDEX
 
@@ -532,6 +536,17 @@ def _label_kind(label: str) -> str:
     if label == ASSAY_LABEL:
         return "assay"
     return "none"
+
+
+def _assay_end(v: _Vertex) -> bool:
+    """An Assay binding, or a reference to a name that may hold one."""
+    return v.kind == "assay" or (v.kind == "reference" and v.assay)
+
+
+def _sample_end(v: _Vertex) -> bool:
+    """A sample binding (scoped by its clause), or a reference to a name that holds no Assay (every bound value is
+    visible, spec section 5.4)."""
+    return v.kind == "sample" or (v.kind == "reference" and not v.assay)
 
 
 class _Parser:
@@ -1209,6 +1224,7 @@ class _Parser:
             return v
 
         live_paths = [p for p in plist.paths if not p.opaque]
+        assay_rels: list[tuple[_Rel, _Vertex, _Vertex]] = []
         for path in live_paths:
             path_vertices = [vertex_of(node) for node in path.nodes]
             for k, rel in enumerate(path.rels):
@@ -1216,6 +1232,8 @@ class _Parser:
                 rtype = None if rel.refused else rel.rtype
                 typed[a.key].append((b.key, rtype))
                 typed[b.key].append((a.key, rtype))
+                if rtype in ASSAY_RELATIONSHIPS:
+                    assay_rels.append((rel, a, b))
                 if rel.rtype == LINEAGE_RELATIONSHIP and not rel.refused:
                     a.derived_end = b.derived_end = True
             path.varlen = any(r.varlen and r.rtype == LINEAGE_RELATIONSHIP and not r.refused for r in path.rels)
@@ -1256,6 +1274,16 @@ class _Parser:
                                 f"the label {':'.join(sorted(v.labels))} may not be read")
             if v.kind in ("sample", "project") and v.var_raw:
                 v.ref_text = v.var_raw
+
+        # INPUT_TO and OUTPUT_OF join a sample to an Assay, in either direction as written. Any other pair of ends
+        # is refused; a refused end has refused the statement already.
+        for rel, a, b in assay_rels:
+            if "none" in (a.kind, b.kind) or (_assay_end(a) and _sample_end(b)) or (_assay_end(b) and _sample_end(a)):
+                continue
+            self.refuse("relationship_type", rel.start_off, f"{rel.rtype} may only join a sample to an Assay")
+            for this, other in ((a, b), (b, a)):
+                typed[this.key] = [(key, None if key == other.key and t == rel.rtype else t)
+                                   for key, t in typed[this.key]]
 
         joined_lines: list[tuple[int, str]] = []
         pending_joined = [v for v in order if v.kind == "joined"]

@@ -358,6 +358,41 @@ ACCEPTED: list[Case] = [
          "MATCH (a:Assay) WHERE toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]\n"
          "RETURN a.title AS title, a.input_types AS takes, a.output_types AS makes",
          {"x": "histology"}, ()),
+    Case("assay.inputs_count",
+         "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.outputs_with_runs",
+         "MATCH (s:Sample)-[r:OUTPUT_OF]->(a:Assay) WHERE a.title = $assay\n"
+         "RETURN s.uuid AS uuid, r.seek_assay_ids AS runs ORDER BY uuid",
+         {"assay": "Staining"}, S),
+    Case("assay.went_through",
+         "MATCH (a:Assay)\n"
+         "WHERE toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]\n"
+         "MATCH (s:Sample)\n"
+         "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }\n"
+         "RETURN count(DISTINCT s) AS n",
+         {"x": "staining"}, S),
+    Case("assay.with_carried_reference",
+         "MATCH (a:Assay {title: $assay})\nWITH a\nMATCH (s:T_TIS)-[:INPUT_TO]->(a)\nRETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.anonymous_assay",
+         "MATCH (s:T_SLD)-[:OUTPUT_OF]->(:Assay {title: $assay}) RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.count_subquery_per_assay",
+         "MATCH (a:Assay)\nRETURN a.title AS assay, COUNT { (s:Sample)-[:INPUT_TO]->(a) } AS inputs ORDER BY assay",
+         {}, S),
+    Case("assay.written_from_the_assay",
+         "MATCH (a:Assay)<-[:INPUT_TO]-(s:T_TIS) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.lineage_beside_an_assay",
+         "MATCH (c:T_SLD)-[:DERIVED_FROM]->(p:T_TIS)\n"
+         "WHERE EXISTS { (c)-[:OUTPUT_OF]->(:Assay {title: $assay}) }\n"
+         "RETURN count(DISTINCT c) AS n",
+         {"assay": "Staining"}, ("c: sample clause", "p: sample clause")),
+    Case("assay.study_of_a_sample_beside_its_assay",
+         "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay), (s)-[:IN_STUDY]->(st:Study) WHERE a.title = $assay\n"
+         "RETURN st.title AS study, count(DISTINCT s) AS n ORDER BY study",
+         {"assay": "Staining"}, S, ("st (Study): joined to s",)),
 ]
 
 # The one taught shape that reads the catalog, whose statistics are computed over every project (decision 4).
@@ -602,6 +637,21 @@ REFUSALS: list[Refusal] = [
             ("relationship_type", "label_not_allowed")),
     Refusal("relationship_type.run_in",
             "MATCH (a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t", ("relationship_type",)),
+    Refusal("relationship_type.run_in_from_a_samples_assay",
+            "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t",
+            ("relationship_type",)),
+    Refusal("relationship_type.input_to_from_a_study",
+            "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:INPUT_TO]->(a:Assay) RETURN a.title AS t",
+            ("relationship_type",)),
+    Refusal("relationship_type.output_of_between_two_samples",
+            "MATCH (c:Sample)-[:OUTPUT_OF]->(p:Sample) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.input_to_from_an_assay_reference",
+            "MATCH (a:Assay), (b:Assay) WITH a, b MATCH (a)-[:INPUT_TO]->(b) RETURN count(*) AS n",
+            ("relationship_type",)),
+    Refusal("variable_length.input_to",
+            "MATCH (s:Sample)-[:INPUT_TO*1..2]->(a:Assay) RETURN count(*) AS n", ("variable_length",)),
+    Refusal("unlabelled_node.assay_end",
+            "MATCH (s:Sample)-[:INPUT_TO]->(x) RETURN x.title AS t", ("unlabelled_node",)),
 ]
 
 # --------------------------------------------------------------------------- #

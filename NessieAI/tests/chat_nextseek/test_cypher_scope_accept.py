@@ -208,8 +208,12 @@ def test_label_and_relationship_tables_pin():
     assert cypher_scope.JOINED_LABELS == frozenset({"Study", "Investigation", "Person"})
     assert cypher_scope.JOINED_LABELS <= schema.LABELS_V11
     assert cypher_scope.ASSAY_LABEL is schema.ASSAY
-    assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
-    assert cypher_scope.FIXED_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V11)
+    assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF",
+                                                          "INPUT_TO", "OUTPUT_OF"})
+    assert cypher_scope.ASSAY_RELATIONSHIPS == frozenset({"INPUT_TO", "OUTPUT_OF"})
+    # K3's pin, widened: the fixed relationships are relationship types of 1.1 or 1.3, the Assay ones of 1.3.
+    assert cypher_scope.FIXED_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V11) | set(schema.RELATIONSHIPS_V13)
+    assert cypher_scope.ASSAY_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V13)
     # A Neo4j procedure, not a graph name.
     assert cypher_scope.FULLTEXT_PROCEDURE == "db.index.fulltext.queryNodes"
 
