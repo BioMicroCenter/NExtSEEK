@@ -272,3 +272,16 @@ def test_the_api_prompt_discloses_that_total_and_rows_can_disagree():
     api = shipped("api_agent.txt")
     assert "total is the graph's count of every match" in api
     assert "rows are one page read from the database" in api
+
+
+# --- graph schema 1.3: the capabilities document names the Assay ------------------------------------------------------
+
+
+def test_the_capabilities_graph_section_names_the_assay():
+    caps = read(CONTEXT / "capabilities.md")
+    graph = caps[caps.index("### 2. Graph Queries"):caps.index("### 3. Sample Lineage")]
+    assert "- **Assay** (graph schema 1.3 and later)" in graph
+    assert "`INPUT_TO`" in graph and "`OUTPUT_OF`" in graph
+    assert "Two samples on one Assay did not come from each other" in graph
+    for admin_only in ("RUN_IN", "ACCEPTED_BY", "GENERATES"):
+        assert admin_only not in caps, admin_only

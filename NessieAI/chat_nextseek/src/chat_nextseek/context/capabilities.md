@@ -66,10 +66,11 @@ The knowledge graph captures organizational structure and biological relationshi
   carry its DOI or PMID in any study. Most studies are unpublished; that is expected, not a gap.
 - **Investigation**: a grouping of studies within a project (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 - **Project**: a SEEK project. Samples and investigations belong to it via the `IN_PROJECT` relationship.
+- **Assay** (graph schema 1.3 and later): one node per kind of assay in the internal assay catalog, with its title, other names, description, and the sample types it takes and makes. A sample points at it with `INPUT_TO` (the sample went into a run of that assay) or `OUTPUT_OF` (it came out of one), and each link lists the SEEK assay runs. Two samples on one Assay did not come from each other: lineage stays on `DERIVED_FROM`.
 
 Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries the assays and the protocol used.
 
-Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, or filtering by which assay or protocol produced a sample.
+Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, filtering by which assay or protocol produced a sample, or which samples went into or came out of an assay and what an assay takes and makes.
 
 **Example queries:**
 - "What samples are in the GBM study?"
@@ -78,6 +79,7 @@ Use graph queries when your question involves named studies or investigations, c
 - "Show me all NHP samples in the MIT_SRP investigation."
 - "What projects have mouse samples?"
 - "Find all samples that underwent single cell sequencing."
+- "Which samples went into Short Read Sequencing, and which sample types does it make?"
 - "How many studies are in the CSBC project?"
 - "Show me the derivation lineage for sample NHP-220630FLY-5-PUB."
 - "Find tissues associated with flow cytometry protocols."
