@@ -353,6 +353,9 @@ def seek_db(monkeypatch):
                              "relationship_type_id INTEGER, asset_type TEXT, direction INTEGER)")
         conn.exec_driver_sql("CREATE TABLE samples (id INTEGER PRIMARY KEY, uuid TEXT, json_metadata TEXT)")
         conn.exec_driver_sql("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
+        conn.exec_driver_sql("CREATE TABLE assays (id INTEGER PRIMARY KEY, study_id INTEGER, title TEXT)")
+        conn.exec_driver_sql("CREATE TABLE studies (id INTEGER PRIMARY KEY, investigation_id INTEGER, title TEXT)")
+        conn.exec_driver_sql("CREATE TABLE investigations_projects (investigation_id INTEGER, project_id INTEGER)")
         conn.exec_driver_sql("CREATE TABLE dmac.graph_sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, "
                              "key TEXT, payload TEXT, enqueued_at TEXT, attempts INTEGER, UNIQUE (kind, key))")
     monkeypatch.setattr(registration_planner, "_seek_db", lambda: "main")
@@ -376,6 +379,18 @@ def seed(engine, world: World) -> None:
         conn.exec_driver_sql("DELETE FROM assay_assets")
         conn.exec_driver_sql("DELETE FROM samples")
         conn.exec_driver_sql("DELETE FROM projects_samples")
+        for table in ("assays", "studies", "investigations_projects"):
+            conn.exec_driver_sql(f"DELETE FROM {table}")
+        for row in world.assays.values():
+            conn.execute(text("INSERT INTO assays (id, study_id, title) VALUES (:i, :s, :t)"),
+                         {"i": row.id, "s": row.study_id, "t": row.title})
+        for row in world.studies:
+            conn.execute(text("INSERT INTO studies (id, investigation_id, title) VALUES (:i, :v, :t)"),
+                         {"i": row.id, "v": row.investigation_id, "t": row.title})
+        for inv, projects in sorted(world.investigation_projects.items()):
+            for project_id in sorted(projects):
+                conn.execute(text("INSERT INTO investigations_projects (investigation_id, project_id) "
+                                  "VALUES (:v, :p)"), {"v": inv, "p": project_id})
         for sid, projects in sorted(world.sample_projects.items()):
             for project_id in sorted(projects):
                 conn.execute(text("INSERT INTO projects_samples (project_id, sample_id) VALUES (:p, :s)"),

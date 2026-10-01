@@ -19,8 +19,9 @@ that id or its pair exists again; both are reported, never forced.
 
 A share's unit (tool spec 16.2 step 4, 16.6; T36) also adds the destination project to its samples and parents:
 ``projects_samples`` rows through ``batch_insert_projects_samples`` (WR-01's function), in the same transaction, the
-pairs that were missing journaled so the undo deletes exactly those. Its digest covers the planned samples only
-(``share.share_digest``), read under the same locks.
+pairs that were missing journaled so the undo deletes at most those (never one a remaining link into a study of the
+project still relies on). Its digest covers the planned samples only (``share.share_digest``), read under the same
+locks; it carries no removals.
 """
 from __future__ import annotations
 
@@ -176,6 +177,8 @@ def resolved_inserts(unit, clone_ids: dict) -> list[tuple[int, int, int]]:
 def run_link_unit(conn, unit, journal, clone_ids: dict, *, run_id: str,
                   share_project_id: int | None = None) -> UnitResult:
     """One unit in the caller's transaction (the module docstring); ``share_project_id`` makes it a share's unit."""
+    if share_project_id is not None and unit.removals:
+        raise LinkRefused("share_removals", f"unit {unit.unit}: a share's unit removes nothing")
     inserts = resolved_inserts(unit, clone_ids)
     clones = sorted({a for a, _s, _d in inserts})
     if share_project_id is None:
@@ -221,21 +224,33 @@ def run_link_unit(conn, unit, journal, clone_ids: dict, *, run_id: str,
     return UnitResult(inserted=inserted, outbox_in_transaction=in_tx, sample_ids=sorted(set(unit.sync_ids)))
 
 
+def project_pairs_in_use(conn, pairs) -> set:
+    """The ``(project_id, sample_id)`` pairs of ``pairs`` whose sample is in an assay of a study of an investigation
+    linked to that project: a link that still gives the sample that project."""
+    by_project: dict = defaultdict(set)
+    for project_id, sample_id in pairs:
+        by_project[int(project_id)].add(int(sample_id))
+    found: set = set()
+    for project_id, ids in sorted(by_project.items()):
+        for chunk in _chunks(sorted(ids)):
+            holes, params = _params("s", chunk)
+            params["p"] = project_id
+            sql = ("SELECT DISTINCT aa.asset_id FROM assay_assets aa JOIN assays a ON a.id = aa.assay_id "
+                   "JOIN studies st ON st.id = a.study_id "
+                   "JOIN investigations_projects ip ON ip.investigation_id = st.investigation_id "
+                   f"WHERE aa.asset_type = 'Sample' AND ip.project_id = :p AND aa.asset_id IN ({holes})")
+            found.update((project_id, int(s)) for (s,) in conn.execute(text(sql), params).fetchall())
+    return found
+
+
 def undo_link_unit(conn, unit_number: int, unit_state: dict, journal, *, run_id: str) -> dict:
+    """The unit's own writes undone (module docstring). A share's journaled project pair is deleted last, and kept
+    when, once this unit's links are gone, the sample is still linked into a study of that project (another share, or
+    any link, relies on it): reported as ``project_pairs_kept_in_use``."""
     inserted = (unit_state.get("prepared") or {}).get("inserted") or []
     deleted = (unit_state.get("intent") or {}).get("deleted_rows") or []
     journaled_projects = sorted({(int(p), int(s)) for p, s in
                                  (unit_state.get("prepared") or {}).get("project_pairs_inserted") or []})
-    still = project_pairs(conn, journaled_projects) if journaled_projects else set()
-    by_project: dict = defaultdict(list)
-    for project_id, sample_id in sorted(still):
-        by_project[project_id].append(sample_id)
-    for project_id, ids in sorted(by_project.items()):
-        for chunk in _chunks(ids):
-            holes, params = _params("s", chunk)
-            params["p"] = project_id
-            conn.execute(text(f"DELETE FROM projects_samples WHERE project_id = :p AND sample_id IN ({holes})"),
-                         params)
     held = rows_by_id(conn, [i for i, _a, _s in inserted])
     to_delete = [i for i, a, s in inserted if held.get(i) == (a, s)]
     changed = [i for i, a, s in inserted if held.get(i) != (a, s)]
@@ -251,10 +266,22 @@ def undo_link_unit(conn, unit_number: int, unit_state: dict, journal, *, run_id:
                           "relationship_type_id, asset_type, direction) VALUES (:id, :assay_id, :asset_id, :version, "
                           ":created_at, :updated_at, :relationship_type_id, :asset_type, :direction)"),
                      {k: row.get(k) for k in ROW_COLUMNS})
+    still = project_pairs(conn, journaled_projects) if journaled_projects else set()
+    kept = project_pairs_in_use(conn, still) if still else set()
+    by_project: dict = defaultdict(list)
+    for project_id, sample_id in sorted(still - kept):
+        by_project[project_id].append(sample_id)
+    for project_id, ids in sorted(by_project.items()):
+        for chunk in _chunks(ids):
+            holes, params = _params("s", chunk)
+            params["p"] = project_id
+            conn.execute(text(f"DELETE FROM projects_samples WHERE project_id = :p AND sample_id IN ({holes})"),
+                         params)
     sample_ids = sorted({s for _i, _a, s in inserted} | {int(r["asset_id"]) for r in deleted}
                         | {s for _p, s in journaled_projects})
     in_tx = _enqueue(conn, undo_key(run_id, unit_number), sample_ids)
     return {"deleted": len(to_delete), "not_deleted_changed": changed, "reinserted": len(reinsert),
-            "not_reinserted": skipped, "project_pairs_deleted": len(still),
+            "not_reinserted": skipped, "project_pairs_deleted": len(still - kept),
+            "project_pairs_kept_in_use": [list(p) for p in sorted(kept)],
             "project_pairs_gone": [list(p) for p in sorted(set(journaled_projects) - still)],
             "sample_ids": sample_ids, "outbox_in_transaction": in_tx}

@@ -363,3 +363,14 @@ def test_a_unit_committed_before_a_crash_is_recovered_and_its_outbox_row_enqueue
     assert _unit_rows(row) == []
     assert share_env.unit(row) == "applied"
     assert _unit_rows(row) == ["batch:studies:" + row.run_dir + ":1"] and ("links", "committed") in _events(row)
+
+
+def test_the_rollback_preview_counts_the_project_rows_it_may_delete(share_env, monkeypatch):
+    monkeypatch.setattr(targeted, "preview_labels", lambda d, db, ids: [])
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    share_env.unit(row)
+    result = rollback.rollback_study_moves(share_apply.run_dir_of(row), share_env.session, None, "neo4j",
+                                           confirm=False)
+    assert result.counts["would_undo"]["project_rows"] == 2 and SampleShare.objects.get(pk=row.pk).state == "applied"

@@ -73,7 +73,9 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool,
     graph_dir = run_dir / apply_mod.GRAPH_DIR
     todo = {"graph_restore": graph_dir.exists(), "publications": len(pub_rows),
             "units": [u.unit for u in reversed(committed)], "clones": clone_ids, "studies": study_ids,
-            "sync_ids": len(ids)}
+            "sync_ids": len(ids),
+            "project_rows": sum(len(((st.units[u.unit] or {}).get("prepared") or {}).get("project_pairs_inserted")
+                                    or []) for u in committed)}
     if not confirm:
         preview = targeted.preview_labels(driver, db, ids) if ids else []
         return RunResult(DONE, "dry run: nothing written; pass --confirm to undo",
@@ -114,6 +116,7 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool,
                            reinserted=report["reinserted"], not_deleted_changed=report["not_deleted_changed"],
                            not_reinserted=report["not_reinserted"],
                            project_pairs_deleted=report["project_pairs_deleted"],
+                           project_pairs_kept_in_use=report["project_pairs_kept_in_use"],
                            project_pairs_gone=report["project_pairs_gone"])
             if not report["outbox_in_transaction"]:   # chunked as in its transaction (links.outbox_rows)
                 for key, part in links.outbox_rows(links.undo_key(plan.run_id, unit.unit), report["sample_ids"]):
