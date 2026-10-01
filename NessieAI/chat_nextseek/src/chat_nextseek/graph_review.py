@@ -821,6 +821,8 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                 if f" {vn} " not in qn or _named_alias_applied(t.q, vn.split(), blob):
                     continue
                 if not _tokens(vn) <= named:
+                    if len(vn) < 3:         # a short code is no proof the question named it (TB for tuberculosis)
+                        continue
                     fact = f"The question names '{v}', but the search did not filter on it."
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it", fact,
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
@@ -829,7 +831,7 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                 hit = [term for term in terms if _holds(str(v), term)]
                 # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
                 # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended, unless the
-                # added words negate it (Not Hispanic or Latino for Hispanic or Latino)
+                # added words negate it (Not Plain Widget for Plain Widget)
                 others = [str(w) for w, _n in stored
                           if any(term in str(w).lower() for term in hit)
                           and (not _tokens(vn) <= _tokens(str(w)) or any(_negated(str(w), term) for term in hit))
