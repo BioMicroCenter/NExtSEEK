@@ -173,7 +173,12 @@ def _type_histogram_block(all_rows: list, shown: int) -> str:
 _VALUE_COLUMNS_MAX = 8
 _VALUE_TOP_MAX = 8
 _VALUE_CLIP = 60
-_AGGREGATE_CYPHER_RE = re.compile(r"\b(?:count|sum|avg|min|max)\s*\(", re.I)
+_AGGREGATE_COLUMN_RE = re.compile(r"\b(?:count|sum|avg|min|max)\s*\((?:[^()]|\([^()]*\))*\)(?:\s+AS\s+(\w+))?", re.I)
+
+
+def _aggregate_columns(cypher: str) -> frozenset[str]:
+    """The result columns a query builds from an aggregate call: its alias, or the call's own text when unaliased."""
+    return frozenset((m.group(1) or m.group(0)) for m in _AGGREGATE_COLUMN_RE.finditer(cypher or ""))
 _VALUE_COUNTS_CHARS_MAX = 3000
 
 
@@ -182,7 +187,8 @@ def _is_identity_key(key: Any) -> bool:
     return k in ("id", "uuid", "uid") or k.endswith(("_id", "_uuid", "_uid"))
 
 
-def _value_counts_block(all_rows: list, shown: int, capped: bool = False, aggregate: bool = False) -> str:
+def _value_counts_block(all_rows: list, shown: int, capped: bool = False,
+                        aggregate_columns: frozenset = frozenset()) -> str:
     """The values of each returned column across the WHOLE result, not the preview.
 
     ss.mtb_infected_mice (dev run 2026-09-29): the writer was shown the first twenty of 651 rows, all one strain,
@@ -190,9 +196,9 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False, aggreg
     cost a pass over a list. Sibling of ``_type_histogram_block``.
 
     Only emitted when the preview is short of the full set. Identity keys and type columns are left out, and so is
-    a column where no value repeats (a column of names): its counts say nothing the preview does not. On an
-    aggregate result (``aggregate``) a column whose values are all numbers is a count or a sum, not a value list:
-    listing how often each count occurs misleads the writer, so it is left out.
+    a column where no value repeats (a column of names): its counts say nothing the preview does not. A column the
+    query built from an aggregate call (``aggregate_columns``) is a count or a sum, not a value list: listing how
+    often each count occurs misleads the writer, so it is left out. A numeric group key is still counted.
     """
     if shown >= len(all_rows):
         return ""
@@ -206,9 +212,7 @@ def _value_counts_block(all_rows: list, shown: int, capped: bool = False, aggreg
     lines: list[str] = []
     size = 0
     for key in keys:
-        if aggregate and all(
-            isinstance(r.get(key), (int, float)) and not isinstance(r.get(key), bool) for r in rows if r.get(key) is not None
-        ) and any(r.get(key) is not None for r in rows):
+        if str(key) in aggregate_columns:
             continue
         counts: dict[str, int] = {}
         empty = 0
@@ -811,7 +815,7 @@ def chatter_agent_answer(
             + _value_counts_block(all_rows, len(records),
                                   capped=graph_truncated or (isinstance(total_matches, int)
                                                              and total_matches > len(all_rows)),
-                                  aggregate=bool(_AGGREGATE_CYPHER_RE.search(str((graph_plan or {}).get("cypher") or ""))))
+                                  aggregate_columns=_aggregate_columns(str((graph_plan or {}).get("cypher") or "")))
             + _type_names_block(config, all_rows if len(all_rows) <= _AGGREGATE_ROWS_MAX else records)
             + f"Query status: {'success' if ok else 'failed'}"
             + (f"\nError: {error_str}" if error_str else "")

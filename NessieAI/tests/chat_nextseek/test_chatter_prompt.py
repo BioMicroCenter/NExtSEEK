@@ -988,18 +988,30 @@ def test_the_one_exception_no_longer_promises_a_not_contains_override():
 
 def test_a_count_column_is_not_summarised_as_a_value_list():
     rows = [{"uuid": f"U-{i}", "Format": f"f{i % 3}", "n": 5 if i < 10 else 7} for i in range(12)]
-    block = _counts(rows, shown=3, aggregate=True)
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Format AS Format, count(*) AS n"))
 
     assert "- Format:" in block
     assert "- n:" not in block
 
 
-def test_a_different_aggregate_shape_also_skips_its_numeric_column():
-    rows = [{"value": f"v{i % 2}", "total": 4, "mean": 1.5} for i in range(8)]
-    rows = [dict(r, **{"count(*)": 3}) for r in rows]
-    block = _counts(rows, shown=2, aggregate=True)
+def test_a_numeric_group_key_is_kept_and_only_the_count_beside_it_is_skipped():
+    rows = [{"Passage": 3 if i % 2 else 4, "n": 6 + i % 2} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Passage AS Passage, count(DISTINCT s) AS n ORDER BY n DESC"))
 
+    assert "- Passage: 3 6, 4 6" in block
+    assert "- n:" not in block
+
+
+def test_an_unaliased_count_and_a_sum_are_both_skipped():
+    rows = [{"value": f"v{i % 2}", "count(*)": 3, "total": 4, "Size": 9} for i in range(8)]
+    cols = chatter_mod._aggregate_columns("MATCH (s:Sample) RETURN s.Fmt AS value, count(*), sum(s.Size) AS total")
+    block = _counts(rows, shown=2, aggregate_columns=cols)
+
+    assert cols == {"count(*)", "total"}
     assert "- value:" in block
+    assert "- Size: 9 8" in block
     assert "- count(*):" not in block
     assert "- total:" not in block
 
