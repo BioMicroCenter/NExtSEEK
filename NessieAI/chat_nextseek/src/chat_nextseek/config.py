@@ -214,10 +214,9 @@ class ChatConfig:
 
         # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
         # prod is unaffected). For a project listed here, run_project_published_report
-        # reports ALL investigations' samples instead of filtering investigation
-        # titles by the project-name hint — needed where one umbrella project
-        # (e.g. the dev "Published Data") contains every investigation and so
-        # matches no investigation title. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
+        # reports ALL investigations' samples instead of only the named project's
+        # investigations, for an umbrella project (e.g. the dev "Published Data")
+        # that contains every investigation. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
         # (comma-separated project names and/or ids). See issue #1 / option 2.
         self.PUBLISHED_UMBRELLA_PROJECTS = self._parse_umbrella_projects(
             os.environ.get("NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS", "")
@@ -1128,8 +1127,8 @@ class ChatConfig:
         }
 
     def is_umbrella_published_project(self, project, project_id=None) -> bool:
-        """True when the published report should SKIP the investigation-title
-        hint (report ALL samples) for this project. Opt-in via
+        """True when the published report should SKIP its project or investigation
+        filter (report every investigation's samples) for this project. Opt-in via
         NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS; empty by default so prod is
         unchanged. Matches on normalized project name OR id."""
         umbrella = getattr(self, "PUBLISHED_UMBRELLA_PROJECTS", None) or set()

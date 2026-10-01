@@ -930,3 +930,129 @@ def test_a_journal_line_cut_short_is_skipped_by_the_rerun_and_the_undo_and_repor
     undone = study_merge.undo(world.graph, DB, [str(tmp_path)])
     assert undone["status"] == "ok" and undone["journal_lines_skipped"] == [f"{journal}:2"]
     assert world.graph.keys_of(1002) == {("seek", 1)} and world.graph.keys_of(1003) == {("id", 1), ("seek", 1)}
+
+
+# --- a merge whose done line never reached the journal -------------------------------------------------------------
+
+def _drop_last_journal_line(run_dir):
+    journal = run_dir / study_merge.JOURNAL_FILE
+    lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert lines[-1].split("\t")[1] == "done"
+    journal.write_text("".join(lines[:-1]), encoding="utf-8")
+
+
+def test_a_rerun_that_finds_its_unfinished_id_merged_ends_that_attempt_in_its_journal(world, tmp_path):
+    """The last step committed but the process died before the journal's done line (or the statement's
+    acknowledgement was lost and its retry wrote nothing). The rerun into the same run directory reads the id
+    already_merged and writes the done line, so this merge is not read with a later merge cycle of the id: 1002 sat
+    only on the seek-keyed node at the first merge and on both nodes at the second, and the undo of the second keeps
+    its link to the legacy node."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    m1, m2 = tmp_path / "m1", tmp_path / "m2"
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    _drop_last_journal_line(m1)
+    writes = len(world.graph.writes())
+    rerun = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    assert (rerun["status"], rerun["already_merged"], rerun["merged"]) == ("ok", [1], [])
+    assert len(world.graph.writes()) == writes
+    assert [record for _, record, _ in _journal(m1)] == ["plan", "source", "done"]
+    assert study_merge.undo(world.graph, DB, [str(m1)])["status"] == "ok"
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m2))
+    assert study_merge.undo(world.graph, DB, [str(m1), str(m2)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_a_crash_finished_in_another_run_directory_stays_one_cycle_after_a_rerun_into_the_first(world, tmp_path):
+    """A crash part way (m1), its rerun into a new run directory (m2) finishes it, and a later rerun into m1 reads the
+    id already_merged. The done line that rerun writes comes after m2's attempt began, so it does not end m1's
+    attempt on its own: the undo still reads the two as one merge and restores the split exactly."""
+    _split(world, on_l=(1001,), on_k=(1002, 1004), on_both=(1003,))
+    before = _snapshot(world.graph)
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"), batch=1)
+    world.graph.fail_moves_after = None
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m2"), batch=1)
+    assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))["already_merged"] == [1]
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(tmp_path / "m2")])
+    assert result["status"] == "ok"
+    assert _snapshot(world.graph) == before
+
+
+
+@pytest.mark.parametrize("stale_rerun", [False, True], ids=["undo_with_no_rerun", "stale_rerun_after_the_second"])
+def test_an_undo_closes_the_merge_it_reversed_so_a_later_merge_is_a_new_cycle(world, tmp_path, stale_rerun):
+    """m1's last step committed but its done line never reached the journal, and no rerun recorded it before the
+    undo. The undo appends a timed done line to the attempt it reversed, so a second merge of the id (m2, in which 1002
+    sits on both nodes) is a new cycle, and a stale rerun into m1 after m2 began finds nothing open: the undo of both
+    keeps 1002's link to the legacy node."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    m1, m2 = tmp_path / "m1", tmp_path / "m2"
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    _drop_last_journal_line(m1)
+    assert study_merge.undo(world.graph, DB, [str(m1)])["status"] == "ok"
+    record, payload = _journal(m1)[-1][1:]
+    assert (record, payload["found"], payload["kind"]) == ("done", "undone", "merge") and payload["at"]
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m2))
+    if stale_rerun:
+        assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))["already_merged"] == [1]
+    assert study_merge.undo(world.graph, DB, [str(m1), str(m2)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_an_undo_that_cannot_close_a_journal_reports_it_and_ends_partial(world, tmp_path, monkeypatch):
+    """The graph is restored either way; a journal left open is named, and the status says the undo is not complete."""
+    _split(world)
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    _drop_last_journal_line(tmp_path)
+
+    def disk_full(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(study_merge, "_journal", disk_full)
+    result = study_merge.undo(world.graph, DB, [str(tmp_path)])
+    assert result["status"] == "partial" and _snapshot(world.graph) == before
+    assert result["journals_not_closed"] == [
+        {"journal": str(tmp_path / study_merge.JOURNAL_FILE), "error": "No space left on device"}]
+
+# --- an archive line a crash cut short, a --studies run that removed no link ------------------------------------------
+
+def test_undo_skips_and_reports_an_archive_line_a_crash_cut_short(world, tmp_path):
+    """A kill during an archive's append can leave ``1001\\t13\\t1`` where ``1001\\t13\\t13\\t...`` was meant (Study 13
+    is a merged node, keyed by id and seek_study_id), and the next append ends that line first, so it looks whole.
+    Read as a link it would link 1001 to Study 1, a paper. A line without its five fields describes no delete (each
+    line is written before its delete): it is skipped and named, and the lines around it are restored."""
+    _seek(world, 13, "Cedar Unpublished")
+    merged = world.graph.add_study(id=13, seek_study_id=13, title="Cedar Unpublished", investigation=world.inv[101])
+    world.graph.add_study(id=1, title="Elm paper", DOI="10.9999/e1", investigation=world.inv[101])
+    for sample_id in (1001, 1002, 1003):
+        world.graph.add_sample(sample_id)
+    world.graph.link(1001, merged)
+    run_dir = tmp_path / "s1"
+    run_dir.mkdir()
+    archive = run_dir / study_links.ARCHIVE_FILE
+    archive.write_text(writer.IN_STUDY_ARCHIVE_HEADER + "1002\t13\t13\t5:abc:9\tstudies\n1001\t13\t1",
+                       encoding="utf-8")
+    writer._append_rows(str(archive), writer.IN_STUDY_ARCHIVE_HEADER, ["1003\t13\t13\t5:abc:11\tby_id\n"])
+    result = study_merge.undo(world.graph, DB, [str(run_dir)])
+    assert result["status"] == "ok"
+    assert (result["archive_rows"], result["archive_restored"]) == (2, 2)
+    assert result["archive_lines_skipped"] == [f"{archive}:3"]
+    assert world.graph.keys_of(1001) == world.graph.keys_of(1002) == world.graph.keys_of(1003) == {("seek", 13)}
+
+
+def test_undo_takes_a_studies_run_directory_that_removed_no_link(world, tmp_path):
+    """``--studies`` writes its archive only when it removes a link, so a run that removed none leaves only
+    ``study_links.json``. Given with the merge's directory it restores nothing, and the undo goes on."""
+    _split(world)
+    before = _snapshot(world.graph)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    studies_dir = tmp_path / "s1"
+    studies_dir.mkdir()
+    (studies_dir / study_links.REPORT_FILE).write_text('{"mode": "studies", "in_study_removed": 0}', encoding="utf-8")
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(studies_dir)])
+    assert result["status"] == "ok" and (result["archives"], result["archive_rows"]) == ([], 0)
+    assert _snapshot(world.graph) == before

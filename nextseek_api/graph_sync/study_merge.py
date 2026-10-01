@@ -342,6 +342,11 @@ def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
 
 # --- apply ---------------------------------------------------------------------------------------------------------
 
+def _now() -> str:
+    """The UTC time a journal line carries; as text it sorts as it orders."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
 def _journal(path: str, study_id: int, record: str, payloads) -> None:
     """Append one journal line per payload and flush it to disk, before the write it describes."""
     lines = [f"{int(study_id)}\t{record}\t{json.dumps(p, sort_keys=True, ensure_ascii=True, default=str)}\n"
@@ -363,7 +368,7 @@ def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
                                    "seek_keyed": _journaled_node(keyed),
                                    "legacy_sources": _sources(driver, db, legacy.element_id),
-                                   "at": datetime.now(timezone.utc).isoformat(timespec="microseconds")}])
+                                   "at": _now()}])
     if keyed is not None and sel.kind != REKEY_IN_PLACE:
         while True:
             rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
@@ -415,9 +420,10 @@ def _unfinished_kinds(journal: str) -> dict:
 
 def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
     """Merge or rekey each id of ``approved`` (id to the kind the operator approved from the dry run's approval
-    line), in id order, under the caller's hold of the graph-write lock. Each id's kind is
-    read again first: an ``already_merged`` id is counted and not written; an id that reads another kind than its
-    approved one stops the run before its first write, ids done before it staying done. A rerun given the same
+    line), in id order, under the caller's hold of the graph-write lock. Each id's kind is read again first: an
+    ``already_merged`` id is counted and not written (where the journal holds an attempt of it with no done line,
+    whose last step landed before it stopped, that attempt's done line is written); an id that reads another kind than
+    its approved one stops the run before its first write, ids done before it staying done. A rerun given the same
     ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
     a merge by the match that moved every source before a crash, and now reads rekey_in_place, is still finished.
     The status is ``refused`` when the run stopped before anything was written, ``failed`` when it stopped part way:
@@ -433,6 +439,11 @@ def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_C
     for x in sorted(int(i) for i in approved):
         sel = classify(read_index(driver, db), x)
         if sel.kind == ALREADY_MERGED:
+            if x in journaled:
+                # An earlier attempt into this run directory merged it and died before its done line (or lost the
+                # last step's acknowledgement). Its done line, timed, keeps it from being read with a later merge
+                # cycle of the id; the time keeps it with an attempt in another run directory that finished it.
+                _journal(journal, x, "done", [{"kind": journaled[x], "found": ALREADY_MERGED, "at": _now()}])
             result["already_merged"].append(x)
             continue
         expected = journaled.get(x, approved[x])
@@ -460,22 +471,25 @@ def _opt_int(text: str):
 
 
 def _attempt(at: str, plan: dict | None) -> dict:
-    return {"at": at, "plan": plan, "sources": {}, "done": False}
+    return {"at": at, "plan": plan, "sources": {}, "done": False, "done_at": ""}
 
 
 def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
     """Every journal line per study id across ``paths`` (a journal, or a run directory holding ``study_merge.tsv``
-    and/or ``in_study_removed.tsv``), and the archives found. Raises ValueError for a path that is neither.
+    and/or ``in_study_removed.tsv``), and the archives found. A ``--studies`` run directory that removed no link holds
+    only ``study_links.json``: nothing to restore. Raises ValueError for a path that is none of these.
 
     Each ``plan`` line starts an attempt, which owns the ``source`` and ``done`` lines after it in its journal, and the
     attempts of an id are ordered by the UTC time their plan line carries, so the order of ``paths`` changes nothing.
-    Only the latest cycle counts: the attempts after the last one before the newest that ended ``done``. A merge
-    undone and approved again is a new cycle; a crash and its rerun, in one run directory or two, are one. Of that
-    cycle the first plan line wins (a crash and its rerun journal the same nodes), and its sources, and the legacy
-    node's own sources of each plan line, are merged by element id (a source a crashed run moved is in its ``source``
-    lines, which take precedence in the undo). ``legacy_sources_known`` is False when a plan line holds no list of
-    them. A line that cannot be read (a crash cut it short) describes no write, as the apply reads it: it is skipped,
-    and named as ``<journal>:<line number>`` in ``skipped`` when given."""
+    Only the latest cycle counts: the attempts after the last one before the newest that ended ``done`` before the
+    next attempt began (a done line a rerun wrote on finding its unfinished id merged carries its time, and one written
+    after another attempt of the id began does not end the cycle). A merge undone and approved again is a new cycle; a
+    crash and its rerun, in one run directory or two, are one. Of that cycle the first plan line wins (a crash and its
+    rerun journal the same nodes), and its sources, and the legacy node's own sources of each plan line, are merged by
+    element id (a source a crashed run moved is in its ``source`` lines, which take precedence in the undo).
+    ``legacy_sources_known`` is False when a plan line holds no list of them. A line that cannot be read (a crash cut
+    it short) describes no write, as the apply reads it: it is skipped, and named as ``<journal>:<line number>`` in
+    ``skipped`` when given."""
     attempts: dict[int, list] = {}
     archives: list[str] = []
     for raw in paths:
@@ -487,9 +501,9 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
                 archives.append(archive)
             if os.path.isfile(candidate):
                 journal = candidate
-            elif not os.path.isfile(archive):
-                raise ValueError(f"{path} holds no journal ({JOURNAL_FILE}) and no archive "
-                                 f"({study_links.ARCHIVE_FILE})")
+            elif not (os.path.isfile(archive) or os.path.isfile(os.path.join(path, study_links.REPORT_FILE))):
+                raise ValueError(f"{path} holds no journal ({JOURNAL_FILE}), no archive "
+                                 f"({study_links.ARCHIVE_FILE}) and no --studies report ({study_links.REPORT_FILE})")
         elif os.path.isfile(path):
             journal = path
         else:
@@ -518,11 +532,11 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
                 if record == "source":
                     current[x]["sources"].setdefault(data["element_id"], data)
                 elif record == "done":
-                    current[x]["done"] = True
+                    current[x].update(done=True, done_at=str(data.get("at") or ""))
     per_id: dict[int, dict] = {}
     for x, found in attempts.items():
         found.sort(key=lambda a: a["at"])                   # stable: lines with no time keep the order read
-        ended = [i for i, a in enumerate(found[:-1]) if a["done"]]
+        ended = [i for i, a in enumerate(found[:-1]) if a["done"] and a["done_at"] <= found[i + 1]["at"]]
         cycle = found[ended[-1] + 1:] if ended else found
         plans = [a["plan"] for a in cycle if a["plan"] is not None]
         entry = per_id[x] = {"plan": plans[0] if plans else None, "sources": {}, "legacy_sources": {},
@@ -536,15 +550,19 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
     return per_id, archives
 
 
-def _read_archives(paths) -> list[dict]:
+def _read_archives(paths, skipped: list) -> list[dict]:
+    """The links the IN_STUDY archives at ``paths`` hold, once each. A line without its five fields was cut short by a
+    crash, which came before its delete: it describes no removed link, so it is skipped and named as
+    ``<archive>:<line number>`` in ``skipped`` (a cut inside the last field, ``path``, leaves the link whole)."""
     rows, seen = [], set()
     for path in paths:
         with open(path, encoding="utf-8") as fh:
             if fh.readline() != writer.IN_STUDY_ARCHIVE_HEADER:
                 raise ValueError(f"{path} is not an IN_STUDY archive")
-            for line in fh:
+            for number, line in enumerate(fh, start=2):
                 fields = line.rstrip("\n").split("\t")
-                if len(fields) < 3 or not fields[0]:
+                if len(fields) != 5 or not fields[0]:
+                    skipped.append(f"{path}:{number}")
                     continue
                 key = (int(fields[0]), _opt_int(fields[1]), _opt_int(fields[2]))
                 if key not in seen:
@@ -643,8 +661,12 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
     Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
     Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
     id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
-    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal lines a crash cut
-    short are skipped and named in ``journal_lines_skipped`` (``read_journals``)."""
+    or replaced is named in ``investigation_not_restored`` and makes the status ``partial``. Journal and archive lines
+    a crash cut short are skipped and named in ``journal_lines_skipped`` (``read_journals``) and
+    ``archive_lines_skipped`` (``_read_archives``). Last, it ends with a timed done line each attempt of an id it did
+    not refuse that a given journal leaves open (a merge whose last step landed before it died), so a later merge of
+    the id reads as a new cycle (``_close_attempts``); a journal it cannot write is named in ``journals_not_closed``
+    and makes the status ``partial``."""
     skipped: list[str] = []
     journals, archives = read_journals(paths, skipped)
     if run_root is not None:
@@ -652,11 +674,12 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         if missing:
             raise ValueError("other merge journals name the same study ids; give them too, so a crash and its rerun "
                              "(or a later approval) are undone together: " + ", ".join(missing))
-    archive_rows = _read_archives(archives)
+    archive_skipped: list[str] = []
+    archive_rows = _read_archives(archives, archive_skipped)
     index = read_index(driver, db)
     report = {"status": DRY_RUN if dry_run else OK, "studies": [], "refused": [], "archives": archives,
               "archive_rows": len(archive_rows), "archive_restored": 0, "investigation_not_restored": [],
-              "journal_lines_skipped": skipped}
+              "journal_lines_skipped": skipped, "archive_lines_skipped": archive_skipped, "journals_not_closed": []}
     todo = []
     for x in sorted(journals):
         entry = journals[x]
@@ -709,10 +732,31 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         _move_arrivals(driver, db, entry, keyed_eid, by_id[x], batch)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
-    if (report["refused"] or report["investigation_not_restored"]
+    _close_attempts(paths, {item[0] for item in todo} - refused, report)
+    if (report["refused"] or report["investigation_not_restored"] or report["journals_not_closed"]
             or any(s["arrived_left_on_legacy"] for s in report["studies"])):
         report["status"] = PARTIAL
     return report
+
+
+def _close_attempts(paths, study_ids, report: dict) -> None:
+    """End every attempt of ``study_ids`` that a journal among ``paths`` leaves open with a timed done line
+    (``"found": "undone"``): the undo reversed it, so a later merge of the id is a new cycle (``read_journals``) and a
+    stale rerun into that run directory finds nothing to finish. A journal that cannot be written is named in
+    ``journals_not_closed``."""
+    seen = set()
+    for raw in paths:
+        path = os.path.abspath(raw)
+        journal = os.path.join(path, JOURNAL_FILE) if os.path.isdir(path) else path
+        if journal in seen or not os.path.isfile(journal):
+            continue
+        seen.add(journal)
+        try:
+            for x, kind in sorted(_unfinished_kinds(journal).items()):
+                if x in study_ids:
+                    _journal(journal, x, "done", [{"kind": kind, "found": "undone", "at": _now()}])
+        except OSError as exc:
+            report["journals_not_closed"].append({"journal": journal, "error": str(exc)})
 
 
 def _move_back(driver, db, entry: dict, keyed_eid: str, study: dict, batch: int) -> None:

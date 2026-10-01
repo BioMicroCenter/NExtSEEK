@@ -731,3 +731,191 @@ def test_the_empty_answer_notes_read_a_real_graph(studies_lane):
     assert studies_lane.read(sc.PROJECT_NOTES_CYPHER, {"project_id": 99}) == [{"projects": 0, "samples": 0}]
     assert sorted(r["title"] for r in studies_lane.read(sc.SAMPLE_TYPE_TITLES_CYPHER)) == ["CEL", "DNA", "TIS"]
     assert {(r["id"], r["seek_study_id"]) for r in studies_lane.read(sc.STUDY_KEYS_CYPHER)} == {(None, 1), (1, None)}
+
+
+# --- the Nessie brain files' statements on a real Neo4j -------------------------------------------
+
+def test_the_published_vocabulary_reads_most_samples_off_paper_studies(studies_lane):
+    """A SEEK study is published when more than half of its samples on no graph-only paper study carry one DOI and
+    PMID pair; a bucket (a title ending in Unpublished) never is."""
+    from chat_nextseek import graph_catalog as gc
+
+    def load(tx):
+        tx.run("MATCH (n) DETACH DELETE n").consume()
+        tx.run("""
+        CREATE (a:Study {seek_study_id: 1, title: 'Alder Study'}),
+               (b:Study {seek_study_id: 2, title: 'Birch Study'}),
+               (c:Study {seek_study_id: 3, title: 'Cedar Unpublished'}),
+               (d:Study {seek_study_id: 4, title: 'Dogwood Study'}),
+               (p:Study {id: 9, title: 'A graph-only paper', DOI: '10.9999/p9'})
+        CREATE (:Sample {id: 1, DOI: '10.9999/a', PMID: 12})-[:IN_STUDY]->(a),
+               (:Sample {id: 2, DOI: '10.9999/a', PMID: 12})-[:IN_STUDY]->(a),
+               (:Sample {id: 3})-[:IN_STUDY]->(a),
+               (:Sample {id: 4, DOI: '10.9999/b'})-[:IN_STUDY]->(b),
+               (:Sample {id: 5})-[:IN_STUDY]->(b), (:Sample {id: 6})-[:IN_STUDY]->(b),
+               (:Sample {id: 7, DOI: '10.9999/c'})-[:IN_STUDY]->(c)
+        CREATE (d1:Sample {id: 8, DOI: '10.9999/d'})-[:IN_STUDY]->(d), (d1)-[:IN_STUDY]->(p)
+        CREATE (d2:Sample {id: 9, DOI: '10.9999/d'})-[:IN_STUDY]->(d), (d2)-[:IN_STUDY]->(p)
+        CREATE (:Sample {id: 10})-[:IN_STUDY]->(d)
+        """).consume()
+
+    with studies_lane.driver.session() as session:
+        session.execute_write(load)
+    rows = studies_lane.read(gc.VOCAB_PUBLISHED_SAMPLES)
+    assert rows == [{"title": "Alder Study", "doi": "10.9999/a", "pmid": "12", "n": 2, "total": 3}]
+
+
+def test_the_published_vocabulary_lists_a_study_in_several_papers_once_per_paper(studies_lane):
+    """A sample in several papers holds their DOIs '; '-joined, PMIDs at the same positions: the statement counts
+    each paper by position, so a study most of whose samples are in two papers is listed under each, never under
+    the joined string."""
+    from chat_nextseek import graph_catalog as gc
+    _load(studies_lane, [
+        "CREATE (e:Study {seek_study_id: 5, title: 'Elm Study'}) "
+        "CREATE (:Sample {id: 1001, DOI: '10.9999/e; 10.9999/f', PMID: '21; '})-[:IN_STUDY]->(e), "
+        "(:Sample {id: 1002, DOI: '10.9999/e; 10.9999/f', PMID: '21; '})-[:IN_STUDY]->(e), "
+        "(:Sample {id: 1003, DOI: '10.9999/e;10.9999/f', PMID: '21;'})-[:IN_STUDY]->(e), "
+        "(:Sample {id: 1004, DOI: '10.9999/e', PMID: 21})-[:IN_STUDY]->(e), "
+        "(:Sample {id: 1005})-[:IN_STUDY]->(e)"])
+    rows = studies_lane.read(gc.VOCAB_PUBLISHED_SAMPLES)
+    assert sorted((r["title"], r["doi"], r["pmid"]) for r in rows) == [
+        ("Elm Study", "10.9999/e", "21"), ("Elm Study", "10.9999/f", "")]
+
+
+def test_a_doi_repeated_inside_one_samples_list_counts_that_sample_once(studies_lane):
+    """One sample of three holds the same DOI twice: it is one sample of the paper, not two, so the study is not
+    published."""
+    from chat_nextseek import graph_catalog as gc
+    _load(studies_lane, [
+        "CREATE (f:Study {seek_study_id: 6, title: 'Fir Study'}) "
+        "CREATE (:Sample {id: 1001, DOI: '10.9999/g; 10.9999/g', PMID: '31; 31'})-[:IN_STUDY]->(f), "
+        "(:Sample {id: 1002})-[:IN_STUDY]->(f), (:Sample {id: 1003})-[:IN_STUDY]->(f)"])
+    assert studies_lane.read(gc.VOCAB_PUBLISHED_SAMPLES) == []
+
+
+def test_samples_shared_into_another_project_reach_both_callers_and_name_the_paper_once(studies_lane):
+    """Project Alder's paper study holds the paper's samples; two of them are also shared into project Birch (their
+    project list holds both, and they are IN_STUDY to Birch's Abbey Study too), two are Alder's only. Alder also has
+    a second published study, of another paper, shared with nobody. A caller limited to either project, through the
+    product's scoping (the prover in front of the tool, the scoped vocabulary statements): the taught "associated
+    with the DOI", "in the paper's study" and PMID statements reach the shared samples; Birch's caller never sees
+    Alder's other samples, nor Alder's other paper in its published list; each published list names the paper once,
+    beside its own study. For Birch's caller both studies hold the same 2 visible samples of the paper and Abbey
+    Study sorts first, so only the share (2 of 2 against 2 of 3) keeps the paper beside its own study."""
+    from types import SimpleNamespace
+
+    from chat_nextseek import graph_catalog as gc
+    from chat_nextseek.graph_scope import GraphScope, with_scope
+    from chat_nextseek.helpers.tools.neo4j import tool_neo4j_query
+    from nextseek_graph import schema
+
+    from NessieAI.tests.chat_nextseek.graph_scope import battery
+    alder, birch = 21, 22
+    _load(studies_lane, [
+        "CREATE (:GraphMeta {schema_version: '" + schema.SCHEMA_VERSION + "', catalog_hash: 'lane'})",
+        "CREATE (pa:Project {id: 21, title: 'Alder'}), (pb:Project {id: 22, title: 'Birch'}), "
+        "(ia:Investigation {id: 121, title: 'Alder Investigation'})-[:IN_PROJECT]->(pa), "
+        "(ib:Investigation {id: 122, title: 'Birch Investigation'})-[:IN_PROJECT]->(pb), "
+        "(paper:Study {seek_study_id: 31, title: 'An Alder paper'})-[:IN_INVESTIGATION]->(ia), "
+        "(bucket:Study {seek_study_id: 33, title: 'Alder Unpublished'})-[:IN_INVESTIGATION]->(ia), "
+        "(two:Study {seek_study_id: 34, title: 'Alder Study Two'})-[:IN_INVESTIGATION]->(ia), "
+        "(shared:Study {seek_study_id: 32, title: 'Abbey Study'})-[:IN_INVESTIGATION]->(ib) "
+        "FOREACH (k IN [1, 2] | CREATE (s:Sample {id: 2000 + k, uuid: 'TIS-230101LNE-' + k, type: 'TIS', "
+        "  DOI: '10.9999/x', PMID: '77', project_ids: [21, 22]}) "
+        "  CREATE (s)-[:IN_STUDY]->(paper) CREATE (s)-[:IN_STUDY]->(shared)) "
+        "FOREACH (k IN [3, 4] | CREATE (s:Sample {id: 2000 + k, uuid: 'TIS-230101LNE-' + k, type: 'TIS', "
+        "  DOI: '10.9999/x', PMID: '77', project_ids: [21]}) CREATE (s)-[:IN_STUDY]->(paper)) "
+        "FOREACH (k IN [7, 8] | CREATE (s:Sample {id: 2000 + k, uuid: 'TIS-230101LNE-' + k, type: 'TIS', "
+        "  DOI: '10.9999/y', PMID: '78', project_ids: [21]}) CREATE (s)-[:IN_STUDY]->(two)) "
+        "CREATE (:Sample {id: 2005, uuid: 'TIS-230101LNE-5', type: 'TIS', project_ids: [21]})-[:IN_STUDY]->(bucket), "
+        "(:Sample {id: 2006, uuid: 'TIS-230101LNE-6', type: 'TIS', project_ids: [22]})-[:IN_STUDY]->(shared)"])
+    taught = {case.id: case for case in battery.TAUGHT}
+    by_doi, in_study = taught["default.samples_of_doi_in_list"], taught["default.study_or_investigation_rows"]
+    associated, by_pmid = taught["default.associated_with_doi"], taught["default.samples_of_pmid_in_list"]
+    shared, alders = {"TIS-230101LNE-1", "TIS-230101LNE-2"}, {"TIS-230101LNE-3", "TIS-230101LNE-4"}
+    others = {"TIS-230101LNE-7", "TIS-230101LNE-8"}
+
+    def config(scope):
+        return with_scope(SimpleNamespace(NEO4J_URI=URI, NEO4J_USER="neo4j", NEO4J_PASSWORD=PASSWORD,
+                                          NEO4J_DATABASE=DB), scope)
+
+    def uuids(scope, case, **params):
+        result = tool_neo4j_query(config(scope), case.cypher, {**case.params, **params})
+        assert result["ok"] and result["scope"]["decision"] == "proven", result.get("error")
+        return result["data"]
+
+    paper = {"title": "An Alder paper", "doi": "10.9999/x", "pmid": "77"}
+    other = {"title": "Alder Study Two", "doi": "10.9999/y", "pmid": "78"}
+    gc.reset_cache()
+    try:
+        for project, seen, other_seen, listed in ((alder, shared | alders, others, (other, paper)),
+                                                  (birch, shared, set(), (paper,))):
+            scope = GraphScope.for_projects([project], source="lane")
+            assert {r["uuid"] for r in uuids(scope, by_doi, doi="10.9999/X")} == seen
+            assert {r["uuid"] for r in uuids(scope, by_doi, doi="10.9999/y")} == other_seen
+            assert uuids(scope, by_pmid, pmid="77") == [{"n": len(seen)}]
+            assert {r["uuid"] for r in uuids(scope, in_study, project="An Alder paper")} == seen
+            assert {r["uuid"]: sorted(r["studies"]) for r in uuids(scope, associated, doi="10.9999/x")} == {
+                u: ["Abbey Study", "An Alder paper"] if u in shared else ["An Alder paper"] for u in seen}
+            assert gc.get_vocabulary(config(scope)).published_studies == listed, project
+        assert gc.get_vocabulary(config(GraphScope.admin("lane"))).published_studies == (other, paper)
+    finally:
+        gc.reset_cache()
+
+
+def test_the_admin_vocabulary_lists_only_containers_a_sample_reaches(studies_lane):
+    from chat_nextseek import graph_catalog as gc
+    _load(studies_lane, [
+        "CREATE (i:Investigation {id: 101, title: 'Alder Investigation'}), "
+        "(:Investigation {id: 102, title: 'Birch Investigation'}), "
+        "(st:Study {seek_study_id: 1, title: 'Alder Study'})-[:IN_INVESTIGATION]->(i), "
+        "(:Study {seek_study_id: 2, title: 'Empty Study'})-[:IN_INVESTIGATION]->(i), "
+        "(:Sample {id: 1001})-[:IN_STUDY]->(st)"])
+    assert studies_lane.read(gc.VOCAB_INVESTIGATIONS) == [{"title": "Alder Investigation"}]
+    assert studies_lane.read(gc.VOCAB_STUDIES) == [{"title": "Alder Study"}]
+
+
+def test_the_published_report_counts_published_samples_of_the_named_investigation(studies_lane, tmp_path,
+                                                                                   monkeypatch):
+    """A sample counts when it or a Study it sits in carries a DOI or PMID, once; a holding study is never listed;
+    the resolved investigation id wins over a shared title; a name that resolves to a project matches the
+    investigations IN_PROJECT to that project (its investigation carries another title), never a title."""
+    from types import SimpleNamespace
+
+    from chat_nextseek.graph_scope import GraphScope
+    from chat_nextseek.reports import runners
+    _load(studies_lane, [
+        "CREATE (p7:Project {id: 7, title: 'Alder'}), (p8:Project {id: 8, title: 'Birch'}), "
+        "(a:Investigation {id: 101, title: 'Alder'})-[:IN_PROJECT]->(p8), "
+        "(a2:Investigation {id: 104, title: 'Alder'})-[:IN_PROJECT]->(p8), "
+        "(b:Investigation {id: 102, title: 'Alder Extended'})-[:IN_PROJECT]->(p8), "
+        "(c:Investigation {id: 103, title: 'Alderb Investigation'})-[:IN_PROJECT]->(p7), "
+        "(bucket:Study {seek_study_id: 1, title: 'Alder Unpublished'})-[:IN_INVESTIGATION]->(a), "
+        "(paper:Study {id: 9, title: 'A paper', DOI: '10.9999/p9'})-[:IN_INVESTIGATION]->(a), "
+        "(other:Study {seek_study_id: 4, title: 'Another Alder Study'})-[:IN_INVESTIGATION]->(a2), "
+        "(ext:Study {seek_study_id: 2, title: 'Extended Study'})-[:IN_INVESTIGATION]->(b), "
+        "(cst:Study {seek_study_id: 3, title: 'Alderb Study'})-[:IN_INVESTIGATION]->(c), "
+        "(:Sample {id: 1, uuid: 'TIS-230101SHA-1'})-[:IN_STUDY]->(bucket), "
+        "(:Sample {id: 2, uuid: 'TIS-230101SHA-2', DOI: '10.9999/x'})-[:IN_STUDY]->(bucket), "
+        "(s3:Sample {id: 3, uuid: 'TIS-230101SHA-3'})-[:IN_STUDY]->(bucket), (s3)-[:IN_STUDY]->(paper), "
+        "(:Sample {id: 4, uuid: 'TIS-230101SHA-4', DOI: '10.9999/y'})-[:IN_STUDY]->(other), "
+        "(:Sample {id: 5, uuid: 'TIS-230101SHA-5', DOI: '10.9999/z'})-[:IN_STUDY]->(ext), "
+        "(:Sample {id: 6, uuid: 'TIS-230101SHA-6', PMID: '66'})-[:IN_STUDY]->(cst), "
+        "(:Sample {id: 7, uuid: 'TIS-230101SHA-7'})-[:IN_STUDY]->(cst)"])
+    monkeypatch.setattr(runners, "tool_neo4j_query",
+                        lambda config, cypher, parameters=None: {"ok": True,
+                                                                 "data": studies_lane.read(cypher, parameters)})
+    monkeypatch.setattr(runners, "live_db_conn", lambda *a, **k: None)
+
+    def report(name, **names):
+        config = SimpleNamespace(**{"PROJECT_NAME_TO_ID": {}, "INVESTIGATION_NAME_TO_ID": {}, **names},
+                                 GRAPH_SCOPE=GraphScope.admin("lane"), is_umbrella_published_project=None)
+        return runners.run_project_published_report(config, name, outputs_root=tmp_path)["samples"]
+
+    by_id = report("Alder", INVESTIGATION_NAME_TO_ID={"ALDER": 101})
+    assert sorted(by_id["uuids"]) == ["TIS-230101SHA-2", "TIS-230101SHA-3"]
+    assert (by_id["rows_returned"], by_id["studies"]) == (2, ["A paper"])
+    maps = {"PROJECT_NAME_TO_ID": {"ALDER": 7}, "INVESTIGATION_NAME_TO_ID": {"ALDERB INVESTIGATION": 103}}
+    for name in ("Alder", "Alderb Investigation"):          # the second reaches project 7 by the fuzzy match
+        by_project = report(name, **maps)
+        assert (by_project["uuids"], by_project["studies"]) == (["TIS-230101SHA-6"], ["Alderb Study"])

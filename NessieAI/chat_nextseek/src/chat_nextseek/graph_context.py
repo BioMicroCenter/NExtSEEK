@@ -660,7 +660,8 @@ def _published_block(studies) -> VocabularyBlock | None:
         lines.append("- " + ", ".join(bits))
     if not lines:
         return None
-    return VocabularyBlock("PUBLISHED STUDIES (Study nodes with a DOI or PMID):\n", tuple(lines), "\n")
+    heading = "PUBLISHED STUDIES (a DOI or PMID on the study, or on most of its samples):\n"
+    return VocabularyBlock(heading, tuple(lines), "\n")
 
 
 def _connections_block(connections) -> VocabularyBlock | None:

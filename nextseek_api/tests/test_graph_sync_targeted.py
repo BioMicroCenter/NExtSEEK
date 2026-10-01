@@ -90,6 +90,8 @@ class FakeGraph:
         self.meta = None if version is None else {"schema_version": version, "catalog_hash": "cat-0",
                                                   "label_maps_hash": None}
         self.types = {26: "TIS", 33: "D.SEQ"}
+        # SampleType titles held under other ids (run's sample_type_title_conflicts): the catalog sync refuses them
+        self.title_conflicts: list = []
         self.nodes: dict = {}
         self.edges: dict = {}
         # counted by the full sync that wrote this graph: a sample carries it
@@ -102,6 +104,7 @@ class FakeGraph:
             q.READ_GRAPHMETA: self._graphmeta,
             q.WRITE_GRAPHMETA_WITH_LABEL_MAPS: self._write_graphmeta,
             targeted.SAMPLE_TYPES_PRESENT: self._types_present,
+            q.SAMPLE_TYPE_TITLE_CONFLICTS: lambda p: [dict(c) for c in self.title_conflicts],
             targeted.TYPES_OF_SAMPLES: self._types_of_samples,
             targeted.SET_SAMPLE_TYPE_COUNTS_FOR: lambda p: [{"n": len([i for i in p["ids"] if i in self.types])}],
             targeted.ATTRIBUTE_KEYS_PRESENT: lambda p: [{"key": k} for k in p["keys"] if k in self.attributes],
@@ -460,19 +463,38 @@ def lock(monkeypatch):
     return rec
 
 
+def _title_refusal(conflicts, *more_problems) -> run.PreflightError:
+    problems = [f"{len(conflicts)} SampleType titles are held under other ids in the graph "
+                "(sample_type_title_conflicts)", *more_problems]
+    return run.PreflightError(problems, {"problems": problems, "sample_type_title_conflicts": list(conflicts),
+                                         "graph_schema_version": schema.SCHEMA_VERSION})
+
+
 @pytest.fixture
 def catalog_syncs(monkeypatch, graph, lock):
-    """``run.catalog_sync`` replaced by a recorder that writes the MySQL types into the graph. Each entry is
-    ``(calls sent before it, whether the lock was held)``."""
-    seen = []
+    """``run.catalog_sync`` replaced by a recorder that writes the MySQL types into the graph, or refuses as the real
+    one does while ``graph.title_conflicts`` holds any. Each entry is ``(calls sent before it, whether the lock was
+    held)``; ``kwargs`` holds each call's keyword arguments."""
+    seen = _Seen()
 
-    def fake(driver, db, dry_run=False):
+    def fake(driver, db, dry_run=False, **kwargs):
         seen.append((len(graph.calls), lock.held))
+        seen.kwargs.append(kwargs)
+        if graph.title_conflicts:
+            raise _title_refusal(graph.title_conflicts)
         graph.types.update({t["id"]: t["title"] for t in TYPES})
         return {"mode": "catalog", "status": "ok"}
 
     monkeypatch.setattr(run, "catalog_sync", fake)
     return seen
+
+
+class _Seen(list):
+    """The catalog syncs a test saw, and the keyword arguments of each."""
+
+    def __init__(self):
+        super().__init__()
+        self.kwargs = []
 
 
 @pytest.fixture
@@ -595,6 +617,8 @@ def test_runs_catalog_sync_first_when_a_sample_type_has_no_node(env, tmp_path):
     assert sent_before <= env.graph.first(q.WRITE_SAMPLES)
     assert result["catalog_synced_for_types"] == [33]
     assert env.graph.nodes[11]["type_id"] == 33
+    # its run record names the path that ran it, not a command nobody typed
+    assert env.catalog_syncs.kwargs == [{"trigger": targeted.TRIGGER}] and targeted.TRIGGER == "by-id"
 
 
 def test_runs_catalog_sync_first_when_a_sample_type_node_holds_another_title(env, tmp_path):
@@ -602,6 +626,72 @@ def test_runs_catalog_sync_first_when_a_sample_type_node_holds_another_title(env
     targeted.sync_samples(env.graph, DB, [11], run_dir=str(tmp_path))
     assert len(env.catalog_syncs) == 1
     assert env.catalog_syncs[0][0] <= env.graph.first(q.WRITE_SAMPLES)
+
+
+# A D.SEQ type recreated in SEEK under its old title: the graph's D.SEQ node is type 34, so SEEK's type 33 has none.
+D_SEQ_HELD = {"title": "D.SEQ", "graph_id": 34, "mysql_id": 33}
+
+
+def test_samples_of_a_type_waiting_for_the_catalog_are_left_out_and_named_and_the_rest_written(env, tmp_path):
+    """While a SampleType title is held under another id, the catalog sync is refused and the node of a type that has
+    none cannot be written: only the nightly reconcile clears that. The samples of such a type are left out and named;
+    every other sample is written."""
+    del env.graph.types[33]
+    env.graph.title_conflicts = [D_SEQ_HELD]
+
+    result = targeted.sync_samples(env.graph, DB, [10, 11, 12, 13], run_dir=str(tmp_path))
+
+    assert result["status"] == "ok"
+    why = "sample type 33 has no current SampleType node ('D.SEQ' is held by type 34 in the graph)"
+    assert result["catalog_waiting_samples"] == {11: why, 13: why}
+    assert result["catalog_synced_for_types"] == []
+    assert sorted(r["id"] for c in env.graph.of(q.WRITE_SAMPLES) for r in c.params["rows"]) == [10, 12]
+    assert result["samples_written"] == 2 and result["structural_gaps"] == 0
+    # The titles are read first, so the refusal the report names anyway runs no catalog sync and records no run:
+    # every sync that needs the catalog would record one while the titles wait.
+    assert env.catalog_syncs == []
+
+
+def test_a_title_conflict_the_catalog_sync_meets_after_the_titles_were_read_still_leaves_the_samples_out(
+        env, tmp_path, monkeypatch):
+    """SEEK can rename a type between the read of the titles and the catalog sync's own: its refusal for titles
+    alone is then the same outcome."""
+    del env.graph.types[33]
+
+    def refuse(driver, db, **kwargs):
+        raise _title_refusal([D_SEQ_HELD])
+
+    monkeypatch.setattr(run, "catalog_sync", refuse)
+    result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+
+    assert list(result["catalog_waiting_samples"]) == [11]
+    assert sorted(r["id"] for c in env.graph.of(q.WRITE_SAMPLES) for r in c.params["rows"]) == [10]
+
+
+def test_a_refusal_for_more_than_title_conflicts_still_raises(env, tmp_path, monkeypatch):
+    del env.graph.types[33]
+
+    def refuse(driver, db, **kwargs):
+        raise _title_refusal([D_SEQ_HELD], "a label collides with another (label_collisions)")
+
+    monkeypatch.setattr(run, "catalog_sync", refuse)
+    with pytest.raises(run.PreflightError):
+        targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+    assert env.graph.of(q.WRITE_SAMPLES) == []
+
+
+def test_a_catalog_restamp_refused_for_title_conflicts_keeps_the_writes_and_says_refused(env, tmp_path):
+    """A sample that fills an attribute for the first time restamps the catalog hash; refused for titles held under
+    other ids, its writes stand and the hash waits for the nightly."""
+    _declared(env, "26:Organ", "Organ", 0)
+    env.graph.title_conflicts = [D_SEQ_HELD]
+
+    result = targeted.sync_samples(env.graph, DB, [10, 12], run_dir=str(tmp_path))
+
+    assert (result["status"], result["attribute_counts_raised"], result["catalog_resynced"]) == ("ok", 1, "refused")
+    assert env.graph.attributes["26:Organ"]["sample_count"] == 2
+    assert "catalog_waiting_samples" not in result
+    assert env.catalog_syncs == []
 
 
 def test_no_catalog_sync_when_every_type_has_its_node(env, tmp_path):
@@ -1008,7 +1098,7 @@ def test_a_sync_whose_type_and_project_links_fail_reports_the_parts_and_leaves_t
     monkeypatch.setattr(writer, "merge_missing_projects",
                         lambda d, db, ids, rows: {"projects_written_for_links": 0, "project_ids_not_in_seek": 0})
     env.graph.types.pop(26)                                 # no SampleType node for sample 10's type
-    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: [])
+    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: ([], {}))
     result = targeted.sync_samples(env.graph, DB, [10], run_dir=str(tmp_path))
     assert result["structural_gap_parts"] == {"untyped": 1, "in_project_missing": 1}
     assert result["structural_gaps"] == 2 and result["status"] == "ok"
@@ -1037,7 +1127,7 @@ def test_an_untyped_sample_is_named_with_its_type(env, tmp_path, monkeypatch):
     env.graph.types.pop(26)                                 # no SampleType node for sample 10's type
     env.graph.study.projects[2] = {"id": 2, "title": "Local"}
     env.mysql.projects[11] = [16]
-    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: [])
+    monkeypatch.setattr(targeted, "_ensure_sample_types", lambda d, db, rows, cat: ([], {}))
     result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
     assert result["structural_gap_parts"] == {"untyped": 1, "in_project_missing": 1}
     # project 16 has no node though SEEK has it (the writer is stubbed here), so it is named apart

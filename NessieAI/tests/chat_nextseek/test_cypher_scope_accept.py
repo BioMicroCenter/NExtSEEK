@@ -131,12 +131,16 @@ def test_every_injected_line_is_in_the_text(case):
 def test_report_statements_are_proven(tmp_path):
     captured = report_statements(tmp_path)
     assert len(captured) == 3
-    for cypher, params in captured:
+    for n, (cypher, params) in enumerate(captured):
         assert cypher.startswith("MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample)")
         out = scope_cypher(cypher, params, CALLER)
         assert isinstance(out, Scoped), getattr(out, "reasons", out)
-        assert out.injected == ("s: sample clause",)
-        assert out.joined == ("inv (Investigation): joined to study", "study (Study): joined to s")
+        # the published report (the third statement) matches the investigations of the project its name resolved to,
+        # and also asks whether a sample sits in a paper study
+        project = ("proj: project clause",) if n == 2 else ()
+        assert out.injected == ("s: sample clause",) + project
+        paper = ("pub (Study): joined to s",) if n == 2 else ()
+        assert out.joined == ("inv (Investigation): joined to study", "study (Study): joined to s") + paper
         assert out.parameters == {**params, SCOPE_PARAM: [1, 3]}
 
 
