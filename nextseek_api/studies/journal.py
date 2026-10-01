@@ -78,7 +78,11 @@ class Journal:
 
 @dataclass
 class JournalState:
+    """What a journal says. Rollback lines carry the investigation they undo (None: the whole run): ``undo_parts``
+    holds ``(part, investigation)`` pairs done, ``undo_scopes`` every investigation an undo line names, finished or
+    not, and ``undone_investigations`` those whose rollback finished; ``undone`` is the whole run's."""
     started: bool = False
+    plan_sha256: Optional[str] = None
     studies: dict = field(default_factory=dict)
     clones: dict = field(default_factory=dict)
     map_pairs: Optional[list] = None
@@ -90,6 +94,8 @@ class JournalState:
     apply_done: bool = False
     undone_units: set = field(default_factory=set)
     undo_parts: set = field(default_factory=set)
+    undo_scopes: set = field(default_factory=set)
+    undone_investigations: set = field(default_factory=set)
     undone: bool = False
 
 
@@ -106,6 +112,8 @@ def journal_state(lines: list[dict]) -> JournalState:
     for line in lines:
         step, event = line.get("step"), line.get("event")
         if step == "run" and event == "start":
+            if not st.started:
+                st.plan_sha256 = line.get("plan_sha256")
             st.started = True
         elif step == "study":
             _outcome(st.studies.setdefault(line["target_key"], {"intent": None, "seek_id": None, "how": None}), line)
@@ -138,11 +146,15 @@ def journal_state(lines: list[dict]) -> JournalState:
             st.apply_done = True
         elif step == "graph" and event == "done":
             st.graph_done.add(line.get("investigation"))
-        elif step == "undo" and event == "done":
-            part = line.get("part")
-            st.undo_parts.add(part)
-            if part == "unit":
-                st.undone_units.add(int(line["unit"]))
-            if part == "run":
-                st.undone = True
+        elif step == "undo":
+            investigation = line.get("investigation")
+            st.undo_scopes.add(investigation)
+            if event == "done":
+                part = line.get("part")
+                st.undo_parts.add((part, investigation))
+                if part == "unit":
+                    st.undone_units.add(int(line["unit"]))
+                if part == "run":
+                    st.undone_investigations.add(investigation)
+                    st.undone = st.undone or investigation is None
     return st

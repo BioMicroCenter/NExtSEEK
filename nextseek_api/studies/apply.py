@@ -1,13 +1,16 @@
 """apply_study_moves (tool spec 7.1 to 7.5): the plan written to SEEK, each write journaled before it happens.
 
-1. Preflight (read only): the plan's version and this code's sha; the run lock; the buckets, the studies release,
-   and SEEK's next study id (``preflight``). The caller has proved the login (``SeekSession.prove``).
+1. Preflight (read only): the plan's version and this code's sha; the scope (an investigation the plan holds); the
+   run lock, then the journal read under it (not rolled back, the same plan as the run started with); the buckets,
+   the studies release, the plan's existing studies and reused assays, the titles of the studies to create, and SEEK's
+   next study id (``preflight``). The caller has proved the login (``SeekSession.prove``).
 2. Studies to create, one ``POST /studies`` each; ``isa`` enqueued.
 3. Clones to create, one ``POST /assays`` at a time, the target's SEEK id filled in.
 4. The clones' internal-assay rows, one transaction; ``assay_map`` enqueued.
 5. The link units in order (``links.run_link_unit``), one transaction each.
 6. The publications (the backfill's ``write_publication_attributes``), in batches of 500, the samples enqueued under
-   the run's own keys.
+   the run's own keys. A unit refused part way still gets the committed units' publications written, with only
+   their targets' DOIs, so a new plan (which reads their samples as no_change) loses none.
 
 A POST that raised is resolved, never retried blindly: the object it would have made is looked for in SEEK's MySQL,
 every ``ADOPT_POLL_S`` for up to ``ADOPT_WAIT_S`` (a create Rails is still finishing does not show at once); one is
@@ -70,16 +73,26 @@ class RunResult:
 
 
 class _Stop(Exception):
-    def __init__(self, status: str, message: str):
-        self.status, self.message = status, message
+    def __init__(self, status: str, message: str, *, unit_refused: bool = False):
+        self.status, self.message, self.unit_refused = status, message, unit_refused
         super().__init__(message)
 
 
-def load_run(run_dir):
-    run_dir = Path(run_dir)
-    plan = StudyMovePlan.from_file(run_dir / PLAN_FILE)
-    lines, bad = read_journal(run_dir / JOURNAL_FILE)
-    return plan, journal_state(lines), bad
+def scope_refusal(plan: StudyMovePlan, investigation: Optional[int]) -> Optional[str]:
+    if investigation is not None and all(t.investigation_id != investigation for t in plan.targets):
+        return f"investigation {investigation} has no target in this plan"
+    return None
+
+
+def rolled_back(st, plan: StudyMovePlan, investigation: Optional[int]) -> bool:
+    """Whether a rollback of this run, finished or not, touched the scope: the whole run, or an investigation of it
+    (every investigation of the plan when no investigation is given)."""
+    scope = {investigation} if investigation is not None else {t.investigation_id for t in plan.targets}
+    return None in st.undo_scopes or bool(scope & st.undo_scopes)
+
+
+def state_of(run_dir):
+    return journal_state(read_journal(Path(run_dir) / JOURNAL_FILE)[0])
 
 
 def in_scope(plan: StudyMovePlan, investigation: Optional[int]) -> tuple[list, list]:
@@ -220,19 +233,29 @@ def _recover(unit, unit_state: dict, run_id: str) -> str:
     return "unknown"
 
 
+def _enqueue_after_commit(run_id: str, unit, sample_ids) -> None:
+    """A unit's rows that went in after its commit, chunked as in its transaction (links.outbox_rows); sent before
+    ``links.committed`` is journaled, so a crash in between resumes through the recovery and sends them again."""
+    for key, part in links.outbox_rows(links.unit_key(run_id, unit.unit), sample_ids):
+        hooks.enqueue("samples", key, part)
+
+
 def _units(journal, st, units, clone_ids, run_id):
-    """Yields (unit, whether its outbox row must be enqueued after the commit, its sample ids) per committed unit."""
+    """Yields each unit this call commits or recovers as committed."""
     for unit in units:
         us = st.units.get(unit.unit) or {}
         if us.get("committed"):
             continue
         if us.get("refused"):
-            raise _Stop(STOPPED, f"unit {unit.unit} was refused (its source assays changed): plan the wave again")
+            raise _Stop(STOPPED, f"unit {unit.unit} was refused (its source assays changed): plan the wave again",
+                        unit_refused=True)
         if us.get("prepared"):
             verdict = _recover(unit, us, run_id)
             if verdict == "committed":
+                if us["prepared"].get("outbox") != "in_transaction":
+                    _enqueue_after_commit(run_id, unit, unit.sync_ids)
                 journal.append("links", "committed", unit=unit.unit, recovered=True)
-                yield unit, us["prepared"].get("outbox") != "in_transaction", sorted(set(unit.sync_ids))
+                yield unit
                 continue
             if verdict == "unknown":
                 raise _Stop(STOPPED, f"unit {unit.unit} reads as neither committed nor rolled back; look at its "
@@ -243,22 +266,54 @@ def _units(journal, st, units, clone_ids, run_id):
         except links.LinkRefused as exc:
             journal.append("links", "refused", unit=unit.unit, reason=exc.reason, detail=exc.detail)
             raise _Stop(STOPPED, f"unit {unit.unit} refused ({exc.reason}): plan the wave again; the units already "
-                                 "done read no_change") from exc
+                                 "done read no_change", unit_refused=True) from exc
+        if not result.outbox_in_transaction:
+            _enqueue_after_commit(run_id, unit, result.sample_ids)
         journal.append("links", "committed", unit=unit.unit)
-        yield unit, not result.outbox_in_transaction, result.sample_ids
+        yield unit
 
 
 # --- publications ------------------------------------------------------------------------------------------------
 
-def _publications(journal, st, plan, targets, investigation) -> dict:
+def _publication_values(raw):
+    """A metadata text's (DOI, PMID) pairs (``backfill.publication_pairs``): what the resume compares, not the text,
+    so an edit to any other attribute is not a change. None when the text is not a JSON object."""
+    try:
+        meta = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    return backfill.publication_pairs(meta.get("DOI"), meta.get("PMID"))
+
+
+def _only_dois(rows, dois: set) -> list:
+    """The publication rows cut to the DOIs in ``dois`` (casefolded), PMIDs kept aligned; a row left with none is
+    dropped."""
+    out = []
+    for r in rows:
+        kept = [(d, p) for d, p in zip(r.dois, r.pmids) if d.strip().casefold() in dois]
+        if kept:
+            out.append(r.model_copy(update={"dois": [d for d, _p in kept], "pmids": [p for _d, p in kept]}))
+    return out
+
+
+def _publications(journal, st, plan, targets, investigation, *, dois: Optional[set] = None) -> dict:
+    """The publication step; ``dois`` (casefolded) limits it to those papers (the committed units' targets after a
+    unit was refused)."""
     invs = {t.investigation_id for t in targets}
     rows = [r for r in plan.publications if r.investigation_id in invs]
+    if dois is not None:
+        rows = _only_dois(rows, dois)
     if not rows:
         return {"publication_rows": 0}
     ids = sorted(r.sample_id for r in rows)
+    wanted = set(ids)
     current = {r["id"]: r["json_metadata"] for r in sources.samples_by_ids(ids)}
-    prior = {sid: v for sid, v in st.pubs_rows.items() if sid in set(ids)}
-    changed = sorted(sid for sid, (old, new) in prior.items() if (current.get(sid) or "") not in (old, new))
+    prior = {sid: v for sid, v in st.pubs_rows.items() if sid in wanted}
+    changed = sorted(sid for sid, (old, new) in prior.items()
+                     if _publication_values(current.get(sid))
+                     not in (_publication_values(old), _publication_values(new)))
     if changed:
         raise _Stop(STOPPED, f"publications: {len(changed)} sample(s) changed since this run wrote them "
                              f"(ids {changed[:20]}); look before running again")
@@ -278,7 +333,7 @@ def _publications(journal, st, plan, targets, investigation) -> dict:
                                                    enqueue_prefix=prefix, also_enqueue=sorted(prior))
     unreadable = sorted(set(unreadable) | set(report["unreadable"]))
     journal.append("pubs", "done", investigation=investigation, written=len(report["updated"]),
-                   unreadable=unreadable, queued=report["queued"])
+                   unreadable=unreadable, queued=report["queued"], committed_units_only=dois is not None)
     return {"publication_rows": len(rows), "publications_written": len(report["updated"]),
             "publications_unreadable": len(unreadable)}
 
@@ -288,19 +343,25 @@ def _publications(journal, st, plan, targets, investigation) -> dict:
 def apply_study_moves(run_dir, session, driver, db, *, investigation: Optional[int] = None,
                       reader=None) -> RunResult:
     run_dir = Path(run_dir)
-    plan, st, _bad = load_run(run_dir)
+    plan = StudyMovePlan.from_file(run_dir / PLAN_FILE)
     if plan.mode == "share":
         return RunResult(REFUSED, "a share is applied through the sample-shares endpoint, not --mode apply")
     if plan.plan_version != PLAN_VERSION or plan.code_sha != code_sha():
         return RunResult(REFUSED, "the plan was made by other code: plan again")
-    if st.undo_parts:
-        return RunResult(REFUSED, "this run was rolled back: plan again for a new run")
+    refusal = scope_refusal(plan, investigation)
+    if refusal:
+        return RunResult(REFUSED, refusal)
     targets, units = in_scope(plan, investigation)
     reader = reader or SnapshotReader(session, driver, db)
     with preflight.run_lock() as held:
         if not held:
             return RunResult(REFUSED, f"another studies run holds the lock {preflight.LOCK_NAME}")
-        refusal = preflight.apply_refusal(plan, targets, driver, db, reader)
+        st = state_of(run_dir)     # under the lock: a rollback or an apply that just ended is seen
+        if rolled_back(st, plan, investigation):
+            return RunResult(REFUSED, "this run was rolled back: plan again for a new run")
+        if st.plan_sha256 is not None and st.plan_sha256 != plan.sha256():
+            return RunResult(REFUSED, "the plan changed since this run started: plan again for a new run")
+        refusal = preflight.apply_refusal(plan, targets, driver, db, reader, session=session, st=st)
         if refusal:
             return RunResult(REFUSED, refusal)
         journal = Journal(run_dir / JOURNAL_FILE, run_id=plan.run_id)
@@ -315,11 +376,20 @@ def apply_study_moves(run_dir, session, driver, db, *, investigation: Optional[i
             _mapping(journal, st, targets, clone_ids)
             if any(c.action == "create" for t in targets for c in t.clones):
                 hooks.enqueue("assay_map", "*")
-            for unit, enqueue_after, sample_ids in _units(journal, st, units, clone_ids, plan.run_id):
-                counts["units_committed"] += 1
-                if enqueue_after:   # the unit's rows, chunked as in its transaction (links.outbox_rows)
-                    for key, part in links.outbox_rows(links.unit_key(plan.run_id, unit.unit), sample_ids):
-                        hooks.enqueue("samples", key, part)
+            done = {u.unit for u in units if (st.units.get(u.unit) or {}).get("committed")}
+            try:
+                for unit in _units(journal, st, units, clone_ids, plan.run_id):
+                    counts["units_committed"] += 1
+                    done.add(unit.unit)
+            except _Stop as stop:
+                if stop.unit_refused and done:
+                    keys = {u.target_key for u in units if u.unit in done}
+                    dois = {t.doi.strip().casefold() for t in targets if t.key in keys and (t.doi or "").strip()}
+                    try:
+                        counts.update(_publications(journal, st, plan, targets, investigation, dois=dois))
+                    except _Stop as also:
+                        raise _Stop(STOPPED, f"{stop.message}; {also.message}") from also
+                raise
             counts.update(_publications(journal, st, plan, targets, investigation))
         except _Stop as stop:
             return RunResult(stop.status, stop.message, dict(counts))
@@ -356,13 +426,11 @@ def graph_step(run_dir, driver, db, *, approve_label_changes: bool, investigatio
         return RunResult(REFUSED, "the graph step writes the plan's label changes, and only with "
                                   "--approve-label-changes")
     run_dir = Path(run_dir)
-    plan, st, _bad = load_run(run_dir)
-    if st.undo_parts:
-        return RunResult(REFUSED, "this run was rolled back")
+    plan = StudyMovePlan.from_file(run_dir / PLAN_FILE)
+    refused = scope_refusal(plan, investigation)
+    if refused:
+        return RunResult(REFUSED, refused)
     targets, units = in_scope(plan, investigation)
-    open_units = [u.unit for u in units if not (st.units.get(u.unit) or {}).get("committed")]
-    if open_units:
-        return RunResult(REFUSED, f"units {open_units} are not committed: run apply first")
     refused = preflight.graph_version_refusal(driver, db) or preflight.studies_release_refusal(driver, db)
     if refused:
         return RunResult(REFUSED, refused)
@@ -372,6 +440,12 @@ def graph_step(run_dir, driver, db, *, approve_label_changes: bool, investigatio
     with preflight.run_lock() as held:
         if not held:
             return RunResult(REFUSED, f"another studies run holds the lock {preflight.LOCK_NAME}")
+        st = state_of(run_dir)
+        if rolled_back(st, plan, investigation):
+            return RunResult(REFUSED, "this run was rolled back")
+        open_units = [u.unit for u in units if not (st.units.get(u.unit) or {}).get("committed")]
+        if open_units:
+            return RunResult(REFUSED, f"units {open_units} are not committed: run apply first")
         journal = Journal(run_dir / JOURNAL_FILE, run_id=plan.run_id)
         live = targeted.preview_labels(driver, db, ids) if ids else []
         outside = labels_outside_plan(live, plan.graph.move + plan.graph.pending)

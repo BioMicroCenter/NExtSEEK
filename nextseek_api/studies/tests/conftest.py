@@ -534,12 +534,13 @@ class FakeSession:
     def study_assay_count(self, study_id):
         return sum(1 for parent, _t in self.assays.values() if parent == study_id)
 
-    def assay_link_count(self, assay_id):
+    def assay_link_count(self, assay_id, *, except_sops=()):
         if self.engine is None:
             return 0
         with self.engine.connect() as conn:
-            return conn.execute(text("SELECT COUNT(*) FROM assay_assets WHERE assay_id = :a"),
-                                {"a": assay_id}).scalar()
+            rows = conn.execute(text("SELECT asset_type, asset_id FROM assay_assets WHERE assay_id = :a"),
+                                {"a": assay_id}).fetchall()
+        return sum(1 for kind, asset in rows if not (kind == "Sop" and asset in set(except_sops)))
 
 
 @pytest.fixture

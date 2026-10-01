@@ -479,7 +479,8 @@ WRITERS: tuple[Writer, ...] = (
                   "nextseek_api/studies/seek.py::SeekSession.delete_assay",
                   "nextseek_api/studies/mapping.py::insert_clone_mappings",
                   "nextseek_api/studies/mapping.py::delete_clone_mappings",
-                  "nextseek_api/studies/links.py::undo_link_unit"),
+                  "nextseek_api/studies/links.py::undo_link_unit",
+                  "nextseek_api/studies/links.py::unlink_clone_sops"),
            tables=("studies", "assays", "assay_assets", "assays_internal_assays", "samples", "projects_samples"),
            how=("seek_client", "orm", "sql", "none"),
            hook="hooks.enqueue",
@@ -489,8 +490,10 @@ WRITERS: tuple[Writer, ...] = (
                       "nextseek_api/studies/share_apply.py::run_share_unit"),
            note="the studies tool (manage.py studies): SEEK studies and cloned assays as the operator, the clones' "
                 "internal-assay rows, and sample links moved through WR-01's and WR-02's functions, and project "
-                "rows for a share through WR-01's batch_insert_projects_samples; samples rows go in each unit's "
-                "transaction"),
+                "rows for a share through WR-01's batch_insert_projects_samples; a link unit writes its own samples "
+                "outbox rows in its transaction (after the commit when refused), and so does its undo; rollback "
+                "deletes the SOP links a clone copied (Sop rows, which the graph does not read) before it deletes "
+                "the clone"),
 )
 
 

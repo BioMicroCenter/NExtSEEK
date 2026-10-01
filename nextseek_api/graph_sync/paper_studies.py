@@ -7,7 +7,7 @@
   IN_STUDY and nothing but its IN_INVESTIGATION, archived with its properties and investigations first. A SEEK
   study's node is never deleted here: Study nodes of SEEK studies are not deleted (the studies release).
 - ``restore_paper_links``: rollback: the archived paper nodes, then the archived paper links, each only where
-  missing.
+  missing; limited to ``paper_ids`` and, given ``sample_ids``, to those samples' links and the papers they name.
 
 The caller holds the graph-write lock and has decided which samples may leave their paper (the studies tool's graph
 step: those MySQL now places in the paper's SEEK study).
@@ -94,13 +94,22 @@ def _paper_link_rows(path: Path) -> list[dict]:
     return [{"sample_id": s, "study_id": st} for s, st in pairs]
 
 
-def restore_paper_links(driver, db, graph_dir) -> dict:
+def restore_paper_links(driver, db, graph_dir, *, paper_ids=None, sample_ids=None) -> dict:
     graph_dir = Path(graph_dir)
-    papers = [n for n in _node_rows(graph_dir / STUDY_NODES_REMOVED_FILE) if n.get("study_id") is not None]
+    rows = _paper_link_rows(graph_dir / IN_STUDY_REMOVED_FILE)
+    keep = None if paper_ids is None else {int(i) for i in paper_ids}
+    if keep is not None:
+        rows = [r for r in rows if r["study_id"] in keep]
+    if sample_ids is not None:
+        wanted = {int(s) for s in sample_ids}
+        rows = [r for r in rows if r["sample_id"] in wanted]
+        keep = {r["study_id"] for r in rows}     # a paper none of whose links comes back stays deleted
+    papers = [n for n in _node_rows(graph_dir / STUDY_NODES_REMOVED_FILE) if n.get("study_id") is not None
+              and (keep is None or int(n["study_id"]) in keep)]
     restored = 0
     for batch in _batches(papers, REL_CHUNK):
         restored += _one(_run(driver, db, q.RESTORE_PAPER_STUDY_NODES, {"rows": batch}), "restored")
     links = 0
-    for batch in _batches(_paper_link_rows(graph_dir / IN_STUDY_REMOVED_FILE), REL_CHUNK):
+    for batch in _batches(rows, REL_CHUNK):
         links += _one(_run(driver, db, q.RESTORE_PAPER_IN_STUDY, {"rows": batch}), "restored")
     return {"study_nodes_restored": restored, "paper_links_restored": links}
