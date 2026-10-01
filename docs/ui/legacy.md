@@ -134,8 +134,6 @@ Live images that look like leftovers: `img/favicon.png` (the favicon links in th
 
 | Symbol | Problem | Routed? |
 |---|---|---|
-| `login_full` in `dmac/views.py` | Renders `home.html`, which does not exist anywhere | No: `dmac/urls.py` routes `login_seek` |
-| `index` in `dmac/views.py` | Renders `seek_login.html`, which does not exist | No. Nothing imports it except tests touching `home` |
 | `sampleSearch` in `seek/views/search.py` | Builds a `report` dict, discards it, redirects to `/seek/search/` | Yes, but it only redirects |
 
 ## Deletion candidates
@@ -144,7 +142,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 
 | Confidence | Candidate | Evidence | Extra step before deleting |
 |---|---|---|---|
-| certain | `login_full` and `index` in `dmac/views.py` | Unrouted, render missing templates | Grep tests for `views.index` first |
 | likely | Rest of repo-root `templates/` (accounts, blog, email, errors, generic, includes, pages, base, index, search_results) | Not on loader path; package copies render | `themes/README.md` mentions it, update it |
 | likely | One of the two identical EasyUI copies | `diff -rq` identical | Decide which `STATICFILES_DIRS` entry keeps it. The theme copy is the one `themes/README.md` documents |
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
@@ -187,7 +184,7 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 - The theme folder shadows `seek/templates` for the same file name, so a stale copy in one folder can hide the real file in the other.
 - Deleting a static file from the repo does not remove it from `STATIC_ROOT` on a box that already ran collectstatic; the stale file keeps being served until that folder is cleaned (see [ci-and-deploy.md](ci-and-deploy.md)). The two static roots (`static/`, `themes/NextSeek/static/`) are merged, so deleting from only one of a duplicated pair changes nothing.
 - The committed chat bundle and the Sample Timeline build under `static/js/` are build outputs; do not hand-edit them, and do not delete the current hashed files named in `seek/templates/sample_timeline.html`.
-- Missing-template bugs surface as HTTP 500, not as a missing page. `login_full` and `index` in `dmac/views.py` would do this if ever routed.
+- Missing-template bugs surface as HTTP 500, not as a missing page.
 
 ## Known issues
 

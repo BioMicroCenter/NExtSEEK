@@ -73,7 +73,7 @@ because the app-directories loader reaches the same tree through
 | Footer | `page-footer.embed.html` | `themes/NextSeek/templates/base.html:95` |
 | User panel switch | `includes/user_panel.html` | `themes/NextSeek/templates/base.html:68` |
 | User panel body | `accounts/includes/user_panel.html` | `themes/NextSeek/templates/includes/user_panel.html:8` |
-| Home dashboard | `index.html` | `dmac/views.py:333` |
+| Home dashboard | `index.html` | `home` in `dmac/views.py` |
 | Sign-in page | `login.html` | `dmac/views.py:168` |
 | Help page | `help/getting_started.html` | `seek/views/pages.py:7` |
 | Swagger override | `nextseek/swagger_ui.html` | `nextseek_api/urls.py:75` |
@@ -218,7 +218,7 @@ import, because nothing in this directory is importable beyond two empty
   yielded that one target and no other.
 - Five template names rendered from Python that resolve here, out of 30
   distinct rendered names swept across the tree on 2026-09-03:
-  `dmac/views.py:333`, `dmac/views.py:168`, `seek/views/pages.py:7`,
+  `home` and `login_seek` in `dmac/views.py`, `seek/views/pages.py:7`,
   `nextseek_api/urls.py:75`, and `seek/tests/test_admin_template_gating.py:114`.
 - Every Mezzanine-supplied page, indirectly: Mezzanine's own templates extend
   the bare name `base.html`, which resolves to this theme rather than to

@@ -84,11 +84,6 @@
   it in that file's own recursive self-call and nowhere else
   (`themes/NextSeek/templates/pages/menus/tree.html:20`), so an edit here
   reaches no page.
-- Two template names this project renders exist in no directory on the search
-  path, verified on 2026-09-03 by calling `get_template` on all 30 rendered
-  names swept out of the tree: `dmac/views.py:214` and `dmac/views.py:255` both
-  raise `TemplateDoesNotExist`. Adding a file of either name here would quietly
-  turn two dead code paths back on.
 - `themes/media/` sits on no path Django serves: `STATICFILES_DIRS` names only
   the theme's own static dir and the repo-root one (`dmac/settings.py:88-91`),
   and `MEDIA_ROOT` is the container path `/media` (`dmac/settings.py:95`). A

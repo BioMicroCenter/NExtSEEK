@@ -115,9 +115,8 @@ not fail locally; it fails somewhere else.
   returns nothing, and grepping every `*.py` for that name matches only that import line.
   Setting `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` under that settings module therefore fails
   during settings import, before Django starts.
-- **The home page hides its own failures.** `dmac/views.py:306-331` wraps each model
-  lookup in `except Exception: pass` over a context pre-seeded with zeros at
-  `dmac/views.py:294-302`. A broken database renders a clean dashboard reading zero
+- **The home page hides its own failures.** `home` in `dmac/views.py` wraps each model
+  lookup in `except Exception: pass` over a context pre-seeded with zeros. A broken database renders a clean dashboard reading zero
   samples, zero projects and zero files rather than an error, so "the counts are wrong"
   is the only symptom you will get.
 - **`dmac/dbconn_mysql.py` is 285 lines of unreachable code.** Its sole reference is the
