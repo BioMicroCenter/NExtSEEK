@@ -135,6 +135,21 @@ def test_same_title_other_mapping_is_two_clones(alpha):
     assert [(c.source_assay_id, c.placeholder_id) for c in clones] == [(101, 302), (104, 303)]
 
 
+def test_an_existing_assay_of_the_title_with_another_mapping_is_not_reused(alpha):
+    alpha.mapping[201] = [905]
+    [clone] = plan(alpha, target([3], seek_study_id=21, title="Alpha Paper Existing")).targets[0].clones
+    assert (clone.action, clone.placeholder_id) == ("create", 302)
+
+
+def test_a_title_of_the_columns_length_is_accepted(alpha):
+    assert plan(alpha, target([3], title="x" * 255)).targets[0].study.action == "create"
+
+
+def test_units_run_by_investigation_then_key(alpha):
+    result = plan(alpha, target([6], key="graph_only:1", inv=8, title="Beta Paper"), target([3], key="graph_only:2"))
+    assert [(u.unit, u.target_key) for u in result.units] == [(1, "graph_only:2"), (2, "graph_only:1")]
+
+
 def test_two_targets_naming_one_study_are_both_refused(alpha):
     result = plan(alpha, target([2], key="graph_only:90"), target([3], key="graph_only:91", title=" paper ONE"))
     assert result.targets == [] and result.units == []

@@ -127,6 +127,7 @@ def test_a_mover_the_fixpoint_keeps_is_no_change_on_the_replan(alpha):
     again = plan(alpha, target([2], seek_study_id=100))
     assert again.units == [] and again.no_change == {"sheet:7:paper one": [2]}
     assert again.targets[0].clones[0].action == "reuse"
+    assert again.graph.no_change_sync_ids == {"sheet:7:paper one": [1, 2]}
 
 
 PAPER_A, PAPER_B = dict(key="sheet:7:paper a", title="Paper A"), dict(key="sheet:7:paper b", title="Paper B")
