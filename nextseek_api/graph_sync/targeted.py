@@ -71,6 +71,7 @@ from nextseek_api.graph_sync.writer import _batches, _one, _records, _run
 log = logging.getLogger(__name__)
 
 OK, NOT_AT_VERSION, LOCK_TIMEOUT = "ok", "not_at_version", "lock_timeout"
+TRIGGER = "by-id"         # what the run record of a catalog sync a by-id call runs says started it
 LOCK_WAIT_S = 60          # the spec's bounded wait for the graph-write lock (R10)
 RETIRED_FILE = "retired.tsv"
 DERIVED_FROM_ARCHIVE_FILE = "derived_from_undeclared_archive.tsv"   # the full sync's name, so a run keeps one
@@ -264,12 +265,20 @@ def _set_type_counts(driver, db, type_ids) -> int:
                for batch in _batches(ids, writer.REL_CHUNK))
 
 
-def _catalog_sync(driver, db) -> list[dict]:
-    """Run the catalog sync and return ``[]``; or, when it is refused for nothing but SampleType titles held under
-    other ids in the graph (``run.only_title_conflicts``: a type recreated in SEEK under its old title, which only the
-    nightly reconcile clears), return those conflicts. Any other refusal raises."""
+def _catalog_sync(driver, db, cat) -> list[dict]:
+    """Run the catalog sync and return ``[]``; or, when SampleType titles are held under other ids in the graph (a
+    type recreated in SEEK under its old title, which only the nightly reconcile clears), return those conflicts. Any
+    other refusal raises.
+
+    The titles are read first, against ``cat``, and the catalog sync runs only when none is held: its refusal would
+    record a catalog run, and while the titles wait every by-id sync that needs the catalog would add one, though the
+    report and the drain already name the samples left out. The catalog sync's own refusal for titles alone (a type
+    renamed in SEEK since the read) is the same outcome."""
+    conflicts = run._title_conflicts(driver, db, cat)
+    if conflicts:
+        return conflicts
     try:
-        run.catalog_sync(driver, db)
+        run.catalog_sync(driver, db, trigger=TRIGGER)
     except run.PreflightError as exc:
         if not run.only_title_conflicts(exc.problems, exc.report):
             raise
@@ -290,7 +299,7 @@ def _ensure_sample_types(driver, db, rows, cat) -> tuple[list[int], dict[int, st
     if not stale:
         return [], {}
     log.info("graph_sync: sample types %s have no current SampleType node; running the catalog sync first", stale)
-    conflicts = _catalog_sync(driver, db)
+    conflicts = _catalog_sync(driver, db, cat)
     if not conflicts:
         return stale, {}
     titles = "; ".join(f"{c['title']!r} is held by type {c['graph_id']} in the graph" for c in conflicts[:3])
@@ -425,7 +434,7 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
             if undeclared["undeclared_attributes_created"] or counted["attribute_counts_raised"]:
                 # One catalog sync restamps the catalog hash for both (the lock nests). Refused for SampleType titles
                 # held under other ids, the writes above stand and the hash waits for the nightly.
-                report["catalog_resynced"] = "refused" if _catalog_sync(driver, db) else OK
+                report["catalog_resynced"] = "refused" if _catalog_sync(driver, db, cat) else OK
     report["sample_type_counts_set"] = _set_type_counts(driver, db,
                                                         old_types | {p.sample_type_id for p in projections})
     parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}

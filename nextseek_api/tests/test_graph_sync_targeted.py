@@ -104,6 +104,7 @@ class FakeGraph:
             q.READ_GRAPHMETA: self._graphmeta,
             q.WRITE_GRAPHMETA_WITH_LABEL_MAPS: self._write_graphmeta,
             targeted.SAMPLE_TYPES_PRESENT: self._types_present,
+            q.SAMPLE_TYPE_TITLE_CONFLICTS: lambda p: [dict(c) for c in self.title_conflicts],
             targeted.TYPES_OF_SAMPLES: self._types_of_samples,
             targeted.SET_SAMPLE_TYPE_COUNTS_FOR: lambda p: [{"n": len([i for i in p["ids"] if i in self.types])}],
             targeted.ATTRIBUTE_KEYS_PRESENT: lambda p: [{"key": k} for k in p["keys"] if k in self.attributes],
@@ -473,11 +474,12 @@ def _title_refusal(conflicts, *more_problems) -> run.PreflightError:
 def catalog_syncs(monkeypatch, graph, lock):
     """``run.catalog_sync`` replaced by a recorder that writes the MySQL types into the graph, or refuses as the real
     one does while ``graph.title_conflicts`` holds any. Each entry is ``(calls sent before it, whether the lock was
-    held)``."""
-    seen = []
+    held)``; ``kwargs`` holds each call's keyword arguments."""
+    seen = _Seen()
 
     def fake(driver, db, dry_run=False, **kwargs):
         seen.append((len(graph.calls), lock.held))
+        seen.kwargs.append(kwargs)
         if graph.title_conflicts:
             raise _title_refusal(graph.title_conflicts)
         graph.types.update({t["id"]: t["title"] for t in TYPES})
@@ -485,6 +487,14 @@ def catalog_syncs(monkeypatch, graph, lock):
 
     monkeypatch.setattr(run, "catalog_sync", fake)
     return seen
+
+
+class _Seen(list):
+    """The catalog syncs a test saw, and the keyword arguments of each."""
+
+    def __init__(self):
+        super().__init__()
+        self.kwargs = []
 
 
 @pytest.fixture
@@ -607,6 +617,8 @@ def test_runs_catalog_sync_first_when_a_sample_type_has_no_node(env, tmp_path):
     assert sent_before <= env.graph.first(q.WRITE_SAMPLES)
     assert result["catalog_synced_for_types"] == [33]
     assert env.graph.nodes[11]["type_id"] == 33
+    # its run record names the path that ran it, not a command nobody typed
+    assert env.catalog_syncs.kwargs == [{"trigger": targeted.TRIGGER}] and targeted.TRIGGER == "by-id"
 
 
 def test_runs_catalog_sync_first_when_a_sample_type_node_holds_another_title(env, tmp_path):
@@ -635,6 +647,25 @@ def test_samples_of_a_type_waiting_for_the_catalog_are_left_out_and_named_and_th
     assert result["catalog_synced_for_types"] == []
     assert sorted(r["id"] for c in env.graph.of(q.WRITE_SAMPLES) for r in c.params["rows"]) == [10, 12]
     assert result["samples_written"] == 2 and result["structural_gaps"] == 0
+    # The titles are read first, so the refusal the report names anyway runs no catalog sync and records no run:
+    # every sync that needs the catalog would record one while the titles wait.
+    assert env.catalog_syncs == []
+
+
+def test_a_title_conflict_the_catalog_sync_meets_after_the_titles_were_read_still_leaves_the_samples_out(
+        env, tmp_path, monkeypatch):
+    """SEEK can rename a type between the read of the titles and the catalog sync's own: its refusal for titles
+    alone is then the same outcome."""
+    del env.graph.types[33]
+
+    def refuse(driver, db, **kwargs):
+        raise _title_refusal([D_SEQ_HELD])
+
+    monkeypatch.setattr(run, "catalog_sync", refuse)
+    result = targeted.sync_samples(env.graph, DB, [10, 11], run_dir=str(tmp_path))
+
+    assert list(result["catalog_waiting_samples"]) == [11]
+    assert sorted(r["id"] for c in env.graph.of(q.WRITE_SAMPLES) for r in c.params["rows"]) == [10]
 
 
 def test_a_refusal_for_more_than_title_conflicts_still_raises(env, tmp_path, monkeypatch):
@@ -660,6 +691,7 @@ def test_a_catalog_restamp_refused_for_title_conflicts_keeps_the_writes_and_says
     assert (result["status"], result["attribute_counts_raised"], result["catalog_resynced"]) == ("ok", 1, "refused")
     assert env.graph.attributes["26:Organ"]["sample_count"] == 2
     assert "catalog_waiting_samples" not in result
+    assert env.catalog_syncs == []
 
 
 def test_no_catalog_sync_when_every_type_has_its_node(env, tmp_path):
