@@ -1127,7 +1127,7 @@ _LUCENE_WORD_RE = re.compile(r"\w+(?:[.'\u2019]\w+)*")  # \u2019 is the typograp
 
 class _Shape(NamedTuple):
     pos: int
-    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext'
+    kind: str  # 'unbounded_path' | 'unanchored_path' | 'unscoped_fulltext' | 'assay_join'
     text: str  # the offending fragment, verbatim from the Cypher
     detail: str  # why it is one: the bound, the ends, the words the index would search
 
@@ -1825,11 +1825,278 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
     return problems
 
 
+# ------------------------------------------------------------------------------ assay_join: pairs through one Assay
+#
+# Graph schema 1.3 gives every internal assay one node, and every run of that kind hangs off it: a sample that went into
+# a run points at it with INPUT_TO, a sample that came out of one with OUTPUT_OF. Two samples on one Assay did not come
+# from each other, so a query that pairs them through it reads lineage that is not there: on the local graph (schema
+# 1.2, 2026-09-25) pairing every output with every input of one Assay reads 46,206,841,781 pairs where DERIVED_FROM
+# holds 1,998,154. Lineage is DERIVED_FROM only (docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
+# section 6.3).
+#
+# `assay_join` refuses a statement in which, in one row scope, two distinct sample variables reach the same Assay
+# variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
+# OPTIONAL MATCH clauses, a variable carried by WITH (bare or aliased), an undirected or alternated relationship, an
+# untyped or variable-length relationship to an Assay, a variable-length INPUT_TO or OUTPUT_OF path between two
+# samples (the Assay unnamed in the middle), and shortestPath. An anonymous sample node is a sample of its own.
+#
+# A row scope is the statement between UNIONs. An EXISTS, COUNT or COLLECT subquery and a pattern comprehension are
+# scopes of their own: a link inside one whose sample is local to it makes no pairs; a link whose two ends are both
+# bound outside it constrains the outer rows too, so it counts there as well. Names follow Cypher's scoping: a WITH
+# keeps what it carries (a bare name or `x AS y`) and ends the rest; a later pattern that reuses an ended name binds
+# a new variable.
+
+_ASSAY_LABEL = schema.ASSAY   # the graph contract's name
+# A policy set (the contract spec, D6): contract constants, pinned by a literal in test_graph_shape_guard.py.
+_ASSAY_RELATIONSHIPS = frozenset({schema.INPUT_TO, schema.OUTPUT_OF})
+_QUANT = r"(?P<q>\{[^{}]*\}|\+|\*)?"
+_BARE_HOP_RE = re.compile(rf"\s*(?P<left><)?\s*-\s*-\s*(?P<right>>)?\s*{_QUANT}\s*")
+_HOP_BEFORE_RE = re.compile(r"\s*(?P<left><)?\s*-\s*")
+_HOP_AFTER_RE = re.compile(rf"\s*-\s*(?P<right>>)?\s*{_QUANT}\s*")
+_SUBQUERY_WORDS = frozenset({"EXISTS", "COUNT", "COLLECT"})
+
+
+class _Hop(NamedTuple):
+    pos: int  # where the relationship starts
+    left: tuple  # the node elements on either side, as in _Scan.elements
+    right: tuple
+    types: tuple[str, ...]  # () when untyped
+    varlen: bool
+    into_left: bool
+    into_right: bool
+    text: str  # the relationship, verbatim
+
+
+def _hops(scan: _Scan, cypher: str) -> list[_Hop]:
+    """Every relationship written between two node patterns: `-[...]-` in any direction, and the bare `--` arrows."""
+    masked = scan.masked
+    nodes = _node_patterns(scan)
+    rels = [e for e in scan.elements if e[2] == "rel"]
+    hops = []
+    for left, right in zip(nodes, nodes[1:]):
+        between = masked[left[1]:right[0]]
+        bare = _BARE_HOP_RE.fullmatch(between)
+        if bare:
+            hops.append(_Hop(left[1], left, right, (), bool(bare.group("q")), bool(bare.group("left")),
+                             bool(bare.group("right")), " ".join(cypher[left[1]:right[0]].split())))
+            continue
+        inside = [r for r in rels if left[1] <= r[0] and r[1] <= right[0]]
+        if len(inside) != 1:
+            continue
+        rel = inside[0]
+        before = _HOP_BEFORE_RE.fullmatch(masked[left[1]:rel[0]])
+        after = _HOP_AFTER_RE.fullmatch(masked[rel[1]:right[0]])
+        if not before or not after:
+            continue
+        m = _REL_PATTERN_RE.match(masked, rel[0])
+        hops.append(_Hop(rel[0], left, right, tuple(rel[4]), bool(m and m.group("hops")) or bool(after.group("q")),
+                         bool(before.group("left")), bool(after.group("right")),
+                         " ".join(cypher[rel[0]:rel[1]].split())))
+    return hops
+
+
+def _node_labels_of(scan: _Scan, node: tuple) -> set[str]:
+    return set(node[4]) | (set(scan.node_labels.get(node[3], {})) if node[3] else set())
+
+
+def _an_assay(scan: _Scan, node: tuple) -> bool:
+    return _ASSAY_LABEL in _node_labels_of(scan, node)
+
+
+def _a_sample(scan: _Scan, node: tuple) -> bool:
+    labels = _node_labels_of(scan, node)
+    if _NEVER_A_SAMPLE & labels:
+        return False
+    return node[3] in scan.samples or "Sample" in labels or any(label.startswith("T_") for label in labels)
+
+
+def _never_on_an_assay_edge(scan: _Scan, node: tuple) -> bool:
+    """A node whose label no INPUT_TO or OUTPUT_OF edge starts from (Study, Project, SampleType, ...)."""
+    return any(label in V11_NODE_PROPERTIES for label in _node_labels_of(scan, node))
+
+
+def _assay_links(scan: _Scan, cypher: str) -> list[tuple[int, tuple, tuple, str]]:
+    """(position, sample node, Assay node or a hidden Assay's key, the Assay's text) for each sample that reaches an
+    Assay through INPUT_TO or OUTPUT_OF (or a relationship that could be one of them)."""
+    links = []
+    for hop in _hops(scan, cypher):
+        typed = set(hop.types)
+        only_assay = bool(typed) and typed <= _ASSAY_RELATIONSHIPS
+        if typed and not typed & _ASSAY_RELATIONSHIPS:
+            continue  # DERIVED_FROM, IN_STUDY, ...: never reaches an Assay
+        left, right = _an_assay(scan, hop.left), _an_assay(scan, hop.right)
+        if left and right:
+            continue
+        if not left and not right:
+            if hop.varlen and typed:
+                # a variable-length INPUT_TO or OUTPUT_OF path between two samples: an Assay unnamed in the middle
+                if _a_sample(scan, hop.left) and _a_sample(scan, hop.right):
+                    hidden = ("#assay", hop.pos)
+                    links += [(hop.pos, hop.left, hidden, hop.text), (hop.pos, hop.right, hidden, hop.text)]
+                continue
+            if not only_assay:
+                continue  # untyped, and no Assay named at either end
+            if hop.into_left != hop.into_right:
+                assay = hop.right if hop.into_right else hop.left  # INPUT_TO and OUTPUT_OF end at the Assay
+            elif _a_sample(scan, hop.left) != _a_sample(scan, hop.right):
+                assay = hop.right if _a_sample(scan, hop.left) else hop.left
+            else:
+                continue
+        else:
+            assay = hop.left if left else hop.right
+        sample = hop.right if assay is hop.left else hop.left
+        if _a_sample(scan, sample) or (only_assay and not _never_on_an_assay_edge(scan, sample)):
+            links.append((hop.pos, sample, assay, " ".join(cypher[assay[0]:assay[1]].split())))
+    return links
+
+
+def _subquery_spans(scan: _Scan) -> list[tuple[int, int]]:
+    """(open, close) of every EXISTS, COUNT and COLLECT subquery and every pattern comprehension."""
+    masked = scan.masked
+    spans = []
+    for start, end, _kind in _brace_kinds(masked):
+        word = re.search(rf"({_NAME})\s*$", masked[:start])
+        if word and word.group(1).upper() in _SUBQUERY_WORDS:
+            spans.append((start, end))
+    rel_starts = [e[0] for e in scan.elements if e[2] == "rel"]
+    opened: list[int] = []
+    for i, ch in enumerate(masked):
+        if ch == "[":
+            opened.append(i)
+        elif ch == "]" and opened:
+            start = opened.pop()
+            if start not in rel_starts and any(start < r < i for r in rel_starts):
+                spans.append((start, i))  # a list that holds a relationship pattern: a pattern comprehension
+    return spans
+
+
+def _with_carried(scan: _Scan, body_start: int, body_end: int, alive: dict, fresh) -> dict:
+    """The names a top-level WITH keeps: ``*`` keeps all; a bare name or ``name AS alias`` keeps its variable; any
+    other item binds a new one."""
+    masked = scan.masked
+    carried: dict = {}
+    for s, e in _items(masked, body_start, body_end):
+        item = _ITEM_ALIAS_RE.match(masked[s:e].strip())
+        if not item:
+            continue
+        expr, alias = item.group("expr").strip(), item.group("alias")
+        if expr == "*":
+            carried.update(alive)
+        elif _NAME_RE.fullmatch(expr) and expr in alive:
+            carried[alias or expr] = alive[expr]
+        elif alias:
+            carried[alias] = fresh(alias)
+    return carried
+
+
+def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
+    """assay_join: every Assay that two distinct samples reach in one row scope (the section comment has the rule)."""
+    links = _assay_links(scan, cypher)
+    if not links:
+        return []
+    masked = scan.masked
+    subqueries = sorted(_subquery_spans(scan))
+    stops = _clause_stops(scan)
+    counter = iter(range(1, 1 << 30))
+
+    def fresh(name):
+        return (name, next(counter))
+
+    def chain(pos):
+        return [span for span in subqueries if span[0] < pos < span[1]]
+
+    # Walk the top level in order: node patterns bind, a WITH keeps what it carries, UNION starts a new part.
+    events = []
+    for keyword, kw_start, body_start, body_end in scan.clauses:
+        if kw_start in stops and not chain(kw_start) and keyword in ("WITH", "UNION", "UNWIND"):
+            events.append((kw_start, 0, keyword, body_start, body_end))
+    for element in _node_patterns(scan):
+        events.append((element[0], 1, "node", element, None))
+    for start, _open, _close, hit, _fulltext in _procedure_yields(scan):
+        if hit:
+            events.append((start, 1, "yield", hit, None))
+    part, alive = 0, {}
+    scopes: dict = {}  # a subquery's own names: ("sub", open) -> {name: key}
+    home: dict = {}  # key -> the scope it was bound in
+    keys: dict = {}  # a node element's start -> its key
+    for pos, _order, kind, a, b in sorted(events, key=lambda e: (e[0], e[1])):
+        where = chain(pos)
+        if kind == "UNION":
+            part, alive = part + 1, {}
+            continue
+        if kind == "WITH":
+            alive = _with_carried(scan, a, b, alive, fresh)
+            for key in alive.values():
+                home.setdefault(key, ("part", part))
+            continue
+        if kind == "UNWIND":
+            m = re.search(rf"\bAS\s+({_NAME})\s*$", masked[a:b], re.IGNORECASE)
+            if m:
+                alive[m.group(1)] = key = fresh(m.group(1))
+                home[key] = ("part", part)
+            continue
+        name = a if kind == "yield" else a[3]
+        if kind == "node" and not name:
+            keys[a[0]] = key = ("#node", a[0])
+            home[key] = ("sub", where[-1][0]) if where else ("part", part)
+            continue
+        key = alive.get(name) if not where or name in alive else None
+        for span in where:
+            key = key or scopes.get(("sub", span[0]), {}).get(name)
+        if key is None:
+            key = fresh(name)
+            if where:
+                scopes.setdefault(("sub", where[-1][0]), {})[name] = key
+                home[key] = ("sub", where[-1][0])
+            else:
+                alive[name] = key
+                home[key] = ("part", part)
+        if kind == "node":
+            keys[a[0]] = key
+
+    def part_at(pos):
+        return sum(1 for keyword, kw_start, _, _ in scan.clauses
+                   if keyword == "UNION" and kw_start in stops and kw_start < pos and not chain(kw_start))
+
+    pairs: dict = {}  # (scope, Assay key) -> {sample key: (position, display)}
+    shown: dict = {}  # Assay key -> its text
+    for pos, sample, assay, assay_text in links:
+        s_key = keys.get(sample[0], ("#node", sample[0]))
+        a_key = assay if assay[0] == "#assay" else keys.get(assay[0], ("#node", assay[0]))
+        home.setdefault(a_key, ("sub", chain(pos)[-1][0]) if chain(pos) else ("part", part_at(pos)))
+        shown.setdefault(a_key, assay_text)
+        display = sample[3] or " ".join(cypher[sample[0]:sample[1]].split())
+        levels = [("part", part_at(pos))] + [("sub", span[0]) for span in chain(pos)]
+        for depth in range(len(levels) - 1, -1, -1):
+            visible = set(levels[:depth + 1])
+            if depth < len(levels) - 1 and not (home.get(s_key) in visible and home.get(a_key) in visible):
+                break
+            pairs.setdefault((levels[depth], a_key), {}).setdefault(s_key, (pos, display))
+    problems = []
+    for (_scope, a_key), samples in pairs.items():
+        if len(samples) < 2:
+            continue
+        ordered = sorted(samples.values())
+        names = [display for _, display in ordered]
+        both = "both" if len(names) == 2 else "all"
+        problems.append(_Shape(ordered[1][0], "assay_join", shown[a_key],
+                               f"the samples {', '.join(names[:-1])} and {names[-1]} {both} reach it through "
+                               "INPUT_TO or OUTPUT_OF, which pairs every sample on one side of an assay with every "
+                               "sample on the other; two samples on one Assay did not come from each other"))
+    unique: dict = {}
+    for problem in sorted(problems):
+        unique.setdefault((problem.text, problem.detail), problem)
+    return list(unique.values())
+
+
+
+
 # ------------------------------------------------------------------------------ the guard's surface
 
 
 def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
-    """P6a and P6b: the shapes this graph must not be asked to run, in the order they appear in the Cypher.
+    """P6a, P6b and assay_join: the shapes this graph must not be asked to run, in the order they appear in the
+    Cypher.
 
     ``parameters`` is the plan's parameter map, which the fulltext check reads the search term from. A guard that
     breaks on a query says nothing about it rather than refusing it.
@@ -1838,7 +2105,8 @@ def query_shape_problems(cypher: str | None, parameters=None) -> list[_Shape]:
         return []
     try:
         scan = _scan(cypher)
-        problems = _path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
+        problems = (_path_problems(scan, cypher) + _fulltext_problems(scan, cypher, parameters)
+                    + _assay_join_problems(scan, cypher))
     except Exception as e:  # noqa: BLE001 (never refuse a query because the guard itself broke)
         print(f"[DEBUG][GRAPH][SHAPE_GUARD] guard failed, allowing the query: {e!r}")
         return []
@@ -1887,6 +2155,14 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
         if any("cannot be read" in p.detail for p in fulltext):
             lines.append("Pass the search term as one parameter the plan binds, or as a literal string, so it can be "
                          "checked before the query runs.")
+    if "assay_join" in kinds:
+        lines.append(
+            "Lineage is DERIVED_FROM only. An Assay is one node per assay kind and every run of that kind hangs off "
+            "it, so two samples on one Assay did not come from each other, and matching both pairs every sample on "
+            "one side with every sample on the other. Keep the lineage on DERIVED_FROM "
+            "((child:Sample)-[:DERIVED_FROM]->(parent:Sample)), and test an assay on one sample at a time: "
+            "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. To count what went into and "
+            "what came out of one Assay, count each in its own COUNT { } subquery.")
     return lines
 
 
@@ -1906,6 +2182,8 @@ def _shape_refusal_parts(shapes: list[_Shape]) -> list[str]:
                          f"both ends anchored (bound it at *1..{_MAX_HOPS})")
         elif p.kind == "unanchored_path":
             parts.append(f"the path {p.text} expands from every sample: {p.detail}")
+        elif p.kind == "assay_join":
+            parts.append(f"the query pairs samples through the Assay {p.text}: {p.detail}; lineage is DERIVED_FROM")
         else:
             parts.append(f"the unscoped fulltext call {p.text} {p.detail}")
     return parts
