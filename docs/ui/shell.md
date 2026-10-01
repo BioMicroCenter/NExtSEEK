@@ -69,6 +69,8 @@ after EasyUI. Third-party script tags here are security item SEC-0930-F (tracked
 |---|---|---|
 | `base.html` | `title` | `<title>` text |
 | `base.html` | `extra_head` | extra `<link>`/`<style>` in `<head>` |
+| `base.html` | `viewport` | the viewport `<meta>`; the chat page widens it (a second meta tag is not valid) |
+| `base.html` | `body_class` | extra classes on `<body>`; the chat page sets `page-chat` |
 | `base.html` | `left_panel` | sidebar nav; defaults to `nav.embed.html`, no page overrides it today |
 | `base.html` | `main` | the page content |
 | `base.html` | `extra_js` | scripts after `nextseek.js` |

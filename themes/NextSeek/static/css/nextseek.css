@@ -406,6 +406,28 @@ h1, h2, h3, h4, h5, h6 {
     .content { padding: 1.25rem 1rem; }
 }
 
+/* Nessie chat page (body.page-chat, seek/templates/smartSearch.html): one
+   full-height frame. The chat scrolls inside itself, so the page must not. */
+.page-chat #main-wrapper {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+}
+.page-chat #content {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+.page-chat #chat-assistant-root {
+    flex: 1 1 0;
+    min-height: 0;
+    width: 100%;
+}
+.page-chat .footer,
+.page-chat .mobile-topbar { display: none; }  /* the chat toolbar has its own Menu button */
+
 /* Drawer scrim — promoted from body::before to a real element so the
    tap-to-close handler can listen on it. Display gated on .sidebar-open
    so it doesn't grab clicks on desktop. */

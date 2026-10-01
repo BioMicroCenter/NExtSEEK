@@ -17,9 +17,9 @@ the invariants that fail silently. Read those before a non-trivial change.
 ## How it works
 
 The chat is a full page, not a floating panel. `/seek/assistant/` (`seek/urls.py`, route name
-`assistant`, view `smartSearch` in `seek/views/search.py`; signed-in users only, and an inline check renders `error.html` rather than redirecting to login) renders
+`assistant`, view `smartSearch` in `seek/views/search.py`; signed-in users only, and a visitor is sent to `/login/?next=<the page>`) renders
 `seek/templates/smartSearch.html`. That template extends `base.html` and, in `{% block main %}`,
-emits one empty `div#chat-assistant-root` (inline style `height: calc(100vh - 60px)`) plus the
+emits one empty `div#chat-assistant-root` plus the
 `{% vite_assets "src/main.embedded.tsx" "js/chat_assistant" %}` tag. React then fills the div. The
 page has no close control; it lives inside the normal sidebar layout.
 
@@ -165,8 +165,13 @@ The embedded shell responds to width in three places. The cut is 768 px (`PHONE_
 | A suggestion chip's reason sits behind an info button beside it (tap to show), not a hover title | `MessageBubble.tsx` |
 | The composer pads for the iOS home indicator (`env(safe-area-inset-bottom)`) | `MessageInput.tsx` |
 
-The page frame (full-height flex column, `100dvh`, no footer, no double scroll) is the Django
-side: the `page-chat` body class and `#chat-assistant-root` at `height: 100%`.
+The page frame is the Django side. `smartSearch.html` fills `{% block body_class %}` with `page-chat`
+and `{% block viewport %}` with a viewport meta that adds `viewport-fit=cover` (so the composer's
+safe-area padding works on iPhone) and `interactive-widget=resizes-content` (Android Chrome shrinks
+the layout for the keyboard). Under `.page-chat`, `nextseek.css` makes `#main-wrapper` a `100dvh`
+column, takes the padding off `#content`, lets `#chat-assistant-root` fill it (`flex: 1 1 0;
+min-height: 0`), and hides the footer and the phone top bar (the toolbar's Menu button replaces
+the hamburger). The page itself never scrolls; only the message list does.
 
 ## Accessibility and focus
 
@@ -223,7 +228,7 @@ Every row ends with the build-and-commit step above, unless the row is Django-si
 | Saved chats rail (width, mobile) | `Sessions/SessionSidebar.tsx`, collapse state in `EmbeddedApp.tsx`, `Layout/CompactToolbar.tsx` | the sheet and the rail share one content block; the stored key only affects the rail |
 | Debug sheet and admin controls | `Layout/RightSidebar.tsx`, `DebugPanel/DebugPanel.tsx`, the three control files | gating in the client is cosmetic; the server enforces admin-only overrides |
 | About text | `Layout/AboutDialog.tsx` | `components/__tests__/AboutDialog.test.tsx` and the bundle guard quote it |
-| Page frame, height, padding around the chat | `seek/templates/smartSearch.html` (inline height), `themes/NextSeek/static/css/nextseek.css` (`.content`, `#main-wrapper`) | `seek/templates/` is baked into the image: `./startup.sh rebuild`. Only `themes/NextSeek/` is bind-mounted |
+| Page frame, height, padding around the chat | `seek/templates/smartSearch.html` (`body_class`, `viewport` blocks), `themes/NextSeek/static/css/nextseek.css` (the `.page-chat` rules) | `seek/templates/` is baked into the image: `./startup.sh rebuild`. Only `themes/NextSeek/` is bind-mounted |
 | New endpoint or event | `src/lib/services/chatApi.ts`, `src/lib/types/api.ts`, handler in both `EmbeddedApp.tsx` and `AppLayout.tsx` | add the backend route to `ci/routes.py` if it is a new URL |
 | Mount id, basename, script tag | `src/main.embedded.tsx`, `src/hooks/useChatRoute.ts`, `smartSearch.html` | three places must agree |
 | Dark mode | toggle on `#chat-assistant-root` (not `<html>`), theme the highlight.js import | the Django theme has no dark mode either, so decide both together |

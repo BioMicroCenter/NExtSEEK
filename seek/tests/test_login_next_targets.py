@@ -109,3 +109,34 @@ class TestRoutes:
             assert match.url_name not in ("logout_seek", "login_seek"), path
         assert resolve("/login/").url_name == "login_seek"
         assert resolve("/login").url_name == "login_seek"
+
+
+class TestChatPageFrame:
+    """UI-161: the chat page is one full-height frame, so the page never scrolls on
+    top of the chat and the composer stays in view."""
+
+    def test_signed_in_chat_page_is_a_full_height_frame(self):
+        from unittest.mock import MagicMock
+        from seek.views.search import smartSearch
+        req = RequestFactory().get("/seek/assistant/")
+        req.user = MagicMock(is_authenticated=True, is_superuser=False)
+        req.session = {}
+        html = smartSearch(req).content.decode()
+        assert 'class="nextseek-app page-chat"' in html
+        assert "viewport-fit=cover" in html and "interactive-widget=resizes-content" in html
+        assert html.count('name="viewport"') == 1
+        assert "calc(100vh" not in html
+
+    def test_other_pages_keep_the_plain_shell(self):
+        from dmac.views import home
+        with patch("dmac.views._home_projects", return_value=[]):
+            html = home(_anon_get("/")).content.decode()
+        assert 'class="nextseek-app "' in html
+        assert "viewport-fit" not in html
+
+    def test_chat_frame_css_hides_footer_and_site_hamburger(self):
+        from pathlib import Path
+        from django.conf import settings
+        css = (Path(settings.BASE_DIR) / "themes/NextSeek/static/css/nextseek.css").read_text()
+        assert ".page-chat #main-wrapper {" in css and "height: 100dvh" in css
+        assert ".page-chat .footer,\n.page-chat .mobile-topbar { display: none; }" in css

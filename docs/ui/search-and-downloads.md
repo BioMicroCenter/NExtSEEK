@@ -81,7 +81,7 @@ another live template links to it.
 | Protocol (SOP) Query | `/seek/sop/query/` | `assets.py: sopQuery` | `sopsPage.html` + `pages/sops_table.embed.html` | nav, "Data Query" submenu | Live |
 | New Search | `/seek/newsearch/` | `search.py: newSearch` | `newSearch.html` + six `*_new*` embeds | no | Live but unlinked; uses `advanced_search`, not `graph_search` |
 | Sample Query (old) | `/seek/samples/query/`, `/seek/sample_types/id=<n>/` | `views/samples.py: sampleQuery`, `sample_type` | `sampleQuery.html` + `pages/samples_table.embed.html` | no | Legacy, unlinked; grid loads `/seek/retrieve/samples/` |
-| Nessie | `/seek/assistant/` | `search.py: smartSearch` | `smartSearch.html` | sidebar button (`includes/nessie_button.html`) | Live; anonymous users get an error page rather than a login redirect |
+| Nessie | `/seek/assistant/` | `search.py: smartSearch` | `smartSearch.html` | sidebar button (`includes/nessie_button.html`) | Live; anonymous users are sent to sign in |
 
 ### Tabs on /seek/search/
 

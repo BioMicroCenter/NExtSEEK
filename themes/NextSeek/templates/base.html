@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% block viewport %}<meta name="viewport" content="width=device-width, initial-scale=1">{% endblock %}
     <title>{% block title %}NExtSEEK{% endblock %}</title>
     <meta name="description" content="NExtSEEK - Scientific Metadata Management">
 
@@ -43,7 +43,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 
-<body class="nextseek-app">
+<body class="nextseek-app {% block body_class %}{% endblock %}">
 
     <!-- Sidebar -->
     <aside id="sidebar" class="sidebar" role="dialog" aria-modal="true" aria-label="{% trans 'Site navigation' %}">

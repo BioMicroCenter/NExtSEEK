@@ -147,7 +147,7 @@ class TestVisitorShell:
 class TestShellCss:
     def test_phone_top_bar_is_sticky(self):
         css = _theme_file("static/css/nextseek.css").read_text()
-        block = css[css.index(".mobile-topbar {"):]
+        block = css[css.index("\n.mobile-topbar {"):]
         block = block[:block.index("}")]
         assert "position: sticky" in block and "top: 0" in block
 
