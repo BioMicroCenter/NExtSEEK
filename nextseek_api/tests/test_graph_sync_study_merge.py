@@ -271,7 +271,7 @@ def test_the_plan_reports_each_id_and_ends_with_the_line_to_approve(world):
     assert (entry["kind"], entry["test"], entry["seek_title"]) == ("merge", "marker", "Alder Unpublished")
     assert entry["samples"] == {"on_legacy": 3, "on_seek_keyed": 1, "on_both": 1}
     assert entry["seek_keyed_other_sources"] == {"OrphanSample": 1}
-    assert entry["studies_preview"] == {"kept": 2, "leaves": 1, "no_seek_study": 1, "paper_samples": 1}
+    assert entry["studies_preview"] == {"kept": 2, "leaves": 1, "no_seek_study": 2, "paper_samples": 1}
     assert entry["description_differs"] is False and entry["seek_description_empty"] is True
     assert report["approval_line"] == "1,5"
     assert report["merge_other_investigation"] == [3]
@@ -291,6 +291,30 @@ def test_a_plan_without_detail_reads_no_members(world):
     _plan_world(world)
     report = study_merge.plan(world.graph, DB, detail=False)
     assert world.graph.of(q.STUDY_SOURCES) == [] and "samples" not in report["studies"][0]
+
+
+def test_the_preview_counts_every_sample_by_seek_and_paper_samples_besides(world):
+    """--studies removes a paper sample's link to X too when SEEK files it elsewhere, so every sample is counted kept,
+    leaves or no_seek_study from SEEK's studies alone, and paper_samples counts those also on a graph-only paper. A
+    link to the legacy node of another id this plan acts on is no paper link: that node becomes a SEEK study."""
+    g, inv = world.graph, world.inv
+    _seek(world, 1, "Alder Unpublished")
+    _seek(world, 2, "Birch Unpublished")
+    _seek(world, 12, "Larch Study")
+    l1 = g.add_study(id=1, title="Alder Unpublished", DOI="", investigation=inv[101])
+    g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=inv[101])
+    l2 = g.add_study(id=2, title="Birch Unpublished", DOI="", investigation=inv[101])
+    g.add_study(seek_study_id=2, title="Birch Unpublished", investigation=inv[101])
+    paper = g.add_study(id=19, title="A graph-only paper", DOI="10.9999/p19", investigation=inv[101])
+    for sid in (1007, 1008, 1009):
+        g.add_sample(sid)
+        g.link(sid, l1)
+    g.link(1007, paper)                         # SEEK files it under 12: its link to 1 goes
+    g.link(1008, l2)                            # on the legacy node of 2, which this plan merges too
+    g.link(1009, paper)                         # in no SEEK study
+    world.links = [(1007, 12), (1008, 1)]
+    entry = study_merge.plan(world.graph, DB, [1, 2])["studies"][0]
+    assert entry["studies_preview"] == {"kept": 1, "leaves": 1, "no_seek_study": 1, "paper_samples": 2}
 
 
 # --- apply ---------------------------------------------------------------------------------------------------------

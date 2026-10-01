@@ -237,8 +237,14 @@ def _sources(driver, db, element_id: str) -> list[dict]:
             for r in _records(_run(driver, db, q.STUDY_SOURCES, {"element_id": element_id}, read=True))]
 
 
-def _detail(driver, db, sel: Selection) -> dict:
-    """The samples on L, on K and on both, K's other sources, and what ``--studies`` will do to them. Read-only."""
+def _detail(driver, db, sel: Selection, acting_ids=frozenset()) -> dict:
+    """The samples on L, on K and on both, K's other sources, and what ``--studies`` will do to them. Read-only.
+
+    ``studies_preview`` counts every sample once from SEEK's studies alone: ``kept`` (SEEK files it under X),
+    ``leaves`` (SEEK files it under other studies only, so its link to X goes, a paper sample's included) and
+    ``no_seek_study`` (SEEK files it under none: kept and reported). ``paper_samples`` counts, besides, the samples
+    that are also on a graph-only paper; a link to the legacy node of an id in ``acting_ids`` is not a paper link,
+    since that node becomes a SEEK study's."""
     x = sel.study_id
     on_l = _sources(driver, db, sel.legacy.element_id)
     on_k = [] if sel.seek_keyed is None else _sources(driver, db, sel.seek_keyed.element_id)
@@ -250,12 +256,13 @@ def _detail(driver, db, sel: Selection) -> dict:
     for link in sources.seek_study_links_for(everyone):
         seek_of.setdefault(int(link["sample_id"]), set()).add(int(link["study_id"]))
     current = writer.sample_studies(driver, db, everyone)
+    not_papers = set(acting_ids) | {x}
     preview = Counter()
     for sample_id in everyone:
         links = current.get(sample_id, [])
-        if any(link["seek_study_id"] is None and link["id"] != x for link in links):
+        if any(link["seek_study_id"] is None and link["id"] not in not_papers for link in links):
             preview["paper_samples"] += 1
-        elif not seek_of.get(sample_id):
+        if not seek_of.get(sample_id):
             preview["no_seek_study"] += 1
         elif x in seek_of[sample_id]:
             preview["kept"] += 1
@@ -290,12 +297,13 @@ def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
     selections = [classify(index, x) for x in wanted]
     report = {"ids": wanted, "kinds": {s.study_id: s.kind for s in selections},
               "counts": dict(Counter(s.kind for s in selections)), "studies": []}
+    acting = frozenset(s.study_id for s in selections if s.kind in ACTING)
     for sel in selections:
         if sel.kind == SEEK_ONLY:
             continue
         entry = _entry(sel)
         if detail and sel.kind in ACTING:
-            entry.update(_detail(driver, db, sel))
+            entry.update(_detail(driver, db, sel, acting))
         report["studies"].append(entry)
     report["approval_line"] = ",".join(str(s.study_id) for s in selections if s.kind in (MERGE, REKEY_IN_PLACE))
     report["merge_other_investigation"] = [s.study_id for s in selections if s.kind == MERGE_OTHER_INVESTIGATION]
