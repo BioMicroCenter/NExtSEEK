@@ -56,16 +56,17 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |
 | `--labels` | every DERIVED_FROM label against the rule, over the whole graph: new labels, renames and filled protocols written, the rest counted unless `--apply-label-changes` | yes |
-| `--merge-studies [IDS]` | merge each listed SEEK study's legacy and seek-keyed Study nodes, or give a legacy node its `seek_study_id` in place, journaled to `study_merge.tsv`; bare, or `all`, only with `--dry-run`, which prints each id's kind and the line to approve | yes |
-| `--unmerge-studies PATH[,PATH...]` | reverse the merges journaled in these run directories or journals, and re-create the IN_STUDY links their `in_study_removed.tsv` archives hold | yes |
+| `--merge-studies [IDS]` | merge each SEEK study of the approval line (`id:kind`, as the dry run prints it), or give a legacy node its `seek_study_id` in place, journaled to `study_merge.tsv`; an id that reads another kind than its approved one stops the run; bare, `all`, or ids without kinds only with `--dry-run` (below) | yes |
+| `--unmerge-studies PATH[,PATH...]` | reverse the merges journaled in these run directories or journals, and re-create the IN_STUDY links their `in_study_removed.tsv` archives hold; refused unless given every merge journal under the run root that names the same ids | yes |
 | `--studies` | make every sample's IN_STUDY follow SEEK once, removing stale links whatever the switch says | yes |
 
 Options that apply to more than one mode: `--json` puts only the JSON result on stdout and sends progress to
 stderr; `--dry-run` makes `--full`, `--catalog`, `--labels`, `--merge-studies`, `--unmerge-studies` and
 `--studies` read everything and write nothing; a written `--full` and the three study modes make their own run
-directory, `<kind>-<UTC time>` under the loop's run root, when neither `--run-dir` nor `GS_RUN_DIR` names one, and
-print it; `--chunk` is the page and transaction size; `--no-record` leaves `graph_sync_run` alone; `--bench-keys FILE` (with `--full`) is a JSON list of
-attribute keys the index budget must cover. `--apply-label-changes` is the operator's approval for label changes
+directory, `<kind>-<UTC time>` under the run root (`--run-root`, else `$GS_RUN_DIR`, else `graph_sync` under the log
+directory), when `--run-dir` names none, and print it; `--chunk` is the page and transaction size; `--no-record`
+leaves `graph_sync_run` alone; `--bench-keys FILE` (with `--full`) is a JSON list of attribute keys the index budget
+must cover. `--apply-label-changes` is the operator's approval for label changes
 (below).
 
 **The live-graph rule.** The read-only modes (`--verify`, `--drift`) and the loop accept the stack's own `neo4j`
@@ -78,8 +79,8 @@ Exit status:
 | Code | Means |
 |---|---|
 | 0 | success, and for `--drift` and `--verify` no failing check |
-| 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it); or a study mode stopped part way or found the lock busy |
-| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, two Study nodes sharing a `seek_study_id`, a path `--unmerge-studies` finds no journal in, or a run directory a hand run cannot make |
+| 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it); or a study mode stopped part way or found the lock busy; or `--unmerge-studies` ended `partial` |
+| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, an approved id without its kind, or an id that reads another kind than its approved one before anything was written; two Study nodes sharing a `seek_study_id`; a path `--unmerge-studies` finds no journal in, or a merge journal under the run root naming its ids that it was not given; or a run directory a hand run cannot make |
 | 3 | the run could not complete |
 
 ## The loop
@@ -171,21 +172,41 @@ What the graph holds is in `docs/neo4j-schema.md`, v1.2 "Study nodes and IN_STUD
 step and the reconcile's `study_links` step; `graph_sync --studies` removes whatever it says. A change takes effect
 when the app container is recreated: `docker compose up -d --no-deps --force-recreate nextseek`. `rebuild` keeps it;
 `install` re-renders `docker/nextseek.env` from the template, which carries the switch only as a comment, so a
-reinstall turns it off. Turn it on only after the box's merge dry run, the operator's approval of its id list, the
-merge and `--studies`. While it is off, gate G's family `12.studies` fails only on two Study nodes sharing a
-`seek_study_id`, so the drift check stays green on a box that has not merged.
+reinstall turns it off. Turn it on only after, in this order: the box's merge dry run, the operator's approval of
+its approval line, the merge, `--studies`, and then a second merge dry run. `--studies` gives every SEEK study its
+node, so an id that read `legacy_only` now reads `merge` and needs its own approval and merge run, and
+`id_collisions` grows by every SEEK study whose id a graph-only paper's node holds (never acted on). Turn the switch on
+only when that dry run's approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any
+id the merge would still act on, and so does every later drift check and rebuild. While the switch is off, family
+`12.studies` fails only on two Study nodes sharing a `seek_study_id`, so it stays green on a box that has not merged.
 
 **Paper samples.** A sample on a graph-only paper study is not linked to the SEEK studies of its paper's own
 investigation (the paper Study's one Investigation, matched to SEEK's by id and title, as the studies tool does), so
 it is never counted twice there; its links to other investigations' studies are written. A paper whose investigation
 cannot be matched withholds every link and is counted in `paper_investigation_unknown`: the curators' list.
 
-**The merge.** `--merge-studies --dry-run` prints each SEEK study id's kind (`merge`, `merge_other_investigation`,
-`rekey_in_place` act; the rest are reported) and ends with the ids to approve. `--merge-studies <ids>` merges exactly
-those, under the graph-write lock, journaling every step to `study_merge.tsv` before its write; a rerun with the same
-`--run-dir` finishes a merge a crash stopped. `--unmerge-studies` takes the merge's run directory and any run
-directory whose `in_study_removed.tsv` should come back (a `--studies` run's, and after the switch went on the
-drain's, reconcile's and full sync's while they are kept). Merge and `--studies` directories are never pruned.
+**The merge.** `--merge-studies --dry-run --json` reports each SEEK study id's kind (`merge`,
+`merge_other_investigation` and `rekey_in_place` act; the rest are reported), what each acting id's samples would do,
+`id_collisions`, `legacy_only`, and `approval_line`: every id the merge acts on with its kind, as in
+`3:merge,4:merge,6:rekey_in_place`. A `merge_other_investigation` id is in the line too, with that kind, and is also
+listed apart in `merge_other_investigation` with any legacy Investigation it would leave empty. Without `--json` a list
+prints as its count, so read the lists from the JSON. The operator approves the line as printed, or drops an id to
+hold it back; `--merge-studies <approval line>` then merges exactly those, under the graph-write lock, journaling
+every step to `study_merge.tsv` before its write. Each id's kind is read again under the lock, and one that reads
+another kind than its approved one stops the run (exit 2 when nothing was written yet, else 1): run the dry run again
+and approve what it prints. A rerun with the same `--run-dir` finishes a merge a crash stopped, held to the kind its
+journal recorded.
+
+`--unmerge-studies` takes, in one call, every merge run directory of the ids it undoes (a crashed run and its rerun;
+for a whole box, the second approval's after `--studies` too) and every run directory whose `in_study_removed.tsv`
+should come back (a `--studies` run's, and after the switch went on the drain's, reconcile's and full sync's while
+they are kept): the archived links come back before the sources move. It finds every merge journal under the run root
+itself and refuses (exit 2) while one that names its ids is not given. It reports a journaled source whose element id
+now names another node (`sources_replaced`, never written) and a sample that reached a merged study after the merge
+(moved to the re-created seek-keyed node, `arrived_after_merge`), and ends `partial` (exit 1) when it refused an id,
+could not restore an Investigation, or had to leave such a sample on a legacy node with no seek-keyed node to move to.
+Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories
+are never pruned.
 
 **Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
 its study or samples, keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
