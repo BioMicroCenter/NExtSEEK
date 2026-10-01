@@ -70,7 +70,7 @@ urlpatterns = [
     #     records. docs/endpoint-authorization-register.md buckets all three as
     #     "public-to-authenticated".
     # Authentication is untouched: SERVE_AUTHENTICATION is unset, so the views fall
-    # back to DEFAULT_AUTHENTICATION_CLASSES (Token, Session, Basic).
+    # back to DEFAULT_AUTHENTICATION_CLASSES (the turn pass, Token, Session, Basic).
     re_path(r'^schema/$', SpectacularAPIView.as_view(permission_classes=[IsAuthenticated]), name='schema'),
     # template_name overrides drf-spectacular's default to add the effective-identity
     # banner (#119). Swagger's Authorize button is silently ignored whenever the browser

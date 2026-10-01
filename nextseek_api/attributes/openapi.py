@@ -75,6 +75,10 @@ class TurnPassAuthenticationScheme(OpenApiAuthenticationExtension):
     target_class = "nextseek_api.assistant.turn_pass_auth.TurnPassAuthentication"
     name = "turnPass"
 
+    def get_security_requirement(self, auto_schema):
+        # Not listed on every default-list operation: a pass is refused on all but a few route/method pairs.
+        return None
+
     def get_security_definition(self, auto_schema):
         return {
             "type": "apiKey", "in": "header", "name": "Authorization",

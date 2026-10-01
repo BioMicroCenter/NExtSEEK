@@ -121,7 +121,7 @@ def test_every_method_the_table_does_not_list_is_refused_over_http():
             assert resp.status_code == 403, f"{method} {path} ({name}) -> {resp.status_code}"
             # Some views render errors with their own renderer (YAML for the schema view): match the bytes.
             # The swagger UI page renders every error as bare HTML ("403 Forbidden"): the status is the proof there.
-            if "text/html" not in resp["Content-Type"]:
+            if name not in ("nextseek_api:swagger-ui", "nextseek_api:redoc"):
                 assert b"PASS_NOT_ALLOWED" in resp.content, f"{method} {path} ({name})"
             sent += 1
     assert unreversed == [], f"add a candidate value so these routes get a path: {unreversed}"

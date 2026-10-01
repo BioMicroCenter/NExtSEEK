@@ -59,7 +59,8 @@ def test_the_pass_reads_its_own_chat():
 def test_the_pass_runs_an_op():
     turn, raw = make_turn()
     with patch("nextseek_api.services.assistant.run_op", return_value={"source": "catalog"}) as run_op:
-        resp = APIClient().post(f"{A}/graph-schema/", {}, format="json", **pass_header(raw))
+        # CSRF enforcement on: a pass POST carries no cookie, and the pass authenticator is not session-based.
+        resp = APIClient(enforce_csrf_checks=True).post(f"{A}/graph-schema/", {}, format="json", **pass_header(raw))
     assert resp.status_code == 200, resp.content
     assert run_op.call_args.args[0] == "graph-schema"
 
@@ -139,6 +140,13 @@ def test_a_pass_whose_task_has_finished_is_refused():
 def test_a_pass_for_an_inactive_user_is_refused():
     turn, raw = make_turn()
     type(turn.user).objects.filter(pk=turn.user_id).update(is_active=False)
+    _refused(APIClient().get(f"{A}/tasks/{turn.task.task_id}/progress/", **pass_header(raw)), 401, "AUTH_FAILED")
+
+
+def test_a_pass_whose_task_belongs_to_another_user_is_refused():
+    turn, raw = make_turn()
+    other = make_user("other-owner")
+    QueryTask.objects.filter(pk=turn.task_id).update(user=other)
     _refused(APIClient().get(f"{A}/tasks/{turn.task.task_id}/progress/", **pass_header(raw)), 401, "AUTH_FAILED")
 
 
