@@ -24,6 +24,7 @@ from nextseek_api.studies.models import ShareInput
 from nextseek_api.studies.models_db import SampleShare
 
 LEASE_SECONDS = 120
+WORKER_ATTEMPTS = 3   # an error the worker did not expect, this many times on one share, ends it
 PLAN_ENDS = frozenset({"planned", "plan_failed", "refused"})
 APPLY_ENDS = frozenset({"applied", "apply_failed", "rolled_back"})
 APPLICABLE = ("planned", "applying", "apply_failed")
@@ -41,8 +42,11 @@ def _claimable(now) -> Q:
             | Q(state__in=_LEASED, lease_expires_at__lt=now))
 
 
-def next_claimable() -> SampleShare | None:
-    return SampleShare.objects.filter(_claimable(timezone.now())).order_by("created_at", "id").first()
+def next_claimable(*, planning_only: bool = False) -> SampleShare | None:
+    found = SampleShare.objects.filter(_claimable(timezone.now()))
+    if planning_only:
+        found = found.filter(state="planning")
+    return found.order_by("created_at", "id").first()
 
 
 def claim(share: SampleShare, owner: str) -> bool:
@@ -118,6 +122,22 @@ def finish_apply(share: SampleShare, owner: str, *, state: str, receipt: dict | 
     updated = SampleShare.objects.filter(pk=share.pk, claim_owner=owner, state="running").update(
         **_release(state=state, receipt=receipt, error=error))
     return updated == 1
+
+
+def worker_failed(share: SampleShare, owner: str, detail: str) -> str:
+    """The worker raised on a share it holds: the error is counted on the row and the share keeps its lease, so another
+    pass retries it once the lease runs out; at ``WORKER_ATTEMPTS`` the share ends ``plan_failed`` or
+    ``apply_failed`` with the error. Returns the share's state after."""
+    share.refresh_from_db()
+    prior = share.error or {}
+    attempts = (int(prior.get("attempts") or 0) if prior.get("code") == "worker_error" else 0) + 1
+    error = {"code": "worker_error", "detail": detail[:500], "attempts": attempts}
+    held = SampleShare.objects.filter(pk=share.pk, claim_owner=owner, state__in=_LEASED)
+    if attempts < WORKER_ATTEMPTS:
+        held.update(error=error, updated_at=timezone.now())
+        return share.state
+    end = "plan_failed" if share.state == "planning" else "apply_failed"
+    return end if held.update(**_release(state=end, error=error)) == 1 else share.state
 
 
 def back_to_queued(share: SampleShare, owner: str) -> bool:

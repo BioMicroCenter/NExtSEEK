@@ -22,7 +22,7 @@ from nextseek_api.graph_sync import hooks
 from nextseek_api.studies import apply as apply_mod
 from nextseek_api.studies import links, mapping, planner, preflight, report, share_jobs
 from nextseek_api.studies.journal import JOURNAL_FILE, Journal, journal_state, read_journal
-from nextseek_api.studies.models import ShareInput, StudyMovePlan
+from nextseek_api.studies.models import PLAN_VERSION, ShareInput, StudyMovePlan
 from nextseek_api.studies.seek import ADOPT_POLL_S, ADOPT_WAIT_S, WRITE_TIMEOUT_S, SeekError, SeekUnknownOutcome
 from nextseek_api.studies.share import ShareRefused, plan_share
 from nextseek_api.studies.snapshot import SnapshotReader
@@ -55,12 +55,17 @@ def run_dir_of(share) -> Path:
 
 
 def _new_run_dir(now: datetime) -> Path:
+    """A new run directory, claimed by creating it: two workers planning in one second never share one."""
+    share_root().mkdir(parents=True, exist_ok=True)
     base = share_root() / f"{now.strftime('%Y%m%dT%H%M%SZ')}-share"
     path, n = base, 1
-    while path.exists():
-        n += 1
-        path = base.with_name(f"{base.name}-{n}")
-    return path
+    while True:
+        try:
+            path.mkdir()
+            return path
+        except FileExistsError:
+            n += 1
+            path = base.with_name(f"{base.name}-{n}")
 
 
 # --- the worker's planning pass ------------------------------------------------------------------------------------
@@ -68,17 +73,21 @@ def _new_run_dir(now: datetime) -> Path:
 def plan_job(share, owner: str, *, reader, now: Optional[datetime] = None) -> str:
     """Plan a claimed ``planning`` share: its run directory, then ``planned``, ``refused`` or ``plan_failed``."""
     stamp = now or _now()
+    run_dir = None
     try:
         inp = ShareInput.model_validate(share.request)
         run_dir = _new_run_dir(stamp)
         plan = plan_share(inp, reader, run_id=run_dir.name, now=stamp.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    except ShareRefused as exc:
-        share_jobs.finish_plan(share, owner, state="refused", error={"code": exc.code, "detail": exc.detail})
-        return "refused"
     except Exception as exc:  # noqa: BLE001 - recorded on the share row; the worker carries on
+        if run_dir is not None:
+            run_dir.rmdir()   # still empty: nothing was planned into it
+        if isinstance(exc, ShareRefused):
+            share_jobs.finish_plan(share, owner, state="refused", error={"code": exc.code, "detail": exc.detail})
+            return "refused"
         share_jobs.finish_plan(share, owner, state="plan_failed",
                                error={"code": "plan_failed", "detail": f"{type(exc).__name__}: {exc}"[:500]})
         return "plan_failed"
+    share_jobs.heartbeat(share, owner)
     sha = plan.sha256()
     summary = report.share_summary(plan, run_dir_name=run_dir.name, plan_sha256=sha)
     report.write_share_run(run_dir, plan, summary)
@@ -94,19 +103,22 @@ def _counts(plan: StudyMovePlan, st) -> tuple[int, int]:
     return done, len(creates) - done
 
 
-def _intent_at(lines: list, key: str, source_assay_id: int) -> Optional[datetime]:
-    found = None
-    for line in lines:
-        if (line.get("step"), line.get("event"), line.get("target_key"), line.get("source_assay_id")) == (
-                "clone", "intent", key, source_assay_id):
-            found = line["at"]
-    return datetime.strptime(found, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc) if found else None
+def _clone_lines(lines: list, key: str, source_assay_id: int) -> list:
+    return [line for line in lines if (line.get("step"), line.get("target_key"), line.get("source_assay_id")) == (
+        "clone", key, source_assay_id)]
+
+
+def _at(line: dict) -> datetime:
+    return datetime.strptime(line["at"], "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
 
 
 def _not_applicable(share) -> StepAnswer:
     code = (share.error or {}).get("code")
     why = f" ({code}): make a new share" if share.state == "apply_failed" and code in share_jobs.TERMINAL_ERRORS else ""
     return StepAnswer(409, share.state, code="share_not_applicable", message=f"the share is {share.state}{why}")
+
+
+DEFINITE_REFUSALS = (401, 403, 422)   # SEEK said no: nothing can exist to adopt, so the next call POSTs at once
 
 
 def _seek_answer(exc: SeekError, state: str, done: int, left: int) -> StepAnswer:
@@ -129,6 +141,10 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
     plan = StudyMovePlan.from_file(run_dir / report.PLAN_FILE)
     if plan.sha256() != share.plan_sha256:
         return StepAnswer(409, share.state, code="plan_changed", message="the run directory's plan changed")
+    if plan.plan_version != PLAN_VERSION or plan.code_sha != planner.code_sha():
+        return StepAnswer(409, share.state, code="plan_changed",
+                          message="the plan was made by other code (the box was updated since the dry run): make a "
+                                  "new share; destination assays already made are reused")
     if not plan.units:
         return StepAnswer(409, share.state, code="nothing_to_apply", message="every sample reads no_change")
     refused = preflight.graph_version_refusal(driver, db) or preflight.studies_release_refusal(driver, db)
@@ -138,6 +154,9 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
     with preflight.run_lock() as held:
         if not held:
             return StepAnswer(409, share.state, code="busy", message=f"{preflight.LOCK_NAME} is held")
+        share.refresh_from_db()   # decide on the row as it is now: the lock keeps other calls and the worker out
+        if not share_jobs.applicable(share):
+            return _not_applicable(share)
         lines, _bad = read_journal(run_dir / JOURNAL_FILE)
         st = journal_state(lines)
         if st.undo_parts:
@@ -154,7 +173,8 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
             share_jobs.to_apply_failed(share, {"code": "destination_changed"})
             return StepAnswer(409, share.state, code="destination_changed",
                               message="the destination study moved or is gone: make a new share")
-        share_jobs.to_applying(share)
+        if not share_jobs.to_applying(share):
+            return StepAnswer(409, share.state, code="busy", message="the share changed under this call: call again")
         done, left = _counts(plan, st)
         journaled = {v["seek_id"] for v in st.clones.values() if v.get("seek_id")}
         excluded = set(target.existing_assay_ids) | journaled
@@ -168,7 +188,10 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
             if slot.get("seek_id"):
                 clone_ids[key] = slot["seek_id"]
                 continue
-            if slot.get("intent") is not None:
+            mine = _clone_lines(lines, target.key, c.source_assay_id)
+            failed = max((n for n, line in enumerate(mine) if line["event"] == "failed"), default=-1)
+            unanswered = [line for line in mine[failed + 1:] if line["event"] == "intent"]
+            if unanswered:   # a POST whose answer was lost
                 found = [i for i in session.find_assay(inp.destination_study_id, c.title) if i not in excluded]
                 if len(found) > 1:
                     return StepAnswer(409, share.state, done, left, code="clone_outcome_ambiguous",
@@ -180,10 +203,13 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
                     excluded.add(found[0])
                     done, left = done + 1, left - 1
                     continue
-                since = _intent_at(lines, target.key, c.source_assay_id)
-                if since is not None and (stamp - since).total_seconds() < ADOPT_WAIT_S:
+                if (stamp - _at(unanswered[-1])).total_seconds() < ADOPT_WAIT_S:
                     return StepAnswer(202, share.state, done, left, retry_after_s=ADOPT_POLL_S,
                                       code=CLONE_OUTCOME_UNKNOWN, message="checking whether SEEK finished a create")
+                if len(unanswered) >= apply_mod.MAX_POSTS:
+                    return StepAnswer(502, share.state, done, left, code="seek_error",
+                                      message=f"no answer after {apply_mod.MAX_POSTS} POSTs of the assay {c.title!r} "
+                                              "and nothing found in SEEK: look in SEEK before calling again")
             else:
                 # One clone per group (title, internal assays): another share may have made this group's assay in D
                 # since the plan. Adopt it; one whose mapping is not written yet is another share mid-apply.
@@ -226,12 +252,17 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
                 return StepAnswer(202, share.state, done, left, retry_after_s=ADOPT_POLL_S,
                                   code=CLONE_OUTCOME_UNKNOWN, message="SEEK's answer was lost; checking next call")
             except SeekError as exc:
+                if exc.status in DEFINITE_REFUSALS:
+                    journal.append("clone", "failed", target_key=target.key, source_assay_id=c.source_assay_id,
+                                   status=exc.status)
                 return _seek_answer(exc, share.state, done, left)
             journal.append("clone", "done", target_key=target.key, source_assay_id=c.source_assay_id, seek_id=new_id)
             return StepAnswer(200, share.state, done + 1, left - 1)
-        if apply_mod._mapping(journal, st, [target], clone_ids):
-            hooks.enqueue("assay_map", "*")
-        share_jobs.to_queued(share)
+        apply_mod._mapping(journal, st, [target], clone_ids)
+        if any(c.action == "create" for c in target.clones):
+            hooks.enqueue("assay_map", "*")   # again on a resume: harmless, and never lost to a crash
+        if not share_jobs.to_queued(share):
+            return StepAnswer(409, share.state, code="busy", message="the share changed under this call: call again")
         return StepAnswer(202, share.state, done, left)
 
 
@@ -246,6 +277,7 @@ def run_share_unit(share, owner: str) -> str:
         if not held:
             share_jobs.back_to_queued(share, owner)
             return "queued"
+        share_jobs.heartbeat(share, owner)
         st = journal_state(read_journal(run_dir / JOURNAL_FILE)[0])
         if st.undo_parts:
             share_jobs.end_rolled_back(share.run_dir)

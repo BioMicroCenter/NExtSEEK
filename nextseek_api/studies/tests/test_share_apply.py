@@ -16,8 +16,8 @@ from nextseek_api.studies.journal import JOURNAL_FILE, read_journal
 from nextseek_api.studies.models import ShareInput
 from nextseek_api.studies.models_db import SampleShare
 from nextseek_api.studies.seek import ADOPT_POLL_S, ADOPT_WAIT_S, SeekError
-from nextseek_api.studies.tests.conftest import (PASSWORD, U3, U4, U5, FakeReader, add_sample, links_of, outbox_of,
-                                                 projects_of, seed, sqlite_connection, uid)
+from nextseek_api.studies.tests.conftest import (PASSWORD, T0, U3, U4, U5, AssayRow, FakeReader, add_sample, links_of,
+                                                 outbox_of, projects_of, seed, sqlite_connection, uid)
 
 
 def _events(row):
@@ -125,12 +125,13 @@ def test_nothing_found_waits_and_posts_again_only_after_the_wait(share_env):
 
 @pytest.mark.parametrize("status, code, http", [(401, "seek_refused", 403), (403, "seek_refused", 403),
                                                 (422, "seek_payload_rejected", 422), (503, "seek_error", 502)])
-def test_seeks_answers_map_and_journal_no_outcome(share_env, status, code, http):
+def test_seeks_answers_map_and_journal_a_definite_refusal(share_env, status, code, http):
     row = share_env.planned(U3)
     share_env.session.script["assay"] = [SeekError("x", "SEEK said no", status)]
     answer = share_env.step(row)
     assert (answer.status_code, answer.code, answer.message) == (http, code, "SEEK said no")
-    assert [e for e in _events(row) if e[0] == "clone"] == [("clone", "intent")]
+    refused = [("clone", "failed")] if status < 500 else []      # a 5xx may still have made it: no outcome
+    assert [e for e in _events(row) if e[0] == "clone"] == [("clone", "intent"), *refused]
 
 
 def test_a_moved_destination_ends_the_share(share_env):
@@ -375,3 +376,108 @@ def test_the_rollback_preview_counts_the_project_rows_it_may_delete(share_env, m
     result = rollback.rollback_study_moves(share_apply.run_dir_of(row), share_env.session, None, "neo4j",
                                            confirm=False)
     assert result.counts["would_undo"]["project_rows"] == 2 and SampleShare.objects.get(pk=row.pk).state == "applied"
+
+
+# --- the smaller rules of one apply call and the worker ---------------------------------------------------------------
+
+def test_a_clone_whose_answers_keep_getting_lost_stops_after_three_posts(share_env):
+    row = share_env.planned(U3)
+    share_env.session.script["assay"] = ["lost"] * 5
+    share_env.now = datetime.now(timezone.utc)
+    answers = []
+    for _ in range(4):
+        answers.append(share_env.step(row))
+        share_env.now += timedelta(seconds=ADOPT_WAIT_S + 1)
+    assert [a.code for a in answers[:3]] == [share_apply.CLONE_OUTCOME_UNKNOWN] * 3
+    assert (answers[3].status_code, answers[3].code, len(share_env.session.posts)) == (502, "seek_error", 3)
+    assert "look in SEEK" in answers[3].message
+
+
+def test_a_call_decides_on_the_row_it_reads_under_the_run_lock(share_env):
+    row = share_env.planned(U4)
+    stale = SampleShare.objects.get(pk=row.pk)
+    assert share_jobs.to_applying(SampleShare.objects.get(pk=row.pk))          # another call moved it meanwhile
+    answer = share_apply.apply_step(stale, share_env.session, None, "neo4j", plan_sha256=row.plan_sha256,
+                                    reader=FakeReader(share_env.world), now=share_env.now)
+    assert (answer.status_code, answer.state) == (202, "queued") and SampleShare.objects.get(pk=row.pk).state == "queued"
+
+
+def test_a_definite_refusal_lets_the_next_call_post_at_once(share_env):
+    row = share_env.planned(U3)
+    share_env.session.script["assay"] = [SeekError("forbidden", "no", 403)]
+    assert share_env.step(row).status_code == 403
+    answer = share_env.step(row)
+    assert (answer.status_code, len(share_env.session.posts)) == (200, 2)
+    assert [e for e in _events(row) if e[0] == "clone"] == [("clone", "intent"), ("clone", "failed"),
+                                                           ("clone", "intent"), ("clone", "done")]
+
+
+def test_a_plan_made_by_other_code_is_refused(share_env, monkeypatch):
+    from nextseek_api.studies import planner
+
+    row = share_env.planned(U3)
+    monkeypatch.setattr(planner, "code_sha", lambda: "c" * 64)
+    answer = share_env.step(row)
+    assert (answer.status_code, answer.code) == (409, "plan_changed") and "other code" in answer.message
+    assert share_env.session.posts == []
+
+
+def test_assay_map_is_enqueued_again_on_a_resume(share_env):
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    GraphSyncOutbox.objects.filter(kind="assay_map").delete()     # lost to a crash after the mapping was written
+    SampleShare.objects.filter(pk=row.pk).update(state="applying")
+    assert share_env.step(row).state == "queued" and GraphSyncOutbox.objects.filter(kind="assay_map").exists()
+
+
+def test_a_box_not_ready_answers_409_not_ready(share_env, monkeypatch):
+    monkeypatch.setattr(preflight, "_switch_follows", lambda: False)
+    answer = share_env.step(share_env.planned(U3))
+    assert (answer.status_code, answer.code) == (409, "not_ready") and share_env.session.posts == []
+
+
+def test_two_assays_matching_a_lost_create_answer_409_ambiguous(share_env):
+    row = share_env.planned(U3)
+    share_env.session.script["assay"] = ["lost"]
+    share_env.step(row)
+    share_env.session.assays.update({410: (40, "RNA-seq run"), 411: (40, "RNA-SEQ run")})
+    answer = share_env.step(row)
+    assert (answer.status_code, answer.code) == (409, "clone_outcome_ambiguous") and "410" in answer.message
+
+
+def test_a_source_assay_seek_cannot_describe_answers_422_clone_payload_invalid(share_env):
+    row = share_env.planned(U3)
+    share_env.world.assay_reps[101] = {"data": {"attributes": {"title": None}}}
+    answer = share_env.step(row)
+    assert (answer.status_code, answer.code) == (422, "clone_payload_invalid") and share_env.session.posts == []
+
+
+def test_a_planned_assay_of_the_study_is_never_adopted_for_a_lost_create(share_env):
+    share_env.world.assays[404] = AssayRow(404, 40, "RNA-seq run")       # same title, other internal assays
+    share_env.world.mapping[404] = [999]
+    row = share_env.planned(U3)
+    share_env.session.assays[404] = (40, "RNA-seq run")
+    share_env.session.script["assay"] = ["lost"]
+    share_env.step(row)
+    assert share_env.step(row).code == share_apply.CLONE_OUTCOME_UNKNOWN and ("clone", "adopted") not in _events(row)
+
+
+def test_two_run_directories_chosen_in_one_second_differ_and_a_refused_plan_leaves_none(share_env):
+    first, second = share_apply._new_run_dir(T0), share_apply._new_run_dir(T0)
+    assert first != second and first.is_dir() and second.is_dir()
+    row = share_jobs.create_share(ShareInput(sample_uids=[U3], source_project_id=3, destination_project_id=3,
+                                             destination_study_id=40, created_at="t"), share_env.user)
+    share_jobs.claim(row, "w1")
+    before = sorted(share_apply.share_root().iterdir())
+    assert share_apply.plan_job(row, "w1", reader=FakeReader(share_env.world), now=T0) == "refused"
+    assert sorted(share_apply.share_root().iterdir()) == before
+
+
+def test_the_worker_keeps_its_lease_through_a_plan_and_a_unit(share_env, monkeypatch):
+    beats = []
+    real = share_jobs.heartbeat
+    monkeypatch.setattr(share_jobs, "heartbeat", lambda share, owner: beats.append(owner) or real(share, owner))
+    row = share_env.planned(U4)
+    share_env.step(row)
+    assert share_env.unit(row) == "applied" and beats == ["w1", "w2"]

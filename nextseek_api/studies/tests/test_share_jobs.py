@@ -83,3 +83,30 @@ def test_state_version_only_moves_by_f(share):
     assert jobs.claim(a, "w1")
     assert not jobs.claim(b, "w2")
     assert SampleShare.objects.get(pk=share.pk).state_version == first + 1
+
+
+def test_to_apply_failed_moves_only_an_applicable_share(share):
+    assert not jobs.to_apply_failed(share, {"code": "destination_changed"}) and share.state == "planning"
+    jobs.claim(share, "w1")
+    jobs.finish_plan(share, "w1", state="planned", run_dir="r", plan_sha256="a" * 64, summary={})
+    share.refresh_from_db()
+    assert jobs.to_apply_failed(share, {"code": "destination_changed"}) and share.state == "apply_failed"
+    assert not jobs.applicable(share) and not jobs.to_applying(share)
+
+
+def test_finish_apply_and_back_to_queued_from_another_owner_do_nothing(share):
+    jobs.claim(share, "w1")
+    jobs.finish_plan(share, "w1", state="planned", run_dir="r", plan_sha256="a" * 64, summary={})
+    share.refresh_from_db()
+    jobs.to_queued(share)
+    jobs.claim(share, "w2")
+    assert not jobs.finish_apply(share, "w3", state="applied") and not jobs.back_to_queued(share, "w3")
+    assert SampleShare.objects.get(pk=share.pk).state == "running"
+
+
+def test_a_rolled_back_share_is_ended_by_its_run_directory_and_never_claimed(share):
+    jobs.claim(share, "w1")
+    jobs.finish_plan(share, "w1", state="planned", run_dir="r", plan_sha256="a" * 64, summary={})
+    assert jobs.end_rolled_back("r") == 1 and jobs.end_rolled_back("r") == 0 and jobs.end_rolled_back("") == 0
+    share.refresh_from_db()
+    assert share.state == "rolled_back" and not jobs.applicable(share) and jobs.next_claimable() is None

@@ -44,3 +44,60 @@ def test_once_runs_one_pass(worker):
     _new(worker, U3)
     call_command("run_share_jobs", "--once")
     assert SampleShare.objects.get().state == "planned"
+
+
+def _expire(row):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    SampleShare.objects.filter(pk=row.pk).update(lease_expires_at=timezone.now() - timedelta(seconds=1))
+
+
+def test_a_share_the_worker_keeps_failing_on_ends_with_the_error(worker, monkeypatch):
+    row = _new(worker, U4)
+    cmd.run_pass("w", 10)
+    row.refresh_from_db()
+    worker.step(row)
+    monkeypatch.setattr(cmd.share_apply, "run_share_unit", lambda share, owner: 1 / 0)
+    for attempt in (1, 2):
+        assert cmd.run_pass("w", 10) == 1                       # taken once a pass: its lease holds it till then
+        got = SampleShare.objects.get(pk=row.pk)
+        assert (got.state, got.error["code"], got.error["attempts"]) == ("running", "worker_error", attempt)
+        _expire(row)
+    cmd.run_pass("w", 10)
+    got = SampleShare.objects.get(pk=row.pk)
+    assert (got.state, got.error["code"], got.error["attempts"], got.claim_owner) == (
+        "apply_failed", "worker_error", 3, None)
+    assert "ZeroDivisionError" in got.error["detail"]
+
+
+def test_a_planning_share_the_worker_keeps_failing_on_ends_plan_failed(worker, monkeypatch):
+    row = _new(worker, U3)
+    monkeypatch.setattr(cmd.share_apply, "plan_job", lambda share, owner, reader: 1 / 0)
+    for _ in range(3):
+        cmd.run_pass("w", 10)
+        _expire(row)
+    got = SampleShare.objects.get(pk=row.pk)
+    assert (got.state, got.error["code"], got.error["attempts"]) == ("plan_failed", "worker_error", 3)
+
+
+def test_a_queued_share_behind_a_busy_lock_does_not_hold_up_planning(worker, monkeypatch):
+    from nextseek_api.studies import preflight
+
+    queued = _new(worker, U4)
+    cmd.run_pass("w", 10)
+    queued.refresh_from_db()
+    worker.step(queued)
+    version = SampleShare.objects.get(pk=queued.pk).state_version
+    newer = _new(worker, U3)
+
+    @contextlib.contextmanager
+    def busy():
+        yield False
+
+    monkeypatch.setattr(preflight, "run_lock", busy)
+    assert cmd.run_pass("w", 10) == 2
+    assert SampleShare.objects.get(pk=newer.pk).state == "planned"
+    got = SampleShare.objects.get(pk=queued.pk)
+    assert (got.state, got.state_version) == ("queued", version + 2)
