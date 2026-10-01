@@ -15,8 +15,8 @@ under another name: a `/usr/bin/grep -rn` for the alternation
 `.superpowers/` and `__pycache__/`, matched exactly three files: this
 document, [../README.md](../README.md), and one `nessie_tests` note that is
 itself a restatement of these docs (`NessieAI/tests/nessie_tests/FAMILIES.json:9897`, whose
-entry begins `docs:`). The retirement is recorded at
-`NessieAI/chat_nextseek/CITATIONS.txt:139-142`.
+entry begins `docs:`). The `smart_test.py` / `test.py` / `testing.json`
+harness was retired.
 
 So this runbook now documents the mechanism, not that particular corpus. Bring
 your own query file, in one of the three shapes

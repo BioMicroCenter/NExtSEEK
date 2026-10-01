@@ -391,8 +391,8 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
 - Not a consumer: `startup/cli.py:40-44` restates `("local", "dev", "prod")` as
   its own constant and says in the comment above it that `startup/` never imports
   `ci/`. It is a deliberate duplicate, not an edge.
-- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`,
-  `CLAUDE.md` and `CITATIONS.txt` in a sibling boundary that cites a path here.
+- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`
+  and `CLAUDE.md` in a sibling boundary that cites a path here.
   The registry names its two consuming environments and the application is
   neither of them (`ci/routes.py:5-6`); no module under `dmac/`, `seek/`,
   `nextseek_api/`, `NessieAI/` or `api_app/` appears at all, because the

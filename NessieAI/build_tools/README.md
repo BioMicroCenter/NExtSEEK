@@ -206,8 +206,7 @@ tools read by path:
   do-not-edit banner naming this tool.
 
 Not dependency edges: the file inventories frozen in `NessieAI/history/` that record
-paths under this directory, and the `CITATIONS.txt` files that list modules here as
-sources they cited (for example `NessieAI/cc/CITATIONS.txt:71`). Also excluded:
+paths under this directory. Also excluded:
 `NessieAI/docker/cc-runtime/pyproject.toml:58-60` mentions `build_tools` only to record
 that its coverage scope was removed from a different project's pytest options.
 
