@@ -271,18 +271,22 @@ def test_numeric_ids_are_seek_ids_and_unknown_ones_count_as_failed(seek, graph):
 
 
 def test_a_failed_numeric_lookup_counts_every_numeric_id_as_failed(seek, graph, monkeypatch):
-    real = sr._ids_to_uuids
-    calls = []
+    def flaky(real):
+        calls = []
 
-    def flaky(ids):
-        calls.append(ids)
-        if len(calls) == 1:
-            raise RuntimeError("db down")
-        return real(ids)
+        def wrapper(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise RuntimeError("db down")
+            return real(*args)
+        return wrapper
 
-    monkeypatch.setattr(sr, "_ids_to_uuids", flaky)
-    resp = _post({"identifiers": ["3", "TIS-2"], "include_tree": False})
-    assert _uuids(resp) == ["TIS-2"] and resp.json()["failed_uids"] == 1
+    real_ids, real_scoped = sr._ids_to_uuids, sr._scoped_ids_to_uuids
+    for login in (MEMBER, SUPER):
+        monkeypatch.setattr(sr, "_ids_to_uuids", flaky(real_ids))
+        monkeypatch.setattr(sr, "_scoped_ids_to_uuids", flaky(real_scoped))
+        resp = _post({"identifiers": ["3", "TIS-2"], "include_tree": False}, login=login)
+        assert _uuids(resp) == ["TIS-2"] and resp.json()["failed_uids"] == 1
 
 
 def test_duplicates_are_read_once(seek, graph):
@@ -549,6 +553,46 @@ def test_a_foreign_seek_id_with_a_visible_pub_twin_answers_as_an_unknown_one(see
     a, b = _post({"identifiers": ["TIS-2", "6"]}), _post({"identifiers": ["TIS-2", "99"]})
     assert a.content == b.content and a.json()["failed_uids"] == 1 and "TIS-FOR-1-PUB" not in _uuids(a)
     assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
+@pytest.mark.parametrize("foreign, unknown", [("6", "99"), ("30", "31")])
+def test_a_members_numeric_ids_cost_the_same_statements_whether_foreign_or_unknown(seek, graph, monkeypatch, foreign, unknown):
+    """A foreign id and an unknown id must be indistinguishable by cost: both go through one scoped statement."""
+    _add(seek, 30, "TIS-ELSE-1", 4)
+    statements = []
+    real = sr._cursor
+
+    class Spy:
+        def __init__(self):
+            self.c = real()
+
+        def __enter__(self):
+            self.c.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self.c.__exit__(*exc)
+
+        def execute(self, sql, params=()):
+            statements.append(sql)
+            return self.c.execute(sql, params)
+
+        def fetchall(self):
+            return self.c.fetchall()
+
+    monkeypatch.setattr(sr, "_cursor", Spy)
+    runs = []
+    for ident in (foreign, unknown):
+        statements.clear()
+        resp = _post({"identifiers": [ident], "include_tree": False})
+        assert resp.status_code == 404
+        runs.append(list(statements))
+    assert runs[0] == runs[1] and len(runs[0]) == 1 and "projects_samples" in runs[0][0]
+
+
+def test_a_members_own_numeric_id_still_resolves(seek, graph):
+    resp = _post({"identifiers": ["1"], "include_tree": False})
+    assert resp.status_code == 200 and "NHP-1" in _uuids(resp)
 
 
 def test_a_mixed_request_answers_as_if_the_foreign_uid_were_unknown(seek, graph):

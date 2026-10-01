@@ -123,11 +123,33 @@ def _cursor():
 
 
 def _ids_to_uuids(ids):
-    """{id: uuid} for these primary keys. Unscoped: the caller's scope is applied to the ids afterwards."""
+    """{id: uuid} for these primary keys. Unscoped: for a superuser, and to check a graph's ids; a member's own ids
+    go through ``_scoped_ids_to_uuids``."""
     found = {}
     with _cursor() as cursor:
         for chunk in _chunks(sorted({int(i) for i in ids})):
             cursor.execute(f"SELECT id, uuid FROM samples WHERE id IN ({_placeholders(len(chunk))})", chunk)
+            for sample_id, uuid in cursor.fetchall():
+                if sample_id is not None and uuid is not None:
+                    found[int(sample_id)] = str(uuid)
+    return found
+
+
+def _scoped_ids_to_uuids(ids, scope):
+    """{id: uuid} of these primary keys that sit in the caller's projects: one scoped statement per chunk, so a
+    foreign id and an unknown one cost the same statements and look the same."""
+    found = {}
+    ids = sorted({int(i) for i in ids})
+    if not ids or not scope.project_ids:
+        return found
+    projects = [int(p) for p in scope.project_ids]
+    with _cursor() as cursor:
+        for chunk in _chunks(ids):
+            cursor.execute(
+                f"SELECT DISTINCT s.id, s.uuid FROM samples s JOIN projects_samples ps ON s.id = ps.sample_id "
+                f"WHERE s.id IN ({_placeholders(len(chunk))}) AND ps.project_id IN ({_placeholders(len(projects))})",
+                chunk + projects,
+            )
             for sample_id, uuid in cursor.fetchall():
                 if sample_id is not None and uuid is not None:
                     found[int(sample_id)] = str(uuid)
@@ -297,7 +319,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     unresolved_numeric = 0
     if numeric_ids:
         try:
-            by_id = _ids_to_uuids(numeric_ids)
+            by_id = _ids_to_uuids(numeric_ids) if scope.is_admin else _scoped_ids_to_uuids(numeric_ids, scope)
         except Exception:  # noqa: BLE001
             log.exception("sample retrieve: numeric id lookup failed")
             by_id = {}
