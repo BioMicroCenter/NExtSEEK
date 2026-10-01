@@ -31,7 +31,7 @@ import json
 import logging
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 from django.conf import settings
@@ -103,6 +103,7 @@ class RetrieveResult:
     requested_uids: list  # requested UIDs in request order, numeric ids already resolved, deduped
     unresolved_numeric: int  # numeric identifiers that matched no sample
     lineage_complete: bool  # False when lineage was asked for and could not be fully read
+    resolved_as: dict = field(default_factory=dict)  # {UID as written: stored UID} for those answered under another spelling
 
 
 def _chunks(items, size=MAX_IDS_PER_STATEMENT):
@@ -361,6 +362,9 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
         return uid
 
     requested_uids = list(dict.fromkeys(answered_as(u) for u in requested_uids))
+    # Which stored UID answered each identifier that was answered under another spelling (not just another case).
+    resolved_as = {u: answered_as(u) for u in dict.fromkeys(typed)
+                   if answered_as(u).casefold() != u.casefold()}
     visible = set(requested)
     wanted = set(visible)
 
@@ -389,6 +393,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
         requested_uids=requested_uids,
         unresolved_numeric=unresolved_numeric,
         lineage_complete=lineage_complete,
+        resolved_as=resolved_as,
     )
 
 
@@ -463,6 +468,7 @@ def _json_body(result: RetrieveResult) -> dict:
         total_children=max(0, total_samples - len(requested & returned_uids)),
         failed_uids=int(failed_uids),
         lineage_complete=result.lineage_complete,
+        resolved_as=result.resolved_as or None,
     )
     return body.model_dump(mode="json", exclude_none=True)
 
@@ -569,6 +575,7 @@ RETRIEVE_EXAMPLES = [
         value={
             "total_samples": 2, "total_sample_types": 2, "total_children": 1, "failed_uids": 0,
             "lineage_complete": True,
+            "resolved_as": {"NHP-220630FLY-1": "NHP-220630FLY-1-PUB"},
             "data": [
                 {"sample_type": "NHP", "n_samples": 1, "samples": [
                     {"id": "81271", "uuid": "NHP-220630FLY-1-PUB", "sample_type_id": 41,

@@ -419,6 +419,28 @@ def test_a_foreign_sample_in_any_pub_spelling_answers_as_an_unknown_one(seek, gr
     assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
 
 
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+@pytest.mark.parametrize("stored, asked", [("TIS-3-PUB1", "TIS-3"), ("TIS-3", "TIS-3-PUB"), ("TIS-3-PUB2", "TIS-3-PUB1")])
+def test_the_body_names_the_stored_uid_that_answered_another_spelling(seek, graph, login, stored, asked):
+    _add(seek, 40, stored, 2)
+    body = _post({"identifiers": [asked], "include_tree": False}, login=login).json()
+    assert body["resolved_as"] == {asked: stored}
+    assert list(body)[-1] == "resolved_as"
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_resolved_as_is_left_out_when_nothing_was_answered_under_another_spelling(seek, graph, login):
+    _add(seek, 40, "TIS-3-PUB", 2)
+    for ids in (["TIS-2"], ["TIS-3-PUB"], ["tis-3-pub"], ["1"], ["TIS-NOPE", "TIS-2"]):
+        assert "resolved_as" not in _post({"identifiers": ids, "include_tree": False}, login=login).json(), ids
+
+
+def test_resolved_as_never_names_a_foreign_sample(seek, graph):
+    _add(seek, 25, "TIS-6-PUB1", 4)
+    resp = _post({"identifiers": ["TIS-6", "TIS-2"], "include_tree": False})
+    assert "resolved_as" not in resp.json() and "TIS-6" not in resp.content.decode().replace('"failed_uids"', "")
+
+
 def test_a_superuser_retry_does_not_ask_a_dead_graph_again(seek, graph):
     graph.down = True
     resp = _post({"identifiers": ["TIS-NOPE"], "include_tree": False}, login=SUPER)
