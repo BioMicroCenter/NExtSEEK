@@ -239,6 +239,7 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-16-graph-behaviour-tests-design.md
 !docs/superpowers/specs/2026-09-16-ci-coverage-gaps-design.md
 !docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
+!docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # Exception: the association-workbench design, cited by seek/views/admin.py and by the
 # workbench CSS block in themes/NextSeek/static/css/nextseek.css. Same public-repo review
 # applied: no environment concretes, no credentials, no unresolved-issue reproduction.
