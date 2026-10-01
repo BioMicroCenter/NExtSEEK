@@ -14,7 +14,7 @@ from types import MappingProxyType
 from typing import Final, Mapping
 
 # --- versions ------------------------------------------------------------------------------------
-VERSIONS: Final[tuple[str, ...]] = ("1.1", "1.2")   # the doc's sections from v1.1 on, oldest first
+VERSIONS: Final[tuple[str, ...]] = ("1.1", "1.2", "1.3")   # the doc's sections from v1.1 on, oldest first
 SCHEMA_VERSION: Final[str] = "1.2"      # what graph_sync writes to GraphMeta.schema_version; one of VERSIONS
 READER_MIN_VERSION: Final[str] = "1.1"  # the oldest graph the Nessie catalog reader accepts
 
@@ -160,6 +160,38 @@ GRAPHMETA_KEYS: Final[tuple[str, ...]] = ("schema_version", "catalog_hash", "lab
 LEGACY_ATTRIBUTE_STATS: Final[frozenset[str]] = frozenset({
     "top_values", "top_counts", "num_min", "num_max", "date_min", "date_max"})
 
+# === 1.3: the assay nodes (docs/neo4j-schema.md "v1.3") ===========================================
+ASSAY: Final[str] = "Assay"
+LABELS_V13: Final[frozenset[str]] = frozenset({ASSAY})
+
+INPUT_TO: Final[str] = "INPUT_TO"
+OUTPUT_OF: Final[str] = "OUTPUT_OF"
+RUN_IN: Final[str] = "RUN_IN"
+ACCEPTED_BY: Final[str] = "ACCEPTED_BY"
+GENERATES: Final[str] = "GENERATES"
+
+RELATIONSHIPS_V13: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
+    INPUT_TO: frozenset({"seek_assay_ids"}),
+    OUTPUT_OF: frozenset({"seek_assay_ids"}),
+    RUN_IN: frozenset({"seek_assay_ids"}),
+    ACCEPTED_BY: frozenset({"required", "group"}),
+    GENERATES: frozenset({"group"}),
+})
+RELATIONSHIP_PATTERNS_V13: Final[tuple[tuple[str, str, str], ...]] = (   # (start label, type, end label)
+    (SAMPLE, INPUT_TO, ASSAY),
+    (SAMPLE, OUTPUT_OF, ASSAY),
+    (ASSAY, RUN_IN, STUDY),
+    (SAMPLE_TYPE, ACCEPTED_BY, ASSAY),
+    (ASSAY, GENERATES, SAMPLE_TYPE),
+)
+NODE_PROPERTIES_V13: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
+    ASSAY: frozenset({"id", "title", "other_names", "description", "tags", "parent_clade", "child_clade",
+                      "input_types", "optional_input_types", "output_types", "has_context"}),
+})
+UNIQUE_CONSTRAINTS_V13: Final[tuple[tuple[str, str, str], ...]] = (("assay_id_unique", ASSAY, "id"),)
+RANGE_INDEXES_V13: Final[tuple[tuple[str, str, str], ...]] = (("assay_title", ASSAY, "title"),)
+# SCHEMA_VERSION stays "1.2" until the v1.3 section's Versioning subsection is written (W11 with R2b).
+
 # === the next version =============================================================================
 # A version adds its groups here, each named with its own suffix (LABELS_V13, RELATIONSHIPS_V13,
 # RELATIONSHIP_PATTERNS_V13, NODE_PROPERTIES_V13, UNIQUE_CONSTRAINTS_V13, RANGE_INDEXES_V13, ...), and appends itself
@@ -178,4 +210,6 @@ __all__ = (
     "UNIQUE_CONSTRAINTS_V11", "RANGE_INDEXES_V11", "FULLTEXT_INDEX", "FULLTEXT_INDEX_ON",
     "SAMPLE_SYSTEM_PROPERTIES_V12", "NODE_PROPERTIES_V12", "ORPHAN_SAMPLE_PROPERTIES_V12", "GRAPHMETA_KEYS",
     "LEGACY_ATTRIBUTE_STATS",
+    "ASSAY", "LABELS_V13", "INPUT_TO", "OUTPUT_OF", "RUN_IN", "ACCEPTED_BY", "GENERATES", "RELATIONSHIPS_V13",
+    "RELATIONSHIP_PATTERNS_V13", "NODE_PROPERTIES_V13", "UNIQUE_CONSTRAINTS_V13", "RANGE_INDEXES_V13",
 )

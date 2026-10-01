@@ -550,6 +550,17 @@ def test_the_census_fails_a_stray_label_and_a_stray_relationship_type(world):
     assert (types_check["actual"], types_check["detail"]) == (1, ["CHILD_OF"])
 
 
+def test_the_census_passes_the_assay_layer(world):
+    graph = GateWorld(_graph_nodes())
+    assay_layer = {"INPUT_TO", "OUTPUT_OF", "RUN_IN", "ACCEPTED_BY", "GENERATES"}
+    graph.labels_listed = sorted(set(graph.labels_listed) | {"Assay"})
+    graph.types_listed = sorted(set(graph.types_listed) | assay_layer)
+    graph.carried |= {"Assay"} | assay_layer
+    result = _gate(graph)
+    for name in ("8.schema.unknown_labels", "8.schema.unknown_relationship_types"):
+        assert _named(result, name)["pass"] is True
+
+
 def test_the_census_ignores_a_listed_name_nothing_carries(world):
     graph = GateWorld(_graph_nodes())
     graph.types_listed.append("CHILD_OF")          # the token outlived its last edge

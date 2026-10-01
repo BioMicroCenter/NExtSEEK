@@ -184,9 +184,10 @@ RELATIONSHIP_TYPES_LISTED = ("CALL db.relationshipTypes() YIELD relationshipType
 # Cypher 25 dynamic labels and types stop at the first hit (two db hits); a WHERE on labels(n) or type(r) scans them all.
 LABEL_CARRIED = "CYPHER 25 MATCH (n:$($name)) RETURN 1 AS found LIMIT 1"
 RELATIONSHIP_TYPE_CARRIED = "CYPHER 25 MATCH ()-[r:$($name)]->() RETURN 1 AS found LIMIT 1"
-# The names the graph's schema version allows, from the contract (every T_ label besides). Graph 1.3 adds its groups.
-EXPECTED_LABELS = schema.LABELS_V11
-EXPECTED_RELATIONSHIP_TYPES = frozenset(schema.RELATIONSHIPS_V11)
+# The names a graph may carry, from the contract (every T_ label besides): 1.1's and 1.3's groups (1.2 adds no label
+# or type). 1.3's are allowed on a 1.2 graph too, so the census never fails a box mid-rollout.
+EXPECTED_LABELS = schema.LABELS_V11 | schema.LABELS_V13
+EXPECTED_RELATIONSHIP_TYPES = frozenset(schema.RELATIONSHIPS_V11) | frozenset(schema.RELATIONSHIPS_V13)
 # Nodes carrying a type label without :Sample: an OrphanSample that kept one, or a node nothing should have typed.
 T_LABEL_WITHOUT_SAMPLE = """
 MATCH (n) WHERE NOT n:Sample AND any(l IN labels(n) WHERE l STARTS WITH 'T_')

@@ -585,6 +585,11 @@ def test_the_writer_composed_names_equal_their_groups():
     assert verify.EXPECTED_CONSTRAINTS == tuple(name for name, _, _ in schema.UNIQUE_CONSTRAINTS_V11)
     assert verify.EXPECTED_INDEXES == (tuple(name for name, _, _ in schema.RANGE_INDEXES_V11)
                                        + (schema.FULLTEXT_INDEX,))
+    # The census (8.schema.unknown_labels, 8.schema.unknown_relationship_types) allows every version's names from
+    # 1.1 on, 1.3's included as soon as they are in the contract, so a box's census never fails the Assay layer.
+    assert verify.EXPECTED_LABELS == schema.LABELS_V11 | schema.LABELS_V13
+    assert verify.EXPECTED_RELATIONSHIP_TYPES == (frozenset(schema.RELATIONSHIPS_V11)
+                                                  | frozenset(schema.RELATIONSHIPS_V13))
 
 
 _DDL = re.compile(r"CREATE (CONSTRAINT|INDEX) (\w+) IF NOT EXISTS FOR \((\w+):(\w+)\) "

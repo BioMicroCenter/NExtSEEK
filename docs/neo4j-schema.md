@@ -309,3 +309,93 @@ Unchanged from v1.1.
 
 `GraphMeta.schema_version` reads `"1.2"`. `catalog_hash` is computed as in v1.1, so a reader that needs the v1.1
 catalog should accept any version from 1.1 up rather than exactly `"1.1"`.
+
+## v1.3: assay nodes
+
+Built by the assay-node work (`docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md`). Everything in v1.2
+holds unless this section changes it. Every internal assay gets a node, so a question about assays (which samples
+went into or came out of one, which studies ran it, which sample types it takes and makes) is a direct read.
+Lineage does not change: `DERIVED_FROM` stays the only lineage, Sample to Sample, with all nine properties.
+
+### Nodes
+
+| Label | Properties | Key | Source |
+|---|---|---|---|
+| `Assay` | `id`, `title`, `other_names`, `description`, `tags`, `parent_clade`, `child_clade`, `input_types`, `optional_input_types`, `output_types`, `has_context` | `id` (unique) | `dmac.internal_assays`, `dmac.assay_context` |
+
+- `id` is the internal assay's id and `title` its `internal_assay_title`, the name DERIVED_FROM labels carry.
+- `other_names` lists `alternative_assay_names`, split, plus `assay_name` when it differs from `title`.
+- `description` and `tags` are the catalog text; `parent_clade` and `child_clade` are `parent_clade_type` and
+  `child_clade_type`; `input_types`, `optional_input_types` and `output_types` are sample type codes, flattened from
+  the parsed groups.
+- `has_context` is true when a catalog row is linked.
+- Empty is absent. No property holds run ids, counts or anything read per project, so the node is the same for every
+  caller.
+- The catalog is read softly: with no `assay_context` table every Assay has `has_context: false` and no catalog edges.
+  A catalog row with no `internal_assay_id` makes nothing; of several rows linked to one internal assay the lowest row
+  id wins; an internal assay title held by two ids makes two nodes. Each of these is reported.
+
+SEEK assays (the runs) are not nodes: their ids ride on the edges below.
+
+### Relationships
+
+| Pattern | Properties | Holds | Source |
+|---|---|---|---|
+| `(:Sample)-[:INPUT_TO]->(:Assay)` | `seek_assay_ids` | the runs of this kind in which the sample was an input | lineage and `assay_assets`, by the role rule below |
+| `(:Sample)-[:OUTPUT_OF]->(:Assay)` | `seek_assay_ids` | the runs of this kind in which the sample was an output | the same |
+| `(:Assay)-[:RUN_IN]->(:Study)` | `seek_assay_ids` | the runs of this kind in that study | `assays.study_id`, through `assays_internal_assays` |
+| `(:SampleType)-[:ACCEPTED_BY]->(:Assay)` | `required`, `group` | whether the type is required, and the index of its either-or group ("TIS or CEX or CEL" is one choice) | the catalog's parent columns, parsed with `parse_alternation` |
+| `(:Assay)-[:GENERATES]->(:SampleType)` | `group` | the index of its either-or group | `children_sample_types`, parsed the same way |
+
+- All five types are new; no existing type gains a new label pair.
+- `parse_alternation` drops a code it does not know, so a separate pass reports those codes. A mapping row with a
+  NULL `internal_assay_id`, an id missing from `internal_assays`, or a SEEK id missing from `assays` is dropped and
+  reported.
+- `RUN_IN` points at the Study nodes keyed by `seek_study_id`, never at a paper-level study. A study with no Study node
+  gets one, as the SEEK studies do.
+- Only `INPUT_TO` and `OUTPUT_OF` reach a caller who is not an admin. `RUN_IN`, `ACCEPTED_BY` and `GENERATES` are
+  refused for them (their Study or SampleType end), and the lists on the node answer "which types does X take or
+  make" for everyone.
+
+### The role rule
+
+The role comes from lineage, because `assay_assets.direction` is unread and filled three ways. For each DERIVED_FROM
+pair (child c, parent p) between two Samples, take the SEEK assays both hold in `assay_assets` and map each through
+every row of `assays_internal_assays`. For each shared SEEK assay s mapped to internal assay a, c gets `OUTPUT_OF` a
+with s in `seek_assay_ids`, and p gets `INPUT_TO` a with s in `seek_assay_ids`.
+
+- A sample can be both, in one run or in several; a same-type edge (A.VCF to A.VCF) gives each end its own role.
+- OrphanSample ends are skipped.
+- A member with no lineage edge inside a run gets no edge for it; the sync counts these.
+- A SEEK assay with no internal mapping makes no sample edge; drift reports it with its member count.
+
+### DERIVED_FROM and the Assay
+
+- Two samples on one Assay did not come from each other. One Assay holds every run of its kind, so a node in the
+  middle of a lineage path forgets which child came from which parent: on the local graph (2026-09-25, schema 1.2),
+  pairing every output with every input of one Assay reads 46,206,841,781 pairs where DERIVED_FROM holds 1,998,154.
+  The graph agent's query-shape guard refuses a query that pairs samples through one Assay (`assay_join`).
+- "Children that underwent X" (the child of an edge inside X) stays the edge test
+  `r.internal_assay_title = $assay OR $assay IN coalesce(r.internal_assay_titles, [])`. "Samples that went into or
+  came out of X", "which assays", "which studies ran X" and every type-level question read the Assay.
+- `internal_assay_id` and every entry of `internal_assay_ids` name an Assay id only when that entry's SEEK assay is
+  mapped; an unmapped entry holds the SEEK id and title, and a SEEK id can equal some Assay's id. A join from an edge
+  to an Assay therefore matches on id and title together. After an internal assay is renamed, the edge labels keep
+  the old title until the relabel reaches them (seconds after a rename saved in the admin; a rename writes without
+  approval, v1.2 rule 4 as narrowed), so such joins can miss those edges in between; drift counts them.
+
+### Deletion
+
+- An Assay whose id left `internal_assays` is `DETACH DELETE`d, its edges first, in batches.
+- `RUN_IN`, `ACCEPTED_BY` and `GENERATES` are replaced whole on each write; every delete names both labels.
+- A Sample's `INPUT_TO` and `OUTPUT_OF` are replaced whole whenever they are rewritten: for the samples a write
+  touches and their lineage partners (read both before and after the lineage step), and for the partners of a retired
+  sample, read before it is deleted.
+- A Sample that becomes an `OrphanSample` also loses its `INPUT_TO` and `OUTPUT_OF`.
+
+### Constraints and indexes
+
+- Uniqueness: `Assay.id` (`assay_id_unique`).
+- Range: `Assay.title` (`assay_title`).
+- Neither carries a `gs_*` name, so the index budget never drops them. Both are in the list the full sync applies and
+  gate G checks.
