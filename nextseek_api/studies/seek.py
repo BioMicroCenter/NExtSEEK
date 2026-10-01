@@ -201,9 +201,9 @@ class SeekSession:
             person_id = int(data["id"])
         except (KeyError, TypeError, ValueError) as exc:
             raise SeekRefused("no_person", "SEEK returned no single current person") from exc
-        user = get_user_model().objects.filter(username=self.login).first()
+        user = get_user_model().objects.filter(username=self.login, is_active=True).first()
         if user is None:
-            raise SeekRefused("no_django_user", f"no NExtSEEK user has the login {self.login!r}")
+            raise SeekRefused("no_django_user", f"no active NExtSEEK user has the login {self.login!r}")
         try:
             _assert_local_seek_binding(user, person_id)
         except AuthenticationFailed as exc:

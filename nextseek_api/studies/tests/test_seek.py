@@ -124,6 +124,16 @@ def test_prove_refuses_a_user_who_is_not_a_superuser_or_not_bound(monkeypatch):
     assert exc.value.code == "person_not_bound"
 
 
+@pytest.mark.django_db
+def test_prove_refuses_an_inactive_user(monkeypatch):
+    get_user_model().objects.create(username="operator", is_superuser=True, is_active=False)
+    monkeypatch.setattr(s, "_assert_local_seek_binding", lambda u, pid: None)
+    session, _ = _session({"get_current_person": (200, {"data": {"id": "42", "type": "people"}})})
+    with pytest.raises(s.SeekRefused) as exc:
+        session.prove()
+    assert exc.value.code == "no_django_user"
+
+
 def test_writes_use_the_write_timeout_reads_the_read_timeout():
     session, client = _session({"create_study": (201, {"data": {"id": "77", "type": "studies"}}),
                                 "get_study": (200, {"data": {"id": "20"}})})
