@@ -105,6 +105,8 @@ class Skip(_Model):
     sample_id: Optional[int] = None
     reason: str
     detail: str = ""
+    uid: Optional[str] = None                # the skipped sample's UID and type, for the curators' worklist
+    sample_type_id: Optional[int] = None
 
 
 class PlanWarning(_Model):

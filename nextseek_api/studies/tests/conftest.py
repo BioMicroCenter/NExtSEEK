@@ -137,7 +137,7 @@ class FakeReader:
             if sample is None:
                 continue
             meta = sample.get("meta", {})
-            out[sid] = {"id": sid, "uuid": sample["uuid"],
+            out[sid] = {"id": sid, "uuid": sample["uuid"], "sample_type_id": sample.get("type"),
                         "json_metadata": meta if isinstance(meta, str) else json.dumps(meta)}
         return out
 

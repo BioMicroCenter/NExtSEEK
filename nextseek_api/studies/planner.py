@@ -779,6 +779,10 @@ def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: 
     graph = _graph_plan(units, works, reader, lin)
     no_change = {w.t.key: sorted(w.no_change) for w in works if w.no_change}
     targets = [_target_plan(w) for w in works]
+    about = reader.sample_rows(sorted({x.sample_id for x in skipped if x.sample_id is not None})) if skipped else {}
+    skipped = [x.model_copy(update={"uid": (about.get(x.sample_id) or {}).get("uuid"),
+                                    "sample_type_id": (about.get(x.sample_id) or {}).get("sample_type_id")})
+               for x in skipped]
     inv_of_key = {t.key: t.investigation_id for t in associations.targets}
     return StudyMovePlan(
         plan_version=PLAN_VERSION, created_at=now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

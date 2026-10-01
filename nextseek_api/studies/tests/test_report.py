@@ -5,7 +5,7 @@ import json
 from nextseek_api.studies import planner as p
 from nextseek_api.studies import report
 from nextseek_api.studies.models import AssociationSet, StudyMovePlan, StudyTarget, Unmatched
-from nextseek_api.studies.tests.conftest import FakeReader
+from nextseek_api.studies.tests.conftest import FakeReader, uid
 
 
 def _aset():
@@ -19,6 +19,7 @@ def _aset():
 
 def test_write_plan_files(tmp_path, alpha):
     aset = _aset()
+    alpha.samples[5]["type"] = 11
     alpha.stored = [{"child_id": 3, "parent_id": 2, "stored": alpha.labels(3, 2)}]
     plan = p.plan_study_moves(aset, FakeReader(alpha), run_id=tmp_path.name, now="t")
     written = report.write_plan_files(tmp_path, plan, aset)
@@ -30,6 +31,7 @@ def test_write_plan_files(tmp_path, alpha):
     assert [(r["reason"], r["submitted"], r["sample_id"], r["study_title"]) for r in rows] == [
         ("sample_in_no_assay", "row 3", "5", "Paper One"),
         ("sample_uid_not_found", "TIS-260101ZZZ-9", "", "Paper One")]
+    assert [(r["uid"], r["sample_type_id"]) for r in rows] == [(uid(5), "11"), ("", "")]
     assert json.loads((tmp_path / report.UNMATCHED_JSON).read_text())[1]["reason"] == "sample_uid_not_found"
     text = (tmp_path / report.PLAN_TEXT).read_text()
     for needle in ("Targets (1)", "create", "101 -> create", "unit 1: 2 inserts (1 movers, 1 parents), 1 removals",
