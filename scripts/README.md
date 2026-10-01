@@ -49,6 +49,7 @@ groups, each defined by what it reads and what it writes.
 | H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
 | I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
 | J. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
+| K. File-level code graph | `graph_files.py` | `graphify-out/graph.json` (local, from graphify) | `docs/graph/graph-files.json`, `graph.html`, `architecture.svg` ([docs/graph/README.md](../docs/graph/README.md)) |
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
