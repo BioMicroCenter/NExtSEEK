@@ -141,6 +141,27 @@ class RoleTally:
         }
 
 
+def lineage_tally(assays_by_sample: dict, internal_by_seek: dict):
+    """The result transformer of the lineage read: a fresh ``RoleTally`` over every record it is handed. The driver
+    runs it again when a transient error retries the read, so a retry starts over instead of counting the pairs of the
+    try it cut short twice."""
+    def transform(result) -> RoleTally:
+        tally = RoleTally(assays_by_sample, internal_by_seek)
+        for record in result:
+            tally.add(record["child"], record["parent"])
+        return tally
+    return transform
+
+
+def titles_held_twice(internal) -> dict:
+    """Each title more than one internal assay holds, to their ids. Keyed by the title as text, so a NULL title sits
+    beside the others when the result is written as sorted JSON."""
+    titles: dict = {}
+    for internal_id, title in internal:
+        titles.setdefault(str(title), []).append(internal_id)
+    return {t: ids for t, ids in titles.items() if len(ids) > 1}
+
+
 def _round_up(value: int, step: int) -> int:
     return int(math.ceil(max(value, 0) / step) * step)
 
@@ -194,11 +215,7 @@ def measure(connections, settings, driver, db) -> dict:
 
     internal = [(int(i), _text(t)) for i, t in _rows(dmac, "SELECT id, internal_assay_title FROM internal_assays")] \
         if _has_table(dmac, "internal_assays") else []
-    titles: dict = {}
-    for internal_id, title in internal:
-        titles.setdefault(title, []).append(internal_id)
-    out["internal_assays"] = {"rows": len(internal),
-                              "titles_held_twice": {t: ids for t, ids in titles.items() if len(ids) > 1}}
+    out["internal_assays"] = {"rows": len(internal), "titles_held_twice": titles_held_twice(internal)}
     internal_ids = {i for i, _ in internal}
 
     context = []
@@ -255,13 +272,8 @@ def measure(connections, settings, driver, db) -> dict:
     out["largest_membership"] = {
         "seek_assay": dict(members.most_common(5)), "internal_assay": dict(per_internal.most_common(5))}
 
-    tally = RoleTally(assays_by_sample, by_seek)
-
-    def stream(result):
-        for record in result:
-            tally.add(record["child"], record["parent"])
-
-    driver.execute_query(LINEAGE, {}, database_=db, routing_=RoutingControl.READ, result_transformer_=stream)
+    tally = driver.execute_query(LINEAGE, {}, database_=db, routing_=RoutingControl.READ,
+                                 result_transformer_=lineage_tally(assays_by_sample, by_seek))
     out["roles"] = tally.finish()
 
     degree = driver.execute_query(DEGREES, {}, database_=db, routing_=RoutingControl.READ).records
@@ -281,6 +293,9 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     sys.path.insert(0, str(ROOT))
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "dmac.settings")
+    # An app image that warms the nf-core schema cache at startup does it in a thread django.setup() starts: outbound
+    # requests and a log line. A read-only measurement wants neither.
+    os.environ.setdefault("NEXTSEEK_SKIP_SCHEMA_WARM", "1")
     import django
     django.setup()
     from django.conf import settings

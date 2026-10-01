@@ -6,7 +6,13 @@ Django and the driver inside main(), so loading it needs neither.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import sys
+import types
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "graph_search" / "measure_assay_nodes.py"
 
@@ -71,3 +77,43 @@ def test_the_suggested_limits_follow_the_measured_numbers():
 
 def test_loading_the_script_needs_no_django_setup():
     assert m.main.__doc__ and "READ ONLY" in m.__doc__
+
+
+def test_titles_held_twice_beside_a_null_title_still_write_as_sorted_json():
+    held = m.titles_held_twice([(1, None), (2, None), (3, "Staining"), (4, "Staining"), (5, "Imaging")])
+    assert held == {"None": [1, 2], "Staining": [3, 4]}
+    json.dumps({"titles_held_twice": held}, sort_keys=True)
+
+
+def test_a_retried_lineage_read_counts_its_pairs_once():
+    """The driver runs the result transformer again when a transient error retries the read: the retry starts a
+    fresh tally, so the pairs of the first, cut-short try are not counted twice."""
+    transform = m.lineage_tally({1: (5,), 2: (5,), 3: (5,)}, {5: (99,)})
+    transform(iter([{"child": 2, "parent": 1}]))                     # the first try, cut short
+    counts = transform(iter([{"child": 2, "parent": 1}, {"child": 3, "parent": 1}])).finish()
+    assert counts["pairs"] == 2
+    assert counts["expected_sample_edges"] == 3
+
+
+class _SetupReached(Exception):
+    pass
+
+
+def test_main_skips_the_nf_core_schema_warm_up_before_django_starts(monkeypatch, tmp_path):
+    """On production's image django.setup() starts a warm-up thread that makes outbound requests and writes a log
+    line unless NEXTSEEK_SKIP_SCHEMA_WARM is set: the read-only measurement sets it first."""
+    seen = {}
+    fake = types.ModuleType("django")
+
+    def setup():
+        seen["skip"] = os.environ.get("NEXTSEEK_SKIP_SCHEMA_WARM")
+        raise _SetupReached
+
+    fake.setup = setup
+    monkeypatch.setenv("NEXTSEEK_SKIP_SCHEMA_WARM", "x")             # so the teardown restores its absence
+    monkeypatch.delenv("NEXTSEEK_SKIP_SCHEMA_WARM")
+    monkeypatch.setitem(sys.modules, "django", fake)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    with pytest.raises(_SetupReached):
+        m.main(["--instance", "local", "--out", str(tmp_path / "out.json")])
+    assert seen["skip"] == "1"
