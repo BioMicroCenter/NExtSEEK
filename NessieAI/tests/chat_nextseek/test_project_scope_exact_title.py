@@ -79,14 +79,20 @@ def _levels(inv=(), proj=(), study=()):
 
 
 def test_an_investigation_name_reaches_the_investigation_title_this_graph_holds():
-    """The catalog name is not a title here; its alternative name is an Investigation title (the box differs)."""
+    """The catalog name is not a title here; its alternative name is an Investigation title (the box differs). An
+    investigation row's alternative names can be its owner's names, so that title is used but is not its own scope."""
     hits = gctx.container_titles_for(["Alpha Cohort"], [INV_ROW, PROJ_ROW], _levels(inv=("Gamma Lab",), proj=("Gamma Group",)))
-    assert hits == {"Alpha Cohort": ("investigation", "Gamma Lab", True)}
+    assert hits == {"Alpha Cohort": ("investigation", "Gamma Lab", False)}
 
 
 def test_a_second_investigation_name_with_another_box_title():
     hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2], _levels(inv=("Epsilon",)))
-    assert hits == {"Delta Trial": ("investigation", "Epsilon", True)}
+    assert hits == {"Delta Trial": ("investigation", "Epsilon", False)}
+
+
+def test_an_investigation_titled_with_the_rows_own_name_is_its_own_scope():
+    hits = gctx.container_titles_for(["Gamma Lab"], [INV_ROW], _levels(inv=("Alpha Cohort",)))
+    assert hits == {"Gamma Lab": ("investigation", "Alpha Cohort", True)}
 
 
 def test_a_title_that_is_the_name_itself_beats_an_alternative_name():
@@ -112,6 +118,98 @@ def test_two_titles_at_the_narrowest_level_stop_the_search():
 def test_a_name_with_no_catalog_row_maps_to_a_study_title_that_exists():
     hits = gctx.container_titles_for(["Zed Paper"], [], _levels(study=("Zed-Paper",), proj=("Zed Paper",)))
     assert hits == {"Zed Paper": ("study", "Zed-Paper", True)}
+
+
+# --- the real catalog shape: an investigation row lists its owner's names (made-up rows, projects_db.json's shape) ------
+
+KAPPA_PROJECT = {"name": "Kappa", "alternative_names": ["KAPPA", "KappaTx", "Kappa-Tx"], "entity_type": "project"}
+KAPPA_INV = {"name": "Kappatx Investigation", "alternative_names": ["Kappa", "KAPPA", "KappaTx"],
+             "entity_type": "investigation", "parent_project": "Kappa"}
+LUMEN_PROJECT = {"name": "Lumen", "alternative_names": ["LUM-Endo", "Lumen Lab"], "entity_type": "project"}
+LUMEN_INV = {"name": "Ovaria", "alternative_names": ["Lumen", "LUM-Endo"], "entity_type": "investigation",
+             "parent_project": "Lumen"}
+RHO_PROJECT = {"name": "Rho", "alternative_names": ["Rhodes", "MIT Rho", "Rho Program"], "entity_type": "project"}
+RHO_INV = {"name": "MIT_Rho", "alternative_names": ["Rho", "MIT Rho", "Rho Program"], "entity_type": "investigation",
+           "parent_project": "Rho"}
+SHAPE_ROWS = [KAPPA_PROJECT, KAPPA_INV, LUMEN_PROJECT, LUMEN_INV, RHO_PROJECT, RHO_INV]
+SHAPE_BOX = _levels(proj=("KAPPAtx", "LUM-Endo", "MIT_Rho"), inv=("Kappatx Investigation", "Ovaria", "MIT_Rho"))
+# The same box also holding a test project whose investigations are titled like the real projects' catalog names.
+SHAPE_BOX_WITH_TEST_PROJECT = _levels(proj=("KAPPAtx", "LUM-Endo", "MIT_Rho", "Sandbox_Project"),
+                                      inv=("Kappatx Investigation", "Ovaria", "MIT_Rho", "Kappa", "Lumen", "Rho"))
+SHAPE_BOXES = pytest.mark.parametrize("box", [SHAPE_BOX, SHAPE_BOX_WITH_TEST_PROJECT], ids=["box", "with-test-project"])
+
+
+@SHAPE_BOXES
+@pytest.mark.parametrize("name, title", [("Kappa", "KAPPAtx"), ("KAPPA", "KAPPAtx"), ("Lumen", "LUM-Endo"),
+                                         ("Rho", "MIT_Rho")])
+def test_a_project_name_its_investigation_row_also_carries_resolves_to_the_project(box, name, title):
+    """A matched project row makes the name a project: its investigation row's copy of the name, or a test
+    project's investigation titled with it, never takes the question to an investigation."""
+    assert gctx.container_titles_for([name], SHAPE_ROWS, box) == {name: ("project", title, True)}
+
+
+@SHAPE_BOXES
+@pytest.mark.parametrize("name", ["Rho Program", "Rhodes", "Kappa-Tx", "Lumen Lab"])
+def test_an_alias_a_project_row_holds_resolves_as_the_project_only_view_does(box, name):
+    project_rows = [row for row in SHAPE_ROWS if is_project_row(row)]
+    expected = gctx.project_titles_for([name], project_rows, box["project"])
+    assert expected, name
+    hits = gctx.container_titles_for([name], SHAPE_ROWS, box)
+    assert hits == {name: ("project", expected[name], True)}
+
+
+@SHAPE_BOXES
+@pytest.mark.parametrize("name, title", [("Kappatx Investigation", "Kappatx Investigation"), ("Ovaria", "Ovaria")])
+def test_an_investigation_only_name_still_reaches_its_own_investigation(box, name, title):
+    assert gctx.container_titles_for([name], SHAPE_ROWS, box) == {name: ("investigation", title, True)}
+
+
+def test_a_parent_project_name_is_never_tried_as_an_investigation_title():
+    """An investigation whose own title is missing never lands on a sibling investigation named like its parent."""
+    rows = [{"name": "Sigma Cohort", "alternative_names": [], "entity_type": "investigation", "parent_project": "Tau"}]
+    hits = gctx.container_titles_for(["Sigma Cohort"], rows, _levels(inv=("Tau", "Sigma-cohort-2031"), proj=("Tau",)))
+    assert hits == {"Sigma Cohort": ("project", "Tau", False)}
+    other = [{"name": "Nu Arm", "alternative_names": [], "entity_type": "investigation", "parent_project": "Xi"}]
+    assert gctx.container_titles_for(["Nu Arm"], other, _levels(inv=("Xi",))) == {}
+
+
+def test_a_name_that_is_itself_a_project_title_keeps_it_when_no_investigation_holds_it():
+    """An investigation row named like its parent project (one cohort, one project): with no Investigation of that
+    title in the graph, the Project titled with the name itself scopes it, as before any other level was read."""
+    rows = [{"name": "Tau Atlas", "alternative_names": ["The Tau Atlas"], "entity_type": "investigation",
+             "parent_project": "Tau Atlas"}]
+    assert gctx.container_titles_for(["Tau Atlas"], rows, _levels(proj=("Tau Atlas",))) == {
+        "Tau Atlas": ("project", "Tau Atlas", True)}
+    assert gctx.container_titles_for(["Tau Atlas"], rows, _levels(inv=("Tau Atlas",), proj=("Tau Atlas",))) == {
+        "Tau Atlas": ("investigation", "Tau Atlas", True)}
+
+
+def test_the_graph_agent_reads_investigation_rows_and_still_names_the_project(monkeypatch):
+    """The live path hands both maps to the resolver: a project name its investigation row also carries, on a box
+    that holds a test project's investigation of that name, is still the Project title, and counts as applied."""
+    vocab = gcat.Vocabulary(investigation_titles=SHAPE_BOX_WITH_TEST_PROJECT["investigation"],
+                            project_titles=SHAPE_BOX_WITH_TEST_PROJECT["project"], study_titles=(),
+                            published_studies=(), assay_titles=(), protocol_titles=(), assay_connections=())
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: SNAPSHOT)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: vocab)
+    calls = []
+
+    def llm(**kwargs):
+        calls.append(kwargs)
+        return GraphAgentPlan(cypher=CYPHER, explanation="x", parameters={"project_title": "KAPPAtx"})
+
+    monkeypatch.setattr(graph_mod, "call_llm_structured", llm)
+    config = _config()
+    config.FULL_PROJECTS_MAP = {row["name"]: row for row in SHAPE_ROWS if is_project_row(row)}
+    config.FULL_INVESTIGATIONS_MAP = {row["name"]: row for row in SHAPE_ROWS if not is_project_row(row)}
+    plan = ParserPlan(mode="graph_query").model_dump()
+    plan["resolved"] = {"projects": ["Kappa"]}
+    out = graph_mod.graph_agent(config, "What species are the samples in the Kappa project?", {"projects": ["Kappa"]},
+                                plan)
+
+    assert '- "Kappa" is the project titled "KAPPAtx"' in "\n".join(m["content"] for m in calls[0]["messages"])
+    assert out.project_titles == {"Kappa": "KAPPAtx"}
 
 
 def test_the_block_header_names_the_three_levels():
