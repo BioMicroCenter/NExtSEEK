@@ -22,6 +22,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | Task | Skill | Read |
 |---|---|---|
 | Bring up a stack | | `README.md`, then `startup/README.md` |
+| See how the parts fit | | `ARCHITECTURE.md` |
 | Find out why the stack misbehaves | | `./startup.sh doctor`; `startup/README.md` "When bring-up misbehaves"; `docker logs nextseek`; `logs/django.log`; `outputs/<timestamp>_<user>/console.txt` per chat turn |
 | Deploy, roll back or verify | `deploy` | `DEPLOYMENT.md` §3, §5, §6; `NessieAI/cc/DEPLOY.md` for Container-CC |
 | Know which rebuild a change needs | `deploy` | `DEPLOYMENT.md` §3.2 |

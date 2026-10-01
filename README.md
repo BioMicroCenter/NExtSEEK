@@ -28,6 +28,7 @@ Disk, RAM and network needs are in [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.1.
 
 | You want to | Read |
 |---|---|
+| See how the pieces fit | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Deploy, redeploy, roll back or verify a real instance | [`DEPLOYMENT.md`](DEPLOYMENT.md) |
 | Harden an install before exposing it | [`NExtSTEPS.md`](NExtSTEPS.md) |
 | Understand the repo: every folder, skill and sub-doc | [`CLAUDE.md`](CLAUDE.md) |

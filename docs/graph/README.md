@@ -5,7 +5,7 @@ into named communities. It is generated, so do not edit these files by hand.
 
 | File | What it is |
 |---|---|
-| `architecture.svg` | the communities as boxes with their file counts, and lines for the heaviest links between non-test files |
+| `architecture.svg` | the communities as boxes with their file counts, and lines for the heaviest links between non-test files; `ARCHITECTURE.md` at the root shows it |
 | `graph.html` | an interactive view of every file: colour by community, size by number of linked files, click a file to list its links, click a community in the legend to hide it. Open it in a browser; it loads vis-network from unpkg (the version graphify itself uses) |
 | `graph-files.json` | the data: `communities` (name, file count, hub files), `files` as `[path, community index, linked files]`, `edges` as `[file index, file index, weight]` |
 

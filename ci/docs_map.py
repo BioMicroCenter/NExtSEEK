@@ -76,7 +76,7 @@ MAP_FILES = {
     "NessieAI/CLAUDE.md",
 }
 
-ROOT_MD_ALLOWED = {"README.md", "CLAUDE.md", "AGENTS.md", "DEPLOYMENT.md", "NExtSTEPS.md"}
+ROOT_MD_ALLOWED = {"README.md", "CLAUDE.md", "AGENTS.md", "ARCHITECTURE.md", "DEPLOYMENT.md", "NExtSTEPS.md"}
 
 # A CLAUDE.md with no README.md beside it. Everything else needs the pair.
 CLAUDE_WITHOUT_README = {"CLAUDE.md"}
