@@ -129,7 +129,3 @@ def smartSearch(request):
     if not request.user.is_authenticated:
         return login_redirect(request)
     return render(request, "smartSearch.html")
-
-@requires_seek_login_redirect()
-def newSearch(request):
-    return render(request, "newSearch.html")

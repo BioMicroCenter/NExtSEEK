@@ -110,7 +110,7 @@ only.
 |---|---|---|
 | Bootstrap Icons 1.11.3 (CDN) | `bi bi-*` | The house icon set, used across the shell and newer pages |
 | EasyUI sprites | `icon-*` from `jquery-easyui-1.5.2/themes/icon.css` | Used by EasyUI buttons, tabs and tree nodes |
-| Bootstrap 3 glyphicons | `glyphicon glyphicon-*` | Dead: no font loaded. Still in `seek/templates/pages/searchAdvanced_search.embed.html`, `samples_search.embed.html`, `searchAdvanced_newsearch.embed.html`, and stock `templates/accounts/includes/user_panel*.html`, `generic/includes/comment.html`, `twitter/tweets.html` |
+| Bootstrap 3 glyphicons | `glyphicon glyphicon-*` | Dead: no font loaded. Still in `seek/templates/pages/searchAdvanced_search.embed.html`, `samples_search.embed.html`, and stock `templates/accounts/includes/user_panel*.html`, `generic/includes/comment.html`, `twitter/tweets.html` |
 
 No Font Awesome. All CDN loads are a dependency for styling (see the security item in Known issues).
 
@@ -169,7 +169,7 @@ Copy-pasted rule families (change one, change all):
 
 | Family | Copies |
 |---|---|
-| `.datagrid-row-alt { background: #e6f2ff; }` | Six templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `samples_stable`, `samples_new_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
+| `.datagrid-row-alt { background: #e6f2ff; }` | Five templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `samples_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
 | `.ns-page-title` | Four identical copies (1.8rem): `projectsList.html`, `sampleAttributes.html`, `templatesList.html`, and as `.cat-page .ns-page-title` in `catalog_styles.html` |
 | Pill chips (11px radius, mono 0.72 to 0.74rem) | `.cat-chip`, `.tpl-chip`, `.stat-chip`, `.attrs-chip` (in `nextseek.css`), `.project-types a` |
 | Focus-ring shadow | Literals in `nextseek.css` and templates |

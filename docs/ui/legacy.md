@@ -44,7 +44,6 @@ Several old and new variants are both live. Do not delete a file only because a 
 
 | Old | New | Status |
 |---|---|---|
-| `searchAdvanced.html` and its embeds (`samples_search`, `samples_stable`, `searchAdvanced_search`, `searchAdvanced_stable`, `searchAdvanced_deletion`) | `newSearch.html` and its embeds (`samples_newsearch`, `samples_new_stable`, `searchAdvanced_newsearch`, `searchAdvanced_new_stable`, `searchAdvanced_newretrieval`, `searchAdvanced_newdeletion`) | Both live. `/seek/search/` renders the old set, `/seek/newsearch/` the new one (`seek/views/search.py`, routes in `seek/urls.py`). No theme or seek template links to `/seek/newsearch/`; it is reachable by typing the URL. `nextseek_api/tests/test_download_call_sites.py` lists some templates of each set in `LIVE`. |
 | `pages/samples_tree.embed.html` (Sample Tree v1) | `pages/samples_tree_new.embed.html` (v2, loads `static/js/dag/dag.js`) | v2 is the visible tab. v1 is still executed, see the next section. |
 
 ### The v1 sample tree is commented out but still runs
@@ -123,7 +122,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
 | check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
-| check-first | `newSearch.html` and its six `*_new*` embeds | Live by URL; the test's `LIVE` list names some of them | Decide to promote (add a nav link) or retire; update the test either way |
 | check-first | `pages/samples_tree.embed.html` | Still included (inside HTML comments) by `pages/samples.embed.html` | Remove or convert both include lines first |
 
 ### Checks to rerun before deleting anything
@@ -136,7 +134,7 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 4. Tests that name the file. `grep -rn "<file name>" nextseek_api/tests seek/tests ci`. `nextseek_api/tests/test_download_call_sites.py` parametrizes over its `LIVE` files, so deleting one of those fails that test until the list is edited.
 5. Static files. `grep -rn "<name>"` over templates, CSS, `nextseek.js`, `static/js/custom`, `static/js/chat_assistant` and `NessieAI/chat_frontend/src`. Also grep for the parent folder name, since JS may build paths. The chat bundle under `static/` is committed and minified, so grep it too.
 6. collectstatic. After deleting static files, run `collectstatic` (on the box, not a laptop; see [ci-and-deploy.md](ci-and-deploy.md)) and compare the published tree with the previous one. Both `static/` and `themes/NextSeek/static/` feed `STATIC_ROOT`, so a file deleted from one folder may still be published from the other.
-7. Live probe after deploy. Load the home page, `/seek/search/`, `/seek/newsearch/`, a sample detail page, `/seek/sample_timeline/` and a Mezzanine admin page, and confirm no broken images or 500s.
+7. Live probe after deploy. Load the home page, `/seek/search/`, a sample detail page, `/seek/sample_timeline/` and a Mezzanine admin page, and confirm no broken images or 500s.
 
 ## Where to edit
 
@@ -144,7 +142,6 @@ Run these at the commit you are cleaning up from. Do not trust this page's dates
 |---|---|
 | Really hide Sample Tree v1 | `pages/samples.embed.html`: replace the two `<!-- ... -->` blocks around the `samples_tree.embed.html` includes with `{# #}` or `{% comment %}`, or delete the includes |
 | Retire an old template | Run the checks above and delete the file. If it is in the `LIVE` list of `nextseek_api/tests/test_download_call_sites.py`, edit that list too |
-| Promote or retire `/seek/newsearch/` | Add a link in `themes/NextSeek/templates/nav.embed.html` to promote, or remove the route in `seek/urls.py`, the `newSearch` view in `seek/views/search.py` and the six `*_new*` embeds; update the test's `LIVE` list and `LOADERS` |
 | Remove the blog | Operator decision first. Then `mezzanine.blog` in `INSTALLED_APPS` (`dmac/settings.py`), migration state, and the blog templates |
 
 ## Gotchas

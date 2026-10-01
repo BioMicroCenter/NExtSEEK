@@ -24,14 +24,6 @@ Three rendered pages carried seven controls between them.
 | b | Simple tab grid → `simple_downloadSamples` | Yes/No prompt. Yes → `/seek/admin/retrieve/`; No → `/seek/samples/download/` |
 | c | Advanced tab grid → `downloadSamples0` | Always `/seek/admin/retrieve/` |
 
-**`/seek/newsearch/` → `newSearch.html`** (`newSearch` in `seek/views/search.py`)
-
-| | Control | Went to |
-|---|---|---|
-| d | Simple grid → `downloadSamples` | `POST /seek/samples/download/`, `includeSampleTree=0` |
-| e | Advanced grid → same function | same |
-| f | Retrieval form | `POST /nextseek_api/admin/samples/retrieve/` |
-
 **Sample detail page → `pages/samples.embed.html`** (via `samples.html`, `sample` in `seek/views/samples.py`)
 
 | | Control | Went to |
@@ -311,11 +303,6 @@ The datagrids render the `uid` column as an anchor, so `row.uid` is markup like
 `row.uid.match(/(?<=>).*?(?=<)/g)[0]` to recover the text. That is now
 `nsExtractUid` (`static/js/ns_sample_download.js:103`), used by
 `nsCollectSelectedUids`.
-
-The two `newSearch.html` grids are different again: they select via
-`getSelections()` rather than a `ck` column, and their UID column is named
-`uuid`. They send numeric `s.id`, which the endpoint resolves to UUIDs.
-`nsCollectSelectedUids` does **not** apply to them.
 
 ### Not a download: "Export samples to Import"
 
