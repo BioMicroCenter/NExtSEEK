@@ -722,16 +722,20 @@ CONTAINER_LEVELS = ("study", "investigation", "project")
 
 def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, str, bool]]:
     """Each name the entity step resolved as a project, mapped to ``(level, title, own)`` for the container
-    title that EXISTS in this graph, narrowest first.
+    title that EXISTS in this graph.
 
     ``rows`` are the projects catalog rows (project and investigation); ``titles_by_level`` maps ``study``,
-    ``investigation`` and ``project`` to the titles the caller can see. A catalog name sits at its row's level
-    (an investigation row with a ``parent_project`` is an investigation, any other row a project), and a name
-    with no row may sit anywhere. A title that is the name itself wins over one reached through the matching
-    rows' other names (and parent project). Levels are tried narrowest first and only the row's level and the
-    broader ones are allowed. ``own`` is False when only a container broader than the catalog row's level
-    exists: the query may use it, but it does not scope the narrower name, so the scope check still reports it.
-    Anything ambiguous, and any name that reaches no title, is left out.
+    ``investigation`` and ``project`` to the titles the caller can see. A name a PROJECT row holds is a project
+    (an investigation row with a ``parent_project`` is an investigation, any other row a project): it maps to a
+    Project title only, through the project rows' names, as before any other level was read. An investigation row
+    lists its owner's names among its alternative names too, so those never make a project name an investigation.
+    A name only investigation rows hold maps to an Investigation title: the name itself or the row's own name
+    first (``own`` True), then a Project title that is the name itself (``own`` True, as before any other level was
+    read), then the row's alternative names (``own`` False: they can be the owner's names), then, with ``own``
+    False, a Project title through those names or the ``parent_project``, which is never tried as an investigation
+    title. A name with no row may sit at any level, narrowest first. ``own`` False means the query may use the
+    title but it does not scope the name itself, so the scope check still reports it. Anything ambiguous, and any
+    name that reaches no title, is left out.
     """
     pools: dict[str, dict[str, set[str]]] = {}
     for level in CONTAINER_LEVELS:
@@ -741,9 +745,15 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
                 by_fold.setdefault(_fold_title(title), set()).add(title)
         pools[level] = by_fold
 
+    def folded(values) -> set[str]:
+        return {_fold_title(n) for n in values if isinstance(n, str) and n.strip()}
+
     def row_names(row) -> set[str]:
-        return {_fold_title(n) for n in [row.get("name"), *(row.get("alternative_names") or [])]
-                if isinstance(n, str) and n.strip()}
+        return folded([row.get("name"), *(row.get("alternative_names") or [])])
+
+    def is_investigation(row) -> bool:
+        return (str(row.get("entity_type") or "").strip().lower() == "investigation"
+                and bool(str(row.get("parent_project") or "").strip()))
 
     out: dict[str, tuple[str, str, bool]] = {}
     for name in names or ():
@@ -751,24 +761,23 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
             continue
         key = _fold_title(name)
         matched = [row for row in rows or () if isinstance(row, dict) and key in row_names(row)]
-        row_level = "investigation" if any(str(r.get("entity_type") or "").strip().lower() == "investigation"
-                                              and str(r.get("parent_project") or "").strip() for r in matched) else (
-            "project" if matched else CONTAINER_LEVELS[0])
-        allowed = CONTAINER_LEVELS[CONTAINER_LEVELS.index(row_level):]
-        folded = {key}
-        for row in matched:
-            folded |= row_names(row)
-            if isinstance(row.get("parent_project"), str):
-                folded.add(_fold_title(row["parent_project"]))
-        for wanted in ({key}, folded):
-            for level in allowed:
-                found = set().union(*(pools[level].get(f, set()) for f in wanted))
-                if len(found) == 1:
-                    out[name] = (level, next(iter(found)), level == allowed[0] or not matched)
-                    break
-                if len(found) > 1:
-                    break
-            if name in out:
+        projects = [row for row in matched if not is_investigation(row)]
+        if projects:
+            attempts = [("project", {key}, True),
+                        ("project", set().union(*(row_names(r) for r in projects)), True)]
+        elif matched:
+            own_names = {key} | folded(r.get("name") for r in matched)
+            aliases = set().union(*(row_names(r) for r in matched))
+            parents = folded(r.get("parent_project") for r in matched)
+            attempts = [("investigation", {key}, True), ("investigation", own_names, True), ("project", {key}, True),
+                        ("investigation", aliases, False), ("project", aliases | parents, False)]
+        else:
+            attempts = [(level, {key}, True) for level in CONTAINER_LEVELS]
+        for level, wanted, own in attempts:
+            found = set().union(*(pools[level].get(f, set()) for f in wanted))
+            if len(found) == 1:
+                out[name] = (level, next(iter(found)), own)
+            if found:
                 break
     return out
 
