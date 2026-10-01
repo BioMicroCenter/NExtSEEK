@@ -188,3 +188,46 @@ def test_the_lookups_compare_titles_in_python(monkeypatch):
     session, _ = _session()
     assert session.find_study(7, "Paper One") == [101, 102]
     assert session.find_assay(101, "RNA-seq run") == [501, 502]
+
+
+# --- the share endpoint's credential: the caller's own (tool spec 16.6, T39) ----------------------------------------
+
+def _request(**meta):
+    from django.test import RequestFactory
+
+    return RequestFactory().post("/nextseek_api/sample-shares/x/apply/", **meta)
+
+
+def test_a_basic_header_gives_the_callers_credential():
+    header = "Basic " + base64.b64encode(f"operator:{PASSWORD}".encode("utf-8")).decode("ascii")
+    cred = s.SeekCredential.from_request(_request(HTTP_AUTHORIZATION=header))
+    assert cred.login == "operator" and cred.request().META == {"HTTP_AUTHORIZATION": header}
+    assert PASSWORD not in repr(cred)
+
+
+def test_a_session_login_gives_the_callers_credential(monkeypatch):
+    from nextseek_api import helpers
+
+    monkeypatch.setattr(helpers, "get_auth", lambda request: ("operator", PASSWORD))
+    assert s.SeekCredential.from_request(_request()).login == "operator"
+
+
+def test_a_token_header_gives_none(monkeypatch):
+    from nextseek_api import helpers
+
+    monkeypatch.setattr(helpers, "get_auth", lambda request: None)
+    assert s.SeekCredential.from_request(_request(HTTP_AUTHORIZATION="Token abc")) is None
+    assert s.SeekCredential.from_request(_request()) is None
+
+
+@pytest.mark.django_db
+def test_prove_for_refuses_another_user(monkeypatch):
+    model = get_user_model()
+    operator = model.objects.create(username="operator", is_superuser=True)
+    other = model.objects.create(username="someone", is_superuser=True)
+    monkeypatch.setattr(s, "_assert_local_seek_binding", lambda u, pid: None)
+    session, _ = _session({"get_current_person": (200, {"data": {"id": "42", "type": "people"}})})
+    assert session.prove_for(operator) is session
+    with pytest.raises(s.SeekRefused) as exc:
+        session.prove_for(other)
+    assert exc.value.code == "seek_identity_mismatch"

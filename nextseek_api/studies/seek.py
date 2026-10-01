@@ -30,7 +30,7 @@ from django.db import connections
 from rest_framework.exceptions import AuthenticationFailed
 
 from nextseek_api.attributes.auth import SelectedSeekCredential, _assert_local_seek_binding
-from nextseek_api.helpers import SeekAPIClient
+from nextseek_api.helpers import SeekAPIClient, resolve_seek_auth
 from nextseek_api.permissions import IsSuperUser
 from nextseek_api.studies.buckets import title_key
 
@@ -76,6 +76,15 @@ class SeekCredential:
     def request(self):
         token = base64.b64encode(f"{self.login}:{self._password}".encode("utf-8")).decode("ascii")
         return SelectedSeekCredential("basic", authorization="Basic " + token).proof_request()
+
+    @classmethod
+    def from_request(cls, request) -> "SeekCredential | None":
+        """The caller's own SEEK credential (the share endpoint, tool spec 16.6): their Basic header, else the SEEK
+        login their session holds. A token is not used. None when the request carries neither."""
+        basic, _headers = resolve_seek_auth(request, ["BASIC", "SESSION"])
+        if not basic or not basic[0] or not basic[1]:
+            return None
+        return cls(basic[0], basic[1])
 
 
 def read_password(*, from_stdin: bool, stdin=None, prompt=None) -> str:
@@ -192,6 +201,14 @@ class SeekSession:
         if not IsSuperUser().has_permission(SimpleNamespace(user=user), None):
             raise SeekRefused("not_superuser", f"the login {self.login!r} is not a superuser")
         self.person_id, self.django_user_id = person_id, int(user.pk)
+        return self
+
+    def prove_for(self, request_user) -> "SeekSession":
+        """``prove``, then the proved login's NExtSEEK user must be ``request_user`` (the share endpoint's caller)."""
+        self.prove()
+        if self.django_user_id != getattr(request_user, "pk", None):
+            raise SeekRefused("seek_identity_mismatch",
+                              f"the SEEK credential is {self.login!r}'s, not the signed-in user's")
         return self
 
     # --- reads ---

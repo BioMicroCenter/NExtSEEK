@@ -131,8 +131,9 @@ def _uri(value) -> Optional[dict]:
     return {"uri": value["uri"]} if isinstance(value, dict) and value.get("uri") else None
 
 
-def clone_payload(rep: dict) -> dict:
-    """The POST /assays payload for a clone of the assay ``rep`` represents (tool spec T7, 6.3)."""
+def clone_payload(rep: dict, *, policy: Optional[dict] = None) -> dict:
+    """The POST /assays payload for a clone of the assay ``rep`` represents (tool spec T7, 6.3); a share's clone takes
+    ``policy`` (its destination study's, T33) instead of the source's."""
     data = rep.get("data") or {}
     attrs = data.get("attributes") or {}
     rels = data.get("relationships") or {}
@@ -146,7 +147,8 @@ def clone_payload(rep: dict) -> dict:
                              "assay_class": {"key": (attrs.get("assay_class") or {}).get("key")},
                              "assay_type": _uri(attrs.get("assay_type")),
                              "technology_type": _uri(attrs.get("technology_type")), "tags": tags,
-                             "policy": attrs.get("policy"), "other_creators": attrs.get("other_creators")})
+                             "policy": attrs.get("policy") if policy is None else policy,
+                             "other_creators": attrs.get("other_creators")})
     relationships = _drop_none({"study": {"data": {"id": TARGET_STUDY_REF, "type": "studies"}},
                                 "sops": refs("sops"), "organisms": refs("organisms"), "creators": refs("creators")})
     request = AssayCreateRequest.model_validate(

@@ -184,3 +184,13 @@ def test_a_sample_only_shared_elsewhere_and_in_no_assay_here_is_in_no_assay(alph
     alpha.links.append((301, 5, 1))                 # sample 5: in no assay of investigation 7
     alpha.sample_projects[5] = {3, 4}
     assert skips(plan(alpha, target([5]))) == [(5, p.SAMPLE_IN_NO_ASSAY)]
+
+
+def test_a_clone_payload_with_a_policy_takes_it_and_keeps_every_other_field(alpha):
+    rep = alpha.assay_reps[101]
+    plain = p.clone_payload(rep)
+    policy = {"access": "visible", "permissions": [{"resource": {"id": "5", "type": "projects"}, "access": "view"}]}
+    with_policy = p.clone_payload(rep, policy=policy)
+    assert with_policy["data"]["attributes"]["policy"] == policy
+    with_policy["data"]["attributes"]["policy"] = plain["data"]["attributes"]["policy"]
+    assert with_policy == plain
