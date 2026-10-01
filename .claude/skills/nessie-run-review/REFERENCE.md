@@ -69,11 +69,15 @@ App, backend or UI changes **do** need `./startup.sh rebuild`, plus
 `docker compose build cc-agent` for CC-side changes. Check `df -h` first; the box
 has run out of disk mid-checkout before.
 
-Unit suite:
+Unit suite: `tests/` on the host from the repo root (it loads this skill's scripts, and the app image
+carries no `.claude/`), `tests_container/` inside the app:
 
 ```bash
+uv run --no-project --with pytest --with pydantic --with requests --with beautifulsoup4 --with orjson \
+    python -m pytest NessieAI/tests/nessie_tests/tests -q -p no:cacheprovider \
+    --ignore=NessieAI/tests/nessie_tests/tests/test_progress_printer.py   # needs Django
 docker exec -w /app -e DJANGO_SETTINGS_MODULE=dmac.test_settings nextseek \
-    uv run pytest NessieAI/tests/nessie_tests/tests/ NessieAI/tests/nessie_tests/tests_container/ --no-migrations -q
+    uv run pytest NessieAI/tests/nessie_tests/tests_container/ --no-migrations -q
 ```
 
 ### Watching a run in progress
