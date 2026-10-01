@@ -1246,3 +1246,98 @@ def test_claim_more_takes_claimable_rows_of_one_kind_and_key_prefix_oldest_first
     assert all(c.attempts == 1 and c.worker_id == "w1" for c in more)
     assert [c.key for c in state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=1))] == ["sample:5"]
     assert state.claim_more("w2", "samples", "sample:", 0, now=at(minutes=1)) == []
+
+
+@pytest.mark.django_db
+def test_claim_more_also_takes_a_row_whose_last_error_starts_with_the_prefix_it_is_given():
+    errors = {0: ("gap: sample 0", 5), 1: ("RuntimeError: boom", 5), 2: (None, 0),
+              3: ("gap: sample 3", state.MAX_ATTEMPTS)}                       # dead whatever its error says
+    for n, (error, attempts) in errors.items():
+        state.enqueue("samples", f"sample:{n}", now=at(seconds=n))
+        GraphSyncOutbox.objects.filter(key=f"sample:{n}").update(attempts=attempts, last_error=error)
+
+    more = state.claim_more("w1", "samples", "sample:", 10, now=at(minutes=1), below_attempts=2,
+                            or_last_error_prefix="gap: ")
+
+    assert [(c.key, c.last_error) for c in more] == [("sample:0", "gap: sample 0"), ("sample:2", None)]
+
+
+@pytest.mark.django_db
+def test_a_claim_carries_the_rows_last_error():
+    state.enqueue("samples", "sample:7", now=T0)
+    GraphSyncOutbox.objects.filter(key="sample:7").update(last_error="gap: sample 7")
+    assert state.claim_next("w1", now=at(minutes=1)).last_error == "gap: sample 7"
+
+
+@pytest.mark.django_db
+def test_claim_more_takes_only_rows_below_the_attempts_it_is_given():
+    for n in range(4):
+        state.enqueue("samples", f"sample:{n}", now=at(seconds=n))
+        GraphSyncOutbox.objects.filter(key=f"sample:{n}").update(attempts=n)
+
+    more = state.claim_more("w1", "samples", "sample:", 10, now=at(minutes=1), below_attempts=2)
+
+    assert [(c.key, c.attempts) for c in more] == [("sample:0", 1), ("sample:1", 2)]
+    assert [c.key for c in state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=1))] == [
+        "sample:2", "sample:3"]
+
+
+# --- a claimed row of many samples hands its failing ones on as rows of their own ------------------------------------
+
+def _claimed_batch(*, attempts: int = 0, failing_since=None):
+    state.enqueue("samples", "batch:reg:1:0", [11, 12, 13], now=T0)
+    GraphSyncOutbox.objects.filter(key="batch:reg:1:0").update(attempts=attempts, failing_since=failing_since)
+    claim = state.claim_next("w1", now=at(minutes=1), kinds=["samples"])
+    assert claim.key == "batch:reg:1:0"
+    return claim
+
+
+@pytest.mark.django_db
+def test_hand_on_failed_writes_each_key_as_a_row_that_failed_as_the_claimed_row_did():
+    claim = _claimed_batch()
+
+    assert state.hand_on_failed(claim, "samples", {"sample:12": "gap in 12"}, 3600, now=at(minutes=1)) == 1
+
+    r = row("samples", "sample:12")
+    assert (r.done_at, r.claimed_by, r.attempts, r.payload, r.last_error) == (None, None, 1, None, "gap in 12")
+    assert (r.failing_since, r.lease_expires_at) == (at(minutes=1), at(minutes=61))
+    assert row("samples", "batch:reg:1:0").claimed_by == "w1"          # the claimed row is the caller's to close
+    assert state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=60)) == []
+    assert [c.key for c in state.claim_more("w2", "samples", "sample:", 10, now=at(minutes=61))] == ["sample:12"]
+
+
+@pytest.mark.django_db
+def test_a_handed_on_row_keeps_the_attempts_and_the_failing_clock_of_the_claimed_row():
+    claim = _claimed_batch(attempts=2, failing_since=at(hours=-5))
+    state.hand_on_failed(claim, "samples", {"sample:12": "gap"}, 3600, now=at(minutes=1))
+    r = row("samples", "sample:12")
+    assert (r.attempts, r.failing_since) == (3, at(hours=-5))
+
+
+@pytest.mark.django_db
+def test_a_handed_on_failure_folds_into_the_row_already_there_except_a_live_claim_or_a_later_write():
+    state.enqueue("samples", "sample:14", now=at(minutes=-5))
+    assert state.claim_next("w2", now=at(minutes=-4)).key == "sample:14"          # another worker syncs 14 now
+    state.enqueue("samples", "sample:11", now=at(minutes=-3))                      # done since
+    state.finish_done(state.claim_next("w3", now=at(minutes=-2), kinds=["samples"]), now=at(minutes=-2))
+    state.enqueue("samples", "sample:12", now=at(minutes=-1))                      # failing since the night
+    GraphSyncOutbox.objects.filter(key="sample:12").update(
+        attempts=5, failing_since=at(hours=-9), lease_expires_at=at(hours=3), last_error="old")
+    claim = _claimed_batch()
+    state.enqueue("samples", "sample:13", now=at(minutes=2))                       # a write after the claim
+    before_14 = row("samples", "sample:14")
+
+    written = state.hand_on_failed(claim, "samples", {f"sample:{i}": f"gap {i}" for i in (11, 12, 13, 14)}, 3600,
+                                   now=at(minutes=1))
+
+    assert written == 2
+    done = row("samples", "sample:11")
+    assert (done.done_at, done.attempts, done.failing_since, done.last_error) == (None, 1, at(minutes=1), "gap 11")
+    failing = row("samples", "sample:12")
+    assert (failing.attempts, failing.failing_since, failing.lease_expires_at, failing.last_error) == (
+        5, at(hours=-9), at(hours=3), "gap 12")
+    later = row("samples", "sample:13")
+    assert (later.attempts, later.failing_since, later.last_error, later.lease_expires_at) == (0, None, None, None)
+    live = row("samples", "sample:14")
+    assert (live.claimed_by, live.lease_expires_at, live.attempts, live.last_error) == (
+        before_14.claimed_by, before_14.lease_expires_at, before_14.attempts, None)

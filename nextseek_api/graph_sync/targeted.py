@@ -71,11 +71,15 @@ EXAMPLES = 20             # examples kept per report list
 LIST_CAP = 1_000          # longest id list copied into a report
 
 # The counts of a by-id sync that mean a structural link was left unwritten: the sample's OF_TYPE or an IN_PROJECT,
-# its IN_STUDY row, a Study node for one of its SEEK studies, or a Study's IN_INVESTIGATION. A row that reports any is
-# not done (the drain fails it, and the sample's source_hash stays null for the nightly). A parent not yet uploaded
-# (lineage_dropped) and an edge gone before its label was written (labels_edges_missing) are expected states instead.
+# its IN_STUDY row, a Study node for one of its SEEK studies, or a Study's IN_INVESTIGATION. A sample a report names
+# in structural_gap_samples is not done (the drain fails it on a row of its own, and its source_hash stays null for
+# the nightly); every other sample of the call is. A parent not yet uploaded (lineage_dropped) and an edge gone before
+# its label was written (labels_edges_missing) are expected states instead.
 STRUCTURAL_GAP_KEYS = ("untyped", "in_project_missing", "in_study_samples_missing", "in_study_studies_missing",
                        "seek_study_investigation_missing")
+# How a gap the reads cannot trace to its samples names them: every written sample of its chunk carries it.
+UNTRACED_MARK = "not traced to a sample"
+UNTRACED_GAP = "{part} {count} in its chunk, " + UNTRACED_MARK
 
 _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_labelled": 0,
                     "labels_skipped_changed": 0, "labels_edges_missing": 0, "labels_refresh_rows": 0,
@@ -363,7 +367,7 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
     if gone:
         report.update(writer.retire_samples(driver, db, gone, ctx.archive(RETIRED_FILE)))
 
-    projections = []
+    projections, links = [], []
     if rows:
         cat = ctx.catalog()
         report["catalog_synced_for_types"] = _ensure_sample_types(driver, db, rows, cat)
@@ -393,7 +397,80 @@ def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
                                                         old_types | {p.sample_type_id for p in projections})
     parts = {key: int(report[key]) for key in STRUCTURAL_GAP_KEYS if report.get(key)}
     report.update(structural_gaps=sum(parts.values()), structural_gap_parts=parts)
+    if parts:
+        report["structural_gap_samples"] = _gap_samples(driver, db, parts, projections, links, ctx.seek_tables())
     return report
+
+
+def _project_text(ids, in_seek) -> str:
+    lacking = [p for p in ids if p not in in_seek]
+    other = [p for p in ids if p in in_seek]
+    return "; ".join(text for text in (
+        "project ids SEEK lacks: " + ", ".join(map(str, lacking)) if lacking else "",
+        "no Project node for " + ", ".join(map(str, other)) if other else "") if text)
+
+
+def _gap_samples(driver, db, parts: dict, projections, links, tables) -> dict[int, str]:
+    """Sample id to why the chunk's structural gaps (``parts``) name it, read after the writes under the same lock
+    and only when a gap was counted: no SampleType node for its type; IN_PROJECT to project ids with no Project node,
+    those SEEK's ``projects`` lacks named so; one of its SEEK studies whose Investigation node is missing. A part
+    whose reads do not account for the count its statement returned, and the two IN_STUDY parts (a sample or a Study
+    node gone between the write and the link, which no read here can place), name every written sample of the chunk
+    (``UNTRACED_GAP``), as the whole row failed before."""
+    reasons: dict[int, dict[str, None]] = {}
+    written = sorted(p.id for p in projections)
+
+    def name(sample_id, text):
+        reasons.setdefault(int(sample_id), {})[text] = None
+
+    def untraced(part):
+        for sample_id in written:
+            name(sample_id, UNTRACED_GAP.format(part=part, count=parts[part]))
+
+    if parts.get("untyped"):
+        type_ids = sorted({p.sample_type_id for p in projections if _is_id(p.sample_type_id)})
+        present = {r["id"] for r in _records(_run(driver, db, SAMPLE_TYPES_PRESENT, {"ids": type_ids}, read=True))}
+        found = [p for p in projections if p.sample_type_id not in present]
+        if len(found) != parts["untyped"]:
+            untraced("untyped")
+        else:
+            for p in found:
+                name(p.id, f"untyped (no SampleType node for type {p.sample_type_id})")
+    if parts.get("in_project_missing"):
+        wanted = sorted({pid for p in projections for pid in p.props.get("project_ids") or ()})
+        present = {r["id"] for r in _records(_run(driver, db, q.PROJECT_IDS_PRESENT, {"ids": wanted}, read=True))}
+        in_seek = {int(r["id"]) for r in tables.projects}
+        absent = {p.id: sorted(set(p.props.get("project_ids") or ()) - present) for p in projections}
+        if sum(len(ids) for ids in absent.values()) != parts["in_project_missing"]:
+            untraced("in_project_missing")
+        else:
+            for sample_id, ids in absent.items():
+                if ids:
+                    name(sample_id, f"in_project_missing ({_project_text(ids, in_seek)})")
+    if parts.get("seek_study_investigation_missing"):
+        investigation_of = {int(link["study_id"]): link.get("investigation_id") for link in links}
+        in_seek = {int(i["id"]) for i in tables.investigations}
+        missing = set()
+        for r in _records(_run(driver, db, q.STUDY_NODES, read=True)):
+            study_id = (r["props"] or {}).get("seek_study_id")
+            inv = investigation_of.get(study_id) if _is_id(study_id) else None
+            if inv is not None and not any(i.get("id") == inv for i in r["investigations"] or ()):
+                missing.add(study_id)
+        if len(missing) != parts["seek_study_investigation_missing"]:
+            untraced("seek_study_investigation_missing")
+        else:
+            for link in links:
+                study_id = int(link["study_id"])
+                if study_id not in missing:
+                    continue
+                inv = investigation_of[study_id]
+                why = (f"investigation {inv}, which SEEK lacks" if inv not in in_seek
+                       else f"no Investigation node for {inv}")
+                name(link["sample_id"], f"seek_study_investigation_missing (study {study_id}: {why})")
+    for part in ("in_study_samples_missing", "in_study_studies_missing"):
+        if parts.get(part):
+            untraced(part)
+    return {sample_id: "; ".join(texts) for sample_id, texts in sorted(reasons.items())}
 
 
 def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_changes: bool = False,
@@ -406,7 +483,9 @@ def sync_samples(driver, db, ids, *, run_dir: str | None = None, apply_label_cha
     ``projection_errors`` with examples, the writer's sample, lineage, retire and IN_STUDY counts, ``labels_edges``
     and one ``labels_<class>`` count per ``labels.CLASSES``, ``label_differences`` (class to property to edges),
     ``label_examples``, the label write counts, ``undeclared_attributes_created``, ``catalog_synced_for_types`` and
-    ``sample_type_counts_set``. ``apply_label_changes`` is the operator's approval (R14).
+    ``sample_type_counts_set``; ``structural_gaps`` and ``structural_gap_parts`` count the structural links left
+    unwritten, and when there are any ``structural_gap_samples`` names each sample they belong to, with why
+    (``STRUCTURAL_GAP_KEYS``). ``apply_label_changes`` is the operator's approval (R14).
     """
     wanted = _ids(ids)
     if not wanted:

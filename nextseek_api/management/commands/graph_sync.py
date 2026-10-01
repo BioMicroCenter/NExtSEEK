@@ -2,7 +2,8 @@
 
     manage.py graph_sync (--full | --catalog | --reconcile | --samples IDS | --verify | --drift | --loop | --once
                           | --investigation-counts --instance {local,dev,prod} | --requeue-dead [--kind KIND]
-                          | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...] | --studies)
+                          | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...] | --studies
+                          | --small-tables)
                          [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--seed N]
                          [--bench-keys FILE] [--apply-label-changes] [--no-record] [--trigger NAME]
                          [--interval S] [--i-mean-the-live-graph]
@@ -23,6 +24,7 @@
 | ``--merge-studies [IDS]`` | merge each SEEK study of the approval line (``id:kind``, as the dry run prints it) or rekey its legacy node in place, held to its approved kind, journaled to ``study_merge.tsv``; bare, ``all`` or bare ids only with ``--dry-run`` | yes |
 | ``--unmerge-studies PATH[,PATH...]`` | reverse those journals' merges and re-create the IN_STUDY links their archives hold; refused unless given every merge journal under the run root that names the same ids | yes |
 | ``--studies`` | make every sample's IN_STUDY follow SEEK once, removal included whatever the switch says | yes |
+| ``--small-tables`` | rewrite SEEK's small tables once, as an ``isa`` row and the nightly reconcile do | yes |
 
 ``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile``, ``--labels``, ``--merge-studies``,
 ``--unmerge-studies`` and ``--studies`` read without writing and print their counts. A written ``--full`` and the
@@ -73,7 +75,7 @@ LIVE_NEO4J_HOSTS = frozenset({"neo4j"})
 PROGRESS_LOGGER = "nextseek_api.graph_sync"
 
 MODES = ("full", "catalog", "verify", "reconcile", "drift", "samples", "loop", "once", "investigation_counts",
-         "requeue_dead", "labels", "merge_studies", "unmerge_studies", "studies")
+         "requeue_dead", "labels", "merge_studies", "unmerge_studies", "studies", "small_tables")
 # The modes that may reach the live graph without the flag: the three that only read, and the loop itself.
 LIVE_OK_MODES = frozenset({"verify", "drift", "investigation_counts", "loop"})
 LABEL_CHANGE_MODES = frozenset({"full", "reconcile", "samples", "labels"})
@@ -240,6 +242,10 @@ class Command(BaseCommand):
         mode.add_argument("--studies", action="store_true",
                           help="Make every sample's IN_STUDY follow SEEK once, removing stale links whatever "
                                f"{study_links.SWITCH_ENV} says, each archived to in_study_removed.tsv first.")
+        mode.add_argument("--small-tables", action="store_true",
+                          help="Rewrite SEEK's small tables once (projects, investigations, people, memberships and "
+                               "every SEEK study's node), as an isa outbox row and the nightly reconcile do; a "
+                               "refusal (the graph's version, a busy lock) wrote nothing and exits 2.")
         parser.add_argument("--kind", metavar="KIND",
                             help="--requeue-dead: only the dead rows of this outbox kind.")
         parser.add_argument("--instance", choices=drift.INSTANCES,
@@ -256,10 +262,10 @@ class Command(BaseCommand):
                                  "and archives (default: <kind>-<UTC time> under the run root). --catalog, --verify, "
                                  "--drift, --reconcile and --samples also save their result there.")
         parser.add_argument("--run-root", metavar="PATH",
-                            help="Where --reconcile, --samples, the loop, a written --full and the study modes make "
-                                 "their own run directories (default: $GS_RUN_DIR, else graph_sync under the log "
-                                 "directory); --unmerge-studies also refuses unless given every merge journal there "
-                                 "that names one of its ids.")
+                            help="Where --reconcile, --samples, --small-tables, the loop, a written --full and the "
+                                 "study modes make their own run directories (default: $GS_RUN_DIR, else graph_sync "
+                                 "under the log directory); --unmerge-studies also refuses unless given every merge "
+                                 "journal there that names one of its ids.")
         parser.add_argument("--seed", type=int, help="--verify, --drift: the seed of the random samples.")
         parser.add_argument("--bench-keys", metavar="FILE",
                             help="--full: a JSON list of attribute keys or [sample type, attribute] pairs the "
@@ -293,6 +299,9 @@ class Command(BaseCommand):
             self._check_approval(options["merge_studies"])
         if options["kind"] is not None and mode != "requeue_dead":
             raise CommandError("--kind belongs to --requeue-dead")
+        if mode == "small_tables" and options["dry_run"]:
+            raise CommandError("--small-tables has no --dry-run: it rewrites a few hundred rows whole; --drift reads "
+                               "what they would change", returncode=2)
         if mode == "requeue_dead":
             # The dmac outbox only: no Neo4j settings are read and no driver is opened.
             return self._requeue_dead(options)
@@ -329,6 +338,8 @@ class Command(BaseCommand):
             return self._unmerge_studies(driver, db, options)
         if mode == "studies":
             return self._studies(driver, db, options)
+        if mode == "small_tables":
+            return self._small_tables(driver, db, options)
         return self._sync(driver, db, mode, options, bench_keys)
 
     # --- the modes that write ---------------------------------------------------------------------
@@ -392,6 +403,24 @@ class Command(BaseCommand):
             handle.finish("ok" if status == targeted.OK else "refused", counts=_scalars(result))
         self._emit(result, options["json"])
         self._exit_by_status(_SAMPLES_EXIT, status, "--samples")
+
+    def _small_tables(self, driver, db, options):
+        """One small-tables write (``targeted.sync_small_tables``, the code an ``isa`` row and the nightly reconcile
+        run), with its own run record; exits as ``--samples`` does. ``./startup.sh`` runs it on local and dev right
+        before the post-rebuild drift, so an edit made in SEEK's own UI since the nightly does not read as drift."""
+        handle = None if options["no_record"] else state.start_run("small_tables", trigger=options["trigger"])
+        try:
+            result = targeted.sync_small_tables(driver, db,
+                                                run_dir=self._run_dir(options, loop.SMALL_TABLES_DIR_KIND))
+        except Exception as exc:
+            if handle is not None:
+                handle.finish("failed", counts={"error": _text(exc)})
+            raise
+        status = result.get("status")
+        if handle is not None:
+            handle.finish("ok" if status == targeted.OK else "refused", counts=_scalars(result))
+        self._emit(result, options["json"])
+        self._exit_by_status(_SAMPLES_EXIT, status, "--small-tables")
 
     # --- the studies release ----------------------------------------------------------------------
 

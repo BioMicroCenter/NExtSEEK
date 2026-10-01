@@ -667,6 +667,63 @@ def check_graph_drift(repo_root: Path, env: dict[str, str]) -> HealthResult:
                                _stream_text(result.stdout), _stream_text(result.stderr))
 
 
+# The small tables the drift compares (projects, investigations, people, memberships, every SEEK study's node) are
+# written by the nightly reconcile, so on local and dev, where the drift runs after every rebuild, an edit made in
+# SEEK's own UI since then would read as drift and fail the rebuild until the next nightly. The app container
+# rewrites them right before the drift, with the code an `isa` outbox row runs; production is not asked (cli.py).
+GRAPH_SMALL_TABLES_SERVICE = GRAPH_DRIFT_SERVICE
+GRAPH_SMALL_TABLES_COMMAND = (
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync", "--small-tables", "--json",
+    "--trigger", "startup",
+    # The app container's own graph is the live one: the flag says this write means it, as the loop's children do.
+    "--i-mean-the-live-graph",
+)
+GRAPH_SMALL_TABLES_TIMEOUT_S = 300    # Django's start-up, the graph-write lock's 60 s wait and a few hundred rows
+_SMALL_TABLES_SHOWN = (("projects_written", "projects"), ("investigations_written", "investigations"),
+                       ("memberships_written", "memberships"), ("seek_studies", "SEEK studies"))
+
+
+def refresh_graph_small_tables(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Ask the app container to rewrite the graph's small tables from SEEK, right before the post-rebuild drift.
+
+    Never red: the drift that follows judges the graph, and this write only spares it a SEEK edit made since the
+    nightly. A refusal (a graph below the writer's version, a graph-write lock another write held) or any failure is
+    a warning that carries the reason. Asked as the drift is, through ``subprocess`` with empty stdin and the exit
+    status kept (``check_graph_drift``), and not at all in a tree with no compose file.
+    """
+    name = "graph small tables"
+    if not (repo_root / "docker-compose.yml").is_file():
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_SMALL_TABLES_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_SMALL_TABLES_SERVICE, *GRAPH_SMALL_TABLES_COMMAND]
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(repo_root), env={**os.environ, **env},
+            input=b"",                 # empty stdin, never the caller's (check_graph_drift)
+            capture_output=True, timeout=GRAPH_SMALL_TABLES_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=f"timed out after {GRAPH_SMALL_TABLES_TIMEOUT_S}s; the drift below compares the "
+                                   "small tables the nightly wrote")
+    except OSError as exc:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"cannot run docker: {exc}")
+    stdout, stderr = _stream_text(result.stdout), _stream_text(result.stderr)
+    payload = _graph_drift_payload(stdout)
+    if result.returncode == 0:
+        counts = ", ".join(f"{payload[key]} {label}" for key, label in _SMALL_TABLES_SHOWN if key in payload)
+        detail = "rewrote SEEK's small tables before the drift check"
+        return HealthResult(name=name, ok=True, detail=f"{detail}: {counts}" if counts else detail)
+    reason = (payload.get("status") or _last_line(stderr) or _last_line(stdout) or "no output")
+    if result.returncode == 2:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"skipped, nothing written: {reason}")
+    return HealthResult(name=name, ok=True, warn=True,
+                        detail=f"could not rewrite them (exit {result.returncode}): {reason}")
+
+
 # The graph sync health line (SPEC-ci-health D12 to D16), on every box, production included. The app container's own
 # manage.py judges the graph_sync tables, so it needs no HTTP login and runs where the smoke suite holds no superuser
 # rights. Exit 0 nothing to fail on, 1 a problem, 3 the tables could not be read, 4 migrations not applied yet.

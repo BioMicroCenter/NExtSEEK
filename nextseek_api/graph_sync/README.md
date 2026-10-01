@@ -38,7 +38,7 @@ only).
 ```
 manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --drift | --verify | --samples IDS
                       | --requeue-dead | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...]
-                      | --studies)
+                      | --studies | --small-tables)
                      [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--interval S]
                      [--no-record] [--apply-label-changes] [--seed N] [--bench-keys FILE] [--kind KIND]
                      [--i-mean-the-live-graph]
@@ -52,6 +52,7 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--catalog` | the SampleType and Attribute catalog only | yes |
 | `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
+| `--small-tables` | SEEK's small tables once (projects, investigations, people, memberships, every SEEK study's node), as an `isa` row and the nightly reconcile write them; `./startup.sh` runs it on local and dev right before the post-rebuild drift | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |
@@ -91,17 +92,24 @@ about the sync can end the container. `NEXTSEEK_GRAPH_SYNC_LOOP=0` is the off sw
 leases, old run directories), puts the slots the schedule owes into the outbox, and drains what it can claim. The
 light kinds run in process; `full`, `reconcile` and `drift` run as child `manage.py graph_sync` processes, so their
 memory returns when they end and a crash cannot take the loop with it. A claimed single-sample `samples` row takes up
-to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync, whose outcome closes, defers or fails every
-row it drained; a `batch:` row is one sync of its own. A by-id sync that left a structural link unwritten (a type, a
-project, a study or an investigation link) fails its row, which retries on its back-off. A child's exit status decides its row: 0 and
-2 (a refusal) are done, anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child
-that exits 1 having saved a result that reports drift: that check did its job, so its row is done and the drift is in
-its run record, never retried into the same answer. The newest 20 run directories per kind are kept (the kinds the
-loop runs; a `merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every pass
-starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
-connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on
-it with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error
-2006 until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
+to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within the pass's 1,000 rows), whose outcome
+closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A row that has failed twice since
+it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it (a
+transient failure costs one merged retry); a row whose last failure was a gap traced to its own sample stays
+mergeable, since a merged sync fails each gapped sample alone. A by-id sync that left a structural link unwritten (a
+type, a project, a study or an investigation link) fails only the samples it names, each with why in its `last_error`
+(the project ids SEEK lacks, say): a single-sample row fails on its back-off, and a row of many samples (a batch, a
+sample type) is closed and hands each such sample on as a `sample:<id>` row that keeps its attempts, failing time and
+back-off; every other sample is done. A gap from SEEK's data never heals by itself: fix the SEEK row, then
+`--requeue-dead` the samples' rows if they died. A child's exit status decides its row: 0 and 2 (a refusal) are done,
+anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child that exits 1 having saved a
+result that reports drift: that check did its job, so its row is done and the drift is in its run record, never
+retried into the same answer. The newest 20 run directories per kind are kept (the kinds the loop runs, and
+`--small-tables`'s; a `merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every
+pass starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
+connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on it
+with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error 2006
+until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|
@@ -209,7 +217,8 @@ Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge
 are never pruned.
 
 **Paths that move a link.** The assay proxy enqueues an assay's members when it creates the assay or a PATCH sets
-its study or samples, keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
+its study or samples (for a PATCH, the members it held before and the samples the request names, whatever SEEK's
+answer says), keys `batch:assay:<SEEK id>:<time_ns>:<n>`; a proxy write SEEK may have committed without
 confirming it (a 5xx, a timeout) enqueues its rows held back five minutes; the study proxy's `isa` row writes every
 SEEK study's node with its title, description and Investigation; an assay moved in SEEK's own UI reaches the graph at
 the next reconcile.

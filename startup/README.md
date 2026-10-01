@@ -271,8 +271,13 @@ See `startup/CLAUDE.md` for the invariants, the traps and the one command to run
 ## Graph drift after an app rebuild
 
 `rebuild` and `ci` run `manage.py graph_sync --drift` once the stack is healthy and write the result into the CI
-record under `## Graph drift` (`startup/steps/validate.py`, `startup/ci/runner.py`). It is read-only and never
-writes to the graph.
+record under `## Graph drift` (`startup/steps/validate.py`, `startup/ci/runner.py`). The drift check is read-only
+and never writes to the graph.
+
+Right before it, on the profiles where it runs (local and dev), the app container rewrites the graph's small tables
+from SEEK (`manage.py graph_sync --small-tables`, the code an `isa` outbox row and the nightly reconcile run): the
+drift compares SEEK as it is now, and an edit made in SEEK's own UI since the nightly would otherwise read as drift
+and fail the rebuild. That write prints its own line, a warning when it wrote nothing, and is never red by itself.
 
 On a graph that `graph_sync --full` has not yet written at the writer's schema version the check reports
 **skipped**, with the version it read, rather than passing or failing: only a graph at that version is comparable.

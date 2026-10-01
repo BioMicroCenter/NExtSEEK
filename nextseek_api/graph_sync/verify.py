@@ -49,7 +49,8 @@ present, carries a few examples. Each name starts with the gate G check it belon
 14. ``small``: the small tables follow SEEK: the Project nodes (id and title), the Investigation nodes (id, title and
     their projects through IN_PROJECT) and every MEMBER_OF (person, project, has_left). An Investigation node SEEK
     lacks fails, unless a Study still holds it (``investigations_not_in_seek_held``, reported): a Study of a SEEK study
-    that still exists, or a graph-only paper.
+    that still exists, or a graph-only paper. A membership or an investigation link naming a project SEEK lacks is not
+    compared, since no writer can link it; the stats count it.
 
 Every MySQL side joins ``samples`` and counts distinct sample ids: SEEK's link tables hold rows for samples that are
 gone and rows repeated (``projects_samples``, ``assay_assets``), which would otherwise read as drift. A check whose
@@ -894,13 +895,19 @@ def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     """Family 14: the Project, Investigation, Person and MEMBER_OF nodes and edges equal SEEK's tables. Every check
     expects 0 and lists up to ``EXAMPLES``. An Investigation SEEK lacks that a Study still holds is kept by the small
     tables (a Study node is not deleted in this release) and reported apart; only a Study of a SEEK study that still
-    exists, or a graph-only paper (no ``seek_study_id``), holds one."""
+    exists, or a graph-only paper (no ``seek_study_id``), holds one. A ``group_memberships`` or
+    ``investigations_projects`` row naming a project SEEK's ``projects`` lacks is left out, as the writers leave it
+    (they MATCH the Project node), and counted in the stats: SEEK data to fix, which no sync can clear."""
     seek_projects = {int(p["id"]): p.get("title") for p in sources.projects()}
     graph_projects = {r["id"]: r["title"] for r in _records(_read(driver, db, q.GRAPH_PROJECTS)) if _is_id(r["id"])}
     projects_differ = [p for p in sorted(set(seek_projects) | set(graph_projects))
                        if p not in seek_projects or p not in graph_projects or seek_projects[p] != graph_projects[p]]
     links: dict[int, set] = {}
+    links_dropped = 0
     for row in sources.investigation_projects():
+        if int(row["project_id"]) not in seek_projects:
+            links_dropped += 1
+            continue
         links.setdefault(int(row["investigation_id"]), set()).add(int(row["project_id"]))
     seek_invs = {int(i["id"]): (i.get("title"), sorted(links.get(int(i["id"]), ()))) for i in sources.investigations()}
     study_ids = sorted({int(s["id"]) for s in sources.studies()})
@@ -910,7 +917,13 @@ def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     invs_differ = [i for i in sorted(seek_invs) if graph_invs.get(i) != seek_invs[i]]
     gone = [r["id"] for r in graph_rows if r["id"] not in seek_invs and not r["held"]]
     held = [r["id"] for r in graph_rows if r["id"] not in seek_invs and r["held"]]
-    seek_members = {(int(m["person_id"]), int(m["project_id"])): bool(m["has_left"]) for m in sources.memberships()}
+    seek_members: dict[tuple[int, int], bool] = {}
+    members_dropped = 0
+    for m in sources.memberships():
+        if int(m["project_id"]) not in seek_projects:
+            members_dropped += 1
+            continue
+        seek_members[(int(m["person_id"]), int(m["project_id"]))] = bool(m["has_left"])
     graph_members = {(r["person_id"], r["project_id"]): bool(r["has_left"])
                      for r in _records(_read(driver, db, q.GRAPH_MEMBER_OF))}
     members_differ = sorted((pair for pair in set(seek_members) | set(graph_members)
@@ -923,7 +936,9 @@ def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     _check(checks, "14.small.member_of_differs", 0, len(members_differ),
            detail=[list(m) for m in members_differ[:EXAMPLES]])
     stats["small"] = {"projects": len(seek_projects), "investigations": len(seek_invs),
-                      "memberships": len(seek_members), "investigations_not_in_seek_held": len(held)}
+                      "memberships": len(seek_members), "investigations_not_in_seek_held": len(held),
+                      "memberships_project_not_in_seek": members_dropped,
+                      "investigation_links_project_not_in_seek": links_dropped}
 
 
 # --- the gate ------------------------------------------------------------------------------------

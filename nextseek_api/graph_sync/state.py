@@ -18,6 +18,8 @@ sample ids. ``(kind, key)`` is unique, so repeated hook writes coalesce and a sc
   status endpoint ages a failing row by, since ``enqueued_at`` moves on every re-enqueue and ``attempts`` resets.
 - ``requeue_dead`` is the operator's retry of dead rows once their cause is fixed: pending, claimable at once, no
   failure time; ``manage.py graph_sync --requeue-dead``.
+- ``hand_on_failed`` writes keys as rows that failed as a claimed row just did (its attempts, ``failing_since`` and a
+  back-off): the drain closes a row of many samples and hands on only the samples its sync left a gap for.
 - ``mark_done_before`` closes every row enqueued before a successful full sync started: that sync read them all. A
   row whose delay had not run out when the sync started is left open, since the sync may have read before its write.
 
@@ -239,13 +241,21 @@ class Claim:
     attempts: int
     worker_id: str
     lease_expires_at: datetime
+    last_error: str | None = None      # the row's last failure, as it stood when it was claimed
 
 
-def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None) -> list[dict]:
+def _candidates(now: datetime, kinds: Iterable[str] | None, limit: int, *, key_prefix: str | None = None,
+                below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[dict]:
     """Claimable rows, oldest first: not done, below the attempt limit, and no lease or back-off still running; of
-    ``kinds`` and with keys starting ``key_prefix`` when given."""
+    ``kinds`` and with keys starting ``key_prefix`` when given. ``below_attempts`` lowers the attempt bound for rows
+    whose ``last_error`` does not start with ``or_last_error_prefix``."""
     qs = (_outbox().filter(done_at__isnull=True, attempts__lt=MAX_ATTEMPTS)
           .filter(Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)))
+    if below_attempts < MAX_ATTEMPTS:
+        fewer = Q(attempts__lt=below_attempts)
+        if or_last_error_prefix:
+            fewer |= Q(last_error__startswith=or_last_error_prefix)
+        qs = qs.filter(fewer)
     if kinds is not None:
         qs = qs.filter(kind__in=list(kinds))
     if key_prefix is not None:
@@ -265,7 +275,7 @@ def _take(worker_id: str, c: dict, now: datetime) -> Claim | None:
     if won != 1:
         return None
     got = (_outbox().filter(pk=c["id"], claimed_by=worker_id, lease_expires_at=lease)
-           .values("id", "kind", "key", "payload", "enqueued_at", "attempts").first())
+           .values("id", "kind", "key", "payload", "enqueued_at", "attempts", "last_error").first())
     return None if got is None else Claim(worker_id=worker_id, lease_expires_at=lease, **got)
 
 
@@ -285,19 +295,22 @@ def claim_next(worker_id: str, *, now: datetime | None = None, kinds: Iterable[s
     return None
 
 
-def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *,
-               now: datetime | None = None) -> list[Claim]:
+def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: datetime | None = None,
+               below_attempts: int = MAX_ATTEMPTS, or_last_error_prefix: str | None = None) -> list[Claim]:
     """Claim up to ``limit`` more claimable rows of ``kind`` whose keys start with ``key_prefix``, oldest first, for
-    ``worker_id``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in between is
-    skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease runs). The
-    drain uses it to run many single-sample rows as one by-id sync (``loop``, A13)."""
+    ``worker_id``, and only rows with fewer than ``below_attempts`` attempts or a ``last_error`` that starts with
+    ``or_last_error_prefix``. Each is the same compare-and-set as ``claim_next``, so a row another worker took in
+    between is skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease
+    runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``, A13), leaving out a row that
+    has failed repeatedly unless its last failure says merging it cannot fail the others."""
     if not worker_id or len(worker_id) > WORKER_CHARS:
         raise ValueError(f"not a worker id: {worker_id!r}")
     if limit <= 0:
         return []
     now = now or timezone.now()
     out = []
-    for c in _candidates(now, [kind], limit, key_prefix=key_prefix):
+    for c in _candidates(now, [kind], limit, key_prefix=key_prefix, below_attempts=below_attempts,
+                         or_last_error_prefix=or_last_error_prefix):
         claim = _take(worker_id, c, now)
         if claim is not None:
             out.append(claim)
@@ -339,6 +352,67 @@ def finish_failed(claim: Claim, error: BaseException | str, backoff_s: float, *,
     if failure:
         fields["failing_since"] = Coalesce("failing_since", Value(moment, output_field=DateTimeField()))
     return _held(claim).update(**fields) == 1
+
+
+def _fold_failure(kind: str, key: str, text: str, attempts: int, since: datetime, lease: datetime,
+                  now: datetime) -> bool | None:
+    """Fold a handed-on failure into the existing row, under its row lock: True when written, False when the row is
+    left as it is (another worker's live claim, or a write enqueued after ``now``), None when there is no such row."""
+    found = (_outbox().select_for_update().filter(kind=kind, key=key)
+             .values("id", "enqueued_at", "claimed_by", "lease_expires_at", "attempts", "failing_since", "done_at")
+             .first())
+    if found is None:
+        return None
+    held = found["lease_expires_at"]
+    if found["claimed_by"] is not None and held is not None and held > now:
+        return False
+    still_open = found["done_at"] is None
+    if still_open and found["enqueued_at"] > now:
+        return False
+    earlier = found["failing_since"] if still_open else None
+    _outbox().filter(pk=found["id"]).update(
+        done_at=None, claimed_by=None, payload=None, last_error=text,
+        enqueued_at=max(now, found["enqueued_at"] + _TICK),
+        attempts=max(attempts, found["attempts"] if still_open else 0),
+        failing_since=min(since, earlier) if earlier is not None else since,
+        lease_expires_at=max(lease, held) if still_open and held is not None else lease)
+    return True
+
+
+def hand_on_failed(claim: Claim, kind: str, errors: Mapping[str, Any], backoff_s: float, *,
+                   now: datetime | None = None) -> int:
+    """Write each key of ``errors`` as a ``kind`` row that failed as the claimed row just did, and return how many
+    were written: pending, the claim's ``attempts``, the claimed row's ``failing_since`` (``now`` when it had none),
+    ``last_error`` the key's error, held back ``backoff_s`` seconds. The drain uses it when a sync of a row of many
+    samples left a structural gap for some of them (``loop``): it closes that row and hands each gapped sample on as
+    a ``sample:<id>`` row of its own, which keeps the clock its row was on, so the healthy samples are not synced
+    again and the health line names the sample.
+
+    A row already there keeps the larger ``attempts``, the earlier ``failing_since`` and the later back-off (a done
+    row is reopened with the claim's). Two are left exactly as they are: a row under another worker's live claim,
+    whose outcome decides it, and an open row enqueued after ``now`` (the claim's time), a write the failed sync may
+    not have read. The claimed row itself is not touched: the caller closes it."""
+    moment = now or timezone.now()
+    since = _held(claim).values_list("failing_since", flat=True).first() or moment
+    lease = moment + timedelta(seconds=max(0.0, backoff_s))
+    db = _db()
+    written = 0
+    for key, error in errors.items():
+        check_item(kind, key, None)
+        text = _error_text(error)
+        with transaction.atomic(using=db):
+            done = _fold_failure(kind, key, text, claim.attempts, since, lease, moment)
+            if done is None:
+                try:
+                    with transaction.atomic(using=db):
+                        _outbox().create(kind=kind, key=key, enqueued_at=moment, attempts=claim.attempts,
+                                         failing_since=since, last_error=text, lease_expires_at=lease)
+                    done = True
+                except IntegrityError:
+                    # Another writer inserted it since the read above.
+                    done = bool(_fold_failure(kind, key, text, claim.attempts, since, lease, moment))
+        written += bool(done)
+    return written
 
 
 def mark_done_before(ts: datetime, *, kinds: Iterable[str] | None = None, now: datetime | None = None) -> int:
