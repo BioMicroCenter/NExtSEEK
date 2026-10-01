@@ -982,3 +982,37 @@ def test_the_one_exception_no_longer_promises_a_not_contains_override():
             "for, such as T_D_FLOW for flow cytometry data)") in text
     assert "a NOT ... CONTAINS that removes" not in text
 
+
+def test_a_count_column_is_not_summarised_as_a_value_list():
+    rows = [{"uuid": f"U-{i}", "Format": f"f{i % 3}", "n": 5 if i < 10 else 7} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate=True)
+
+    assert "- Format:" in block
+    assert "- n:" not in block
+
+
+def test_a_different_aggregate_shape_also_skips_its_numeric_column():
+    rows = [{"value": f"v{i % 2}", "total": 4, "mean": 1.5} for i in range(8)]
+    rows = [dict(r, **{"count(*)": 3}) for r in rows]
+    block = _counts(rows, shown=2, aggregate=True)
+
+    assert "- value:" in block
+    assert "- count(*):" not in block
+    assert "- total:" not in block
+
+
+def test_a_numeric_column_of_a_plain_record_list_is_still_counted():
+    rows = [{"uuid": f"U-{i}", "Passage": 3 if i < 5 else 4, "Organ": "Lung"} for i in range(8)]
+    block = _counts(rows, shown=2)
+
+    assert "- Passage: 3 5, 4 3" in block
+
+
+def test_a_count_query_turn_leaves_its_count_column_out_of_the_value_counts(captured):
+    rows = [{"value": f"f{i % 3}", "n": 40 - (i % 2)} for i in range(600)]
+    text = _graph_turn(captured, question="which formats", rows=rows, total=600,
+                       cypher="MATCH (s:Sample) RETURN s.Fmt AS value, count(*) AS n ORDER BY n DESC")
+
+    assert "- value:" in text
+    assert "- n:" not in text
+
