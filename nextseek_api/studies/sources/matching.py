@@ -5,7 +5,7 @@
 - An investigation title names exactly one SEEK investigation (case and surrounding whitespace aside), else the whole
   target is ``investigation_unknown``. Investigations are never created.
 - A study title names an existing study of the investigation when exactly one carries it; one held only in another
-  investigation, one two studies hold, and the bucket are refused for the whole target.
+  investigation, one two studies hold, and the bucket are refused for the whole target, as is a blank title.
 
 Nothing here creates or moves anything: it turns raw targets into ``StudyTarget`` and ``Unmatched`` rows.
 """
@@ -27,6 +27,7 @@ STUDY_TITLE_IN_OTHER_INVESTIGATION = "study_title_in_other_investigation"
 SEEK_STUDY_NOT_FOUND = "seek_study_id_not_found"
 SEEK_STUDY_TITLE_DIFFERS = "seek_study_id_title_differs"
 STUDY_NOT_IN_INVESTIGATION = "study_not_in_investigation"
+STUDY_TITLE_BLANK = "study_title_blank"
 UID_REASONS = frozenset({SAMPLE_UID_NOT_FOUND, SAMPLE_UID_NOT_UNIQUE})
 
 
@@ -117,7 +118,8 @@ def match_targets(raws: list[RawTarget], reader) -> tuple[list[StudyTarget], lis
             unmatched.append(Unmatched(reason=reason, target_key=key,
                                        submitted=str(raw.submitted.get(value, value)), provenance=[provenance]))
 
-        refusal = INVESTIGATION_UNKNOWN if inv_id is None else None
+        refusal = (STUDY_TITLE_BLANK if not title_key(raw.title)
+                   else INVESTIGATION_UNKNOWN if inv_id is None else None)
         seek_id = None
         if refusal is None:
             seek_id, refusal = existing_study(raw, inv_id, studies)

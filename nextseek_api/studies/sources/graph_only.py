@@ -22,7 +22,7 @@ WHERE st.seek_study_id IS NULL AND st.id IS NOT NULL
   AND (trim(coalesce(toString(st.DOI), '')) <> '' OR trim(coalesce(toString(st.PMID), '')) <> '')
 OPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(i:Investigation)
 RETURN st.id AS id, st.title AS title, st.description AS description, st.DOI AS doi, st.PMID AS pmid,
-       collect(i.id) AS investigation_ids, collect(i.title) AS investigation_titles
+       collect(DISTINCT i.id) AS investigation_ids, collect(DISTINCT i.title) AS investigation_titles
 ORDER BY id
 """
 PAPER_SAMPLES = """

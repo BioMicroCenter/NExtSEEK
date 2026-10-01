@@ -33,7 +33,8 @@ EXPORT_STUDIES = """
 MATCH (st:Study)
 OPTIONAL MATCH (st)-[:IN_INVESTIGATION]->(i:Investigation)
 RETURN elementId(st) AS element_id, st.id AS id, st.seek_study_id AS seek_study_id, st.title AS title,
-       st.description AS description, st.DOI AS doi, st.PMID AS pmid, collect(i.title) AS investigation_titles
+       st.description AS description, st.DOI AS doi, st.PMID AS pmid,
+       collect(DISTINCT i.title) AS investigation_titles
 ORDER BY coalesce(st.id, st.seek_study_id)
 """
 EXPORT_STUDY_SAMPLES = """
@@ -110,7 +111,7 @@ def dev_associations(path, reader, *, investigation_map=None, now: Optional[str]
     for study in doc["studies"]:
         uids, submitted = [], {}
         for original in study["sample_uids"]:
-            canonical = canonical_uid(original)
+            canonical = canonical_uid(original.strip())     # a trailing space would hide the -PUB
             uids.append((canonical, f"dev uid {original}"))
             submitted.setdefault(canonical, original)
         investigation_title = mapping.get(title_key(study["investigation_title"]))
