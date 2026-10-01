@@ -1167,3 +1167,11 @@ class TestSampleAdvancedSearch:
         assert resp.status_code == 200
         body = json.loads(resp.content)
         assert len(body.get("footer", [])) >= 2  # existing + debug
+
+
+@pytest.mark.parametrize("asked, stored", [("PAT-230522GRI-7", "PAT-230522GRI-7-PUB1"), ("PAT-230522GRI-7-PUB", "PAT-230522GRI-7-PUB2"),
+                                           ("PAT-230522GRI-7-PUB1", "PAT-230522GRI-7")])
+def test_a_sample_uid_resolves_in_any_pub_spelling(monkeypatch, asked, stored):
+    from nextseek_api.services import samples
+    monkeypatch.setattr(samples, "_lookup_sample_id", lambda uid: "9" if uid == stored else None)
+    assert samples.resolve_sample_uid(asked) == ("9", stored)

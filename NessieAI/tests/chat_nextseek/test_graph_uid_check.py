@@ -213,3 +213,18 @@ def test_a_turn_without_a_uid_runs_no_check(monkeypatch, tmp_path):
     assert calls["neo4j"] == 1
     assert calls["agent_contexts"] == [None]
     assert "uid_checks" not in debug
+
+
+def test_a_numbered_pub_uid_matches_any_other_publication_of_the_same_sample():
+    """-PUB and -PUB<n> name the same sample as the bare UID: asked as -PUB1, stored as -PUB2 only."""
+    seen = {}
+
+    def run(config, cypher, params):
+        seen.update(params)
+        return _rows({"uid": "TIS-230830ENG-5-PUB1", "exact": False, "base_uuid": None,
+                      "suffixed": ["TIS-230830ENG-5-PUB2"]})
+
+    checks = uid_check.check_uids(MagicMock(), ["TIS-230830ENG-5-PUB1"], run=run)
+
+    assert seen["checks"] == [{"uid": "TIS-230830ENG-5-PUB1", "base": "TIS-230830ENG-5"}]
+    assert checks == [uid_check.UidCheck(asked="TIS-230830ENG-5-PUB1", stored="TIS-230830ENG-5-PUB2")]

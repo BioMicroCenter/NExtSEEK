@@ -386,6 +386,35 @@ def test_a_request_in_another_case_still_finds_the_pub_sample_and_counts_as_answ
     assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
 
 
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+@pytest.mark.parametrize("stored, asked", [("TIS-3-PUB1", "TIS-3"), ("TIS-3-PUB1", "TIS-3-PUB"), ("TIS-3", "TIS-3-PUB1"),
+                                           ("TIS-3-PUB2", "TIS-3-PUB1"), ("TIS-3-PUB", "TIS-3-pub2")])
+def test_a_numbered_pub_spelling_is_the_same_sample(seek, graph, login, stored, asked):
+    _add(seek, 40, stored, 2)
+    resp = _post({"identifiers": [asked], "include_tree": False}, login=login)
+    assert resp.status_code == 200 and _uuids(resp) == [stored]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+def test_one_typed_uid_answers_with_one_stored_spelling(seek, graph):
+    _add(seek, 40, "TIS-3-PUB", 2)
+    _add(seek, 41, "TIS-3-PUB1", 2)
+    resp = _post({"identifiers": ["TIS-3"], "include_tree": False})
+    assert _uuids(resp) == ["TIS-3-PUB"] and resp.json()["failed_uids"] == 0
+
+
+@pytest.mark.parametrize("asked", ["TIS-6", "TIS-6-PUB1", "TIS-6-PUB"])
+def test_a_foreign_sample_in_any_pub_spelling_answers_as_an_unknown_one(seek, graph, monkeypatch, asked):
+    """Whatever spelling the caller types, a sample in a project they cannot see answers like an unknown UID."""
+    _add(seek, 25, "TIS-6-PUB1", 4)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    a, b = _post({"identifiers": [asked], "include_tree": False}), _post({"identifiers": ["TIS-NOPE-PUB1"], "include_tree": False})
+    assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
 def test_a_superuser_retry_does_not_ask_a_dead_graph_again(seek, graph):
     graph.down = True
     resp = _post({"identifiers": ["TIS-NOPE"], "include_tree": False}, login=SUPER)

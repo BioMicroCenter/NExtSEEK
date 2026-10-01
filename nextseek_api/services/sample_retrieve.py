@@ -316,11 +316,17 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     # displaced by a guess; only a miss tries the other spelling, through the same scoped statement for a member.
     # MySQL compares uuids case-insensitively, so every comparison here folds case.
     stored = {u.casefold(): u for u in requested.values()}
-    other = {alt for uid in dict.fromkeys(typed) if uid.casefold() not in stored
-             for alt in uid_spellings(uid)[1:] if alt.casefold() not in stored}
+    alts = {uid: uid_spellings(uid)[1:] for uid in dict.fromkeys(typed)
+            if not any(a.casefold() in stored for a in uid_spellings(uid))}
+    other = sorted({a for spellings in alts.values() for a in spellings})
     if other:
-        more, ok = _resolve_requested(sorted(other), scope, use_graph=graph_ok)
+        more, ok = _resolve_requested(other, scope, use_graph=graph_ok)
         graph_ok = graph_ok and ok
+        # One stored sample answers one typed UID: the first spelling found, in the order uid_spellings gives.
+        held = {u.casefold() for u in more.values()}
+        keep = {next(a for a in spellings if a.casefold() in held).casefold()
+                for spellings in alts.values() if held & {a.casefold() for a in spellings}}
+        more = {i: u for i, u in more.items() if u.casefold() in keep}
         requested.update(more)
         stored.update({u.casefold(): u for u in more.values()})
     # Name the stored spelling as the requested one, so it counts as answered and not as failed.
