@@ -397,7 +397,7 @@ def check_cc_models(repo_root: Path, env: dict[str, str], checkout: Path) -> tup
 # --------------------------------------------------------------------------- #
 
 # What the app image is built from (`COPY . /app/`) and runs. Tracked files only.
-APP_CODE_ROOTS = ("dmac", "seek", "nextseek_api", "api_app", "templates", "NessieAI",
+APP_CODE_ROOTS = ("dmac", "seek", "nextseek_api", "templates", "NessieAI",
                   "static/js/chat_assistant", "manage.py", "gunicorn.conf.py")
 # Tracked paths the image does not carry (.dockerignore) or rewrites at run time:
 # the chat_nextseek context files are refreshed from the database inside the

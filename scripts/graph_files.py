@@ -76,7 +76,6 @@ AREAS = {
     "nextseek_api/": "nextseek_api core",
     "seek/": "SEEK pages and table layer",
     "dmac/": "SEEK pages and table layer",
-    "api_app/": "SEEK pages and table layer",
     "startup/": "startup CLI",
     "ci/": "CI",
     "scripts/": "Scripts",

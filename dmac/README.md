@@ -117,10 +117,6 @@ a logged-in one only the legacy data-file tree (`SEEK_DATAFILE_ROOT_WEBLINK`); t
 `MEDIA_ROOT` is working state no URL serves. Both error handlers are Mezzanine's
 (`handler404`, `handler500` in `dmac/urls.py`).
 
-The old `^api/` include of `api_app.urls` and its import are gone from `dmac/urls.py`;
-`dmac/settings.py:173` still installs `api_app`, so its models load on every boot, and
-none of its routes are reachable.
-
 ### Server entry points
 
 `dmac/wsgi.py:9` builds the WSGI callable and `dmac/asgi.py:25-29` the ASGI one. The ASGI
@@ -280,9 +276,7 @@ modules.
   `startup/steps/config.py:167`, inspected by `startup/steps/validate.py:63`, and required
   by `scripts/run_tests.sh:37-41`.
 
-Three kinds of hit are excluded and are worth naming. `api_app/dbconn_mysql.py:13` defines
-its own `DBconn_mysql` class and is a separate copy, not a consumer of
-`dmac/dbconn_mysql.py`. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
+Two kinds of hit are excluded and are worth naming. `NessieAI/hibayes/task6_settings.py` is a fifth settings module
 in this repo and does not live here. And `nextseek_api/permissions.py:10` names
 `dmac.views.userSynchronization` inside a comment explaining a security gate, not in code.
 

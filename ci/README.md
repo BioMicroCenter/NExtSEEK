@@ -395,6 +395,6 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
   and `CLAUDE.md` in a sibling boundary that cites a path here.
   The registry names its two consuming environments and the application is
   neither of them (`ci/routes.py:5-6`); no module under `dmac/`, `seek/`,
-  `nextseek_api/`, `NessieAI/` or `api_app/` appears at all, because the
+  `nextseek_api/` or `NessieAI/` appears at all, because the
   grep above returns six `.py` files outside `ci/` and all six are
   `scripts/dump_routes.py` or under `startup/`.

@@ -1,7 +1,7 @@
 """The sample table, split into mixins by which entry point reaches them.
 
 ``seek/dbtable_sample.py`` remains as a shim re-exporting ``DBtable_sample``,
-so none of the import sites in seek/, api_app/ or nextseek_api/ changed.
+so none of the import sites in seek/ or nextseek_api/ changed.
 
 Layout: ``core`` plus ``trees``/``queries``/``immport`` hold the helpers that
 more than one entry point reaches; ``upload``/``download``/``search``/``api``
