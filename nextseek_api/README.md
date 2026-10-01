@@ -96,7 +96,7 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retr
 | `management/` | management commands, including the four loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs` and `graph_sync --loop`), the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | this row |
 | `migrations/` | the one migration chain for the app and every subpackage; it forks, so check the heads first | `nextseek_api/CLAUDE.md` |
 | `services/` | the ViewSet and service layer; a new ViewSet module goes here | `nextseek_api/services/README.md` |
-| `studies/` | the studies tool (`manage.py studies`): create a SEEK study if it is missing and move a list of samples into it, from a curator sheet, a dev-graph export or the graph-only paper studies; plan, apply, graph step, rollback | this row |
+| `studies/` | the studies tool (`manage.py studies`): create a SEEK study if it is missing and move a list of samples into it, from a curator sheet, a dev-graph export or the graph-only paper studies; plan, apply, graph step, rollback | `nextseek_api/studies/README.md` |
 | `tests/` | the app's tests, including `repo_guards/` (repo infrastructure guards: compose, the app entrypoint, the settings env, the build context and the issue conventions) | this row |
 <!-- END DOCS-MAP:folders -->
 
