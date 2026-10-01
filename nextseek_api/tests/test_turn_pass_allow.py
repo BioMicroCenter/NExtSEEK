@@ -160,8 +160,36 @@ def test_a_body_that_is_not_an_object_is_refused():
         assert allow.allowed(_req(OPS + "graph", data=body), turn) == (False, allow.REASON_BODY)
 
 
-def test_a_form_body_is_checked_like_json():
+def test_a_form_body_is_refused_on_the_assistant_routes():
     turn, _ = make_turn()
-    assert allow.allowed(_req(OPS + "graph", data=QueryDict("query=q&use_prod=true")), turn) == (
-        False, allow.REASON_SETTING)
-    assert allow.allowed(_req(OPS + "graph", data=QueryDict("query=q&use_prod=false")), turn) == (True, "")
+    for body in (QueryDict("query=q&use_prod=true"), QueryDict("query=q&use_prod=false")):
+        assert allow.allowed(_req(OPS + "graph", data=body), turn) == (False, allow.REASON_BODY)
+
+
+def test_a_multipart_body_to_batch_upload_validate_is_allowed_but_still_setting_checked():
+    turn, _ = make_turn()
+    route = "nextseek_api:batch-upload-validate"
+    assert allow.allowed(_req(route, data=QueryDict("project=1")), turn) == (True, "")
+    assert allow.allowed(_req(route, data=QueryDict("use_prod=true")), turn) == (False, allow.REASON_SETTING)
+
+
+@pytest.mark.parametrize("route", ["nextseek_api:samples-advanced-search-list", "nextseek_api:batch-upload-validate"])
+@pytest.mark.parametrize("setting, value", [("use_prod", True), ("force_route", "cc"), ("prompt_variant", "v2")])
+def test_the_non_assistant_post_rows_refuse_settings_too(route, setting, value):
+    turn, _ = make_turn()
+    assert allow.allowed(_req(route, data={setting: value}), turn) == (False, allow.REASON_SETTING)
+
+
+def test_head_and_options_on_a_get_row_are_refused():
+    turn, _ = make_turn()
+    for method in ("HEAD", "OPTIONS"):
+        assert allow.allowed(_req(OPS + "get-session", method, session_id=str(turn.chat_id)), turn) == (
+            False, allow.REASON_METHOD)
+
+
+def test_a_child_task_of_another_turn_is_refused_on_progress():
+    turn, _ = make_turn()
+    other, _ = make_turn(turn.user)
+    child = QueryTask.objects.create(session=other.chat, user=other.user, query="n", parent_cc_turn=other)
+    assert allow.allowed(_req(OPS + "task-progress", "GET", task_id=str(child.task_id)), turn) == (
+        False, allow.REASON_OTHER_TASK)

@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from django.db.models import Q
+from django.http import QueryDict
 
 GET = frozenset({"GET"})
 POST = frozenset({"POST"})
@@ -82,8 +83,10 @@ REASON_SESSION_NOT_ACCEPTED = "session_not_accepted"
 _ROWS = {row.route_name: row for row in ALLOW_TABLE}
 # Every assistant POST row reads the body: the op request models all carry use_prod, and query/async carries the
 # rest of the admin-only settings.
-_BODY_ROUTES = frozenset(row.route_name for row in ALLOW_TABLE
-                         if row.route_name.startswith(_A) and "POST" in row.methods)
+_BODY_ROUTES = frozenset(row.route_name for row in ALLOW_TABLE if "POST" in row.methods)
+# The assistant client only posts JSON: a form body is refused there. batch-upload-validate is multipart by design,
+# and advanced-search is JSON-only through its own model, so neither gets the form refusal.
+_JSON_ONLY = frozenset(name for name in _BODY_ROUTES if name.startswith(_A))
 _UNSET = (None, False, "", "false", "False", "0")
 
 
@@ -128,7 +131,7 @@ def allowed(request, turn) -> tuple[bool, str]:
     body = None
     if row.route_name in _BODY_ROUTES:
         body = request.data
-        if not isinstance(body, Mapping):
+        if not isinstance(body, Mapping) or (row.route_name in _JSON_ONLY and isinstance(body, QueryDict)):
             return False, REASON_BODY
         if any(_is_set(body.get(key)) for key in REFUSED_SETTINGS):
             return False, REASON_SETTING
