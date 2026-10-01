@@ -1153,6 +1153,32 @@ def test_the_row_a_hub_partner_is_handed_off_on_hands_nothing_back(with_assay, t
     assert graph.assay_edges[11] == {("OUTPUT_OF", 99, (5,))}
 
 
+def test_a_type_sync_reads_the_mapping_again_for_each_chunk(with_assay, tmp_path, monkeypatch):
+    """Each chunk of a type sync is its own write unit, so an assay_map drain's sync_assays can run between two of
+    them. A later chunk that rewrote sample edges from the mapping read for the first one would undo the edges that
+    sync_assays wrote, and no later sync_assays would mark the pair again (RUN_IN already holds it)."""
+    graph, mysql = with_assay.graph, with_assay.mysql
+    graph.add_edge(13, 12)
+    mysql.assays[12] = mysql.assays[13] = [6]
+    real, chunks = targeted._sync_ids, []
+
+    def between_chunks(driver, db, wanted, ctx):
+        report = real(driver, db, wanted, ctx)
+        chunks.append(wanted)
+        if len(chunks) == 1:                                        # SEEK assay 6 is mapped to 99 meanwhile
+            mysql.pairs.append((6, 99))
+            assert 6 in targeted.sync_assays(graph, DB)["assay_marked_seek_ids"]
+        return report
+
+    monkeypatch.setattr(targeted, "_sync_ids", between_chunks)
+    targeted.sync_samples_of_type(graph, DB, 26, run_dir=str(tmp_path), chunk=1)
+
+    assert chunks == [[10], [12]]
+    assert graph.assay_edges[12] == {("INPUT_TO", 99, (6,))}
+    assert graph.assay_edges[13] == {("OUTPUT_OF", 99, (6,))}
+    assert targeted.sync_assays(graph, DB)["assay_marks_added"] == 0
+
+
 def test_a_batch_of_roots_writes_no_assay_edge_and_counts_its_members(with_assay, tmp_path):
     result = targeted.sync_samples(with_assay.graph, DB, [10, 12], run_dir=str(tmp_path))
 

@@ -243,7 +243,8 @@ def _metadata(raw) -> dict:
 class _Context:
     """What one call reads once and reuses across its chunks: where it archives, the operator's approval of label
     changes, the box's study-link switch, the catalog, the label maps and SEEK's small tables (each read on first
-    use)."""
+    use). The assay mapping is read again by each chunk (``_sync_ids``), since ``sync_assays`` may write a new one
+    between two chunks of a type sync."""
 
     def __init__(self, run_dir: str | None, apply_label_changes: bool = False):
         self.run_dir = os.path.abspath(run_dir) if run_dir else _default_run_dir()
@@ -465,6 +466,7 @@ def _attribute_counts(driver, db, projections) -> dict:
 
 def _sync_ids(driver, db, wanted: list[int], ctx: _Context) -> dict:
     """``sync_samples``' work for one chunk of ids, under the lock (module docstring, "Order")."""
+    ctx.use_internal_by_seek(None)       # the mapping as it stands in this write unit, not as an earlier chunk read it
     report = {"status": OK, "requested": len(wanted)}
     rows = sources.samples_by_ids(wanted)
     found = {r["id"] for r in rows}
