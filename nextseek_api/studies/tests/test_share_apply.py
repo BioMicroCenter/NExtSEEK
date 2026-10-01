@@ -10,13 +10,14 @@ from seek.models import Assays_internal_assays
 
 from nextseek_api.graph_sync import paper_studies, targeted
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox
-from nextseek_api.studies import preflight, rollback, share_apply, share_jobs
+from nextseek_api.studies import apply as apply_mod
+from nextseek_api.studies import links, preflight, rollback, share_apply, share_jobs
 from nextseek_api.studies.journal import JOURNAL_FILE, read_journal
 from nextseek_api.studies.models import ShareInput
 from nextseek_api.studies.models_db import SampleShare
 from nextseek_api.studies.seek import ADOPT_POLL_S, ADOPT_WAIT_S, SeekError
 from nextseek_api.studies.tests.conftest import (PASSWORD, U3, U4, U5, FakeReader, add_sample, links_of, outbox_of,
-                                                 projects_of, seed, uid)
+                                                 projects_of, seed, sqlite_connection, uid)
 
 
 def _events(row):
@@ -302,3 +303,63 @@ def test_an_adopted_assay_already_holding_a_planned_link_ends_the_share_plan_sta
     assert SampleShare.objects.get(pk=second.pk).error["code"] == "plan_stale"
     assert sorted(s for a, s, _d in links_of(share_env.engine) if a == 402) == [2, 3]
     assert _assays_in_40(share_env) == [402]
+
+
+def _worker_dies_in_the_unit(env, row, monkeypatch, *, committed: bool):
+    """The worker's unit pass with the outbox insert refused in the transaction (the after-commit fallback), killed
+    right after its transaction commits or rolls back, before ``links.committed``; then the lease runs out."""
+    from django.utils import timezone
+
+    monkeypatch.setattr(links, "enqueue_samples_outbox", lambda conn, key, ids: False)
+
+    @contextmanager
+    def dying():
+        with env.engine.connect() as conn:
+            trans = conn.begin()
+            yield conn
+            trans.commit() if committed else trans.rollback()
+        raise RuntimeError("worker killed")
+
+    monkeypatch.setattr(apply_mod, "_connection", dying)
+    with pytest.raises(RuntimeError):
+        env.unit(row)
+    monkeypatch.setattr(apply_mod, "_connection", lambda: sqlite_connection(env.engine))
+    SampleShare.objects.filter(pk=row.pk).update(lease_expires_at=timezone.now() - timedelta(seconds=1))
+    assert ("links", "prepared") in _events(row) and ("links", "committed") not in _events(row)
+
+
+def _unit_rows(row):
+    return sorted(GraphSyncOutbox.objects.filter(kind="samples", key__startswith="batch:studies:" + row.run_dir + ":1")
+                  .values_list("key", flat=True))
+
+
+def test_a_project_only_unit_rolled_back_by_a_crash_runs_again(share_env, monkeypatch):
+    share_env.world.links += [(401, 4, 2), (401, 1, 1)]                    # every link there: project rows only
+    seed(share_env.engine, share_env.world)
+    row = share_env.planned(U4)
+    assert share_env.step(row).state == "queued"
+    _worker_dies_in_the_unit(share_env, row, monkeypatch, committed=False)
+    assert not {(5, 1), (5, 4)} & set(projects_of(share_env.engine))
+    assert share_env.unit(row) == "applied"
+    assert {(5, 1), (5, 4)} <= set(projects_of(share_env.engine)) and _unit_rows(row) == [
+        "batch:studies:" + row.run_dir + ":1"]
+
+
+def test_a_unit_with_links_rolled_back_by_a_crash_runs_again(share_env, monkeypatch):
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    _worker_dies_in_the_unit(share_env, row, monkeypatch, committed=False)
+    assert share_env.unit(row) == "applied"
+    assert {(a, s) for a, s, _d in links_of(share_env.engine) if a == 402} == {(402, 3), (402, 2)}
+    assert {(5, 2), (5, 3)} <= set(projects_of(share_env.engine)) and len(_unit_rows(row)) == 1
+
+
+def test_a_unit_committed_before_a_crash_is_recovered_and_its_outbox_row_enqueued(share_env, monkeypatch):
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    _worker_dies_in_the_unit(share_env, row, monkeypatch, committed=True)
+    assert _unit_rows(row) == []
+    assert share_env.unit(row) == "applied"
+    assert _unit_rows(row) == ["batch:studies:" + row.run_dir + ":1"] and ("links", "committed") in _events(row)

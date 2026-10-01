@@ -256,32 +256,34 @@ def run_share_unit(share, owner: str) -> str:
                                                        .get("seek_id")) for c in target.clones}
         key = links.unit_key(plan.run_id, unit.unit)
         us = st.units.get(unit.unit) or {}
-        if us.get("committed"):
-            share_jobs.finish_apply(share, owner, state="applied", receipt=_receipt(unit, us.get("prepared"), key))
-            return "applied"
-        verdict = apply_mod._recover(unit, us, plan.run_id) if us.get("prepared") else "rolled_back"
-        if verdict == "committed":
-            journal.append("links", "committed", unit=unit.unit, recovered=True)
-            share_jobs.finish_apply(share, owner, state="applied", receipt=_receipt(unit, us["prepared"], key))
-            return "applied"
-        if verdict == "unknown":
-            share_jobs.finish_apply(share, owner, state="apply_failed", error={
-                "code": "unit_state_unknown", "detail": "the unit reads as neither committed nor rolled back"})
-            return "apply_failed"
-        try:
-            with apply_mod._connection() as conn:
-                result = links.run_link_unit(conn, unit, journal, clone_ids, run_id=plan.run_id,
-                                             share_project_id=plan.share.destination_project_id)
-        except links.LinkRefused as exc:
-            journal.append("links", "refused", unit=unit.unit, reason=exc.reason, detail=exc.detail)
-            code = "plan_stale" if exc.reason in ("digest_mismatch", "clone_changed") else exc.reason
-            share_jobs.finish_apply(share, owner, state="apply_failed", error={"code": code, "detail": exc.detail})
-            return "apply_failed"
-        journal.append("links", "committed", unit=unit.unit)
-        if not result.outbox_in_transaction:   # chunked as in the transaction (links.outbox_rows)
-            for row_key, part in links.outbox_rows(key, result.sample_ids):
+        prepared = us.get("prepared")
+        if not us.get("committed"):
+            verdict = (apply_mod._recover(unit, us, plan.run_id, share_project_id=plan.share.destination_project_id)
+                       if prepared else "rolled_back")
+            if verdict == "unknown":
+                share_jobs.finish_apply(share, owner, state="apply_failed", error={
+                    "code": "unit_state_unknown", "detail": "the unit reads as neither committed nor rolled back"})
+                return "apply_failed"
+            if verdict == "committed":
+                journal.append("links", "committed", unit=unit.unit, recovered=True)
+            else:
+                try:
+                    with apply_mod._connection() as conn:
+                        links.run_link_unit(conn, unit, journal, clone_ids, run_id=plan.run_id,
+                                            share_project_id=plan.share.destination_project_id)
+                except links.LinkRefused as exc:
+                    journal.append("links", "refused", unit=unit.unit, reason=exc.reason, detail=exc.detail)
+                    code = "plan_stale" if exc.reason in ("digest_mismatch", "clone_changed") else exc.reason
+                    share_jobs.finish_apply(share, owner, state="apply_failed",
+                                            error={"code": code, "detail": exc.detail})
+                    return "apply_failed"
+                journal.append("links", "committed", unit=unit.unit)
+                prepared = journal_state(read_journal(run_dir / JOURNAL_FILE)[0]).units[unit.unit]["prepared"]
+        if (prepared or {}).get("outbox") != "in_transaction":
+            # the rows that could not go in the transaction, chunked as there (links.outbox_rows); again on a resume
+            # after a crash, since a reset of a done row costs one sync and a lost one waits for the nightly reconcile
+            for row_key, part in links.outbox_rows(key, unit.sync_ids):
                 hooks.enqueue("samples", row_key, part)
-        prepared = journal_state(read_journal(run_dir / JOURNAL_FILE)[0]).units[unit.unit]["prepared"]
         share_jobs.finish_apply(share, owner, state="applied", receipt=_receipt(unit, prepared, key))
         return "applied"
 
