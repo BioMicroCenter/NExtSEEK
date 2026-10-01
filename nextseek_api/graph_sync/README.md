@@ -195,6 +195,8 @@ the samples that merge took off a paper), and another merge dry run. Turn the sw
 approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any id the merge would still
 act on, and so does every later drift check and rebuild. While the switch is off, family
 `12.studies` fails only on two Study nodes sharing a `seek_study_id`, so it stays green on a box that has not merged.
+To roll back once it is on, turn it off first (remove the line or set `add`, and recreate the container), then run
+`--unmerge-studies`.
 
 **Paper samples.** A sample on a graph-only paper study is not linked to the SEEK studies of its paper's own
 investigation (the paper Study's one Investigation, matched to SEEK's by id and title, as the studies tool does), so
@@ -214,6 +216,9 @@ and approve what it prints. A rerun with the same `--run-dir` finishes a merge a
 journal recorded; one that stops on such an id exits 1, not 2, since the earlier attempt may have written, and
 `--unmerge-studies` with that run directory puts back what it moved.
 
+Before `--unmerge-studies` on a box whose switch is on, turn the switch off and recreate the container (above): with
+`follow`, the next drain, reconcile or full sync removes again every restored link SEEK does not hold, and gate G's
+`12.studies.merge_candidates` fails on the restored split. The undo itself does not read the switch.
 `--unmerge-studies` takes, in one call and in any order, every merge run directory of the ids it undoes (a crashed run
 and its rerun; for a whole box, the second approval's after `--studies` too; for an id merged, undone and merged
 again, both merges', and it undoes the latest) and every run directory whose `in_study_removed.tsv`
