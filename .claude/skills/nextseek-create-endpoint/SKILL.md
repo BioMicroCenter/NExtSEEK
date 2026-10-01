@@ -1,9 +1,9 @@
 ---
-name: nextseek-viewset
+name: nextseek-create-endpoint
 description: >-
   This skill should be used when working in the NExtSEEK codebase and the user
-  asks to add, create, extend, or modify a nextseek_api ViewSet; register a
-  router ViewSet; add a SEEK proxy or native API endpoint; project-scope an
+  asks to add, create, extend, or modify an API endpoint (a nextseek_api
+  ViewSet); register a router ViewSet; add a SEEK proxy or native API endpoint; project-scope an
   endpoint; write OpenAPI/Swagger schema or OpenApiExample blocks for a ViewSet;
   or run validate_viewset_conventions.py before finishing ViewSet work.
 ---

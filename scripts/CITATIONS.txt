@@ -76,7 +76,7 @@ nextseek_api/assay_registration/tests/test_views.py
 nextseek_api/cc_assistant/tests/test_issue_conventions_guard.py
 nextseek_api/cc_assistant/tests/test_validate_issue.py
 nextseek_api/batch_upload/README.md
-.claude/skills/nextseek-viewset/SKILL.md
+.claude/skills/nextseek-create-endpoint/SKILL.md
 docs/ISSUE-CONVENTIONS.md
 docs/superpowers/plans/2026-09-01-ci-increment-1-skeleton-and-safety.md
 

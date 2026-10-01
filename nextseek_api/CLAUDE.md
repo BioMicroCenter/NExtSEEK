@@ -49,7 +49,7 @@ from this file.
   `ci/routes.py`, and `ci/gate/test_route_registry.py:1-3` calls that job otherwise
   informational and this gate the part that blocks, so a `router.register(...)` added on
   its own turns CI red.
-- See `.claude/skills/nextseek-viewset/SKILL.md:18` before adding or changing a ViewSet.
+- See `.claude/skills/nextseek-create-endpoint/SKILL.md:18` before adding or changing a ViewSet.
 
 ## Landmines
 
@@ -145,7 +145,7 @@ when nothing is wrong.
   Django shell in `nextseek_api/cc_assistant/` is covered by `NessieAI/cc/CLAUDE.md`. The
   evaluation package `nextseek_api/eval/` no longer exists: it is `NessieAI/hibayes/` now
   (`NessieAI/hibayes/CLAUDE.md`).
-- See `.claude/skills/nextseek-viewset/references/patterns.md:65-83` for the decorator and
+- See `.claude/skills/nextseek-create-endpoint/references/patterns.md:65-83` for the decorator and
   auth recipes a new ViewSet copies.
 - See `docs/endpoint-authorization-register.md:1` for the per-endpoint authorization
   ruling the documentation routes are bucketed under.

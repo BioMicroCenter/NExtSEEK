@@ -27,7 +27,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | Know which rebuild a change needs | `deploy` | `DEPLOYMENT.md` §3.2 |
 | Change config or a secret | | `DEPLOYMENT.md` §8; render source `startup/templates/nextseek.env.template`; `.env.example` |
 | Harden an instance before exposing it | | `NExtSTEPS.md` (rotating the demo passwords is the minimum) |
-| Add or change an endpoint | `nextseek-viewset` | `nextseek_api/CLAUDE.md`, `docs/endpoint-authorization-register.md`, `ci/README.md` |
+| Add or change an endpoint | `nextseek-create-endpoint` | `nextseek_api/CLAUDE.md`, `docs/endpoint-authorization-register.md`, `ci/README.md` |
 | Add a Django migration | | `nextseek_api/CLAUDE.md` (the chain forks; check heads first) |
 | Change a page, template or static file | | `docs/ui/README.md` (start here), `themes/README.md`, `seek/README.md` |
 | Edit the user docs (the site's `/docs/` pages) | | `themes/NextSeek/docs/README.md` (the page list), `docs/ui/docs-and-help.md` "Writing a docs page" |
@@ -52,7 +52,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `add-cc-op` | adding or wiring a `nextseek-*` op or CC tool; `ops.py` is the source of truth, never `plugin.json` or `discover_ops` | `.claude/skills/add-cc-op/SKILL.md` | auto (`/add-cc-op`) |
 | `deploy` | install, redeploy, rollback or post-deploy verification on any box | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
-| `nextseek-viewset` | adding or changing a `nextseek_api` ViewSet; finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-viewset/SKILL.md` | auto |
+| `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
 | `nessie-run-review` | triaging a finished nessie_tests run into an HTML review | `NessieAI/tests/nessie_tests/output-skill/SKILL.md` | by path |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | by path |
 <!-- END DOCS-MAP:skills -->

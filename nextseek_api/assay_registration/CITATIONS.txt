@@ -84,4 +84,4 @@ nextseek_api/attributes/CLAUDE.md
 nextseek_api/cc_assistant/README.md
 nextseek_api/cc_assistant/CLAUDE.md
 nextseek_api/cc_assistant/CITATIONS.txt
-.claude/skills/nextseek-viewset/SKILL.md
+.claude/skills/nextseek-create-endpoint/SKILL.md

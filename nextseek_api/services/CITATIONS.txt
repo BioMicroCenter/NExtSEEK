@@ -48,8 +48,8 @@ pyproject.toml
 # --- the gate, the skill, and the test lanes ---
 scripts/validate_viewset_conventions.py
 scripts/run_tests.sh
-.claude/skills/nextseek-viewset/SKILL.md
-.claude/skills/nextseek-viewset/references/patterns.md
+.claude/skills/nextseek-create-endpoint/SKILL.md
+.claude/skills/nextseek-create-endpoint/references/patterns.md
 nextseek_api/tests/test_viewset_conventions.py
 nextseek_api/tests/test_services_assays.py
 nextseek_api/tests/test_services_assistant.py

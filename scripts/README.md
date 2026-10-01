@@ -296,7 +296,7 @@ Depended on by:
   through the dotted namespace-package spelling
   (`nextseek_api/tests/test_attribute_api_db_lane.py:43`).
 - The committed ViewSet skill, which tells an author to run the conventions validator
-  before finishing (`.claude/skills/nextseek-viewset/SKILL.md:18`), and
+  before finishing (`.claude/skills/nextseek-create-endpoint/SKILL.md:18`), and
   `docs/ISSUE-CONVENTIONS.md`, which names the issue validator and the label seeder as the
   taxonomy's source and its downstream (`docs/ISSUE-CONVENTIONS.md:8-12`).
 - Group B, reached only by prose: `nextseek_api/README.md` "Running and testing" and the

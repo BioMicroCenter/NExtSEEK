@@ -64,8 +64,8 @@ dmac/urls.py
 dmac/views.py
 
 # --- the ViewSet convention skill and its mechanical checker ---
-.claude/skills/nextseek-viewset/SKILL.md
-.claude/skills/nextseek-viewset/references/patterns.md
+.claude/skills/nextseek-create-endpoint/SKILL.md
+.claude/skills/nextseek-create-endpoint/references/patterns.md
 scripts/validate_viewset_conventions.py
 
 # --- CI, coverage and test-lane configuration ---

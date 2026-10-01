@@ -124,7 +124,7 @@ PINNED = {
         "ISSUE-CONVENTIONS.md",
         "validate_issue.py",
         "/add-cc-op",
-        "nextseek-viewset",
+        "nextseek-create-endpoint",
         "validate_viewset_conventions.py",
     ),
     "DEPLOYMENT.md": ("./startup.sh install",),
