@@ -25,7 +25,7 @@ from nextseek_api.graph_sync import hooks, paper_studies, state, targeted
 from nextseek_api.graph_sync.writer import _batches
 from nextseek_api.management.commands import backfill_publication_attributes as backfill
 from nextseek_api.studies import apply as apply_mod
-from nextseek_api.studies import links, mapping, preflight
+from nextseek_api.studies import links, mapping, preflight, share_jobs
 from nextseek_api.studies.apply import DONE, REFUSED, STOPPED, RunResult, in_scope, load_run
 from nextseek_api.studies.journal import JOURNAL_FILE, Journal, journal_state, read_journal
 from nextseek_api.studies.models import StudyMovePlan
@@ -86,6 +86,8 @@ def rollback_study_moves(run_dir, session, driver, db, *, confirm: bool,
             return RunResult(REFUSED, f"another studies run holds the lock {preflight.LOCK_NAME}")
         journal = Journal(run_dir / JOURNAL_FILE, run_id=plan.run_id)
         counts: dict = {"units": [], "not_deleted": []}
+        if plan.mode == "share":   # never applied again, whatever its state
+            share_jobs.end_rolled_back(run_dir.name)
 
         if graph_dir.exists() and "graph" not in st.undo_parts:
             journal.append("undo", "intent", part="graph")

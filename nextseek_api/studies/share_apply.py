@@ -103,6 +103,12 @@ def _intent_at(lines: list, key: str, source_assay_id: int) -> Optional[datetime
     return datetime.strptime(found, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc) if found else None
 
 
+def _not_applicable(share) -> StepAnswer:
+    code = (share.error or {}).get("code")
+    why = f" ({code}): make a new share" if share.state == "apply_failed" and code in share_jobs.TERMINAL_ERRORS else ""
+    return StepAnswer(409, share.state, code="share_not_applicable", message=f"the share is {share.state}{why}")
+
+
 def _seek_answer(exc: SeekError, state: str, done: int, left: int) -> StepAnswer:
     if exc.status in (401, 403):
         return StepAnswer(403, state, done, left, code="seek_refused", message=exc.message)
@@ -115,8 +121,8 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
                now: Optional[datetime] = None) -> StepAnswer:
     """One apply call (tool spec 16.6, steps 1 and 3 to 7; the view does step 2, the caller's credential)."""
     stamp = now or _now()
-    if share.state not in share_jobs.APPLICABLE:
-        return StepAnswer(409, share.state, code="share_not_applicable", message=f"the share is {share.state}")
+    if not share_jobs.applicable(share):
+        return _not_applicable(share)
     if plan_sha256 != share.plan_sha256:
         return StepAnswer(409, share.state, code="plan_changed", message="plan_sha256 is not this share's plan")
     run_dir = run_dir_of(share)
@@ -134,6 +140,10 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
             return StepAnswer(409, share.state, code="busy", message=f"{preflight.LOCK_NAME} is held")
         lines, _bad = read_journal(run_dir / JOURNAL_FILE)
         st = journal_state(lines)
+        if st.undo_parts:
+            share_jobs.end_rolled_back(share.run_dir)
+            return StepAnswer(409, "rolled_back", code="share_rolled_back",
+                              message="this share was rolled back: make a new share")
         journal = Journal(run_dir / JOURNAL_FILE, run_id=plan.run_id)
         if not st.started:
             journal.append("run", "start", plan_sha256=plan.sha256(), login=session.login, person_id=session.person_id,
@@ -203,7 +213,8 @@ def apply_step(share, session, driver, db, *, plan_sha256: str, reader=None,
 # --- the worker's unit pass ----------------------------------------------------------------------------------------
 
 def run_share_unit(share, owner: str) -> str:
-    """Run a claimed share's link unit under the run lock; ``applied``, ``apply_failed``, or back to ``queued``."""
+    """Run a claimed share's link unit under the run lock; ``applied``, ``apply_failed``, ``rolled_back`` (its run
+    was undone), or back to ``queued``."""
     run_dir = run_dir_of(share)
     plan = StudyMovePlan.from_file(run_dir / report.PLAN_FILE)
     with preflight.run_lock() as held:
@@ -211,6 +222,9 @@ def run_share_unit(share, owner: str) -> str:
             share_jobs.back_to_queued(share, owner)
             return "queued"
         st = journal_state(read_journal(run_dir / JOURNAL_FILE)[0])
+        if st.undo_parts:
+            share_jobs.end_rolled_back(share.run_dir)
+            return "rolled_back"
         journal = Journal(run_dir / JOURNAL_FILE, run_id=plan.run_id)
         target, unit = plan.targets[0], plan.units[0]
         clone_ids = {(target.key, c.source_assay_id): (c.seek_assay_id if c.action == "reuse"

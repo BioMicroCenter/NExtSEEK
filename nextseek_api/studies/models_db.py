@@ -30,7 +30,7 @@ class SampleShare(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     STATES = ("planning", "planned", "plan_failed", "refused", "applying", "queued", "running", "applied",
-              "apply_failed")
+              "apply_failed", "rolled_back")
     CLAIMABLE = ("planning", "queued")
 
     class Meta:

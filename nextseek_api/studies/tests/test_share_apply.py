@@ -214,3 +214,47 @@ def test_the_tools_apply_refuses_a_share_run(share_env):
                                          reader=FakeReader(share_env.world))
     assert result.status == apply_mod.REFUSED and "sample-shares" in result.message
     assert share_env.session.posts == []
+
+
+def _undo(env, row, monkeypatch):
+    monkeypatch.setattr(targeted, "sync_samples", lambda d, db, ids, **kw: {"status": targeted.OK})
+    monkeypatch.setattr(paper_studies, "restore_paper_links", lambda *a: {})
+    return rollback.rollback_study_moves(share_apply.run_dir_of(row), env.session, None, "neo4j", confirm=True)
+
+
+def test_a_rolled_back_queued_share_ends_rolled_back_and_is_never_linked(share_env, monkeypatch):
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    before = (links_of(share_env.engine), projects_of(share_env.engine))
+    assert _undo(share_env, row, monkeypatch).status == "done" and share_env.session.deleted == [("assay", 402)]
+    assert SampleShare.objects.get(pk=row.pk).state == "rolled_back"
+    SampleShare.objects.filter(pk=row.pk).update(state="queued")      # the row's update lost: the journal decides
+    assert share_env.unit(row) == "rolled_back"
+    assert (links_of(share_env.engine), projects_of(share_env.engine)) == before
+    assert SampleShare.objects.get(pk=row.pk).state == "rolled_back"
+
+
+def test_an_apply_call_on_a_rolled_back_share_answers_409_and_posts_nothing(share_env, monkeypatch):
+    row = share_env.planned(U3, U5)
+    share_env.step(row)                                                # one clone of two
+    _undo(share_env, row, monkeypatch)
+    SampleShare.objects.filter(pk=row.pk).update(state="applying")
+    answer = share_env.step(row)
+    assert (answer.status_code, answer.code) == (409, "share_rolled_back") and len(share_env.session.posts) == 1
+    assert SampleShare.objects.get(pk=row.pk).state == "rolled_back"
+    assert (share_env.step(row).code, len(share_env.session.posts)) == ("share_not_applicable", 1)
+
+
+def test_a_share_failed_for_a_stale_plan_is_never_queued_again(share_env):
+    row = share_env.planned(U3)
+    share_env.step(row)
+    share_env.step(row)
+    with share_env.engine.begin() as conn:
+        conn.exec_driver_sql("INSERT INTO projects_samples (project_id, sample_id) VALUES (5, 3)")
+    assert share_env.unit(row) == "apply_failed"
+    row.refresh_from_db()
+    assert not share_jobs.to_queued(row) and not share_jobs.to_applying(row)
+    answer = share_env.step(row)
+    assert (answer.status_code, answer.code) == (409, "share_not_applicable") and "plan_stale" in answer.message
+    assert SampleShare.objects.get(pk=row.pk).state == "apply_failed"
