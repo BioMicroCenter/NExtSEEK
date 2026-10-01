@@ -1556,6 +1556,17 @@ def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tm
     assert exc.value.returncode == 2 and studies_cmd.calls == []
 
 
+def test_unmerge_studies_takes_a_studies_run_directory_that_removed_no_link(graphdb, studies_cmd, tmp_path):
+    """``--studies`` writes its archive only when it removes a link, so its run directory can hold only its report."""
+    studies_cmd.rebuild = {"status": "ok", "in_study_removed": 0}
+    call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    (studies_dir,) = tmp_path.glob("study_links-*")
+    first = _journal_dir(tmp_path, "m1")
+    call_command("graph_sync", "--unmerge-studies", f"{first},{studies_dir}", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls[-1] == ("undo", [first, str(studies_dir)], False)
+
+
 def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names_its_ids(graphdb, studies_cmd,
                                                                                           tmp_path):
     root = tmp_path / "root"
@@ -1573,12 +1584,14 @@ def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names
 def test_an_undo_that_refused_an_id_exits_1_and_keeps_its_report(graphdb, studies_cmd, tmp_path):
     studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}],
                         "investigation_not_restored": [{"study_id": 4, "node": "legacy",
-                                                        "investigation": {"id": 901, "title": "Alder"}}]}
+                                                        "investigation": {"id": 901, "title": "Alder"}}],
+                        "journals_not_closed": [{"journal": "/runs/m0/study_merge.tsv", "error": "disk full"}]}
     with pytest.raises(CommandError) as exc:
         call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), "--run-root", str(tmp_path),
                      stdout=StringIO(), stderr=StringIO())
     assert exc.value.returncode == 1
     assert "study 3 refused: changed" in str(exc.value) and "Investigation 901" in str(exc.value)
+    assert "/runs/m0/study_merge.tsv" in str(exc.value)
     [run_dir] = tmp_path.glob("unmerge_studies-*")
     saved = json.loads((run_dir / study_merge.REPORT_FILE).read_text())
     assert saved["status"] == "partial" and saved["refused"] == [{"study_id": 3, "reason": "changed"}]

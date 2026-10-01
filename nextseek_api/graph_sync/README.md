@@ -83,7 +83,7 @@ Exit status:
 |---|---|
 | 0 | success, and for `--drift` and `--verify` no failing check |
 | 1 | a check failed, or a run failed part way (its report says where); or `--full`, `--catalog` or `--reconcile` could not take the graph-write lock, which another write held past its wait (the loop retries it); or a study mode stopped part way or found the lock busy; or `--unmerge-studies` ended `partial` |
-| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, an approved id without its kind, or an id that reads another kind than its approved one before anything was written; two Study nodes sharing a `seek_study_id`; a path `--unmerge-studies` finds no journal in, or a merge journal under the run root naming its ids that it was not given; or a run directory a hand run cannot make; or `--dry-run` given to a mode that does not honour it |
+| 2 | refused, and nothing was written: settings name no Neo4j URI; the live host without `--i-mean-the-live-graph`; a graph that is not at the writer's schema version (the reason is printed, so a CI step can skip); or a sync's preflight found a problem; an id `--merge-studies` does not act on, an approved id without its kind, or an id that reads another kind than its approved one before anything was written; two Study nodes sharing a `seek_study_id`; a path `--unmerge-studies` finds no journal, archive or `--studies` report in, or a merge journal under the run root naming its ids that it was not given; or a run directory a hand run cannot make; or `--dry-run` given to a mode that does not honour it |
 | 3 | the run could not complete |
 
 ## The loop
@@ -198,6 +198,8 @@ the samples that merge took off a paper), and another merge dry run. Turn the sw
 approval line is empty: with `follow`, gate G's `12.studies.merge_candidates` fails on any id the merge would still
 act on, and so does every later drift check and rebuild. While the switch is off, family
 `12.studies` fails only on two Study nodes sharing a `seek_study_id`, so it stays green on a box that has not merged.
+To roll back once it is on, turn it off first (remove the line or set `add`, and recreate the container), then run
+`--unmerge-studies`.
 
 **Paper samples.** A sample on a graph-only paper study is not linked to the SEEK studies of its paper's own
 investigation (the paper Study's one Investigation, matched to SEEK's by id and title, as the studies tool does), so
@@ -217,16 +219,24 @@ and approve what it prints. A rerun with the same `--run-dir` finishes a merge a
 journal recorded; one that stops on such an id exits 1, not 2, since the earlier attempt may have written, and
 `--unmerge-studies` with that run directory puts back what it moved.
 
+Before `--unmerge-studies` on a box whose switch is on, turn the switch off and recreate the container (above): with
+`follow`, the next drain, reconcile or full sync removes again every restored link SEEK does not hold, and gate G's
+`12.studies.merge_candidates` fails on the restored split. The undo itself does not read the switch.
 `--unmerge-studies` takes, in one call and in any order, every merge run directory of the ids it undoes (a crashed run
 and its rerun; for a whole box, the second approval's after `--studies` too; for an id merged, undone and merged
 again, both merges', and it undoes the latest) and every run directory whose `in_study_removed.tsv`
 should come back (a `--studies` run's, and after the switch went on the drain's, reconcile's and full sync's while
-they are kept): the archived links come back before the sources move. It finds every merge journal under the run root
+they are kept): the archived links come back before the sources move. A `--studies` run that removed no link wrote no
+archive; its directory is taken and restores nothing. It finds every merge journal under the run root
 itself and refuses (exit 2) while one that names its ids is not given. It reports a journaled source whose element id
 now names another node (`sources_replaced`, never written), a journal line a crash cut short, which it skips as the
-merge does (`journal_lines_skipped`), and a sample that reached a merged study after the merge
-(moved to the re-created seek-keyed node, `arrived_after_merge`), and ends `partial` (exit 1) when it refused an id,
-could not restore an Investigation, or had to leave such a sample on a legacy node with no seek-keyed node to move to.
+merge does (`journal_lines_skipped`), an archive line a crash cut short, which describes no removed link and is
+skipped (`archive_lines_skipped`), and a sample that reached a merged study after the merge
+(moved to the re-created seek-keyed node, `arrived_after_merge`). Last, it appends a timed `done` line to each merge
+attempt it reversed that the journals given leave open (a merge that died after its last step), so a later merge of
+the id is read as a new one; a journal it cannot write is named in `journals_not_closed`. It ends `partial` (exit 1)
+when it refused an id, could not restore an Investigation, had to leave such a sample on a legacy node with no
+seek-keyed node to move to, or could not write such a `done` line.
 Its report is saved in its own `unmerge_studies-<UTC time>` run directory. Merge, unmerge and `--studies` directories
 are never pruned.
 
