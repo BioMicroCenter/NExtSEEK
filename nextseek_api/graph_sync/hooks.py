@@ -55,7 +55,7 @@ def enqueue(kind: str, key: str, payload: Any = None, *, delay_s: float = 0) -> 
 
 #: How long a row waits after a write SEEK did not confirm (a 5xx, a timeout, a lost connection): long enough for
 #: Rails to finish a write that outran the proxy. The drain then syncs what MySQL holds, so a write that never landed
-#: costs one sync that changes nothing (A10).
+#: costs one sync that changes nothing.
 UNCONFIRMED_DELAY_S = 300
 
 

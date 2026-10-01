@@ -64,7 +64,7 @@ def _moves_samples(payload: dict) -> bool:
 
 def _enqueue_members(seek_id, ids, *, delay_s: float = 0) -> None:
     """One ``samples`` row per ``MEMBER_CHUNK`` ids, keyed ``batch:assay:<SEEK id>:<time_ns>:<n>``, so two writes
-    before a drain never overwrite each other's ids; held back ``delay_s`` seconds (A10)."""
+    before a drain never overwrite each other's ids; held back ``delay_s`` seconds."""
     ids = sorted({int(i) for i in ids})
     stamp = _stamp()
     for n, start in enumerate(range(0, len(ids), MEMBER_CHUNK)):
@@ -211,13 +211,13 @@ class AssayProxyViewSet(viewsets.ViewSet):
         try:
             body, code, headers, resp = self.client.create_assay(request, payload)
         except requests.RequestException:
-            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("assay_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             raise
         delay = hooks.write_delay(code)
         if delay is not None:
-            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
             hooks.enqueue("assay_map", "*", delay_s=delay)
             hooks.enqueue("isa", "*", delay_s=delay)
         if code == 401:
@@ -294,7 +294,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
         try:
             body, code, headers, resp = self.client.update_assay(request, str(seek_id), payload)
         except requests.RequestException:
-            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("assay_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             hooks.enqueue("isa", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             if moved is not None:
@@ -302,7 +302,7 @@ class AssayProxyViewSet(viewsets.ViewSet):
             raise
         delay = hooks.write_delay(code)
         if delay is not None:
-            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
             hooks.enqueue("assay_map", "*", delay_s=delay)
             hooks.enqueue("isa", "*", delay_s=delay)
             if moved is not None:

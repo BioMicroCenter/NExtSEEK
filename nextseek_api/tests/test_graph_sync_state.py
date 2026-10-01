@@ -449,7 +449,7 @@ def test_mark_done_before_does_not_touch_a_row_already_done():
     assert row("samples", "sample:1").done_at == at(seconds=2)
 
 
-# --- failing_since: how long a row has been failing (SPEC-ci-health D1, D2) -----------------------
+# --- failing_since: how long a row has been failing -----------------------
 
 @pytest.mark.django_db
 def test_a_failure_records_when_the_row_started_failing():
@@ -492,7 +492,7 @@ def test_success_clears_the_failure_time():
 
 @pytest.mark.django_db
 def test_a_success_on_a_row_re_enqueued_meanwhile_still_clears_the_failure_time():
-    """The retry worked; the newer write only sends the row round again, so the row is not failing (D1)."""
+    """The retry worked; the newer write only sends the row round again, so the row is not failing."""
     state.enqueue("catalog", "*", now=T0)
     state.finish_failed(state.claim_next("w1", now=at(seconds=1)), "boom", 60, now=at(seconds=2))
     claim = state.claim_next("w1", now=at(minutes=5))
@@ -829,7 +829,7 @@ def test_the_lock_timeout_is_whole_seconds_and_never_infinite(stub_mysql, given,
     assert conn.log[0] == ("SELECT GET_LOCK(%s, %s)", ["nextseek_graph_write", sent])
 
 
-# --- failing rows and failed runs (SPEC-ci-health D4 to D8) --------------------------------------
+# --- failing rows and failed runs --------------------------------------
 
 LOST = "OperationalError: (2006, 'Server has gone away')"
 
@@ -997,7 +997,7 @@ def test_an_abandoned_run_is_a_failed_run():
 @pytest.mark.django_db
 def test_a_failed_run_of_a_kind_the_sync_never_reruns_is_not_reported():
     """A hand --samples run, or another tool's run kind, has no retry to wait for: it would hold CI red until someone
-    reran it (SPEC-ci-health D6)."""
+    reran it."""
     state.start_run("samples", trigger="command", now=T0).finish("failed", counts={"error": LOST}, now=T0)
     state.start_run("merge_studies", trigger="command", now=T0).finish("failed", counts={"error": LOST}, now=T0)
 
@@ -1021,7 +1021,7 @@ def test_a_batch_row_closed_by_the_orchestrator_is_not_failing_when_the_key_is_w
     assert state.failing_rows(now=at(days=3, seconds=5))["total"] == 0
 
 
-# --- requeue_dead: dead rows back to pending by hand (PLAN-ci-health Task 7a) ----------------------
+# --- requeue_dead: dead rows back to pending by hand ----------------------
 
 def dead(kind: str, key: str, *, error: str = LOST, payload=None) -> None:
     """Enqueue a row and fail it MAX_ATTEMPTS times, each claim an hour after the last failure."""
@@ -1136,7 +1136,7 @@ def test_a_requeued_row_that_fails_again_starts_a_new_failure_time():
     assert row("catalog", "*").failing_since == now + timedelta(seconds=1)
 
 
-# --- a full sync or reconcile its data refused is a failed run (PLAN-ci-health Task 7b) ------------
+# --- a full sync or reconcile its data refused is a failed run ------------
 
 TITLE_CONFLICT = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
 
@@ -1200,7 +1200,7 @@ def test_the_refusal_texts_are_the_ones_the_sync_writes():
     assert state.VERSION_REFUSAL_TEXT in inspect.getsource(sync_run.catalog_sync)
 
 
-# --- the drift check's own freshness (PLAN-ci-health Task 7d) --------------------------------------
+# --- the drift check's own freshness --------------------------------------
 
 @pytest.mark.django_db
 def test_the_drift_check_has_a_freshness_of_its_own():

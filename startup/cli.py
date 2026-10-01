@@ -780,7 +780,7 @@ def rebuild(
     if graph_drift is not None:
         _print_health_results([graph_drift])
 
-    # How is the graph sync itself doing (SPEC-ci-health)? Every profile, production included, where nothing else
+    # How is the graph sync itself doing? Every profile, production included, where nothing else
     # checks it. Advisory, like drift: the suite still runs, and the rebuild exits red on it at the end.
     graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)
     if graph_sync_health is not None:
@@ -921,7 +921,7 @@ def _graph_drift_row(result) -> tuple[str, bool, str] | None:
 
 
 def _graph_sync_health(state: InstanceState, *, stack_is_up: bool = True) -> "validate.HealthResult | None":
-    """Ask the app container how the graph sync is doing (SPEC-ci-health D12), or None.
+    """Ask the app container how the graph sync is doing, or None.
 
     None only when the app container is down, which the health report has already said. Every profile and every
     component: it reads two tables through manage.py, needs no login, and on production is the only check of the sync.
@@ -1118,7 +1118,7 @@ def ci(
     if graph_drift is not None:
         _print_health_results([graph_drift])
 
-    # Step 1c: how is the graph sync itself doing (SPEC-ci-health)? Unlike drift above this one is part of the
+    # Step 1c: how is the graph sync itself doing? Unlike drift above this one is part of the
     # answer: a red line fails `ci` after the suite, even a suite that passed, since on production nothing else
     # checks the sync.
     graph_sync_health = _graph_sync_health(state, stack_is_up=health.testable)

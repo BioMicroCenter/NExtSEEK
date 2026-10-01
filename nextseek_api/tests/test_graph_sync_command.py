@@ -395,7 +395,7 @@ def test_full_sync_refuses_when_a_sample_cannot_be_projected(world, monkeypatch,
 
 
 def test_full_sync_refuses_when_a_graph_sample_type_holds_a_title_under_another_id(world, monkeypatch, tmp_path):
-    """The graph-only sample is retired first and the titles are checked once more (R19); the title is still held,
+    """The graph-only sample is retired first and the titles are checked once more; the title is still held,
     so the run refuses before any other write."""
     rec = WriterRecorder(monkeypatch)
     driver = FakeDriver(lambda query, params: [{"title": "TIS", "graph_id": 5, "mysql_id": 26}]
@@ -627,7 +627,7 @@ def test_gate_g_only_reads(world, mysql_scope):
 
 
 def test_gate_g_draws_a_reproducible_random_sample(world, mysql_scope):
-    """The per-type and per-project strata (Task 7e) add every sample of this small world; the random draw is 2."""
+    """The per-type and per-project strata add every sample of this small world; the random draw is 2."""
     first = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
     again = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
     assert first["sampled_ids"] == again["sampled_ids"] and first["sample_strata"]["random"] == 2

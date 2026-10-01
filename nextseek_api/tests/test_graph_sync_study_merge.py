@@ -44,7 +44,7 @@ def _kind(w, sid):
     return study_merge.classify(study_merge.read_index(w.graph, DB), sid)
 
 
-# --- selection: one case per kind, in the spec's order --------------------------------------------------------------
+# --- selection: one case per kind, in the order classify tests them ---------------------------------------------------
 
 def test_already_merged(world):
     _seek(world, 1, "Alder Unpublished")
@@ -699,7 +699,7 @@ def test_an_arrival_on_a_rekey_with_no_seek_keyed_node_is_reported_and_the_undo_
 def test_undo_restores_every_node_then_every_archive_then_the_sources_in_one_call(world, tmp_path):
     """Pinned order: step 1 for every id, then the archives, then step 2, all in one call. With the archives last a
     link --studies removed from a merged node would come back on the legacy node after its sources had moved, and
-    stay there (the Task 10 review's probe)."""
+    stay there."""
     _split(world)
     _split(world, sid=2, on_l=(2001,), on_k=(2002,), on_both=(2003,))
     study_merge.apply(world.graph, DB, {1: "merge", 2: "merge"}, run_dir=str(tmp_path / "m1"))

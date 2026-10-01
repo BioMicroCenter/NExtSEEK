@@ -668,8 +668,8 @@ def _carried_but_unexpected(driver, db, listed: str, carried: str, expected) -> 
 
 
 def _check_census(driver, db, checks: list) -> None:
-    """Gap review G37: no label or relationship type the contract does not name (a restore or an old writer can bring
-    back what a cleanup removed, as the 742,534 CHILD_OF edges were until 2026-09-23)."""
+    """No label or relationship type the contract does not name (a restore or an old writer can bring back what a
+    cleanup removed)."""
     labels_found = _carried_but_unexpected(driver, db, LABELS_LISTED, LABEL_CARRIED,
                                            lambda n: n in EXPECTED_LABELS or schema.is_type_label(n))
     types_found = _carried_but_unexpected(driver, db, RELATIONSHIP_TYPES_LISTED, RELATIONSHIP_TYPE_CARRIED,

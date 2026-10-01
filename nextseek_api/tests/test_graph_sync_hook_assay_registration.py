@@ -106,7 +106,7 @@ class TestTheRequestPath:
         assert body["graph"] == {"status": "queued", "edges_recomputed": 0, "error": None}
 
     def test_a_registration_of_2000_samples_writes_ceil_2000_over_the_chunk_rows(self, monkeypatch):
-        """One by-id sync per row: a row per sample drained at about 11 rows a minute on production (A13)."""
+        """One by-id sync per chunk of samples, not one per sample."""
         monkeypatch.setattr(service, "SAMPLE_CHUNK", 300)
         _register(_written(range(1, 2001)))
 

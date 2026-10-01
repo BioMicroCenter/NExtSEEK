@@ -676,7 +676,7 @@ def test_a_gone_investigation_no_study_holds_is_archived_then_deleted_and_a_held
 
 
 def test_a_gone_investigation_is_held_only_by_a_live_seek_study_or_a_paper_node(tmp_path):
-    """R18: SEEK deletes an investigation after its studies and this release deletes no Study node, so a node whose
+    """SEEK deletes an investigation after its studies and this release deletes no Study node, so a node whose
     SEEK study is gone does not hold its Investigation. The read and the delete's own re-check both take SEEK's study
     ids; a Study with no seek_study_id (a graph-only paper) still holds."""
     gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [], "held": False}]
@@ -1917,7 +1917,7 @@ def test_write_edge_label_refreshes_refuses_any_other_class_before_sending(store
 
 def test_write_edge_label_refreshes_refuses_a_rename_that_would_add_an_assay():
     """An edge stored with singular fields only: renaming its title would also write the plural lists, and a second
-    internal assay the pair shares would reach the edge without approval (R17)."""
+    internal assay the pair shares would reach the edge without approval."""
     computed = dict(REFRESH_LABELS, internal_assay_ids=[99, 120], internal_assay_titles=["New name", "Other assay"])
     stored = dict(REFRESH_LABELS, internal_assay_title="Old name", internal_assay_ids=None,
                   internal_assay_titles=None)

@@ -4,7 +4,7 @@ For one sample, SEEK's set is the studies of the SEEK assays it is in (``sources
 an IN_STUDY to a Study that has no ``seek_study_id`` (a graph-only paper study) is a paper sample. The rule:
 
 - add: an IN_STUDY to the Study of every study in SEEK's set, except, for a paper sample, the studies of its paper's
-  own investigation (matched by id and title, as the studies tool's T27 does, ``writer.paper_split``); when that
+  own investigation (matched by id and title, as the studies tool does, ``writer.paper_split``); when that
   investigation cannot be matched, every link is withheld and the sample is counted in
   ``paper_investigation_unknown``;
 - remove: where the box's switch says ``follow`` (``follows_seek``), and always in ``graph_sync --studies``, its

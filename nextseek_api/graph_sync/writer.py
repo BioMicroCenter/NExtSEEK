@@ -903,7 +903,7 @@ def paper_split(links, study_ids, scope: PaperScope) -> PaperSplit:
     """Which of SEEK's studies ``study_ids`` a sample with IN_STUDY ``links`` (as ``sample_studies`` returns them) is
     linked to. A sample with a link to a Study that has no ``seek_study_id`` is a paper sample. A paper link's own
     investigation is its Study's one Investigation, when that node's ``id`` is a SEEK investigation and its title
-    equals SEEK's title (``str.strip().casefold()`` on both sides, the studies tool's T27 rule). A paper sample is
+    equals SEEK's title (``str.strip().casefold()`` on both sides, the studies tool's rule). A paper sample is
     not linked to a SEEK study of one of its papers' own investigations, nor to one SEEK files under no
     investigation; its links to other investigations' studies are written. When any of its paper links has no such
     own investigation (no IN_INVESTIGATION, several, an id SEEK lacks, another title), ``own`` is None and every

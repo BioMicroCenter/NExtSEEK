@@ -1,4 +1,4 @@
-"""manage.py graph_sync_health: the graph sync health line on every box (SPEC-ci-health D12 to D15).
+"""manage.py graph_sync_health: the graph sync health line on every box.
 
 Hermetic: the two dmac tables on the SQLite test settings, no Neo4j. The command reads the real clock, so a row meant
 to be overdue is written at a fixed moment long ago, and a row meant to be inside its window minutes before now.
@@ -159,7 +159,7 @@ def test_the_command_writes_nothing():
 
 @pytest.mark.django_db
 def test_a_nightly_its_data_refused_is_a_problem():
-    """A SampleType title held under another id stops every nightly until someone fixes the data (gap G7)."""
+    """A SampleType title held under another id stops every nightly until someone fixes the data."""
     problem = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
     state.start_run("reconcile", trigger="loop", now=LONG_AGO).finish(
         "refused", counts={"status": "refused", "stopped_at": "catalog", "problems": [problem]}, now=LONG_AGO)
@@ -173,8 +173,8 @@ def test_a_nightly_its_data_refused_is_a_problem():
 
 @pytest.mark.django_db
 def test_label_changes_awaiting_approval_are_a_warning():
-    """Read from the drift run's own record (gate G check 9's classes); never a problem (R14). The run is an hour
-    old, so the drift check's own freshness (Task 7d) stays green."""
+    """Read from the drift run's own record (gate G check 9's classes); never a problem. The run is an hour
+    old, so the drift check's own freshness stays green."""
     recorded = {"stats": {"gate_g": {"lineage_labels": {"classes": {"changed": 3, "cleared": 2, "equal": 9}}}}}
     hour_ago = datetime.now(dt_timezone.utc) - timedelta(hours=1)
     state.start_run("drift", trigger="loop", now=hour_ago).finish("ok", drift=recorded, now=hour_ago)

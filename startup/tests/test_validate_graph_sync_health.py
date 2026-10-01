@@ -1,4 +1,4 @@
-"""The graph sync health line (SPEC-ci-health D12 to D16): `manage.py graph_sync_health` asked of the app
+"""The graph sync health line: `manage.py graph_sync_health` asked of the app
 container on every box, production included, by `rebuild` and `ci`.
 
 The command is never run. The subprocess is answered by a fake that records it, and the one test that lets the real
@@ -326,7 +326,7 @@ _WAITING_LINE = validate.HealthResult("graph sync health", True,
 
 
 def test_ci_on_a_prod_box_fails_on_a_red_line_after_the_suite_passes(repo, monkeypatch, stack):
-    """On production nothing else checks the sync, so `ci` cannot say "passed" over a red line (D14)."""
+    """On production nothing else checks the sync, so `ci` cannot say "passed" over a red line."""
     _saved_state(repo, "prod")
     _stack_is_up(monkeypatch)
     _health_answer(monkeypatch, stack, _RED)

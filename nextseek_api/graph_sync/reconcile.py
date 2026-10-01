@@ -35,7 +35,7 @@ not run then; the full sync the guard enqueued runs the same rule.
 which read no catalog, still run, and detection and the sample steps, which build it, do not. Each of them leaves
 what earlier steps wrote, which is correct in itself, and the next run finishes the rest.
 
-One refusal is retried (R19): a catalog refused for nothing but SampleType titles held under other ids. A type
+One refusal is retried: a catalog refused for nothing but SampleType titles held under other ids. A type
 deleted in SEEK with its samples, which no hook sees, and recreated under its old title leaves its old node holding
 Sample nodes only the retire step removes. So detection and the guard run, the ids only the graph holds are retired,
 and the catalog is tried once more (``catalog_retry``, the first refusal's problems in ``catalog_retried``); the run
@@ -73,7 +73,7 @@ GUARD_SLOT_SUFFIX = "-guard"
 
 OK, NOT_AT_VERSION, LOCK_TIMEOUT = targeted.OK, targeted.NOT_AT_VERSION, targeted.LOCK_TIMEOUT
 REFUSED, GUARD_TRIPPED, DRY_RUN, FAILED = "refused", "guard_tripped", "dry_run", "failed"
-# What the catalog and small-tables steps tell the run: go on, retire then retry the catalog (R19), or stop.
+# What the catalog and small-tables steps tell the run: go on, retire then retry the catalog, or stop.
 _GO, _RETRY, _STOP = "go", "retry", "stop"
 
 # The detection's id lists, kept whole while the run syncs them and capped in the report.
@@ -199,7 +199,7 @@ def _catalog(driver, db, report: dict, opts: _Options, name: str = "catalog") ->
 def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> str:
     """The catalog, the small tables and the label maps: the whole of options D and E (section 10.2). Returns ``go``
     when the run goes on to detection and the sample steps, which build the catalog (only after an ``ok`` catalog
-    step), ``retry`` when the catalog refused for nothing but title conflicts (R19: retire, then retry it once), and
+    step), ``retry`` when the catalog refused for nothing but title conflicts (retire, then retry it once), and
     ``stop`` otherwise.
 
     The small tables and the relabel read no catalog, so they run whatever the catalog step answered: a catalog that
@@ -220,7 +220,7 @@ def _catalog_and_small_tables(driver, db, report: dict, opts: _Options) -> str:
 
 
 def _retire_then_retry_catalog(driver, db, report: dict, opts: _Options, gone: list[int]) -> bool:
-    """R19: the catalog refused for nothing but title conflicts. The ids only the graph holds are retired, and the
+    """The catalog refused for nothing but title conflicts. The ids only the graph holds are retired, and the
     catalog is tried once more as ``catalog_retry``. Returns whether the run goes on to the sample sync."""
     if gone and not _step(report, "retire", targeted.retire_samples, driver, db, gone, run_dir=opts.run_dir):
         return False

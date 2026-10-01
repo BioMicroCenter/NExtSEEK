@@ -4,7 +4,7 @@ Rails commits the row, the proxy validates what came back, and then one outbox r
 sample it wrote, the catalog a sample type moved, the maps an assay or a SOP moved, the ISA nodes, the memberships.
 Nothing here calls Neo4j, and nothing here may turn a committed SEEK write into an error, so every method is pinned
 four ways: the row on a 2xx, no row on a 4xx, the rows it can name without the body held back when SEEK answered a
-5xx or never answered (SEEK may have committed it anyway, A10), and a failing enqueue that never reaches the caller.
+5xx or never answered (SEEK may have committed it anyway), and a failing enqueue that never reaches the caller.
 
 The proxies hold their upstream client as a class attribute (`nextseek_api/CLAUDE.md`: one SEEK session shared by
 every caller), so each test replaces it on its own instance rather than patching the class.
@@ -328,7 +328,7 @@ def test_a_4xx_enqueues_nothing(proxy, code):
 @pytest.mark.parametrize("code", [500, 502, 503])
 def test_a_5xx_enqueues_the_rows_it_can_name_held_back(proxy, code):
     """SEEK may have committed the write before it failed (a SOP create answers 500 after creating the record), so
-    the rows the proxy can name without the body wait for Rails, then sync what MySQL holds (A10)."""
+    the rows the proxy can name without the body wait for Rails, then sync what MySQL holds."""
     proxy.call(code=code)
     assert _delays() == _held(proxy.unconfirmed, proxy.unconfirmed)
 
@@ -892,7 +892,7 @@ def test_a_refused_patch_enqueues_nothing(members):
 
 @pytest.mark.parametrize("failure", ["5xx", "timeout"])
 def test_an_unconfirmed_patch_holds_the_members_before_back(members, failure):
-    """SEEK may have moved them before it failed: the members it held before are synced once Rails had time (A10)."""
+    """SEEK may have moved them before it failed: the members it held before are synced once Rails had time."""
     members.answer = [1, 2]
     if failure == "5xx":
         _assay_call("partial_update", PATCH_STUDY, _assay_body(), code=500)

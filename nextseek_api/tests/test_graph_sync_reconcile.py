@@ -402,7 +402,7 @@ def _refusal(*problems, conflicts=True):
 def test_a_catalog_sync_that_refuses_still_writes_the_small_tables_and_the_relabel(steps, tmp_path, refusal):
     """Neither reads the catalog: a night whose catalog refuses still writes the Investigation, Project, Person and
     Study nodes and the relabel; detection and the sample steps, which build the catalog, do not run. Only a refusal
-    for nothing but title conflicts goes on to the retire (R19)."""
+    for nothing but title conflicts goes on to the retire."""
     steps.catalog = refusal
     steps.detection = _detection(extra=[9])
     result = _reconcile(tmp_path)
@@ -414,7 +414,7 @@ def test_a_catalog_sync_that_refuses_still_writes_the_small_tables_and_the_relab
 
 
 def test_a_catalog_refused_only_for_title_conflicts_retires_then_tries_once_more(steps, tmp_path):
-    """R19: a type deleted in SEEK with its samples (no hook sees either) and recreated under its old title. The old
+    """A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title. The old
     node still holds Sample nodes only the retire step removes, so the catalog refuses: detection and the retire run,
     the catalog is tried once more, and the night goes on without a second retire."""
     steps.catalog = [_refusal(_CONFLICT), None]

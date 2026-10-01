@@ -188,7 +188,7 @@ def test_no_label_line_without_counts_to_show():
 
 
 def test_only_the_classes_that_need_approval_are_counted():
-    """After the studies release, renamed and protocol_filled are written without approval (its Amendment A12)."""
+    """After the studies release, renamed and protocol_filled are written without approval."""
     b = body(runs={"drift": drift_run("ok", drift=labels_recorded(renamed=55_307, protocol_filled=23,
                                                                     plural_missing=712_705))})
     assert health.label_changes_awaiting_approval(b) == []

@@ -1,4 +1,4 @@
-"""Pure judgement of the graph sync status body (SPEC-ci-health): what counts as a problem, and the line that says so.
+"""Pure judgement of the graph sync status body: what counts as a problem, and the line that says so.
 
 Standard library only, and it must stay that way. The smoke suite imports it on a host with no Django installed
 (``ci/smoke/test_graph_sync_status.py``, run under ``uv run --no-project``), and ``manage.py graph_sync_health``
@@ -19,7 +19,7 @@ DRIFT_NAMES_SHOWN = 6
 DRIFT_REMEDY = (". It stays red until a newer drift run: after the cause is fixed, run "
                 "`manage.py graph_sync --drift` in the app container")
 FRESHNESS_JOBS = ("full", "reconcile", "drift", "outbox")
-# The DERIVED_FROM label classes only the operator's approval writes (rule R14; labels.CHANGED, labels.CLEARED).
+# The DERIVED_FROM label classes only the operator's approval writes (labels.CHANGED, labels.CLEARED).
 LABEL_CLASSES_AWAITING_APPROVAL = ("changed", "cleared")
 _HOURS_FROM_S = 2 * 3600          # a duration this long or longer reads in hours
 
@@ -118,7 +118,7 @@ def label_changes_awaiting_approval(body: dict) -> list[str]:
     """One line when the latest drift run counted DERIVED_FROM labels that differ from the rule and that only the
     operator's approval writes (``LABEL_CLASSES_AWAITING_APPROVAL``), read from that run's own record
     (``stats.gate_g.lineage_labels.classes``, gate G check 9). None without such counts. Reported, never failed:
-    whether to write them is the operator's decision (R14)."""
+    whether to write them is the operator's decision."""
     run = _part(body.get("runs"), "drift") or {}
     lineage = _part(_part(_part(run.get("drift"), "stats"), "gate_g"), "lineage_labels")
     classes = _part(lineage, "classes") or {}

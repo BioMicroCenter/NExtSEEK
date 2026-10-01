@@ -386,7 +386,7 @@ def test_a_gone_empty_sample_type_and_investigation_leave_the_graph(studies_lane
 
 
 def test_retiring_a_gone_types_samples_frees_its_title_for_the_recreated_type(studies_lane, tmp_path):
-    """R19's premise: a type deleted in SEEK with its samples and recreated under its old title. Its old node still
+    """A type deleted in SEEK with its samples and recreated under its old title. Its old node still
     holds Sample nodes MySQL lacks (one graph_sync wrote, one it never wrote), so the title reads as held under another
     id; once they are retired it does not, and the catalog write deletes the old type and writes the new one."""
     from nextseek_api.graph_sync import cypher as q
@@ -408,7 +408,7 @@ def test_retiring_a_gone_types_samples_frees_its_title_for_the_recreated_type(st
 
 
 def test_an_investigation_held_only_by_a_gone_seek_studys_node_leaves_the_graph(studies_lane, tmp_path):
-    """R18: SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. The node
+    """SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. The node
     of a SEEK study that is gone no longer holds its Investigation: gate G reads it as one SEEK lacks, and the small
     tables archive and delete it, the node staying without its IN_INVESTIGATION. A graph-only paper node and the node
     of a study SEEK still has keep theirs."""
@@ -666,7 +666,7 @@ def test_undo_of_two_merge_cycles_of_one_id_restores_the_latest_whatever_the_ord
     assert _keys(studies_lane, 1001) == [("id", 6)] and _keys(studies_lane, 1002) == [("seek", 6)]
 
 
-# --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
+# --- the connections endpoint's selectors on a real Neo4j ------------------------------------------------------------
 
 _CONNECTIONS_GRAPH = [
     "CREATE (p1:Project {id: 11, title: 'Alder'}), (p2:Project {id: 12, title: 'Birch'}), "

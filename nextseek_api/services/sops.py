@@ -237,12 +237,12 @@ class SopProxyViewSet(viewsets.ViewSet):
             try:
                 body, code, headers, resp = self.client.create_sop(request, payload)
             except requests.RequestException:
-                # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+                # SEEK may have committed the write it did not answer: its rows go in, held back.
                 hooks.enqueue("protocol_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
                 raise
             delay = hooks.write_delay(code)
             if delay is not None:
-                # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+                # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
                 hooks.enqueue("protocol_map", "*", delay_s=delay)
             if code == 401:
                 return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
@@ -287,12 +287,12 @@ class SopProxyViewSet(viewsets.ViewSet):
                 try:
                     body, code, headers, resp = self.client.create_sop(request, payload)
                 except requests.RequestException:
-                    # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+                    # SEEK may have committed the write it did not answer: its rows go in, held back.
                     hooks.enqueue("protocol_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
                     raise
                 delay = hooks.write_delay(code)
                 if delay is not None:
-                    # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+                    # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
                     hooks.enqueue("protocol_map", "*", delay_s=delay)
                 if code == 401:
                     return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
@@ -401,12 +401,12 @@ class SopProxyViewSet(viewsets.ViewSet):
         try:
             body, code, headers, resp = self.client.update_sop(request, seek_id, payload)
         except requests.RequestException:
-            # SEEK may have committed the write it did not answer: its rows go in, held back (A10).
+            # SEEK may have committed the write it did not answer: its rows go in, held back.
             hooks.enqueue("protocol_map", "*", delay_s=hooks.UNCONFIRMED_DELAY_S)
             raise
         delay = hooks.write_delay(code)
         if delay is not None:
-            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it (A10).
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
             hooks.enqueue("protocol_map", "*", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')

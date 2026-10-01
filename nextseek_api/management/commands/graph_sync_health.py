@@ -1,5 +1,5 @@
 """``manage.py graph_sync_health [--json]``: the graph sync health line that ``./startup.sh ci`` and ``rebuild`` print
-on every box (SPEC-ci-health D12 to D15).
+on every box.
 
 It reads the body the superuser status endpoint answers (``services.graph_sync_status.build_status``) straight from
 the two dmac tables inside the app container, so it needs no HTTP login. That is what brings these checks to

@@ -154,7 +154,7 @@ def _match(node: StudyNode, seek: dict | None, seek_inv: dict | None) -> bool:
 
 
 def classify(index: Index, study_id: int) -> Selection:
-    """The first kind of ``KINDS`` that applies to SEEK study ``study_id`` (the spec's selection table)."""
+    """The first kind of ``KINDS`` that applies to SEEK study ``study_id``."""
     x = int(study_id)
     legacy = [n for n in index.nodes if n.id == x and n.seek_study_id is None]
     keyed = [n for n in index.nodes if n.seek_study_id == x]
@@ -313,8 +313,8 @@ def parse_approval(text: str) -> dict:
 
 
 def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
-    """The merge's dry run: each SEEK study id's kind and the facts the operator approves from (the spec's section
-    5.4). ``ids`` None means every id some Study carries; ``detail`` reads each acting id's samples too. Read-only.
+    """The merge's dry run: each SEEK study id's kind and the facts the operator approves from. ``ids`` None means
+    every id some Study carries; ``detail`` reads each acting id's samples too. Read-only.
 
     ``approval_line`` is what the operator approves: every id of an acting kind with that kind (``format_approval``),
     a merge_other_investigation included, so approving the line leaves no acting id behind. Those ids are also listed
@@ -415,7 +415,7 @@ def _unfinished_kinds(journal: str) -> dict:
 
 def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
     """Merge or rekey each id of ``approved`` (id to the kind the operator approved from the dry run's approval
-    line), in id order, under the caller's hold of the graph-write lock (the spec's section 5.3). Each id's kind is
+    line), in id order, under the caller's hold of the graph-write lock. Each id's kind is
     read again first: an ``already_merged`` id is counted and not written; an id that reads another kind than its
     approved one stops the run before its first write, ids done before it staying done. A rerun given the same
     ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
@@ -627,8 +627,8 @@ def unlisted_journals(run_root: str, paths, study_ids) -> list[str]:
 
 def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK,
          run_root: str | None = None) -> dict:
-    """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
-    section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
+    """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold, under the
+    caller's hold of the graph-write lock. Per id, in id order: while L is the only node
     carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that step
     finds it done and goes on); then every archived link whose sample and Study still exist is re-created, in the same
     call and before any source moves, so a link ``--studies`` removed from the merged node comes back on L and then

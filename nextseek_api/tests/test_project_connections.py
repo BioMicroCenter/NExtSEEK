@@ -34,7 +34,7 @@ class TestConnectionRows:
            return_value=ROWS)
     def test_the_project_id_is_passed_as_the_project_selector(self, run):
         """The project's own samples, whatever their study: a project whose investigation has no Study node, or
-        whose samples no study of its investigation holds, still has a diagram (A8)."""
+        whose samples no study of its investigation holds, still has a diagram."""
         assert pc.connection_rows(2) == ROWS
         selector = run.call_args[0][0]
         assert selector.project_id == 2

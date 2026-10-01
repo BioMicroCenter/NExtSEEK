@@ -518,7 +518,7 @@ class TestTheCatalogIsComparedAgainstMySQL:
 
 
 class TestTheCatalogPropertiesAreComparedById:
-    """Gap review G18: what the catalog sync writes besides titles (PLAN-ci-health Task 7e)."""
+    """What the catalog sync writes besides titles."""
 
     TYPES = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False}]
     ATTRS = [{"id": 1, "sample_type_id": 26, "title": "Organ", "value_type": "string", "required": False, "pos": 1}]
@@ -779,7 +779,7 @@ def test_the_committed_block_lists_exactly_the_investigation_rows():
 
 @pytest.mark.django_db
 def test_an_unreadable_capabilities_file_fails_the_check_it_would_feed(mysql_rows, gate, catalog, monkeypatch):
-    """Gap review G25: the check used to be skipped, which read as a pass."""
+    """The check used to be skipped, which read as a pass."""
     monkeypatch.setattr(drift, "_capabilities_text", lambda repo_root=None: None)
     _fresh_runs()
     result, _ = _check_drift(DriftGraph())

@@ -852,7 +852,7 @@ def test_a_child_that_fails_is_backed_off_from_the_time_it_ended(work, monkeypat
     assert state.claim_next("w2", now=ended + backoff - timedelta(seconds=1), kinds=["reconcile"]) is None
 
 
-# --- A13: single-sample rows drain as one sync -----------------------------------------------------
+# --- single-sample rows drain as one sync -----------------------------------------------------
 
 def _single_rows(n: int, *, first_id: int = 1000) -> list[int]:
     ids = list(range(first_id, first_id + n))

@@ -1168,7 +1168,7 @@ def test_small_tables_archive_then_delete_an_investigation_seek_lost_that_no_stu
 
 
 def test_small_tables_delete_an_investigation_held_only_by_a_gone_seek_studys_node(env, tmp_path):
-    """R18: SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. A node
+    """SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. A node
     whose SEEK study is gone no longer holds its Investigation, which is archived and deleted; the node stays, without
     its IN_INVESTIGATION. A paper node, and the node of a study SEEK still has, still hold theirs."""
     s = env.graph.study

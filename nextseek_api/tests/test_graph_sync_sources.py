@@ -655,7 +655,7 @@ def test_studies_rows(fake_db):
     assert "SELECT id, title, description, investigation_id FROM studies" in seek.executed[0][0]
 
 
-# --- recent_sample_ids (gate G's recent stratum, PLAN-ci-health Task 7e) ---------------------------
+# --- recent_sample_ids (gate G's recent stratum) -------------------------------------------------
 
 def test_recent_sample_ids_reads_created_or_updated_since_newest_first(fake_db):
     seek, _ = fake_db(seek_results=[[(1007,), (1003,)]])

@@ -69,7 +69,7 @@ MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
 WHERE (r.internal_assay_title IS NOT NULL
        OR any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> ''))
 %(sample_type_predicate)s
-  // Project scope: the sample's own project membership, whatever its study (A8).
+  // Project scope: the sample's own project membership, whatever its study.
   AND ($project_id IS NULL
        OR EXISTS { MATCH (child)-[:IN_PROJECT]->(:Project {id: $project_id}) })
   AND ($graph_inv_id IS NULL AND $seek_inv_id IS NULL AND $name IS NULL
@@ -136,7 +136,7 @@ MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
 WHERE (r.internal_assay_title IS NOT NULL
        OR any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> ''))
   AND elementId(parent) IN subtree
-  // Project scope: the sample's own project membership, whatever its study (A8).
+  // Project scope: the sample's own project membership, whatever its study.
   AND ($project_id IS NULL
        OR EXISTS { MATCH (child)-[:IN_PROJECT]->(:Project {id: $project_id}) })
   AND ($graph_inv_id IS NULL AND $seek_inv_id IS NULL AND $name IS NULL
@@ -332,7 +332,7 @@ CLOSEST_SAMPLE_TYPES = 5          # how many close codes a refused sample_type n
 
 
 def closest_sample_types(code: str) -> Optional[List[str]]:
-    """None when ``code`` is a SampleType title in the graph, else the closest titles, best first (A8).
+    """None when ``code`` is a SampleType title in the graph, else the closest titles, best first.
 
     None too when the catalog cannot be read or holds nothing: a lookup that failed is no reason to refuse a query,
     and the query itself then answers or fails on its own."""
@@ -353,7 +353,7 @@ def closest_sample_types(code: str) -> Optional[List[str]]:
 
 def empty_result_notes(selector) -> List[str]:
     """Why a selector matched nothing: per selector, whether what it names exists in the graph, and whether the
-    investigations it names have any Study node (A8). Never raises: a failed read yields a note saying so."""
+    investigations it names have any Study node. Never raises: a failed read yields a note saying so."""
     neo = settings.NEO4J_DATABASE
     notes: List[str] = []
     name = selector.effective_investigation_name

@@ -147,7 +147,7 @@ def test_the_task_sends_no_write_to_neo4j():
 
 @pytest.mark.django_db
 def test_two_uploads_resolving_the_same_child_each_keep_their_own_row():
-    """A batch key never overwrites another write's ids (A13); the drain syncs the child twice, which is harmless."""
+    """A batch key never overwrites another write's ids; the drain syncs the child twice, which is harmless."""
     for _ in range(2):
         with task_world(orphans=ONE_ORPHAN, sample_ids=[500]):
             run_task()

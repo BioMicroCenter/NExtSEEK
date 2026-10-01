@@ -176,7 +176,7 @@ class GateWorld:
         self.edges = {pair: dict(stored) for pair, stored in LABELS.items()}   # (child, parent) to stored labels
         self.type_title_differs = 0   # Samples whose type is not their SampleType's title
         self.doubled = []             # (child, parent) pairs whose DERIVED_FROM edge is there twice
-        # The census (Task 7g): what db.labels() and db.relationshipTypes() list, and what something still carries.
+        # The census: what db.labels() and db.relationshipTypes() list, and what something still carries.
         self.labels_listed = sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})
         self.types_listed = sorted(verify.EXPECTED_RELATIONSHIP_TYPES)
         self.carried = set(self.labels_listed) | set(self.types_listed)
@@ -450,7 +450,7 @@ def test_check_11_ignores_a_sampled_sample_missing_from_the_graph(world):
     assert result["stats"]["parent_lists_compared"] == 3
 
 
-# --- what the sampled checks read beside the random draw (PLAN-ci-health Task 7e) ------------------
+# --- what the sampled checks read beside the random draw ------------------
 
 def test_every_small_type_and_project_is_compared_beside_the_random_draw(world):
     result = _gate(GateWorld(_graph_nodes()), sample_size=1)
@@ -496,7 +496,7 @@ def test_check_4_fails_samples_whose_type_is_not_their_sample_types_title(world)
     assert (check["expected"], check["actual"], check["pass"]) == (0, 3, False)
 
 
-# --- no check passes on empty input (PLAN-ci-health Task 7f) ---------------------------------------
+# --- no check passes on empty input ---------------------------------------
 
 def test_check_6_fails_when_no_membership_is_read_while_mysql_holds_samples(world, monkeypatch):
     monkeypatch.setattr(sources, "memberships", lambda: [])
@@ -530,7 +530,7 @@ def test_check_1_fails_a_doubled_declared_edge(world):
     assert _named(result, "1.lineage.undeclared_pairs_between_samples")["pass"] is True
 
 
-# --- the census: no label or relationship type the contract does not name (Task 7g) -----------------
+# --- the census: no label or relationship type the contract does not name -----------------
 
 def test_the_census_passes_the_contracts_names_and_every_type_label(world):
     result = _gate(GateWorld(_graph_nodes()))
@@ -804,7 +804,7 @@ def test_an_investigation_seek_lacks_that_a_study_holds_is_reported_not_failed(w
 
 
 def test_an_investigation_held_only_by_a_gone_seek_studys_node_fails(world, monkeypatch):
-    """R18: a Study node whose SEEK study is gone does not hold its Investigation, so gate G reads the held column
+    """A Study node whose SEEK study is gone does not hold its Investigation, so gate G reads the held column
     with SEEK's study ids, and an Investigation only such a node links to fails as one SEEK lacks."""
     monkeypatch.setattr(sources, "studies", lambda: [{"id": 42, "title": "Live", "description": None,
                                                      "investigation_id": None}])

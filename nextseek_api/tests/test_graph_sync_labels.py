@@ -333,7 +333,7 @@ class TestClassify:
         assert labels.classify(self._stored(**stored), wanted) == cls
 
     # An edge stored before the plural lists existed: a refresh writes the lists too, so it needs no approval only
-    # when the rule's list holds that edge's one internal assay (R17); a second shared assay would be added unread.
+    # when the rule's list holds that edge's one internal assay; a second shared assay would be added unread.
     TWO_ASSAYS = _labels(10, 50, "Internal Alpha", [50, 60], ["Internal Alpha", "IA 60"], 5, "SOP Five")
     NO_LISTS = {"internal_assay_ids": _ABSENT, "internal_assay_titles": _ABSENT}
 

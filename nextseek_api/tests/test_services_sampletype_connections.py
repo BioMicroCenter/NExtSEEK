@@ -42,7 +42,7 @@ from nextseek_api.services.sampletype_connections import empty_result_notes as R
 @pytest.fixture(autouse=True)
 def _no_graph_reads_in_the_view(monkeypatch):
     """The view reads the sample type catalog (a 422 for an unknown code) and, for an empty answer, why it is
-    empty (A8). Both open their own Neo4j driver; a test that means to exercise them patches GraphDatabase."""
+    empty. Both open their own Neo4j driver; a test that means to exercise them patches GraphDatabase."""
     from nextseek_api.services import sampletype_connections as sc
     monkeypatch.setattr(sc, "closest_sample_types", lambda code: None)
     monkeypatch.setattr(sc, "empty_result_notes", lambda selector: [])
@@ -990,7 +990,7 @@ def test_the_study_parameter_text_names_no_count_and_says_which_key_each_reads()
 
 
 # ---------------------------------------------------------------------------
-# Project scope, empty answers, plural-only edges (A8)
+# Project scope, empty answers, plural-only edges
 # ---------------------------------------------------------------------------
 
 def test_both_cypher_variants_carry_the_project_predicate_over_the_samples_own_membership():

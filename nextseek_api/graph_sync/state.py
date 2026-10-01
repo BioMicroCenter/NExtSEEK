@@ -307,7 +307,7 @@ def claim_more(worker_id: str, kind: str, key_prefix: str, limit: int, *, now: d
     ``or_last_error_prefix``, and none whose ``last_error`` starts with ``except_last_error_prefix``. Each is the
     same compare-and-set as ``claim_next``, so a row another worker took in
     between is skipped, and each counts its own attempt; a row this worker already holds is not claimable (its lease
-    runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``, A13), leaving out a row that
+    runs). The drain uses it to run many single-sample rows as one by-id sync (``loop``), leaving out a row that
     has failed repeatedly unless its last failure says merging it cannot fail the others."""
     if not worker_id or len(worker_id) > WORKER_CHARS:
         raise ValueError(f"not a worker id: {worker_id!r}")

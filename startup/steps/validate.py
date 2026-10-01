@@ -724,7 +724,7 @@ def refresh_graph_small_tables(repo_root: Path, env: dict[str, str]) -> HealthRe
                         detail=f"could not rewrite them (exit {result.returncode}): {reason}")
 
 
-# The graph sync health line (SPEC-ci-health D12 to D16), on every box, production included. The app container's own
+# The graph sync health line, on every box, production included. The app container's own
 # manage.py judges the graph_sync tables, so it needs no HTTP login and runs where the smoke suite holds no superuser
 # rights. Exit 0 nothing to fail on, 1 a problem, 3 the tables could not be read, 4 migrations not applied yet.
 GRAPH_SYNC_HEALTH_SERVICE = "nextseek"
@@ -761,7 +761,7 @@ def _indented(head: str, lines: list[str]) -> str:
 
 def _graph_sync_health_result(name: str, returncode: int, stdout: str, stderr: str,
                               wait_s: float) -> HealthResult:
-    """Read the command's exit status and its JSON line into one health line (SPEC-ci-health D13, D15)."""
+    """Read the command's exit status and its JSON line into one health line."""
     payload = _graph_sync_health_payload(stdout)
     verdict = payload.get("verdict")
     summary = str(payload.get("summary") or "")
@@ -794,7 +794,7 @@ def _graph_sync_health_result(name: str, returncode: int, stdout: str, stderr: s
 def check_graph_sync_health(repo_root: Path, env: dict[str, str], *,
                             wait_s: float = GRAPH_SYNC_HEALTH_WAIT_S, poll_s: float = GRAPH_SYNC_HEALTH_POLL_S,
                             sleep=time.sleep, clock=time.monotonic) -> HealthResult:
-    """How the graph sync is doing, asked of the app container (SPEC-ci-health D12 to D16). Reads only.
+    """How the graph sync is doing, asked of the app container. Reads only.
 
     Not through ``compose_exec``, like ``check_graph_drift``: the exit status is the verdict and stdout its detail.
     A container still running its entrypoint's ``migrate`` answers 4 and is asked again every ``poll_s`` seconds for

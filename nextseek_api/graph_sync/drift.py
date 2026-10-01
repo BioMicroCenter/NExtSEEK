@@ -485,7 +485,7 @@ def _differing(mysql: dict, graph: dict, keys: tuple) -> list[dict]:
 
 
 def _check_catalog_properties(driver, db, cat, checks: list, stats: dict) -> None:
-    """The catalog's properties beyond titles, by id (gap review G18). Titles, and ids on one side only, are the
+    """The catalog's properties beyond titles, by id. Titles, and ids on one side only, are the
     checks above and gate G's check 5; these compare what the catalog sync writes besides them."""
     mysql_types = {int(t["id"]): t for t in cat.sample_types if t.get("id") is not None}
     graph_types = {int(r["id"]): r for r in _records(_run(driver, db, GRAPH_TYPE_PROPERTIES, read=True))}
@@ -532,7 +532,7 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
         _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
     text = _capabilities_text()
     if text is None:
-        # Unreadable is a failure, not a skip: a skipped check reads as a passing one (gap review G25).
+        # Unreadable is a failure, not a skip: a skipped check reads as a passing one.
         _check(checks, "catalog.assistant_investigations", "readable", "unreadable", passed=False,
                detail="/".join(ASSISTANT_CAPABILITIES))
     else:

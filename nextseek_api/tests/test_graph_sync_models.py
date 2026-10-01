@@ -114,7 +114,7 @@ def test_a_new_outbox_row_is_not_failing():
 
 
 def test_0023_adds_failing_since_on_the_single_chain_of_the_app():
-    """0023 follows 0022 and sits on the app's one chain (SPEC-ci-health D1). Not "0023 is the leaf": a later
+    """0023 follows 0022 and sits on the app's one chain. Not "0023 is the leaf": a later
     migration must not break this test."""
     loader = MigrationLoader(None, ignore_no_migrations=True)
     leaves = loader.graph.leaf_nodes("nextseek_api")

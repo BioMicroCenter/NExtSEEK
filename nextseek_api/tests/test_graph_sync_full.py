@@ -549,7 +549,7 @@ def test_graph_only_samples_follow_the_deletion_rule(world, monkeypatch, tmp_pat
 
 
 # A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title: the old node still
-# holds a Sample node MySQL lacks, so its title reads as held under another id until that sample is retired (R19).
+# holds a Sample node MySQL lacks, so its title reads as held under another id until that sample is retired.
 _TITLE_CONFLICT = [{"title": "TIS", "graph_id": 9, "mysql_id": 26}]
 _GONE_SAMPLE = {"element_id": "4:s:99", "id": 99, "uuid": "TIS-X-99", "type": "TIS", "synced": True,
                 "incident_edges": 2}

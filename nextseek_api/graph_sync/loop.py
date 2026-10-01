@@ -85,7 +85,7 @@ ERROR_INTERVAL_S = 60.0                # after a failed pass, so a broken box lo
 KEEP_RUN_DIRS = 20                     # run directories kept per kind
 DEFER_BACKOFF_S = 60                   # how long a deferred row waits; it counts no attempt
 MAX_ROWS_PER_PASS = 1_000              # a pass with more work than this finishes it at the next one
-MERGED_KIND = "samples"                # the one kind whose single-sample rows the drain merges (A13)
+MERGED_KIND = "samples"                # the one kind whose single-sample rows the drain merges
 MERGED_KEY_PREFIX = "sample:"          # the key of a single-sample row; a batch row is never merged
 # A single-sample row claimed this many times since it was last written drains alone, and no other row takes it in:
 # a sync that raises on one sample fails every row merged with it, and the group, claimable again at one moment, would
@@ -271,7 +271,7 @@ def _ids_of(claim) -> list[int]:
 
 
 def _merges(claim) -> bool:
-    """Whether the drain merges more rows into this one: a single-sample ``samples`` row (A13)."""
+    """Whether the drain merges more rows into this one: a single-sample ``samples`` row."""
     return claim.kind == MERGED_KIND and claim.key.startswith(MERGED_KEY_PREFIX)
 
 
@@ -445,7 +445,7 @@ def _gapped(claim, result: dict, entry: dict, *, now: datetime, merged=(), label
 
 def _drain_one(driver, db, claim, opts: Options, *, now: datetime, launch, started: datetime | None = None,
                clock=None, merged=()) -> dict:
-    """Drain one claimed row, with the single-sample rows ``merged`` into it (A13): one by-id sync over all their
+    """Drain one claimed row, with the single-sample rows ``merged`` into it: one by-id sync over all their
     ids, and every row closed, deferred or failed with that sync's outcome, except a structural gap, which fails only
     the samples it names (``_gapped``). ``now`` is the time of the claim and
     stamps an in process row's outcome; ``started`` (the pass start, ``now`` when not given) names the run
@@ -521,7 +521,7 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
             break
         merged = ()
         if _may_merge(claim):
-            # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each (A13). Merged
+            # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each. Merged
             # rows count toward MAX_ROWS_PER_PASS like any other. A row that has failed twice merges with nothing,
             # unless its last failure was a gap traced to it; a row waiting out a title conflict never does.
             limit = min(writer.SAMPLE_CHUNK - 1, MAX_ROWS_PER_PASS - rows - 1)
