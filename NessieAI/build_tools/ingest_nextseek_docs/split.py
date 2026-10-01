@@ -1,4 +1,4 @@
-"""Fence-aware H1 splitter for GitBook-derived markdown."""
+"""Fence-aware H1 splitter for the user docs markdown."""
 from __future__ import annotations
 
 import re
@@ -14,7 +14,7 @@ EMPTY_DESCRIPTION_FALLBACK = "(section overview)"
 
 @dataclass
 class Section:
-    """One top-level GitBook page."""
+    """One top-level docs page."""
 
     ordinal: int
     title: str

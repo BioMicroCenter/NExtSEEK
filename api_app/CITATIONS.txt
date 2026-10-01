@@ -44,7 +44,6 @@ nextseek_api/serializers.py
 nextseek_api/tests/test_serializers.py
 
 # --- Checked as candidate inbound edges, and excluded ---
-docker/cc-runtime/docs/nextseek/09-nextseek.md
 nextseek_api/attributes/tests/test_physical_safeguards_db.py
 
 # --- Test configuration, pins, and deployment topology ---

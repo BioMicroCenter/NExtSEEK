@@ -197,9 +197,9 @@ Two attempts is the budget for any single user question. The user wants accurate
 <!-- BEGIN NEXTSEEK-DOCS (auto-generated) -->
 ## NExtSEEK Documentation
 
-NExtSEEK is a variant of SEEK that converts SEEK into an active data management platform. This project has been developed out of the [MIT…
+NExtSEEK is a layer built over [FAIRDOM-SEEK](https://seek4science.org/) for the active management of data from research projects that are…
 
-Top-level sections: Overview, Using SEEK and NExtSEEK, Uploading, Searching / Downloading, Admin Pages, Useful Links, Installation, SEEK, NExtSEEK, Contact / Staff.
+Top-level sections: Overview, Using NExtSEEK, Statistics, The data model, Sample types, Assays, Projects and templates, Uploading, Searching and downloading, Graph search, Nessie, the assistant, API, Admin pages, Useful links, Installation, Production setup.
 
 For detail, read `/app/docs/nextseek/README.md` first.
 <!-- END NEXTSEEK-DOCS (auto-generated) -->

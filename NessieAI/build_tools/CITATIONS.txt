@@ -16,7 +16,7 @@ build_tools/gen_op_surfaces/paths.py
 build_tools/gen_op_surfaces/route_capabilities.py
 build_tools/gen_op_surfaces/skills.py
 
-# --- ingest_nextseek_docs: the GitBook docs snapshot generator ---
+# --- ingest_nextseek_docs: the in-repo docs snapshot generator ---
 build_tools/ingest_nextseek_docs/__init__.py
 build_tools/ingest_nextseek_docs/__main__.py
 build_tools/ingest_nextseek_docs/constants.py

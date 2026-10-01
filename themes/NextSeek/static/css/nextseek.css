@@ -652,83 +652,145 @@ body.sidebar-open .sidebar-scrim { display: block; }
 }
 
 /* ================================================
-   Getting Started / Tutorials page
+   User docs (/docs/, themes/NextSeek/docs/*.md)
    ================================================ */
-.help-page {
-    max-width: 760px;
-    margin: 0 auto;
-    padding: 3rem 1.5rem 4rem;
+.docs {
+    display: grid;
+    grid-template-columns: 13rem minmax(0, 46rem) 12rem;
+    gap: 2.5rem;
+    justify-content: center;
+    align-items: start;
     font-family: var(--ns-font-body);
     color: var(--ns-body);
-    line-height: 1.7;
 }
-.help-eyebrow {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+.docs-nav, .docs-outline {
+    position: sticky;
+    top: 1.5rem;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    font-size: 0.875rem;
+}
+.docs-nav > summary { display: none; }
+.docs-nav ul, .docs-outline ul { list-style: none; margin: 0 0 1.25rem; padding: 0; }
+.docs-nav-section {
+    font-size: 0.8rem;
+    font-weight: 600;
     color: var(--ns-muted);
-    font-weight: 600;
-    margin: 0 0 0.5rem;
+    margin: 0 0 0.35rem;
 }
-.help-page h1 {
-    font-size: 2.25rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
-    color: var(--ns-ink);
-    margin: 0 0 0.75rem;
-}
-.help-lede {
-    font-size: 1.05rem;
+.docs-nav a, .docs-outline a {
+    display: block;
+    padding: 0.3rem 0.6rem;
+    border-radius: 6px;
     color: var(--ns-body);
-    margin: 0 0 2rem;
-}
-.help-toc {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1.25rem;
-    padding: 1rem 0;
-    border-top: 1px solid var(--ns-border);
-    border-bottom: 1px solid var(--ns-border);
-    margin-bottom: 2.5rem;
-}
-.help-toc a {
-    color: var(--ns-crimson);
     text-decoration: none;
-    font-size: 0.92rem;
+    line-height: 1.4;
 }
-.help-toc a:hover { text-decoration: underline; }
+.docs-nav a:hover, .docs-outline a:hover { background: var(--ns-sidebar-hover); color: var(--ns-ink); }
+.docs-nav a[aria-current="page"] { background: var(--ns-crimson-soft); color: var(--ns-crimson); font-weight: 600; }
+.docs-outline a { padding: 0.2rem 0.6rem; border-left: 2px solid var(--ns-border); border-radius: 0; color: var(--ns-muted); }
 
-.help-section {
-    margin: 0 0 2.5rem;
-}
-.help-section h2 {
-    font-size: 1.5rem;
-    font-weight: 600;
-    letter-spacing: -0.015em;
+.docs-article { font-size: 1rem; line-height: 1.7; min-width: 0; }
+.docs-article h1 {
+    font-size: 2.1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
     color: var(--ns-ink);
-    margin: 0 0 0.75rem;
+    margin: 0.25rem 0 1rem;
 }
-.help-section h3 {
-    font-size: 1.1rem;
+.docs-article h2 {
+    font-size: 1.4rem;
     font-weight: 600;
+    letter-spacing: -0.01em;
     color: var(--ns-ink);
-    margin: 1.5rem 0 0.5rem;
+    margin: 2.5rem 0 0.75rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--ns-border);
+    scroll-margin-top: 1rem;
 }
-.help-section p,
-.help-section ol,
-.help-section ul {
-    font-size: 0.98rem;
+.docs-article h3 { font-size: 1.1rem; font-weight: 600; color: var(--ns-ink); margin: 1.75rem 0 0.5rem; }
+.docs-article p, .docs-article ul, .docs-article ol { margin: 0 0 1rem; }
+.docs-article ul, .docs-article ol { padding-left: 1.4rem; }
+.docs-article li { margin-bottom: 0.3rem; }
+.docs-article a { color: var(--ns-crimson); text-underline-offset: 2px; }
+.docs-article a:hover { color: var(--ns-crimson-hover); }
+.docs-article code {
+    font-family: var(--ns-font-mono);
+    font-size: 0.875em;
+    color: var(--ns-ink);
+    background: var(--ns-sidebar-hover);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
 }
-.help-section ol, .help-section ul {
-    padding-left: 1.25rem;
+.docs-article pre {
+    background: var(--ns-ink);
+    color: #f4f4f6;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin: 0 0 1.25rem;
 }
-.help-cta {
-    background: var(--ns-crimson-soft);
-    border: 1px solid var(--ns-crimson-border);
-    border-radius: 10px;
-    padding: 1.25rem 1.5rem;
+.docs-article pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+.docs-article table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin: 0 0 1.25rem;
 }
-.help-cta h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+.docs-article th, .docs-article td { border-bottom: 1px solid var(--ns-border); padding: 0.45rem 0.9rem 0.45rem 0; text-align: left; vertical-align: top; }
+.docs-article th { font-weight: 600; color: var(--ns-ink); }
+/* Figures are the centre of these pages: full article width, quiet frame, caption under. */
+.docs-article figure { margin: 1.5rem 0 2rem; }
+.docs-article img { display: block; max-width: 100%; height: auto; border: 1px solid var(--ns-border); border-radius: 8px; }
+.docs-article figcaption { font-size: 0.85rem; color: var(--ns-muted); margin-top: 0.5rem; line-height: 1.5; }
+.docs-article .admonition {
+    border-left: 3px solid var(--ns-ink);
+    background: var(--ns-sidebar-hover);
+    border-radius: 0 8px 8px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 0 0 1.25rem;
+}
+.docs-article .admonition.warning { border-left-color: #f0c040; background: #fff8e1; }
+.docs-article .admonition-title { font-weight: 600; color: var(--ns-ink); margin-bottom: 0.25rem; }
+.docs-article .admonition > :last-child { margin-bottom: 0; }
+
+.docs-pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--ns-border);
+}
+.docs-pager a {
+    display: block;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--ns-border);
+    border-radius: 8px;
+    color: var(--ns-ink);
+    font-weight: 600;
+    text-decoration: none;
+    min-width: 0;
+}
+.docs-pager a:hover { border-color: var(--ns-crimson-border); background: var(--ns-crimson-soft); }
+.docs-pager span { display: block; font-size: 0.8rem; font-weight: 400; color: var(--ns-muted); }
+.docs-pager-next { margin-left: auto; text-align: right; }
+
+@media (max-width: 1279.98px) {
+    .docs { grid-template-columns: 13rem minmax(0, 46rem); }
+    .docs-outline { display: none; }
+}
+@media (max-width: 991.98px) {
+    .docs { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .docs-nav { position: static; max-height: none; border: 1px solid var(--ns-border); border-radius: 8px; padding: 0 0.75rem; }
+    .docs-nav > summary { display: list-item; padding: 0.75rem 0; min-height: 44px; font-weight: 600; color: var(--ns-ink); cursor: pointer; }
+    .docs-nav a { padding: 0.6rem; min-height: 44px; }
+    .docs-article h1 { font-size: 1.7rem; }
+}
 
 /* ================================================
    EasyUI datagrid retune — direction C
@@ -802,7 +864,6 @@ body.sidebar-open .sidebar-scrim { display: block; }
     border-bottom-color: white;
     font-weight: 600;
 }
-.help-cta a { color: var(--ns-crimson); }
 
 /* ================================================
    Sidebar user panel (bottom of sidebar)
@@ -1334,6 +1395,9 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
     width: auto;
     opacity: 0.85;
 }
+.footer-links { display: flex; gap: 1rem; margin-left: auto; }
+.footer-links a { color: var(--ns-muted); text-decoration: none; }
+.footer-links a:hover { color: var(--ns-crimson); text-decoration: underline; }
 
 /* ================================================
    Home dashboard
@@ -1758,16 +1822,6 @@ a.dash-tile:hover { background: var(--ns-sidebar-hover); }
 @media (max-width: 400px) {
     .dash-h1 { font-size: 1.3rem; }
     .dash-action { padding: 0.75rem; }
-}
-
-/* ---------- Tutorials TOC mobile ---------- */
-@media (max-width: 767.98px) {
-    .help-toc a {
-        display: block;
-        padding: 12px 0;
-        min-height: 44px;
-        border-bottom: 1px solid var(--ns-border);
-    }
 }
 
 /* ---------- Projects List touch targets ---------- */

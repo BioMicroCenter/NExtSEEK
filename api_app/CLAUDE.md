@@ -126,12 +126,9 @@
   returns nothing, so `makemigrations` will happily create the app's first migration out
   of a model someone adds here and it will apply against whichever schema
   `dmac/settings.py:517-518` routes to, not the SEEK one this code actually reads.
-- **A reference doc still describes a cron wiring this repo does not have.**
-  `NessieAI/docker/cc-runtime/docs/nextseek/09-nextseek.md:141-142` shows a `CRONJOBS` list
-  invoking the rebuilder nightly; no such setting exists in this branch (a
-  `/usr/bin/grep -rn "CRONJOBS"` over the worktree, discounting `.git/`, `.superpowers/`
-  and this pair, finds that identifier nowhere else), so an agent reading that doc will
-  assume the lineage table is refreshed automatically when nothing refreshes it.
+- **Nothing refreshes the lineage table on a schedule.** No `CRONJOBS` setting exists in
+  this repo, so the rebuilder never runs nightly. The old GitBook install page that showed
+  one is retired, and Nessie's docs snapshot no longer carries it.
 
 ## Test command
 

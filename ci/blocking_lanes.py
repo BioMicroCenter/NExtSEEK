@@ -7,8 +7,9 @@ The rest of the application suite is informational: it is scored against
 ci/pytest-baseline.txt and never fails the job. The modules these globs expand
 to run a second time, in the workflow's "Blocking unit tests
 (ci/blocking_lanes.py)" step, where any failure fails it. A new test module joins by its name, with no
-edit here: the graph_sync and graph_search tests under nextseek_api/tests/, and
-the Sample Search page's view and JavaScript tests under seek/tests/.
+edit here: the graph_sync and graph_search tests under nextseek_api/tests/, the
+Sample Search page's view and JavaScript tests and the user docs tests under
+seek/tests/, and the check that Nessie's docs snapshot matches the user docs.
 
 Exit 1, printing nothing on stdout, when a glob matches no file: the workflow
 passes the output to pytest as its paths, and pytest given no path walks the
@@ -34,6 +35,10 @@ BLOCKING_GLOBS = (
     # glob seek/tests/test_graph_search_*.py when the separate Graph Search page
     # was retired and its tests went with it.
     "seek/tests/test_sample_search_*.py",
+    # The user docs at /docs/: every page renders and its links, anchors and images
+    # resolve; and Nessie's docs snapshot is regenerated whenever a page changes.
+    "seek/tests/test_docs_*.py",
+    "NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py",
 )
 
 

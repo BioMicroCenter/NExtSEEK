@@ -91,8 +91,8 @@ unreachable second entry (`ci/routes.py:882-899`, `ci/routes.py:924`).
 ### The gate
 
 `live_patterns()` walks Django's resolver and returns the patterns CI owns:
-everything under `nextseek_api/` or `seek/`, plus seven project-level patterns
-listed at `ci/gate/live_routes.py:47-55`. The Django admin and every DRF
+everything under `nextseek_api/` or `seek/`, plus eight project-level patterns
+listed at `ci/gate/live_routes.py:47-56`. The Django admin and every DRF
 format-suffix twin are dropped from the denominator entirely rather than declared
 (`ci/gate/live_routes.py:36-42`, `ci/gate/live_routes.py:62-68`). A `path()`
 route using converter syntax raises `NotImplementedError` instead of being
@@ -125,8 +125,12 @@ docstring lists the rules and what each skips.
 
 `ci/blocking_lanes.py` names, as globs in `BLOCKING_GLOBS`, the unit tests
 whose failure fails `ci-pytest.yml`: the graph_sync and graph_search tests
-under `nextseek_api/tests/`, and the Sample Search page's view and JavaScript
-tests under `seek/tests/`, whose two search boxes call graph_search. It needs only the standard library. It prints the
+under `nextseek_api/tests/`, the Sample Search page's view and JavaScript
+tests under `seek/tests/`, whose two search boxes call graph_search, the user docs
+tests (`seek/tests/test_docs_*.py`: every `/docs/` page renders and its links,
+anchors and images resolve) and the check that Nessie's docs snapshot matches those
+pages (`NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py`, so a docs edit
+lands with a fresh snapshot). It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module

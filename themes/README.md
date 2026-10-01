@@ -65,7 +65,7 @@ flipped to `seek/templates/`, because `"seek"` is listed one line earlier
 
 | Role | File | Reached from |
 |---|---|---|
-| App chrome | `base.html` | 31 `seek` templates plus `index.html` and `help/getting_started.html` |
+| App chrome | `base.html` | 31 `seek` templates plus `index.html` and `themes/NextSeek/templates/docs/page.html` |
 | Auth chrome | `base_auth.html` | `themes/NextSeek/templates/login.html:1` |
 | Sidebar nav | `nav.embed.html` | `themes/NextSeek/templates/base.html:62` |
 | Footer | `page-footer.embed.html` | `themes/NextSeek/templates/base.html:95` |
@@ -73,7 +73,7 @@ flipped to `seek/templates/`, because `"seek"` is listed one line earlier
 | User panel body | `accounts/includes/user_panel.html` | `themes/NextSeek/templates/includes/user_panel.html:8` |
 | Home dashboard | `index.html` | `dmac/views.py:333` |
 | Sign-in page | `login.html` | `dmac/views.py:168` |
-| Help page | `help/getting_started.html` | `seek/views/pages.py:7` |
+| User docs page | `themes/NextSeek/templates/docs/page.html`, rendering the markdown in `themes/NextSeek/docs/` | `seek/views/pages.py` (`docs_page`) |
 | Swagger override | `nextseek/swagger_ui.html` | `nextseek_api/urls.py:75` |
 | Superseded home fragment | `content.embed.html` | nothing |
 | Mezzanine page menu | `pages/menus/tree.html` | nothing in the live chrome |
