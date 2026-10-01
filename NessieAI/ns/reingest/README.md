@@ -39,7 +39,9 @@ kinds, each licensed only by what that run flagged:
 - `fill`: set a flagged, empty, non-run-sourced cell to a value the curator gave. Measured
   cells are never writable.
 - `choose`: pick one candidate for an ambiguous data file.
-- `place`: put an uncovered raw metric into an existing attribute, for this run only.
+- `place`: put an uncovered raw metric into an existing attribute, for this run only. Never
+  onto a run-sourced attribute, a data file or its checksum, or a sample that already holds a
+  value for it in NExtSEEK; if those values cannot be read, the place is refused.
 
 One bad or conflicting answer (two on one cell) refuses the whole call and nothing is applied.
 New-mode and update-mode workbooks are built by separate calls; an answer for a sample type that

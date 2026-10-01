@@ -15,6 +15,7 @@ from NessieAI.ns.reingest import manifest as manifest_mod
 
 pytestmark = pytest.mark.django_db
 CATALOG = "nextseek_api.services.context_catalog._sample_type_rows"
+EXISTING_VALUES = "nextseek_api.services.reingest_lookups.attribute_values_for_uids_strict"
 
 
 def _new(tmp_path, manifest_id, answers=None):
@@ -108,6 +109,7 @@ def test_a_placed_key_lands_from_the_manifest_and_is_proposed_for_review(rows, t
                         lambda uids: {u: "" for u in uids})
     monkeypatch.setattr("NessieAI.ns.reingest.proposals.attribute_exists",
                         lambda st, a: a in ("MappedPercent", "Genome", "Notes", "FooRate"))
+    monkeypatch.setattr(EXISTING_VALUES, lambda uids, attribute: {})
     manifest_id = _save_manifest(tmp_path, monkeypatch, metrics={
         "star-uniquely_mapped_percent": 91.4, "star-foo_rate": 4.2})
     result = _dispatch("build-upload-xlsx", {
@@ -123,6 +125,54 @@ def test_a_placed_key_lands_from_the_manifest_and_is_proposed_for_review(rows, t
     assert proposal["proposed_attribute"] == "FooRate"
     assert proposal["proposed_target"] == "D.SEQ"
     assert proposal.get("status", "pending") == "pending"
+
+
+def _place_foo_rate(tmp_path, monkeypatch, existing_values):
+    monkeypatch.setattr("nextseek_api.services.reingest_lookups.notes_for_uids",
+                        lambda uids: {u: "" for u in uids})
+    monkeypatch.setattr("NessieAI.ns.reingest.proposals.attribute_exists",
+                        lambda st, a: a in ("MappedPercent", "Genome", "Notes", "FooRate"))
+    monkeypatch.setattr(EXISTING_VALUES, existing_values)
+    manifest_id = _save_manifest(tmp_path, monkeypatch, metrics={
+        "star-uniquely_mapped_percent": 91.4, "star-foo_rate": 4.2})
+    before = set(tmp_path.rglob("*.xlsx"))
+    with pytest.raises(g.OpValidationError) as info:
+        _dispatch("build-upload-xlsx", {
+            "manifest_id": manifest_id, "mode": "update",
+            "answers": json.dumps({"place": [{"raw_key": "star-foo_rate",
+                                              "sample_type": "D.SEQ",
+                                              "attribute": "FooRate"}]})},
+            outputs_dir=str(tmp_path))
+    assert set(tmp_path.rglob("*.xlsx")) == before
+    return str(info.value)
+
+
+@patch(CATALOG)
+def test_a_place_onto_a_value_already_in_nextseek_is_refused(rows, tmp_path, monkeypatch):
+    """An update row carries only the backfill, and the upload deep-merges, so
+    the sample's current SEEK value is what a place would overwrite."""
+    rows.return_value = [_D_SEQ_ROW]
+    asked = []
+
+    def _held(uids, attribute):
+        asked.append(attribute)
+        return {uid: "curated" for uid in uids}
+
+    message = _place_foo_rate(tmp_path, monkeypatch, _held)
+    assert asked == ["FooRate"]
+    assert "1 sample(s) already hold a value in NExtSEEK; place never overwrites" in message
+
+
+@patch(CATALOG)
+def test_a_place_is_refused_when_existing_values_cannot_be_read(rows, tmp_path, monkeypatch):
+    rows.return_value = [_D_SEQ_ROW]
+
+    def _outage(uids, attribute):
+        raise RuntimeError("samples table unreachable at db-host:3306")
+
+    message = _place_foo_rate(tmp_path, monkeypatch, _outage)
+    assert "could not read existing values to check for overwrites" in message
+    assert "db-host" not in message
 
 
 @patch(CATALOG)

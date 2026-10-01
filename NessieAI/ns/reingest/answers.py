@@ -28,13 +28,19 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from NessieAI.ns.reingest.mapper import ORIGIN_CURATOR, MappedAttribute
 from NessieAI.ns.reingest_qa import _value_missing, group_members_for_label
 
-# Keys the row structure owns. Never set from chat, whatever QA says: UID and
-# Parent are identity and lineage, and Notes is composed under its own clobber
-# guard (reingest_qa NOTES_WOULD_CLOBBER).
-NEVER_FILLABLE = frozenset({"UID", "Parent", "Notes"})
-
 _PRIMARY = ("File_PrimaryData", "Checksum_PrimaryData")
 _SECONDARY = ("File_SecondaryData", "Checksum_SecondaryData")
+
+# Keys the row structure owns. Never set from chat, whatever QA says: UID and
+# Parent are identity and lineage, Notes is composed under its own clobber
+# guard (reingest_qa NOTES_WOULD_CLOBBER), and a checksum is a measurement of
+# a file, which only the run (or a choose, from the manifest) supplies.
+NEVER_FILLABLE = frozenset({"UID", "Parent", "Notes",
+                            "Checksum_PrimaryData", "Checksum_SecondaryData"})
+
+# A place moves a raw metric into an attribute; a data file and its checksum
+# are never a metric, so neither is a place target.
+NEVER_PLACEABLE = NEVER_FILLABLE | frozenset(_PRIMARY) | frozenset(_SECONDARY)
 
 
 class AnswerRejected(ValueError):
@@ -200,12 +206,24 @@ def check_choose(answer: ChooseAnswer, *, groups: list[dict]) -> list[str]:
     return []
 
 
-def check_place(answer: PlaceAnswer, *, unmapped: list[dict], rows, attribute_exists) -> list[str]:
+def check_place(answer: PlaceAnswer, *, unmapped: list[dict], rows, attribute_exists,
+                run_sourced, existing_values) -> list[str]:
+    """Reasons ``answer`` is refused; empty means allowed.
+
+    ``run_sourced`` is the sample type's run-sourced attribute set, and
+    ``existing_values(uids, attribute)`` returns ``{uid: current value}`` for
+    the targeted samples that already hold one in NExtSEEK. An update row
+    carries only the backfill, and the upload deep-merges it over the sample,
+    so the mapped row alone cannot show what a place would overwrite. Any
+    failure of that lookup refuses the place; it never allows it.
+    """
     label = f"place {answer.raw_key} -> {answer.sample_type}.{answer.attribute}"
     if answer.raw_key not in {u.get("raw_key") for u in unmapped}:
         return [f"{label}: not an uncovered key in this run"]
-    if answer.attribute in NEVER_FILLABLE:
+    if answer.attribute in NEVER_PLACEABLE:
         return [f"{label}: {answer.attribute} is never set from chat"]
+    if answer.attribute in run_sourced:
+        return [f"{label}: this attribute is measured by the run; it cannot be placed from chat"]
     existing = [r for r in rows if r.uid]
     if not existing:
         return [f"{label}: no existing {answer.sample_type} rows in this run carry per-sample metrics"]
@@ -214,6 +232,13 @@ def check_place(answer: PlaceAnswer, *, unmapped: list[dict], rows, attribute_ex
     if not attribute_exists(answer.sample_type, answer.attribute):
         return [f"{label}: {answer.attribute} is not defined on {answer.sample_type}; "
                 "the upload would reject the row"]
+    try:
+        held = existing_values(sorted({r.uid for r in existing}), answer.attribute)
+    except Exception:  # noqa: BLE001 -- an unreadable sample must never read as empty
+        return [f"{label}: could not read existing values to check for overwrites"]
+    if held:
+        return [f"{label}: {len(held)} sample(s) already hold a value in NExtSEEK; "
+                "place never overwrites"]
     return []
 
 
@@ -275,7 +300,7 @@ def _conflicts(bundle: Answers, findings_by_type) -> list[str]:
 
 
 def validate(bundle: Answers, *, findings_by_type, mapped_by_type, unmapped, groups,
-             run_sourced_for, attribute_exists) -> None:
+             run_sourced_for, attribute_exists, existing_values) -> None:
     reasons: list[str] = _conflicts(bundle, findings_by_type)
     for answer in bundle.fill:
         reasons += check_fill(answer, findings=findings_by_type.get(answer.sample_type, []),
@@ -286,7 +311,9 @@ def validate(bundle: Answers, *, findings_by_type, mapped_by_type, unmapped, gro
     for answer in bundle.place:
         reasons += check_place(answer, unmapped=unmapped,
                                rows=mapped_by_type.get(answer.sample_type, []),
-                               attribute_exists=attribute_exists)
+                               attribute_exists=attribute_exists,
+                               run_sourced=run_sourced_for(answer.sample_type),
+                               existing_values=existing_values)
     if reasons:
         raise AnswerRejected(reasons)
 

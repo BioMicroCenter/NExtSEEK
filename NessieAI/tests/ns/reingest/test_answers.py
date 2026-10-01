@@ -13,6 +13,11 @@ from NessieAI.ns.reingest_qa import (
 RNASEQ = maps.load("nf-core/rnaseq")
 
 
+def _NO_VALUES(uids, attribute):
+    """The existing-values lookup when no targeted sample holds a value."""
+    return {}
+
+
 def _finding(sample_type, attribute, row, code=MISSING_REQUIRED, severity=HARD):
     return Finding(code=code, severity=severity, sample_type=sample_type,
                    attribute=attribute, row_index=row)
@@ -169,11 +174,14 @@ def test_place_needs_an_uncovered_key_and_a_defined_attribute():
     place = answers.PlaceAnswer(raw_key="star-foo_rate", sample_type="D.SEQ",
                                 attribute="FooRate")
     assert answers.check_place(place, unmapped=unmapped, rows=rows,
-                               attribute_exists=lambda st, a: True) == []
+                               attribute_exists=lambda st, a: True,
+                               run_sourced=frozenset(), existing_values=_NO_VALUES) == []
     assert "not defined" in answers.check_place(
-        place, unmapped=unmapped, rows=rows, attribute_exists=lambda st, a: False)[0]
+        place, unmapped=unmapped, rows=rows, attribute_exists=lambda st, a: False,
+        run_sourced=frozenset(), existing_values=_NO_VALUES)[0]
     assert "not an uncovered key" in answers.check_place(
-        place, unmapped=[], rows=rows, attribute_exists=lambda st, a: True)[0]
+        place, unmapped=[], rows=rows, attribute_exists=lambda st, a: True,
+        run_sourced=frozenset(), existing_values=_NO_VALUES)[0]
 
 
 def test_place_onto_a_mapped_attribute_is_refused():
@@ -183,14 +191,16 @@ def test_place_onto_a_mapped_attribute_is_refused():
     place = answers.PlaceAnswer(raw_key="star-foo", sample_type="D.SEQ",
                                 attribute="MappedPercent")
     assert answers.check_place(place, unmapped=[{"raw_key": "star-foo"}], rows=rows,
-                               attribute_exists=lambda st, a: True)
+                               attribute_exists=lambda st, a: True,
+                               run_sourced=frozenset(), existing_values=_NO_VALUES)
 
 
 def test_place_onto_a_type_without_existing_rows_is_refused():
     place = answers.PlaceAnswer(raw_key="star-foo", sample_type="A.ALN", attribute="X")
     rows = [MappedRow(sample_type="A.ALN")]   # new rows carry no per-sample metrics
     assert answers.check_place(place, unmapped=[{"raw_key": "star-foo"}], rows=rows,
-                               attribute_exists=lambda st, a: True)
+                               attribute_exists=lambda st, a: True,
+                               run_sourced=frozenset(), existing_values=_NO_VALUES)
 
 
 def test_one_bad_answer_rejects_the_whole_set_with_every_reason():
@@ -204,7 +214,7 @@ def test_one_bad_answer_rejects_the_whole_set_with_every_reason():
         answers.validate(bundle, findings_by_type=findings, mapped_by_type=rows,
                          unmapped=[], groups=[_group()],
                          run_sourced_for=lambda st: answers.run_sourced_attributes(RNASEQ, {}, st),
-                         attribute_exists=lambda st, a: True)
+                         attribute_exists=lambda st, a: True, existing_values=_NO_VALUES)
     assert len(exc.value.reasons) == 2   # Genome (run-sourced) and the bad path
 
 
@@ -292,7 +302,7 @@ def _validate(bundle, findings=None, rows=None, unmapped=(), groups=()):
     answers.validate(bundle, findings_by_type=findings or {}, mapped_by_type=rows or {},
                      unmapped=list(unmapped), groups=list(groups),
                      run_sourced_for=lambda st: frozenset(),
-                     attribute_exists=lambda st, a: True)
+                     attribute_exists=lambda st, a: True, existing_values=_NO_VALUES)
 
 
 def test_two_fills_on_overlapping_rows_are_refused():
@@ -348,3 +358,71 @@ def test_a_fill_and_a_place_on_one_cell_are_refused():
     with pytest.raises(answers.AnswerRejected) as exc:
         _validate(bundle, findings, _SEQ_ROWS, _UNMAPPED)
     assert "place D.SEQ.FooRate: also set by a fill" in exc.value.reasons
+
+
+# --- place never overwrites curated data, nor writes a measured cell ---------
+
+def _check_place(place, *, rows=None, run_sourced=frozenset(), existing_values=_NO_VALUES):
+    return answers.check_place(
+        place, unmapped=[{"raw_key": place.raw_key}],
+        rows=rows if rows is not None else _SEQ_ROWS["D.SEQ"],
+        attribute_exists=lambda st, a: True, run_sourced=run_sourced,
+        existing_values=existing_values)
+
+
+def test_place_onto_a_run_sourced_attribute_is_refused():
+    errors = _check_place(_place(attribute="TotalReads"),
+                          run_sourced=answers.run_sourced_attributes(RNASEQ, {}, "D.SEQ"))
+    assert errors == ["place star-foo -> D.SEQ.TotalReads: this attribute is measured "
+                      "by the run; it cannot be placed from chat"]
+
+
+@pytest.mark.parametrize("attribute", ["File_PrimaryData", "Checksum_PrimaryData",
+                                       "File_SecondaryData", "Checksum_SecondaryData"])
+def test_place_onto_a_data_file_or_its_checksum_is_refused(attribute):
+    assert attribute in answers.NEVER_PLACEABLE
+    errors = _check_place(_place(attribute=attribute))
+    assert errors == [f"place star-foo -> D.SEQ.{attribute}: {attribute} is never set from chat"]
+
+
+@pytest.mark.parametrize("attribute", ["Checksum_PrimaryData", "Checksum_SecondaryData"])
+def test_a_checksum_is_never_fillable(attribute):
+    assert attribute in answers.NEVER_FILLABLE
+    rows = [MappedRow(sample_type="A.ALN")]
+    errors = answers.check_fill(_fill("A.ALN", attribute),
+                                findings=[_finding("A.ALN", attribute, 0)],
+                                rows=rows, run_sourced=frozenset())
+    assert errors == [f"fill A.ALN.{attribute}: {attribute} is never set from chat"]
+
+
+def test_place_is_refused_when_a_sample_already_holds_a_value_in_nextseek():
+    asked = []
+
+    def _existing(uids, attribute):
+        asked.append((list(uids), attribute))
+        return {"D.SEQ-EXAMPLE-1": "0.42"}
+
+    errors = _check_place(_place(), existing_values=_existing)
+    assert asked == [(["D.SEQ-EXAMPLE-1"], "FooRate")]
+    assert errors == ["place star-foo -> D.SEQ.FooRate: 1 sample(s) already hold a value "
+                      "in NExtSEEK; place never overwrites"]
+
+
+def test_place_is_refused_when_existing_values_cannot_be_read():
+    def _outage(uids, attribute):
+        raise RuntimeError("samples table unreachable")
+
+    errors = _check_place(_place(), existing_values=_outage)
+    assert errors == ["place star-foo -> D.SEQ.FooRate: could not read existing values "
+                      "to check for overwrites"]
+
+
+def test_validate_passes_the_existing_values_lookup_to_place():
+    bundle = answers.Answers(place=[_place()])
+    with pytest.raises(answers.AnswerRejected) as exc:
+        answers.validate(bundle, findings_by_type={}, mapped_by_type=_SEQ_ROWS,
+                         unmapped=_UNMAPPED, groups=[],
+                         run_sourced_for=lambda st: frozenset(),
+                         attribute_exists=lambda st, a: True,
+                         existing_values=lambda uids, a: {"D.SEQ-EXAMPLE-1": 3})
+    assert "1 sample(s) already hold a value in NExtSEEK" in exc.value.reasons[0]

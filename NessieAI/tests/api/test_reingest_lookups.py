@@ -352,3 +352,33 @@ class TestNotesForUids:
 
     def test_of_an_empty_list_is_empty(self):
         assert reingest_lookups.notes_for_uids([]) == {}
+
+
+class TestAttributeValuesForUidsStrict:
+    def test_returns_only_the_uids_that_hold_a_value(self):
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.return_value.values_list.return_value = [
+                _metadata_row("uid-held", FooRate=0.42),
+                _metadata_row("uid-blank", FooRate=""),
+                _metadata_row("uid-absent", Other="x"),
+            ]
+            result = reingest_lookups.attribute_values_for_uids_strict(
+                ["uid-held", "uid-blank", "uid-absent"], "FooRate")
+        assert result == {"uid-held": 0.42}
+
+    def test_raises_when_the_fetch_fails(self):
+        # Unlike notes_for_uids, an outage must never read as "nothing held":
+        # the caller would then let a place overwrite a curated value.
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.side_effect = Exception("samples table unreachable")
+            with pytest.raises(RuntimeError):
+                reingest_lookups.attribute_values_for_uids_strict(["uid-1"], "FooRate")
+
+    def test_raises_on_metadata_it_cannot_parse(self):
+        with patch("seek.models.Samples.objects") as samples:
+            samples.filter.return_value.values_list.return_value = [("uid-1", "{not json")]
+            with pytest.raises(RuntimeError):
+                reingest_lookups.attribute_values_for_uids_strict(["uid-1"], "FooRate")
+
+    def test_of_an_empty_list_is_empty(self):
+        assert reingest_lookups.attribute_values_for_uids_strict([], "FooRate") == {}

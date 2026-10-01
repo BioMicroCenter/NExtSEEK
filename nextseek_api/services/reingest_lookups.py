@@ -329,6 +329,47 @@ def notes_for_uids(uids: list[str]) -> dict[str, str]:
     return out
 
 
+def attribute_values_for_uids_strict(uids: list[str], attribute: str) -> dict[str, object]:
+    """Current non-empty ``attribute`` value per UID, from ``json_metadata``.
+
+    The strict twin of ``notes_for_uids``, for a caller that must not overwrite
+    a curated value (a placed metric in reingest). A UID that is absent, or
+    whose value is empty, is simply omitted. But a failed fetch or a row whose
+    metadata cannot be parsed RAISES ``RuntimeError``: "could not read" must
+    never come back looking like "nothing held".
+    """
+    clean = sorted({str(u).strip() for u in uids if str(u or "").strip()})
+    if not clean:
+        return {}
+    try:
+        from seek.models import Samples
+
+        rows = list(
+            Samples.objects.filter(uuid__in=clean).values_list("uuid", "json_metadata")
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"samples unreachable reading {attribute!r} for {len(clean)} UID(s): {exc}"
+        ) from exc
+
+    out: dict[str, object] = {}
+    for uid, raw in rows:
+        if not uid:
+            continue
+        try:
+            meta = json.loads(raw) if raw else {}
+        except ValueError as exc:
+            raise RuntimeError(f"unreadable metadata on sample {uid}") from exc
+        if not isinstance(meta, dict):
+            raise RuntimeError(f"unreadable metadata on sample {uid}")
+        value = meta.get(attribute)
+        if value is None or (isinstance(value, str) and not value.strip()) \
+                or (isinstance(value, (list, dict)) and not value):
+            continue
+        out[str(uid)] = value
+    return out
+
+
 def assay_ids_for_parents_strict(
     parent_uids: list[str], internal_assay_title: str
 ) -> list[int]:

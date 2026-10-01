@@ -1425,6 +1425,19 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             mapped_by_type=mapped_by_type, needs_definition=needs_definition,
             reports_by_type=reports_by_type)
 
+    def _existing_values(uids: list[str], attribute: str) -> dict:
+        """What a place would overwrite: the samples' current SEEK values.
+
+        Strict: an outage raises, and answers.check_place refuses the place on
+        any exception. The driver text stays in the server log."""
+        from nextseek_api.services.reingest_lookups import attribute_values_for_uids_strict
+        try:
+            return attribute_values_for_uids_strict(uids, attribute)
+        except Exception:
+            logger.warning("reingest: existing-values lookup failed for %s", attribute,
+                           exc_info=True)
+            raise
+
     first = _assemble(result.rows)
     answers_deferred: list[dict] = []
     if answers.is_empty():
@@ -1444,7 +1457,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
                 groups=list(first.ambiguous_primary_groups.values()),
                 run_sourced_for=lambda st: answers_mod.run_sourced_attributes(
                     pipeline_map, approved, st),
-                attribute_exists=_attribute_exists)
+                attribute_exists=_attribute_exists,
+                existing_values=_existing_values)
         except answers_mod.AnswerRejected as exc:
             raise OpValidationError(str(exc)) from exc
         answers_mod.apply_answers(
