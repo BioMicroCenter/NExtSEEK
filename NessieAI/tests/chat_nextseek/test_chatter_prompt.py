@@ -974,3 +974,11 @@ def test_the_rows_sentence_gives_the_total_with_and_without_the_other_rows():
     assert "say which, and give the total both with and without them." in text
     assert "say which, and give the total without them." not in text
 
+
+def test_the_one_exception_no_longer_promises_a_not_contains_override():
+    text = _prompt_text()
+
+    assert ("(the project or investigation title it names, or a sample type label that names the thing asked "
+            "for, such as T_D_FLOW for flow cytometry data)") in text
+    assert "a NOT ... CONTAINS that removes" not in text
+
