@@ -11,8 +11,9 @@ recognizer for one fixed grammar (spec section 5.3), classifies every node and r
   graph_search's clause, ``any(p IN s.project_ids WHERE p IN $projects)``, rendered with generated names.
 - A ``Project`` gets ``p.id IN $__scope_projects``.
 - An ``Assay`` (graph schema 1.3) is a catalog node, the same for every caller: no predicate, every property reads.
-  ``INPUT_TO`` and ``OUTPUT_OF`` reach it, at fixed length, from a scoped sample. A name that may hold an Assay
-  (``_Names.assay``) proves no joined node: an Assay is visible to everyone and contains nothing.
+  ``INPUT_TO`` and ``OUTPUT_OF`` reach it, at fixed length, from a scoped sample; an alternation of those two types
+  alone is one such link (``assay_alternation``), and every other alternation is refused. A name that may hold an
+  Assay (``_Names.assay``) proves no joined node: an Assay is visible to everyone and contains nothing.
 - A ``Study``, ``Investigation`` or ``Person`` carries no ``project_ids``; it must be joined, by a relationship
   pattern in the same pattern list, as the container of something visible: the study of a scoped sample, the
   investigation of such a study or of the caller's project, a member of the caller's project (``prove_joined``).
@@ -1129,6 +1130,21 @@ class _Parser:
         self.expect_p("}")
         self.leave()
 
+    def assay_alternation(self, first: str) -> str | None:
+        """After ``first`` in a relationship pattern: INPUT_TO and OUTPUT_OF are the two roles of one link, both from a
+        sample to an Assay under one rule, so ``first|...`` naming those two types alone reads as one assay
+        relationship (``first``, whose ends ``finalize`` checks as for either type). Any other type, any other label
+        operator, and every other alternation answer None, with the position left where it was."""
+        start, types = self.i, {first}
+        while self.at_p("|") and self.at_name(1):
+            types.add(self.peek(1).value)
+            self.i += 2
+        if not (self.at_p("|") or self.at_p(":") or self.at_p("&") or self.at_p("!")) \
+                and types <= ASSAY_RELATIONSHIPS:
+            return first
+        self.i = start
+        return None
+
     def rel(self, names: _Names) -> _Rel:
         start = self.tok
         if self.at_p("<"):
@@ -1152,7 +1168,7 @@ class _Parser:
                 rtype = self.tok.value
                 self.i += 1
                 if self.at_p("|") or self.at_p(":") or self.at_p("&") or self.at_p("!"):
-                    rtype = None
+                    rtype = self.assay_alternation(rtype)
             if rtype is None:
                 self.refuse("relationship_type", start.start, "a relationship without exactly one type")
                 self.skip_label_tokens(rel=True)

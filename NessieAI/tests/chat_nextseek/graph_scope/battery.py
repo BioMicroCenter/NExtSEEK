@@ -393,6 +393,27 @@ ACCEPTED: list[Case] = [
          "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay), (s)-[:IN_STUDY]->(st:Study) WHERE a.title = $assay\n"
          "RETURN st.title AS study, count(DISTINCT s) AS n ORDER BY study",
          {"assay": "Staining"}, S, ("st (Study): joined to s",)),
+    # INPUT_TO and OUTPUT_OF are the two roles of one link, both from a sample to an Assay: an alternation of those two
+    # types alone is one assay link; every other alternation is refused.
+    Case("assay.either_role",
+         "MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) WHERE a.title = $assay "
+         "RETURN type(r) AS role, count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.either_role_per_assay",
+         "MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN type(r) AS role, a.title AS t, count(*) AS n",
+         {}, S),
+    Case("assay.either_role_unnamed",
+         "MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.either_role_undirected",
+         "MATCH (a:Assay)-[r:OUTPUT_OF|INPUT_TO]-(s:T_TIS) RETURN a.title AS t, type(r) AS role, count(*) AS n",
+         {}, S),
+    Case("assay.either_role_optional",
+         "MATCH (a:Assay) OPTIONAL MATCH (a)<-[r:INPUT_TO|OUTPUT_OF]-(s:Sample) RETURN a.title AS t, count(r) AS n",
+         {}, S),
+    Case("assay.either_role_of_one_sample",
+         "MATCH (s:Sample {uuid: $uid})-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN type(r) AS role, a.title AS t",
+         {"uid": "TIS-230202BBB-2"}, S),
 ]
 
 # The one taught shape that reads the catalog, whose statistics are computed over every project (decision 4).
@@ -542,6 +563,15 @@ REFUSALS: list[Refusal] = [
             ("relationship_type",)),
     Refusal("relationship_type.alternation", "MATCH (s:Sample)-[:DERIVED_FROM|IN_STUDY]->(p:Sample) RETURN p.id AS id",
             ("relationship_type",)),
+    Refusal("relationship_type.input_to_or_in_study",
+            "MATCH (s:Sample)-[r:INPUT_TO|IN_STUDY]->(a:Assay) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.input_to_or_run_in",
+            "MATCH (s:Sample)-[r:INPUT_TO|RUN_IN]->(a:Assay) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.either_role_from_a_study",
+            "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN count(*) AS n",
+            ("relationship_type",)),
+    Refusal("variable_length.either_role",
+            "MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF*1..2]-(t:Sample) RETURN count(*) AS n", ("variable_length",)),
     Refusal("relationship_type.of_type", "MATCH (s:Sample)-[:OF_TYPE]->(t:SampleType) RETURN t.title AS t",
             ("relationship_type", "label_not_allowed")),
     Refusal("relationship_type.has_attribute",
