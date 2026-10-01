@@ -111,7 +111,7 @@ Not covered by any test: visual layout, CSS beyond token presence, the theme scr
 | Theme images | `themes/NextSeek/static/img/` | includes many legacy variants; every file is collected and served |
 | Root static | `static/img/`, `static/js/`, `static/css/` | second entry; shadowed by a theme file of the same path |
 | Chat bundle | `static/js/chat_assistant/` (`assets/`, `.vite/manifest.json`) | committed, see the bundle rule below |
-| Vendored third party | `static/admin`, `static/grappelli`, `static/filebrowser`, `static/mezzanine`, `static/fonts`, both `jquery-easyui-1.5.2/` copies | collected like anything else; the theme copy of easyui wins |
+| Vendored third party | `static/admin`, `static/grappelli`, `static/filebrowser`, `static/mezzanine`, `static/fonts`, the theme's `jquery-easyui-1.5.2/` | collected like anything else |
 
 ## Worked example: register a public `/docs/<slug>/` route
 
