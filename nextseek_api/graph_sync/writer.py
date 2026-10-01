@@ -10,7 +10,8 @@ in the design's order:
     write_sample_types > write_attributes > write_projects > write_people_and_memberships >
     write_investigation_projects > write_samples (per chunk) > write_missing_lineage >
     archive_and_drop_undeclared_derived_from > write_seek_studies (the full sync now runs
-    study_links.rebuild_in_study instead) > write_attribute_counts >
+    study_links.rebuild_in_study instead) > write_assays > replace_assay_catalog_edges >
+    replace_sample_assay_edges (per chunk) > replace_assay_runs > delete_gone_assays > write_attribute_counts >
     write_sample_type_counts > ensure_index_budget > ensure_fulltext > await_indexes > write_graphmeta
 
 Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule), ``edges_incident`` and
@@ -331,8 +332,9 @@ def archive_and_drop_child_of(driver, db, out_path: str, declared_pairs: set[tup
 # --- constraints and indexes ---------------------------------------------------------------------
 
 def ensure_constraints_v11(driver, db) -> dict:
-    """Drop v1.0's unique ``Sample.uuid``, then create every v1.1 constraint and index. A refusal raises."""
-    statements = [*q.DROP_V10_CONSTRAINTS, *q.CONSTRAINTS_V11]
+    """Drop v1.0's unique ``Sample.uuid``, then create every v1.1 constraint and index and the Assay constraint and
+    index of v1.3. A refusal raises."""
+    statements = [*q.DROP_V10_CONSTRAINTS, *q.CONSTRAINTS_V11, *q.ASSAY_CONSTRAINTS]
     for statement in statements:
         _run(driver, db, statement)
     return {"schema_statements": len(statements)}

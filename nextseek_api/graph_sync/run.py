@@ -1,15 +1,16 @@
 """The ordered graph_sync runs (the design, section 6; the sync design, section 11; docs/neo4j-schema.md, sections
 "v1.1" and "v1.2").
 
-``full_sync`` rebuilds graph schema v1.2 from MySQL in the design's order:
+``full_sync`` rebuilds the graph at the writer's schema version from MySQL in the design's order:
 
     preflight > delete ghosts > retire graph-only samples (the deletion rule) > orphan id-less samples > archive and
     delete CHILD_OF > constraints > SampleType > Attribute (declared) > Project, Person, MEMBER_OF > Investigation
     IN_PROJECT > samples (per chunk, with the census, the source hash and the parent lists) > missing lineage >
-    archive and delete undeclared DERIVED_FROM > DERIVED_FROM labels > re-key SEEK Study nodes > SEEK studies and
-    IN_STUDY (``study_links.rebuild_in_study``: IN_STUDY follows SEEK, removal only where the box's switch is on) >
-    Attribute (declared plus undeclared) > attribute and sample type counts > the index budget > the fulltext index >
-    await indexes > GraphMeta (with the label maps hash)
+    archive and delete undeclared DERIVED_FROM > DERIVED_FROM labels (and the role codes) > re-key SEEK Study nodes >
+    SEEK studies and IN_STUDY (``study_links.rebuild_in_study``: IN_STUDY follows SEEK, removal only where the box's
+    switch is on) > the Assay nodes, ACCEPTED_BY and GENERATES > every sample's INPUT_TO and OUTPUT_OF > RUN_IN > the
+    Assays gone from internal_assays > Attribute (declared plus undeclared) > attribute and sample type counts > the
+    index budget > the fulltext index > await indexes > GraphMeta (with the label maps hash)
 
 The whole run, preflight included, holds the graph-write lock (``state.graph_write_lock``), so no other graph_sync
 writer can add a sample between the MySQL scan and the graph read. A run that is not a dry run records itself in
@@ -34,6 +35,13 @@ set); a label that changes which assay the edge carries (``changed``, ``cleared`
 (``plural_missing``) are counted per property in the report and written only with ``apply_label_changes``, and then
 only where the stored values still equal the ones read just before the write.
 
+The same pass over the edges gives the assay layer's roles (graph schema 1.3, the spec's section 5.3): for each edge
+and each SEEK assay both ends hold that maps to an internal assay, one code for the child's OUTPUT_OF and one for the
+parent's INPUT_TO (``RoleCodes``). After the SEEK studies the Assay nodes and their catalog edges are written, then
+every sample's INPUT_TO and OUTPUT_OF from the codes sorted by sample, one statement per chunk that deletes the
+chunk's old edges first (a sample that holds edges and has no role now gets none), then RUN_IN, which records the
+mapping those edges were written from, then the Assays gone from ``internal_assays``.
+
 The preflight writes nothing. It builds the catalog (which enforces the label rule), scans every MySQL sample once
 (projecting it, collecting ids and the declared lineage), reads the ghost list, checks SampleType titles against the
 graph and refuses a graph where two Study nodes share a ``seek_study_id``. A problem it finds raises
@@ -54,10 +62,12 @@ Sample reaches is deleted with its Attributes, archived first to ``sample_types_
 that still holds samples is kept and reported. It holds the lock, records a run, and refuses a graph that is not at the
 writer's schema version: stamping GraphMeta would otherwise turn a graph into 1.2 without the full sync that makes one.
 
-What is held across a run is one entry per sample in three indexes (sample ids, uuids and declared lineage pairs),
-and, from the sample pass to the label step, each sample's assay and SOP ids packed 8 bytes a link; the sample data
-itself is bounded by the chunk. Project and assay links come with each page (``sources.iter_digest_rows``), the
-stream the nightly sync hashes, so both compute the same ``source_hash``.
+What is held across a run is one entry per sample in three indexes (sample ids, uuids and declared lineage pairs); from
+the sample pass to the label step, each sample's assay and SOP ids packed 8 bytes a link; from the label step to the
+sample edges, one role code per (sample, SEEK assay, role), 8 bytes each; and while the sample edges are written, the
+ids of the Samples that held such edges, 8 bytes each. The sample data itself is bounded by the chunk. Project and assay
+links come with each page (``sources.iter_digest_rows``), the stream the nightly sync hashes, so both compute the same
+``source_hash``.
 """
 from __future__ import annotations
 
@@ -296,6 +306,58 @@ class SampleLinks:
             hi = bisect_left(self._codes, (sample_id + 1) << 32, lo)
             found.update(code & 0xFFFFFFFF for code in self._codes[lo:hi])
         return tuple(sorted(found))
+
+
+class RoleCodes:
+    """The role rule's output for the whole graph (the 1.3 spec, section 5.3) as one ``array('q')``: a code
+    ``encode_pair(sample id, assay_rules.encode_role(SEEK id, role))`` per (sample, SEEK assay, role), 8 bytes each,
+    where a dict of sets costs a few hundred bytes a sample. The label step feeds it from the pass it already makes
+    over every DERIVED_FROM between two Sample nodes; ``by_sample`` sorts it once."""
+
+    def __init__(self, internal_by_seek: dict):
+        self._mapped = internal_by_seek
+        self._codes = array("q")
+        self.unpackable = 0
+
+    def __len__(self) -> int:
+        return len(self._codes)
+
+    def add_edge(self, child, parent, child_assays, parent_assays) -> None:
+        """The roles of one edge: OUTPUT_OF for the child and INPUT_TO for the parent, per SEEK assay both hold that
+        maps to an internal assay. A self-loop gives none; an id the codes cannot pack is counted in ``unpackable``."""
+        if child == parent or not child_assays or not parent_assays:
+            return
+        for seek_id in set(child_assays).intersection(parent_assays):
+            if seek_id not in self._mapped:
+                continue
+            try:
+                output = encode_pair(child, assay_rules.encode_role(seek_id, assay_rules.OUTPUT_OF))
+                input_ = encode_pair(parent, assay_rules.encode_role(seek_id, assay_rules.INPUT_TO))
+            except ValueError:
+                self.unpackable += 1
+                continue
+            self._codes.append(output)
+            self._codes.append(input_)
+
+    def by_sample(self):
+        """Yield ``(sample id, {(relationship type, Assay id): SEEK ids})`` in sample-id order, each sample once, and
+        free the codes."""
+        codes, self._codes = array("q", sorted(self._codes)), array("q")
+        current, roles, last = None, {}, None
+        for code in codes:
+            if code == last:
+                continue
+            last = code
+            sample_id, role = decode_pair(code)
+            seek_id, rel = assay_rules.decode_role(role)
+            if sample_id != current:
+                if current is not None:
+                    yield current, roles
+                current, roles = sample_id, {}
+            for assay_id in self._mapped.get(seek_id, ()):
+                roles.setdefault((rel, assay_id), set()).add(seek_id)
+        if current is not None:
+            yield current, roles
 
 
 @dataclass
@@ -620,7 +682,7 @@ def _approved_rows(driver, db, pairs: list[tuple[int, int]], label_sources: Labe
 
 
 def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes: bool = False,
-                dry_run: bool = False) -> dict:
+                dry_run: bool = False, internal_by_seek: dict | None = None, role_sink=None) -> dict:
     """Classify every DERIVED_FROM between two Sample nodes against the label rule, then write what may be written.
 
     Without ``apply_label_changes`` ``new`` edges (no singular assay label) are written, through the writer's guarded
@@ -630,6 +692,9 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
     capped examples (``labels_examples``), the refresh classes too, and left as they are. With it every edge that
     differs is written where its stored labels still equal the ones read just before the write. ``dry_run`` classifies
     and reports and writes nothing. An edge whose end has no int id (a legacy node) is counted and left alone.
+
+    With ``internal_by_seek`` the same pass collects the assay layer's roles (``RoleCodes``), handed to
+    ``role_sink`` once the read has finished.
     """
     def classify_all(result):
         # Built here, so a retried read starts clean.
@@ -637,6 +702,7 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
         by_property = {cls: Counter() for cls in _REPORTED_CLASSES}
         examples = {cls: [] for cls in _REPORTED_CLASSES}
         targets, refresh_targets = array("q"), array("q")
+        roles = RoleCodes(internal_by_seek) if internal_by_seek is not None else None
         edges = legacy = 0
         for record in result:
             edges += 1
@@ -644,6 +710,8 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
             if not (_is_packable(child) and _is_packable(parent)):
                 legacy += 1
                 continue
+            if roles is not None:
+                roles.add_edge(child, parent, label_sources.assays.get(child), label_sources.assays.get(parent))
             stored = record["stored"] or {}
             computed = label_sources.edge(child, parent)
             cls = labels.classify(stored, computed)
@@ -659,10 +727,13 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
                 targets.append(encode_pair(child, parent))
             elif cls in labels.REFRESH_CLASSES:
                 refresh_targets.append(encode_pair(child, parent))
-        return edges, legacy, classes, by_property, examples, targets, refresh_targets
+        return edges, legacy, classes, by_property, examples, targets, refresh_targets, roles
 
-    edges, legacy, classes, by_property, examples, targets, refresh_targets = _run(
+    edges, legacy, classes, by_property, examples, targets, refresh_targets, roles = _run(
         driver, db, LABEL_EDGES, read=True, transformer=classify_all)
+    role_codes = len(roles) if roles is not None else 0
+    if roles is not None and role_sink is not None:
+        role_sink(roles)
     if dry_run:
         targets, refresh_targets = array("q"), array("q")
     written: Counter = Counter()
@@ -686,6 +757,8 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
     report.update({key: written.get(key, 0) for key in _LABEL_COUNT_KEYS})
     report["labels_by_property"] = {cls: dict(sorted(c.items())) for cls, c in by_property.items()}
     report["labels_examples"] = examples
+    report["assay_role_codes"] = role_codes
+    report["assay_role_codes_unpackable"] = roles.unpackable if roles is not None else 0
     log.info("graph_sync: DERIVED_FROM labels: %d edges, %s; %d written, %d refreshed", edges, dict(classes),
              report["labels_written"], report["labels_refreshed"])
     return report
@@ -844,6 +917,46 @@ def assay_layer(driver, db, st: AssayState | None = None, *, runs: bool = True, 
     return report
 
 
+def write_sample_assay_edges(driver, db, roles: RoleCodes, chunk: int = writer.SAMPLE_CHUNK) -> dict:
+    """Every Sample's INPUT_TO and OUTPUT_OF from ``roles``, ``chunk`` samples a statement, each statement deleting
+    its samples' old edges first, so no transaction grows with the graph.
+
+    A Sample that holds such edges and has no role now gets a row with none: their ids are read before the first
+    write (``writer.sample_ids_with_assay_edges``, 8 bytes an id), so the rows this run writes never feed back into
+    the list."""
+    existing = array("q", writer.sample_ids_with_assay_edges(driver, db))
+    totals: Counter = Counter()
+    batch: dict[int, dict] = {}
+
+    def add(sample_id: int, sample_roles: dict) -> None:
+        batch[sample_id] = sample_roles
+        if len(batch) >= chunk:
+            flush()
+
+    def flush() -> None:
+        if batch:
+            totals.update(writer.replace_sample_assay_edges(driver, db, assay_rules.sample_edge_rows(batch),
+                                                            chunk=chunk))
+            batch.clear()
+
+    i = 0
+    for sample_id, sample_roles in roles.by_sample():
+        while i < len(existing) and existing[i] < sample_id:
+            add(existing[i], {})
+            i += 1
+        if i < len(existing) and existing[i] == sample_id:
+            i += 1
+        add(sample_id, sample_roles)
+    while i < len(existing):
+        add(existing[i], {})
+        i += 1
+    flush()
+    report = {key: totals.get(key, 0) for key in ("assay_edge_samples", "assay_edge_samples_missing",
+                                                   "assay_edges_written", "assay_edges_dropped")}
+    report["samples_holding_assay_edges_before"] = len(existing)
+    return report
+
+
 # --- the full sync -------------------------------------------------------------------------------
 
 @dataclass
@@ -976,6 +1089,7 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
 
     label_sources = _timed(report, "read_label_maps", LabelSources.read)
     label_maps_hash = label_sources.maps_hash()
+    assay_state = _timed(report, "read_assays", read_assays)
     totals: Counter = Counter()
 
     def write_page(projections):
@@ -996,11 +1110,19 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     _step(report, "lineage_undeclared", writer.archive_and_drop_undeclared_derived_from, driver, db,
           os.path.join(run_dir, DERIVED_FROM_ARCHIVE_FILE), DeclaredIdPairs(lineage))
     del lineage
-    _step(report, "labels", label_edges, driver, db, label_sources, apply_label_changes=apply_label_changes)
+    role_holder: list = []
+    _step(report, "labels", label_edges, driver, db, label_sources, apply_label_changes=apply_label_changes,
+          internal_by_seek=assay_state.internal_by_seek, role_sink=role_holder.append)
     del label_sources
     plan = _timed(report, "study_rekey_plan", _study_rekey_plan, driver, db)
     _step(report, "study_rekey", rekey_seek_studies, driver, db, plan)
     _step(report, "seek_studies", _seek_studies, driver, db, run_dir)
+    roles = role_holder.pop() if role_holder else RoleCodes(assay_state.internal_by_seek)
+    _step(report, "assays", assay_layer, driver, db, assay_state, runs=False, delete_gone=False)
+    _step(report, "sample_assay_edges", write_sample_assay_edges, driver, db, roles, chunk)
+    del roles
+    _step(report, "assay_runs", writer.replace_assay_runs, driver, db, assay_state.runs, assay_state.studies)
+    _step(report, "assays_gone", writer.delete_gone_assays, driver, db, assay_state.ids)
 
     census = written.census
     attributes = cat.attributes + undeclared_attributes(cat, census)
@@ -1024,7 +1146,8 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
 def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = False, run_dir: str | None = None,
               bench_keys=frozenset(), *, apply_label_changes: bool = False,
               lock_timeout_s: float = FULL_LOCK_TIMEOUT_S, record: bool = True, trigger: str = "command") -> dict:
-    """Rebuild graph schema v1.2 from MySQL, in the design's order (module docstring). Returns the report.
+    """Rebuild the graph at the writer's schema version from MySQL, in the design's order (module docstring). Returns
+    the report.
 
     ``run_dir`` receives ``full_sync.json`` (written even when the run fails or is refused), ``census.json``,
     ``retired.tsv`` (when a Sample node graph_sync wrote has left MySQL), ``child_of_archive.tsv`` (when the graph

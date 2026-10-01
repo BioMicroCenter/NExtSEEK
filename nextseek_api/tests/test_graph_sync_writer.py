@@ -565,8 +565,9 @@ def test_ensure_constraints_runs_every_statement_and_drops_the_v10_uuid_constrai
     counts = w.ensure_constraints_v11(driver, "neo4j")
     queries = driver.queries()
     assert queries[0] == q.DROP_V10_CONSTRAINTS[0]
-    assert queries[1:] == list(q.CONSTRAINTS_V11)
-    assert counts == {"schema_statements": len(q.DROP_V10_CONSTRAINTS) + len(q.CONSTRAINTS_V11)}
+    assert queries[1:] == [*q.CONSTRAINTS_V11, *q.ASSAY_CONSTRAINTS]
+    assert counts == {"schema_statements": len(q.DROP_V10_CONSTRAINTS) + len(q.CONSTRAINTS_V11)
+                      + len(q.ASSAY_CONSTRAINTS)}
 
 
 def test_ensure_constraints_fails_loudly():

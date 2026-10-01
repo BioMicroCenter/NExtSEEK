@@ -133,6 +133,7 @@ class Graph:
         self.graphmeta: dict = {}
         self.attribute_state: list[dict] = []
         self.study_duplicates: list[dict] = []
+        self.samples_with_assay_edges: list[int] = []
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -231,7 +232,10 @@ class Writers:
         self.graph = graph
         self.calls = []
         self.ghosts = ghosts if ghosts is not None else NO_GHOSTS
+        self.sample_edge_rows = []
         fakes = {
+            "sample_ids_with_assay_edges": lambda d, db: iter(list(self.graph.samples_with_assay_edges)),
+            "replace_sample_assay_edges": self._replace_sample_assay_edges,
             "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
             "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
                 "accepted_by": len(accepted), "accepted_by_written": len(accepted),
@@ -283,6 +287,13 @@ class Writers:
         self.graph.samples.update(p.id for p in projections)
         return {"samples_written": len(projections), "of_type": len(projections), "untyped": 0, "in_project": 0,
                 "in_project_expected": 0, "in_project_missing": 0, "cast_failures": 0}
+
+    def _replace_sample_assay_edges(self, d, db, rows, chunk=5000):
+        rows = list(rows)
+        self.sample_edge_rows.extend(rows)
+        written = sum(len(r["inputs"]) + len(r["outputs"]) for r in rows)
+        return {"assay_edge_samples": len(rows), "assay_edge_samples_missing": 0, "assay_edges_written": written,
+                "assay_edges_dropped": 0}
 
     def names(self):
         return [c.name for c in self.calls]
@@ -343,7 +354,7 @@ def test_full_sync_and_catalog_sync_keep_their_signatures():
 
 # --- the order -----------------------------------------------------------------------------------
 
-def test_full_sync_runs_the_schema_1_2_steps_in_order(world, monkeypatch, tmp_path, lock):
+def test_full_sync_runs_its_steps_in_order(world, monkeypatch, tmp_path, lock):
     graph = Graph()
     lock.events = graph.events
     writers = Writers(monkeypatch, graph)
@@ -355,15 +366,75 @@ def test_full_sync_runs_the_schema_1_2_steps_in_order(world, monkeypatch, tmp_pa
         "ensure_constraints_v11", "write_sample_types", "write_attributes", "write_projects",
         "write_people_and_memberships", "write_investigation_projects", "write_samples", "write_samples",
         "write_missing_lineage", "archive_and_drop_undeclared_derived_from", "write_edge_labels",
-        "rebuild_in_study", "write_attributes", "write_attribute_counts", "write_sample_type_counts",
+        "rebuild_in_study", "write_assays", "replace_assay_catalog_edges", "sample_ids_with_assay_edges",
+        "replace_sample_assay_edges", "replace_assay_runs", "delete_gone_assays",
+        "write_attributes", "write_attribute_counts", "write_sample_type_counts",
         "ensure_index_budget", "ensure_fulltext", "await_indexes", "write_graphmeta"]
     events = graph.events
     # The label step reads every edge after the lineage steps; the Study re-key is read before the SEEK studies.
     assert (events.index("archive_and_drop_undeclared_derived_from") < events.index("label_stream")
             < events.index("write_edge_labels") < events.index("study_read") < events.index("rebuild_in_study"))
+    # The assay layer: after the rebuild, nodes before the sample edges, RUN_IN after them, the gone Assays last.
+    assert (events.index("rebuild_in_study") < events.index("write_assays")
+            < events.index("replace_sample_assay_edges") < events.index("replace_assay_runs")
+            < events.index("delete_gone_assays") < events.index("write_graphmeta"))
     # relabel_orphans is left with the id-less nodes only; the graph-only ids go to the deletion rule.
     (relabel,) = writers.of("relabel_orphans")
     assert list(relabel.args[2]) == []
+
+
+# --- the assay layer (schema 1.3) ----------------------------------------------------------------
+
+def test_the_full_sync_writes_every_samples_assay_edges_from_the_label_stream(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples_with_assay_edges = [12]          # an edge from before, and no role now
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path, chunk=2)
+
+    # (11, 10) shares SEEK assay 500, mapped to 99; (12, 10) shares nothing
+    assert {r["id"]: r for r in writers.sample_edge_rows} == {
+        10: {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": [500]}], "outputs": []},
+        11: {"id": 11, "inputs": [], "outputs": [{"assay_id": 99, "seek_assay_ids": [500]}]},
+        12: {"id": 12, "inputs": [], "outputs": []}}
+    assert [len(c.args[2]) for c in writers.of("replace_sample_assay_edges")] == [2, 1]
+    assert (report["assay_role_codes"], report["samples_holding_assay_edges_before"]) == (2, 1)
+    (runs,) = writers.of("replace_assay_runs")
+    assert runs.args[2] == [{"assay_id": 99, "study_id": 7, "seek_assay_ids": [500]}]
+    (gone,) = writers.of("delete_gone_assays")
+    assert gone.args[2] == [99]
+
+
+def test_role_codes_keep_a_million_links_at_eight_bytes_each():
+    import tracemalloc
+
+    roles = run.RoleCodes({7: (99,)})
+    tracemalloc.start()
+    try:
+        for i in range(1, 500_001):
+            roles.add_edge(2 * i, 2 * i - 1, (7,), (7,))
+        held, _ = tracemalloc.get_traced_memory()
+        assert len(roles) == 1_000_000
+        assert held < 12 * 2 ** 20                   # the array: 8 bytes a code and its growth headroom
+        tracemalloc.reset_peak()
+        samples = sum(1 for _ in roles.by_sample())
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert samples == 1_000_000
+    assert peak < 96 * 2 ** 20                       # sorting once costs a list of the codes, never a dict per sample
+    assert len(roles) == 0                           # by_sample freed the codes
+
+
+def test_role_codes_answer_by_sample_with_every_role_once():
+    roles = run.RoleCodes({5: (99,), 7: (99, 120), 9: (130,)})
+    roles.add_edge(2, 1, (5, 7, 13), (5, 7))         # 13 is not mapped
+    roles.add_edge(2, 1, (5,), (5,))                  # the same roles again
+    roles.add_edge(3, 2, (9,), (9, 5))
+    roles.add_edge(4, 4, (5,), (5,))                  # a self-loop is not lineage
+    assert list(roles.by_sample()) == [
+        (1, {("INPUT_TO", 99): {5, 7}, ("INPUT_TO", 120): {7}}),
+        (2, {("OUTPUT_OF", 99): {5, 7}, ("OUTPUT_OF", 120): {7}, ("INPUT_TO", 130): {9}}),
+        (3, {("OUTPUT_OF", 130): {9}})]
 
 
 def test_every_sample_carries_its_source_hash_and_parent_lists(world, monkeypatch, tmp_path, lock):

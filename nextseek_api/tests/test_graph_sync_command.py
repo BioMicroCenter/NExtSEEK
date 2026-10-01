@@ -159,6 +159,8 @@ class WriterRecorder:
         self.ghosts = ghosts if ghosts is not None else GHOSTS
         fakes = {
             "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
+            "sample_ids_with_assay_edges": lambda d, db: iter(()),
+            "replace_sample_assay_edges": lambda d, db, rows, chunk=5000: {"assay_edge_samples": len(list(rows))},
             "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
                 "accepted_by_written": len(accepted), "generates_written": len(generates)},
             "replace_assay_runs": lambda d, db, rows, studies, tables=None: {"assay_runs_written": len(rows)},
@@ -261,9 +263,10 @@ def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
         "ensure_constraints_v11",
         "write_sample_types", "write_attributes", "write_projects", "write_people_and_memberships",
         "write_investigation_projects", "write_samples", "write_samples", "write_missing_lineage",
-        "archive_and_drop_undeclared_derived_from", "rebuild_in_study", "write_attributes",
-        "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget", "ensure_fulltext",
-        "await_indexes", "write_graphmeta"]
+        "archive_and_drop_undeclared_derived_from", "rebuild_in_study", "write_assays",
+        "replace_assay_catalog_edges", "sample_ids_with_assay_edges", "replace_assay_runs", "delete_gone_assays",
+        "write_attributes", "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget",
+        "ensure_fulltext", "await_indexes", "write_graphmeta"]
     assert [len(c.args[2]) for c in rec.of("write_samples")] == [2, 1]
     assert report["status"] == "ok"
     assert report["samples_projected"] == 3 and report["samples_written"] == 3
