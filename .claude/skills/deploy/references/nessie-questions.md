@@ -161,7 +161,7 @@ recreate, so the runner copies each run dir out to `~/launch-<TAG>/` and `~/back
    from origin/dev, never edit the shared checkout.
 
 ```bash
-git -C <workstation_repo> show origin/dev:NessieAI/tests/nessie_tests/output-skill/scripts/fetch_run.py > $S/fetch_run.py
+git -C <workstation_repo> show origin/dev:.claude/skills/nessie-run-review/scripts/fetch_run.py > $S/fetch_run.py
 git -C <workstation_repo> show origin/dev:NessieAI/tests/nessie_tests/turn_cost.py > $S/turn_cost.py   # beside it, or turn_cost stays empty
 python3 $S/fetch_run.py --instance <dev|prod> --out $D/pull-<run> --raw \
   --manifest /app/runs/<run>/manifest.json --since "<UTC start>" --until "<UTC end>"
@@ -223,5 +223,5 @@ Checks that decide most verdicts:
 - **Exact text:** `fetch_run.py` garbles non-ASCII. Quote from the manifest, or say the quote is
   approximate.
 - The six-verdict vocabulary and the deeper SQL patterns are the output skill's:
-  `NessieAI/tests/nessie_tests/output-skill/SKILL.md` and `REFERENCE.md` (the nessie-run-review
+  `.claude/skills/nessie-run-review/SKILL.md` and `REFERENCE.md` (the nessie-run-review
   skill). Use it for an HTML review if the brief asks for one.

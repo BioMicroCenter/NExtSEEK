@@ -1,4 +1,4 @@
-"""Coverage for the two scripts the output-skill ships.
+"""Coverage for the two scripts the nessie-run-review skill ships.
 
 Neither had a single test, and both had rotted in the same direction: they were
 written before the `outage` flag existed and they each quietly undo it.
@@ -29,7 +29,7 @@ from NessieAI import paths
 from NessieAI.tests.nessie_tests import limits, manifest as M, runner
 
 ROOT = paths.REPO_ROOT
-SCRIPTS = Path(__file__).resolve().parents[1] / "output-skill" / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-run-review" / "scripts"
 
 
 def _load(name):
@@ -419,10 +419,15 @@ def test_a_report_that_is_not_ours_is_rejected(tmp_path):
 fetch_run = _load("fetch_run")
 
 
-def test_every_instance_preset_resolves():
+def test_every_instance_preset_resolves(tmp_path, monkeypatch):
     assert fetch_run.resolve_target("local") == ("", "")
-    assert fetch_run.resolve_target("dev") == ("fairdata-dev", "service-account")
-    assert fetch_run.resolve_target("prod") == ("fairdata", "")
+    cfg = tmp_path / "boxes.json"
+    cfg.write_text(json.dumps({"instances": {
+        "dev": {"ssh_host": "dev-alias", "transport": "sudo", "run_as": "owner"},
+        "prod": {"ssh_host": "prod-alias", "transport": "direct", "run_as": "owner"}}}))
+    monkeypatch.setenv("NEXTSEEK_BOXES", str(cfg))
+    assert fetch_run.resolve_target("dev") == ("dev-alias", "owner")
+    assert fetch_run.resolve_target("prod") == ("prod-alias", "")
 
 
 def test_an_explicit_empty_host_still_means_the_local_daemon():
@@ -432,8 +437,8 @@ def test_an_explicit_empty_host_still_means_the_local_daemon():
 
 
 def test_production_never_sudoes_and_dev_does():
-    assert "sudo" not in fetch_run.remote_cmd("fairdata", "", "true")
-    assert "sudo" in fetch_run.remote_cmd("fairdata-dev", "service-account", "true")
+    assert "sudo" not in fetch_run.remote_cmd("prod-alias", "", "true")
+    assert "sudo" in fetch_run.remote_cmd("dev-alias", "owner", "true")
 
 
 def test_only_a_plain_outputs_folder_is_ever_handed_to_tar():
@@ -519,7 +524,7 @@ def test_the_ledger_is_pulled_from_the_log_dir_not_the_outputs_dir(monkeypatch, 
     monkeypatch.setattr(fetch_run.subprocess, "run", fake_run)
     monkeypatch.setattr(fetch_run.subprocess, "Popen", _Popen)
 
-    got = fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs")
+    got = fetch_run.pull_logs("prod-alias", "", "nextseek", "/app/logs", tmp_path / "logs")
 
     # remote_cmd base64-encodes the script it sends, so read the decoded payload rather
     # than the wrapper: the path this test is about is inside it.
@@ -544,7 +549,7 @@ def test_a_box_without_a_ledger_does_not_fail_the_pull(monkeypatch, tmp_path):
         stderr = b""
 
     monkeypatch.setattr(fetch_run.subprocess, "run", lambda cmd, **kw: _Done())
-    assert fetch_run.pull_logs("fairdata", "", "nextseek", "/app/logs", tmp_path / "logs") == []
+    assert fetch_run.pull_logs("prod-alias", "", "nextseek", "/app/logs", tmp_path / "logs") == []
 
 
 def test_the_ledger_can_be_skipped():
@@ -742,7 +747,7 @@ def test_a_standalone_copy_pulls_and_leaves_the_prices_empty(tmp_path, monkeypat
 def test_a_copy_beside_the_rule_uses_it(tmp_path):
     script = _standalone_copy(tmp_path)
     (script.parent / "turn_cost.py").write_text(
-        (SCRIPTS.parents[1] / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
+        (Path(__file__).resolve().parents[1] / "turn_cost.py").read_text(encoding="utf-8"), encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_beside_fetch_run", script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

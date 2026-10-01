@@ -219,8 +219,8 @@ def test_every_floored_family_exists_in_the_corpus():
 # --------------------------------------------------------------------------- #
 # Figures quoted in the docs, recomputed.
 #
-# Every number below appears as PROSE in README.md, output-skill/SKILL.md or
-# output-skill/REFERENCE.md, and two of them had already gone false three commits
+# Every number below appears as PROSE in README.md, nessie-run-review/SKILL.md or
+# nessie-run-review/REFERENCE.md, and two of them had already gone false three commits
 # after being written — inside the branch that was written to stop exactly that.
 # The rule this section encodes: a number a triager will act on either gets
 # recomputed by a test that names the file to update, or it does not get written
@@ -233,7 +233,7 @@ def test_every_floored_family_exists_in_the_corpus():
 # misroute.
 # --------------------------------------------------------------------------- #
 
-_DOCS = "NessieAI/tests/nessie_tests/README.md, output-skill/SKILL.md and output-skill/REFERENCE.md"
+_DOCS = "NessieAI/tests/nessie_tests/README.md, nessie-run-review/SKILL.md and nessie-run-review/REFERENCE.md"
 
 
 def _prepolicy():

@@ -38,7 +38,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | Query Neo4j or rotate its password | | `docs/neo4j-programmatic-access.md` |
 | Add a Container-CC operation | `add-cc-op` | `.claude/skills/add-cc-op/SKILL.md` (`/add-cc-op`) |
 | Make any other AI change | | `NessieAI/README.md` "To change X, edit Y" |
-| Review or grade a Nessie run | `nessie-run-review`, `nessie-bayes-report` | Skills table below |
+| Review or grade a Nessie run, or build the run report | `nessie-run-review`, `nessie-bayes-report` (both auto-load) | Skills table below |
 | Run Django, startup or AI tests | | Build and test, below |
 | Know what CI blocks | | `ci/README.md` "What can fail a job, and what is only a report" |
 | File an issue | `nextseek-issues` | `docs/ISSUE-CONVENTIONS.md` |
@@ -54,8 +54,8 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `deploy` | install, redeploy, rollback, post-deploy verification, or launching a box to a commit on origin/dev (needs a local `boxes.json`) | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
 | `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
-| `nessie-run-review` | triaging a finished nessie_tests run into an HTML review | `NessieAI/tests/nessie_tests/output-skill/SKILL.md` | by path |
-| `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | by path |
+| `nessie-run-review` | the Nessie run report: triaging a nessie_tests run or real users' questions into an HTML review | `.claude/skills/nessie-run-review/SKILL.md` | auto |
+| `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `.claude/skills/nessie-bayes-report/SKILL.md` | auto |
 <!-- END DOCS-MAP:skills -->
 
 What each skill does and what it needs locally: [`.claude/skills/README.md`](.claude/skills/README.md).

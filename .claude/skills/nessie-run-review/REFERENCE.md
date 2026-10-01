@@ -8,11 +8,13 @@ conclusions.
 
 ## 1. Instance access
 
+Hosts, accounts and paths: `~/.config/nextseek/boxes.json`, documented in `.claude/skills/deploy/references/boxes.md`.
+
 | Instance | Shell | Repo on the host |
 |---|---|---|
 | local | `docker exec ...` directly | the workstation checkout |
-| dev | `ssh fairdata-dev sudo -n -u service-account <cmd>` | `/home/service-account/Documents/Programs/NExtSEEK` |
-| prod | `ssh fairdata <cmd>` (key login as service-account, no sudo) | `/home/service-account/Documents/Programs/NExtSEEK` |
+| dev | `ssh <ssh_host> sudo -n -u <run_as> <cmd>` | `repo` in your box config |
+| prod | `ssh <ssh_host> <cmd>` (direct login as the stack owner, no sudo) | `repo` in your box config |
 
 `fetch_run.py --instance {local,dev,prod}` picks the transport. Dev and prod need
 the MIT VPN. Production is read-only for this skill: pull, never run.
@@ -23,7 +25,7 @@ ssh invocation so it cannot block on stdin.
 
 | Thing | Value |
 |---|---|
-| Repo | `/home/service-account/Documents/Programs/NExtSEEK` (origin `BMCBCC/NExtSEEK`, redirects to `BioMicroCenter`) |
+| Repo | `repo` in `~/.config/nextseek/boxes.json` (origin `BMCBCC/NExtSEEK`, redirects to `BioMicroCenter`) |
 | App container | `nextseek` (Django, gunicorn on `0.0.0.0:8000` in-container) |
 | DB container | `seek-mysql`, schema `dmac` |
 | CC image | `dmac-assistant:poc`, ephemeral container per CC turn |

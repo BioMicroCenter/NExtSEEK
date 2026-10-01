@@ -1,6 +1,6 @@
 ---
 name: nessie-run-review
-description: Use when reviewing what Nessie did on ANY instance (local, fairdata-dev, production) - a nessie_tests run ("why did these tests fail", "are these real bugs or drift", an HTML review of a run) or the questions real users asked ("who asked what, what broke, what needs fixing"). Pulls every turn read-only from the database plus the output files each turn wrote, so failures are judged without re-running paid turns.
+description: Use when reviewing what Nessie did on ANY instance (local, dev, production): "send me the Nessie report", "build the report.html", "review this run", "the run review page", "what did users ask Nessie on prod", "why did these tests fail", "are these real bugs or drift", an HTML review of a nessie_tests run, or the questions real users asked ("who asked what, what broke, what needs fixing"). Pulls every turn read-only from the database plus the output files each turn wrote, so failures are judged without re-running paid turns. Run its scripts from this skill folder.
 ---
 
 # Reviewing what Nessie did (any instance)
@@ -19,8 +19,13 @@ Every script takes `--instance`. Pulls are read-only everywhere.
 | `--instance` | Reaches | Transport |
 |---|---|---|
 | `local` | the workstation's own docker daemon | none (`--host ""` is the older spelling) |
-| `dev` (default) | fairdata-dev | `ssh fairdata-dev sudo -n -u service-account` |
-| `prod` | fairdata, production | `ssh fairdata` (key logs in as service-account, no sudo) |
+| `dev` (default) | the dev box | ssh to `ssh_host`, then `sudo -n -u <run_as>` |
+| `prod` | the production box | ssh to `ssh_host`, direct login as the stack owner, no sudo |
+
+Hosts and accounts come from `~/.config/nextseek/boxes.json` (see
+`.claude/skills/deploy/references/boxes.md`; `NEXTSEEK_BOXES` overrides the path).
+Run every `scripts/...` command below from this skill folder
+(`.claude/skills/nessie-run-review/`); the scripts find the repo root themselves.
 
 Container names (`nextseek`, `seek-mysql`) and the schema (`dmac`) are the same on
 all three. Needs the MIT VPN for dev and prod. Never RUN anything on production (no
@@ -276,7 +281,7 @@ so each turn is judged by reading its reply against ground truth, and
 1. Pull with `--raw --outputs` over the window. Store it OUTSIDE any git repo:
    production output files carry human-subject metadata.
 2. Group `turns.json` by `user`. Separate real users from test accounts
-   (charlie-test-3, cdemurjian) before counting anything.
+   (the CI and developer logins in your box config's `test_logins`) before counting anything.
 3. For every turn decide: answered correctly, wrong or misleading, no answer, or a
    capability the product does not have. `status=error` and a non-null `error` are the
    no-answer turns; the wrong ones only show up by reading replies against each other
@@ -291,7 +296,7 @@ so each turn is judged by reading its reply against ground truth, and
 
 - **The app side runs on the container's clock, which is UTC on dev and prod**:
   `created_at`, run-root folder names, file-name stamps and file mtimes all agree
-  (verified on production 2026-09-10). The trap is the HOST: fairdata's shell is US
+  (verified on production 2026-09-10). The trap is the HOST: the production host's shell is US
   Eastern, and `docker logs --since 2026-09-07T18:16:00` without a `Z` is read as
   host-local time, which puts you four hours away from the turn. Always append `Z`.
   `pull.json` records the container's offset.

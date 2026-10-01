@@ -1,6 +1,6 @@
 # Project skills
 
-Four skills are committed here. Each is a folder with a `SKILL.md` that Claude Code loads on its
+Six skills are committed here. Each is a folder with a `SKILL.md` that Claude Code loads on its
 own when the task matches. Everything else under `.claude/` is local and ignored by git.
 
 | Skill | Use it when | What it does | What it calls | Set up locally |
@@ -9,6 +9,9 @@ own when the task matches. Everything else under `.claude/` is local and ignored
 | [`deploy`](deploy/SKILL.md) | Installing, redeploying, rolling back or verifying a box, or launching a box to a commit that is already on `origin/dev` ("rebuild it at dev"). | Routes to `DEPLOYMENT.md`, holds the hard deployment gates and the `./startup.sh` verb per change, and carries the launch flow: preflight, commit review, rebuild, CI, Nessie questions, graded report. | `DEPLOYMENT.md`, `./startup.sh`, `deploy/scripts/launch.py` and `rules.py`, `deploy/references/` | Create the box config `~/.config/nextseek/boxes.json` from [`deploy/boxes.example.json`](deploy/boxes.example.json) (path override: `NEXTSEEK_BOXES`). Fields: [`deploy/references/boxes.md`](deploy/references/boxes.md). Never commit it. |
 | [`nextseek-issues`](nextseek-issues/SKILL.md) | A bug fix is deferred or out of scope, a plan finishes with residuals, or someone asks to file an issue. | Drafts an issue that follows the conventions and asks a person to approve before anything is filed. | `docs/ISSUE-CONVENTIONS.md`, `scripts/validate_issue.py`, `scripts/seed_issue_labels.sh` | The GitHub CLI, logged in, for filing |
 | [`nextseek-create-endpoint`](nextseek-create-endpoint/SKILL.md) | Adding or changing an API endpoint, that is a `nextseek_api` ViewSet: router registration, SEEK proxy or native endpoint, project scoping, OpenAPI schema and examples. | A step-by-step guide with patterns and worked examples, ending with the convention validator. | `scripts/validate_viewset_conventions.py`, `nextseek_api/tests/test_viewset_conventions.py` | Nothing |
+| [`nessie-run-review`](nessie-run-review/SKILL.md) | You want the Nessie run report: "review this run", "build the report.html", "what did users ask Nessie on prod", or a failed `nessie_tests` run to triage. | Pulls every turn read-only off an instance, then turns a triage into a reviewable `report.html` with expected against observed per case; also reviews real users' questions. | `nessie-run-review/scripts/` (`fetch_run.py`, `build_report.py`, `review_forms.py`; run from the skill folder), the `NessieAI/tests/nessie_tests/output_skill/` package | The box config `~/.config/nextseek/boxes.json` for `--instance dev` or `prod` (see `deploy` above). Never commit it. |
+| [`nessie-bayes-report`](nessie-bayes-report/SKILL.md) | A paired `--bayesian` run has finished: "grade the bayesian run", "the bayes report". | Builds the blind split-grading page, then merges the human grades with Stage C's into the HiBayes table. | `nessie-bayes-report/scripts/` (`build_bayes_report.py`, `merge_grades.py`; run from the repo root), `NessieAI/tests/nessie_tests/output_skill_bayesian/`, and `nessie-run-review`'s `fetch_run.py` | Nothing for a local run |
 
-The Nessie review skills (`nessie-run-review`, `nessie-bayes-report`) live beside their tests under
-`NessieAI/tests/nessie_tests/`; the root [`CLAUDE.md`](../../CLAUDE.md) lists them.
+Nessie's OWN skills, the ones baked into its Claude Code container, live in
+`NessieAI/docker/cc-runtime/build_context/plugins/nextseek/skills/` and change only through the
+`add-cc-op` skill (they are generated and pinned; do not move them here).

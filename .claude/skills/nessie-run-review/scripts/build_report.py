@@ -41,15 +41,15 @@ import pathlib
 import sys
 from collections import Counter
 
-# This script ships INSIDE the harness (NessieAI/tests/nessie_tests/output-skill/scripts/),
-# so the repo root is five levels up; the triage form lives in the importable package.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[5]))
+# This script lives in .claude/skills/nessie-run-review/scripts/, so the repo root is
+# four levels up; the triage form lives in the importable package.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4]))
 from NessieAI.tests.nessie_tests.output_skill.common import FormError  # noqa: E402
 from NessieAI.tests.nessie_tests.output_skill.triage import load_triage  # noqa: E402
 
 TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "report.html.tpl"
-# This script ships INSIDE nessie_tests, so limits.py is two levels up.
-LIMITS_DEFAULT = pathlib.Path(__file__).resolve().parents[2] / "limits.py"
+# limits.py lives in the harness package, reached from the repo root.
+LIMITS_DEFAULT = pathlib.Path(__file__).resolve().parents[4] / "NessieAI" / "tests" / "nessie_tests" / "limits.py"
 
 VERDICTS = {"pass", "real", "drift", "policy", "masked", "notrun"}
 

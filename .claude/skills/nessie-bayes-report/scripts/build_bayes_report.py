@@ -66,19 +66,19 @@ import json
 import pathlib
 import sys
 
-# This script ships INSIDE the harness (NessieAI/tests/nessie_tests/
-# output-skill-bayesian/scripts/), so the repo root is six levels up. Put it on
+# This script lives in .claude/skills/nessie-bayes-report/scripts/, so the repo root
+# is four levels up. Put it on
 # the path BEFORE the NessieAI imports: a subprocess launched as
 # `python build_bayes_report.py` gets the script's own directory as
 # sys.path[0], never the repo root.
-ROOT = pathlib.Path(__file__).resolve().parents[5]
+ROOT = pathlib.Path(__file__).resolve().parents[4]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from NessieAI.tests.nessie_tests import bayes_manifest, collect, export  # noqa: E402
 
 TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "report_bayes.html.tpl"
-CORPUS_DEFAULT = pathlib.Path(__file__).resolve().parents[2] / "corpus.json"
+CORPUS_DEFAULT = pathlib.Path(__file__).resolve().parents[4] / "NessieAI" / "tests" / "nessie_tests" / "corpus.json"
 
 ARMS = export.ARMS
 

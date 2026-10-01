@@ -124,8 +124,8 @@ variants over 542 turns; `curated`, which drops the unreviewed atlas set
 consistency group is defined; and 4 variants carry the `route_gate` tag.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
-here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
-into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
+here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
+into a triage report, and `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
 the testable logic for each lives in the underscore-named package beside it and the
 skill's scripts are thin entry points

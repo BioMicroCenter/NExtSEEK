@@ -1,13 +1,13 @@
-# output-skill
+# nessie-run-review
 
 Turn a `nessie_tests` run into a reviewable HTML report where every case carries
 its full working record: each turn's query, how it routed and why, the exact call
 the engine ran, what came back, and a verdict.
 
-Hand this directory to an agent and point it at **`SKILL.md`**.
+Run the scripts from this directory (`.claude/skills/nessie-run-review/`). Hand this directory to an agent and point it at **`SKILL.md`**.
 
 ```
-output-skill/
+nessie-run-review/
 ├── SKILL.md                    START HERE. Workflow + the gotchas that cause wrong calls.
 ├── REFERENCE.md                Instance access, SQL patterns, the criterion field-alias
 │                               table, run-root layout, routing, known state.

@@ -14,8 +14,8 @@ reviews the questions real users asked on production.
 Instances
 ---------
     --instance local   the workstation's own docker daemon, no ssh
-    --instance dev     fairdata-dev, ssh + `sudo -n -u service-account` (the default)
-    --instance prod    fairdata, direct key login as service-account, no sudo
+    --instance dev     the dev box from your local box config, ssh + sudo (the default)
+    --instance prod    the prod box from your local box config, direct login, no sudo
 
 `--host` / `--user` still override the preset; `--host ""` is the older spelling of local.
 
@@ -75,6 +75,7 @@ import argparse
 import base64
 import importlib.util
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -97,8 +98,8 @@ def _load_turn_cost():
     """
     here = pathlib.Path(__file__).resolve()
     candidates = [here.parent / "turn_cost.py"]
-    if len(here.parents) > 2:
-        candidates.append(here.parents[2] / "turn_cost.py")
+    if len(here.parents) > 4:
+        candidates.append(here.parents[4] / "NessieAI" / "tests" / "nessie_tests" / "turn_cost.py")
     for path in candidates:
         if not path.is_file():
             continue
@@ -118,11 +119,22 @@ def _load_turn_cost():
 
 turn_cost = _load_turn_cost()
 
-INSTANCES = {
-    "local": {"host": "", "user": ""},
-    "dev": {"host": "fairdata-dev", "user": "service-account"},
-    "prod": {"host": "fairdata", "user": ""},
-}
+INSTANCES = ("local", "dev", "prod")
+
+
+def _preset(instance: str) -> dict:
+    """{"host", "user"} from the local box config (never committed): `ssh_host`, and
+    `run_as` when `transport` is "sudo". See .claude/skills/deploy/references/boxes.md."""
+    if instance == "local":
+        return {"host": "", "user": ""}
+    path = pathlib.Path(os.environ.get("NEXTSEEK_BOXES") or "~/.config/nextseek/boxes.json").expanduser()
+    try:
+        box = json.loads(path.read_text())["instances"][instance]
+        return {"host": box["ssh_host"],
+                "user": box["run_as"] if box.get("transport") == "sudo" else ""}
+    except (OSError, ValueError, KeyError) as exc:
+        sys.exit(f"fetch_run: cannot read instance {instance!r} from {path} ({exc!r}); "
+                 f"create it from .claude/skills/deploy/boxes.example.json, or pass --host/--user")
 
 # The debug object hangs off the query_complete event inside the progress array.
 # The `$` is backslash-escaped because this lands inside a double-quoted shell
@@ -202,7 +214,9 @@ SHARED = ("api_requests.json", "console.txt")
 
 def resolve_target(instance: str, host: str | None = None, user: str | None = None) -> tuple[str, str]:
     """(ssh host, sudo user) for an instance; an explicit host/user wins over the preset."""
-    preset = INSTANCES[instance]
+    if host == "" or (host is not None and user is not None):
+        return host, user or ""  # an empty host is the local daemon: no config needed
+    preset = _preset(instance)
     return (preset["host"] if host is None else host,
             preset["user"] if user is None else user)
 
@@ -212,7 +226,7 @@ def remote_cmd(host: str, user: str, script: str) -> list[str]:
 
     ``host=""`` runs the same script against the LOCAL docker daemon instead of
     SSHing (`ssh localhost` is not a fallback: there is no sshd). ``user=""`` skips
-    sudo, which is what production needs: its key logs in as service-account
+    sudo, which is what a `direct` transport needs: its key logs in as the stack owner
     directly. The script body is identical everywhere; only the transport differs.
     """
     b64 = base64.b64encode(script.encode()).decode()
@@ -394,8 +408,8 @@ def case_costs(manifest: dict, turns: list[dict]) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--instance", choices=sorted(INSTANCES), default="dev",
-                    help="local | dev (fairdata-dev) | prod (fairdata). Default dev.")
+    ap.add_argument("--instance", choices=INSTANCES, default="dev",
+                    help="local | dev | prod (hosts come from ~/.config/nextseek/boxes.json). Default dev.")
     ap.add_argument("--host", default=None,
                     help='ssh target; overrides --instance. "" = the LOCAL docker daemon')
     ap.add_argument("--user", default=None,

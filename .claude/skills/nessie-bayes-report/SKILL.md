@@ -1,6 +1,6 @@
 ---
 name: nessie-bayes-report
-description: Build the split blind-grading report for a nessie_tests --bayesian run, grade it, and merge the human grades with Stage C's into the HiBayes table. Use when a paired dual-route run has finished and needs evaluating.
+description: Build the split blind-grading report for a nessie_tests --bayesian run, grade it, and merge the human grades with Stage C's into the HiBayes table. Use when a paired dual-route run has finished and needs evaluating: "grade the bayesian run", "the bayes report", "merge the bayes grades". Run its scripts from the repo root as shown.
 ---
 
 # The paired run's split report
@@ -41,7 +41,7 @@ python -m NessieAI.tests.nessie_tests.export --run ./nessie_bayes_out        # w
                                                               # arm_diagnostics.csv
 
 # 3. the blind report
-python NessieAI/tests/nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py \
+python .claude/skills/nessie-bayes-report/scripts/build_bayes_report.py \
     --run ./nessie_bayes_out --out ./nessie_bayes_out/report_bayes.html
 
 # 4. GRADE IT. Open it in a browser and work through every arm.
@@ -54,14 +54,14 @@ python3 -m http.server 8901 --directory ./nessie_bayes_out
 cp <dmac-assistant stage C output> ./nessie_bayes_out/stage_c.json
 
 # 6. rebuild the report with the verdicts in it, and reveal
-python NessieAI/tests/nessie_tests/output-skill-bayesian/scripts/build_bayes_report.py \
+python .claude/skills/nessie-bayes-report/scripts/build_bayes_report.py \
     --run ./nessie_bayes_out --out ./nessie_bayes_out/report_bayes.html
 #    Reload, re-import grades.json if the browser store was cleared, press
 #    "Reveal all" (it unlocks only once every gradable arm is graded), and read
 #    the Disagreements filter. That set is the output of this whole exercise.
 
 # 7. the joined table
-python NessieAI/tests/nessie_tests/output-skill-bayesian/scripts/merge_grades.py \
+python .claude/skills/nessie-bayes-report/scripts/merge_grades.py \
     --run ./nessie_bayes_out --grades ./grades.json --out ./nessie_bayes_out/graded_rows.csv
 ```
 
@@ -69,12 +69,12 @@ python NessieAI/tests/nessie_tests/output-skill-bayesian/scripts/merge_grades.py
 copy, unchanged; it handles both transports:
 
 ```bash
-# run executed on the dev box (the default target is fairdata-dev)
-python NessieAI/tests/nessie_tests/output-skill/scripts/fetch_run.py --out ./nessie_bayes_out ...
+# run executed on the dev box (the default target is the dev box from your box config)
+python .claude/skills/nessie-run-review/scripts/fetch_run.py --out ./nessie_bayes_out ...
 
 # run executed on THIS workstation -- pass an empty --host to go straight to the
 # local docker daemon. `ssh localhost` is not a fallback; there is no sshd.
-python NessieAI/tests/nessie_tests/output-skill/scripts/fetch_run.py --host "" --out ./nessie_bayes_out ...
+python .claude/skills/nessie-run-review/scripts/fetch_run.py --host "" --out ./nessie_bayes_out ...
 ```
 
 The local form is the one a `--bayesian` run needs today, because the container
@@ -260,9 +260,9 @@ templates/report_bayes.html.tpl   the page: three columns per question, blind ga
 `merge_grades`'s logic lives in the importable package
 `NessieAI/tests/nessie_tests/output_skill_bayesian/merge_grades.py` (underscores), under test in
 `NessieAI/tests/nessie_tests/tests/test_merge_grades.py`. A hyphenated directory is not a Python
-identifier, so nothing under `output-skill-bayesian/` can be imported, and a
+identifier, so nothing under `nessie-bayes-report/` can be imported, and a
 script that cannot be imported cannot be unit tested -- both scripts in the
-sibling `output-skill/` rotted for exactly that reason. The script here exists
+sibling `nessie-run-review/` rotted for exactly that reason. The script here exists
 only to give this file a path to name. Change behaviour in the package, not in
 the script.
 

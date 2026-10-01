@@ -103,8 +103,8 @@ image, the `eval_*` tables). Its map is `NessieAI/hibayes/README.md` "HiBayes li
 | `NessieAI/docker/cc-runtime/container/CLAUDE.md` | what the CC agent is told (ships in the image) |
 | `NessieAI/tests/README.md` | every AI test lane and its command |
 | `NessieAI/tests/nessie_tests/README.md`, `CLAUDE.md` | the router-aware harness |
-| `NessieAI/tests/nessie_tests/output-skill/SKILL.md`, `NessieAI/tests/nessie_tests/output-skill/README.md` | triaging a finished harness run |
-| `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | grading a paired `--bayesian` run |
+| `.claude/skills/nessie-run-review/SKILL.md`, `.claude/skills/nessie-run-review/README.md` | triaging a finished harness run |
+| `.claude/skills/nessie-bayes-report/SKILL.md` | grading a paired `--bayesian` run |
 | `NessieAI/docs/architecture.md` | how a Nessie turn works, in depth |
 | `NessieAI/docs/dev-v5-merge-decisions.md` | before touching `route_capabilities.json` or the classifier labels |
 | `NessieAI/docs/nessie-blocked-capabilities.md` | before adding corpus variants or criteria |
