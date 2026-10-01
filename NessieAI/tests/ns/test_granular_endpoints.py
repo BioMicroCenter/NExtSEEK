@@ -429,6 +429,21 @@ class ReingestEndpointTests(GranularEndpointBase):
         self.assertEqual(resp.status_code, 403)
         resolve.assert_not_called()
 
+    def test_upload_reingest_hands_the_batch_upload_seams_to_the_engine(self):
+        """The engine never imports the batch-upload views; the REST layer puts
+        the job dispatch and the staging copy on the session."""
+        from nextseek_api.batch_upload import views as batch_views
+        with patch("NessieAI.ns.reingest.upload.run",
+                   return_value={"jobs": [], "reply": ""}) as run, \
+                patch("nextseek_api.batch_upload.views._resolve_user_context",
+                      return_value={"lababbv": "MIT"}):
+            resp = self.client.post(f"{self.BASE}/upload-reingest/",
+                                    {"build_ids": "a" * 64, "confirmed_write": True},
+                                    format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIs(run.call_args.kwargs["dispatch"], batch_views.dispatch_batch_job)
+        self.assertIs(run.call_args.kwargs["stage"], batch_views.stage_workbook_copy)
+
     def test_upload_reingest_refuses_a_caller_supplied_person_id(self):
         """The batch-upload identity resolver honours a body person_id for
         admins; this request model must never let one through."""

@@ -1559,7 +1559,9 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
     lookup: only the boolean True confirms (passed through, never coerced).
 
     ``session.upload_context`` may be a callable (the REST layer passes the
-    SEEK identity lookup that way), so an unconfirmed call never resolves it."""
+    SEEK identity lookup that way), so an unconfirmed call never resolves it.
+    The host also puts its batch-upload seams on the session
+    (``dispatch_job``, ``stage_workbook``), so the engine never imports them."""
     write_gate("api-write", None, None, args.get("confirmed_write"))
     from NessieAI.ns.reingest import upload
 
@@ -1569,7 +1571,9 @@ def _upload_reingest(args, config, session, write_gate, neo4j_exec, outputs_dir)
     try:
         return upload.run(build_ids_raw=args.get("build_ids"),
                           user=getattr(session, "user", None),
-                          upload_context=upload_context)
+                          upload_context=upload_context,
+                          dispatch=getattr(session, "dispatch_job", None),
+                          stage=getattr(session, "stage_workbook", None))
     except upload.UploadRefused as exc:
         raise OpValidationError(str(exc)) from exc
 

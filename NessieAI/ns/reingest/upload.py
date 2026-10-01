@@ -102,7 +102,12 @@ def _reply(jobs: list[dict]) -> str:
     return "Upload jobs:\n" + "\n".join(lines)
 
 
-def run(*, build_ids_raw, user, upload_context) -> dict:
+def run(*, build_ids_raw, user, upload_context, dispatch, stage) -> dict:
+    """``dispatch`` and ``stage`` are the host's batch-upload seams
+    (``dispatch_batch_job`` and ``stage_workbook_copy``), handed in by the REST
+    layer so this engine module never imports Django."""
+    if not callable(dispatch) or not callable(stage):
+        raise UploadRefused(["upload is not wired on this server"])
     user_id = getattr(user, "pk", None)
     if not user_id:
         raise UploadRefused(["no signed-in user"])
@@ -111,8 +116,6 @@ def run(*, build_ids_raw, user, upload_context) -> dict:
     ids = parse_build_ids(build_ids_raw)
     _check_scope(len(ids))
     records = verify(ids, user_id=user_id)
-
-    from nextseek_api.batch_upload import views as batch_views
 
     # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
     staged_paths: list[tuple[dict, str]] = []
@@ -126,7 +129,7 @@ def run(*, build_ids_raw, user, upload_context) -> dict:
 
     for record in records:
         try:
-            staged = batch_views.stage_workbook_copy(record["path"])
+            staged = stage(record["path"])
         except Exception:  # noqa: BLE001
             logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
             _discard()
@@ -143,7 +146,7 @@ def run(*, build_ids_raw, user, upload_context) -> dict:
         entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
                  "sample_type": record["sample_type"], "mode": record["mode"]}
         try:
-            entry["job_id"] = batch_views.dispatch_batch_job(
+            entry["job_id"] = dispatch(
                 user_pk=user_id, user_ctx=upload_context,
                 lababbv=upload_context["lababbv"], project_id=record["project_id"],
                 config_overrides={"update_existing": record["mode"] == "update"},

@@ -1176,12 +1176,19 @@ class AssistantViewSet(viewsets.ViewSet):
             # only after the write gate passes, so an unconfirmed call never
             # reaches SEEK. The request model forbids extra keys, so the
             # resolver's admin person_id override can never arrive here. The
-            # import is deferred too: batch_upload.views pulls in Celery.
+            # import is deferred too: batch_upload.views pulls in Celery. The
+            # job dispatch and workbook staging seams travel on the session as
+            # well, so the engine never imports the batch-upload views.
+            from nextseek_api.batch_upload.views import (
+                _resolve_user_context, dispatch_batch_job, stage_workbook_copy,
+            )
+
             def _upload_context():
-                from nextseek_api.batch_upload.views import _resolve_user_context
                 return _resolve_user_context(request)
 
-            session = SimpleNamespace(user=request.user, upload_context=_upload_context)
+            session = SimpleNamespace(user=request.user, upload_context=_upload_context,
+                                      dispatch_job=dispatch_batch_job,
+                                      stage_workbook=stage_workbook_copy)
         else:
             session = None
         gate = build_gate(load_allowlist())
