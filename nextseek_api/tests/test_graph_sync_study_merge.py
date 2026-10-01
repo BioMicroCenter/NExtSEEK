@@ -686,5 +686,45 @@ def test_undo_reports_a_legacy_investigation_that_is_gone(world, tmp_path):
     study_merge.apply(world.graph, DB, {3: "merge_other_investigation"}, run_dir=str(tmp_path / "m1"))
     del world.graph.investigations[legacy_inv]
     result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
-    assert result["status"] == "ok" and result["investigation_not_restored"] == [3]
+    assert result["investigation_not_restored"] == [
+        {"study_id": 3, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]
     assert world.graph.in_investigation[legacy] == []
+
+
+def _retire(g, sample_id):
+    eid = f"s:{sample_id}"
+    for edge in [e for e, (s, _) in g.in_study.items() if s == eid]:
+        del g.in_study[edge]
+    del g.sources[eid]
+    return eid
+
+
+def test_undo_moves_back_only_the_node_it_journaled(world, tmp_path):
+    """Neo4j hands a freed element id to a new node. 1003 (on both) is retired after the merge and an Attribute node
+    takes its element id: the undo matches each source by element id, id and labels, so it links nothing to the
+    Attribute and reports the source as replaced."""
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))
+    eid = _retire(world.graph, 1003)
+    world.graph.sources[eid] = {"labels": {"Attribute"}, "id": None}
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert [st for s, st in world.graph.in_study.values() if s == eid] == []
+    entry = result["studies"][0]
+    assert entry["sources_replaced"] == [{"element_id": eid, "id": 1003, "labels": ["Sample"]}]
+    assert world.graph.keys_of(1002) == {("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_undo_links_no_study_to_an_investigation_that_took_the_journaled_ones_element_id(world, tmp_path):
+    """The nightly deleted the legacy Investigation a merge_other_investigation left empty, and a new Investigation
+    took its element id: the undo matches the Investigation by element id and id, so L stays under none and the
+    undo names the Investigation it could not restore."""
+    legacy_inv = world.graph.add_investigation(901, "Alder Investigation")
+    _seek(world, 3, "Cedar Unpublished", inv=101)
+    legacy = world.graph.add_study(id=3, title="Cedar Unpublished", DOI="", investigation=legacy_inv)
+    world.graph.add_study(seek_study_id=3, title="Cedar Unpublished", investigation=world.inv[101])
+    study_merge.apply(world.graph, DB, {3: "merge_other_investigation"}, run_dir=str(tmp_path / "m1"))
+    world.graph.investigations[legacy_inv] = {"id": 41, "title": "Juniper Investigation"}
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1")])
+    assert world.graph.in_investigation[legacy] == []
+    assert result["investigation_not_restored"] == [
+        {"study_id": 3, "node": "legacy", "investigation": {"id": 901, "title": "Alder Investigation"}}]

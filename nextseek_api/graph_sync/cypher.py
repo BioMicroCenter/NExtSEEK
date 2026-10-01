@@ -615,8 +615,9 @@ RETURN count(l) AS merged
 
 # Undo, step 1, one transaction: while L is the only node carrying seek_study_id $study_id, restore L's journaled
 # properties (seek_study_id goes with them) and its journaled IN_INVESTIGATION, and re-create K with its journaled
-# properties and IN_INVESTIGATION when the journal holds one. Returns no row when L is not in that state; otherwise
-# how many IN_INVESTIGATION L holds after it (0 when its journaled Investigation node is gone).
+# properties and IN_INVESTIGATION when the journal holds one. Neo4j hands a freed element id to a new node, so each
+# Investigation is matched by its journaled element id AND id; one that matches neither is not linked. Returns no
+# row when L is not in that state; otherwise how many IN_INVESTIGATION L and the new K hold after it.
 UNMERGE_STUDY_NODES = """
 CYPHER 25
 MATCH (l:Study) WHERE elementId(l) = $l AND l.seek_study_id = $study_id
@@ -629,6 +630,7 @@ CALL (l) {
 }
 CALL (l) {
   MATCH (i:Investigation) WHERE elementId(i) = $l_investigation
+    AND (i.id = $l_investigation_id OR (i.id IS NULL AND $l_investigation_id IS NULL))
   MERGE (l)-[:IN_INVESTIGATION]->(i)
 }
 CALL () {
@@ -638,17 +640,28 @@ CALL () {
   WITH k
   CALL (k) {
     MATCH (i:Investigation) WHERE elementId(i) = $k_investigation
+      AND (i.id = $k_investigation_id OR (i.id IS NULL AND $k_investigation_id IS NULL))
     MERGE (k)-[:IN_INVESTIGATION]->(i)
   }
-  RETURN collect(elementId(k)) AS new_k
+  RETURN collect(elementId(k)) AS new_k, sum(COUNT { (k)-[:IN_INVESTIGATION]->() }) AS k_investigations
 }
-RETURN elementId(l) AS l, new_k, COUNT { (l)-[:IN_INVESTIGATION]->() } AS l_investigations
+RETURN elementId(l) AS l, new_k, COUNT { (l)-[:IN_INVESTIGATION]->() } AS l_investigations, k_investigations
 """
-# Undo, step 2: rows are {source, on_both}. A source journaled "on both" gets its edge to K and keeps its edge to L;
-# one journaled "only on K" that still links to L gets its edge to K and loses its edges to L; any other is skipped.
+# Undo: what each journaled source's element id names now ($element_ids), so a source a new node replaced is told
+# apart from one that is gone. Read-only.
+UNDO_SOURCE_NODES = """
+UNWIND $element_ids AS eid
+OPTIONAL MATCH (x) WHERE elementId(x) = eid
+RETURN eid AS element_id, x IS NOT NULL AS found, x.id AS id, coalesce(labels(x), []) AS labels
+"""
+# Undo, step 2: rows are {source, id, labels, on_both}, a source matched by its element id AND its journaled id and
+# labels (a type label aside, which a sample type's rename changes), since Neo4j hands a freed element id to a new
+# node. A source journaled "on both" gets its edge to K and keeps its edge to L; one journaled "only on K" that still
+# links to L gets its edge to K and loses its edges to L; any other is skipped.
 UNMERGE_MOVE_BACK = """
 UNWIND $rows AS r
-MATCH (x) WHERE elementId(x) = r.source
+MATCH (x) WHERE elementId(x) = r.source AND (x.id = r.id OR (x.id IS NULL AND r.id IS NULL))
+  AND all(label IN r.labels WHERE label IN labels(x))
 MATCH (k:Study) WHERE elementId(k) = $k
 MATCH (l:Study) WHERE elementId(l) = $l
 OPTIONAL MATCH (x)-[e:IN_STUDY]->(l)

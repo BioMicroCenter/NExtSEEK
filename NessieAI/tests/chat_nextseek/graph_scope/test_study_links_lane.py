@@ -486,6 +486,70 @@ def test_the_last_step_fails_on_a_link_that_arrives_after_its_check(studies_lane
     assert sorted((r["id"] or 0, r["seek"] or 0) for r in nodes) == [(0, 1), (1, 0)]
 
 
+_OTHER_INVESTIGATION = ("MATCH (l:Study {id: 1})-[e:IN_INVESTIGATION]->() DELETE e "
+                        "CREATE (l)-[:IN_INVESTIGATION]->(:Investigation {id: 901, title: 'Alder Investigation'})")
+
+
+def _rewrite_journal(run_dir, old_new: dict):
+    """Replace element ids in a journal: what an undo reads after Neo4j handed a freed element id to another node."""
+    from nextseek_api.graph_sync import study_merge
+    path = run_dir / study_merge.JOURNAL_FILE
+    text = path.read_text(encoding="utf-8")
+    for old, new in old_new.items():
+        text = text.replace(json.dumps(old), json.dumps(new))
+    path.write_text(text, encoding="utf-8")
+
+
+def test_undo_matches_each_source_and_investigation_by_its_id_too(studies_lane, monkeypatch, tmp_path):
+    """After a merge_other_investigation, sample 1001 (on both) is retired and the emptied legacy Investigation
+    deleted; an Attribute and a new Investigation hold the element ids the journal names (rewritten here, as reuse
+    would leave them). The undo links neither, names the Investigation, and reports the source as replaced."""
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch, _OTHER_INVESTIGATION)
+    old = {**_element_ids(studies_lane, "Sample", "id"), "inv": _element_ids(studies_lane, "Investigation", "id")[901]}
+    result = study_merge.apply(studies_lane.driver, DB, {1: "merge_other_investigation"}, run_dir=str(tmp_path))
+    assert result["status"] == "ok"
+    studies_lane.write("MATCH (s:Sample {id: 1001}) DETACH DELETE s")
+    studies_lane.write("MATCH (i:Investigation {id: 901}) DETACH DELETE i")
+    studies_lane.write("CREATE (:Attribute {name: 'attr'}), (:Investigation {id: 41, title: 'Juniper Investigation'})")
+    new = {"sample": _element_ids(studies_lane, "Attribute", "id")[-1],
+           "inv": _element_ids(studies_lane, "Investigation", "id")[41]}
+    _rewrite_journal(tmp_path, {old[1001]: new["sample"], old["inv"]: new["inv"]})
+
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert studies_lane.read("MATCH (a:Attribute)-[:IN_STUDY]->() RETURN count(a) AS n") == [{"n": 0}]
+    assert studies_lane.read("MATCH (:Study {id: 1})-[:IN_INVESTIGATION]->(i) RETURN i.id AS id") == []
+    assert [i["investigation"]["id"] for i in undone["investigation_not_restored"]] == [901]
+    assert [s["id"] for s in undone["studies"][0]["sources_replaced"]] == [1001]
+    assert _keys(studies_lane, 1002) == [("seek", 1)]
+
+
+def test_undo_after_neo4j_reuses_a_retired_sources_element_id(studies_lane, monkeypatch, tmp_path):
+    """The same without rewriting anything, where Neo4j can be made to reuse an element id within a bounded wait:
+    sample 1001 (on both) is retired after the merge and new Attribute nodes are created until one takes its element
+    id. Skips when Neo4j reuses none in time."""
+    import time
+    from nextseek_api.graph_sync import study_merge
+    _split_pair(studies_lane, monkeypatch)
+    study_merge.apply(studies_lane.driver, DB, {1: "merge"}, run_dir=str(tmp_path))
+    freed = _element_ids(studies_lane, "Sample", "id")[1001]
+    studies_lane.write("MATCH (s:Sample {id: 1001}) DETACH DELETE s")
+    # Freed ids are handed out again after a short delay, oldest first, and earlier tests freed many: create in bulk.
+    deadline, taken = time.monotonic() + 45, False
+    while not taken and time.monotonic() < deadline:
+        made = studies_lane.driver.execute_query(
+            "UNWIND range(1, 1000) AS i CREATE (a:Attribute {name: 'probe'}) RETURN elementId(a) AS e", database_=DB)
+        taken = freed in {r["e"] for r in made.records}
+        if not taken:
+            time.sleep(1)
+    if not taken:
+        pytest.skip("Neo4j reused no freed element id within 45 s")
+    studies_lane.write("MATCH (a:Attribute) WHERE elementId(a) <> $e DETACH DELETE a", {"e": freed})
+    undone = study_merge.undo(studies_lane.driver, DB, [str(tmp_path)])
+    assert studies_lane.read("MATCH (a:Attribute)-[:IN_STUDY]->() RETURN count(a) AS n") == [{"n": 0}]
+    assert [s["id"] for s in undone["studies"][0]["sources_replaced"]] == [1001]
+
+
 # --- the connections endpoint's selectors on a real Neo4j (Task 14, A8) ---------------------------------------------
 
 _CONNECTIONS_GRAPH = [

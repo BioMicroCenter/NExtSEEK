@@ -520,13 +520,49 @@ def _undo_state(index: Index, x: int, plan_payload: dict):
     return None, "the legacy node and the nodes carrying this seek_study_id are not as the merge left them"
 
 
+def _class_labels(labels) -> list[str]:
+    """A node's labels without a sample type's label (``T_...``), which a rename of the type changes."""
+    return sorted(label for label in labels or [] if not schema.is_type_label(label))
+
+
+def _same_node(journaled: dict, now: dict | None) -> bool:
+    """Whether the node a journaled element id names now is the journaled node. Neo4j hands a freed element id to a
+    new node, so its ``id`` and labels (a type label aside) must match too."""
+    return bool(now and now["found"]) and now["id"] == journaled.get("id") and set(
+        _class_labels(journaled.get("labels"))) <= set(now["labels"])
+
+
+def _nodes_now(driver, db, element_ids, batch: int) -> dict:
+    """What each element id names now: ``{element id: {"found", "id", "labels"}}``. Read-only."""
+    out = {}
+    for part in _batches(list(element_ids), batch):
+        for r in _records(_run(driver, db, q.UNDO_SOURCE_NODES, {"element_ids": part}, read=True)):
+            out[r["element_id"]] = {"found": bool(r["found"]), "id": r["id"], "labels": list(r["labels"] or [])}
+    return out
+
+
+def _identity(element_id: str, journaled: dict) -> dict:
+    return {"element_id": element_id, "id": journaled.get("id"), "labels": _class_labels(journaled.get("labels"))}
+
+
+def _not_restored(study_id: int, node: str, investigation: dict | None) -> dict:
+    investigation = investigation or {}
+    return {"study_id": study_id, "node": node,
+            "investigation": {"id": investigation.get("id"), "title": investigation.get("title")}}
+
+
 def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CHUNK) -> dict:
     """Reverse the merges journaled in ``paths`` and re-create the IN_STUDY links their archives hold (the spec's
     section 5.6), under the caller's hold of the graph-write lock. Per id, in id order: while L is the only node
     carrying the id, L's journaled properties and Investigation come back and K is re-created (a rerun after that
     step finds it done and goes on); then every archived link whose sample and Study still exist is re-created; then
     each journaled source goes back to K ("on both" keeps its link to L too). ``dry_run`` reports each id's state and
-    writes nothing."""
+    writes nothing.
+
+    Neo4j hands a freed element id to a new node, and an undo may run days after its merge, so every source and
+    Investigation is matched by its journaled element id AND its ``id`` (and a source's labels): a source whose element
+    id now names another node is listed in ``sources_replaced`` and never linked, and an Investigation that is gone
+    or replaced is named in ``investigation_not_restored``."""
     journals, archives = read_journals(paths)
     archive_rows = _read_archives(archives)
     index = read_index(driver, db)
@@ -544,7 +580,7 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
             continue
         todo.append([x, entry, state_, found])
         report["studies"].append({"study_id": x, "state": state_, "sources": len(entry["sources"]),
-                                  "moved_back": 0, "skipped": 0})
+                                  "moved_back": 0, "skipped": 0, "sources_replaced": []})
     if dry_run:
         return report
     for item in todo:
@@ -553,11 +589,14 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
             continue
         plan_payload = entry["plan"]
         keyed = plan_payload["seek_keyed"]
+        l_inv = plan_payload["legacy"]["investigation"] or {}
+        k_inv = None if keyed is None else (keyed["investigation"] or {})
         records = _records(_run(driver, db, q.UNMERGE_STUDY_NODES, {
             "l": plan_payload["legacy"]["element_id"], "study_id": x, "l_props": plan_payload["legacy"]["props"],
-            "l_investigation": plan_payload["legacy"]["investigation"]["element_id"],
+            "l_investigation": l_inv.get("element_id"), "l_investigation_id": l_inv.get("id"),
             "k_props": None if keyed is None else keyed["props"],
-            "k_investigation": None if keyed is None else keyed["investigation"]["element_id"]}))
+            "k_investigation": None if k_inv is None else k_inv.get("element_id"),
+            "k_investigation_id": None if k_inv is None else k_inv.get("id")}))
         if not records:
             report["refused"].append({"study_id": x, "reason": "the legacy node changed between the read and the "
                                                                "write"})
@@ -566,18 +605,27 @@ def undo(driver, db, paths, *, dry_run: bool = False, batch: int = writer.REL_CH
         new_k = list(records[0]["new_k"] or [])
         item[3] = new_k[0] if new_k else None
         if not records[0]["l_investigations"]:
-            report["investigation_not_restored"].append(x)
+            report["investigation_not_restored"].append(_not_restored(x, "legacy", l_inv))
+        if new_k and not records[0]["k_investigations"]:
+            report["investigation_not_restored"].append(_not_restored(x, "seek_keyed", k_inv))
     for rows in _batches(archive_rows, batch):
         report["archive_restored"] += _one(_run(driver, db, q.RESTORE_IN_STUDY, {"rows": rows}), "restored")
     by_id = {s["study_id"]: s for s in report["studies"]}
     for x, entry, state_, keyed_eid in todo:
         if state_ is None or keyed_eid is None:
             continue
-        rows = [{"source": eid, "on_both": s["place"] == "on_both"} for eid, s in sorted(entry["sources"].items())]
+        journaled = entry["sources"]
+        now = _nodes_now(driver, db, sorted(journaled), batch)
+        same = [eid for eid in sorted(journaled) if _same_node(journaled[eid], now.get(eid))]
+        kept = set(same)
+        replaced = [_identity(eid, journaled[eid]) for eid in sorted(journaled)
+                    if eid not in kept and now.get(eid, {}).get("found")]
+        rows = [dict(_identity(eid, journaled[eid]), source=eid, on_both=journaled[eid]["place"] == "on_both")
+                for eid in same]
         moved = sum(_one(_run(driver, db, q.UNMERGE_MOVE_BACK, {"l": entry["plan"]["legacy"]["element_id"],
                                                                 "k": keyed_eid, "rows": part}), "restored")
                     for part in _batches(rows, batch))
-        by_id[x].update(moved_back=moved, skipped=len(rows) - moved)
+        by_id[x].update(moved_back=moved, skipped=len(journaled) - moved, sources_replaced=replaced)
     refused = {r["study_id"] for r in report["refused"]}
     report["studies"] = [s for s in report["studies"] if s["study_id"] not in refused]
     if report["refused"]:
