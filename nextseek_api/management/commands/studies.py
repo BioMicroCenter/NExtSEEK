@@ -198,7 +198,7 @@ class Command(BaseCommand):
             raise Refused("--mode plan needs one of --sheet, --dev-export, --graph-only, --associations")
         if options["sheet_name"] and not options["sheet"]:
             raise Refused("--sheet-name goes with --sheet")
-        session = self._session(options)
+        session = self._session(options).prove()
         source = {"sheet": "sheet", "dev_export": "dev_export", "graph_only": "graph_only",
                   "associations": "replay"}[given[0]]
         run_dir = Path(options["run_dir"]) if options["run_dir"] else default_run_dir(source)

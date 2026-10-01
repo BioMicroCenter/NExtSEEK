@@ -111,6 +111,17 @@ def test_the_password_never_reaches_argv_env_run_dir_or_logs(wired, tmp_path, ca
     for text in (caplog.text, out, err):
         assert PASSWORD not in text and encoded not in text
     assert client.auth and set(client.auth) == {"Basic " + encoded}
+    assert client.proved == 1
+
+
+def test_plan_proves_the_login_first_and_writes_nothing_when_the_proof_fails(wired, tmp_path):
+    from django.contrib.auth import get_user_model
+
+    _client, path = wired
+    get_user_model().objects.filter(username="operator").update(is_superuser=False)
+    assert _run("--mode", "plan", "--associations", str(path), "--seek-login", "operator",
+                "--seek-password-stdin", "--run-dir", str(tmp_path / "run")) == 2
+    assert not (tmp_path / "run").exists()
 
 
 def test_no_option_carries_the_password(wired):
