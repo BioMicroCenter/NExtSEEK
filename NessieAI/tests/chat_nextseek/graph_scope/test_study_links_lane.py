@@ -382,6 +382,28 @@ def test_a_gone_empty_sample_type_and_investigation_leave_the_graph(studies_lane
     assert studies_lane.read("MATCH (i:Investigation) RETURN i.id AS id ORDER BY id") == [{"id": 5}, {"id": 6}]
 
 
+def test_retiring_a_gone_types_samples_frees_its_title_for_the_recreated_type(studies_lane, tmp_path):
+    """R19's premise: a type deleted in SEEK with its samples and recreated under its old title. Its old node still
+    holds Sample nodes MySQL lacks (one graph_sync wrote, one it never wrote), so the title reads as held under another
+    id; once they are retired it does not, and the catalog write deletes the old type and writes the new one."""
+    from nextseek_api.graph_sync import cypher as q
+    from nextseek_api.graph_sync import writer
+    _load(studies_lane, [
+        "CREATE (old:SampleType {id: 9, title: 'TIS', label: 'T_TIS'}), "
+        "(:Sample:T_TIS {id: 1001, uuid: 'TIS-000000LNE-1001', type: 'TIS', synced_at: datetime()})-[:OF_TYPE]->(old), "
+        "(:Sample:T_TIS {id: 1002, uuid: 'TIS-000000LNE-1002', type: 'TIS'})-[:OF_TYPE]->(old)"])
+    titles = {"rows": [{"id": 26, "title": "TIS"}], "ids": [26]}
+    assert len(studies_lane.read(q.SAMPLE_TYPE_TITLE_CONFLICTS, titles)) == 1
+    counts = writer.retire_samples(studies_lane.driver, DB, [1001, 1002], str(tmp_path / "retired.tsv"))
+    assert (counts["retired_deleted"], counts["retired_orphaned"]) == (1, 1)
+    assert studies_lane.read(q.SAMPLE_TYPE_TITLE_CONFLICTS, titles) == []
+    counts = writer.write_sample_types(studies_lane.driver, DB,
+                                       [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False}],
+                                       archive_path=str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE))
+    assert counts["sample_types_deleted"] == 1
+    assert studies_lane.read("MATCH (t:SampleType) RETURN t.id AS id") == [{"id": 26}]
+
+
 def test_an_investigation_held_only_by_a_gone_seek_studys_node_leaves_the_graph(studies_lane, tmp_path):
     """R18: SEEK deletes an investigation after its studies, and a Study node is not deleted in this release. The node
     of a SEEK study that is gone no longer holds its Investigation: gate G reads it as one SEEK lacks, and the small

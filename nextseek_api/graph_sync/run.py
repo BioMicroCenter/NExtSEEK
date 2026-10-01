@@ -37,9 +37,11 @@ only where the stored values still equal the ones read just before the write.
 The preflight writes nothing. It builds the catalog (which enforces the label rule), scans every MySQL sample once
 (projecting it, collecting ids and the declared lineage), reads the ghost list, checks SampleType titles against the
 graph and refuses a graph where two Study nodes share a ``seek_study_id``. A problem it finds raises
-``PreflightError`` before the first write; a dry run reports the same numbers, plus previews of the CHILD_OF archive,
-the index budget and the Study re-key, and the IN_STUDY rebuild's counts, and stops there. A dry run takes no lock
-and records no run.
+``PreflightError`` before the first write, with one exception: when its only problem is title conflicts, the Sample
+nodes MySQL lacks are retired first and the titles are checked once more (a type deleted in SEEK with its samples and
+recreated under its old title leaves its old node holding them), and the run refuses only if the conflicts stay. A
+dry run reports the same numbers, plus previews of the CHILD_OF archive, the index budget and the Study re-key, and
+the IN_STUDY rebuild's counts, and stops there. A dry run takes no lock and records no run.
 
 Undeclared Attribute nodes are known only once every sample has been projected, so the Attribute catalog is written
 twice: the declared attributes before the sample pass (the design's order) and the full catalog after it. The
@@ -793,6 +795,30 @@ class _Preflight:
     scan: SampleScan
     ghosts: dict
     problems: list
+    retired: bool = False       # the graph-only ids were retired before the write (R19), so the write skips it
+
+
+def only_title_conflicts(problems: list, report: dict) -> bool:
+    """Whether a refusal has no reason but SampleType titles held under other ids in the graph: the one a retire can
+    clear. A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title leaves the
+    old node holding Sample nodes MySQL lacks, so the title reads as held until those samples are retired (R19)."""
+    return len(problems) == 1 and bool(report.get("sample_type_title_conflicts"))
+
+
+def _retire_for_title_conflicts(driver, db, run_dir: str, state_: _Preflight, report: dict) -> None:
+    """R19, the full sync: a preflight refused for nothing but title conflicts retires the Sample nodes MySQL lacks
+    first (when there are any), as the write's own retire step would, and checks the titles once more. ``problems`` is
+    emptied when the conflicts are gone; the conflicts found first are kept as ``title_conflicts_retried``."""
+    report["title_conflicts_retried"] = report["sample_type_title_conflicts"]
+    if state_.ghosts["orphan_ids"]:
+        _step(report, "retire", writer.retire_samples, driver, db, state_.ghosts["orphan_ids"],
+              os.path.join(run_dir, RETIRED_FILE))
+        state_.retired = True
+    conflicts = _title_conflicts(driver, db, state_.cat)
+    report["sample_type_title_conflicts"] = conflicts
+    if not conflicts:
+        state_.problems = []
+        report["problems"] = []
 
 
 def _build_or_refuse(report: dict) -> Catalog:
@@ -873,8 +899,9 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
            apply_label_changes: bool) -> None:
     cat, ghosts = state_.cat, state_.ghosts
     _step(report, "delete_ghosts", writer.delete_ghosts, driver, db, ghosts["ghost_element_ids"])
-    _step(report, "retire", writer.retire_samples, driver, db, ghosts["orphan_ids"],
-          os.path.join(run_dir, RETIRED_FILE))
+    if not state_.retired:
+        _step(report, "retire", writer.retire_samples, driver, db, ghosts["orphan_ids"],
+              os.path.join(run_dir, RETIRED_FILE))
     _step(report, "orphan_idless", writer.relabel_orphans, driver, db, [],
           element_ids=ghosts["idless_element_ids"])
     _step(report, "archive_child_of", writer.archive_and_drop_child_of, driver, db,
@@ -953,7 +980,8 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
     the wait for the graph-write lock. ``record`` writes a ``graph_sync_run`` row started by ``trigger``.
 
     Raises PreflightError, before any write, when the preflight finds a problem (``problems`` in the report), and its
-    subclass LockTimeout when the lock is not acquired.
+    subclass LockTimeout when the lock is not acquired. A preflight whose only problem is title conflicts retires the
+    Sample nodes MySQL lacks first and checks the titles once more, and raises only if they stay (R19).
     """
     if chunk <= 0:
         raise ValueError(f"chunk must be positive, got {chunk}")
@@ -981,6 +1009,8 @@ def full_sync(driver, db, chunk: int = writer.SAMPLE_CHUNK, dry_run: bool = Fals
             if not held:
                 raise LockTimeout([_lock_problem(lock_timeout_s)], report)
             preflight = _preflight(driver, db, chunk, report)
+            if only_title_conflicts(preflight.problems, report):
+                _retire_for_title_conflicts(driver, db, run_dir, preflight, report)
             if preflight.problems:
                 raise PreflightError(preflight.problems, report)
             _write(driver, db, chunk, run_dir, bench_keys, preflight, report, apply_label_changes)

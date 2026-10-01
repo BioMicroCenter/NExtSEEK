@@ -48,9 +48,9 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 |---|---|---|
 | `--loop` | never returns: housekeeping, the schedule, then the drain, once every `--interval` seconds (default 5) | through its passes |
 | `--once` | one pass of the loop | as above |
-| `--full` | the whole ordered sync (`run.py`'s module docstring). Its preflight writes nothing and refuses before the first write on any problem it finds | yes |
+| `--full` | the whole ordered sync (`run.py`'s module docstring). Its preflight writes nothing and refuses before the first write on any problem it finds, except SampleType title conflicts alone: then it retires the samples MySQL lacks first and checks the titles once more | yes |
 | `--catalog` | the SampleType and Attribute catalog only | yes |
-| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved | yes |
+| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |

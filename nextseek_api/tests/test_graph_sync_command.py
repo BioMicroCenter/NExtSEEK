@@ -395,12 +395,15 @@ def test_full_sync_refuses_when_a_sample_cannot_be_projected(world, monkeypatch,
 
 
 def test_full_sync_refuses_when_a_graph_sample_type_holds_a_title_under_another_id(world, monkeypatch, tmp_path):
+    """The graph-only sample is retired first and the titles are checked once more (R19); the title is still held,
+    so the run refuses before any other write."""
     rec = WriterRecorder(monkeypatch)
     driver = FakeDriver(lambda query, params: [{"title": "TIS", "graph_id": 5, "mysql_id": 26}]
                         if query == q.SAMPLE_TYPE_TITLE_CONFLICTS else [])
     with pytest.raises(run.PreflightError, match="sample_type_title_conflicts"):
         run.full_sync(driver, "neo4j", run_dir=str(tmp_path))
-    assert rec.names() == ["find_ghosts"]
+    assert rec.names() == ["find_ghosts", "retire_samples"]
+    assert [c.query for c in driver.calls].count(q.SAMPLE_TYPE_TITLE_CONFLICTS) == 2
 
 
 def test_full_sync_refuses_on_a_label_collision(world, monkeypatch, tmp_path):
