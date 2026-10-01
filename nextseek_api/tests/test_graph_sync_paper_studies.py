@@ -155,6 +155,33 @@ def test_restore_ignores_rows_another_path_removed(graph, tmp_path):
     assert paper_studies.restore_paper_links(graph, DB, tmp_path)["paper_links_restored"] == 0
 
 
+def _node_row(study_id):
+    return {"study_id": study_id, "element_id": f"n{study_id}", "props": {"id": study_id}, "investigation_ids": [7]}
+
+
+def test_a_rerun_archives_twice_and_the_restore_reads_each_link_and_node_once(tmp_path):
+    """A graph step stopped between an archive and its delete archives the same links and node again when it is run
+    again; the restore reads each once (on Neo4j, a doubled row would make two edges, or break the Study id
+    constraint)."""
+    links = tmp_path / paper_studies.IN_STUDY_REMOVED_FILE
+    nodes = tmp_path / paper_studies.STUDY_NODES_REMOVED_FILE
+    for _ in range(2):
+        writer._append_rows(str(links), writer.IN_STUDY_ARCHIVE_HEADER,
+                            ["1\t\t90\te1\tstudies_tool_paper\n", "2\t\t90\te2\tstudies_tool_paper\n"])
+        paper_studies._append_json_lines(nodes, [_node_row(90)])
+    assert paper_studies._paper_link_rows(links) == [{"sample_id": 1, "study_id": 90},
+                                                     {"sample_id": 2, "study_id": 90}]
+    assert [n["study_id"] for n in paper_studies._node_rows(nodes)] == [90]
+
+
+def test_a_cut_node_archive_line_is_ended_before_the_next_and_skipped(tmp_path):
+    nodes = tmp_path / paper_studies.STUDY_NODES_REMOVED_FILE
+    nodes.write_text(json.dumps(_node_row(91)) + "\n" + '{"study_id": 92, "props": {"id"', encoding="utf-8")
+    assert [n["study_id"] for n in paper_studies._node_rows(nodes)] == [91]
+    paper_studies._append_json_lines(nodes, [_node_row(90)])
+    assert [n["study_id"] for n in paper_studies._node_rows(nodes)] == [91, 90]
+
+
 def test_the_archive_is_the_studies_releases_file():
     assert paper_studies.IN_STUDY_REMOVED_FILE == study_links.ARCHIVE_FILE
 
@@ -165,7 +192,9 @@ def test_the_statements_live_in_cypher_py_and_paper_studies_holds_none():
     source = inspect.getsource(paper_studies)
     for word in ("MATCH", "MERGE", "DELETE e", "DETACH"):
         assert word not in source.replace('"""', ""), word
-    assert "WHERE st.seek_study_id IS NULL" in q.PAPER_IN_STUDY_OF
+    for statement in (q.PAPER_IN_STUDY_OF, q.DELETE_PAPER_IN_STUDY, q.EMPTY_PAPER_STUDY_NODES,
+                      q.DELETE_EMPTY_PAPER_STUDY_NODES, q.RESTORE_PAPER_IN_STUDY):
+        assert "st.seek_study_id IS NULL" in statement, statement   # never a SEEK study's node or its edges
 
 
 # --- preview_labels: read only, classes as sync_samples does ------------------------------------

@@ -12,7 +12,8 @@ Django user of that login is bound to that person, and that the user is a superu
 
 The session has its own ``SeekAPIClient`` (never the viewsets' shared one), with ``WRITE_TIMEOUT_S`` for writes. A
 POST that raised (a timeout, a lost connection) is an unknown outcome: the caller resolves it by the MySQL lookups
-here, never by retrying. A GET is retried once. 401, 403, 422 and 5xx raise ``SeekError``.
+here, never by retrying; one whose connection was never made (refused, or no answer to the connect) sent nothing and
+raises ``SeekError("seek_unreachable")`` at once. A GET is retried once. 401, 403, 422 and 5xx raise ``SeekError``.
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connections
 from rest_framework.exceptions import AuthenticationFailed
+from urllib3.exceptions import NewConnectionError
 
 from nextseek_api.attributes.auth import SelectedSeekCredential, _assert_local_seek_binding
 from nextseek_api.helpers import SeekAPIClient, resolve_seek_auth
@@ -122,6 +124,12 @@ def _message(body: dict) -> str:
     return ""
 
 
+def _never_connected(exc) -> bool:
+    """The connection was refused or never answered (requests' wrapping of urllib3's error): nothing was sent."""
+    reason = getattr(exc.args[0], "reason", None) if exc.args else None
+    return isinstance(exc, requests.ConnectTimeout) or isinstance(reason, NewConnectionError)
+
+
 def _check(status: int, content, what: str) -> dict:
     if status in (200, 201):
         return _body(content)
@@ -172,6 +180,8 @@ class SeekSession:
         try:
             content, status, _headers, _resp = call(self._credential.request())
         except _NETWORK_ERRORS as exc:
+            if _never_connected(exc):
+                raise SeekError("seek_unreachable", f"{what}: {type(exc).__name__}, nothing sent") from exc
             raise SeekUnknownOutcome(f"{what}: {type(exc).__name__} after sending") from exc
         return _check(status, content, what)
 
@@ -191,9 +201,9 @@ class SeekSession:
             person_id = int(data["id"])
         except (KeyError, TypeError, ValueError) as exc:
             raise SeekRefused("no_person", "SEEK returned no single current person") from exc
-        user = get_user_model().objects.filter(username=self.login).first()
+        user = get_user_model().objects.filter(username=self.login, is_active=True).first()
         if user is None:
-            raise SeekRefused("no_django_user", f"no NExtSEEK user has the login {self.login!r}")
+            raise SeekRefused("no_django_user", f"no active NExtSEEK user has the login {self.login!r}")
         try:
             _assert_local_seek_binding(user, person_id)
         except AuthenticationFailed as exc:

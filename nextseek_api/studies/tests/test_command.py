@@ -14,8 +14,10 @@ from django.core.management import CommandError, call_command
 
 from nextseek_api.management.commands import studies as cmd
 from nextseek_api.studies import apply as a
-from nextseek_api.studies import planner
+from nextseek_api.studies import planner, report
+from nextseek_api.studies import seek as seek_mod
 from nextseek_api.studies.models import AssociationSet, StudyTarget
+from nextseek_api.studies.seek import SeekError
 from nextseek_api.studies.tests.conftest import FakeDriver, FakeReader
 
 PASSWORD = "Pw-4bd1 !:secreté end"
@@ -23,7 +25,7 @@ PASSWORD = "Pw-4bd1 !:secreté end"
 
 class RecordingClient:
     def __init__(self, world):
-        self.world, self.timeout_s, self.auth = world, 20, []
+        self.world, self.timeout_s, self.auth, self.proved = world, 20, [], 0
 
     def _ok(self, request, body):
         self.auth.append(request.META.get("HTTP_AUTHORIZATION"))
@@ -36,6 +38,7 @@ class RecordingClient:
         return self._ok(request, self.world.study_reps[int(study_id)])
 
     def get_current_person(self, request):
+        self.proved += 1
         return self._ok(request, {"data": {"id": "42", "type": "people"}})
 
 
@@ -54,7 +57,12 @@ class SessionReader(FakeReader):
 
 
 @pytest.fixture
-def wired(alpha, monkeypatch, tmp_path, settings):
+def wired(alpha, monkeypatch, tmp_path, settings, db):
+    """The operator is a superuser bound to SEEK person 42, so the proof passes unless a test changes that."""
+    from django.contrib.auth import get_user_model
+
+    get_user_model().objects.create(username="operator", is_superuser=True)
+    monkeypatch.setattr(seek_mod, "_assert_local_seek_binding", lambda user, person_id: None)
     settings.LOG_DIR = str(tmp_path / "logs")
     client = RecordingClient(alpha)
     monkeypatch.setattr(cmd, "_client_factory", lambda: client)
@@ -66,6 +74,13 @@ def wired(alpha, monkeypatch, tmp_path, settings):
     path = tmp_path / "associations.json"
     path.write_text(aset.to_json(), encoding="utf-8")
     return client, path
+
+
+def _run_dir(path):
+    """A run directory as far as the command checks it: it holds a plan file."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / report.PLAN_FILE).write_text("{}", encoding="utf-8")
+    return path
 
 
 def _run(*args, stdin=PASSWORD + "\n"):
@@ -96,6 +111,17 @@ def test_the_password_never_reaches_argv_env_run_dir_or_logs(wired, tmp_path, ca
     for text in (caplog.text, out, err):
         assert PASSWORD not in text and encoded not in text
     assert client.auth and set(client.auth) == {"Basic " + encoded}
+    assert client.proved == 1
+
+
+def test_plan_proves_the_login_first_and_writes_nothing_when_the_proof_fails(wired, tmp_path):
+    from django.contrib.auth import get_user_model
+
+    _client, path = wired
+    get_user_model().objects.filter(username="operator").update(is_superuser=False)
+    assert _run("--mode", "plan", "--associations", str(path), "--seek-login", "operator",
+                "--seek-password-stdin", "--run-dir", str(tmp_path / "run")) == 2
+    assert not (tmp_path / "run").exists()
 
 
 def test_no_option_carries_the_password(wired):
@@ -151,10 +177,11 @@ def test_a_planner_defect_exits_2_and_writes_nothing(wired, tmp_path, monkeypatc
 def test_apply_proves_the_login_first_and_maps_the_status_to_the_exit(wired, tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(cmd.SeekSession, "prove", lambda self: seen.append("prove") or self)
+    run_dir = _run_dir(tmp_path / "run")
     for status, code in ((a.DONE, 0), (a.STOPPED, 1), (a.REFUSED, 2)):
         monkeypatch.setattr(a, "apply_study_moves",
                             lambda *args, status=status, **kw: seen.append("apply") or a.RunResult(status, "m"))
-        assert _run("--mode", "apply", "--run-dir", str(tmp_path), "--seek-login", "operator",
+        assert _run("--mode", "apply", "--run-dir", str(run_dir), "--seek-login", "operator",
                     "--seek-password-stdin") == code
     assert seen[:2] == ["prove", "apply"]
     assert _run("--mode", "apply", "--seek-login", "operator", "--seek-password-stdin") == 2
@@ -162,11 +189,65 @@ def test_apply_proves_the_login_first_and_maps_the_status_to_the_exit(wired, tmp
 
 def test_graph_needs_the_approval_and_the_live_flag_on_the_live_graph(wired, tmp_path, monkeypatch, settings):
     monkeypatch.setattr(a, "graph_step", lambda *args, **kw: a.RunResult(a.DONE, "ok"))
-    assert _run("--mode", "graph", "--run-dir", str(tmp_path)) == 2
+    run_dir = str(_run_dir(tmp_path / "run"))
+    assert _run("--mode", "graph", "--run-dir", run_dir) == 2
     settings.NEO4J_DATABASE = {"NAME": "neo4j", "URI": "bolt://neo4j:7687", "AUTH": ("neo4j", "x")}
-    assert _run("--mode", "graph", "--run-dir", str(tmp_path), "--approve-label-changes") == 2
-    assert _run("--mode", "graph", "--run-dir", str(tmp_path), "--approve-label-changes",
+    assert _run("--mode", "graph", "--run-dir", run_dir, "--approve-label-changes") == 2
+    assert _run("--mode", "graph", "--run-dir", run_dir, "--approve-label-changes",
                 "--i-mean-the-live-graph") == 0
+    for status, code in ((a.STOPPED, 1), (a.REFUSED, 2)):
+        monkeypatch.setattr(a, "graph_step", lambda *args, status=status, **kw: a.RunResult(status, "m"))
+        assert _run("--mode", "graph", "--run-dir", run_dir, "--approve-label-changes",
+                    "--i-mean-the-live-graph") == code
+
+
+@pytest.mark.parametrize("error", [ValueError("DERIVED_FROM (1, 2): labels lack x"),
+                                   SeekError("seek_error", "SEEK answered 500", 500), RuntimeError("lost")])
+def test_an_error_inside_a_run_exits_1_and_never_says_nothing_written(wired, tmp_path, monkeypatch, capsys, error):
+    """apply, the graph step and rollback may have written before they raised: stopped part way, never refused."""
+    from nextseek_api.studies import rollback
+
+    def raises(*args, **kwargs):
+        raise error
+
+    for module, name in ((a, "apply_study_moves"), (a, "graph_step"), (rollback, "rollback_study_moves")):
+        monkeypatch.setattr(module, name, raises)
+    monkeypatch.setattr(cmd.SeekSession, "prove", lambda self: self)
+    run_dir = str(_run_dir(tmp_path / "run"))
+    login = ("--seek-login", "operator", "--seek-password-stdin")
+    for args in (("--mode", "apply", *login), ("--mode", "graph", "--approve-label-changes"),
+                 ("--mode", "rollback", "--confirm", *login)):
+        capsys.readouterr()
+        assert _run(*args, "--run-dir", run_dir) == 1, args
+        out = capsys.readouterr().out
+        assert "nothing written" not in out and "stopped part way" in out and str(error) in out, out
+
+
+def test_a_run_reports_the_journal_lines_it_could_not_read(wired, tmp_path, monkeypatch, capsys):
+    run_dir = _run_dir(tmp_path / "run")
+    (run_dir / "journal.jsonl").write_bytes(b'{"seq": 1, "step": "run", "event": "start"}\n{"seq": 2, "st\n')
+    monkeypatch.setattr(a, "graph_step", lambda *args, **kw: a.RunResult(a.STOPPED, "m"))
+    assert _run("--mode", "graph", "--run-dir", str(run_dir), "--approve-label-changes", "--json") == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["counts"]["journal_unreadable_lines"] == 1 and "1 journal line(s)" in result["message"]
+
+
+def test_a_missing_file_or_an_unreachable_graph_before_any_write_is_refused(wired, tmp_path, monkeypatch):
+    from neo4j.exceptions import ServiceUnavailable
+
+    _client, path = wired
+    login = ("--seek-login", "operator", "--seek-password-stdin")
+    assert _run("--mode", "plan", "--associations", str(tmp_path / "missing.json"), *login,
+                "--run-dir", str(tmp_path / "r1")) == 2
+    assert _run("--mode", "report", "--run-dir", str(tmp_path / "nowhere")) == 2
+    assert _run("--mode", "apply", "--run-dir", str(tmp_path / "nowhere"), *login) == 2
+
+    def unreachable(config):
+        raise ServiceUnavailable("no route to the graph")
+
+    monkeypatch.setattr(cmd, "_open_driver", unreachable)
+    assert _run("--mode", "plan", "--associations", str(path), *login, "--run-dir", str(tmp_path / "r2")) == 2
+    assert not (tmp_path / "r2").exists()
 
 
 def test_rollback_is_a_dry_run_without_confirm(wired, tmp_path, monkeypatch, settings):
@@ -176,9 +257,10 @@ def test_rollback_is_a_dry_run_without_confirm(wired, tmp_path, monkeypatch, set
     monkeypatch.setattr(cmd.SeekSession, "prove", lambda self: self)
     monkeypatch.setattr(rollback, "rollback_study_moves",
                         lambda *args, confirm, investigation=None: seen.append(confirm) or a.RunResult(a.DONE, "m"))
-    assert _run("--mode", "rollback", "--run-dir", str(tmp_path), "--seek-login", "operator",
+    run_dir = str(_run_dir(tmp_path / "run"))
+    assert _run("--mode", "rollback", "--run-dir", run_dir, "--seek-login", "operator",
                 "--seek-password-stdin") == 0
-    assert _run("--mode", "rollback", "--run-dir", str(tmp_path), "--seek-login", "operator",
+    assert _run("--mode", "rollback", "--run-dir", run_dir, "--seek-login", "operator",
                 "--seek-password-stdin", "--confirm") == 0
     assert seen == [False, True]
 

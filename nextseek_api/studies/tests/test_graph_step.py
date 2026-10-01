@@ -178,3 +178,49 @@ def test_labels_outside_plan_compares_class_and_properties():
     assert a.labels_outside_plan([_edge(5, 4, labels.NEW)], planned) == []
     assert a.labels_outside_plan([_edge(5, 4, labels.RENAMED, ["internal_assay_title"])], planned) == []
     assert a.labels_outside_plan([_edge(5, 4, labels.CHANGED, ["assay_id"])], planned)
+
+
+@pytest.mark.django_db
+def test_structural_gaps_end_done_and_point_at_graph_sync_health(graph_env, monkeypatch):
+    run_dir, _plan = _applied(graph_env)
+    monkeypatch.setattr(targeted, "sync_samples",
+                        lambda d, db, ids, **kw: {"status": targeted.OK, "structural_gaps": 2})
+    result = graph_env.graph(run_dir)
+    assert (result.status, result.counts["structural_gaps"]) == (a.DONE, 2)
+    assert "2 structural link(s)" in result.message and "graph_sync_health" in result.message
+
+
+@pytest.mark.django_db
+def test_one_investigation_previews_syncs_and_retires_only_its_own(graph_env):
+    run_dir, _plan = _applied(graph_env,
+                              StudyTarget(key="graph_only:90", investigation_id=7, title="Paper One",
+                                          doi="10.0000/one", sample_ids=[3]),
+                              StudyTarget(key="sheet:8:beta paper", investigation_id=8, title="Beta Paper",
+                                          doi="10.0000/beta", sample_ids=[6]))
+    graph_env.placed = [3]
+    assert graph_env.graph(run_dir, investigation=8).status == a.DONE
+    [(_p, beta_ids)] = [c for c in graph_env.calls if c[0] == "preview"]
+    assert 6 in beta_ids and 3 not in beta_ids
+    assert "retire" not in [c[0] for c in graph_env.calls]
+    graph_env.calls.clear()
+    assert graph_env.graph(run_dir, investigation=7).status == a.DONE
+    [(_p, alpha_ids)] = [c for c in graph_env.calls if c[0] == "preview"]
+    assert 3 in alpha_ids and 6 not in alpha_ids
+    assert [c for c in graph_env.calls if c[0] == "retire"] == [("retire", 90, [3], "in_study_removed.tsv")]
+
+
+@pytest.mark.django_db
+def test_a_step_stopped_after_its_first_sync_call_is_finished_by_running_it_again(graph_env, monkeypatch):
+    run_dir, _plan = _applied(graph_env)
+    monkeypatch.setattr(a, "SYNC_CALL_IDS", 1)
+    answers = iter([targeted.OK, targeted.LOCK_TIMEOUT, targeted.OK, targeted.OK])
+    def sync(d, db, ids, **kw):
+        graph_env.calls.append(("sync", list(ids)))
+        return {"status": next(answers)}
+
+    monkeypatch.setattr(targeted, "sync_samples", sync)
+    assert graph_env.graph(run_dir).status == a.STOPPED
+    assert journal_events(run_dir)[-1] == ("graph", "stopped")
+    assert graph_env.graph(run_dir).status == a.DONE
+    assert journal_events(run_dir)[-1] == ("graph", "done")
+    assert [c[1] for c in graph_env.calls if c[0] == "sync"] == [[2], [3], [2], [3]]

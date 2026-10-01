@@ -124,6 +124,16 @@ def test_prove_refuses_a_user_who_is_not_a_superuser_or_not_bound(monkeypatch):
     assert exc.value.code == "person_not_bound"
 
 
+@pytest.mark.django_db
+def test_prove_refuses_an_inactive_user(monkeypatch):
+    get_user_model().objects.create(username="operator", is_superuser=True, is_active=False)
+    monkeypatch.setattr(s, "_assert_local_seek_binding", lambda u, pid: None)
+    session, _ = _session({"get_current_person": (200, {"data": {"id": "42", "type": "people"}})})
+    with pytest.raises(s.SeekRefused) as exc:
+        session.prove()
+    assert exc.value.code == "no_django_user"
+
+
 def test_writes_use_the_write_timeout_reads_the_read_timeout():
     session, client = _session({"create_study": (201, {"data": {"id": "77", "type": "studies"}}),
                                 "get_study": (200, {"data": {"id": "20"}})})
@@ -137,6 +147,20 @@ def test_a_post_that_raised_is_an_unknown_outcome(error):
     session, _ = _session({"create_assay": error})
     with pytest.raises(s.SeekUnknownOutcome):
         session.create_assay({"data": {}})
+
+
+def _refused_connection():
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    return requests.ConnectionError(MaxRetryError(None, "/studies", NewConnectionError(None, "Connection refused")))
+
+
+@pytest.mark.parametrize("error", [requests.ConnectTimeout("no connection made"), _refused_connection()])
+def test_a_post_that_never_connected_sent_nothing_and_stops_at_once(error):
+    session, _ = _session({"create_study": error})
+    with pytest.raises(s.SeekError) as exc:
+        session.create_study({"data": {}})
+    assert exc.value.code == "seek_unreachable"
 
 
 def test_a_get_is_retried_once():
