@@ -369,3 +369,57 @@ def test_no_artifact_criterion_left_scored_on_a_cc_arm_is_guaranteed_red():
         f"these artifact criteria are still scored on a forced cc arm but can "
         f"never pass one: {guaranteed_red}. Each is a false red on a correct "
         f"answer — the defect class this fix removes.")
+
+
+# ── payloads and the parser force (graph_search Nessie POC) ─────────────────
+
+
+def test_run_case_writes_one_payload_per_turn_when_asked(tmp_path):
+    import json
+    post_query, get_progress = _fakes(reply="Found 195 MUS samples")
+    v = _variant("refrec.refine_to_cd8")
+    assert len({t.label for t in v.turns}) == len(v.turns) > 1, "fixture drifted"
+    runner.run_case(v, tier="full", post_query=post_query, get_progress=get_progress,
+                    payload_dir=tmp_path)
+    files = sorted(p.name for p in (tmp_path / v.id).iterdir())
+    assert files == sorted(f"{t.label}.json" for t in v.turns)
+
+    first = json.loads((tmp_path / v.id / f"{v.turns[0].label}.json").read_text())
+    assert {"query", "task_id", "session_id", "status", "route_obs", "query_complete",
+            "elapsed_s"} <= set(first)
+    assert first["query"] == v.turns[0].query
+    assert first["task_id"] == "t1" and first["session_id"] == "s1"
+    assert first["status"] == "completed"
+    assert first["route_obs"]["route"] == "nextseek_query"
+    assert first["query_complete"]["reply"] == "Found 195 MUS samples"
+
+
+def test_run_case_writes_no_payload_by_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    post_query, get_progress = _fakes()
+    runner.run_case(_variant(), tier="full", post_query=post_query, get_progress=get_progress)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_run_case_writes_no_payload_for_a_case_that_never_ran(tmp_path):
+    v = _variant().model_copy(update={"requires_env": ["NESSIE_DEFINITELY_UNSET"]})
+    post_query, get_progress = _fakes()
+    runner.run_case(v, tier="full", post_query=post_query, get_progress=get_progress,
+                    payload_dir=tmp_path)
+    assert not (tmp_path / v.id).exists()
+
+
+def test_run_case_sends_the_parser_force_on_every_turn():
+    post_query, get_progress = _fakes()
+    runner.run_case(_variant("refrec.refine_to_cd8"), tier="full", force_route="ns",
+                    force_parser_mode="api", strip_route_criteria=True,
+                    post_query=post_query, get_progress=get_progress)
+    assert len(post_query.bodies) > 1
+    assert all(b["force_route"] == "ns" and b["force_parser_mode"] == "api"
+               for b in post_query.bodies)
+
+
+def test_run_case_sends_no_parser_force_by_default():
+    post_query, get_progress = _fakes()
+    runner.run_case(_variant(), tier="full", post_query=post_query, get_progress=get_progress)
+    assert all("force_parser_mode" not in b for b in post_query.bodies)

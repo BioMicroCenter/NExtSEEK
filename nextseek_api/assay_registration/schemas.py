@@ -150,9 +150,23 @@ class RegistrationCounts(BaseModel):
 
 
 class GraphOutcome(BaseModel):
+    """What the request asked of the sample graph, and what came of it.
+
+    ``queued`` is what a successful registration reports. The assay labels on
+    the DERIVED_FROM edges incident to a registered sample are derived from
+    assay_assets by one rule, which graph_sync owns, so this endpoint writes an
+    outbox row per sample and the sync applies it; nothing is recomputed while
+    the request is open, which is why ``edges_recomputed`` is 0 on that path.
+
+    The field stays because the response shape is published, and because
+    ``succeeded`` with a count is what receipts stored before that change carry
+    -- ``status_url`` validates every stored receipt against this model, so a
+    member removed here turns an old job's status read into a 500.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["succeeded", "failed", "skipped"]
+    status: Literal["succeeded", "failed", "skipped", "queued"]
     edges_recomputed: int = 0
     error: Optional[str] = None
 

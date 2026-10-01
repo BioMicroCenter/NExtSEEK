@@ -43,7 +43,7 @@ def _stub_the_rebuild_ci_hook(monkeypatch: pytest.MonkeyPatch) -> None:
     # subject; test_validate.py and test_cli_commands.py cover it.
     monkeypatch.setattr(
         validate, "stack_health",
-        lambda repo_root, env, compose_project_name: validate.StackHealth(
+        lambda repo_root, env, compose_project_name, **kwargs: validate.StackHealth(
             blocking=(validate.HealthResult("app + front door", True, "running"),),
             advisory=(),
         ),

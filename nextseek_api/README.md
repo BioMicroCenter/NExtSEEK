@@ -25,8 +25,7 @@ line, `nextseek_api/models.py:2708`, whose own comment says the import exists "s
 discovers it". Enumerating `get_models()` for this app config on 2026-09-03 returned 17
 models, none of them defined in `nextseek_api/models.py`.
 
-**`nextseek_api/views.py` is a re-export hub, not a view module.** It runs to
-`nextseek_api/views.py:960`, and the block at `nextseek_api/views.py:43-66` does nothing but import
+**`nextseek_api/views.py` is a re-export hub, not a view module.** The block at `nextseek_api/views.py:43-66` does nothing but import
 ViewSets from `services/` and from the child packages and alias them into this namespace,
 so that `nextseek_api/urls.py:5` can register them all from one module.
 
@@ -72,13 +71,14 @@ to `nextseek_api/endpoint_descriptions.py:1190`, and it contains no import state
 all: a grep for a line beginning with `import` or `from` over that one file returns
 nothing, which is why a description edit can never break an import cycle.
 
-**The four ViewSets defined here.** `SampleTreeViewSet` (`nextseek_api/views.py:180`) and
-`AdminSampleViewSet` (`nextseek_api/views.py:648`) are routed and live. `NHPViewSet`
+**The four ViewSets defined here.** `SampleTreeViewSet` and `AdminSampleViewSet` are routed
+and live; `AdminSampleViewSet` is only the deprecated `admin/samples/retrieve/` alias of the
+download API, whose handler and data path are in `nextseek_api/services/sample_retrieve.py`. `NHPViewSet`
 (`nextseek_api/views.py:395`) and `SampleQueryViewSet` (`nextseek_api/views.py:549`) are
 not: their registrations are the two commented-out lines at `nextseek_api/urls.py:15-16`.
 Both live ViewSets scope data per caller rather than by Django role, and each says so
-where it decides: `nextseek_api/views.py:268-274` for the tree, and
-`nextseek_api/views.py:749-756` for the export.
+where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retrieve` in
+`nextseek_api/services/sample_retrieve.py` for the download.
 
 **The subpackages.** Each is documented in its own directory; one row each.
 
@@ -89,9 +89,11 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and
 | `assistant/` | the API half of the assistant: ORM models (including the `eval_*` tables), wire models, the progress WebSocket consumer, session and pipeline adapters, OpenAPI descriptions, `excel_export.py`, and the granular-op HTTP contract `CONTRACT.md` | `nextseek_api/assistant/README.md` |
 | `attributes/` | the native attribute API: a catalog plus plan-then-execute mutations | `nextseek_api/attributes/README.md` |
 | `batch_delete/` | pydantic models for delete eligibility; no views, no ORM | this row |
-| `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
+| `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7, stage 6 syncing this job's samples through `graph_sync/`; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
 | `cc_assistant/` | Django shell for Container-CC; engine at `NessieAI/cc/`. Never rename the app label or the Celery tasks `cc_assistant.upload` and `cc_assistant.sweep_cc_summaries` | `NessieAI/cc/README.md` |
-| `management/` | management commands, including the three loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs`), the harness entry point `nessie` and the staging-sweep recovery `cc_sweep_staging`; deleting a loop's shim removes a command the entrypoint calls | this row |
+| `graph_search/` | the engine behind `POST /nextseek_api/samples/graph_search/`: scope from MySQL membership, a Cypher query builder, the catalog cache and page hydration | `nextseek_api/graph_search/README.md` |
+| `graph_sync/` | the one writer of the Neo4j sample graph (schema v1.2) and the sync that keeps it equal to MySQL: the outbox every other writer enqueues to, the drain loop, the nightly targeted sync, the weekly full sync, the drift check and the `graph_sync` command | `nextseek_api/graph_sync/README.md` |
+| `management/` | management commands, including the four loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs` and `graph_sync --loop`), the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | this row |
 | `migrations/` | the one migration chain for the app and every subpackage; it forks, so check the heads first | `nextseek_api/CLAUDE.md` |
 | `services/` | the ViewSet and service layer; a new ViewSet module goes here | `nextseek_api/services/README.md` |
 | `tests/` | the app's tests, including `repo_guards/` (repo infrastructure guards: compose, the app entrypoint, the settings env, the build context and the issue conventions) | this row |

@@ -95,9 +95,10 @@
 				}
 				
 				try {
-					const response = await fetch(`/seek/samples/delete/?${params}`, {
-						method: "GET",
-						headers: {"X-CSRFTOKEN": getCookie("csrftoken")},
+					const response = await fetch("/seek/samples/delete/", {
+						method: "POST",
+						headers: {"X-CSRFToken": getCookie("csrftoken")},
+						body: params,
 						})
 						$.messager.progress({
 							title: "Please wait",

@@ -6,7 +6,11 @@ class _StubClient:
     def __init__(self, scripted):
         self._scripted = list(scripted)
 
-    def chat_with_tools(self, *, messages, tools, system, model, max_tokens=None, temperature=0.0):
+    def chat_with_tools(self, *, messages, tools, system, model, **kwargs):
+        # **kwargs, not a fixed list: the real surface gained tool_choice, cache_prompt
+        # and thinking_budget, and a stub that pins the old signature fails on a
+        # caller change that is not a behaviour change.
+        self.last_kwargs = kwargs
         return self._scripted.pop(0)
 
 

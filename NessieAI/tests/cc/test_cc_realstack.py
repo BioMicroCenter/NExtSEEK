@@ -53,7 +53,7 @@ from NessieAI.tests.cc.validate_step7_compose_deploy import (
 )
 
 RUN = os.environ.get("RUN_REALSTACK") == "1"
-OPUS = "us.anthropic.claude-opus-4-8"
+OPUS = "us.anthropic.claude-opus-5-5"
 PROXY_CONTAINER = os.environ.get("DMAC_PROXY_CONTAINER", "dmac-bedrock-proxy")
 NET = cc_engine.DEFAULT_NETWORK
 BUDGET_CAP = float(os.environ.get("NEXTSEEK_CC_MAX_BUDGET_USD", "2.0"))
@@ -245,7 +245,7 @@ class CCRealStackAcceptance(TransactionTestCase):
         for key in ("AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD", "GCP_API_KEY"):
             self.assertNotRegex(agent_env, rf"(^|\W){key}=", f"{key} leaked into the agent")
         self.assertNotIn("ABSK", agent_env, "AWS bearer token prefix in the agent env")
-        self.assertRegex(proxy_window, re.escape(OPUS), "no opus-4-8 invoke in the proxy log")
+        self.assertRegex(proxy_window, re.escape(OPUS), "no opus-5-5 invoke in the proxy log")
         self.assertNotIn("ABSK", proxy_window, "proxy logged the bearer token")
         backend = [c for c in net_containers
                    if re.search(r"(^|[-_])(neo4j|seek|mysql)([-_]|$)", c)]

@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from nextseek_api.graph_sync import hooks
+
 from .config import BatchUploadConfig, Neo4jConfig
 from .convert import merge_files
 from .dag import build_relationships, compute_directions, detect_cycles
@@ -22,10 +24,8 @@ from .models import (
     DirectionComputation,
     InputRowModel,
     InsertableSample,
-    Metrics,
     RowOutcome,
 )
-from .neo4j_sync import upload_all
 from .parallel import PARALLEL_THRESHOLD, process_batches_parallel
 from .prefetch import (
     prefetch_assay_ids,
@@ -43,6 +43,10 @@ from .transform import build_insertable
 from .uid_gen import check_name_exists_in_db, run_uid_gen
 
 log = logging.getLogger(__name__)
+
+# Stage 6's bounded wait for the graph-write lock (the sync design, sections 7.4 and 8; R10). Long enough to sit
+# behind a drained outbox row, short enough that an upload never waits out a full sync.
+GRAPH_LOCK_WAIT_S = 60
 
 
 def run_batch_upload(
@@ -75,11 +79,17 @@ def run_batch_upload(
 def _build_neo4j_only_outcomes(
     insertable_samples: List[InsertableSample],
     error_collector: ErrorCollector,
+    job_id: str = "",
 ) -> BatchResult:
     """Build synthetic outcomes for neo4j-only mode via batch DB lookup.
 
     Reuses load_existing_samples() — chunked WHERE IN, 1000/chunk.
     Outcomes built via dict comprehensions over set operations.
+
+    Nothing of the sheet but its UIDs reaches the graph: stage 6 syncs the ids
+    they resolve to, read from ``samples``. Stage 5 does not run in this mode,
+    so this is where the run records those ids in the outbox (the sync design,
+    section 8).
     """
     all_uids_list = [s.uuid.strip() for s in insertable_samples]
 
@@ -118,6 +128,13 @@ def _build_neo4j_only_outcomes(
         "INSERT (neo4j_only): resolved=%d, missing=%d",
         len(found_uids), len(missing_uids),
     )
+
+    if job_id and uid_to_sample_id:
+        hooks.enqueue(
+            "samples",
+            outbox_key(job_id, "neo4j_only"),
+            sorted(int(sid) for sid in uid_to_sample_id.values()),
+        )
 
     return BatchResult(
         inserted_count=0,
@@ -545,6 +562,103 @@ def _run_pre_insert_stages(
     return res
 
 
+# ── Stage 6: the graph, through graph_sync ────────────────────────────────
+
+
+def outbox_key(job_id: str, part: str) -> str:
+    """This job's outbox key for one unit of stage 5 (the sync design's section 12: ``samples`` takes
+    ``batch:<name>``, and the ids ride in the payload)."""
+    return f"batch:{job_id}:{part}"
+
+
+def graph_sample_ids(outcomes: Dict[str, RowOutcome]) -> List[int]:
+    """Every sample this job touched: inserted, updated and skipped-duplicate rows alike (the sync design,
+    section 8). A failed row has no ``sample_id``, so there is nothing for the graph to read."""
+    return sorted({o.sample_id for o in outcomes.values() if o.sample_id is not None})
+
+
+def _run_graph_sync(sample_ids: List[int]) -> str:
+    """``graph_sync.targeted.sync_samples`` for these ids; returns its status.
+
+    That call is one write unit: it refuses a graph that is not at the writer's schema version, takes the
+    graph-write lock for at most ``GRAPH_LOCK_WAIT_S`` and writes nothing without it. Whatever happens comes back
+    as a status, never as an exception: the samples are committed either way, and the outbox row stage 5 wrote
+    inside each batch's transaction keeps the work for the sync loop.
+    """
+    neo4j_config = Neo4jConfig.from_django_settings()
+    if not neo4j_config.NEO4J_UPLOAD_ENABLED:
+        log.info("GRAPH SYNC: Neo4j is not configured (missing: %s); %d sample(s) stay pending",
+                 neo4j_config.MISSING_KEYS, len(sample_ids))
+        return "not_configured"
+    try:
+        from neo4j import GraphDatabase
+
+        from nextseek_api.graph_sync import targeted
+
+        with GraphDatabase.driver(
+            neo4j_config.URI, auth=(neo4j_config.NEO4J_USER, neo4j_config.PASSWORD),
+        ) as driver:
+            report = targeted.sync_samples(
+                driver, neo4j_config.NEO4J_DB, sample_ids, lock_timeout_s=GRAPH_LOCK_WAIT_S,
+            )
+        log.info("GRAPH SYNC: %s", report)
+        return str(report.get("status"))
+    except Exception as exc:  # noqa: BLE001 - the upload stands; the sync loop catches the graph up
+        log.warning("GRAPH SYNC failed for %d sample(s) (the outbox keeps the work): %s",
+                    len(sample_ids), exc, exc_info=True)
+        return "error"
+
+
+def _mark_outbox_done(job_id: str, before) -> int:
+    """Close the outbox rows stage 5 wrote for this job: the inline sync has just done their work.
+
+    Only rows enqueued before that sync started, so anything written since is left for the loop. Best-effort: a
+    row left open costs one redundant sync, an exception here would cost a job that succeeded.
+    """
+    try:
+        from django.conf import settings
+        from django.utils import timezone
+
+        from nextseek_api.graph_sync.models_db import GraphSyncOutbox
+
+        alias = getattr(settings, "NEXTSEEK_DATABASE", "default")
+        return (
+            GraphSyncOutbox.objects.using(alias)
+            .filter(kind="samples", key__startswith=f"batch:{job_id}:",
+                    done_at__isnull=True, enqueued_at__lte=before)
+            .update(done_at=timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("GRAPH SYNC: could not close this job's outbox rows; the sync loop will redo them",
+                    exc_info=True)
+        return 0
+
+
+def _sync_graph_for_job(job_id: str, outcomes: Dict[str, RowOutcome]) -> str:
+    """Stage 6: bring this job's samples up to date in the graph, and say so for the job totals and the summary
+    CSV: ``synced (N)`` or ``pending (N)``.
+
+    ``pending`` is not a failure. Every batch wrote its committed ids to the outbox inside its own transaction, so
+    ``manage.py graph_sync --loop`` drains what this call could not do: a graph still at schema 1.1, a busy
+    graph-write lock, a Neo4j that is down, or no Neo4j at all (the sync design, section 8).
+    """
+    ids = graph_sample_ids(outcomes)
+    if not ids:
+        return "synced (0)"
+
+    from django.utils import timezone
+
+    started = timezone.now()
+    status = _run_graph_sync(ids)
+    if status == "ok":                      # graph_sync.targeted.OK
+        closed = _mark_outbox_done(job_id, started)
+        log.info("GRAPH SYNC: %d sample(s) synced, %d outbox row(s) closed", len(ids), closed)
+        return f"synced ({len(ids)})"
+    log.info("GRAPH SYNC: %d sample(s) pending (%s); the sync loop drains this job's outbox rows",
+             len(ids), status)
+    return f"pending ({len(ids)})"
+
+
 def run_batch_upload_multi(
     xlsx_paths: List[str],
     project_id: int,
@@ -565,14 +679,13 @@ def run_batch_upload_multi(
     in rows mode it is not performed (deferred).
 
     Stage 0 CONVERT (format detection + merge) -> NAME_CHECK -> UID_GEN -> DAG -> LEVELS
-    -> PREFETCH -> TRANSFORM -> INSERT -> NEO4J -> REPORT.
+    -> PREFETCH -> TRANSFORM -> INSERT -> GRAPH SYNC -> REPORT.
     """
     if config is None:
         config = BatchUploadConfig()
 
     job_id = str(uuid_mod.uuid4())
     t0 = time.perf_counter()
-    neo4j_metrics: Optional[Metrics] = None
 
     if not output_dir:
         from django.conf import settings
@@ -628,6 +741,7 @@ def run_batch_upload_multi(
         batch_result = _build_neo4j_only_outcomes(
             insertable_samples=insertable_samples,
             error_collector=error_collector,
+            job_id=job_id,
         )
     else:
         if should_stop and should_stop():
@@ -714,6 +828,7 @@ def run_batch_upload_multi(
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
+                    batch_key_prefix=outbox_key(job_id, f"L{level_num}"),
                 )
             else:
                 log.info(
@@ -734,6 +849,7 @@ def run_batch_upload_multi(
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
+                    batch_key_prefix=outbox_key(job_id, f"L{level_num}"),
                 )
 
             # Stamp topo_level on outcomes and track failures/successes
@@ -803,6 +919,7 @@ def run_batch_upload_multi(
                     should_stop=should_stop,
                     existing_samples=cumulative_existing,
                     update_existing=config.update_existing,
+                    batch_key_prefix=outbox_key(job_id, "cycle"),
                 )
                 for uid, outcome in cycle_result.outcomes.items():
                     outcome.topo_level = -1
@@ -852,30 +969,16 @@ def run_batch_upload_multi(
             if uid in generated_uids:
                 outcome.uid_generated = True
 
-    # ── Stage 6: NEO4J ────────────────────────────────────────────────────
+    # ── Stage 6: GRAPH SYNC ───────────────────────────────────────────────
+    #
+    # A cancel here leaves every sample pending: stage 5 wrote each batch's
+    # committed ids to the outbox inside that batch's own transaction, so the
+    # sync loop does the work this stage would have done.
     if should_stop and should_stop():
         return _cancelled_result(job_id, summary_path, valid_rows=valid_rows, error_collector=error_collector, outcomes=batch_result.outcomes)
 
-    log.info("Stage 6/7: NEO4J")
-    neo4j_config = Neo4jConfig.from_django_settings()
-
-    if neo4j_config.NEO4J_UPLOAD_ENABLED:
-        try:
-            with get_connection() as conn:
-                neo4j_metrics = upload_all(
-                    outcomes=batch_result.outcomes,
-                    input_models=valid_rows,
-                    direction_computation=direction_computation,
-                    sql_conn=conn,
-                    neo4j_config=neo4j_config,
-                    insertable_samples=insertable_samples,
-                    error_collector=error_collector,
-                )
-            log.info("NEO4J: %s", neo4j_metrics)
-        except Exception as exc:
-            log.warning("NEO4J stage failed (non-fatal): %s", exc, exc_info=True)
-    else:
-        log.info("NEO4J: disabled (missing: %s)", neo4j_config.MISSING_KEYS)
+    log.info("Stage 6/7: GRAPH SYNC")
+    graph_status = _sync_graph_for_job(job_id, batch_result.outcomes)
 
     # ── Build identity map for orphan resolution ────────────────────────
     identity_map, parent_info = build_identity_map(valid_rows, batch_result.outcomes)
@@ -896,10 +999,12 @@ def run_batch_upload_multi(
         "permissions_inserted": batch_result.permissions_inserted_count,
         "uids_generated": uid_gen_report.get("uids_generated", 0),
         "updated": batch_result.updated_count,
+        # What stage 6 did with this job's samples: "synced (N)" or "pending (N)".
+        "graph": graph_status,
     }
 
     row_summaries = build_row_summaries(batch_result.outcomes, valid_rows, error_collector)
-    write_summary_csv(summary_path, row_summaries, totals, neo4j_metrics, warnings=warnings or None)
+    write_summary_csv(summary_path, row_summaries, totals, warnings=warnings or None)
 
     log.info(
         "=== BATCH UPLOAD COMPLETE (job=%s) === inserted=%d elapsed=%.1fs",

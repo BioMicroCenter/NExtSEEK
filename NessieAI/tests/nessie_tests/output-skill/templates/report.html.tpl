@@ -482,11 +482,22 @@ function renderCall(t){
     return {k:"Reporter plan", v:`<pre class="json wrap">${esc(jfmt(t.rplan))}</pre>`};
   if(t.model){
     let v = `<div class="callline">${esc(t.model)}</div>`;
-    if(t.cost!=null) v += `<div class="chipline"><span class="rchip">$${Number(t.cost).toFixed(4)}</span></div>`;
+    v += costChip(t);
     return {k:"Container-CC", v};
   }
   if(t.task) return {k:"Engine", v:`<span class="nores">No API or graph call was made on this turn.</span>`};
   return null;
+}
+
+/* The turn's cost: router plus engine as fetch_run.py summed it (`~$` when that
+   is a floor), else the engine's own figure from an older pull. */
+function costChip(t){
+  const summed = t.turn_cost != null;
+  const c = summed ? t.turn_cost : t.cost;
+  if(c == null) return "";
+  const mark = summed && t.turn_cost_partial ? "~$" : "$";
+  const fell = t.fell_back ? `<span class="rchip bad">a model fell back</span>` : "";
+  return `<div class="chipline"><span class="rchip">${mark}${Number(c).toFixed(4)}</span>${fell}</div>`;
 }
 
 /* One turn = query + how it routed + what it actually ran. */
@@ -502,6 +513,9 @@ function renderTurn(t){
   }
   const call = renderCall(t);
   if(call) rows.push(`<div class="row"><div class="rk">${call.k}</div><div class="rv">${call.v}</div></div>`);
+  /* A CC turn shows its cost inside its call block; every other priced turn here. */
+  if(!t.model && costChip(t))
+    rows.push(`<div class="row"><div class="rk">Cost</div><div class="rv">${costChip(t)}</div></div>`);
   /* The answer the user actually read, next to the call that produced it.
      A criterion can only check what someone thought to assert, so when a
      criterion is stale this is the only way to judge whether the case was

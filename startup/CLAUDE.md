@@ -55,14 +55,15 @@ Breaking one is a regression, not a refactor.
   *blocking* check is `check_app_runtimes`: the app and `nextseek_nginx` must each have a
   running container, because every smoke test enters through them and with either down
   the suite spends its whole readiness floor before failing identically. The *advisory*
-  checks are the four first-party images and the two CC services, which the suite cannot
-  see: a bare `rebuild` builds only the app image (`startup/lib/rebuild_policy.py:66`),
-  the smoke suite never requests the Container-CC routes (`ci/routes.py` declares both
-  `path=None`), and `cc-agent` has no container for a compose healthcheck to watch. An
-  advisory failure never stops the run; `rebuild` exits non-zero on it at the end, after
-  the CI hook, and `ci` only prints it. Moving an advisory check to blocking throws away
-  a suite run whose result was still true. `doctor` runs the same checks, but its exit
-  code is read by nothing while the rebuild hook's is. The Nessie lane is a separate
+  checks are the four first-party images, the two CC services and the cc-agent context
+  (below), which the suite cannot see: a bare `rebuild` builds only the app image
+  (`startup/lib/rebuild_policy.py:66`), the smoke suite never requests the Container-CC
+  routes (`ci/routes.py` declares both `path=None`), and `cc-agent` has no container for
+  a compose healthcheck to watch. An advisory failure never stops the run; `rebuild`
+  exits non-zero on it at the end, after the CI hook, and `ci` only prints it. Moving an
+  advisory check to blocking throws away a suite run whose result was still true.
+  `doctor` runs the same checks except the cc-agent context, but its exit code is read
+  by nothing while the rebuild hook's is. The Nessie lane is a separate
   step, not a promotion of these checks: with the lane on (an app rebuild or `ci`, on a
   box declaring `local` or `dev`), `validate.nessie_prerequisites` runs after stack
   health and stops the run before the suite starts when the Bedrock proxy token is
@@ -70,6 +71,48 @@ Breaking one is a regression, not a refactor.
   (`_nessie_prerequisites_or_exit` in `startup/cli.py`), because the lane's CC question
   cannot pass without them. `--no-nessie` skips that step, and a component rebuild
   never runs it.
+- **The cc-agent context check reads the built image and never runs it**
+  (`validate.check_cc_agent_context`, through `docker_ops.copy_from_image`). The six
+  canonical context files (`CANONICAL_CONTEXT_FILES` in `startup/lib/layout.py`, pinned
+  to gen_op_surfaces and the cc-agent Dockerfile by `startup/tests/test_layout.py`) are
+  baked into both the app image and `dmac-assistant:poc`. A bare `rebuild` refreshes only
+  the app's copy, and every guard under `NessieAI/tests/` compares files in the checkout,
+  so this check is the only thing that notices a skipped `--component cc-agent`. It uses
+  `docker create`, `docker cp` and `docker rm` on the image: a `docker run` would execute
+  the agent's entrypoint, and an exec needs a container that `cc-agent` never has. It
+  compares with the tree the images were built from: `rebuild` passes `build_root`, so a
+  `--source-tree` deploy is not failed by edits sitting in the runtime checkout. An absent
+  image is a warning here, not a second failure, because the first-party images check
+  already fails for it.
+- **Four stack-health checks compare what runs with the tree it was built from**
+  (`startup/steps/deploy_checks.py`, through `validate.deployed_checks`): the running
+  app container's tracked code (`app image code`), the cc-agent image's node, Claude Code
+  and `container` extra (`cc-agent runtime`), the running bedrock-proxy's allow list
+  (`bedrock-proxy allow list`), and the models and fallback env the running app would
+  start a CC turn with (`CC fallback wiring`). Every expected value is read from the
+  checkout (the cc-runtime Dockerfile and pyproject, the proxy's `app/config.py`, the
+  model map), never restated in startup, so a pin bump needs no edit there; every failure
+  names the value it expected and the rebuild that fixes it. All four are advisory, and
+  none makes a model call. `cc-agent runtime` is the one check that starts a container:
+  it replaces the entrypoint with the image's `python`, so the agent never runs, with
+  `--network none`, no mounts and `--rm`. Do not drop `--entrypoint`: the image's own
+  entrypoint starts an agent. Tests: `startup/tests/test_deploy_checks.py`.
+- **A fifth advisory check, `model ids reachable`, asks for free whether every model id
+  the deployed config would call can be reached with the credentials its calls carry**
+  (`deploy_checks.check_model_reach`). A refused or unknown id moves a call to its
+  fallback model without a word, so a paid run could grade the fallback. The probe
+  (`startup/steps/model_reach_probe.py`, standard library only) is piped into `python -`
+  in the running app, where it derives the ids from the deployed catalog, fallback rules,
+  BAML clients and CC model map plus the container's env, and asks Gemini and Bedrock
+  about the app's own ids with the app's key and token; then into the running
+  bedrock-proxy for the Container-CC ids, with the proxy's token. It sends only metadata
+  GETs (Gemini `models.get`, Bedrock `GetInferenceProfile`, `GetFoundationModel`,
+  `GetFoundationModelAvailability`); never add an inference or token-count call to it.
+  Red (`✗ ... NOT REACHABLE`) for an id not found, refused or without a credential;
+  yellow (`! ... NOT PROVEN`) when the free calls could not settle one. `ok` does not
+  prove the credential may invoke the model or has quota: the docstring says what it
+  proves. The mirrors of `config.py`'s mode rules and the tool-loop agents are pinned
+  to the app's code by `startup/tests/test_model_reach.py`.
 - **`rebuild` starts the front door and never recreates it.** After restarting the app it
   runs `up -d --no-deps nextseek_nginx` without `--force-recreate`, which is a no-op on a
   running nginx and a start on a stopped one. nginx needs no restart for a new app
@@ -187,13 +230,17 @@ Breaking one is a regression, not a refactor.
   watching an install sees green and concludes the indexes were created. The flag is
   read at `startup/steps/schema_fixups.py:995` and is true only for `1/true/yes/on`;
   its own docstring calls it opt-in, default off (`startup/steps/schema_fixups.py:979-994`).
-- **Three of the eight DDL files in `startup/seed/sql/` are wired to nothing.** A
+- **Three of the eleven DDL files in `startup/seed/sql/` are wired to nothing.** A
   recursive grep of the worktree for the three basenames
   `sample_attributes_description.sql`, `sample_attributes_unique_data.sql` and
   `ROLLBACK_sample_attributes_description.sql`, excluding `.git/`, `node_modules/`,
   `.venv/` and this pair's own files, matches nothing outside `startup/seed/sql/`: no
   fixup entry lists them (`startup/steps/schema_fixups.py:109-152`), no test reads them
   and no script applies them. They are hand-applied or unused.
+- **Three more, the `*.curated.sql` files, are held out of install on purpose.**
+  `scripts/context_gen.py --emit seed` writes them from `context/`, and no fixup names
+  them until the curated content is signed off. Switching them on is the reviewed change
+  `scripts/README.md` group C describes, never a quiet edit to the fixup list.
 - **The default credentials are committed, not generated.** `startup/steps/config.py:121-123`
   hardcodes the MySQL root password, the MySQL user password and the Neo4j password into
   every rendered install, and only the Django key is random. An install exposed beyond

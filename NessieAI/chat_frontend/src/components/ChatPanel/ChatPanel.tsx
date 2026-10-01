@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import type { Message, ProcessingState } from "@/lib/types/chat";
 import type { NextseekApiService } from "@/lib/services/chatApi";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
@@ -25,6 +26,12 @@ export function ChatPanel({
   apiService,
 }: ChatPanelProps) {
   const { scrollRef } = useAutoScroll([messages, processingState.steps]);
+  // A suggestion chip sends its query exactly as the composer sends a typed
+  // message: same handler, same options, no route of its own.
+  const handleSuggestion = useCallback(
+    (query: string) => onSendMessage(query, { pipeline: "standard" }),
+    [onSendMessage],
+  );
 
   return (
     <div data-testid="chat-panel" className="flex flex-1 flex-col overflow-hidden">
@@ -36,6 +43,8 @@ export function ChatPanel({
         scrollRef={scrollRef}
         onArtifactDownload={onArtifactDownload}
         onCcArtifactDownload={onCcArtifactDownload}
+        onSuggestion={handleSuggestion}
+        disabled={isDisabled}
       />
       <MessageInput
         onSend={onSendMessage}

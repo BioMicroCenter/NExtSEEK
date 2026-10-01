@@ -73,8 +73,8 @@ python -m NessieAI.cc.op_registry.export --write --root <repo>
 python -m NessieAI.cc.op_registry.export --check --root <repo>
 ```
 
-This writes canonical `op_registry/ops.json` and every installed plugin
-baked `context/ops.json`.
+This writes canonical `op_registry/ops.json` and every installed plugin's baked copy of it
+under its own `plugins/<name>/context/` directory.
 
 ## 7. Regenerate mechanical surfaces
 

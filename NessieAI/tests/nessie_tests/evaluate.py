@@ -34,10 +34,17 @@ from NessieAI.tests.nessie_tests.outage import (  # noqa: E402,F401
 )
 
 
-def classify_turn_status(passed: bool, last_reply: str | None) -> str:
+def classify_turn_status(passed: bool, last_reply: str | None,
+                         query_error: dict | None = None) -> str:
     """Map one turn's criterion outcome to a manifest status.
 
-    An outaged turn is ``error`` no matter what its criteria did.
+    An outaged turn is ``error`` no matter what its criteria did. Outage is read
+    from the reply and from ``query_error``, the data of the turn's last
+    ``query_error`` event (``last_query_error``): its ``reason`` first, then its
+    texts. A Container-CC turn whose model was unavailable sends no
+    ``query_complete`` at all, so its reply is None and only that event says why;
+    reading the reply alone scored such a turn as a product red. An NS outage still
+    ends in a ``query_complete`` whose reply is the plain text, so either is enough.
 
     * Not ``failed``, because nothing was tested: the provider chain gave up
       before the parser ran, so the reply is an infrastructure message and
@@ -54,7 +61,7 @@ def classify_turn_status(passed: bool, last_reply: str | None) -> str:
     ``outage`` flag the runner sets alongside it, which is what exempts the entry
     from the gate. A non-outage error stays gate-failing.
     """
-    if is_provider_outage(last_reply):
+    if is_provider_outage(last_reply, query_error):
         return "error"
     return "passed" if passed else "failed"
 
@@ -67,12 +74,52 @@ def _last(payload, name):
     return data
 
 
+def last_query_error(payload: dict) -> dict | None:
+    """The data of the turn's last ``query_error`` event, or None when it sent none.
+
+    The event is what a turn that ended on a failure carries its ``reason``,
+    ``error`` and ``detail`` in (``classify_turn_status``).
+    """
+    return _last(payload or {}, "query_error")
+
+
 def build_observed_debug(payload: dict) -> dict:
     # The live turn carries api_result_meta/graph_result on query_complete.debug;
     # that primary path is authoritative. (A former search_complete api_ok/neo4j_ok
     # backfill was dead — the live search_complete event emits {source, ok, count},
     # not api_ok/neo4j_ok — so it is intentionally omitted.)
-    return dict((_last(payload, "query_complete") or {}).get("debug") or {})
+    done = _last(payload, "query_complete") or {}
+    debug = dict(done.get("debug") or {})
+    trace_text = cc_trace_text(done.get("cc_traces"))
+    if trace_text is not None:
+        debug[CC_TRACE_TEXT_FIELD] = trace_text
+    return debug
+
+
+#: What a Container-CC turn did, as one searchable string: one line per tool call of
+#: the turn's trace (``cc_trace.CCTrace.steps``), ``<kind> <tool> <detail>``, so a
+#: criterion can `matches_re` on "read /data/previous_turns/turn-01/rows.csv" or
+#: "bash nextseek-aggregate", or assert with a negative lookahead that no
+#: `nextseek-query` was run. Set only on a CC turn whose `query_complete` carries
+#: `cc_traces`. The trace covers the whole CC conversation, so on the SECOND CC turn of a
+#: chat it also holds the first turn's calls: assert "did not call X" on a chat's first
+#: CC turn only.
+CC_TRACE_TEXT_FIELD = "cc_trace_text"
+
+
+def cc_trace_text(cc_traces: Any) -> str | None:
+    if not isinstance(cc_traces, list) or not cc_traces:
+        return None
+    lines: list[str] = []
+    for trace in cc_traces:
+        steps = trace.get("steps") if isinstance(trace, dict) else None
+        for step in steps if isinstance(steps, list) else []:
+            if not isinstance(step, dict) or step.get("kind") == "text":
+                continue
+            parts = [str(step.get(k)) for k in ("kind", "tool", "detail") if step.get(k)]
+            if parts:
+                lines.append(" ".join(parts))
+    return "\n".join(lines)
 
 
 def _collect_paths(value: Any, out: list[str]) -> None:
@@ -376,8 +423,8 @@ def _split_local_criteria(criteria: list) -> tuple[list, list]:
 # None`, which nessie never satisfies — so these fields fall through to the generic
 # dot-notation fallback, which walks `debug` and finds the snapshot. They resolve.
 #
-# What the snapshot actually carries (`pipeline/agent.py:52-59`) is exactly four keys:
-# `active`, `pipeline_key`, `cohort_count`, `message_count`. `launch_plan` is NOT one
+# What the snapshot actually carries (`snapshot_for_chat_log` in `pipeline/agent.py`) is five keys:
+# `active`, `pipeline_key`, `selection`, `cohort_count`, `message_count`. `launch_plan` is NOT one
 # of them, so `pipeline_agent.launch_plan.*` still dot-navigates to None and must stay
 # skipped. That is the only sub-family left in this tuple.
 #
@@ -484,7 +531,8 @@ CC_UNOBSERVABLE_REASON = f"NS outcome field not observable on a {CC_ROUTE} turn"
 # is called. They are in the set because it is a statement about what a CC ENGINE
 # can produce, and demoting it to a statement about call order would make it wrong
 # the moment the call order changed.
-ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "route", "engine", "route_source"})
+ENGINE_NEUTRAL_FIELDS = frozenset({"last_reply", "last_reply.lines", "route", "engine", "route_source",
+                                   "cc_trace_text"})
 ENGINE_NEUTRAL_PREFIXES = (ARTIFACT_PREFIX, "bundle.")
 FORCED_CC_SKIP_REASON = (
     f"NS-pipeline-internal field, and the {CC_ROUTE} route was FORCED by the "

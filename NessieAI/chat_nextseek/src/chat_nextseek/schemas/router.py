@@ -25,15 +25,41 @@ class EndpointCandidate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+#: The modes the orchestrator actually dispatches on, in one place so the schema the
+#: model is handed and the branches that consume it cannot drift apart.
+#: ``memory_lookup`` is an accepted alias the parser normalises to
+#: ``ask_about_last_results``.
+PARSER_MODES: tuple[str, ...] = (
+    "new_search",
+    "refine_last_search",
+    "ask_about_last_results",
+    "memory_lookup",
+    "system_question",
+    "reporter",
+    "graph_query",
+    "unsupported",
+)
+
+
 class ParserPlan(BaseModel):
-    # Valid modes: "new_search" | "refine_last_search" | "ask_about_last_results" |
-    #              "system_question" | "reporter" | "graph_query" | "unsupported"
-    mode: str = "unsupported"
+    # The field stays `str`, not a Literal: an unrecognised mode must reach the
+    # orchestrator's "unexpected mode" branch and get a civil reply, not fail
+    # validation and burn the repair loop. The enum is published in the JSON schema
+    # instead, where it constrains a schema-shaped (forced tool call) request and is a
+    # strong hint everywhere else. Guard: tests/chat_nextseek/test_structured_via_tools.py.
+    mode: str = Field(default="unsupported", json_schema_extra={"enum": list(PARSER_MODES)})
     target_endpoint: str | None = None
     intent_summary: str = ""
     filters: ParserFilters = Field(default_factory=ParserFilters)
     resolved: EntityAgentOutput = Field(default_factory=EntityAgentOutput)
     target_result_id: int | None = None
+    #: F13: which engine a refine belongs on. The orchestrator used to pick it from the
+    #: PREVIOUS bundle's mode alone, so a REST search could never be refined into the graph
+    #: however clearly the new turn needed it -- "and come from China instead", "swap MiSeq
+    #: for NovaSeq" all stayed on REST and answered the wrong question or none. Set "graph"
+    #: when the refined intent would route to graph_query as a fresh question; leave None to
+    #: keep the previous turn's engine, which is the old behaviour.
+    refine_engine: str | None = Field(default=None, json_schema_extra={"enum": ["graph", "rest"]})
     endpoint_candidates: list[str | EndpointCandidate] = Field(default_factory=list)
     notes: str = ""
     previous_api_plan: dict[str, Any] | None = None
@@ -42,7 +68,11 @@ class ParserPlan(BaseModel):
     report_type: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="ignore")
+    # Every field keeps its default, because the timeout and parse-error fallbacks build
+    # a ParserPlan from nothing. The published schema still says what the prompt says:
+    # without a required list, `{}` is a valid answer to the forced tool call, and it
+    # validates to an empty "unsupported" plan. The parser's result check is the backstop.
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"required": ["mode", "intent_summary"]})
 
 
 class RouterDecision(BaseModel):
@@ -59,6 +89,8 @@ class ParserCandidate(BaseModel):
     candidate_id: str | None = None
     mode: str  # new_search | refine_last_search | ask_about_last_results | graph_query | reporter | system_question | unsupported
     target_endpoint: str | None = None
+    #: F13, as on ParserPlan: a refine is not locked to the previous turn's engine.
+    refine_engine: str | None = Field(default=None, json_schema_extra={"enum": ["graph", "rest"]})
     filters: ParserFilters = Field(default_factory=ParserFilters)
     report_mode: str | None = None
     report_type: str | None = None
@@ -86,4 +118,8 @@ class MultiParserPlan(BaseModel):
     candidates: list[ParserCandidate] = Field(default_factory=list)
     notes: str = ""
 
-    model_config = ConfigDict(extra="ignore")
+    # As for ParserPlan: every field keeps its default, because the multi-parser's
+    # fallback builds this from parts, but the published schema says what the prompt
+    # says ("Include all keys"), so `{}` is not a valid answer to the forced tool call.
+    # The parser's result check is the backstop.
+    model_config = ConfigDict(extra="ignore", json_schema_extra={"required": ["intent_summary", "candidates"]})

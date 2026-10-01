@@ -2,7 +2,7 @@
 check. No stack; the front-door tests open loopback sockets and nothing else.
 
     PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pytest --with requests \
-      --with playwright pytest ci/smoke/test_readiness_unit.py -q -p no:cacheprovider
+      --with playwright==1.60.0 pytest ci/smoke/test_readiness_unit.py -q -p no:cacheprovider
 
 `startup rebuild` always passes --wait-ready and reports its own "CI passed" from
 the suite's exit code. So the one thing the gate must never do is go quiet on a

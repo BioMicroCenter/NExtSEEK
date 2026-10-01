@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-"""Render a reviewable HTML report from a nessie_tests run + a hand-authored triage.
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pydantic>=2,<3"]
+# ///
+"""Render a reviewable HTML report from a nessie_tests run + a validated triage.
 
 Inputs
 ------
   manifest.json  what the harness recorded          (from fetch_run.py)
   turns.json     routing + full engine calls        (from fetch_run.py)
   corpus.json    every case expectation             (nessie_tests/corpus.json)
-  triage.json    YOUR analysis: verdicts, findings, gaps, next steps
+  triage.json    YOUR analysis: verdicts, findings, gaps, next steps. Validated against the
+                 triage form (NessieAI/tests/nessie_tests/output_skill/triage.py) before
+                 anything renders: a malformed triage, or a verdict for a case the run
+                 does not hold, exits 2 with every problem named.
 
 Everything a reviewer needs to judge a case ends up in that one case's record:
 each turn's query, how it routed and why, the exact call the engine ran (cypher
@@ -20,7 +27,7 @@ supplies them; pass --standalone for a complete document to open or send.
 
 Usage
 -----
-    python build_report.py --run ./run-2026-07-24 \
+    uv run build_report.py --run ./run-2026-07-24 \
         --repo /path/to/dev-v3-merge \
         --triage ./triage.json \
         --out ./report.html
@@ -33,6 +40,12 @@ import json
 import pathlib
 import sys
 from collections import Counter
+
+# This script ships INSIDE the harness (NessieAI/tests/nessie_tests/output-skill/scripts/),
+# so the repo root is five levels up; the triage form lives in the importable package.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[5]))
+from NessieAI.tests.nessie_tests.output_skill.common import FormError  # noqa: E402
+from NessieAI.tests.nessie_tests.output_skill.triage import load_triage  # noqa: E402
 
 TPL_DEFAULT = pathlib.Path(__file__).resolve().parent.parent / "templates" / "report.html.tpl"
 # This script ships INSIDE nessie_tests, so limits.py is two levels up.
@@ -152,7 +165,10 @@ def turn_defs(entry, variants, cgroups):
 # answer next to the call that produced it is what lets a reviewer judge a case the
 # corpus scored wrongly in either direction.
 CARRY = ("route", "src", "why", "mode", "aplan", "ameta", "gplan", "gmeta",
-         "rplan", "model", "cost", "status", "reply")
+         "rplan", "model", "cost", "status", "reply",
+         # The turn's router plus engine cost, summed by fetch_run.py with the
+         # harness's rule, and whether any of its models fell back.
+         "turn_cost", "turn_cost_partial", "fell_back")
 
 
 def align(flat_turns, tasks):
@@ -200,7 +216,13 @@ def main():
     run, repo = pathlib.Path(a.run), pathlib.Path(a.repo)
     manifest = lj(run / "manifest.json")
     tasks = lj(run / "turns.json")
-    triage = lj(a.triage)
+    try:
+        triage, converted = load_triage(a.triage, entry_ids=[e["id"] for e in manifest["entries"]])
+    except FormError as e:
+        print("\n".join(e.problems), file=sys.stderr)
+        sys.exit(2)
+    for c in converted:
+        print(f"triage: CONVERTED {c}")
 
     # ONE source since 2026-08-04. It used to read the vendored catalog and the
     # superseded overlay file and merge them here, so this script had to reproduce
@@ -238,6 +260,14 @@ def main():
             # particular: without it a rebuild turns a gate-exempt provider outage
             # back into a gate-failing error.
             "outage": e.get("outage", False), "cost": e.get("cost"),
+            # With `cost`, or a rebuilt manifest presents a floor as the whole spend.
+            "cost_partial": e.get("cost_partial", False),
+            "fallback_turns": e.get("fallback_turns", 0),
+            # The per-turn records `fallback_turns` counts, so a rebuilt manifest's
+            # fallback line and its count agree, and the sent-turn count the pull
+            # needs to spot a turn with no task id.
+            "turns_meta": e.get("turns_meta", []),
+            "turns_sent": e.get("turns_sent", 0),
             "route_source": e.get("route_source"),
             "route_sources": e.get("route_sources", []),
             "reason": e.get("reason", ""),

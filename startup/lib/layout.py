@@ -25,6 +25,23 @@ LEGACY_PROXY_SECRET_ENV = Path("docker") / "bedrock-proxy" / "proxy-secret.env"
 # it is present before it writes anything.
 CHAT_NEXTSEEK_DIR = Path("NessieAI") / "chat_nextseek"
 
+# The context files the cc-agent image bakes from the checkout, and where they
+# land in it (CANONICAL_CONTEXT_FILES and IMAGE_CONTEXT_DIR in
+# NessieAI/build_tools/gen_op_surfaces/constants.py). The app image carries the
+# same files, so an edit here needs both `./startup.sh rebuild` and
+# `./startup.sh rebuild --component cc-agent`; the stack-health check
+# `cc-agent context` is what notices when the second one was skipped.
+CANONICAL_CONTEXT_DIR = CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
+CC_AGENT_CONTEXT_DIR = "/app/plugins/nextseek/context"
+CANONICAL_CONTEXT_FILES = (
+    "capabilities.md",
+    "min_api_endpoints.json",
+    "min_api_endpoints_enriched.json",
+    "min_assays_db.json",
+    "min_sampletypes_db.json",
+    "projects_db.json",
+)
+
 
 def proxy_secret_env(repo_root: Path) -> Path:
     """The proxy token file for the checkout at ``repo_root``."""

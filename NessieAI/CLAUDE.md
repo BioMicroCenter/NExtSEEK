@@ -20,7 +20,7 @@ Test commands live only in `NessieAI/tests/README.md`.
 - Importing the router does not load `NessieAI/hibayes/`: `NessieAI/router/posterior_selector.py` imports the generation store only inside `get_active_snapshot` (guard: `NessieAI/tests/router/test_router_import_is_lazy.py`). `NessieAI/router/route_monitoring.py` still imports HiBayes at module scope; nothing on the router's import path imports it.
 - Three engine-to-harness imports are frozen, and no new one may be added:
   - `NessieAI/cc/op_registry/paired_evidence.py` imports the bayes harness
-  - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py` imports the corpus, export and runner
+  - `NessieAI/build_tools/gen_op_surfaces/route_capabilities.py` imports the corpus and export
   - `NessieAI/hibayes/human_grade_fit.py` imports `bayes_manifest`, lazily
 - `NessieAI/tests/api/test_nessie_boundaries.py` enforces both lists for `cc`, `router`, `hibayes`, `ns`, `schema_rag` and `build_tools`; chat_nextseek and the tests are not scanned. It fails on a new back-edge, a new import of `NessieAI.tests`, a listed edge that no longer exists (so both lists stay exact), any `sys.path.insert` of the NessieAI directory, and any bare `e2e` or `pathsetup` import.
 
@@ -28,11 +28,11 @@ Test commands live only in `NessieAI/tests/README.md`.
 
 - BAML imports stay lazy and guarded: routing degrades to the keyword heuristic, and never stops Django booting.
 - `<router_unavailable>` from the BAML router is a failure, not a route. Treating it as one sends every turn to CC.
-- Model ids live only in `NessieAI/dmac_assistant/build_context/router_model_class_map.json`. The Bedrock proxy allows Opus only, so a CC turn with no explicit model id gets a 403.
+- Model ids live only in `NessieAI/dmac_assistant/build_context/router_model_class_map.json`. The Bedrock proxy allows the three ids a CC turn names (the map's `opus`, `opus_fallback` and `sonnet`) and the previous map's fallback, kept for a rollback; any other id, such as Claude Code's own default when a turn has no explicit model id, gets a 403.
 - The 8 `.baml` files live only in `NessieAI/dmac_assistant/baml_src/`. The cc-agent image takes them through the Compose named context `dmac_assistant_baml`, so a BAML edit needs both the app and the cc-agent rebuild (guard: `NessieAI/tests/router/test_baml_single_source.py`).
 - A judge-schema change touches two files (see `NessieAI/README.md` "To change X, edit Y"; guard: `NessieAI/tests/hibayes/test_judge_models_baml_parity.py`). Never change `PROMPT_VERSION` in `NessieAI/hibayes/judge_human_compare.py`: it is written into judged rows.
 - `NessieAI/cc/op_registry/ops.py` is the op registration source of truth; add ops only through `/add-cc-op`. `ops.json` and the plugin surfaces are generated.
-- The chat_nextseek context files the cc-agent image bakes (`capabilities.md`, `projects_db.json` and four `min_*.json` catalogs) live only in `NessieAI/chat_nextseek/src/chat_nextseek/context/`. The image takes them through the Compose named context `chat_nextseek`, so an edit there needs both the app and the cc-agent rebuild (list: `CANONICAL_CONTEXT_FILES` in `NessieAI/build_tools/gen_op_surfaces/constants.py`; guard: `NessieAI/tests/cc/test_cc_context_drift_guard.py`).
+- The chat_nextseek context files the cc-agent image bakes (`capabilities.md`, `projects_db.json` and four `min_*.json` catalogs) live only in `NessieAI/chat_nextseek/src/chat_nextseek/context/`. The image takes them through the Compose named context `chat_nextseek`, so an edit there needs both the app and the cc-agent rebuild (list: `CANONICAL_CONTEXT_FILES` in `NessieAI/build_tools/gen_op_surfaces/constants.py`; guard: `NessieAI/tests/cc/test_cc_context_drift_guard.py` for the checkout, and the `cc-agent context` stack-health check in `startup/steps/validate.py`, run after every rebuild, for the built image).
 - A chat UI change is two commits: source, then the rebuilt bundle in `static/js/chat_assistant/`.
 - `NessieAI/docker/cc-runtime/container/CLAUDE.md` is what the agent is told and ships in the image. Only its marked blocks are generated.
 - The live router reads `NessieAI/tests/nessie_tests/corpus.json` for family labels. Do not dockerignore `NessieAI/tests/`.

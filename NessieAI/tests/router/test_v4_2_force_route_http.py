@@ -38,7 +38,7 @@ def _wait_terminal(task_id, timeout=30.0):
 
 @pytest.fixture(autouse=True)
 def _patch_dispatch(monkeypatch):
-    def fake_run_query(session, config, query, send_event, credentials=None):
+    def fake_run_query(session, config, query, send_event, credentials=None, **_kw):
         send_event("query_complete", {"reply": "ns ok", "bundle_id": 1})
 
     def fake_cc_turn(**kw):
@@ -81,7 +81,7 @@ def _assistant_project_permission():
 @pytest.fixture
 def admin_user(db):
     return get_user_model().objects.create_user(
-        "v42-admin", password="x", is_staff=True,
+        "v42-admin", password="x", is_staff=True, is_superuser=True,
     )
 
 
@@ -122,7 +122,7 @@ def test_http_admin_force_route_ns_crosses_to_dispatch(admin_user, monkeypatch):
     client = _client_for(admin_user)
     dispatched = []
 
-    def tracking_run_query(session, config, query, send_event, credentials=None):
+    def tracking_run_query(session, config, query, send_event, credentials=None, **_kw):
         dispatched.append(query)
         send_event("query_complete", {"reply": "ns ok", "bundle_id": 1})
 
@@ -215,8 +215,48 @@ def test_http_sticky_cc_applies_without_force_route(regular_user, monkeypatch):
         },
     ).session_id
 
-    tid, _ = _post_query(client, "follow up", session_id=sid)
+    # A back-reference: since 2026-09-23 only a turn that refers back is kept on CC.
+    tid, _ = _post_query(client, "follow up on those results", session_id=sid)
     task = _wait_terminal(tid)
     rd = _route_decided(task)
     assert rd["route"] == cc_router.ROUTE_CC
     assert rd["source"] == "sticky"
+
+
+def test_http_omitted_session_id_does_not_inherit_another_chats_sticky_cc(
+        regular_user, monkeypatch):
+    """A body with no session_id is a new chat, never the caller's latest.
+
+    The caller's most recently updated chat ended on CC. A session-less POST
+    used to land in that chat, so the sticky guard turned an NS-classified
+    question into a CC turn for a reason the caller could not see, and the turn
+    appended to a conversation the caller never named.
+    """
+    client = _client_for(regular_user)
+    monkeypatch.setattr(cc_router, "decide", lambda q, history=None: _baml_ns("fresh-question"))
+
+    cc_chat = ChatSession.objects.create(
+        user=regular_user,
+        extra_state={
+            "chat_log": [{
+                "turn_id": 1,
+                "ts": "t",
+                "mode": "cc",
+                "user_query": "prior cc",
+                "assistant_reply": "done",
+                "router_choice": cc_router.ROUTE_CC,
+                "status": "completed",
+            }],
+        },
+    )
+
+    tid, sid = _post_query(client, "how many mice are there")
+    task = _wait_terminal(tid)
+
+    assert sid != str(cc_chat.session_id), "the session-less turn joined the caller's latest chat"
+    rd = _route_decided(task)
+    assert rd["source"] == "baml"
+    assert rd["route"] == cc_router.ROUTE_NS
+    cc_chat.refresh_from_db()
+    assert len(cc_chat.extra_state["chat_log"]) == 1, "the other chat's log was appended to"
+    assert ChatSession.objects.filter(user=regular_user).count() == 2

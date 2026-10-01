@@ -92,3 +92,47 @@ def test_recall_shim_arg_forms():
     assert '--agent recall --turn "$TURN"' in shim
     import os
     assert os.access(_BIN / "nextseek-recall", os.X_OK)
+
+
+def test_recall_returns_a_graph_turns_rows(monkeypatch, tmp_path):
+    """CC-RERUN-FINDINGS fix 6: a graph turn's rows are its graph_result.data, not an API result."""
+    rows = [{"id": i, "uuid": f"TCGA-{i:04d}"} for i in range(585)]
+    client = FakeClient(
+        turns=[{"turn_id": 2, "bundle_id": 5, "user_query": "LUAD samples", "mode": "graph_query"}],
+        bundles={5: {"id": 5, "mode": "graph_query",
+                     "graph_result": {"ok": True, "count": 585, "total": 585, "truncated": False,
+                                      "data": rows}}})
+    _install(monkeypatch, tmp_path, client)
+    manifest = runner._dispatch_recall(_args(2))
+    dest = tmp_path / "recall" / "turn-2.json"
+    assert json.loads(dest.read_bytes()) == rows
+    assert manifest == {"turn_id": 2, "bundle_id": 5, "total": 585, "row_count": 585,
+                        "columns": ["id", "uuid"], "path": str(dest)}
+
+
+def test_recall_keeps_a_plan_bundles_rest_rows(monkeypatch, tmp_path):
+    rows = [{"uid": "MUS-1"}, {"uid": "MUS-2"}]
+    client = FakeClient(
+        turns=[{"turn_id": 4, "bundle_id": 9, "mode": "plan"}],
+        bundles={9: {"id": 9, "mode": "plan",
+                     "graph_result": {"ok": False, "data": [], "count": 0, "error": "boom"},
+                     "api_result_full": {"ok": True, "data": {"total": 2, "rows": rows}}}})
+    _install(monkeypatch, tmp_path, client)
+    manifest = runner._dispatch_recall(_args(4))
+    assert manifest["row_count"] == 2 and manifest["total"] == 2
+
+
+def test_recall_never_writes_the_hidden_parent_lists(monkeypatch, tmp_path):
+    rows = [{"uuid": "A-1", "parent_titles": ["x"], "s": {"uuid": "A-1", "parent_title_hashes": ["h"]}}]
+    client = FakeClient(turns=[{"turn_id": 1, "bundle_id": 1}],
+                        bundles={1: {"id": 1, "graph_result": {"ok": True, "data": rows}}})
+    _install(monkeypatch, tmp_path, client)
+    runner._dispatch_recall(_args(1))
+    assert json.loads((tmp_path / "recall" / "turn-1.json").read_bytes()) == [{"uuid": "A-1", "s": {"uuid": "A-1"}}]
+
+
+def test_the_runner_hides_what_graph_scope_hides():
+    """The container has no chat_nextseek, so the runner carries its own copy of the set."""
+    from chat_nextseek.graph_scope import HIDDEN_SAMPLE_PROPERTIES
+
+    assert set(HIDDEN_SAMPLE_PROPERTIES) <= set(runner._HIDDEN_SAMPLE_PROPERTIES)

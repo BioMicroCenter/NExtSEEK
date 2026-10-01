@@ -38,6 +38,20 @@ def get_last_reply(payload: dict) -> str | None:
     return reply if isinstance(reply, str) else None
 
 
+def get_last_query_error(payload: dict) -> dict | None:
+    """The data of the turn's last ``query_error`` event, or None when it sent none.
+
+    A Container-CC member whose model was unavailable ends with this event and no
+    ``query_complete``, so its reply is None and only the event's ``reason`` (or its
+    texts) says the group hit an outage.
+    """
+    data = None
+    for ev in payload.get("progress") or []:
+        if ev.get("event") == "query_error":
+            data = ev.get("data") or {}
+    return data
+
+
 def get_result_count(payload: dict) -> int | None:
     """Resolve a turn's result count from whichever field the engine wrote.
 
@@ -78,7 +92,12 @@ def run_group(group: dict, drive_fn: Callable[[str], dict]) -> GroupResult:
     # Returning here rather than appending a reason is deliberate: every check
     # below describes a product defect, and none of them is true of a turn that
     # never reached the product.
-    outaged = [o["query"] for o in obs if is_provider_outage(o.get("reply"))]
+    #
+    # A member's reply and its last `query_error` data are both read: a turn that
+    # ended only in a `query_error` (Container-CC with its model unavailable) has no
+    # reply at all.
+    outaged = [o["query"] for o in obs
+               if is_provider_outage(o.get("reply"), o.get("query_error"))]
     if outaged:
         return GroupResult(
             group["id"], False,

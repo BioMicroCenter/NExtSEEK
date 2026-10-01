@@ -1,7 +1,7 @@
 """Unit tests for the profile resolver. No stack, no network, no browser.
 
     PYTHONDONTWRITEBYTECODE=1 uv run --no-project --with pytest --with requests \
-      --with playwright pytest ci/smoke/test_profile_unit.py -q -p no:cacheprovider
+      --with playwright==1.60.0 pytest ci/smoke/test_profile_unit.py -q -p no:cacheprovider
 
 resolve_profile decides, before anything else runs, whether this process is
 allowed to write. Every refusal it can make is asserted here rather than

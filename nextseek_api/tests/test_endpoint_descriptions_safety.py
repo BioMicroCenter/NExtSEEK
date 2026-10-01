@@ -78,8 +78,16 @@ def _assay_patch_entries(rows):
 def test_agent_catalog_carries_no_additive_assay_patch_example(catalog):
     if not catalog.exists():
         pytest.skip(f"{catalog} not present in this checkout")
-    entries = list(_assay_patch_entries(json.loads(catalog.read_text())))
-    assert entries, f"no assays PATCH row in {catalog.name}; has the schema moved?"
+    rows = json.loads(catalog.read_text())
+    entries = list(_assay_patch_entries(rows))
+    if not entries:
+        # Since the 2026-09-24 ruling (3bfb2f10) the catalog lists read pairs only, so it offers
+        # no assay write for an agent to misread. Pin that, so the test is never vacuous.
+        writes = sorted(_assay_writes(rows))
+        assert not writes, (
+            f"{catalog.name} has no assays PATCH row but offers {writes}; has the schema moved?"
+        )
+        return
     for entry in entries:
         blob = json.dumps(entry).lower()
         for phrase in ADDITIVE_PHRASES:
@@ -89,6 +97,33 @@ def test_agent_catalog_carries_no_additive_assay_patch_example(catalog):
 
 
 REGISTRATION_ROW = ("POST", "/nextseek_api/assay-registrations/")
+
+_MUTATING = ("POST", "PUT", "PATCH", "DELETE")
+
+
+def _advertised(rows):
+    return {(r.get("method", "").upper(), r.get("path", "")) for r in rows if isinstance(r, dict)}
+
+
+def _assay_writes(rows):
+    """Every mutating (method, path) pair on an assay or assay-registration path."""
+    return {(m, p) for m, p in _advertised(rows) if m in _MUTATING and "/assay" in p}
+
+
+def _registration_row_or_skip(catalog, rows):
+    """The registration row, or a skip when the catalog does not offer it.
+
+    The row checks below are about a row an agent can read. Since the 2026-09-24 ruling
+    (3bfb2f10) the catalog offers no assay write, so there is no row to check;
+    test_agent_catalog_advertises_the_additive_registration_endpoint still requires it
+    whenever the assays PATCH row comes back.
+    """
+    matches = [r for r in rows
+               if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
+    if not matches:
+        pytest.skip(f"{catalog.name} does not offer {REGISTRATION_ROW} (read pairs only)")
+    [row] = matches
+    return row
 
 
 @pytest.mark.parametrize("catalog", CATALOGS, ids=["source", "baked"])
@@ -101,7 +136,11 @@ def test_agent_catalog_advertises_the_additive_registration_endpoint(catalog):
     if not catalog.exists():
         pytest.skip(f"{catalog} not present in this checkout")
     rows = json.loads(catalog.read_text())
-    advertised = {(r.get("method", "").upper(), r.get("path", "")) for r in rows}
+    advertised = _advertised(rows)
+    if not list(_assay_patch_entries(rows)):
+        # No PATCH row to warn from (read pairs only since 2026-09-24): then no write at all.
+        assert not _assay_writes(rows), sorted(_assay_writes(rows))
+        return
     assert REGISTRATION_ROW in advertised, (
         f"{catalog.name} does not advertise {REGISTRATION_ROW}, but the assays "
         "PATCH description tells the agent to use it"
@@ -113,8 +152,7 @@ def test_the_registration_row_says_it_cannot_delete(catalog):
     if not catalog.exists():
         pytest.skip(f"{catalog} not present in this checkout")
     rows = json.loads(catalog.read_text())
-    [row] = [r for r in rows
-             if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
+    row = _registration_row_or_skip(catalog, rows)
     description = row["description"].lower()
     assert "additive" in description
     assert "cannot remove" in description
@@ -146,8 +184,7 @@ def test_the_registration_row_teaches_no_key_the_models_reject(catalog):
     if not catalog.exists():
         pytest.skip(f"{catalog} not present in this checkout")
     rows = json.loads(catalog.read_text())
-    [row] = [r for r in rows
-             if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
+    row = _registration_row_or_skip(catalog, rows)
 
     known = {name for model in ADVERTISED_MODELS for name in model.model_fields}
     taught = set(_SNAKE.findall(row["description"]))
@@ -210,15 +247,16 @@ ADVERTISED_FIELDS = {
 def test_the_registration_row_teaches_only_real_field_names(catalog):
     if not catalog.exists():
         pytest.skip(f"{catalog} not present in this checkout")
-    rows = json.loads(catalog.read_text())
-    [row] = [r for r in rows
-             if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
-    description = row["description"]
+    # The model side first: it holds whether or not this catalog offers the row.
     for name, model in ADVERTISED_FIELDS.items():
         assert name in model.model_fields, (
             f"{model.__name__} no longer has a {name!r} field, so the "
             f"{catalog.name} description teaches a key the endpoint rejects."
         )
+    rows = json.loads(catalog.read_text())
+    row = _registration_row_or_skip(catalog, rows)
+    description = row["description"]
+    for name, model in ADVERTISED_FIELDS.items():
         assert name in description, (
             f"the registration row in {catalog.name} does not name {name!r}. "
             f"It is a live {model.__name__} field and the description is the "
@@ -241,8 +279,7 @@ def test_the_registration_row_states_the_permission_the_viewset_enforces(catalog
         "description says it does."
     )
     rows = json.loads(catalog.read_text())
-    [row] = [r for r in rows
-             if (r.get("method", "").upper(), r.get("path", "")) == REGISTRATION_ROW]
+    row = _registration_row_or_skip(catalog, rows)
     assert "superuser" in row["description"].lower(), (
         f"the registration row in {catalog.name} does not say the endpoint is "
         "superuser-only, but AssayRegistrationViewSet enforces IsSuperUser."

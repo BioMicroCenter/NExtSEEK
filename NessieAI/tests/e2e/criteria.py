@@ -69,7 +69,7 @@ def resolve_field(
     - wizard.*, chat_log.*, pipeline_agent.* — session-state aliases
     - ui_text.* — browser DOM checks via browser_ctx["chat_page"]
     - mysql_chat_log.* — MySQL chat_log row aliases
-    - last_reply, last_target_result_id — recent-turn aliases
+    - last_reply, last_reply.lines, last_target_result_id — recent-turn aliases
     - entity_*, api_ok, graph_cypher, neo4j_ok — top-level run_query debug aliases
     - dot-notation fallback — navigate nested dicts
     """
@@ -170,6 +170,9 @@ def resolve_field(
 
     if field == "last_reply":
         return _strip_html(last_reply)
+
+    if field == "last_reply.lines":  # non-blank lines, for a "keep it short" check
+        return sum(1 for ln in _strip_html(last_reply).splitlines() if ln.strip())
 
     if field == "last_target_result_id":
         pp = debug.get("parser_plan") or {}

@@ -32,6 +32,7 @@ that every class exists before the app registry is sealed.
 | `session_adapter.py` | `DictSessionAdapter`: a `ChatSession` presented as the dict the engines expect; `save` merges bundle history under a row lock |
 | `excel_export.py` | a stored bundle as inline tables and xlsx bytes (`extract_table_artifacts`, `build_tables_from_bundle`, `generate_table_xlsx`); shared with the admin project export |
 | `session_debug.py` | an engine-agnostic inventory of one chat session for admin debugging: sizes and paths, never payloads |
+| `session_export.py` | one chat session as the user sees it: `turn_rows`, the turn list behind `?include=turns`, and the streamed zip of the transcript plus every turn's files behind `GET /assistant/sessions/{sid}/download/` |
 | `descriptions.py`, `descriptions_evaluator.py`, `descriptions_cc.py` | endpoint prose for the OpenAPI schema, held as module constants and read by `scripts/validate_viewset_conventions.py` |
 | `CONTRACT.md` | the HTTP contract of the granular ops: op table, request and response models, auth, error envelope |
 
@@ -48,6 +49,9 @@ Depends on, outside this directory:
 
 - `NessieAI/ns/bundle_download.py`, imported by `session_debug.py`, which also imports
   `NessieAI/cc/cc_transcript_store.py` lazily.
+- `NessieAI/ns/artifacts.py` and `NessieAI/ns/debug_projection.py`, imported by
+  `session_export.py`, which also imports `NessieAI/cc/cc_config.py`,
+  `NessieAI/cc/cc_provision.py` and `nextseek_api/cc_assistant/cc_endpoint_guards.py` lazily.
 - `channels` (`consumers.py`) and `openpyxl` (`excel_export.py`).
 - The chat config object built by `startup/dev/lane_local_settings.py`, for the endpoint tests.
 

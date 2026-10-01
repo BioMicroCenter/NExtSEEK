@@ -429,7 +429,7 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
             "fields": leaf_fields,
         }
         if wanted_signals:
-            row["signals"] = leaf_signals
+            row["signals"] = {k: v for k, v in leaf_signals.items() if k != "__protocol_text__"}
             row["data_driven_params"] = leaf_verdicts
             state.setdefault("data_driven_evidence", {})[str(leaf["uid"])] = leaf_verdicts
         table.append(row)
@@ -774,6 +774,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["artifacts"]["launch"] = result.saved_files.get("launch")
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
+    state["launch_built_at_user_msgs"] = _user_msg_count(state)
 
     ref_files = (local_luria_ref_files(merged.get("genome"))
                  if reference_status == "local_luria" else None)
@@ -790,11 +791,30 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     })
 
 
+def _user_msg_count(state: dict) -> int:
+    """Number of user text turns so far (tool results are role user with list content: not counted)."""
+    return sum(1 for m in state.get("messages") or []
+               if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str))
+
+
+def _launch_unconfirmed(state: dict) -> str | None:
+    """A refusal message unless the user has replied since the launch artifact was built.
+
+    A missing mark (a state saved before the gate existed) counts as unconfirmed.
+    """
+    if _user_msg_count(state) > state.get("launch_built_at_user_msgs", _user_msg_count(state)):
+        return None
+    return json.dumps({"ok": False, "message": "Not submitted: the user has not confirmed this run since it was built. "
+                                               "Show them what will run, ask them to confirm, and submit only after their reply."})
+
+
 def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
         return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    if (refusal := _launch_unconfirmed(state)):
+        return refusal
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
     if not (tower_env.get("access_token") and tower_env.get("workspace")):
         return json.dumps({"ok": False, "message": f"Tower not configured. Samplesheet/launch is at {launch}. "
@@ -877,6 +897,8 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     launch = artifacts.get("launch")
     if not launch:
         return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    if (refusal := _launch_unconfirmed(state)):
+        return refusal
     if not getattr(config, "LURIA_ENV_COMPLETE", False):
         return json.dumps({"ok": False, "message": f"Luria not configured. Samplesheet/launch is at {launch}. "
                                                    "Set LURIA_USER / LURIAKEY / LURIA_WORKING_PATH."})
@@ -988,6 +1010,8 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
     def _verdict_json(verdict, n_uids: int) -> str:
         state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
                               "reason": verdict.reason}
+        if verdict.dropped:
+            state["selection"]["dropped"] = verdict.dropped
         _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
         return json.dumps({
             "ok": True,
@@ -1101,15 +1125,17 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         # AGENT_MODEL_CATALOG. selection.decide itself never raises, but it costs
         # nothing to keep it inside this guard too.
         client, model_name, budget = config.get_agent_model("pipeline_agent")
-        # Restrict to atlas keys that are also in the build-path catalog: every
-        # downstream tool (resolve_samples, write_samplesheet, configure_run)
+        # Only atlas keys that are also in the build-path catalog may be chosen:
+        # every downstream tool (resolve_samples, write_samplesheet, configure_run)
         # validates against NFCORE_PIPELINE_CATALOG, not the atlas, and the two
         # sets are not nested — differentialabundance is atlas-only. Choosing it
         # would pass selection's own invented-key check and then fail every tool
         # after it. differentialabundance stays in the atlas payload itself
-        # (its versus.rnaseq entry is load-bearing for disambiguation) — it is
-        # only excluded from what the model may choose.
-        atlas_keys = set(atlas.get("pipelines") or {}) & set(NFCORE_PIPELINE_CATALOG)
+        # (its versus.rnaseq entry is load-bearing for disambiguation), and a
+        # verdict naming it alongside a launchable pipeline keeps that pipeline:
+        # decide() drops the unlaunchable key rather than the whole answer.
+        atlas_keys = set(atlas.get("pipelines") or {})
+        launchable_keys = atlas_keys & set(NFCORE_PIPELINE_CATALOG)
         # decide() itself never raises, but its Bedrock call has no ceiling of
         # its own — botocore's read_timeout (600s) times its retries is the only
         # other bound, on a daemon thread gunicorn will not reap. Bound it the
@@ -1121,7 +1147,7 @@ def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input:
         try:
             future = pool.submit(selection.decide, client=client, model=model_name,
                                  budget=budget, payload=payload, question=question,
-                                 atlas_keys=atlas_keys)
+                                 atlas_keys=atlas_keys, launchable_keys=launchable_keys)
             try:
                 verdict = future.result(timeout=SELECTION_MODEL_TIMEOUT_SECONDS)
             except concurrent.futures.TimeoutError:

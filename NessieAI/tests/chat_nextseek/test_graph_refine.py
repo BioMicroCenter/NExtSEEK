@@ -1,7 +1,19 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from chat_nextseek import graph_catalog
 from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan
+
+
+@pytest.fixture(autouse=True)
+def _catalog_unavailable(monkeypatch):
+    """The fallback path: with the catalog down the graph agent behaves as before the catalog."""
+    def unavailable(*args, **kwargs):
+        raise graph_catalog.CatalogUnavailable("no graph in this test")
+
+    monkeypatch.setattr(graph_catalog, "get_snapshot", unavailable)
 
 
 def _graph_config():

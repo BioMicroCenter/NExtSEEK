@@ -10,6 +10,7 @@ Provides four endpoints:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import MySQLdb
@@ -25,6 +26,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from nextseek_api.helpers import resolve_seek_auth
+from nextseek_api.graph_search.query import _LINEAGE_PATH_SCOPE, _SCOPE_MATCH
+from nextseek_api.graph_search.scope import Scope, resolve_scope
 from nextseek_api.endpoint_descriptions import (
     ENTITY_TREE_NODES_DESC,
     ENTITY_TREE_EDGES_DESC,
@@ -47,6 +50,65 @@ from nextseek_api.models import (
 
 SEEK_DATABASE = settings.SEEK_DATABASE
 NEXTSEEK_DATABASE = settings.NEXTSEEK_DATABASE
+
+log = logging.getLogger(__name__)
+
+# The lineage statements. A superuser's is unchanged: every ancestor and every descendant of the sample. For anyone
+# else the sample and every sample on each DERIVED_FROM path must pass graph_search's scope clause, so lineage stops
+# at the edge of the caller's projects, as it does on the sample type lineage endpoints (services/sample_types.py);
+# a sample the caller cannot see returns no node at all.
+_LINEAGE_CYPHER = """
+                MATCH (s: Sample {id: toInteger($id)})
+                MATCH parents=(s)-[r1:DERIVED_FROM*0..]->(parent)
+                MATCH children=(s)<-[r2:DERIVED_FROM*0..]-(child)
+                RETURN
+                    collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes,
+                    r1 + r2 AS relationships
+            """
+_LINEAGE_SCOPED_CYPHER = f"""
+                MATCH (s: Sample {{id: toInteger($id)}})
+                WHERE {_SCOPE_MATCH}
+                MATCH lineage_path = (s)-[:DERIVED_FROM*0..]->(parent)
+                WHERE {_LINEAGE_PATH_SCOPE}
+                WITH s, collect(DISTINCT parent) AS parents, collect(relationships(lineage_path)) AS up
+                MATCH lineage_path = (s)<-[:DERIVED_FROM*0..]-(child)
+                WHERE {_LINEAGE_PATH_SCOPE}
+                WITH parents, up, collect(DISTINCT child) AS children, collect(relationships(lineage_path)) AS down
+                RETURN parents + children AS nodes, up + down AS relationships
+            """
+
+
+def _caller_scope(request) -> Optional[Scope]:
+    """The caller's project scope, as graph_search resolves it, or None when it cannot be resolved.
+
+    A superuser is unscoped; anyone else sees the samples whose ``project_ids`` meet their projects (``is_staff`` is
+    never read: the SEEK login sets it on everyone). None, like an empty project set, sees nothing.
+    """
+    try:
+        return resolve_scope(request.user)
+    except Exception as exc:  # noqa: BLE001 (ScopeUnavailable or a membership read failure: fail closed)
+        log.warning("entity_tree lineage: the caller's project scope could not be resolved (%s); returning nothing",
+                    type(exc).__name__)
+        return None
+
+
+def _sees_nothing(scope: Optional[Scope]) -> bool:
+    return scope is None or (not scope.is_admin and not scope.project_ids)
+
+
+def _not_found_tree(input_id: str) -> LineageTree:
+    """The tree for a sample that does not exist, and for one the caller may not see: the same, so the endpoint
+    confirms nothing about another project's samples."""
+    return LineageTree(
+        input_id=input_id,
+        resolved_id=None,
+        total_nodes=0,
+        total_rels=0,
+        nodes=[],
+        rels=[],
+        warning=f"Sample not found: {input_id}",
+    )
+
 
 class EntityTreePagination(PageNumberPagination):
     """Custom pagination for entity tree endpoints."""
@@ -309,7 +371,9 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         r.internal_assay_title AS annotation
                     ORDER BY source, target, annotation
                 """
-                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+                records, summary, keys = driver.execute_query(
+                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                )
         except Neo4jError as e:
             return Response(
                 {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
@@ -395,7 +459,9 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         r.internal_assay_id AS internal_assay_id
                     ORDER BY source, target, annotation
                 """
-                records, summary, keys = driver.execute_query(cypher, database_=NEO4J_DATABASE["NAME"])
+                records, summary, keys = driver.execute_query(
+                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                )
         except Neo4jError as e:
             return Response(
                 {"errors": [{"title": "Neo4j error", "detail": str(e)}]},
@@ -592,30 +658,33 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         input_id: str,
         resolved_id: str,
         timeout: float = 90.0,
+        projects: Optional[List[int]] = None,
     ) -> Tuple[LineageTree, set]:
         """Fetch a single sample's full lineage from Neo4j.
+
+        ``projects`` is the caller's project scope, None for a superuser (unscoped). A scoped walk that finds nothing
+        answers as a sample that does not exist, and a failed one does not echo the resolved id.
 
         Returns tuple of (LineageTree, set of internal_assay_ids for enrichment).
         """
         try:
             # Mirror SampleTreeViewSet.get_tree query logic and return a graph-shaped response.
-            cypher = """
-                MATCH (s: Sample {id: toInteger($id)})
-                MATCH parents=(s)-[r1:DERIVED_FROM*0..]->(parent)
-                MATCH children=(s)<-[r2:DERIVED_FROM*0..]-(child)
-                RETURN
-                    collect(DISTINCT s) + collect(DISTINCT parent) + collect(DISTINCT child) AS nodes,
-                    r1 + r2 AS relationships
-            """
+            if projects is None:
+                cypher, params = _LINEAGE_CYPHER, {"id": int(sample_id)}
+            else:
+                cypher, params = _LINEAGE_SCOPED_CYPHER, {"id": int(sample_id), "projects": list(projects)}
             r = driver.execute_query(
                 cypher,
-                id=int(sample_id),
+                **params,
                 result_transformer_=neo4j.Result.graph,
                 database_=db_name,
+                routing_=neo4j.RoutingControl.READ,
                 timeout=timeout,
             )
 
             if r is None or not getattr(r, "nodes", None):
+                if projects is not None:
+                    return _not_found_tree(input_id), set()
                 return (
                     LineageTree(
                         input_id=input_id,
@@ -744,7 +813,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
             return (
                 LineageTree(
                     input_id=input_id,
-                    resolved_id=resolved_id,
+                    resolved_id=resolved_id if projects is None else None,
                     total_nodes=0,
                     total_rels=0,
                     nodes=[],
@@ -867,6 +936,12 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         # Import ID resolver
         from nextseek_api.services.samples import _resolve_uid_to_seek_id
 
+        # Project scope. A superuser walks unscoped; anyone else walks only through samples in their projects, and a
+        # sample outside them answers as one that does not exist. A caller who sees nothing reads no graph.
+        scope = _caller_scope(request)
+        sees_nothing = _sees_nothing(scope)
+        projects = None if sees_nothing or scope.is_admin else list(scope.project_ids)
+
         # Build trees for each input sample
         trees: List[LineageTree] = []
         all_internal_assay_ids: set = set()
@@ -879,21 +954,11 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
             ) as driver:
                 for input_id in req.sample_ids:
                     # Resolve to SEEK ID
-                    resolved_id = _resolve_uid_to_seek_id(str(input_id))
+                    resolved_id = None if sees_nothing else _resolve_uid_to_seek_id(str(input_id))
 
                     if resolved_id is None:
                         # Sample not found - return empty tree with warning
-                        trees.append(
-                            LineageTree(
-                                input_id=str(input_id),
-                                resolved_id=None,
-                                total_nodes=0,
-                                total_rels=0,
-                                nodes=[],
-                                rels=[],
-                                warning=f"Sample not found: {input_id}",
-                            )
-                        )
+                        trees.append(_not_found_tree(str(input_id)))
                         continue
 
                     # Fetch lineage from Neo4j
@@ -904,6 +969,7 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                         str(input_id),
                         resolved_id,
                         timeout=(req.timeout or 90.0),
+                        projects=projects,
                     )
 
                     # Collect internal_assay_ids for batch enrichment

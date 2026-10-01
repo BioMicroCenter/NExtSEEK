@@ -28,7 +28,8 @@ export interface MockController {
   // --- Progress event simulators ---
   simulateAgentStarted: (agent: string, mode: string) => void;
   simulateAgentComplete: (agent: string, summary: string) => void;
-  simulateQueryComplete: (reply: string, bundleId: number) => void;
+  /** `suggestions`, when given, ride on `debug.suggestions` as the reviewer's chips do (#128). */
+  simulateQueryComplete: (reply: string, bundleId: number, suggestions?: unknown[]) => void;
   simulateQueryError: (error: string) => void;
 
   /** HTTP request bodies received from the page */
@@ -236,12 +237,12 @@ export async function setupMocks(page: Page): Promise<MockController> {
       });
     },
 
-    simulateQueryComplete(reply: string, bundleId: number) {
+    simulateQueryComplete(reply: string, bundleId: number, suggestions?: unknown[]) {
       sendRaw({
         event: "query_complete",
         data: {
           reply,
-          debug: { entity: "test", parser: "test" },
+          debug: { entity: "test", parser: "test", ...(suggestions ? { suggestions } : {}) },
           bundle_id: bundleId,
         },
       });

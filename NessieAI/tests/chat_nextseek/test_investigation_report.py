@@ -16,6 +16,7 @@ import types
 
 import pytest
 
+from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.reports import runners
 
 
@@ -109,6 +110,8 @@ def test_sample_report_dispatches_investigation_when_not_a_project(monkeypatch, 
 class _ScopeCfg:
     PROJECT_NAME_TO_ID = {"PUB": 1, "PUBLISHED": 1, "PUBLISHED DATA": 1}
     INVESTIGATION_NAME_TO_ID = {"SRP": 6, "IMPACT": 3, "METNET": 4}
+    # The runners refuse a config without a scope; scope is not what these tests are about.
+    GRAPH_SCOPE = GraphScope.admin("test")
 
     def __init__(self, rows=()):
         self._db_conn = _FakeConn(list(rows))

@@ -1,0 +1,278 @@
+[
+  {
+    "name": "narrow_eq_tcga",
+    "kind": "compat",
+    "body": {
+      "sampletype": "A.ALN",
+      "attribute": "MSIStatus",
+      "filter_searchText": "MSI",
+      "filter_matchType": "EXACT"
+    },
+    "note": "Narrow equality on a TCGA attribute (A.ALN is 91,242 TCGA of 91,356). EXACT is advanced_search's rule: case-insensitive equality with the trimmed MSIStatus value, so 'MSI' and 'msi' match alike; an extensions.where on the same value would be exact and case-sensitive. The term also occurs inside the key names MSIScore and MSIStatus, so advanced_search's SQL stage reads 25,226 A.ALN rows before its Python stage keeps the matches. MySQL: 758."
+  },
+  {
+    "name": "narrow_eq_production",
+    "kind": "compat",
+    "body": {
+      "sampletype": "MUS",
+      "attribute": "Genotype",
+      "filter_searchText": "CC042",
+      "filter_matchType": "EXACT"
+    },
+    "note": "Narrow equality on a production attribute (MUS has no TCGA samples). EXACT: case-insensitive equality with the trimmed Genotype value; an extensions.where would be exact and case-sensitive. 583 MUS rows contain the text anywhere in their JSON. MySQL: 427."
+  },
+  {
+    "name": "type_only_near_100k",
+    "kind": "compat",
+    "body": {
+      "sampletype": "TIS",
+      "filter_searchText": ""
+    },
+    "note": "Broad type-only: every TIS sample, production and TCGA mixed, so each scope sees a different share. No text term, so no matching rule applies. Over 50,000 rows: parity's A side is the id-only SQL form. MySQL: 107,412 (33,939 TCGA, 73,473 production)."
+  },
+  {
+    "name": "type_only_avcf",
+    "kind": "compat",
+    "body": {
+      "sampletype": "A.VCF",
+      "filter_searchText": ""
+    },
+    "note": "Broad type-only: A.VCF, the largest type. No text term, so no matching rule applies. Over 50,000 rows: parity's A side is the id-only SQL form. MySQL: 283,311 (283,302 TCGA, 9 production)."
+  },
+  {
+    "name": "crossed_attributes",
+    "kind": "compat",
+    "body": {
+      "sampletype": "TIS",
+      "attribute": ["Organ", "SiteOfResection"],
+      "attribute_logic": "AND",
+      "filter_searchText": "lung",
+      "filter_matchType": "PARTIAL"
+    },
+    "note": "Crossed attributes: 'lung' must be a case-insensitive substring of both Organ and SiteOfResection (attribute_logic AND). PARTIAL folds case, so Organ values 'Lung', 'LUNG' and 'Bronchus and lung' all count; an exact, case-sensitive where on Organ = 'Lung' would take only the first spelling. advanced_search's SQL stage reads 26,503 TIS rows that contain the text. MySQL: 2,488."
+  },
+  {
+    "name": "keyword_all_types",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "note": "Keyword across every sample type, one of the two breaking shapes. Case-insensitive substring of any value ('Granuloma' and 'granuloma' alike); key names do not count. advanced_search's SQL stage matches 5,385 rows, 704 of which hold the text only outside a value (a key name such as NewGranulomaCount), and its Python stage drops those. MySQL: 4,681 by the value rule (0 TCGA)."
+  },
+  {
+    "name": "or_retry_three_terms",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "granuloma OR tuberculosis OR macaque",
+      "searchText_logic": "OR",
+      "filter_matchType": "PARTIAL"
+    },
+    "note": "Nessie's OR retry exactly as sent, the other breaking shape: _advanced_search_retry_attempts (NessieAI/chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py) joins the retry terms with ' OR ' into one string. advanced_search's PubMed parser takes one operator per level, so it rejects three operands, scans every sample with a LIKE on the whole string and keeps a row only when one value contains all of it; graph_search keeps the string as one term (declared difference 2). Both answer 0 here. Changed from the list ['granuloma', 'tuberculosis', 'macaque'] by E6: the view nests a list of three or more terms as (granuloma) OR ((tuberculosis) OR (macaque)), and seek/search.py's designSearchPubmed raises IndexError on any such nesting, so advanced_search answers 502 to the list in every scope (graph_search: 7,480), and a shape one side cannot answer cannot prove parity. MySQL: 0."
+  },
+  {
+    "name": "multi_type_text",
+    "kind": "compat",
+    "body": {
+      "sampletype": ["CEL", "PAT", "PAV"],
+      "filter_searchText": "melanoma",
+      "filter_matchType": "PARTIAL"
+    },
+    "note": "Several types plus a term, crossing production (CEL) and TCGA (most PAT and PAV). Case-insensitive substring of any value, so 'Malignant melanoma, NOS' and 'Melanoma' both match. MySQL: 2,923 (2,843 TCGA, 80 production)."
+  },
+  {
+    "name": "uids_50",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": [
+        "A.VCF-260903TCG-9105", "A.VCF-260903TCG-52161", "A.CNV-260903TCG-13661", "TIS-260903TCG-30989",
+        "A.VCF-260903TCG-200067", "DNA-260901TCG-389", "A.VCF-260903TCG-63852", "A.MET-260903TCG-2786",
+        "A.ALN-260903TCG-27748", "A.GEX-260902TCG-458", "A.CNV-260903TCG-53207", "A.VCF-260903TCG-185401",
+        "A.VCF-260901TCG-6653", "SLD-260903TCG-9066", "D.ARR-260903TCG-27365", "A.VCF-260903TCG-105280",
+        "A.CNV-260903TCG-49504", "SLD-260903TCG-21671", "PAV-260903TCG-19745", "A.VCF-260903TCG-227300",
+        "PAV-260903TCG-63771", "A.GEX-260903TCG-41954", "A.VCF-260903TCG-160005", "A.GEX-260903TCG-5829",
+        "A.VCF-260903TCG-121610",
+        "TIS-241010ENG-1428", "TIS-231023FLY-324", "MUS-220122SAS-91", "PAV-221109FLY-558",
+        "TIS-220831FLY-2044", "CEL-260526GRI-45", "TIS-241011ENG-2625", "TIS-221013ENG-4955",
+        "TIS-230309FLY-609", "TIS-210713ENG-526", "TIS-241025ENG-2118", "D.FLOW-230718SAS-106",
+        "D.MSP-260218WHI-17", "TIS-220714FLY-466", "D.IMG-250519KAM-74", "MUS-220124FOR-45",
+        "D.IMG-240903KAM-10", "TIS-250918BEH-156", "D.SEQ-250127FOR-478", "D.IMG-240105SWA-101",
+        "CEL-250605SHO-5", "TIS-230501FLY-938", "PAV-240429FLY-22", "D.SEQ-250821LAU-174",
+        "TIS-210708ENG-1321"
+      ]
+    },
+    "note": "50 UIDs, 25 TCGA then 25 production, the first by CRC32(id) order among uuids that match UID_RE and are not duplicated (production ones also belong to a project). Every term is a UID, so both engines take the uuid path: exact, byte-for-byte, no case folding. MySQL: 50."
+  },
+  {
+    "name": "query_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT granuloma"
+      }
+    },
+    "note": "The Advanced box's NOT. advanced_search gets the text in filter_searchText and parses it (a NOT b is LIKE a AND NOT LIKE b over the JSON text, then any term in a value); graph_search gets it in extensions.query. Declared difference 2 does not apply: the two forms must give the same rows."
+  },
+  {
+    "name": "query_grouped_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "(lung AND granuloma) OR liver",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "(lung AND granuloma) OR liver"
+      }
+    },
+    "note": "AND and OR mixed through the parentheses the Add button writes, one operator per level."
+  },
+  {
+    "name": "query_tagged_not",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung[TIS] NOT granuloma",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung[TIS] NOT granuloma"
+      }
+    },
+    "note": "A term[TYPE] tag limits its term to the sample type; the NOT applies across every type."
+  },
+  {
+    "name": "query_not_key_name",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "lung NOT organ",
+      "filter_matchType": "PARTIAL"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "PARTIAL",
+      "extensions": {
+        "query": "lung NOT organ"
+      }
+    },
+    "note": "A negated term that is a key name: advanced_search's NOT LIKE drops every sample whose type has an Organ attribute, which graph_search reads from the catalog."
+  },
+  {
+    "name": "query_exact_or",
+    "kind": "compat",
+    "body": {
+      "filter_searchText": "Lung OR Liver",
+      "filter_matchType": "EXACT"
+    },
+    "graph_body": {
+      "filter_searchText": "",
+      "filter_matchType": "EXACT",
+      "extensions": {
+        "query": "Lung OR Liver"
+      }
+    },
+    "note": "EXACT through the query text: a term equal to a value, case-insensitive; stage 1 stays a substring."
+  },
+  {
+    "name": "filtering_not_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Not Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "NOT CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "The Simple box's Not Contain: advanced_search's own FILTERING path (/seek/samples/searching/) against the where operator NOT CONTAINS. Case-sensitive, over samples that hold Organ."
+  },
+  {
+    "name": "filtering_contain",
+    "kind": "compat",
+    "engine": "FILTERING",
+    "filters": {
+      "sampletype": "TIS",
+      "attribute": "Organ",
+      "filter_rule": "Contain",
+      "filter_valueFrom": "Lung",
+      "filter_valueTo": ""
+    },
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {
+            "sample_type": "TIS",
+            "attribute": "Organ",
+            "op": "CONTAINS",
+            "value": "Lung"
+          }
+        ]
+      }
+    },
+    "note": "The Simple box's Contain through the same path, now that CONTAINS reads the value's text. True and False have no fixture here: the Simple box offers them for attribute type 15, and no attribute has that type in production (scripts/graph_search/synthetic_queries.json has them)."
+  },
+  {
+    "name": "where_paired",
+    "kind": "graph_only",
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {"sample_type": "PAT", "attribute": "Sex", "op": "=", "value": "female"},
+          {"sample_type": "PAT", "attribute": "Race", "op": "=", "value": "asian"}
+        ]
+      }
+    },
+    "note": "Paired where on one type, ANDed, exact and case-sensitive: TCGA's spellings 'female' and 'asian' match, and production spellings such as 'Female', 'F' or 'White' are not folded in (advanced_search's EXACT would fold case). MySQL: 308 by byte-exact comparison (all TCGA)."
+  },
+  {
+    "name": "where_numeric_range",
+    "kind": "graph_only",
+    "body": {
+      "filter_searchText": "",
+      "extensions": {
+        "where": [
+          {"sample_type": "RNA", "attribute": "RIN", "op": ">=", "value": 7},
+          {"sample_type": "RNA", "attribute": "RIN", "op": "<", "value": 9}
+        ]
+      }
+    },
+    "note": "Numeric range on a SEEK Float attribute. RIN is text in json_metadata and a float on the node, so the range compares numbers and sees only values that cast (G6's census has 0 RIN cast failures). No case question. MySQL: 9,168 RNA samples whose RIN parses as a number in [7, 9) (9,092 TCGA, 76 production)."
+  },
+  {
+    "name": "lineage_descendant",
+    "kind": "graph_only",
+    "body": {
+      "sampletype": "TIS",
+      "filter_searchText": "",
+      "extensions": {
+        "lineage": {"direction": "descendant", "sample_type": "D.SEQ", "max_hops": 4}
+      }
+    },
+    "note": "Lineage: TIS samples with a D.SEQ sample within 4 DERIVED_FROM hops below them (D.SEQ's parents are DNA samples). No text term, so no matching rule applies. MySQL: 5,729 (all production), counted by walking the declared parent tokens (graph_sync.sources.declared_lineage) up 4 hops from all 6,705 D.SEQ samples. A path through an OrphanSample node exists only in the graph."
+  }
+]

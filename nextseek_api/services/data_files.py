@@ -37,9 +37,9 @@ from nextseek_api.services.content_blobs import (
 )
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
+def _resolve_uid_to_seek_id(uid_or_id: str, *, as_written_only: bool = False) -> Optional[str]:
     """Backward-compat wrapper — delegates to shared resolver."""
-    return _resolve_uid(uid_or_id, "data_files")
+    return _resolve_uid(uid_or_id, "data_files", as_written_only=as_written_only)
 
 
 class DataFileProxyViewSet(viewsets.ViewSet):
@@ -358,7 +358,7 @@ class DataFileProxyViewSet(viewsets.ViewSet):
             except Exception:
                 return HttpResponse(b'{"errors":[{"title":"Invalid request"}]}', status=422, content_type='application/json')
 
-        seek_id = _resolve_uid_to_seek_id(uid)
+        seek_id = _resolve_uid_to_seek_id(uid, as_written_only=True)
 
         if seek_id is not None:
             body_id = payload.get('data', {}).get('id')

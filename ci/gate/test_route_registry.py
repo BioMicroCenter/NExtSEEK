@@ -12,13 +12,22 @@ missing from the registry nor stale in it.
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ci.gate.live_routes import live_patterns, suggest_path
-from ci.routes import REGISTRY
+from ci.routes import REGISTRY, Route
 
+# The skeleton refuses to guess what the new route writes. "UNCLASSIFIED" is not
+# one of ci.routes.EFFECTS, so pasting this entry as it stands raises at import
+# until somebody says what the route does to the graph's sources. That is what
+# makes `effect` required in practice: the dataclass cannot tell an author who
+# means "reads" from one who said nothing, but it can refuse a value that means
+# "nobody looked".
 SUGGESTION = '''    Route(pattern=r"{pattern}",
           path="{path}",
+          effect="UNCLASSIFIED", writers=(),
           methods=("GET",), profiles="local,dev", auth="smoke", expect=200)'''
 
 
@@ -37,6 +46,14 @@ def test_every_route_is_registered():
         + "\n\n".join(_suggest(p) for p in missing[:3])
         + "\n"
     )
+
+
+def test_the_skeleton_the_gate_prints_is_refused_until_it_is_classified():
+    """Both halves of that rule, so neither can be relaxed by itself."""
+    assert 'effect="UNCLASSIFIED"' in SUGGESTION
+    with pytest.raises(ValueError, match="effect"):
+        Route(pattern=r"^x/$", path="/x/", methods=("GET",), profiles="local,dev",
+              effect="UNCLASSIFIED")
 
 
 def test_no_stale_registry_entries():

@@ -161,7 +161,12 @@ class TestNoRegression(TestCase):
         match = resolve("/nextseek_api/assistant/me/")
         self.assertEqual(match.func.cls.__name__, "AssistantViewSet")
 
+    def test_samples_retrieve_route_resolves(self):
+        match = resolve("/nextseek_api/samples/retrieve/")
+        self.assertEqual(match.func.cls.__name__, "SampleRetrieveViewSet")
+
     def test_admin_samples_route_resolves(self):
+        # The deprecated alias of samples/retrieve/.
         match = resolve("/nextseek_api/admin/samples/retrieve/")
         self.assertEqual(match.func.cls.__name__, "AdminSampleViewSet")
 

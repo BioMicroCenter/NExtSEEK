@@ -119,12 +119,19 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
     """Async task to resolve orphaned parent references after batch upload.
 
     Best-effort: failures are logged but do not affect the upload result.
+
+    Nothing here writes the graph. Every child the rewrite resolved is enqueued for the graph sync after the
+    rewrite's transaction has committed, and the drain writes its lineage and labels from MySQL (the sync design,
+    sections 8 and 12). ``parent_info`` is kept for in-flight messages: the rewrite needs only the tokens discovery
+    matched.
     """
     if not identity_map:
         return {"resolved": 0}
 
     try:
         from neo4j import GraphDatabase
+
+        from nextseek_api.graph_sync import hooks
 
         from .config import Neo4jConfig
         from .db_engine import get_connection
@@ -146,16 +153,17 @@ def resolve_orphans_task(self, identity_map: dict, parent_info: dict):
                 return {"resolved": 0}
 
             with get_connection() as conn:
-                stats = resolve_orphans(
-                    orphans=orphans,
-                    parent_info=parent_info,
-                    sql_conn=conn,
-                    neo4j_driver=driver,
-                    neo4j_database=neo4j_config.NEO4J_DB,
-                )
-            return stats
+                stats = resolve_orphans(orphans=orphans, sql_conn=conn)
         finally:
             driver.close()
+
+        # After the commit, never inside it: the outbox row is the record, and the drain writes the graph.
+        stats["queued"] = sum(
+            1
+            for sample_id in stats.get("sample_ids", ())
+            if hooks.enqueue("samples", f"sample:{sample_id}")
+        )
+        return stats
 
     except Exception as exc:
         log.warning("Orphan resolution failed (non-fatal): %s", exc, exc_info=True)

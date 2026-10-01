@@ -47,9 +47,9 @@ docker exec -w /app nextseek uv run manage.py nessie \
 `route` tier is cheaper and needs no seed data. `full` executes real turns, costs
 money, and needs the seeded v2 instance (project ids 2-14).
 
-**`route` is not free, and its printed cost is `unmeasured`, not `$0`.** It stops
-the *client* polling at `route_decided`; the server finishes and bills for every
-gate anyway. Read the Cadence section of `NessieAI/tests/nessie_tests/README.md` before drawing
+**`route` is not free, and its printed cost is `unmeasured` or `PARTIAL`, never a
+total.** It stops the *client* polling at `route_decided`, which carries only the
+router's price; the server finishes and bills for every gate anyway. Read the Cadence section of `NessieAI/tests/nessie_tests/README.md` before drawing
 any conclusion about what a run spent — a `$…` figure in a triage report is a
 floor, never a total.
 
@@ -96,7 +96,7 @@ Table `dmac.assistant_query_task`:
 | `query` | the user query text; join key back to a catalog variant |
 | `status` | `completed` / `error` / `running` |
 | `progress` | JSON array of events. `[0]` is `route_decided`; the last `query_complete` carries `data.debug` |
-| `result` | final `{reply, bundle_id, cc_session_id, total_cost_usd, ...}` |
+| `result` | final `{reply, bundle_id, cc_session_id, total_cost_usd, cost_partial, models_used, model_fallback, ...}`; the router's `router_cost_usd` is on the `route_decided` event instead |
 | `created_at` / `updated_at` | real server-side duration, independent of what the harness observed |
 
 The password is read from the container, never hard-coded:
@@ -281,7 +281,7 @@ left-hand column.
   became CURATED, and reading this line as "nothing is injected" is how a real
   route failure gets discounted as residue. `corpus.apply_route_policy` attaches
   a `route` criterion to turn 0 of **268** of the 283 resolved variants — 15 more
-  write one inline, so **all 283** carry one, against only 3 tagged `route_gate`
+  write one inline, so **all 283** carry one, against only 4 tagged `route_gate`
   — plus `last_reply nonempty` to 241. `apply_family_floor` adds 239 outcome
   criteria across 207 variants (`outcome_observed` to 150,
   `report_produced_output` to 57, `graph_truncation_disclosed` to 47). Those

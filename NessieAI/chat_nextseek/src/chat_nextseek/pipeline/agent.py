@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from ..session import SessionState
 
 from .agent_tools import build_pipeline_tool_schemas, dispatch_pipeline_tool_call, format_luria_followup
+from ..tool_loop import call_tools
 from ..helpers import summarize_pinned_bundle
 from ..seqera.catalog import catalog_for_prompt
 
@@ -62,6 +63,7 @@ def snapshot_for_chat_log(session) -> dict[str, Any]:
     return {
         "active": state.get("active"),
         "pipeline_key": state.get("pipeline_key"),
+        "selection": state.get("selection") or {},
         "cohort_count": len(artifacts.get("cohorts") or []),
         "message_count": len(state.get("messages") or []),
     }
@@ -127,8 +129,19 @@ def _run_loop(session, config: "ChatConfig", *, log_dir: str | None, send_event=
     log_resolved_dir = log_dir or getattr(config, "LOG_DIR", ".")
 
     for _ in range(MAX_ITER):
-        resp = client.chat_with_tools(messages=messages, tools=build_pipeline_tool_schemas(config),
-                                      system=system_prompt, model=model_name)
+        # Through call_tools, not chat_with_tools directly: a 503 anywhere in a build
+        # used to end it outright, the tokens a 12-iteration loop spent were invisible
+        # to the ledger, and the stable head (tools + system prompt) was re-sent
+        # uncached on every iteration.
+        resp = call_tools(
+            config,
+            messages=messages,
+            tools=build_pipeline_tool_schemas(config),
+            system=system_prompt,
+            model_name=model_name,
+            client=client,
+            agent_label=PIPELINE_AGENT_KEY,
+        )
         content = resp.get("content", []) or []
         tool_use_blocks = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
 

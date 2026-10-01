@@ -114,11 +114,13 @@ export interface SelectionDoneData {
   [extra: string]: unknown;
 }
 
-import type { Artifact, CCTrace } from "./chat";
+import type { Artifact, CCTrace, Suggestion } from "./chat";
 
 export interface QueryCompleteData {
   reply: string;
-  debug: Record<string, unknown>;
+  /** An NS turn's debug; a Container-CC turn may carry none. `suggestions` only
+   * when the graph-result reviewer offered a next question (#128). */
+  debug?: Record<string, unknown> & { suggestions?: Suggestion[] };
   bundle_id: number;
   artifacts?: Artifact[] | null;
   cc_traces?: CCTrace[];
@@ -131,6 +133,18 @@ export interface QueryErrorData {
   agent?: string;
   session_id?: string;
   reason?: string;
+  /**
+   * The raw technical message behind `error`, which is plain text for the user when
+   * the reason is `model_unavailable`. Shown in the Debug panel only.
+   */
+  detail?: string;
+  /**
+   * Files a Container-CC turn published before its wall clock stopped it
+   * (reason `exec_timeout`, or `model_unavailable` when it was stopped while a
+   * model call was being retried), in the shape a completed CC turn's carry. No
+   * other error carries any.
+   */
+  artifacts?: Artifact[] | null;
 }
 
 // GET /assistant/me/ response

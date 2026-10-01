@@ -249,6 +249,42 @@ def test_the_group_observations_still_carry_the_per_query_evidence_on_an_outage(
     assert [o["query"] for o in gr.observations] == ["q1", "q2"]
 
 
+# A Container-CC member whose model was unavailable sends no `query_complete`: its
+# reply is None and only its `query_error` says why.
+_CC_UNAVAILABLE = {"error": "The AI model was unavailable during this turn, so I could not finish.",
+                   "reason": "model_unavailable", "detail": "API Error: 529", "agent": "container_cc"}
+
+
+def test_get_last_query_error_reads_the_final_query_error():
+    payload = {"progress": [
+        {"event": "query_error", "data": {"error": "first"}},
+        {"event": "query_error", "data": _CC_UNAVAILABLE}]}
+    assert consistency.get_last_query_error(payload) == _CC_UNAVAILABLE
+    assert consistency.get_last_query_error({"progress": [
+        {"event": "query_complete", "data": {"reply": "r"}}]}) is None
+    assert consistency.get_last_query_error({}) is None
+
+
+def test_a_member_that_ended_only_in_a_model_unavailable_query_error_outages_the_group():
+    gr = consistency.run_group(
+        _group(same_count=True),
+        lambda q: {"route": "container_cc", "count": None, "reply": None,
+                   "query_error": _CC_UNAVAILABLE})
+
+    assert gr.outage is True
+    assert not any("could not be resolved" in r for r in gr.reasons), gr.reasons
+
+
+def test_a_member_stopped_at_its_time_limit_does_not_outage_the_group():
+    gr = consistency.run_group(
+        _group(same_count=True),
+        lambda q: {"route": "container_cc", "count": None, "reply": None,
+                   "query_error": {"error": "stopped", "reason": "exec_timeout"}})
+
+    assert gr.outage is False
+    assert any("could not be resolved" in r for r in gr.reasons)
+
+
 # --------------------------------------------------------------------------- #
 # Replay: the tenth case, reconstructed from the stored run.
 # --------------------------------------------------------------------------- #

@@ -128,6 +128,41 @@ def test_budget_ceiling_aborts_rather_than_running_on(tmp_path):
     assert len(calls) < 2 * len(corpus.bayesian_ids(CORPUS))
 
 
+def _ns_cost_fakes(ns_cost=1.00):
+    """Only the NS engine reports a cost; the CC arm reports none. A forced arm makes no router call
+    (turn_cost.turn_total leaves the router out of a forced turn), so the router adds nothing here."""
+    calls = []
+
+    def post_query(body):
+        calls.append((body["query"], body.get("force_route")))
+        return {"task_id": f"t{len(calls)}", "session_id": f"s{len(calls)}"}
+
+    def get_progress(_):
+        arm = calls[-1][1]
+        data = {"reply": "ok", "session_id": "s"}
+        if arm == "ns":
+            data["total_cost_usd"] = ns_cost
+        return {"status": "completed", "progress": [
+            {"event": "route_decided",
+             "data": {"route": "container_cc" if arm == "cc" else "nextseek_query", "source": "forced"}},
+            {"event": "query_complete", "data": data},
+        ]}
+    return post_query, get_progress, calls
+
+
+def test_budget_counts_ns_spend_not_only_cc(tmp_path):
+    """CI-COVERAGE gap 7: since fix 6a an NS turn reports its cost and a case's cost is the sum of its turns, so
+    --max-usd stops on NS spend too, not only on Container-CC's. (Router spend cannot occur here: every arm of a
+    paired run is forced, and a forced turn calls no router.)"""
+    post_query, get_progress, calls = _ns_cost_fakes()
+    with pytest.raises(bayesian.BudgetExceeded):
+        bayesian.run_paired(base_url="http://x", auth_header="", out_dir=tmp_path,
+                            corpus_path=CORPUS, post_query=post_query,
+                            get_progress=get_progress, skip_preflight=True, max_usd=2.50)
+    # 1.00 per NS arm and nothing per CC arm: 3.00 after the third question's NS arm, so its CC arm is never asked.
+    assert [arm for _q, arm in calls] == ["ns", "cc", "ns", "cc", "ns"]
+
+
 def test_budget_treats_an_unobserved_cost_as_unknown_not_zero(tmp_path):
     """NS turns emit no total_cost_usd. Summing None as 0 would understate spend
     and let a run sail past its ceiling; the manifest already distinguishes

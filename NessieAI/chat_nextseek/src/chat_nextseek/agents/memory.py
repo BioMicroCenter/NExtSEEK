@@ -11,14 +11,14 @@ from ..llm_clients import LLMAPIConnectionError
 from ..helpers import (
     build_memory_data_profile,
     collect_bundle_files,
-    execute_memory_code,
     load_json_for_memory,
     load_file_for_memory,
     log_prompt,
     log_usage,
     strip_html_recursive,
 )
-from ..schemas.schema_helper import call_llm_structured
+from ..helpers.tools.row_compute import run_code_isolated
+from ..schemas.schema_helper import call_llm_structured, call_llm_text
 from ..artifacts import load_api_result_full, load_memory_payload
 from ..schemas import (
     MemoryCoderOutput,
@@ -41,6 +41,19 @@ def _load_memory_json_payload(result_bundle: dict) -> tuple[str, Any, list[tuple
     memory_payload = load_memory_payload(result_bundle)
     if isinstance(memory_payload, dict) and memory_payload:
         return "bundle memory_payload", strip_html_recursive(memory_payload), file_entries
+
+    # T9: a graph turn's only artifact is its debug JSON, which holds a 20-row slice of the
+    # result (orchestrator._write_graph_debug), while the bundle carries every row inline. The
+    # file sorted ahead of the bundle here, so a follow-up that reached this loader answered a
+    # question about 250 rows from 20 of them and reported 20 as the count. The REST path has
+    # no equivalent problem: it writes its rows whole. The primary follow-up path reads the
+    # bundle already; this is the fallback it degrades to.
+    graph_rows = ((result_bundle.get("graph_result") or {}).get("data")
+                  if isinstance(result_bundle.get("graph_result"), dict) else None)
+    if isinstance(graph_rows, list) and graph_rows:
+        return ("bundle graph_result rows",
+                {"data": {"rows": strip_html_recursive(graph_rows)}},
+                file_entries)
 
     def _memory_file_priority(entry: tuple[str, str]) -> int:
         label, path = entry
@@ -200,14 +213,19 @@ def _format_memory_coder_answer(
     ]
 
     chatter_client, chatter_model, chatter_budget = config.get_agent_model("chatter")
-    resp = chatter_client.chat(
-        model=chatter_model,
-        temperature=0,
+    # Through the recovery ladder on the chatter's chain, with the chatter's wall clocks
+    # (call_budgets.CALL_BUDGETS): it used to call the SDK directly and never moved.
+    answer = call_llm_text(
+        config,
         messages=messages,
+        model_name=chatter_model,
+        client=chatter_client,
+        agent_label="chatter",
+        log_label="memory_coder_chatter",
+        temperature=0,
         thinking_budget=chatter_budget,
+        usage_label="MEMORY_CODER_CHATTER",
     )
-    log_usage(resp, "MEMORY_CODER_CHATTER")
-    answer = resp.content
     log_prompt(
         log_dir or config.LOG_DIR,
         "memory_coder_chatter",
@@ -268,14 +286,18 @@ def _legacy_memory_agent_answer(config: ChatConfig, user_query: str, result_bund
     ]
 
     try:
-        resp = memory_client.chat(
-            model=memory_model,
-            temperature=0,
+        # Through the recovery ladder on the memory agent's chain. It used to call the
+        # SDK directly, with no wall clock; it now has the chatter's (300 s, then 180 s).
+        answer = call_llm_text(
+            config,
             messages=messages,
+            model_name=memory_model,
+            client=memory_client,
+            agent_label="memory",
+            temperature=0,
             thinking_budget=memory_budget,
+            usage_label="MEMORY",
         )
-        log_usage(resp, "MEMORY")
-        answer = resp.content
         print("[DEBUG][MEMORY][MEMORY] Answer:", answer)
         log_prompt(
             log_dir or config.LOG_DIR,
@@ -328,7 +350,11 @@ def memory_agent_answer(config: ChatConfig, user_query: str, result_bundle: dict
             data_profile=profile,
             log_dir=log_dir,
         )
-        computed_result = execute_memory_code(coder_output.extraction_code, memory_data)
+        # The code runs in a separate, limited process; a failure takes the fallback below, as before.
+        run = run_code_isolated(coder_output.extraction_code, memory_data)
+        if not run["ok"]:
+            raise RuntimeError(run["error"])
+        computed_result = run["result"]
 
         artifact_entry = None
         try:

@@ -40,6 +40,8 @@ def _auth_request(method="get", path="/", data=None, user=None, query=None):
     if user is None:
         user = MagicMock()
         user.is_authenticated = True
+        # A superuser: the lineage endpoints scope anyone else (test_sample_types_lineage_scope.py covers that).
+        user.is_superuser = True
     req.user = user
     if data is not None:
         req.data = data
@@ -238,6 +240,28 @@ class TestSampleTypeRetrieve:
         vs.client.get_sample_type.return_value = _ok(GOOD_ST_SINGLE)
         resp = vs.retrieve(_auth_request(), uid=None, pk="12")
         assert resp.status_code == 200
+
+    # Measured on fairdata-dev 2026-09-22: SEEK took 23-25 s to answer GET /sample_types/11 (its auth
+    # lookup table is stale, so it checks every sample's permissions one by one), the proxy's 20 s
+    # timeout raised ReadTimeout, and the uncaught exception reached the caller as a bare 500.
+    def test_retrieve_504_when_seek_times_out(self):
+        import requests
+        vs = self._viewset()
+        vs.client.timeout_s = 20
+        vs.client.get_sample_type.side_effect = requests.ReadTimeout("read timed out")
+        resp = vs.retrieve(_auth_request(), uid="12")
+        assert resp.status_code == 504
+        body = json.loads(resp.content)
+        assert body["errors"][0]["title"] == "Upstream timeout"
+        assert "20 s" in body["errors"][0]["detail"]
+
+    def test_retrieve_502_when_seek_unreachable(self):
+        import requests
+        vs = self._viewset()
+        vs.client.get_sample_type.side_effect = requests.ConnectionError("refused")
+        resp = vs.retrieve(_auth_request(), uid="12")
+        assert resp.status_code == 502
+        assert json.loads(resp.content)["errors"][0]["title"] == "Upstream connection error"
 
 
 # ============================================================================

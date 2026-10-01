@@ -64,3 +64,9 @@ target/
 
 # Ipython Notebook
 .ipynb_checkpoints
+
+# Runtime-only: the daily context export writes the labs it mines from SEEK institution
+# titles here (chat_nextseek.labs), with the temporary file of its atomic write beside it.
+# They hold real lab titles, so they never enter the repository.
+/labs_db.json
+/.labs_db.json.*.tmp

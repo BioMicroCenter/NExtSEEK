@@ -192,7 +192,9 @@ def test_resolve_injects_protocol_text_when_an_entry_needs_it(monkeypatch):
                                              tool_input={"kind": "explicit_uids", "uids": ["D.SEQ-1"]},
                                              pipeline_key="scrnaseq"))
     leaf = out["leaves"][0]
-    assert leaf["signals"]["__protocol_text__"] == "kit ka in methods"
+    # the text drives the verdict but is never echoed to the model (cost: it would repeat per leaf)
+    assert "__protocol_text__" not in leaf["signals"]
+    assert "kit ka in methods" not in json.dumps(out)
     assert leaf["data_driven_params"]["protocol"]["value"] == "a"     # derived from protocol text
     assert "protocol_text_status" in out
 
@@ -236,3 +238,62 @@ def test_configure_run_leaves_length_correction_on_for_a_standard_cohort(tmp_pat
         {"pipeline_key": "rnaseq", "params": {}}, log_dir=str(tmp_path)))
     assert out["ok"] is True, out
     assert out["resolved_params"].get("extra_salmon_quant_args", "") == ""
+
+
+def test_resolve_rnaseq_rows_carry_no_protocol_text(monkeypatch):
+    big = "methods text " * 500
+    monkeypatch.setattr(at, "gather_protocol_text",
+                        lambda config, annotated, base_dir=None: {"text": big, "status": {"n_ok": 1}})
+    _fake_reporter(monkeypatch, {"D.SEQ-1": {"UID": "D.SEQ-1"}, "D.SEQ-2": {"UID": "D.SEQ-2"}})
+    state = {}
+    raw = at.tool_resolve_samples(_Cfg(), session={}, state=state,
+                                  tool_input={"kind": "explicit_uids", "uids": ["D.SEQ-1", "D.SEQ-2"]},
+                                  pipeline_key="rnaseq")
+    out = json.loads(raw)
+    assert out["leaf_count"] == 2
+    assert all("__protocol_text__" not in r.get("signals", {}) for r in out["leaves"])
+    assert "methods text" not in raw
+
+
+def test_gather_protocol_text_stops_at_its_deadline(monkeypatch):
+    import time
+    from chat_nextseek.reports import protocols as pr
+    monkeypatch.setattr(pr, "extract_protocol_refs_from_metadata",
+                        lambda m: [{"source": "protocol_name", "value": "P.1"}])
+
+    def slow_fetch(config, refs, deadline=None):
+        time.sleep(0.1)
+        return {"P.1": {"ok": True, "data": {"data": {"attributes": {"content_blobs": [{"link": "http://x/b"}]}}}}}
+    monkeypatch.setattr(pr, "fetch_protocols", slow_fetch)
+    calls = []
+    monkeypatch.setattr(pr.requests.Session, "get", lambda self, *a, **k: calls.append(k) or None)
+    out = pr.gather_protocol_text(_Cfg(), {}, budget_s=0.05)
+    assert calls == []                      # past the deadline: no download starts
+    assert out["text"] == ""
+    assert any("deadline" in r for r in out["status"]["failure_reasons"])
+
+
+def test_download_timeout_is_cut_to_the_time_left(monkeypatch, tmp_path):
+    import time
+    from chat_nextseek.reports import protocols as pr
+    seen = []
+
+    class R:
+        status_code = 404
+        headers = {}
+        content = b""
+    monkeypatch.setattr(pr.requests.Session, "get", lambda self, url, timeout=None, **k: seen.append(timeout) or R())
+    payload = {"P.1": {"ok": True, "data": {"data": {"attributes": {"content_blobs": [{"link": "http://x/b"}]}}}}}
+    pr.download_and_extract_protocol_blobs(payload, tmp_path, deadline=time.monotonic() + 5)
+    assert seen and all(0 < t <= 5 for t in seen)
+
+
+def test_configure_run_records_the_user_message_count_for_the_launch_gate(tmp_path):
+    state = _configure_run_state(tmp_path, {})
+    state["messages"] = [{"role": "user", "content": "run it"},
+                         {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t", "content": "{}"}]},
+                         {"role": "user", "content": "yes"}]
+    out = json.loads(at.tool_configure_run(_Cfg(), state, {"pipeline_key": "smrnaseq",
+                                                           "params": {"mirtrace_species": "hsa"}}, str(tmp_path)))
+    assert out["ok"] is True, out
+    assert state["launch_built_at_user_msgs"] == 2

@@ -16,6 +16,7 @@ PLUGIN_FACING = {
     "multi_parser_agent",
     "planner_agent",
     "graph_agent",
+    "graph_schema_snapshot",
     "reporter_agent",
     "report_writer_agent",
     "api_agent_build_request",
@@ -29,6 +30,12 @@ PLUGIN_FACING = {
 # explicitly rather than prefix-match, so a new orchestrator without a `run_`
 # prefix (e.g. generate_report_outputs) is classified correctly.
 HELPER_ORCHESTRATORS = {"run_reporter_summary", "generate_report_outputs"}
+
+# Every portable symbol whose return annotation mentions dict rather than a Pydantic
+# model: the tool_* side-effect pair, the helper orchestrators' tuples, and
+# graph_schema_snapshot, which is a read-only projection of the live graph catalog and
+# returns a plain dict with no model call.
+DICT_RETURNING = HELPER_ORCHESTRATORS | {"graph_schema_snapshot"}
 
 
 def test_portable_all_complete():
@@ -81,7 +88,7 @@ def test_portable_returns_pydantic_or_dict():
         fn = getattr(portable, name)
         sig = inspect.signature(fn)
         ret = sig.return_annotation
-        if name.startswith("tool_") or name in HELPER_ORCHESTRATORS:
+        if name.startswith("tool_") or name in DICT_RETURNING:
             # tool_neo4j_query, tool_nextseek_api_request → dict
             # run_reporter_summary → tuple[dict, dict[str, str], dict]
             # generate_report_outputs → tuple[dict, dict|Any, dict[str, str], str]

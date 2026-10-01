@@ -359,6 +359,11 @@ LOGGING = {
         'django.utils.autoreload': {
           'level': 'INFO'  
         },
+        # A template variable that does not resolve is logged at DEBUG with a formatted traceback, and the record is
+        # built before any handler can drop it: one {% for %} over a JSON string cost /seek/search/ about 8 s a load.
+        'django.template': {
+            'level': 'INFO',
+        },
         'seek': {
             'handlers':['seekfile'],
             'propagate': True,
@@ -400,6 +405,12 @@ REST_FRAMEWORK = {
 # "TAGS" is still declared because it is the spec-correct way to name the tag set and
 # other consumers (redoc, generators) do honour it. tagsSorter is what actually moves
 # the sections in Swagger UI. Sharing one list keeps them from drifting.
+#
+# "TAGS" must be a list of Tag OBJECTS ({"name": ...}), not bare strings.
+# drf-spectacular copies it into the root "tags" array verbatim, and redoc builds its
+# menu with slugify(tag.name): a bare string has no .name, so /nextseek_api/redoc/
+# died with "slugify: string argument expected" while Swagger, which ignores the root
+# array, rendered fine.
 API_TAG_ORDER = [
     "Assays",
     "AssayRegistrations",
@@ -433,7 +444,7 @@ SPECTACULAR_SETTINGS = {
     "PREPROCESSING_HOOKS": [
         "dmac.openapi_hooks.exclude_seek_paths",
     ],
-    "TAGS": API_TAG_ORDER,
+    "TAGS": [{"name": tag} for tag in API_TAG_ORDER],
     # Injected into the page with |safe, so a JS function survives. Anything not in
     # the list sorts to the end, alphabetically, rather than disappearing.
     "SWAGGER_UI_SETTINGS": (

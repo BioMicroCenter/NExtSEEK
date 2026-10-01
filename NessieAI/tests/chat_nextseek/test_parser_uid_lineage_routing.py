@@ -30,9 +30,11 @@ TASK_797_QUERY = (
 
 
 def _plan(mode="new_search", **over) -> ParserPlan:
+    # A REST endpoint the catalog keeps: a new_search on a retired sample search now goes to the graph by itself
+    # (agents/parser.py, _route_retired_sample_search), so it cannot show which route the lineage guard chose.
     base = dict(
         mode=mode,
-        target_endpoint="/nextseek_api/samples/advanced_search/",
+        target_endpoint="/nextseek_api/sample-tree/{uid}/tree/",
         intent_summary="",
         filters=ParserFilters(),
     )

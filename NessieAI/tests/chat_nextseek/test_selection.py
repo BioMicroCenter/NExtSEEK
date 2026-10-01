@@ -8,7 +8,9 @@ from chat_nextseek.pipeline.selection import (
     out_of_scope,
 )
 
-ATLAS_KEYS = {"rnaseq", "rnasplice", "scrnaseq"}
+ATLAS_KEYS = {"rnaseq", "rnasplice", "scrnaseq", "differentialabundance"}
+# differentialabundance is in the atlas but not in the build catalog, as in production.
+LAUNCHABLE_KEYS = {"rnaseq", "rnasplice", "scrnaseq"}
 
 
 class _StubClient:
@@ -30,7 +32,7 @@ class _StubClient:
 def _decide(content=None, raises=None):
     client = _StubClient(content=content, raises=raises)
     verdict = decide(client=client, model="m", budget=None, payload="P",
-                     question="Q", atlas_keys=ATLAS_KEYS)
+                     question="Q", atlas_keys=ATLAS_KEYS, launchable_keys=LAUNCHABLE_KEYS)
     return verdict, client
 
 
@@ -51,16 +53,73 @@ def test_two_pipelines_is_a_fork():
     assert verdict.pipelines == ["rnaseq", "rnasplice"]
 
 
-def test_empty_list_with_a_reason_is_a_refusal():
-    verdict, _ = _decide('{"pipelines": [], "reason": "amplicon data cannot answer this"}')
+def test_empty_list_on_a_data_basis_is_a_refusal():
+    verdict, _ = _decide(
+        '{"pipelines": [], "reason": "amplicon data cannot answer this", "basis": "data"}')
     assert verdict.kind == "refused"
     assert "amplicon" in verdict.reason
 
 
+def test_empty_list_on_an_atlas_basis_steps_aside():
+    # Measured live 2026-09-30: "Call variants" on duplex DNA came back refused because
+    # no ATLAS pipeline calls DNA variants, though sarek is in the build catalog. The
+    # atlas covers RNA only, so "nothing in the atlas does this" is not a refusal of
+    # the question: it hands the choice back to the agent's full catalog.
+    verdict, _ = _decide(
+        '{"pipelines": [], "reason": "no atlas pipeline calls DNA variants", "basis": "atlas"}')
+    assert verdict.kind == "out_of_scope"
+    assert verdict.pipelines == []
+    assert "DNA variants" in verdict.reason
+
+
+@pytest.mark.parametrize("basis", ['', ', "basis": ""', ', "basis": "vibes"', ', "basis": null'])
+def test_empty_list_without_a_known_basis_steps_aside(basis):
+    # A refusal blocks the build, so it must say it is about the data. Anything
+    # less degrades to out_of_scope rather than blocking a build that works today.
+    verdict, _ = _decide('{"pipelines": [], "reason": "cannot answer this"%s}' % basis)
+    assert verdict.kind == "out_of_scope"
+    assert "cannot answer this" in verdict.reason
+
+
 def test_empty_list_without_a_reason_is_out_of_scope():
     # A refusal with no reason is not a decision anyone can act on or relay.
-    verdict, _ = _decide('{"pipelines": [], "reason": ""}')
+    verdict, _ = _decide('{"pipelines": [], "reason": "", "basis": "data"}')
     assert verdict.kind == "out_of_scope"
+
+
+def test_an_atlas_key_that_cannot_be_launched_is_dropped_not_fatal():
+    # Measured live 2026-09-30: the model answered rnaseq + differentialabundance, an
+    # answer the eval set accepts, and the whole verdict was thrown away because
+    # differentialabundance is atlas-only. The launchable half must survive.
+    verdict, _ = _decide(
+        '{"pipelines": ["rnaseq", "differentialabundance"], "reason": "counts then DE"}')
+    assert verdict.kind == "chosen"
+    assert verdict.pipelines == ["rnaseq"]
+    assert verdict.dropped == ["differentialabundance"]
+
+
+def test_a_fork_keeps_its_launchable_members():
+    verdict, _ = _decide(
+        '{"pipelines": ["rnaseq", "rnasplice", "differentialabundance"], "reason": "either"}')
+    assert verdict.kind == "fork"
+    assert verdict.pipelines == ["rnaseq", "rnasplice"]
+    assert verdict.dropped == ["differentialabundance"]
+
+
+def test_only_unlaunchable_atlas_keys_steps_aside_and_says_why():
+    verdict, _ = _decide('{"pipelines": ["differentialabundance"], "reason": "has counts"}')
+    assert verdict.kind == "out_of_scope"
+    assert "differentialabundance" in verdict.reason
+    assert "not in the atlas" not in verdict.reason
+    assert "cannot be launched" in verdict.reason
+
+
+def test_launchable_keys_default_to_the_atlas():
+    client = _StubClient(content='{"pipelines": ["differentialabundance"], "reason": "x"}')
+    verdict = decide(client=client, model="m", budget=None, payload="P",
+                     question="Q", atlas_keys=ATLAS_KEYS)
+    assert verdict.kind == "chosen"
+    assert verdict.dropped == []
 
 
 def test_key_outside_the_atlas_is_out_of_scope():

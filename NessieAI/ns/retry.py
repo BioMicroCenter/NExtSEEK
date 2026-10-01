@@ -393,17 +393,21 @@ def _find_bundle(session: ChatSession, bundle_id: int) -> Optional[Dict[str, Any
 # run_retry: the retry endpoint's pipeline body
 # ---------------------------------------------------------------------------
 
-def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str) -> None:
+def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str, graph_scope=None) -> None:
     """Pipeline body of the evaluator ``retry`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, else standard) with the
     caller's credentials, turns an unhandled error into a ``query_error``
     event, and always saves the session through ``adapter``. Progress reaches
-    the client only through ``send_event``.
+    the client only through ``send_event``. ``graph_scope`` is the caller's
+    project scope as plain data, resolved by the ViewSet; ``None`` leaves the
+    keyword out, and the singleton config carries no scope, so every graph
+    query refuses.
     """
     try:
         run_query, run_query_plan = _get_orchestrator()
         creds = {"api_user": api_user, "api_pass": api_pass}
+        scope_kw = {} if graph_scope is None else {"graph_scope": graph_scope}
         if req.mode == "plan":
             run_query_plan(
                 adapter,
@@ -411,6 +415,7 @@ def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str) -
                 req.query,
                 send_event,
                 credentials=creds,
+                **scope_kw,
             )
         else:
             run_query(
@@ -419,6 +424,7 @@ def run_retry(*, adapter, req, send_event, api_user, api_pass, session_id_str) -
                 req.query,
                 send_event,
                 credentials=creds,
+                **scope_kw,
             )
     except Exception:
         logger.exception(

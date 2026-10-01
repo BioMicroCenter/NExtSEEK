@@ -7,6 +7,7 @@ from datetime import datetime
 import streamlit as st
 
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 from chat_nextseek.orchestrator import run_query, run_query_plan
 
 from chat_nextseek.tee import Tee
@@ -14,8 +15,12 @@ from chat_nextseek.artifacts import load_api_result_full
 
 @st.cache_resource
 def _get_config() -> ChatConfig:
-    """Build and cache a single ChatConfig instance for the Streamlit process."""
-    return ChatConfig()
+    """Build and cache a single ChatConfig instance for the Streamlit process.
+
+    Graph queries run over every project only with CHAT_NEXTSEEK_GRAPH_ADMIN=1 (cli.py -s --graph-admin sets it);
+    otherwise they are refused and fall back, and the graph catalog is redacted.
+    """
+    return with_scope(ChatConfig(), operator_scope_from_env("app"))
 
 config = _get_config()
 MODEL_MODE = config.MODEL_MODE

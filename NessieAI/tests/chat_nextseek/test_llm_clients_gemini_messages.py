@@ -168,3 +168,29 @@ def test_repair_loop_reaches_the_model_on_the_second_attempt():
         "the repair turn was discarded — attempt 2 re-sent an identical prompt"
     )
     assert len(recorder.calls[1]["contents"]) > len(recorder.calls[0]["contents"])
+
+
+# ------------------------------------------------- the thinking setting each Gemini generation takes
+
+
+@pytest.mark.parametrize("model, budget, expected", [
+    # Gemini 3 models take a level, not a token budget: the catalog's level is sent as it is.
+    ("gemini-3.8-flash", 4000, {"thinking_level": "low"}),
+    ("gemini-3.8-flash", 8000, {"thinking_level": "medium"}),
+    ("gemini-3.8-flash", 16000, {"thinking_level": "high"}),
+    ("gemini-3.1-pro-preview", 16000, {"thinking_level": "high"}),
+    # Older Gemini models still take the token budget.
+    ("gemini-2.5-flash", 4000, {"thinking_budget": 4000}),
+    ("gemini-2.5-pro", 16000, {"thinking_budget": 16000}),
+    # No level in the catalog: nothing is sent and the model runs at its own default.
+    ("gemini-3.8-flash", None, None),
+    ("gemini-2.5-flash", None, None),
+])
+def test_the_thinking_setting_is_a_level_for_gemini_3_and_a_budget_for_older_models(model, budget, expected):
+    recorder = _Recorder(["{}"])
+    _client(recorder).chat(messages=[{"role": "user", "content": "q"}], model=model, thinking_budget=budget)
+    config = recorder.calls[0]["config"]
+    if expected is None:
+        assert "thinking_config" not in config
+    else:
+        assert config["thinking_config"] == expected

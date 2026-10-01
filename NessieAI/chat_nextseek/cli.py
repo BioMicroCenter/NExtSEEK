@@ -9,6 +9,7 @@ Streamlit UI:
 
 Standalone query:
   uv run cli.py -q "Find mice treated with NDMA"          # default mode
+  uv run cli.py -q "..." --graph-admin                    # graph queries as the operator (every project)
   uv run cli.py -m oai -q "Find mice treated with NDMA"   # OpenAI mode
   uv run cli.py -qp "Find mice in the GBM study"          # planner pipeline (multi-step)
 
@@ -229,6 +230,28 @@ def _reset_query_logging_session(session) -> None:
     session["config_snapshot_logged"] = False
 
 
+def _operator_graph_config(config, graph_admin: bool):
+    """The CLI's own config, carrying the operator's graph scope.
+
+    Admin (every project) only by an explicit opt-in: ``--graph-admin``, or
+    ``CHAT_NEXTSEEK_GRAPH_ADMIN=1`` in the environment. Without either the config
+    carries no scope, so graph queries are refused and fall back to the
+    project-scoped sample search, and the graph catalog is redacted; one stderr
+    line says so.
+    """
+    from chat_nextseek.graph_scope import GraphScope, operator_scope_from_env, with_scope
+
+    scope = GraphScope.admin("cli") if graph_admin else operator_scope_from_env("cli")
+    if scope is None:
+        print(
+            "[cli] No graph scope: graph queries will fall back to the project-scoped sample search and the "
+            "graph catalog is redacted. Pass --graph-admin (or set CHAT_NEXTSEEK_GRAPH_ADMIN=1) to run them "
+            "as the operator.",
+            file=sys.stderr,
+        )
+    return with_scope(config, scope)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Handle the default CLI path: Streamlit launch or a single standalone query."""
     if args.streamlit:
@@ -236,14 +259,23 @@ def cmd_run(args: argparse.Namespace) -> int:
             args.mode,
             args.extra or [],
         )
-        return _run(command, env=_build_prod_subprocess_env(bool(args.prod)))
+        env = _build_prod_subprocess_env(bool(args.prod))
+        if getattr(args, "graph_admin", False):
+            # app.py reads the opt-in from its own environment.
+            from chat_nextseek.graph_scope import OPERATOR_OPT_IN_ENV
+
+            env = dict(env if env is not None else os.environ)
+            env[OPERATOR_OPT_IN_ENV] = "1"
+        return _run(command, env=env)
 
     # Standalone mode — import heavy modules only when needed
     from chat_nextseek.config import ChatConfig
     from chat_nextseek.orchestrator import run_query
     from chat_nextseek.session import SQLiteSessionState, MySQLSessionState
 
-    config = ChatConfig(config_map=_build_prod_config_map(bool(args.prod)))
+    config = _operator_graph_config(
+        ChatConfig(config_map=_build_prod_config_map(bool(args.prod))), getattr(args, "graph_admin", False),
+    )
 
     if config.SESSION_DB_TYPE == "sqlite":
         session = SQLiteSessionState(config.SESSION_DB_PATH, "cli-user")
@@ -281,7 +313,9 @@ def cmd_query_plan(args: argparse.Namespace) -> int:
     from chat_nextseek.orchestrator import run_query_plan
     from chat_nextseek.session import SQLiteSessionState, MySQLSessionState
 
-    config = ChatConfig(config_map=_build_prod_config_map(bool(args.prod)))
+    config = _operator_graph_config(
+        ChatConfig(config_map=_build_prod_config_map(bool(args.prod))), getattr(args, "graph_admin", False),
+    )
 
     if config.SESSION_DB_TYPE == "sqlite":
         session = SQLiteSessionState(config.SESSION_DB_PATH, "cli-user")
@@ -411,6 +445,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Use production NExtSEEK/Neo4j credentials from *_PROD env vars.\n"
             "Maps NEXTSEEK_BASE_URL/API_USER/API_PASS/NEO4J_* to their *_PROD variants."
+        ),
+    )
+    parser.add_argument(
+        "--graph-admin",
+        action="store_true",
+        default=False,
+        dest="graph_admin",
+        help=(
+            "Run graph queries as the operator, over every project (also CHAT_NEXTSEEK_GRAPH_ADMIN=1).\n"
+            "Without it graph queries fall back to the project-scoped sample search and the catalog is redacted."
         ),
     )
     parser.add_argument(

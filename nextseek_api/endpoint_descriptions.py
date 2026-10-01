@@ -141,22 +141,51 @@ SAMPLE_TREE_GET_DESC = (
 )
 
 # =============================================================================
-# AdminSampleViewSet (1 endpoint)
+# SampleRetrieveViewSet (samples/retrieve, and the deprecated admin/samples/retrieve alias)
 # =============================================================================
 
-ADMIN_SAMPLE_RETRIEVE_DESC = (
-    "**SUMMARY:** Export sample metadata for admin users given a list of sample identifiers.\n\n"
-    "**USE WHEN:** An admin needs to bulk-export metadata (JSON or Excel) for specific samples they already know by UID or SEEK ID, "
-    "including all parent/child derived samples.\n\n"
-    "**DO NOT USE WHEN:** The user wants to SEARCH or FILTER samples by type, attribute, or text — use `POST advanced_search` instead.\n\n"
-    "**ACCEPTS:** A list of sample UIDs (e.g. 'NHP-220630FLY-1-PUB') and/or SEEK IDs (numeric); optional `output_format` (`json` or `excel`).\n\n"
-    "**RETURNS:** JSON grouped by sample type with full metadata, or an Excel workbook. Includes derived (parent/child) samples automatically.\n\n"
-    "**TRIGGER PHRASES:** export samples, download sample metadata, admin sample retrieval, bulk sample export, sample data dump\n\n"
+SAMPLE_RETRIEVE_DESC = (
+    "**SUMMARY:** Download the full metadata of samples already known by UID or SEEK ID, with every ancestor and "
+    "descendant sample by default, as JSON or as an Excel workbook. The API behind every sample-download button.\n\n"
+    "**USE WHEN:** The user names specific samples (UIDs such as 'NHP-220630FLY-1-PUB', or numeric SEEK IDs) and wants "
+    "their complete metadata, or everything derived from them or that they were derived from.\n\n"
+    "**DO NOT USE WHEN:** The user wants to SEARCH or FILTER samples by type, attribute or text: use "
+    "`POST samples/graph_search` or `POST samples/advanced_search`. The user wants a whole project: use "
+    "`admin/project-export`.\n\n"
+    "**ACCEPTS:** `identifiers`, a list of sample UIDs and/or numeric SEEK IDs (a whitespace-separated string also "
+    "works); optional `output_format` (`json`, the default, or `excel`); optional `include_tree` (default true: add "
+    "every ancestor and descendant over the sample graph; false returns only the named samples). Any logged-in user "
+    "may call it with session or basic authentication; rows are limited to the caller's projects unless they are a "
+    "superuser. A UID may be written with or without its `-PUB` or `-PUB<n>` suffix: the spelling as written is tried "
+    "first, then the others.\n\n"
+    "**RETURNS:** JSON `{total_samples, total_sample_types, total_children, failed_uids, lineage_complete, resolved_as, "
+    "data}` "
+    "where `data` is grouped by UID prefix (`sample_type`, `n_samples`, `samples` of `{id, uuid, sample_type_id, "
+    "metadata}`) and `total_children` counts every relative returned (ancestors too). `lineage_complete` is false when "
+    "the graph could not supply the whole lineage (the named samples are still returned). `resolved_as` is present "
+    "only when an identifier was answered under another spelling: `{as written: stored UID}`. Or an .xlsx workbook with a "
+    "README sheet and one sheet per sample type. 404 when none of the identifiers is a sample the caller can see.\n\n"
+    "**TRIGGER PHRASES:** export samples, download sample metadata, sample retrieval, bulk sample export, "
+    "everything derived from this sample, full metadata for these UIDs\n\n"
     "**EXAMPLES:**\n"
     "- 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples as JSON'\n"
     "- 'Download an Excel spreadsheet with data for samples 12345 and 67890'\n"
     "- 'Get sample data for these three monkeys in JSON format'\n"
     "- 'Retrieve full metadata for tissue samples TIS-230324BOO-39-PUB and TIS-230324BOO-40-PUB'\n"
+)
+
+# The old path. Same handler, same body, same response; kept so saved Nessie chats, cached browser
+# scripts and external clients keep working. Agents are taught only the new path.
+ADMIN_SAMPLE_RETRIEVE_DESC = (
+    "**SUMMARY:** DEPRECATED alias of `POST samples/retrieve`: identical request and response. Use "
+    "`POST samples/retrieve` instead.\n\n"
+    "**USE WHEN:** Never in new code; existing clients may keep calling it.\n\n"
+    "**DO NOT USE WHEN:** Always prefer `POST samples/retrieve`.\n\n"
+    "**ACCEPTS:** Exactly what `POST samples/retrieve` accepts.\n\n"
+    "**RETURNS:** Exactly what `POST samples/retrieve` returns.\n\n"
+    "**TRIGGER PHRASES:** admin sample retrieval (legacy name)\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Export all metadata for NHP-220630FLY-1-PUB and its derived samples as JSON'\n"
 )
 
 # =============================================================================
@@ -169,7 +198,7 @@ PROJECT_EXPORT_DESC = (
     "**USE WHEN:** An admin wants a complete dump of a whole project identified by its numeric SEEK "
     "project ID — every sample, every sample type, all metadata attributes flattened into columns.\n\n"
     "**DO NOT USE WHEN:** The user already knows which samples they want by UID or SEEK ID — use "
-    "`POST admin/samples/retrieve` instead. The user wants to SEARCH or FILTER by type, attribute, or "
+    "`POST samples/retrieve` instead. The user wants to SEARCH or FILTER by type, attribute, or "
     "text — use `POST advanced_search`. The user wants the lineage of one sample — use `GET sample-tree`. "
     "The caller is not a superuser — this endpoint returns 403 for ordinary and staff accounts.\n\n"
     "**ACCEPTS:** `project_id` (numeric SEEK project ID, e.g. 2 for IMPACT) and optional `output_format` "
@@ -721,6 +750,9 @@ SAMPLETYPE_CHILDREN_DESC = (
     "use `POST sample_types/get_parents/parents_by_child_types` instead.\n\n"
     "**ACCEPTS:** A single sample identifier (UID or numeric SEEK ID) as path parameter.\n\n"
     "**RETURNS:** List of unique child sample types with their IDs, titles, and descriptions.\n\n"
+    "**SCOPE:** Project-scoped for anyone but a superuser: the sample and every sample on the path to a child must be "
+    "in one of the caller's projects, so lineage stops at the caller's project edge. A sample outside the caller's "
+    "projects answers 404; a caller with no projects reads nothing.\n\n"
     "**TRIGGER PHRASES:** child sample types, what types derived, sample type children, derived types, downstream types\n\n"
     "**EXAMPLES:**\n"
     "- 'What types of samples were collected from NHP-220630FLY-1-PUB?'\n"
@@ -740,6 +772,9 @@ PARENTS_BY_CHILD_TYPES_DESC = (
     "use `GET sampletypes/{uid}/child_types` instead.\n\n"
     "**ACCEPTS:** List of `child_sample_types` (titles or IDs); optional `parent_sample_type_filters`.\n\n"
     "**RETURNS:** List of matching parent samples with IDs, UIDs, sample types, and descriptions.\n\n"
+    "**SCOPE:** Project-scoped for anyone but a superuser: a parent is returned only when it and every sample on the "
+    "path to each requested child type are in one of the caller's projects. A caller with no projects reads "
+    "nothing.\n\n"
     "**TRIGGER PHRASES:** samples with children of type, parents by child types, which animals have both, find samples with\n\n"
     "**EXAMPLES:**\n"
     "- 'Which monkeys have both imaging data and sequencing results?'\n"
@@ -791,7 +826,8 @@ SAMPLE_DELETE_DESC = (
     "**SUMMARY:** Permanently delete a sample by SEEK ID or NExtSEEK UID.\n\n"
     "**USE WHEN:** The user wants to permanently remove a sample from the system.\n\n"
     "**ACCEPTS:** Sample identifier (numeric SEEK ID or UID string) as path parameter.\n\n"
-    "**RETURNS:** Confirmation on success.\n\n"
+    "**RETURNS:** Confirmation on success. `202` with `status: unconfirmed` when SEEK does not answer within the "
+    "proxy's timeout: SEEK received the delete and may still complete it, so check before deleting again.\n\n"
     "**TRIGGER PHRASES:** delete sample, remove sample, destroy sample, drop sample\n\n"
     "**EXAMPLES:**\n"
     "- 'Remove sample NHP-220630FLY-1-PUB from the system'\n"
@@ -809,7 +845,7 @@ ADVANCED_SEARCH_DESC = (
     "attribute values, text keywords, or combinations thereof. Also use when the user wants to "
     "retrieve all samples of a given type.\n\n"
     "**DO NOT USE WHEN:** The user already knows specific sample UIDs/IDs and wants to bulk-export "
-    "their metadata — use `POST admin/samples/retrieve` instead.\n\n"
+    "their metadata — use `POST samples/retrieve` instead.\n\n"
     "**ACCEPTS:** Sample type(s) (name or ID), attribute(s), search text(s), `match_type` (`PARTIAL`/`EXACT`), "
     "and logic operators (`AND`/`OR`) for combining multiple attributes or search terms.\n\n"
     "**RETURNS:** Paginated list of matching samples with full metadata (`json_metadata`, `sample_type`, etc.).\n\n"
@@ -820,6 +856,57 @@ ADVANCED_SEARCH_DESC = (
     "- 'Find all mice from water study that were treated with NDMA'\n"
     "- 'Show me all samples associated with T cell depletion'\n"
     "- 'How many monkeys have both CT scan data and sequencing data?'\n"
+)
+
+# =============================================================================
+# GraphSearchViewSet (1 endpoint)
+# =============================================================================
+
+GRAPH_SEARCH_DESC = (
+    "**SUMMARY:** Search samples from the Neo4j sample graph. Takes advanced_search's request and returns its "
+    "envelope, pages inside the database, and adds optional exact attribute conditions and a lineage condition. "
+    "Visibility is advanced_search's: a non-superuser sees only the samples of the projects they belong to.\n\n"
+    "**USE WHEN:** The user wants to search, filter or count samples by sample type, attribute values or keywords, "
+    "and especially when the search is broad (a keyword across every sample type, several terms ORed), needs "
+    "paired conditions on one sample type (Organ is Lung and CellCount is at least 10 million), a numeric or date "
+    "range, or a lineage condition (samples with a D.SEQ sample anywhere in their lineage tree).\n\n"
+    "**DO NOT USE WHEN:** The user already knows specific sample UIDs/IDs and wants to bulk-export their metadata: "
+    "use `POST samples/retrieve` instead. PubMed syntax inside `filter_searchText` (parentheses, `NOT`, "
+    "`term[TYPE]`) is not parsed; the string is one term. Send such text as `extensions.query`.\n\n"
+    "**ACCEPTS:** advanced_search's body unchanged: `sampletype` (title or id, one or a list), `filter_searchText` "
+    "(one string or a list; may be empty when `extensions.where` or `extensions.query` is given), `searchText_logic` "
+    "(`AND`/`OR`), `attribute`, `attribute_logic`, `filter_matchType` (`PARTIAL`/`EXACT`). Plus an optional "
+    "`extensions` object, ANDed with the rest: `where`, a list of `{sample_type, attribute, op, value}` ANDed on one "
+    "sample type, `op` one of `=`, `<>`, `<`, `<=`, `>`, `>=`, `IN` (a list value), `CONTAINS`, `NOT CONTAINS`, "
+    "`STARTS WITH`, exact and case-sensitive, the value cast by the attribute's type (the string operators compare "
+    "the stored value's text; `NOT CONTAINS` keeps only samples that hold the attribute), or `IS TRUE` / `IS FALSE` "
+    "with no value (true is a boolean true, 1, or the text `1`, `true` or `yes`; false is any other value the sample "
+    "holds); `query`, the Sample Search page's query text matched as advanced_search matched it: terms joined by "
+    "upper-case `AND`, `OR` and `NOT` (`a NOT b` is `a AND NOT b`, a leading `NOT` negates what follows), "
+    "parentheses to group, `OR` never on one level with `AND` or `NOT`, `term[TYPE]` limiting a term to a sample "
+    "type, `filter_matchType` applying; and `lineage`, `{direction: ancestor, descendant or either, sample_type, "
+    "max_hops: 1 to 12, default 4}` (12 reaches the whole tree; for a non-superuser the related sample and every "
+    "sample between must be in one of their projects). Query parameters: `page` (1-based), `page_size` (default "
+    "100, max 1000), `debug_meta=1`.\n\n"
+    "**RETURNS:** advanced_search's envelope: `total` (every match), `rows` (one page in ascending sample id order, "
+    "each with `json_metadata`, `sample_type`, `uuid` and `assays`), `sampleTypes` and `noSampleTypes` (over every "
+    "match), `msg`, `status` and `footer`. With `debug_meta=1` the footer carries `cypher_ms`, `count_ms`, "
+    "`hydrate_ms` and `total_ms`. A page past the end returns empty `rows` and the real `total`. `rows_missing` "
+    "counts this page's matches that have no row to show: `total` is counted in the graph and `rows` are read from "
+    "the database, so a sample deleted since the graph last caught up is counted but not shown.\n\n"
+    "**ERROR CODES:** 401 without credentials; 403 when the caller maps to no SEEK person; 422 for a body the model "
+    "rejects, a condition the graph catalog rejects (an unknown sample type or attribute in `extensions`), a "
+    "`query` text it cannot read (the detail says why), or a search with nothing to search on; 502 when the graph or "
+    "MySQL fails; 504 when a graph statement runs past 60 seconds.\n\n"
+    "**TRIGGER PHRASES:** graph search, search samples, find samples, filter samples, count samples, samples where, "
+    "samples with attribute, samples between, samples derived from, samples with a descendant, samples with an "
+    "ancestor\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Find TIS samples whose Organ is Lung and CellCount is at least 10 million'\n"
+    "- 'Which TIS samples have a D.SEQ descendant?'\n"
+    "- 'Lung samples that do not mention granuloma' (`extensions.query`: `lung NOT granuloma`)\n"
+    "- 'How many samples mention granuloma?'\n"
+    "- 'Show lung TIS samples such as TIS-230324BOO-39-PUB'\n"
 )
 
 # =============================================================================
@@ -903,6 +990,10 @@ ENTITY_TREE_LINEAGE_DESC = (
     "**ACCEPTS:** List of `sample_ids` (UIDs or SEEK IDs); optional `include_attributes` flag; optional `timeout`.\n\n"
     "**RETURNS:** Array of lineage trees, each with nodes (`id`, `uuid`, `sample_type`, `color`, `parentIds`) and "
     "relationships (`child_id`, `parent_id`, assay info, optional `study_titles`/`description`).\n\n"
+    "**SCOPE:** Project-scoped for anyone but a superuser: the sample and every sample on each path must be in one of "
+    "the caller's projects, so lineage stops at the caller's project edge. A sample outside the caller's projects "
+    "answers exactly as one that does not exist (`resolved_id` null, warning `Sample not found`); a caller with no "
+    "projects reads nothing.\n\n"
     "**TRIGGER PHRASES:** sample lineage batch, multiple sample trees, lineage for several samples, bulk lineage\n\n"
     "**EXAMPLES:**\n"
     "- 'Show me all samples derived from NHP-220630FLY-1-PUB'\n"
@@ -1284,4 +1375,35 @@ NESSIE_SESSION_DEBUG_DESC = (
     "- 'Why did session 4a5c12ad-9063-4df1-8439-e201b36bedaf return an internal pipeline error?'\n"
     "- 'Show me every file this chat session wrote and whether it still exists'\n"
     "- 'How big did this session's results_history get?'\n"
+)
+
+# =============================================================================
+# GraphSyncStatusViewSet (1 endpoint)
+# =============================================================================
+
+GRAPH_SYNC_STATUS_DESC = (
+    "**SUMMARY:** Report what state this instance's graph sync is in: the latest run of each kind, whether each "
+    "scheduled job is running often enough, what work is waiting in the outbox, and what the last drift check "
+    "found.\n\n"
+    "**USE WHEN:** Answering whether the Neo4j sample graph is up to date with MySQL, why a newly uploaded sample "
+    "is not in the graph yet, or whether the nightly reconcile and the weekly full sync are still running.\n\n"
+    "**DO NOT USE WHEN:** The caller wants to compare the graph against MySQL right now, which is "
+    "`manage.py graph_sync --drift` and reads Neo4j; the caller wants to start a sync, which no endpoint does; the "
+    "caller wants sample records, which is a sample endpoint.\n\n"
+    "**ACCEPTS:** No parameters.\n\n"
+    "**RETURNS:** `200` with `generated_at`, `schema_version` (the version this instance's writer produces), `runs` "
+    "(the latest run of each kind, keyed by kind), `freshness` (`full`, `reconcile` and `outbox`, each `ok`, "
+    "`stale`, or `never` before a first successful run), `outbox` (open rows counted by kind as `pending`, `dead` "
+    "and `claimed`, plus the oldest row still waiting and its age) and `drift` (what the latest drift run "
+    "recorded). It reads two database tables only: no Neo4j connection and no SEEK call, so it still answers while "
+    "the graph itself is down.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser, "
+    "including a user with `is_staff` set, which every SEEK login sets; `503` when the two tables cannot be read, "
+    "which is what an instance that has not applied migration 0021 reports.\n\n"
+    "**TRIGGER PHRASES:** graph sync status, is the graph up to date, when did the last full sync run, graph sync "
+    "outbox, is the graph stale, graph drift\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Is the sample graph up to date?'\n"
+    "- 'When did the last full graph sync finish, and did it succeed?'\n"
+    "- 'How many samples are waiting to be written to the graph?'\n"
 )

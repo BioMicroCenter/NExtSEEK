@@ -142,3 +142,62 @@ def test_parse_failure_still_allows_a_bodyless_get(monkeypatch):
 ])
 def test_requires_request_body(method, schema, enriched, expected):
     assert api_agent._requires_request_body(method, schema, enriched) is expected
+
+
+# --------------------------------------------------------------------------
+# F4 (4): a lab-scoped search sends the lab code as its own term.
+# --------------------------------------------------------------------------
+
+
+def test_a_lab_scoped_search_sends_the_lab_code_alone(monkeypatch):
+    """advanced.rna_from_the_kamm_lab, link (b) of its root cause.
+
+    advanced_search has no lab field, so a lab code goes in the search text. The agent fused
+    it with a project name the PARSER had deliberately set aside -- the agent reads `resolved`,
+    not `filters`, so it never saw that decision -- and "<CODE> <Project>" matched nothing. The
+    question then went down the retry ladder and was answered from a substituted search.
+    """
+    _patch_llm(monkeypatch, APIRequestPlan(
+        endpoint=ADVANCED_SEARCH, method="POST",
+        requestBody={"sampletype": "RNA", "filter_searchText": "KAM MetNet",
+                     "filter_matchType": "PARTIAL"},
+        queryParameters={}, notes=""))
+
+    plan = api_agent.api_agent_build_request(
+        _Cfg(schema={"method": "POST"}),
+        {"target_endpoint": ADVANCED_SEARCH, "filters": {"lab_codes": ["KAM"], "keywords": []}},
+    )
+
+    assert plan.requestBody["filter_searchText"] == ["KAM"]
+    assert plan.requestBody["filter_matchType"] == "PARTIAL"
+    assert plan.requestBody["sampletype"] == "RNA", "the rest of the body is untouched"
+
+
+def test_a_lab_scoped_search_with_real_keywords_is_left_alone(monkeypatch):
+    """When the parser DID resolve keywords, they are the question and the agent's text stands."""
+    _patch_llm(monkeypatch, APIRequestPlan(
+        endpoint=ADVANCED_SEARCH, method="POST",
+        requestBody={"filter_searchText": "KAM fibrin", "filter_matchType": "PARTIAL"},
+        queryParameters={}, notes=""))
+
+    plan = api_agent.api_agent_build_request(
+        _Cfg(schema={"method": "POST"}),
+        {"target_endpoint": ADVANCED_SEARCH,
+         "filters": {"lab_codes": ["KAM"], "keywords": ["fibrin"]}},
+    )
+
+    assert plan.requestBody["filter_searchText"] == "KAM fibrin"
+
+
+def test_a_search_with_no_lab_code_is_left_alone(monkeypatch):
+    _patch_llm(monkeypatch, APIRequestPlan(
+        endpoint=ADVANCED_SEARCH, method="POST",
+        requestBody={"filter_searchText": "fibrin", "filter_matchType": "PARTIAL"},
+        queryParameters={}, notes=""))
+
+    plan = api_agent.api_agent_build_request(
+        _Cfg(schema={"method": "POST"}),
+        {"target_endpoint": ADVANCED_SEARCH, "filters": {"keywords": ["fibrin"]}},
+    )
+
+    assert plan.requestBody["filter_searchText"] == "fibrin"

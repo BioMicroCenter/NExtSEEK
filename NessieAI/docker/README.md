@@ -18,7 +18,7 @@ Rebuild verbs: `./startup.sh rebuild --component cc-agent | bedrock-proxy | next
 
 ### cc-runtime: the agent image
 
-- A pinned Claude Code CLI on node 20, a uv-managed CPython, and an unprivileged `user` account.
+- A pinned Claude Code CLI on node 22 (checked at build time with `claude --version`), a uv-managed CPython, and an unprivileged `user` account.
 - The baked `nextseek` plugin under `cc-runtime/build_context/plugins/nextseek/`: `plugin.json` (identity only), two skills, the `/nextseek` command, a `UserPromptSubmit` hook, the `nextseek-*` shims in `bin/`, and a `context/` catalog directory.
 - The in-container agent instructions, `cc-runtime/container/CLAUDE.md`.
 - The ingested NExtSEEK docs, `cc-runtime/docs/nextseek/` (generated; do not hand-edit).
@@ -28,7 +28,8 @@ Rebuild verbs: `./startup.sh rebuild --component cc-agent | bedrock-proxy | next
 ### bedrock-proxy: the model gateway
 
 A FastAPI relay that holds the Bedrock bearer token and attaches it upstream, so the agent carries
-no AWS credential. It allows exactly one model path, drops any client `Authorization` header,
+no AWS credential. It allows the model paths of exactly three models (a Container-CC turn's main
+model, its fallback and its auto-mode classifier's), drops any client `Authorization` header,
 caps bodies and never logs the token. `/healthz` answers before any token is used.
 Its secret file `bedrock-proxy/proxy-secret.env` is untracked and moved onto each box by hand.
 

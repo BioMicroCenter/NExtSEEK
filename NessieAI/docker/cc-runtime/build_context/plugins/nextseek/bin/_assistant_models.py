@@ -80,6 +80,16 @@ class QueryCompleteEvent(BaseModel):
     # same raw-dict treatment the local stack gives Turn.artifacts for the same reason.
     bundle_id: int | None = None
     files: list[dict[str, Any]] | None = None
+    # 2026-09-25 (fix 6a): every NS turn's query_complete carries the turn record
+    # (chat_nextseek.turn_spend via orchestrator._emit_query_complete): its cost, whether
+    # that cost is partial, the models that answered and the moves to a second model.
+    # Optional, like the fields above; extra="forbid" still fails any other new key.
+    # NessieAI/tests/cc/test_plugin_event_contract.py validates real server payloads
+    # against this model so the next drift fails a lane instead of a paid turn.
+    total_cost_usd: float | None = None
+    cost_partial: bool | None = None
+    models_used: list[str] | None = None
+    model_fallback: list[dict[str, Any]] | None = None
 
 
 class QueryErrorEvent(BaseModel):
@@ -88,6 +98,18 @@ class QueryErrorEvent(BaseModel):
     error: str
     agent: str | None = None
     session_id: str | None = None
+    # 2026-09-25 (fix 5 and 6a): a query_error that ends an NS turn on a model failure
+    # (chat_nextseek.failure_replies.fatal_query_error, NessieAI/ns/turn.py) carries
+    # `fatal`, and for unavailability `reason: model_unavailable`, the raw text in
+    # `detail` and the moves in `model_fallback`; a turn that ends on it also carries
+    # its cost fields. All optional; extra="forbid" still fails any other new key.
+    fatal: bool | None = None
+    reason: str | None = None
+    detail: str | None = None
+    model_fallback: list[dict[str, Any]] | None = None
+    total_cost_usd: float | None = None
+    cost_partial: bool | None = None
+    models_used: list[str] | None = None
 
 
 class Turn(BaseModel):

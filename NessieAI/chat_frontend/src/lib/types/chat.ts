@@ -23,6 +23,21 @@ export interface CCTrace {
   files_modified: string[];
 }
 
+/**
+ * A suggested next question (#128), from an NS turn's `debug.suggestions`.
+ * `query` is a whole question: a click sends it, unchanged, as the next message.
+ * `label` is the chip's text and `reason` its tooltip.
+ */
+export interface Suggestion {
+  id: string;
+  source: string;
+  kind?: string | null;
+  label: string;
+  query: string;
+  reason?: string;
+  expected_count?: number;
+}
+
 export interface Message {
   id: string;
   content: string;
@@ -35,6 +50,8 @@ export interface Message {
   artifacts?: Artifact[] | null;
   ccTraces?: CCTrace[];
   mode?: string;
+  /** Shown as chips under this reply while it is the newest one. */
+  suggestions?: Suggestion[];
 }
 
 export interface ArtifactTable {

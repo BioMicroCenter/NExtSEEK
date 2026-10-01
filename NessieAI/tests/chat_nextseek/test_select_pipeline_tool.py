@@ -94,22 +94,13 @@ def test_only_the_three_live_sections_are_requested(patched):
 def test_atlas_keys_are_passed_so_invented_keys_can_be_caught(patched):
     _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"})
     assert patched["decide_kwargs"]["atlas_keys"] == {"rnaseq"}
+    assert patched["decide_kwargs"]["launchable_keys"] == {"rnaseq"}
 
 
-def test_an_atlas_only_key_absent_from_the_catalog_degrades_to_out_of_scope(monkeypatch):
-    """differentialabundance is real in the atlas but is not in
-    NFCORE_PIPELINE_CATALOG — no downstream tool (resolve_samples,
-    write_samplesheet, configure_run) can build it. tool_select_pipeline must
-    intersect the atlas keys with the catalog before handing them to
-    selection.decide as the invented-key allowlist, so a model choosing
-    differentialabundance degrades exactly like any other invented key would,
-    instead of coming back as a `chosen` verdict the build path cannot execute.
-
-    This deliberately does NOT stub selection.decide (unlike the `patched`
-    fixture) — the bug is in what atlas_keys agent_tools computes and hands to
-    the real decide(), not in decide()'s own invented-key logic, which already
-    has its own coverage in test_selection.py.
-    """
+def _call_real_decide(monkeypatch, content, state=None):
+    """Drive tool_select_pipeline through the REAL selection.decide, with only the
+    digest, the payload and the model stubbed, over an atlas holding one
+    launchable key (rnaseq) and one atlas-only key (differentialabundance)."""
     monkeypatch.setattr(agent_tools, "build_sample_digest",
                         lambda config, uids, **kw: DIGEST)
 
@@ -130,7 +121,9 @@ def test_an_atlas_only_key_absent_from_the_catalog_degrades_to_out_of_scope(monk
     })
 
     class _Resp:
-        content = '{"pipelines": ["differentialabundance"], "reason": "compares counts"}'
+        pass
+
+    _Resp.content = content
 
     class _StubClient:
         def chat(self, **kwargs):
@@ -142,10 +135,35 @@ def test_an_atlas_only_key_absent_from_the_catalog_degrades_to_out_of_scope(monk
         def get_agent_model(self, key):
             return _StubClient(), "test-model", None
 
-    out = _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
-               config=_ModelConfig())
+    return _call({"kind": "explicit_uids", "uids": ["D.SEQ-1"], "question": "q"},
+                 config=_ModelConfig(), state=state)
+
+
+def test_an_atlas_only_key_absent_from_the_catalog_degrades_to_out_of_scope(monkeypatch):
+    """differentialabundance is real in the atlas but is not in
+    NFCORE_PIPELINE_CATALOG — no downstream tool (resolve_samples,
+    write_samplesheet, configure_run) can build it. A verdict naming ONLY it
+    must degrade to out_of_scope instead of coming back as a `chosen` verdict
+    the build path cannot execute."""
+    out = _call_real_decide(
+        monkeypatch, '{"pipelines": ["differentialabundance"], "reason": "compares counts"}')
     assert out["verdict"] == "out_of_scope"
     assert "differentialabundance" in out["reason"]
+
+
+def test_an_atlas_only_key_beside_a_launchable_one_keeps_the_launchable_one(monkeypatch):
+    """Measured live 2026-09-30 on the IL-1B organoid question: the model answered
+    rnaseq + differentialabundance, which the eval set accepts, and the whole
+    verdict was discarded. The launchable half is the answer; the other is
+    recorded as dropped."""
+    state = {}
+    out = _call_real_decide(
+        monkeypatch,
+        '{"pipelines": ["rnaseq", "differentialabundance"], "reason": "counts, then DE"}',
+        state=state)
+    assert out["verdict"] == "chosen"
+    assert out["pipelines"] == ["rnaseq"]
+    assert state["selection"]["dropped"] == ["differentialabundance"]
 
 
 def test_missing_question_is_a_tool_error_not_a_verdict():
@@ -409,7 +427,7 @@ def test_agent_loop_threads_send_event_into_the_tool(monkeypatch):
         def __init__(self):
             self.n = 0
 
-        def chat_with_tools(self, *, messages, tools, system, model):
+        def chat_with_tools(self, *, messages, tools, system, model, **kwargs):
             self.n += 1
             if self.n == 1:
                 return {"content": [{"type": "tool_use", "id": "t1",

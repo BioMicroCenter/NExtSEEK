@@ -82,64 +82,21 @@
 		return jsontry;
 	}
 
+	/* Sends the query box to POST /nextseek_api/samples/graph_search/ (nsSearchRun in
+	   searchAdvanced.html), a page at a time into #advanced_dgtable. The text goes as
+	   extensions.query: graph_search reads AND, OR, NOT, parentheses and term[TYPE] tags
+	   with advanced_search's rows, and says why when it cannot read a text. */
 	function searchAdvanced(pageNumberSelected) {
-		var sampletype_id = $('#advanced_sample_type').combobox('getValue');
-		var attribute = 'none';
-		var filter_logic = $('#input_logic').combobox('getValue');
-		var filter_searchValue = document.getElementById("input_searchValue").value;
-		var filter_searchText = $("#input_searchText").textbox('getText');
-		if (!filter_searchText) {
-			alert('No search term entered.');
-			return;
-		}
-		var matchType = $('input[name=matchType]:checked').val();
-		if (pageNumberSelected > 0) {
-			var dg = $('#advanced_dgtable');
-			var pager = dg.datagrid('getPager');
-			var popts = pager.pagination('options');
-			var options = dg.datagrid('options');
-		}
-
-		var win = $.messager.progress({
-			title: 'Please waiting',
-			msg: 'Searching for samples...'
+		var built = SampleSearchCore.queryBody({
+			text: $("#input_searchText").textbox('getText'),
+			matchType: $('input[name=matchType]:checked').val()
 		});
-		$.get('/seek/searchAdvanced/', {
-			'sampletype_id': sampletype_id,
-			'attribute': attribute,
-			'filter_logic': filter_logic,
-			'filter_searchValue': filter_searchValue,
-			'filter_searchText': filter_searchText,
-			'filter_matchType': matchType
-		}, function(data) {
-			$.messager.progress('close');
-			var obj = jQuery.parseJSON(data);
-			var msg = obj.msg;
-			var status = obj.status;
-			if (status == 1) {
-				var datanow = obj.rows;
-				var total = obj.total;
-				$('#advanced_dgtable').datagrid('loadData', datanow);
-				document.getElementById('numberSamplesFound').innerHTML = total;
-				document.getElementById('numberSampleTypesFound').innerHTML = obj.noSampleTypes;
-				var pagelist = [20,40,60,80,100];
-				if(total>100){
-					pagelist = [40,60,80,100,total];
-				}
-				var pager = $('#advanced_dgtable').datagrid('getPager');
-				pager.pagination({
-					showRefresh: false
-				});
-				pager.pagination({
-					total: total,
-					pageSize: 60,
-					pageList: pagelist,
-				});
-			} else {
-				alert(msg);
-			}
-			return;
-		});
+		// Associated with: only samples with a sample of that type in their lineage tree.
+		built = SampleSearchCore.withLineage(built, SampleSearchCore.lineage({
+			sampletype: $('#advanced_assoc_type').combobox('getValue'),
+			direction: $('#advanced_assoc_direction').val()
+		}));
+		nsSearchRun('advanced', built, 1, nsSearchPageSize('advanced'));
 	}
 
 	function searchAdd() {
@@ -241,6 +198,11 @@
 								<td><br></td>
 								<td></td>
 							</tr>
+							<tr>
+								<td>Associated with (optional) <a href="/seek/sampletypes/" title="Keep only samples with a sample of this type somewhere in their lineage tree: an ancestor it came from, or a descendant made from it" style="color:var(--ns-muted);text-decoration:none;"><i class="bi bi-info-circle"></i></a>:</td>
+								<td><input id="advanced_assoc_type" class="easyui-combobox" name="advanced_assoc_type" style="width:250px;" data-options="showItemIcon: true, data: SampleSearchCore.associatedOptions(type_options), valueField:'title', textField:'label', groupField:'group', editable: true, filter: function(q, row) { var opts = $(this).combobox('options'); return row[opts.textField].toUpperCase().indexOf(q.toUpperCase()) >= 0; }, panelHeight:'auto', label: '', labelPosition: 'top'"></td>
+								<td colspan="2"><select id="advanced_assoc_direction" name="advanced_assoc_direction" style="height:30px;" title="Where in the lineage tree the sample of that type may be"><option value="">Either</option><option value="ancestor">Ancestors only</option><option value="descendant">Descendants only</option></select></td>
+							</tr>
 						</tbody>
 					</table>
 				</div>
@@ -254,7 +216,7 @@
 			<div class="row show-grid">
 				<div class="col-xs-12" style="text-align:right; padding-right:24px;">
 					<span class="ns-search-actions">
-						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#advanced_dgtable'), ['#input_searchValue','#input_logic','#advanced_sample_type','#input_searchText']); document.getElementById('id_partial').checked = true;">Reset</a>
+						<a href="javascript:void(0)" class="ns-btn-reset" onclick="nsResetSearch($('#advanced_dgtable'), ['#input_searchValue','#input_logic','#advanced_sample_type','#input_searchText','#advanced_assoc_type','#advanced_assoc_direction']); document.getElementById('id_partial').checked = true;">Reset</a>
 						<a href="javascript:void(0)" class="ns-btn-search" onclick="searchAdvanced(0)"><span class="glyphicon glyphicon-search"></span> Search</a>
 					</span>
 				</div>

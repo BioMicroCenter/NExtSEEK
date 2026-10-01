@@ -173,11 +173,14 @@ def _resolve_evaluator_mode(mode_override: str | None = None) -> str:
 
 
 def _build_chat_config(use_prod: bool, mode_override: str | None = None):
+    """The evaluator CLI's own config. Its graph queries run over every project only with
+    CHAT_NEXTSEEK_GRAPH_ADMIN=1; otherwise they are refused (and fall back) and the catalog is redacted."""
     from chat_nextseek.config import ChatConfig
+    from chat_nextseek.graph_scope import operator_scope_from_env, with_scope
 
     config_map = _build_prod_config_map(bool(use_prod))
     config_map["MODEL_MODE"] = _resolve_evaluator_mode(mode_override)
-    return ChatConfig(config_map=config_map)
+    return with_scope(ChatConfig(config_map=config_map), operator_scope_from_env("evaluator"))
 
 
 def _create_session_store(config, session_id: str = "cli-user"):

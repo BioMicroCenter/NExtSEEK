@@ -15,7 +15,10 @@ router = DefaultRouter()
 router.register(r"sample-tree", views.SampleTreeViewSet, basename="sample-tree")
 # router.register(r"nhp", views.NHPViewSet, basename="nhp")
 # router.register(r"sample-queries", views.SampleQueryViewSet, basename="sample-queries")
+# Deprecated alias of samples/retrieve/ (one handler); kept for saved chats, cached pages and outside scripts.
 router.register(r"admin/samples", views.AdminSampleViewSet, basename="admin-samples")
+# Publishes one `status` action and no list route, so the API root does not advertise it.
+router.register(r"admin/graph-sync", views.GraphSyncStatusViewSet, basename="admin-graph-sync")
 router.register(r"sops", views.SopViewSet, basename="sops")
 router.register(r"data_files", views.DataFileViewSet, basename="data_files")
 router.register(r"projects", views.ProjectViewSet, basename="projects")
@@ -29,7 +32,10 @@ router.register(r"assay-registrations", views.AssayRegistrationViewSet,
 router.register(r"assays", views.AssayViewSet, basename="assays")
 router.register(r"sample_types/connections", views.SampleTypeConnectionsViewSet, basename="sampletype-connections")
 router.register(r"sample_types", views.SampleTypeViewSet, basename="sample_types")
+router.register(r"samples/graph_search", views.GraphSearchViewSet, basename="samples-graph-search")
 router.register(r"samples/advanced_search", views.SampleAdvancedSearchViewSet, basename="samples-advanced-search")
+# The sample download API. Before `samples`, like the two searches, or it is the detail route of a UID "retrieve".
+router.register(r"samples/retrieve", views.SampleRetrieveViewSet, basename="samples-retrieve")
 router.register(r"sample_types/get_parents", views.SamplesByChildTypesViewSet,basename="get-parents-by-childtype")
 router.register(r"templates", views.TemplatesViewSet, basename="templates")
 router.register(r"sampletypes", views.SampleTypeChildrenViewSet, basename="sampletypes")

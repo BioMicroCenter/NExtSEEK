@@ -748,17 +748,25 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # The honest scale: if every case in the resolved corpus routed container_cc,
 # 270 of 283 would still be red and all six floored families would be 100% red,
 # because `route` (failing on 226 variants), `parser_plan.mode` (216), `api_ok`
-# (130) and `api_plan.endpoint` (105) are deliberately NOT skipped.
+# (128) and `api_plan.endpoint` (104) are deliberately NOT skipped.
 #
 # NAME THE FRAME. In that all-CC simulation this change turns NOTHING green: the
 # green set is the same 13 variants with the CC skip and with it monkeypatched
 # off, and `tree.then_ask_about` is red there too, because its SEED turn asserts
-# `api_ok` and `api_plan.endpoint` inline and an all-CC run fails both.
+# `route` nextseek_query and `parser_plan.mode` inline and an all-CC run fails both
+# (it asserted `api_ok` and `api_plan.endpoint` until the 2026-09-23 REST-plumbing
+# retirement; the current figures are in README.md and are recomputed by
+# tests/test_write_refusal_coverage.py).
 #
 # The payoff is in the MIXED-route frame, which is what a real run produces: an
 # NS seed followed by a CC follow-up. `tree.then_ask_about` is the ONLY
 # multi-turn variant in any floored family, so it is that entire population, and
 # in that frame it goes red -> green. That is what the test below drives.
+#
+# 2026-09-24, follow-up split (routing review 5): that follow-up is a filter over the
+# seed's result, so the corpus now expects it on nextseek_query. The CC skip is still
+# what the test drives on a CC-routed follow-up, where the one criterion left failing is
+# the route the split expects; the NS follow-up the corpus now expects passes outright.
 #
 # 270/283 is REPRODUCED rather than remembered: see
 # tests/test_write_refusal_coverage.py::
@@ -768,14 +776,18 @@ def test_a_turn_with_no_criteria_at_all_evaluated_nothing():
 # on 2026-08-03; the 13-variant green set did not move.
 # --------------------------------------------------------------------------- #
 
+# 2026-09-23: the seed is graph-answered, as on production (seed 17), since the
+# corpus retired its REST-path plumbing criteria (sample-tree endpoint, api_ok).
+_TREE_NS_SEED_REPLY = "There are 242 samples that descend from NHP-220630FLY-5."
 _TREE_NS_SEED = {"status": "completed", "progress": [
     {"event": "route_decided",
      "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
               "reasoning": ""}},
     {"event": "query_complete",
-     "data": {"reply": "Here is the tree.",
-              "debug": {"api_plan": {"endpoint": "/nextseek_api/sample-tree/"},
-                        "api_result_meta": {"ok": True, "row_count": 7}}}}]}
+     "data": {"reply": _TREE_NS_SEED_REPLY,
+              "debug": {"parser_plan": {"mode": "graph_query"},
+                        "graph_result": {"ok": True, "count": 242, "total": 242,
+                                         "truncated": False}}}}]}
 
 _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
     {"event": "route_decided",
@@ -784,7 +796,22 @@ _TREE_CC_FOLLOWUP = {"status": "completed", "progress": [
     {"event": "query_complete",
      "data": {"reply": "38 of them are sequencing samples.", "mode": "cc"}}]}
 
-_OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "new_search", "sample-tree")
+_OBS_TREE_NS = RouteObservation("nextseek_query", None, "baml", "", "graph_query", "graph_query")
+
+# 2026-09-24: the follow-up as the split routes it. NExtSEEK's follow-up path answers from
+# the stored bundle and reports api_result_meta.source_mode (orchestrator's follow-up
+# branch), which is what satisfies the floor's outcome_observed on this turn.
+_TREE_NS_FOLLOWUP = {"status": "completed", "progress": [
+    {"event": "route_decided",
+     "data": {"route": "nextseek_query", "model_class": None, "source": "baml",
+              "reasoning": ""}},
+    {"event": "query_complete",
+     "data": {"reply": "38 of them are sequencing samples.",
+              "debug": {"parser_plan": {"mode": "ask_about_last_results"},
+                        "api_result_meta": {"bundle_id": 1, "source_mode": "graph_query"}}}}]}
+
+_OBS_TREE_NS_FOLLOWUP = RouteObservation("nextseek_query", None, "baml", "",
+                                         "ask_about_last_results", "graph_query")
 
 
 def _merged_variant(vid):
@@ -806,6 +833,11 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
     the fixture reply has to carry the real answer. That is the point of the
     criterion: a CC arm that answers the question passes and one that does not
     fails, which was not true when the turn scored plan shape alone.
+
+    2026-09-24, follow-up split (routing review 5): the follow-up is a filter over the
+    seed's result, so the case now expects it on nextseek_query. On a CC-routed
+    follow-up the skip still does its job and the route is the one criterion left
+    failing; the NS follow-up the case now expects passes, the floor included.
     """
     v = _merged_variant("tree.then_ask_about")
     seed = next(t for t in v.turns if t.label == "seed")
@@ -813,7 +845,7 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
 
     seed_passed, seed_results, _ = evaluate.evaluate_turn(
         _TREE_NS_SEED, list(seed.pass_criteria), _OBS_TREE_NS,
-        last_reply="Here is the tree.")
+        last_reply=_TREE_NS_SEED_REPLY)
     assert seed_passed, [r for r in seed_results if not r["passed"]]
     assert evaluate.any_criterion_evaluated(seed_results), (
         "the seed must really assert something, or the case would be no_assertions")
@@ -821,7 +853,9 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
     follow_passed, follow_results, _ = evaluate.evaluate_turn(
         _TREE_CC_FOLLOWUP, list(follow.pass_criteria), OBS_CC,
         last_reply="38 of them are sequencing samples.")
-    assert follow_passed
+    assert not follow_passed
+    assert [r["field"] for r in follow_results
+            if not r["passed"] and not r.get("skipped")] == ["route"]
     assert {r["field"] for r in follow_results if r.get("skipped")} == {
         "chat_log.length", "outcome_observed"}
 
@@ -830,6 +864,13 @@ def test_the_one_mixed_route_variant_in_a_floored_family_now_passes():
     debug = evaluate.augment_debug(
         evaluate.build_observed_debug(_TREE_CC_FOLLOWUP), OBS_CC)
     assert debug["outcome_observed"] is False
+
+    ns_passed, ns_results, _ = evaluate.evaluate_turn(
+        _TREE_NS_FOLLOWUP, list(follow.pass_criteria), _OBS_TREE_NS_FOLLOWUP,
+        last_reply="38 of them are sequencing samples.")
+    assert ns_passed, [r for r in ns_results if not r["passed"]]
+    assert {r["field"] for r in ns_results if r.get("skipped")} == {"chat_log.length"}
+    assert any(r["field"] == "outcome_observed" and r["passed"] for r in ns_results)
 
 
 def test_it_is_still_the_only_multi_turn_variant_in_a_floored_family():
@@ -1216,3 +1257,24 @@ def test_every_forcing_only_skip_is_flagged_structurally_for_the_runner():
         assert by_field[field]["skipped"] is True
         assert by_field[field]["forced_skip"] is False, (
             f"{field} is skipped with or without forcing and must not be counted")
+
+
+def test_reply_length_criterion_is_engine_neutral_and_scored_on_a_forced_cc_arm():
+    assert evaluate.is_ns_pipeline_internal("last_reply.lines") is False
+    assert evaluate.unobservable_reason("last_reply.lines", "lte", "container_cc", forced=True) is None
+
+
+def test_cannot_do_this_analysis_cases_cap_the_reply_length():
+    from NessieAI.tests.nessie_tests import corpus
+    raw = json.loads((Path(corpus.__file__).parent / "corpus.json").read_text())
+    found = []
+    def walk(o):
+        if isinstance(o, dict):
+            if o.get("id") == "write.make_me_a_heatmap_of_gene_expres":
+                found.append(o)
+            for v in o.values(): walk(v)
+        elif isinstance(o, list):
+            for v in o: walk(v)
+    walk(raw)
+    crits = found[0]["turns"][0]["pass_criteria"]
+    assert {"field": "last_reply.lines", "op": "lte", "value": 12} in crits

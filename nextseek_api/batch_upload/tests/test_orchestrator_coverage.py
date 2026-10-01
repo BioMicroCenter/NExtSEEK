@@ -157,7 +157,6 @@ class TestRunBatchUploadMultiCancellation:
 
 class TestRunBatchUploadMultiRowsMode:
 
-    @patch("nextseek_api.batch_upload.orchestrator.upload_all")
     @patch("nextseek_api.batch_upload.orchestrator.Neo4jConfig.from_django_settings")
     @patch("nextseek_api.batch_upload.orchestrator.process_batches")
     @patch("nextseek_api.batch_upload.orchestrator.build_insertable")
@@ -177,7 +176,7 @@ class TestRunBatchUploadMultiRowsMode:
         self, mock_makedirs, mock_summaries, mock_write, mock_conn,
         mock_uid_gen, mock_directions, mock_build_rel, mock_cycles,
         mock_levels, mock_pf_st, mock_pf_assay, mock_pf_proj,
-        mock_build_ins, mock_process, mock_neo4j_cfg, mock_upload,
+        mock_build_ins, mock_process, mock_neo4j_cfg,
     ):
         from nextseek_api.batch_upload.orchestrator import run_batch_upload_multi
         from nextseek_api.batch_upload.models import (

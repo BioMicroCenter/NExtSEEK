@@ -20,6 +20,10 @@ This directory ships sanitized snapshots of dev databases for fresh installs.
   but for a different reason — nothing has needed them yet; see the "Seed gap"
   section of `docs/sample-download-workflow.md`.) Neither this table nor
   `sample_types_context` has a Django migration; both are created in SQL.
+- `sql/*.curated.sql` — the curated context seeds `scripts/context_gen.py --emit seed`
+  writes from `context/`. Held: no install step reads them until the curated content is
+  signed off, so an install still loads `sql/assay_context.sql` and the empty
+  `sql/projects_context.sql` (`scripts/README.md` group C).
 - `seek_production.sql.gz` — SEEK schema (the `seek_production` MySQL database)
 - `neo4j.cypher.gz` — Neo4j graph export (sample/assay nodes + relationships)
 - `filestore.tar.gz` — SEEK filestore snapshot (the content blobs the

@@ -116,6 +116,7 @@ def test_cc_runtime_runner_helper_present():
     "_assistant_models.py",
     "_assistant_client.py",
     "_sidecar_client.py",
+    "_turn_deadline.py",
 ])
 def test_cc_runtime_runner_sibling_helpers_present(helper):
     """The Dockerfile COPYs these sibling helper modules to /opt/dmac/
@@ -186,18 +187,18 @@ def test_cc_runtime_plugin_scripts_setup_present():
 
 
 # Since NessieAI Phase C the image's context/ is fed from two trees: the plugin
-# tree's own context/ (files with no chat_nextseek twin, and the two drifted graph
-# snapshots) and, through the chat_nextseek named context, the canonical
-# chat_nextseek context files. image_context_source() replays the Dockerfile's
-# COPY lines to name the checkout file each in-image catalog comes from.
+# tree's own context/ (files with no chat_nextseek twin)
+# and, through the chat_nextseek named context, the canonical chat_nextseek context
+# files. image_context_source() replays the Dockerfile's COPY lines to name the
+# checkout file each in-image catalog comes from. neo4j_schema.json is deliberately
+# absent: the agent reads the deployed graph through the nextseek-graph-schema op
+# (NessieAI/tests/cc/test_cc_context_drift_guard.py pins that).
 @pytest.mark.parametrize("catalog", [
     "capabilities.md",
     "min_api_endpoints.json",
     "min_api_endpoints_enriched.json",
     "min_assays_db.json",
-    "min_graph_schema.json",
     "min_sampletypes_db.json",
-    "neo4j_schema.json",
     "projects_db.json",
     "read_safe_endpoints.json",
 ])
@@ -213,7 +214,9 @@ def test_cc_runtime_context_min_json_files_are_valid_json():
         path for name, path in sorted(sources.items())
         if name.startswith("min_") and name.endswith(".json")
     ]
-    assert len(min_json) >= 5, f"expected the image's min_*.json catalogs, got {min_json}"
+    # min_sampletypes_db, min_assays_db and the two min_api_endpoints catalogs
+    # (min_graph_schema.json stopped being baked on 2026-09-18).
+    assert len(min_json) >= 4, f"expected the image's min_*.json catalogs, got {min_json}"
     for path in min_json:
         json.loads(path.read_text(encoding="utf-8"))  # raises on malformed JSON
 

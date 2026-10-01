@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+from chat_nextseek import graph_catalog
 from chat_nextseek.agents.graph import (
     graph_agent,
     known_node_properties,
@@ -7,6 +10,15 @@ from chat_nextseek.agents.graph import (
     unknown_cypher_properties,
 )
 from chat_nextseek.schemas import GraphAgentPlan
+
+
+@pytest.fixture(autouse=True)
+def _catalog_unavailable(monkeypatch):
+    """These tests pin the fallback path: the committed JSON and the type-blind guard."""
+    def unavailable(*args, **kwargs):
+        raise graph_catalog.CatalogUnavailable("no graph in this test")
+
+    monkeypatch.setattr(graph_catalog, "get_snapshot", unavailable)
 
 SCHEMA = {"node_properties": {
     "Sample": ["UID", "type", "Organ", "Treatment"],

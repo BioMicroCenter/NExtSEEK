@@ -4,8 +4,8 @@ A compact, token-cheap turn log kept in the existing session_state store. Every
 successful `run_query` / `run_query_plan` appends one entry; agents that need
 conversational context (parser, multi_parser, chatter, wizard) read the tail.
 
-Each turn is a *summary* — not the full bundle — small enough that 5 turns fit
-in a few hundred tokens. `bundle_id` cross-references `results_history` for any
+Each turn is a *summary* — not the full bundle — small enough that
+`MEMORY_WINDOW` turns fit in a few thousand tokens. `bundle_id` cross-references `results_history` for any
 agent that needs to drill into full payloads (memory_coder).
 """
 from __future__ import annotations
@@ -23,7 +23,14 @@ if TYPE_CHECKING:
 
 CHAT_LOG_KEY = "chat_log"
 MAX_TURNS = 50
-DEFAULT_TAIL = 5
+#: How far back the parser looks in both of its memories of the conversation: the
+#: answered turns of this log (`history_block`) and the result bundles of the
+#: recent-results summary (`build_recent_results_summary`). They used to be 5 turns
+#: against 8 bundles, so a bundle the summary listed could come from a turn the log no
+#: longer showed. 8 because the bundle window was widened from 3 to 8 to cure a recall
+#: cliff in long sessions; the chatter reads the same default.
+MEMORY_WINDOW = 8
+DEFAULT_TAIL = MEMORY_WINDOW
 REPLY_PREVIEW_CHARS = 280
 MAX_UID_EXAMPLES = 5
 
@@ -458,3 +465,38 @@ def resolve_bundle_for_recall(
     if best_bundle is None and fallback_to_latest:
         return history[-1]
     return best_bundle
+
+
+def select_refine_bundle(
+    history: Any,
+    target_result_id: Any,
+) -> tuple[dict | None, dict[str, Any]]:
+    """The stored result a refine modifies, and a record of how it was chosen.
+
+    The parser names the result it means in ``target_result_id``, on a refine as on a
+    memory question: the recent-results summary lists every bundle's id for exactly
+    that purpose. The refine branch used to read ``results_history[-1]`` whatever the
+    parser said, so "rerun the first search but only females" refined the newest
+    result. Now the named bundle wins; with no name the newest is still the one a
+    refine means ("same thing but with X").
+
+    An id that is not in the session falls back to the newest rather than failing a
+    turn that worked before, and the record says so (``chosen_by="named_missing"``).
+    No keyword guess: "now only the lung ones" modifies the newest result, whatever
+    an older query happened to mention.
+    """
+    requested = target_result_id
+    bundles = [b for b in history if isinstance(b, dict)] if isinstance(history, list) else []
+    if not bundles:
+        return None, {"bundle_id": None, "requested": requested, "chosen_by": "none"}
+    if requested is not None and not isinstance(requested, bool):
+        named = next((b for b in reversed(bundles) if b.get("id") == requested), None)
+        if named is not None:
+            return named, {"bundle_id": named.get("id"), "requested": requested, "chosen_by": "named"}
+        chosen_by = "named_missing"
+        print(f"[DEBUG][REFINE] parser named bundle id={requested!r}, which this session does not hold; "
+              "refining the newest result instead")
+    else:
+        chosen_by = "newest"
+    newest = bundles[-1]
+    return newest, {"bundle_id": newest.get("id"), "requested": requested, "chosen_by": chosen_by}

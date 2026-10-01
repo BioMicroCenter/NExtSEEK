@@ -38,10 +38,10 @@ class SampleDownloadMixin:
 
         return final_df
 
-    def sampleRetrievalData(self, children_uids, output):
+    def sampleRetrievalData(self, children_uids, output, notice=None):
         # Sheet layout, README included, is owned by
         # nextseek_api.services.sample_workbook so it cannot drift per call path.
-        write_samples_workbook(self._parse_children_uids(children_uids), output)
+        write_samples_workbook(self._parse_children_uids(children_uids), output, notice=notice)
 
     def _saveSampleList(self, headers_new, diclist_new, excelfile, attributeFilter=None):
         headers_noneConstant, diclist_constant, headers_constant = getConstantRows(headers_new, diclist_new)
@@ -248,6 +248,7 @@ class SampleDownloadMixin:
                 else:
                     sampleTypes[sampleType] = uids_i
             '''
+        parentList = self._scopeLineage(parentList)
         sampleTypes = self._getTreeSampleTypes(parentList)
         return sampleTypes
 
