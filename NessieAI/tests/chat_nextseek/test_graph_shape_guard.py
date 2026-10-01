@@ -697,6 +697,14 @@ ASSAY_JOINS = [
                                  "RETURN i.uuid AS input, o.uuid AS output"),
     ("same_map_twice_named", "MATCH (i:Sample)-[:INPUT_TO]->(a1:Assay {title: $x}) "
                              "MATCH (o:Sample)-[:OUTPUT_OF]->(a2:Assay {title: $x}) RETURN count(*) AS pairs"),
+    # a COUNT, a COLLECT or a pattern comprehension gives one value per outer row: its local sample on the Assay an
+    # outer sample reaches reads what the outer sample was "made from" through the Assay
+    ("correlated_count", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                         "RETURN a.title AS assay, COUNT { (p:Sample)-[:INPUT_TO]->(a) } AS parents"),
+    ("correlated_collect", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                           "RETURN COLLECT { MATCH (p:Sample)-[:INPUT_TO]->(a) RETURN p.uuid } AS made_from"),
+    ("correlated_comprehension", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                                 "RETURN [(p:Sample)-[:INPUT_TO]->(a) | p.uuid] AS made_from"),
 ]
 
 ASSAY_SINGLES = [

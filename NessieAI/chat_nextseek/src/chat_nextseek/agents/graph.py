@@ -1842,8 +1842,10 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
 # inline map. An anonymous sample node is a sample of its own.
 #
 # A row scope is the statement between UNIONs. An EXISTS, COUNT or COLLECT subquery and a pattern comprehension are
-# scopes of their own: a link inside one whose sample is local to it makes no pairs; a link whose two ends are both
-# bound outside it constrains the outer rows too, so it counts there as well. Names follow Cypher's scoping: a WITH
+# scopes of their own: a link inside one whose two ends are both bound outside it constrains the outer rows too, so it
+# counts there as well. A link whose sample is local to an EXISTS makes no pairs outside it; one whose sample is local
+# to a COUNT, a COLLECT or a comprehension, on an Assay bound outside it, pairs with every outer sample on that Assay,
+# since it gives one value per outer row. Names follow Cypher's scoping: a WITH
 # keeps what it carries (a bare name or `x AS y`) and ends the rest; a later pattern that reuses an ended name binds
 # a new variable.
 
@@ -1951,14 +1953,15 @@ def _assay_links(scan: _Scan, cypher: str) -> list[tuple[int, tuple, tuple, str]
     return links
 
 
-def _subquery_spans(scan: _Scan) -> list[tuple[int, int]]:
-    """(open, close) of every EXISTS, COUNT and COLLECT subquery and every pattern comprehension."""
+def _subquery_spans(scan: _Scan) -> list[tuple[int, int, bool]]:
+    """(open, close, gives a value per row) of every EXISTS, COUNT and COLLECT subquery and every pattern
+    comprehension. All but EXISTS give one value per outer row built from their own matches; EXISTS only filters."""
     masked = scan.masked
     spans = []
     for start, end, _kind in _brace_kinds(masked):
         word = re.search(rf"({_NAME})\s*$", masked[:start])
         if word and word.group(1).upper() in _SUBQUERY_WORDS:
-            spans.append((start, end))
+            spans.append((start, end, word.group(1).upper() != "EXISTS"))
     rel_starts = [e[0] for e in scan.elements if e[2] == "rel"]
     opened: list[int] = []
     for i, ch in enumerate(masked):
@@ -1967,7 +1970,7 @@ def _subquery_spans(scan: _Scan) -> list[tuple[int, int]]:
         elif ch == "]" and opened:
             start = opened.pop()
             if start not in rel_starts and any(start < r < i for r in rel_starts):
-                spans.append((start, i))  # a list that holds a relationship pattern: a pattern comprehension
+                spans.append((start, i, True))  # a list that holds a relationship pattern: a pattern comprehension
     return spans
 
 
@@ -2074,6 +2077,7 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
         home.setdefault(map_key, scope)
 
     pairs: dict = {}  # (scope, Assay key) -> {sample key: (position, display)}
+    valued: dict = {}  # the same, for a sample local to a COUNT, a COLLECT or a comprehension, at each outer scope
     shown: dict = {}  # Assay key -> its text
     for pos, sample, assay, assay_text in links:
         s_key = keys.get(sample[0], ("#node", sample[0]))
@@ -2088,6 +2092,19 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
             if depth < len(levels) - 1 and not (home.get(s_key) in visible and home.get(a_key) in visible):
                 break
             pairs.setdefault((levels[depth], a_key), {}).setdefault(s_key, (pos, display))
+        # A sample local to a subquery that gives a value per outer row (not EXISTS), on an Assay bound outside it,
+        # pairs with every outer sample on that Assay: COUNT { (p)-[:INPUT_TO]->(a) } beside (c)-[:OUTPUT_OF]->(a)
+        # reads what c was made from through the Assay.
+        spans = chain(pos)
+        local = next((k for k, span in enumerate(spans) if home.get(s_key) == ("sub", span[0])), None)
+        if local is not None and spans[local][2]:
+            for depth in range(local, -1, -1):
+                if home.get(a_key) not in set(levels[:depth + 1]):
+                    break
+                valued.setdefault((levels[depth], a_key), {}).setdefault(s_key, (pos, display))
+    for key, local_samples in valued.items():
+        if pairs.get(key):
+            pairs[key] = {**pairs[key], **local_samples}
     problems = []
     for (_scope, a_key), samples in pairs.items():
         if len(samples) < 2:
