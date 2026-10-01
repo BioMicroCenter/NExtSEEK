@@ -123,6 +123,8 @@ dependencies = [
   "channels>=4.3.2",
   "daphne>=4.2.1",
   "dmac-assistant",
+  # AES-GCM and HKDF for the login a Container-CC turn pass holds (nextseek_api/assistant/turn_pass.py).
+  # Listed explicitly: it used to arrive only as a transitive dependency.
   "cryptography>=46",
 ]
 

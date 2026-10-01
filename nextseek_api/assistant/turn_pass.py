@@ -37,6 +37,7 @@ _PASS_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 
 #: How long after the turn's watchdog deadline its pass still answers.
 EXPIRY_GRACE = timedelta(seconds=60)
+# Ceiling: applies only until set_deadline runs; a normal pass lives deadline + 60 s (hard max default 180 s, boxes 300 s).
 #: The expiry a pass gets at issue, until the engine fixes the watchdog deadline (seconds later). It only bounds a
 #: row whose turn died before set_deadline ran.
 PROVISIONAL_TTL = timedelta(minutes=15)
@@ -104,11 +105,13 @@ def set_deadline(turn: CCTurn, deadline_epoch: float) -> None:
 
 
 def find_turn(raw_pass: str) -> CCTurn | None:
-    """The row whose hash matches ``raw_pass``, or None. Liveness is the caller's check."""
+    """The live row whose hash matches ``raw_pass``, or None (a revoked or expired pass is never returned)."""
     if not isinstance(raw_pass, str) or not _PASS_RE.fullmatch(raw_pass):
         return None
     digest = _hash(raw_pass)
-    turn = CCTurn.objects.select_related("task", "user").filter(pass_hash=digest).first()
+    turn = CCTurn.objects.select_related("task", "user").filter(
+        pass_hash=digest, revoked_at__isnull=True, expires_at__gt=timezone.now(),
+    ).first()
     if turn is None or not hmac.compare_digest(turn.pass_hash, digest):
         return None
     return turn

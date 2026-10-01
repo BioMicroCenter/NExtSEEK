@@ -132,3 +132,37 @@ def test_the_management_command_runs_the_same_clean_up(capsys):
     call_command("wipe_turn_passes")
     assert "wiped 1" in capsys.readouterr().out
     assert CCTurn.objects.get(pk=expired.pk).login_ciphertext is None
+
+
+def test_find_turn_never_returns_a_revoked_or_expired_pass():
+    revoked, raw_r = make_turn(make_user("r"))
+    turn_pass.revoke(revoked)
+    assert turn_pass.find_turn(raw_r) is None
+    expired, raw_e = make_turn(make_user("e"), deadline_in=-120)
+    assert turn_pass.find_turn(raw_e) is None
+
+
+def test_the_ciphertext_is_bound_to_its_task_for_the_same_user():
+    user = make_user("same")
+    first, _ = make_turn(user)
+    second, _ = make_turn(user)
+    CCTurn.objects.filter(pk=second.pk).update(
+        login_nonce=first.login_nonce, login_ciphertext=first.login_ciphertext,
+    )
+    with pytest.raises(turn_pass.TurnPassError):
+        turn_pass.login_for(CCTurn.objects.get(pk=second.pk))
+
+
+def test_the_ciphertext_is_bound_to_its_user():
+    turn, _ = make_turn(make_user("a"))
+    CCTurn.objects.filter(pk=turn.pk).update(user=make_user("b"))
+    with pytest.raises(turn_pass.TurnPassError):
+        turn_pass.login_for(CCTurn.objects.get(pk=turn.pk))
+
+
+def test_a_pass_whose_deadline_never_got_set_is_wiped_after_the_provisional_ttl():
+    stuck, _ = make_turn(make_user("stuck"), deadline_in=None)
+    past = timezone.now() - turn_pass.PROVISIONAL_TTL - timedelta(seconds=1)
+    CCTurn.objects.filter(pk=stuck.pk).update(expires_at=past)
+    make_turn(make_user("next"))
+    assert CCTurn.objects.get(pk=stuck.pk).login_ciphertext is None
