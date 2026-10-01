@@ -10,7 +10,7 @@ git/a real E2E harness present).
 
 Run exactly as specified for this task:
 
-    cd /home/taishajo/work/NExtSEEK-merge && \\
+    cd <checkout> && \\
       uv run --no-project --with pytest python -m pytest -q --noconftest \\
       NessieAI/tests/cc/test_verify_prod_readiness_manifest.py
 

@@ -415,18 +415,14 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   commits later. The string does not move. Do not chase the silent ones as real
   regressions.
 
-### Known-failing everywhere but one laptop: `test_v4_2_set3_replay.py`
+### Needs the delivery directory: `test_v4_2_set3_replay.py`
 
-Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` open a
-delivery zip through an absolute path into another developer's home directory:
-`v4_2_verifier.py:20` pins `V13A_DELIVERY` to a `testquestions-2026-08-07` directory
-under that developer's home directory.
-On any machine that is not that one they die
-`FileNotFoundError: ... testquestions.zip`: the same five, on every run, with
-everything else green. That is the machine, not a regression; do not chase it.
-(The sixth test in the file drives a synthetic producer and passes anywhere.)
-The right fix is a `pytest.mark.skipif` on the delivery path's existence:
-noted here, not yet applied.
+Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` read the
+`testquestions-2026-08-07` delivery zip. Set `NESSIE_TESTQUESTIONS_DIR` to the directory that holds
+it; when the zip is missing those five tests skip with that reason. (The sixth test drives a
+synthetic producer and runs anywhere.) The same variable locates the delivery for the HiBayes and
+paired-evidence tests that read it. The stored seed6b run evidence the other replay tests read is
+located the same way, with `NESSIE_SEED6B_DIR`.
 
 ### DB/contract tests: in-container lane
 

@@ -5,7 +5,7 @@ Runs inside the live ``nextseek`` container after sidecar deploy and
 ``STEP7_LLM_LEDGER=1``.  Preflight git probes and ``validate_run`` are
 **host-side** — see ``step7_gate3d_host_finalize.py`` after ``docker cp``.
 
-  docker cp /home/taishajo/work/state/integration-plan.json nextseek:/app/integration-plan.json
+  docker cp <path>/integration-plan.json nextseek:/app/integration-plan.json
 
   docker exec -e RUN_REALSTACK=1 \\
     -e SEEK_TEST_USER=demo -e SEEK_TEST_PASS=demopassword \\

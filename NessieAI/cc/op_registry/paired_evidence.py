@@ -1,6 +1,7 @@
 """Strict streaming loader for approved paired route evidence (Plan 005 Task 4)."""
 from __future__ import annotations
 
+import os
 import argparse
 import csv
 import hashlib
@@ -65,7 +66,7 @@ FORCED_ROUTE_BY_ARM = {"ns": "nextseek_query", "cc": "container_cc"}
 FORCED_IMAGE_BY_ARM = dict(nexport.ARM_IMAGE)
 
 DEFAULT_ZIP_PATH = Path(
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"), "testquestions.zip"
 )
 REPO_ROOT = paths.REPO_ROOT
 DEFAULT_CORPUS_PATH = paths.NESSIE_CORPUS

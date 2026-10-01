@@ -98,13 +98,13 @@ def test_an_empty_host_goes_to_the_local_docker_daemon_not_to_ssh():
 
 def test_a_host_ssh_es_first_and_a_user_sudo_s_there():
     run = FakeRunner(_payload({}))
-    sources.DockerSources(host="fairdata-dev", user="service-account",
+    sources.DockerSources(host="dev-box.example.org", user="svc-user",
                           run=run).task_rows(["a"])
 
     argv = run.calls[0]
-    assert argv[:4] == ["ssh", "-o", "ConnectTimeout=30", "fairdata-dev"]
-    assert argv[4:7] == ["sudo", "-n", "-u", "service-account"][:3]
-    assert "service-account" in argv
+    assert argv[:4] == ["ssh", "-o", "ConnectTimeout=30", "dev-box.example.org"]
+    assert argv[4:7] == ["sudo", "-n", "-u", "svc-user"][:3]
+    assert "svc-user" in argv
 
 
 def test_a_host_without_a_user_skips_sudo():
@@ -576,7 +576,7 @@ def test_a_banner_before_the_archive_is_CopyFailed_not_a_tarfile_crash(tmp_path)
     concatenated into the payload, `b64decode` folded it in, and the corrupt tar
     surfaced as a `ReadError` from somewhere else entirely."""
     run = FakeRunner(_copy_out(_tar({"a": b"1"}),
-                               before="Welcome to fairdata-dev\n"))
+                               before="Welcome to dev-box.example.org\n"))
 
     ok = sources.DockerSources(host="box", run=run).copy_tree("/s", tmp_path / "d")
 

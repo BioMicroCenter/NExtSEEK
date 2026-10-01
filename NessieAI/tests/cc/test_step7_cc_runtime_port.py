@@ -434,7 +434,7 @@ def test_port_evidence_file_present_and_valid_json():
 
 def test_port_evidence_records_source_path_and_pinned_commit():
     data = json.loads(_read(CC_RUNTIME / "PORT-EVIDENCE.json"))
-    assert data["port_source_path"] == "/home/taishajo/work/dmac-assistant"
+    assert data["port_source_path"] == "<source-checkout>"
     assert re.fullmatch(r"[0-9a-f]{40}", data["port_source_commit"])
 
 

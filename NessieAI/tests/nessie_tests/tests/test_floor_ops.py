@@ -18,6 +18,7 @@ result shapes.
 2026-08-03 adds a fourth: the floor must not mandate an ENGINE either. See the
 ``outcome_observed`` section below.
 """
+import os
 import ast
 import json
 import pathlib
@@ -711,7 +712,7 @@ def test_a_graph_query_case_answered_by_rest_satisfies_its_floor():
 # case rewritten. Collapsing them into one "all green" claim would lose the fact
 # that the floor change on its own was not enough.
 
-_EVIDENCE = pathlib.Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = pathlib.Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 
