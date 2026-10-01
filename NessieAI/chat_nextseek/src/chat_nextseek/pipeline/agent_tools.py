@@ -429,7 +429,7 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
             "fields": leaf_fields,
         }
         if wanted_signals:
-            row["signals"] = leaf_signals
+            row["signals"] = {k: v for k, v in leaf_signals.items() if k != "__protocol_text__"}
             row["data_driven_params"] = leaf_verdicts
             state.setdefault("data_driven_evidence", {})[str(leaf["uid"])] = leaf_verdicts
         table.append(row)
