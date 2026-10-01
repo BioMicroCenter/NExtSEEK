@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# What graph schema 1.2 reads, per nextseek_api/graph_sync/sources.py and the
+# What graph schema 1.3 reads, per nextseek_api/graph_sync/sources.py and the
 # edge-label writers. `people` is here because it is a SEEK table the graph used
 # to read: Person nodes come from group_memberships.person_id today, which is why
 # the people proxy is declared NO_GRAPH_EFFECT rather than hooked.
@@ -37,7 +37,7 @@ GRAPH_SOURCE_TABLES = frozenset({
     "assay_assets", "sops",
     # dmac
     "sample_types_context", "sample_types_clades", "clades", "sample_attributes_unique", "assays_internal_assays",
-    "internal_assays",
+    "internal_assays", "assay_context",
 })
 
 # How a writer writes. The first seven are what the scan can see and are the kinds
@@ -346,12 +346,15 @@ WRITERS: tuple[Writer, ...] = (
            note="the install seed: load_mysql_dump feeds both schema dumps to the database client and "
                 "load_neo4j_dump loads a graph into an empty Neo4j, both before the operator's first full sync"),
     Writer(id="WR-19",
-           sites=(),
-           tables=("sample_attributes_unique",),
-           how=("sql",),
+           sites=("startup/seed/sql/assay_context.sql",
+                  "scripts/generate_assay_context_seed.py::main"),
+           tables=("sample_attributes_unique", "assay_context"),
+           how=("sql", "sql_file"),
            reconcile="RECONCILE_INSTALL",
            note="the install schema fixups create the dmac context tables when they are missing; their "
-                "statements build the table name at run time, so they are listed in UNRESOLVED_SITES"),
+                "statements build the table name at run time, so they are listed in UNRESOLVED_SITES. The assay "
+                "catalog seed they load is a file of its own, and generate_assay_context_seed.py rewrites that "
+                "file from a JSON export without touching a database"),
     Writer(id="WR-20",
            sites=("startup/seed/sql/sample_attributes_description.sql",
                   "startup/seed/sql/ROLLBACK_sample_attributes_description.sql",
@@ -364,12 +367,16 @@ WRITERS: tuple[Writer, ...] = (
            note="hand SQL kept in the tree; nothing in the code applies any of these five files"),
     Writer(id="WR-21",
            sites=("scripts/context_gen.py::_mapping_parts",
-                  "startup/seed/sql/sample_types_context.curated.sql"),
-           tables=("sample_types_context", "internal_assays", "assays_internal_assays"),
+                  "scripts/context_gen.py::<module>",
+                  "startup/seed/sql/sample_types_context.curated.sql",
+                  "startup/seed/sql/assay_context.curated.sql"),
+           tables=("sample_types_context", "internal_assays", "assays_internal_assays", "assay_context"),
            how=("sql_file", "sql", "external"),
            reconcile="RECONCILE_OPERATOR",
            note="the curated context tables. scripts/context_gen.py turns context/*.json into SQL but never "
-                "connects to a database, so the write is always an operator applying that SQL by hand; "
+                "connects to a database, so the write is always an operator applying that SQL by hand. Its "
+                "_RELINK_ASSAYS statement, a module constant, relinks assay_context rows to internal assays by "
+                "title; "
                 "render_update and render_seed build the table name at run time and are in UNRESOLVED_SITES. "
                 "The .curated.sql seed files are held: no install step reads them until the curated content is "
                 "signed off, and switching them on registers them as schema fixups (WR-19's mechanism). Every one "

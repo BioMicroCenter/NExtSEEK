@@ -65,6 +65,8 @@ def _moves_samples(payload: dict) -> bool:
 def _enqueue_members(seek_id, ids, *, delay_s: float = 0) -> None:
     """One ``samples`` row per ``MEMBER_CHUNK`` ids, keyed ``batch:assay:<SEEK id>:<time_ns>:<n>``, so two writes
     before a drain never overwrite each other's ids; held back ``delay_s`` seconds."""
+    # Graph schema 1.3: these rows also move the members' INPUT_TO and OUTPUT_OF, since the samples drain's
+    # sync_samples rewrites the assay edges of each sample it syncs and of its lineage partners.
     ids = sorted({int(i) for i in ids})
     stamp = _stamp()
     for n, start in enumerate(range(0, len(ids), MEMBER_CHUNK)):
