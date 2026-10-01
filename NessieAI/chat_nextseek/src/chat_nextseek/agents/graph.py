@@ -314,16 +314,23 @@ V11_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11
 V12_SYSTEM_PROPERTIES = V11_SYSTEM_PROPERTIES | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 # docs/neo4j-schema.md "v1.1", Relationships; DERIVED_FROM keeps its v1.0 properties (the contract's 1.1 group).
-V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = dict(schema.RELATIONSHIPS_V11)
+V11_RELATIONSHIP_PROPERTIES: dict[str, frozenset[str]] = {
+    **schema.RELATIONSHIPS_V11,
+    # docs/neo4j-schema.md "v1.3: assay nodes", Relationships. Only INPUT_TO and OUTPUT_OF reach a non-admin (the
+    # scope prover refuses the other three), but an admin's query may read any of them.
+    **schema.RELATIONSHIPS_V13,
+}
 
 # docs/neo4j-schema.md "v1.1", Nodes, for every label but Sample (whose metadata is the catalog's) and
 # OrphanSample (which keeps whatever the former Sample carried, so it is checked against everything). Attribute also
 # carries the statistics graph_catalog.TYPES_ADMIN reads when present (the contract's LEGACY_ATTRIBUTE_STATS), and
 # GraphMeta the 1.2 label_maps_hash: the contract's 1.1 groups, widened by its 1.2 groups.
 V11_NODE_PROPERTIES: dict[str, frozenset[str]] = {
-    label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
-    | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
-    for label, props in schema.NODE_PROPERTIES_V11.items()
+    **{label: props | schema.NODE_PROPERTIES_V12.get(label, frozenset())
+       | (schema.LEGACY_ATTRIBUTE_STATS if label == schema.ATTRIBUTE else frozenset())
+       for label, props in schema.NODE_PROPERTIES_V11.items()},
+    # docs/neo4j-schema.md "v1.3: assay nodes", Nodes: one per internal assay, catalog facts only.
+    **schema.NODE_PROPERTIES_V13,
 }
 
 _KNOWN_LABELS = frozenset({schema.SAMPLE, schema.ORPHAN_SAMPLE}) | frozenset(V11_NODE_PROPERTIES) | frozenset(
@@ -355,8 +362,12 @@ _NOT_A_PROJECTION = frozenset({
     "EXISTS", "COUNT", "COLLECT", "CALL", "WHERE", "AND", "OR", "XOR", "NOT", "RETURN", "WITH", "IN", "THEN", "ELSE",
     "CASE", "WHEN", "DISTINCT", "YIELD", "UNWIND", "AS", "SET", "MERGE", "CREATE", "MATCH", "OPTIONAL", "UNION",
 })
-# Relationships whose source node is a Sample (DERIVED_FROM: both ends).
-_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE})
+# Relationships whose source node is a Sample (DERIVED_FROM: both ends). INPUT_TO and OUTPUT_OF run from a Sample to
+# its Assay (graph schema 1.3). Policy (the contract spec, D6): contract constants, pinned by a literal in the tests.
+_SAMPLE_SOURCE_RELATIONSHIPS = frozenset({schema.IN_STUDY, schema.OF_TYPE, schema.INPUT_TO, schema.OUTPUT_OF})
+# Labels that are never a Sample, whatever relationship they start: a source labelled Assay is the Assay, not a
+# sample, even on a relationship whose source is a Sample by name.
+_NEVER_A_SAMPLE = frozenset({schema.ASSAY})
 _WHOLE_NODE_ALTERNATIVE = (
     "return s.id, s.uuid, s.type and the named properties the question needs, and count with count(*)")
 
@@ -381,6 +392,11 @@ class _Scan:
     # Filled only when the turn's variant allows procedures (_scan_procedure_yields):
     proc_paths: set[str] = field(default_factory=set)  # a procedure's YIELD path (apoc.path.spanningTree, ...)
     node_lists: set[str] = field(default_factory=set)  # a procedure's YIELD nodes (apoc.path.subgraphAll)
+
+
+def _never_a_sample(scan: "_Scan", var: str) -> bool:
+    """Whether ``var`` carries a label that is never a Sample (``Assay``), anywhere in the query."""
+    return bool(_NEVER_A_SAMPLE.intersection(scan.node_labels.get(var, {})))
 
 
 def _label_names(text: str | None) -> list[str]:
@@ -660,10 +676,10 @@ def _scan(cypher: str, procedures: frozenset[str] = frozenset()) -> _Scan:
             continue
         rtype, into_right, into_left = rel[4][0], ">" in after, "<" in before
         if rtype == "DERIVED_FROM":
-            scan.samples.update(v for v in (left[3], right[3]) if v)
+            scan.samples.update(v for v in (left[3], right[3]) if v and not _never_a_sample(scan, v))
         elif rtype in _SAMPLE_SOURCE_RELATIONSHIPS and into_right != into_left:
             source = left[3] if into_right else right[3]
-            if source:
+            if source and not _never_a_sample(scan, source):
                 scan.samples.add(source)
     for source, alias in scan.aliases:
         if source in scan.samples:
@@ -918,8 +934,8 @@ def whole_node_returns(cypher: str, procedures=()) -> list[str]:
 
     ``RETURN s``, ``RETURN *``, ``collect(s)`` anywhere, ``s {.*}``, ``properties(s)`` and ``nodes(p)``; a RETURN
     inside a CALL or EXISTS subquery is not sent to the caller and does not count. A Sample variable is one labelled
-    ``Sample`` or ``T_<code>``, an end of DERIVED_FROM, the source of IN_STUDY or OF_TYPE, a fulltext hit, or a bare
-    alias of one of these.
+    ``Sample`` or ``T_<code>``, an end of DERIVED_FROM, the source of IN_STUDY, OF_TYPE, INPUT_TO or OUTPUT_OF, a
+    fulltext hit, or a bare alias of one of these; a variable labelled ``Assay`` never is.
 
     ``procedures`` is the turn's variant allowlist (``cypher_text.variant_procedures``). When it names any procedure,
     a procedure's ``YIELD node`` / ``nodes`` / ``path`` count as well (``apoc.path.subgraphNodes(...) YIELD node
