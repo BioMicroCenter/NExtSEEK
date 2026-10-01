@@ -17,7 +17,9 @@ Three URL confs stack up. `dmac/urls.py` is the root. It declares login, logout,
 /seek/...                seek/urls.py  -> seek/views/*.py (65 re_path entries)
 /nextseek_api/...        nextseek_api/urls.py (JSON viewsets + 3 doc pages)
 /media/...               dmac.media.serve_media (login required)
-<everything else>        Mezzanine: blog, /search/, /accounts/*, CMS pages, 404
+/accounts/login|logout/  SEEK login, Mezzanine's sign-out
+/blog/ /search/ /accounts/* /password_reset/   404 (Mezzanine's public pages, shadowed)
+<everything else>        Mezzanine: admin helpers, CMS pages, 404
 ```
 
 Templates resolve through two places. `themes/NextSeek/templates/` is first in `TEMPLATES["DIRS"]` (`dmac/settings.py`) and holds the shell and the home, login and help pages. `seek/templates/` is found by the app-directories loader and holds the rest (`searchAdvanced.html`, `projectPage.html`, `sampleTypesList.html` and so on). Both are addressed by bare name, for example `render(request, "projectPage.html")`. A name that exists in both places resolves to the theme copy. Only `themes/NextSeek/` is bind-mounted into the running container, so a theme template edit shows on the next request and a `seek/templates/` edit needs a rebuild (see [ci-and-deploy.md](ci-and-deploy.md)).
@@ -46,7 +48,7 @@ The string passed to `requires_seek_login_redirect` is the `next` target after l
 | `/media/<path>` | none | `dmac/media.py:serve_media` | file response | logged-in only; anonymous gets 302 to `/login/` | download links produced by exports | [search-and-downloads.md](search-and-downloads.md) |
 | `/admin/` | Django admin | `django.contrib.admin` | Django admin templates | Django staff login | sidebar "Admin Panel" (superusers only) | [legacy.md](legacy.md) |
 
-The login route is registered twice: `^login/?$` and `^accounts/login/` (the second sits after the Mezzanine include, so Mezzanine's own `/accounts/login/` answers first; see the Mezzanine table). The login view follows `next` only to a path on this site. The home page for logged-out visitors: SEC-0930-C.
+The login route is registered twice: `^login/?$` and `^accounts/login/$` (both above the Mezzanine include; see the Mezzanine table). The login view follows `next` only to a path on this site. The home page for logged-out visitors: SEC-0930-C.
 
 ### Search and downloads
 
@@ -127,19 +129,17 @@ The two `admin/` pages with a decorator pass `next='/seek/samples/attributes/'`,
 
 There is no separate Nessie README or chat page in `nextseek_api`; the chat page is `/seek/assistant/`.
 
-### Mezzanine routes that are still live
+### Mezzanine routes
 
-Mezzanine 6.0.0 is installed (`mezzanine.blog`, `.forms`, `.galleries`, `.accounts`, `.pages`, `.generic` in `INSTALLED_APPS`) and its whole URL conf is mounted under the `^` include. None of these pages is linked from the theme and none is declared in `ci/routes.py`. They render inside `base.html` with stock Mezzanine templates. Mezzanine's own include of these paths: security item SEC-0930-H, tracked privately. Details in [legacy.md](legacy.md).
+Mezzanine 6.0.0 is installed (`mezzanine.blog`, `.forms`, `.galleries`, `.accounts`, `.pages`, `.generic` in `INSTALLED_APPS`) and its whole URL conf is mounted under the `^` include, last in `dmac/urls.py`. Its public pages are not part of NExtSEEK: a `_not_found` route placed above the include answers 404 for `/blog/...`, `/search/...`, `/accounts/...`, `/password_reset/...` and `/reset/...`. They are shadowed rather than dropped from the include, so every URL name Mezzanine's admin templates reverse still resolves (`dmac/tests/test_mezzanine_pages_retired.py`).
 
 | URL | What answers | Notes |
 |---|---|---|
-| `/accounts/login/` | `mezzanine.accounts.views.login` (Mezzanine's own form, not the SEEK login) | shadows the second `login_seek` registration (UI-026) |
-| `/accounts/logout/` | `mezzanine.accounts.views.logout` | the live "Sign out" link in `accounts/includes/user_panel.html` (`{% url 'logout' %}`) |
-| `/accounts/update/`, `/accounts/verify/...`, `/accounts/password/...` | Mezzanine account views | "Update profile" in the user menu points at `/accounts/update/` |
-| `/password_reset/...`, `/reset/...` | Django `auth_views` (present because `django.contrib.admin` is installed) | the login page links to SEEK's reset instead when `SEEK_PUBLIC_URL` is set |
-| `/blog/...` | `mezzanine.blog.views` | empty blog in the app chrome |
-| `/search/` | `mezzanine.core.views.search` | site search, not sample search; do not confuse with `/seek/search/` |
-| `/edit/`, `/rating/`, `/comment/`, `/set_site/`, `/jsi18n/...`, `/sitemap.xml` | Mezzanine core and generic | mostly POST or XML |
+| `/accounts/login/` | `dmac.views.login_seek` (the SEEK login, Django's default `LOGIN_URL`) | registered above the include |
+| `/accounts/logout/` | `mezzanine.accounts.views.logout`, URL name `logout` | the user menu's "Sign out"; registered above the include |
+| `/accounts/signup/` | `dmac.views.signup_seek` | hands sign-up to SEEK |
+| `/blog/`, `/search/`, other `/accounts/...`, `/password_reset/`, `/reset/...` | `_not_found` in `dmac/urls.py` | 404 |
+| `/edit/`, `/rating/`, `/comment/`, `/set_site/`, `/jsi18n/...`, `/sitemap.xml` | Mezzanine core and generic | mostly POST or XML; used by Mezzanine's admin |
 | any other path ending in `/` | `mezzanine.pages.views.page` | renders a CMS Page row if one exists, else Mezzanine's 404 |
 
 `handler404` and `handler500` in `dmac/urls.py` point at Mezzanine's views, so the 404 page is Mezzanine's `errors/404.html`. `seek/templates/pages/404.html` is never rendered.
@@ -209,18 +209,17 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 
 ## Gotchas
 
-- A route placed after the Mezzanine include in `dmac/urls.py` never matches. The signup route is deliberately placed before it; the second login registration is not, which is why it is dead.
+- A route placed after the Mezzanine include in `dmac/urls.py` never matches; every project route sits above it.
 - Many `seek/urls.py` patterns have no trailing `$` (`^templates/`, `^newsearch/`, `^search/`, `^searchUIDs/`, `^samples/upload/` and others; two `nhp` patterns also have no `^`), so they answer any longer path. `^assistant/` is open on purpose, for the chat's deep links. `^templates/download/$` works only because it is listed before `^templates/`; keep that order when editing.
-- `/seek/search/` is sample search. `/search/` is Mezzanine's site search. `/seek/sampletypes/` is the catalog (describes types); `/seek/sample_types/id=<id>/` lists samples of a type. The names differ by one underscore on purpose.
+- `/seek/search/` is sample search. `/search/` (Mezzanine's site search) answers 404. `/seek/sampletypes/` is the catalog (describes types); `/seek/sample_types/id=<id>/` lists samples of a type. The names differ by one underscore on purpose.
 - `seek/urls.py` has 65 routes. `seek/README.md` and the retired UI snapshot (`docs/archive/2026-09/2026-09-03-ui-snapshot.md`) say 62.
 - `error.html` is returned with HTTP 200 for "not in this project", so monitors and `ci/routes.py` cannot tell it from a page.
 - A theme template edit shows on the next request; a `seek/templates/` edit needs `./startup.sh rebuild`. On a worktree, the compose bind mount serves the compose directory's theme, not the worktree's.
-- The user panel is included from `base.html` through `includes/user_panel.html`, which includes `accounts/includes/user_panel.html`. The "Profile" menu item there never renders because the profile URLs are disabled in Mezzanine.
+- The user panel is included from `base.html` through `includes/user_panel.html`, which includes `accounts/includes/user_panel.html`. Its menu has one item, "Sign out".
 - Adding a route to `dmac/urls.py` without `_PROJECT_LEVEL` leaves CI green and the route unowned.
 
 ## Known issues
 
 See [known-issues.md](known-issues.md#pages). The ones that matter most for this page:
 
-- `/accounts/login/` is answered by Mezzanine, not by the SEEK login view.
-- Unlinked Mezzanine pages (blog, site search, account forms) are live in the app chrome (security item SEC-0930-H), and two admin pages are security item SEC-0930-B (both tracked privately).
+- Two admin pages are security item SEC-0930-B (tracked privately).

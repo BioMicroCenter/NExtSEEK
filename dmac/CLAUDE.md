@@ -93,14 +93,11 @@ not fail locally; it fails somewhere else.
   `python -c 'import dmac.views'` from that same mount does not. Both measured 2026-09-03;
   the second raised `OSError: [Errno 30] Read-only file system: '/src/dmac.logs'`, and
   from a writable directory it left a `dmac.logs` behind.
-- **`{% url "login_seek" %}` produces a URL this package does not serve.**
-  `dmac/urls.py:56` registers that name last, so reversing it wins there, but the pattern
-  sits after the catch-all and never resolves. Measured 2026-09-03: the name reverses to
-  `/accounts/login/`, which resolves to `mezzanine.accounts.views.login`, while the working
-  view is at `/login`. Latent for now: a grep over every `*.html` and `*.py` in the
-  worktree finds no template reversing `login_seek`, and only
-  `themes/NextSeek/templates/login.html:328` reverses `signup_seek`, which was fixed by
-  registering it at `dmac/urls.py:54`.
+- **Every project route must sit above the Mezzanine include in `dmac/urls.py`**: it is a
+  `^` catch-all, so a pattern after it never resolves. Mezzanine's public pages (blog,
+  site search, account forms, local password reset) are shadowed above it by a 404 route
+  rather than removed from the include, because Mezzanine's admin templates reverse their
+  names; drop the include and those admin pages raise `NoReverseMatch`.
 - **`dmac/templates/pages/` is dead and cannot be loaded.** This package is not in
   `INSTALLED_APPS` (`dmac/settings.py:144-180`), so the app-directories loader at
   `dmac/settings.py:131` never sees it, and the only filesystem directory configured is

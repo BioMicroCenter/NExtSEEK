@@ -30,9 +30,9 @@
   (`seek/tests/test_admin_template_gating.py:29`).
 - The sign-out link resolves through the URL *name* `logout`
   (`themes/NextSeek/templates/accounts/includes/user_panel.html:38`), which
-  belongs to Mezzanine's accounts URLconf; this project has no logout view of
-  its own (the broken legacy `/logout` route was deleted), so removing
-  Mezzanine's account URLs means giving sign-out a route first.
+  is Mezzanine's logout view, registered by name in `dmac/urls.py` above the
+  404 route that shadows the rest of Mezzanine's account pages; it is the only
+  sign-out the site has.
 - Multi-line commentary in these templates must use `{% comment %}`, because
   Django's `{# #}` form is single-line and a multi-line one renders as visible
   page text — the reason is written into the template itself

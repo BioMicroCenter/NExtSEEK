@@ -119,13 +119,13 @@ The root `base.html` is also the only file that loads the stock Bootstrap and `m
 
 ### Mezzanine features: live, dead, unknown
 
-`INSTALLED_APPS` in `dmac/settings.py` has `mezzanine.boot, conf, core, generic, pages, blog, forms, galleries, accounts`. `mezzanine.twitter` is commented out. `mezzanine.urls` is included in `dmac/urls.py` as a catch-all `^` pattern; only the unreachable `accounts/login/` entry follows it.
+`INSTALLED_APPS` in `dmac/settings.py` has `mezzanine.boot, conf, core, generic, pages, blog, forms, galleries, accounts`. `mezzanine.twitter` is commented out. `mezzanine.urls` is included in `dmac/urls.py` as a catch-all `^` pattern, last. Above it, a 404 route shadows Mezzanine's public pages (`/blog/`, `/search/`, `/accounts/...`, `/password_reset/`, `/reset/...`); `/accounts/login/` (the SEEK login), `/accounts/signup/` and `/accounts/logout/` are registered before that.
 
 | Feature | State | Notes |
 |---|---|---|
-| Blog (`mezzanine.blog`) | Live but unlinked | A live check on 2026-09-30 saw `/blog/` and `/blog/feeds/rss/` answer 200 on dev, rendered by the package templates inside the theme `base.html`. No theme nav link. Whether the blog has any content was not checked. Tracked with Mezzanine's own url includes (security item SEC-0930-H, tracked privately) |
+| Blog (`mezzanine.blog`) | Installed, routes answer 404 | The app, its models and tables stay; `/blog/` and its feeds are shadowed by the 404 route in `dmac/urls.py` |
 | Pages, forms, galleries | Installed, no theme templates | Only a Page object created in Mezzanine admin would render, using package templates |
-| Accounts (`mezzanine.accounts`) | Live | `accounts/signup/` is routed to `signup_seek` before the catch-all (`dmac/urls.py`). The project's `accounts/login/` route sits after the catch-all and never matches, so Mezzanine's own login view answers there (UI-026), as do the other Mezzanine account URLs |
+| Accounts (`mezzanine.accounts`) | Sign-out only | `/accounts/logout/` is Mezzanine's logout view (the user menu's link); `/accounts/login/` and `/accounts/signup/` are the SEEK views; every other `/accounts/...` URL answers 404 |
 | Twitter | Dead | App disabled; `templates/twitter/` has no effect |
 | Mobile templates | Dead | See the table above |
 
@@ -198,7 +198,7 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
 | check-first | `static/js/buildtree/` | Unreferenced but a large experiment | Ask the operator |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
-| check-first | `mezzanine.blog` app and `templates/blog/` | `/blog/` is live | Migration and data check; operator decision |
+| check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
 | check-first | `newSearch.html` and its six `*_new*` embeds | Live by URL; the test's `LIVE` list names some of them | Decide to promote (add a nav link) or retire; update the test either way |
 | check-first | `pages/samples_tree.embed.html` | Still included (inside HTML comments) by `pages/samples.embed.html` | Remove or convert both include lines first |
 | check-first | `dmac/conversion.pyc`, `dmac/__init__.pyc` | Tracked bytecode, not UI | Separate cleanup |

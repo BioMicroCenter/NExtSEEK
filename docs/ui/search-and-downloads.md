@@ -166,7 +166,7 @@ None of these are rendered by a live view. Full list and removal notes are in [l
 
 The repo-root `templates/search_results.html` is Mezzanine's stock template and is not in
 `TEMPLATES["DIRS"]` (`dmac/settings.py`), so it is never used from this repo. Mezzanine's own
-search include is tracked as security item SEC-0930-H (tracked privately).
+site search, `/search/`, answers 404.
 
 ## Where to edit
 

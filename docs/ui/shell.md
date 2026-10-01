@@ -27,9 +27,8 @@ Start at [README.md](README.md) if you are new to the guide.
 So the theme folder beats everything for a shared name. `base.html`, `index.html`,
 `accounts/includes/user_panel.html` and `pages/menus/tree.html` resolve to
 `themes/NextSeek/templates/`, never to Mezzanine's packaged copies. Mezzanine's own templates are the
-last fallback. Pages that the theme does not override (for example the profile pages behind the
-`profile` and `profile_update` URL names) come from Mezzanine's packaged templates and extend the
-theme's `base.html`.
+last fallback. Mezzanine's account and profile pages answer 404 (see [pages.md](pages.md),
+"Mezzanine routes").
 
 The repo-root `templates/` folder (a Mezzanine scaffold: `base.html`, `accounts/`, `mobile/`,
 `pages/`) is in neither `DIRS` nor any app, so it is never loaded. Editing it changes nothing. There
@@ -101,7 +100,7 @@ accounts panel has two states:
 
 | State | Markup | Links |
 |---|---|---|
-| Signed in | `.user-panel`: avatar (first two letters of the username), name, role badge, three-dot button `.user-menu-btn` calling `toggleUserMenu()` | Profile (`{% url "profile" username %}`), Update profile (`profile_update`), Sign out (`{% url 'logout' %}?next=<path>`, Mezzanine's logout) |
+| Signed in | `.user-panel`: avatar (first two letters of the username), name, role badge, three-dot button `.user-menu-btn` calling `toggleUserMenu()` | Sign out (`{% url 'logout' %}?next=<path>`, Mezzanine's logout view at `/accounts/logout/`) |
 | Signed out | `.user-panel--anon` with `a.btn-signin` | `/login/?next=<current path>` |
 
 ### Footer
@@ -188,7 +187,7 @@ button" rules in `nextseek.css` (`.nessie-btn`). `nextseek.js` needs no handler 
 | Case | What is on screen | How to reach sign in or sign out |
 |---|---|---|
 | Home, signed out | sticky top bar (hamburger, wordmark, Sign in), then the dashboard with a Sign in button in the hero | Sign in in the top bar or the hero; also at the bottom of the drawer |
-| Home, signed in | sticky top bar (hamburger, wordmark), heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Profile, Update profile, Sign out |
+| Home, signed in | sticky top bar (hamburger, wordmark), heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Sign out |
 | Protected page, signed out | redirected (302) to `/login/`, usually with a `next` target; `/seek/assistant/` shows an access error instead (UI-020) | n/a |
 | `/login/` | crimson brand strip (wordmark, then the partner logos on a white card) above the form; no sidebar, no hamburger | n/a |
 | `/seek/help/` | top bar, article, footer (logo above the copyright line below 576px) | top bar |

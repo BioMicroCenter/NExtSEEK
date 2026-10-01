@@ -2,7 +2,9 @@
 
 Guards the 2026-10-01 UI fixes (docs/ui/known-issues.md "Fix first", batches 1 to 7):
 
-* HTTP, no browser: every signed-in page sends a visitor to /login/?next=<that page>.
+* HTTP, no browser: every signed-in page sends a visitor to /login/?next=<that page>;
+  Mezzanine's blog, site search, account forms and local reset answer 404, and
+  /accounts/login/ is the SEEK login.
 * Browser (flow): a visitor on a phone can see Sign in and keep the menu after
   scrolling; no page scrolls sideways at phone width; "+ New sample" says desktop
   only; the project Sample flow opens full screen on a phone and never shows
@@ -90,6 +92,18 @@ def test_visitor_home_offers_sign_in_and_hides_signed_in_links(anon, base_url):
     nav = nav[:nav.index("</nav>")]
     for href in ("/seek/search/", "/seek/samples/upload/", "/seek/assistant/"):
         assert f'href="{href}"' not in nav, f"a visitor's menu links to {href}"
+
+
+@pytest.mark.parametrize("path", ["/blog/", "/search/", "/accounts/update/", "/password_reset/"])
+def test_retired_mezzanine_pages_answer_404(anon, base_url, path):
+    r = anon.get(base_url + path, timeout=60, allow_redirects=False)
+    assert r.status_code == 404, f"{path} answered {r.status_code}; it is not part of NExtSEEK"
+
+
+def test_accounts_login_is_the_seek_login(anon, base_url):
+    r = anon.get(base_url + "/accounts/login/", timeout=60, allow_redirects=False)
+    assert r.status_code == 200 and "auth-submit" in r.text, \
+        "/accounts/login/ is not the SEEK sign-in form"
 
 
 # --------------------------------------------------------------------------- #

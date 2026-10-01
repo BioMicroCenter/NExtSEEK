@@ -6,6 +6,8 @@ from django.conf.urls.i18n import i18n_patterns
 from django.contrib import admin
 from django.views.i18n import set_language
 
+from django.http import Http404
+from mezzanine.accounts.views import logout as mezzanine_logout
 from mezzanine.core.views import direct_to_template
 from mezzanine.conf import settings
 
@@ -17,6 +19,10 @@ from . import views
 
 
 admin.autodiscover()
+
+
+def _not_found(request, *args, **kwargs):
+    raise Http404()
 
 urlpatterns = i18n_patterns(
     re_path(r'^login/?$', views.login_seek, name="login_seek"),
@@ -51,9 +57,16 @@ urlpatterns += [
     # of being handed off to SEEK. Registered last among the signup_seek patterns
     # so {% url "signup_seek" %} reverses to this one.
     re_path(r'^accounts/signup/', views.signup_seek, name="signup_seek"),
+    # Accounts are SEEK's. Of Mezzanine's account pages only sign-out is used (the
+    # user menu reverses its name, "logout"); /accounts/login/ is the SEEK login.
+    re_path(r'^accounts/login/$', views.login_seek),
+    re_path(r'^accounts/logout/$', mezzanine_logout, name="logout"),
+    # Mezzanine's public pages are not part of NExtSEEK: its blog, site search,
+    # account forms and local password reset answer 404. Shadowed rather than
+    # dropped from the include, so the names Mezzanine's admin templates reverse
+    # still resolve.
+    re_path(r'^(?:blog|search|accounts|password_reset|reset)(?:/|$)', _not_found),
     re_path("^", include("mezzanine.urls")),
-    re_path(r'^accounts/login/', views.login_seek, name="login_seek"),
-
 ]
 
 handler404 = "mezzanine.core.views.page_not_found"
