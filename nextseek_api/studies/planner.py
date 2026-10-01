@@ -14,6 +14,7 @@ same snapshot and input give the same plan.
    investigation: it is ignored (neither a source nor removed) and the target is warned (``shared_elsewhere``). A
    sample's source assays are its assays in the bucket; a sample in none of them but in another study of the
    investigation is copied from there, never removed; a sample in no assay but the target study's is ``no_change``.
+   The ``shared_elsewhere`` warnings, one per shared assay, name the samples that stay in the plan.
 3. Clones (6.3). Per target and source assay A: in an existing target, the one assay with A's title and the same set
    of internal assay ids is reused (several refuse the target); otherwise A is cloned. The payload is built from
    ``GET /assays/A`` (ontology fields keep only their uri; the study is the target, filled at apply; samples, data
@@ -226,7 +227,7 @@ class _Work:
     copy: set = field(default_factory=set)                # samples whose sources are copy sources
     no_change: set = field(default_factory=set)
     clones: dict = field(default_factory=dict)            # source assay id -> ClonePlan
-    shared_elsewhere: set = field(default_factory=set)    # samples with a membership shared into another investigation
+    shared_elsewhere: dict = field(default_factory=dict)  # sample -> its assays shared into another investigation
     existing_assay_ids: list = field(default_factory=list)
     payload: Optional[dict] = None
 
@@ -309,7 +310,7 @@ def _decide_samples(targets, snap: _Snapshot, skipped: list, warnings: list) -> 
                 _skip(skipped, t.key, [s], CROSS_INVESTIGATION, f"assays {misfiled}")
                 continue
             if shared:
-                w.shared_elsewhere.add(s)
+                w.shared_elsewhere[s] = shared
                 member = {a: d for a, d in member.items() if a not in shared}
                 if not member:
                     _skip(skipped, t.key, [s], SAMPLE_IN_NO_ASSAY, f"only in shared assays {shared}")
@@ -335,11 +336,25 @@ def _decide_samples(targets, snap: _Snapshot, skipped: list, warnings: list) -> 
                 continue
             del w.sources[s]
             w.copy.discard(s)
-        if w.shared_elsewhere:
-            warnings.append(PlanWarning(code=SHARED_ELSEWHERE, target_key=t.key,
-                                        detail=f"{len(w.shared_elsewhere)} samples"))
         works.append(w)
     return works
+
+
+def _shared_elsewhere_warnings(works: list[_Work], snap: _Snapshot, warnings: list) -> None:
+    """One ``shared_elsewhere`` warning per target and shared assay, naming its study and the samples that stay in the
+    plan: the list the curator checks, since a misfiling inside one project reads as a share (16.9's known limit)."""
+    for w in works:
+        kept = set(w.sources) | w.no_change
+        by_assay: dict = defaultdict(list)
+        for s, shared in sorted(w.shared_elsewhere.items()):
+            if s in kept:
+                for a in shared:
+                    by_assay[a].append(s)
+        for a in sorted(by_assay):
+            row = snap.assays([a]).get(a)
+            warnings.append(PlanWarning(code=SHARED_ELSEWHERE, target_key=w.t.key, assay_id=a,
+                                        detail=f"study {row.study_id if row else None} (investigation "
+                                               f"{snap.investigation_of_assay(a)}): samples {by_assay[a]}"))
 
 
 def _decide_clones(works: list[_Work], snap: _Snapshot, skipped: list, warnings: list) -> list[_Work]:
@@ -693,6 +708,7 @@ def plan_study_moves(associations: AssociationSet, reader, *, run_id: str, now: 
     lin = _lineage(reader, sorted({a for w in works for src in w.sources.values() for a in src}))
     _parent_check(works, lin, snap, skipped)
     works = _decide_clones(works, snap, skipped, warnings)
+    _shared_elsewhere_warnings(works, snap, warnings)
     units, empty = _plan_links(works, lin, snap)
     publications = _publications(units, works, warnings)
     graph = _graph_plan(units, works, reader, lin)
