@@ -62,8 +62,6 @@ Bootstrap Icons (jsDelivr) and Google Fonts load on every page: if jsDelivr is u
 the sidebar collapse break. SheetJS, select2, moment, DataTables and vis are not used by any Django page (`xlsx`
 appears only inside the React bundle).
 
-A jQuery 1.6.2 copy exists at `static/js/buildtree/jquery-1.6.2.min.js` and is loaded by nothing.
-
 ### EasyUI components in use
 
 | Component | Used on |
@@ -102,8 +100,7 @@ EasyUI. `/seek/search/` breaks that rule today: `searchAdvanced.html` and the in
 | `static/js/sample_timeline/` | `seek/templates/sample_timeline.html` (`extra_head`) | Built Vite bundle (React, MUI, axios), file names hard-coded in the template. A rebuild changes the hashed names |
 | `static/js/chat_assistant/assets/` | `seek/templates/smartSearch.html` via the `{% vite_assets %}` tag (`seek/templatetags/vite_assets.py`) | The React chat panel. See [chat-frontend.md](chat-frontend.md) |
 
-Dead or vendored, safe to ignore: `static/js/buildtree/` (old tree builder,
-d3 v3 copies), and `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
+Dead or vendored, safe to ignore: `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
 
 ### What nextseek.js does
 

@@ -104,7 +104,6 @@ A name search over every `.html`, `.py`, `.css` and `.js` in `seek`, `themes/Nex
 | Generic widget leftovers, same folder | `ajax-loader.gif`, `alpha.png`, `blank.gif`, `clear.png`, `loading.gif`, `hue.png`, `saturation.png`, `ribbon.png`, `vt-menu.png`, `mappin-default.png`, `select2-spinner.gif`, `minus.png`, `plus.png`, five `sort_*.png` |
 | Subfolders of that folder | `colorblind-friendly/`, `dropzone/`, `flags/`, `gradient/`, `invoice/`, `jcrop/`, `jqueryui/`, `partners/`, `pattern/`, `realestate/`, `splash/`, `superbox/`, `versions/`, `voicecommand/`, `favicon/` |
 | Stock Bootstrap and Mezzanine | `static/css/bootstrap*.css`, `static/css/mezzanine.css`, `static/fonts/glyphicons-*`, `static/js/bootstrap*.js`, `static/js/html5shiv.js`, `static/js/respond.min.js`. No template loads them (the stock root `templates/base.html` that did is deleted). Mezzanine admin may load its own copies, hence check-first |
-| D3 experiment | `static/js/buildtree/` (d3 libraries, `dndTree*.js`, `flare.json`, a saved "Tree Layout in D3.js" page) |
 
 Live images that look like leftovers: `img/favicon.png` (the favicon links in the theme `base.html`), `img/favicon.ico` (`base_auth.html`), `img/bmc-header-800.png`, `img/nessie-logo.png`, `img/timeline-icon-external-link.png`. Keep them.
 
@@ -122,7 +121,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 |---|---|---|---|
 | likely | Unreferenced images and subfolders in the static table above | No name hits | Open the live pages in a browser after; a JS-built path would show as a broken image |
 | likely | `themes/NextSeek/templates/pages/menus/tree.html` | No `page_menu` call in the theme | Only matters if a Mezzanine Page is ever created |
-| check-first | `static/js/buildtree/` | Unreferenced but a large experiment | Ask the operator |
 | check-first | `static/css/bootstrap*.css`, `static/js/bootstrap*.js`, `html5shiv.js`, `respond.min.js`, `mezzanine.css`, `glyphicons-*` | Only the dead root base loads them; Mezzanine admin may too | Load the Mezzanine admin pages and compare |
 | check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
 | check-first | `newSearch.html` and its six `*_new*` embeds | Live by URL; the test's `LIVE` list names some of them | Decide to promote (add a nav link) or retire; update the test either way |

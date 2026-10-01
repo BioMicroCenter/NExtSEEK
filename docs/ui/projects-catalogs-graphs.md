@@ -172,7 +172,6 @@ defined both in `catalog_styles.html` and in the inline CSS of `projectsList.htm
 | Sample tree v2 | "Sample Tree v2" tab on the sample page (`pages/samples.embed.html`, markup in `pages/samples_tree_new.embed.html`) | d3 7.8.4, d3-dag 1.1.0 (Sugiyama layout) | skypack CDN as ES modules | `d3.json("/nextseek_api/sample-tree/<id-or-uid>/tree")` | Live |
 | Sample timeline | `/seek/sample_timeline/<uid>/` | React + MUI + timeline vendor chunk | committed Vite build in `static/js/sample_timeline/assets/js/` (hashed file names listed in `sample_timeline.html`) | `/seek/nhpinfo/`, `/seek/nhpdata/`, `/seek/eventdata/` | Live |
 | Sample tree v1 | commented out in `pages/samples.embed.html` | d3 3.5.5, lodash 3.3.1 | cdnjs | older sample data | Dead (see Gotchas) |
-| `static/js/buildtree/` | no template references it | d3 2.4.4 and 1.27.2 copies, jquery 1.6.2 | local | `flare.json` | Dead |
 
 Nothing is shared between these. The Sample flow and the sample tree use different libraries,
 different loaders (script tags versus ES modules), different colour logic (`CLADE_STYLES` in

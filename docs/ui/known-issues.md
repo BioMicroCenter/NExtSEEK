@@ -178,7 +178,7 @@ Dead templates, duplicate vendored libraries and published leftovers. See [legac
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
 | UI-202 | debt | Sample tree v1 is included twice, each inside an HTML comment, but both `{% include %}` tags still render, so every sample page carries about 520 lines of hidden markup and four CDN script tags | code | `seek/templates/pages/samples.embed.html` (two commented blocks including `pages/samples_tree.embed.html`) | Remove both include lines, then `samples_tree.embed.html` |
-| UI-209 | debt | Unused shipped JS and CSS: `static/js/buildtree/`, Bootstrap 3 `static/css/bootstrap*.css` and `static/js/bootstrap*.js`, `pages/menus/tree.html` | code | as listed | Remove after a reference check |
+| UI-209 | debt | Unused shipped JS and CSS: Bootstrap 3 `static/css/bootstrap*.css` and `static/js/bootstrap*.js`, `pages/menus/tree.html` | code | as listed | Remove after a reference check |
 | UI-210 | debt | About 190 images (55 at the top of `themes/NextSeek/static/img/`, about 130 in its 15 subfolders, 4 in `static/img/`), many unreferenced (logo variants and others), all collected and served | code | `themes/NextSeek/static/img/`, `static/img/` | Move unreferenced images out |
 | UI-211 | debt | `projectsList.html` loads a template-tag library (`{% load index %}`) it never uses | code | `seek/templates/projectsList.html` first lines | Delete the line |
 
