@@ -78,7 +78,7 @@ def _interpreter() -> str:
     image_py = Path("/app/.venv/bin/python")
     if image_py.exists():
         return sys.executable
-    dmac = Path("/home/taishajo/work/dmac-assistant/.venv/bin/python3")
+    dmac = Path(os.environ.get("DMAC_PORT_SOURCE", "dmac-assistant"), ".venv/bin/python3")
     if dmac.exists():
         return str(dmac)
     return sys.executable

@@ -62,7 +62,7 @@ REPO_ROOT = paths.REPO_ROOT
 EXPORT_MODULE = "NessieAI.cc.op_registry.export"
 GEN_MODULE = "NessieAI.build_tools.gen_op_surfaces"
 PYTHONPATH = f"{REPO_ROOT}:{paths.DMAC_ASSISTANT_DIR / 'src'}:{paths.CHAT_NEXTSEEK_DIR / 'src'}"
-DMAC_PYTHON = Path("/home/taishajo/work/dmac-assistant/.venv/bin/python3")
+DMAC_PYTHON = Path(os.environ.get("DMAC_PORT_SOURCE", "dmac-assistant"), ".venv/bin/python3")
 IMAGE_PYTHON = Path("/app/.venv/bin/python")
 
 

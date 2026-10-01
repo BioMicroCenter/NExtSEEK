@@ -46,7 +46,7 @@ largest module here and holds several concerns; read the part you need.
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |
 | `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
-| `op_registry/` | the inventory of the plugin commands the agent may call (below) |
+| `op_registry/` | the inventory of the plugin commands the agent may call (`NessieAI/cc/op_registry/README.md`; below) |
 
 **Operation registry.** `NessieAI/cc/op_registry/ops.py` is the registration source of truth, and
 `NessieAI/cc/op_registry/export.py` renders it to the committed `ops.json`. The executable shims are

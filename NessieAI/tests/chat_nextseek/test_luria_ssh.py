@@ -2,7 +2,7 @@ import os
 import subprocess
 from chat_nextseek.luria import ssh as ssh_mod
 
-LE = {"user": "cdemu", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
+LE = {"user": "alice", "host": "luria.mit.edu", "key": "/k", "working_path": "/net/x"}
 
 
 def test_prepare_key_copies_and_chmods_600(tmp_path):
@@ -32,7 +32,7 @@ def test_ssh_run_builds_command_and_returns_stdout(monkeypatch):
     out = ssh_mod.ssh_run(LE, "sbatch run.sh", key_path="/tmp/k")
     assert "Submitted batch job 4821" in out
     assert seen["cmd"][0] == "ssh"
-    assert "cdemu@luria.mit.edu" in seen["cmd"]
+    assert "alice@luria.mit.edu" in seen["cmd"]
     assert "sbatch run.sh" == seen["cmd"][-1]
     assert "BatchMode=yes" in seen["cmd"]
 
@@ -66,5 +66,5 @@ def test_scp_file_targets_full_remote_path(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     ssh_mod.scp_file(LE, "/local/run.sh", "/net/x/runs/r/run.sh", key_path="/tmp/k")
     assert seen["cmd"][0] == "scp"
-    assert seen["cmd"][-1] == "cdemu@luria.mit.edu:/net/x/runs/r/run.sh"
+    assert seen["cmd"][-1] == "alice@luria.mit.edu:/net/x/runs/r/run.sh"
     assert "/local/run.sh" in seen["cmd"]

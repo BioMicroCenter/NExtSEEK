@@ -1,6 +1,7 @@
 """Human-grade initial fit: functional labels never replace arm outcomes."""
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from dataclasses import replace
 import json
@@ -23,7 +24,7 @@ from NessieAI.hibayes.publish import FitResult, PublicationEvidenceRequired, pub
 from NessieAI.hibayes.publish import manifest_for_combined as publication_manifest
 
 
-DELIVERY = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
+DELIVERY = Path(os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"))
 
 
 @pytest.fixture(scope="module")

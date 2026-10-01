@@ -1,3 +1,4 @@
+import os
 import json
 from pathlib import Path
 
@@ -413,7 +414,7 @@ def test_the_unobservable_prefix_tuple_is_pinned():
 # run's signal is lost.
 # --------------------------------------------------------------------------- #
 
-# The real string, copied from /home/cdemu/nessie-run-seed6b/turns.json. The
+# The real string, copied from the seed6b run's turns.json. The
 # U+FFFD between "exhausted" and "agent" is a genuine mojibake in the stored
 # evidence (the source emits an em dash); the detector deliberately matches the
 # PHRASE only, so the separator can be anything.
@@ -491,7 +492,7 @@ def test_the_detector_lives_in_exactly_one_module():
 # manifest and the real turn log.
 # --------------------------------------------------------------------------- #
 
-_EVIDENCE = Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _TURNS = _EVIDENCE / "turns.json"
 _MANIFEST = _EVIDENCE / "manifest.json"
 

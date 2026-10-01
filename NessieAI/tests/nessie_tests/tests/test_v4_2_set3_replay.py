@@ -13,7 +13,13 @@ from NessieAI.tests.nessie_tests import v4_2_verifier as v4
 
 CORPUS = pathlib.Path(__file__).resolve().parents[1] / "corpus.json"
 
+needs_delivery = pytest.mark.skipif(
+    not v4.V13A_ZIP.exists(),
+    reason=f"the v13a testquestions delivery is absent; set NESSIE_TESTQUESTIONS_DIR (looked for {v4.V13A_ZIP})",
+)
 
+
+@needs_delivery
 def test_v13a_set3_manifest_hash_and_strict_parse():
     raw = v4.load_set3_bayes_bytes()
     assert v4.sha256_bytes(raw) == v4.V13A_EXPECTED["bayes_manifest_sha256"]
@@ -21,11 +27,13 @@ def test_v13a_set3_manifest_hash_and_strict_parse():
     assert len(m.pairs) == 149
 
 
+@needs_delivery
 def test_verifier_report_passes_on_transferred_set3():
     report = v4.run_verifier()
     assert report.passed, report.errors
 
 
+@needs_delivery
 def test_set3_pairs_have_independent_forced_route_traces():
     m = v4.load_set3_bayes_manifest()
     for p in m.pairs:
@@ -76,11 +84,13 @@ def test_producer_write_emits_schema_versioned_bayes_manifest(tmp_path, monkeypa
     bm.BayesManifest.model_validate(raw)
 
 
+@needs_delivery
 def test_zip_member_path_is_under_testquestions_prefix():
     with zipfile.ZipFile(v4.V13A_ZIP) as zf:
         assert v4.SET3_ZIP_MEMBER in zf.namelist()
 
 
+@needs_delivery
 def test_corpus_fingerprint_matches_v13a():
     fp = v4.sha256_bytes(v4.load_v13a_corpus_bytes())
     assert fp == v4.V13A_EXPECTED["corpus_sha256"]
