@@ -57,6 +57,8 @@ from .schemas.schema_helper import (
     _run_with_wall_clock,
     _unavailable_kind,
     failure_reason,
+    declined_stop,
+    _DeclinedCompletion,
 )
 
 # The wall clock on one tool-loop call comes from the agent's row of ``call_budgets.CALL_BUDGETS``
@@ -194,6 +196,13 @@ def call_tools(
                 ),
                 _timeout,
             )
+            _declined = declined_stop((result or {}).get("metadata") or {"stop_reason": (result or {}).get("stop_reason")})
+            if _declined:
+                _log("empty_completion", t0, resp=_LedgerView(result))
+                raise _DeclinedCompletion(
+                    f"model declined from provider='{getattr(fo.client, 'provider', None)}' "
+                    f"model='{fo.model}' stop_reason={_declined!r}"
+                )
             if _is_empty_turn(result):
                 _log("empty_completion", t0, resp=_LedgerView(result))
                 raise _EmptyCompletion(
@@ -202,7 +211,10 @@ def call_tools(
                 )
         except LLMServiceUnavailableError as sue:
             outcome, reason, why = _unavailable_kind(sue)
-            why = "empty turn" if isinstance(sue, _EmptyCompletion) else why
+            if isinstance(sue, _DeclinedCompletion):
+                pass
+            elif isinstance(sue, _EmptyCompletion):
+                why = "empty turn"
             status_word = "model refused" if reason == "model_unusable" else "503"
             print(
                 f"[TOOL_LOOP][{agent_label}] {status_word} from "

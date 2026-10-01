@@ -57,7 +57,10 @@ class _Client:
     that many seconds, then answer ``late``) to drive the real wall-clock wrapper.
     """
 
-    def __init__(self, provider: str, outcomes: list, late: str = '{"mode": "late"}'):
+    def __init__(self, provider: str, outcomes: list, late: str = '{"mode": "late"}', stop: str = "end_turn",
+                 meta: dict | None = None):
+        self.stop = stop
+        self.meta = meta
         self.provider = provider
         self.outcomes = list(outcomes)
         self.late = late
@@ -78,7 +81,7 @@ class _Client:
             outcome = self.late
         return LLMResponse(
             content=outcome, raw=None, usage=None, model=model,
-            provider=self.provider, metadata={"stop_reason": "end_turn"},
+            provider=self.provider, metadata=self.meta or {"stop_reason": self.stop},
         )
 
 
@@ -833,3 +836,60 @@ def test_the_moved_bedrock_request_carries_no_cache_point():
     assert any("cachePoint" in b for b in first["system"])
     assert not any("cachePoint" in t for t in moved["toolConfig"]["tools"])
     assert not any("cachePoint" in b for b in moved["system"])
+
+
+# --------------------------------------------------------------------------
+# A model decline (a content-filtered or guardrail-stopped completion) is a move trigger
+# like an empty body, even when some text came back with it.
+# --------------------------------------------------------------------------
+
+def _declined_turn(stop):
+    return {"stop_reason": stop, "content": [{"type": "text", "text": "I can't help with"}],
+            "usage": {}, "metadata": {"stop_reason": stop}}
+
+
+@pytest.mark.parametrize("stop", ["content_filtered", "guardrail_intervened", "refusal"])
+def test_a_declined_tool_turn_moves_even_with_partial_text(stop):
+    bedrock = _SlowToolClient("bedrock", [_declined_turn(stop), "ok"])
+    result = _loop(_bedrock_loop_config(bedrock), bedrock)
+    assert result["content"][0]["text"] == "ok"
+    assert bedrock.calls == [OPUS, SONNET]
+
+
+def test_a_decline_on_the_last_model_ends_in_tried_two_and_names_the_stop_reason():
+    from chat_nextseek import failure_replies
+
+    bedrock = _SlowToolClient("bedrock", [_declined_turn("content_filtered"), _declined_turn("guardrail_intervened")])
+    with pytest.raises(LLMFatalError) as excinfo:
+        _loop(_bedrock_loop_config(bedrock), bedrock)
+    fatal = excinfo.value
+    assert fatal.unavailable is True
+    assert fatal.model_fallback == [{"agent": "followup", "from": OPUS, "to": SONNET, "reason": "declined"}]
+    assert "guardrail_intervened" in str(fatal)
+    assert failure_replies.model_unavailable_reply(fatal) == failure_replies.MODELS_UNAVAILABLE_TRIED_TWO_REPLY
+
+
+def test_a_declined_structured_completion_moves_on_the_converse_stop_reason():
+    primary = _Client("bedrock", ['{"mode": "half'], stop="content_filtered")
+    fallback = _Client("gcp", ['{"mode": "graph_query"}'])
+    plan = _structured(_Config(primary, fallback), primary)
+    assert plan.mode == "graph_query"
+    assert primary.calls == ["primary-model"]
+
+
+def test_a_declined_free_text_completion_moves_on_a_gemini_finish_reason():
+    primary = _Client("gcp", ["Here is part of"], meta={"finish_reason": "SAFETY"})
+    fallback = _Client("bedrock", ["Here are your 12 samples."])
+    config = _Config(primary, fallback, agent="chatter")
+    config.LLM_CLIENTS = {"gcp": primary, "anth": fallback}
+    config.AGENT_MODEL_CATALOG = {
+        "anth:current": {"chatter": {"provider": "anth", "model": "fallback-1", "thinking_level": None}},
+    }
+    assert _text(config, primary) == "Here are your 12 samples."
+    assert primary.calls == ["primary-model"]
+
+
+def test_a_normal_stop_with_text_is_not_a_decline():
+    for stop in ("end_turn", "max_tokens", "stop_sequence"):
+        primary = _Client("bedrock", ['{"mode": "graph_query"}'], stop=stop)
+        assert _structured(_Config(primary, _Client("gcp", [])), primary).mode == "graph_query"
