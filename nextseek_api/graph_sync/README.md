@@ -270,13 +270,15 @@ label step alone over the whole graph, for a backlog the by-id and nightly paths
 
 ## Lineage
 
-MySQL's parent tokens are the truth for DERIVED_FROM between Sample nodes, so the lineage step makes the graph equal
-to them. Every declared pair the graph lacks is created and labelled; a declared edge that already exists keeps its
+MySQL's parent tokens are the truth for DERIVED_FROM between Sample nodes, so the lineage step makes the graph equal to
+them. Every declared pair the graph lacks is created and labelled; a declared edge that already exists keeps its
 properties. Then every DERIVED_FROM between two Sample nodes that MySQL does not declare (a pair a later Parent edit
 left stale, a self-loop, a token that no longer resolves to that sample) is written to
-`derived_from_undeclared_archive.tsv` and deleted in batches; the file is in place before the first delete. An edge
-touching an `OrphanSample` is left alone. Gate G check 1 fails on any undeclared edge still between two Sample
-nodes, and check 9 on a declared edge whose endpoints share an assay and that carries no label.
+`derived_from_undeclared_archive.tsv` and deleted in batches; the file is in place before the first delete. So is every
+edge of a declared pair after the first (`derived_from_doubled`), in the full sync and in a by-id sync of the pair's
+child, so one edge per pair remains. An edge touching an `OrphanSample` is left alone. Gate G check 1 fails on any
+undeclared edge still between two Sample nodes, and check 9 on a declared edge whose endpoints share an assay and that
+carries no label.
 
 ## Deleting a sample
 

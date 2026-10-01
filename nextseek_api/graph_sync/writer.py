@@ -638,6 +638,27 @@ def _is_declared(declared_pairs, child, parent) -> bool:
         return False
 
 
+def _seen_pairs():
+    """A pair seen check for one stream of DERIVED_FROM edges, built per stream so a retried read starts clean: it
+    answers whether ``(child, parent)`` came before in that stream, keying the pair as gate G check 1 does (one
+    ``run.encode_pair`` code, or the pair itself where the code cannot be made)."""
+    from nextseek_api.graph_sync.run import encode_pair   # run imports this module
+
+    seen: set = set()
+
+    def again(child, parent) -> bool:
+        try:
+            key = encode_pair(child, parent)
+        except (TypeError, ValueError):
+            key = (child, parent)
+        if key in seen:
+            return True
+        seen.add(key)
+        return False
+
+    return again
+
+
 def _archive_line(record) -> str:
     """One lineage archive row (``DERIVED_FROM_ARCHIVE_HEADER``) for a streamed edge record."""
     return "\t".join((_tsv_field(record["child_id"]), _tsv_field(record["parent_id"]),
@@ -652,47 +673,52 @@ def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared
     declare (``run.DeclaredIdPairs``, or a set of tuples). Every DERIVED_FROM between two Sample nodes is streamed
     once; an undeclared edge (a pair a later Parent edit left stale, a self-loop, a token that no longer resolves)
     becomes one row: ``child_id``, ``parent_id``, ``child_uuid``, ``parent_uuid`` and ``props``, the edge's
-    properties as JSON (uuids escaped by ``_tsv_field``). The file is written to a ``.partial`` path and renamed
-    into place before the first delete, so a failed write deletes nothing. The edges are then deleted by element id
-    in batches, each delete matching only an edge between two Sample nodes, so an edge touching an OrphanSample is
-    never deleted. With nothing undeclared no file is written (an earlier archive is kept) and nothing is deleted.
+    properties as JSON (uuids escaped by ``_tsv_field``). A second (or later) edge of a declared pair is archived
+    and deleted the same way, counted apart in ``derived_from_doubled``: the first edge the stream gives is kept. The
+    file is written to a ``.partial`` path and renamed into place before the first delete, so a failed write deletes
+    nothing. The edges are then deleted by element id in batches, each delete matching only an edge between two
+    Sample nodes, so an edge touching an OrphanSample is never deleted. With nothing to delete no file is written (an
+    earlier archive is kept).
     """
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     partial = out_path + ".partial"
 
     def archive(result):
-        edges, undeclared = 0, []  # built here, so a retried read starts clean
+        edges, doubled, dropped, again = 0, 0, [], _seen_pairs()  # built here, so a retried read starts clean
         with open(partial, "w", encoding="utf-8", newline="") as fh:
             fh.write(DERIVED_FROM_ARCHIVE_HEADER)
             for record in result:
                 edges += 1
                 child, parent = record["child_id"], record["parent_id"]
                 if _is_declared(declared_pairs, child, parent):
-                    continue
+                    if not again(child, parent):
+                        continue
+                    doubled += 1
                 fh.write(_archive_line(record))
-                undeclared.append(record["element_id"])
-        return edges, undeclared
+                dropped.append(record["element_id"])
+        return edges, doubled, dropped
 
     try:
-        edges, element_ids = _run(driver, db, q.DERIVED_FROM_BETWEEN_SAMPLES, read=True, transformer=archive)
+        edges, doubled, element_ids = _run(driver, db, q.DERIVED_FROM_BETWEEN_SAMPLES, read=True,
+                                           transformer=archive)
     except BaseException:
         if os.path.exists(partial):
             os.remove(partial)
         raise
     if not element_ids:
         os.remove(partial)
-        return {"derived_from_between_samples": edges, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                "derived_from_archive_path": None}
+        return {"derived_from_between_samples": edges, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                "derived_from_deleted": 0, "derived_from_archive_path": None}
     os.replace(partial, out_path)
-    log.info("DERIVED_FROM: archived %d undeclared of %d edges between samples to %s", len(element_ids), edges,
-             out_path)
+    log.info("DERIVED_FROM: archived %d undeclared and %d doubled of %d edges between samples to %s",
+             len(element_ids) - doubled, doubled, edges, out_path)
     deleted = 0
     for batch in _batches(element_ids, DERIVED_FROM_DELETE_BATCH):
         deleted += _one(_run(driver, db, q.DELETE_UNDECLARED_DERIVED_FROM, {"element_ids": batch}), "deleted")
     if deleted != len(element_ids):
-        log.warning("DERIVED_FROM: %d undeclared edges archived but %d deleted", len(element_ids), deleted)
-    return {"derived_from_between_samples": edges, "derived_from_undeclared": len(element_ids),
-            "derived_from_deleted": deleted, "derived_from_archive_path": out_path}
+        log.warning("DERIVED_FROM: %d undeclared or doubled edges archived but %d deleted", len(element_ids), deleted)
+    return {"derived_from_between_samples": edges, "derived_from_undeclared": len(element_ids) - doubled,
+            "derived_from_doubled": doubled, "derived_from_deleted": deleted, "derived_from_archive_path": out_path}
 
 
 def archive_and_drop_undeclared_for_children(driver, db, child_ids, declared_pairs, archive_path) -> dict:
@@ -700,32 +726,37 @@ def archive_and_drop_undeclared_for_children(driver, db, child_ids, declared_pai
     Sample parent that MySQL does not declare.
 
     ``declared_pairs`` answers ``(child id, parent id) in declared_pairs`` as for
-    ``archive_and_drop_undeclared_derived_from``, whose row format this shares. Rows are collected per chunk of
-    children and appended to ``archive_path`` (header on a new file) and flushed before the first delete, so a run
+    ``archive_and_drop_undeclared_derived_from``, whose row format this shares, and so does a second edge of a
+    declared pair (``derived_from_doubled``; a child's edges all come in its one chunk). Rows are collected per chunk
+    of children and appended to ``archive_path`` (header on a new file) and flushed before the first delete, so a run
     that calls this once per chunk keeps one archive. An edge to an OrphanSample is never read or deleted. With
-    nothing undeclared no file is touched; with something undeclared and no ``archive_path`` it raises ValueError,
-    and an archive that cannot be written raises OSError, both before any delete.
+    nothing to delete no file is touched; with something to delete and no ``archive_path`` it raises ValueError, and
+    an archive that cannot be written raises OSError, both before any delete.
     """
     def collect(result):
-        edges, lines, element_ids = 0, [], []  # built here, so a retried read starts clean
+        edges, doubled, lines, element_ids, again = 0, 0, [], [], _seen_pairs()  # so a retried read starts clean
         for record in result:
             edges += 1
-            if _is_declared(declared_pairs, record["child_id"], record["parent_id"]):
-                continue
+            child, parent = record["child_id"], record["parent_id"]
+            if _is_declared(declared_pairs, child, parent):
+                if not again(child, parent):
+                    continue
+                doubled += 1
             lines.append(_archive_line(record))
             element_ids.append(record["element_id"])
-        return edges, lines, element_ids
+        return edges, doubled, lines, element_ids
 
-    edges, lines, element_ids = 0, [], []
+    edges, doubled, lines, element_ids = 0, 0, [], []
     for batch in _batches(dict.fromkeys(child_ids), REL_CHUNK):
-        n, batch_lines, batch_ids = _run(driver, db, q.DERIVED_FROM_OF_CHILDREN, {"ids": batch}, read=True,
-                                         transformer=collect)
+        n, batch_doubled, batch_lines, batch_ids = _run(driver, db, q.DERIVED_FROM_OF_CHILDREN, {"ids": batch},
+                                                        read=True, transformer=collect)
         edges += n
+        doubled += batch_doubled
         lines.extend(batch_lines)
         element_ids.extend(batch_ids)
     if not element_ids:
-        return {"derived_from_of_children": edges, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                "derived_from_archive_path": None}
+        return {"derived_from_of_children": edges, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                "derived_from_deleted": 0, "derived_from_archive_path": None}
     if not archive_path:
         raise ValueError(f"{len(element_ids)} undeclared DERIVED_FROM edges and no archive path to record them in")
     _append_rows(archive_path, DERIVED_FROM_ARCHIVE_HEADER, lines)
@@ -733,10 +764,10 @@ def archive_and_drop_undeclared_for_children(driver, db, child_ids, declared_pai
     for batch in _batches(element_ids, DERIVED_FROM_DELETE_BATCH):
         deleted += _one(_run(driver, db, q.DELETE_UNDECLARED_DERIVED_FROM, {"element_ids": batch}), "deleted")
     if deleted != len(element_ids):
-        log.warning("DERIVED_FROM: %d undeclared edges of children archived but %d deleted", len(element_ids),
-                    deleted)
-    return {"derived_from_of_children": edges, "derived_from_undeclared": len(element_ids),
-            "derived_from_deleted": deleted, "derived_from_archive_path": archive_path}
+        log.warning("DERIVED_FROM: %d undeclared or doubled edges of children archived but %d deleted",
+                    len(element_ids), deleted)
+    return {"derived_from_of_children": edges, "derived_from_undeclared": len(element_ids) - doubled,
+            "derived_from_doubled": doubled, "derived_from_deleted": deleted, "derived_from_archive_path": archive_path}
 
 
 # --- DERIVED_FROM labels (schema 1.2) -------------------------------------------------------------
