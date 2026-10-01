@@ -928,3 +928,21 @@ def test_a_breakdown_names_rows_that_are_not_the_thing_asked_about():
     assert ("lead with the total from the `Sum of` line, then the breakdown. When some rows are plainly not the "
             "thing the user asked about (another kind of file, a different category), say which, and give the "
             "total without them.") in text
+
+
+# --------------------------------------------------------------------------
+# Round 2 (B1 to B5): the prompt matches what the chatter is handed, the method is part of the answer when the
+# user asks for it, and a count column is not summarised as a value list.
+# --------------------------------------------------------------------------
+
+
+def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
+    text = _prompt_text()
+
+    assert "no Cypher" not in text
+    assert "You do NOT receive the query itself" not in text
+    assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
+            "receive the `Executed query`, for checking only.") in text
+    assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
+            "is there only to check a `NOT APPLIED` line or a note against what ran.") in text
+
