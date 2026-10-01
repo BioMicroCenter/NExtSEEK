@@ -28,10 +28,10 @@ the details. When a doc and this skill disagree, the doc wins; fix the row here.
 
 | Change | Steps | Owner doc | Must pass | Skill |
 |---|---|---|---|---|
-| Page or template | URL in `seek/urls.py` (or before the Mezzanine catch-all in `dmac/urls.py`), view re-exported in `seek/views/__init__.py`, template extends `base.html`, `Route` in `ci/routes.py`, bump `OWNED_ROUTE_COUNT` | `docs/ui/README.md`, `docs/ui/pages.md` "How to add a page" | route gate, page render test, hard-reload before blaming a deploy | |
+| Page or template | URL in `seek/urls.py` (or before the Mezzanine catch-all in `dmac/urls.py`), view re-exported in `seek/views/__init__.py`, template extends `base.html`, `Route` in `ci/routes.py`, bump `OWNED_ROUTE_COUNT` in `ci/smoke/test_registry_contents.py` | `docs/ui/README.md`, `docs/ui/pages.md` "How to add a page" | route gate, page render test, hard-reload before blaming a deploy | |
 | Static asset, CSS, JS | Theme twin wins over root `static/`: edit `themes/NextSeek/static/`. Theme templates go live on the next request after a pull; theme static needs an app restart; root `static/`, `seek/templates/` and Python need `./startup.sh rebuild`, then `collectstatic` | `docs/ui/ci-and-deploy.md`, `themes/CLAUDE.md`, `DEPLOYMENT.md` §3.2 | page tests | `deploy` |
 | Chat UI | edit `NessieAI/chat_frontend/src/`, `npm run build:embedded`, commit the rebuilt `static/js/chat_assistant/` as a second commit | `NessieAI/chat_frontend/CLAUDE.md` | vitest in the package | |
-| API endpoint | ViewSet under `nextseek_api/services/`, import in `nextseek_api/views.py`, `router.register` (longest prefix first) in `nextseek_api/urls.py`, models and `*_DESC`, `Route` in `ci/routes.py` plus `OWNED_ROUTE_COUNT`; check `docs/endpoint-authorization-register.md` | `nextseek_api/CLAUDE.md`, the skill's own checklist | `python3 scripts/validate_viewset_conventions.py`, the conventions test pair, gate | `nextseek-create-endpoint` |
+| API endpoint | ViewSet under `nextseek_api/services/`, import in `nextseek_api/views.py`, `router.register` (longest prefix first) in `nextseek_api/urls.py`, models and `*_DESC`, `Route` in `ci/routes.py` plus `OWNED_ROUTE_COUNT` (`ci/smoke/test_registry_contents.py`); check `docs/endpoint-authorization-register.md` | `nextseek_api/CLAUDE.md`, the skill's own checklist | `python3 scripts/validate_viewset_conventions.py`, the conventions test pair, gate | `nextseek-create-endpoint` |
 | Nessie action (Container-CC op) | shim, runner entry, `OpSpec` row in `NessieAI/cc/op_registry/ops.py`, regenerate surfaces | the skill | Audit A, no-write checks, `NessieAI/tests/cc/` | `add-cc-op` |
 | Nessie NS change (prompt, agent, catalog, router, models) | find the row in "To change X, edit Y" and edit only that file; a routing, parser, schema-prose or CC-skill edit is a brain change: show the operator before and after and wait | `NessieAI/README.md` "To change X, edit Y", the folder's `CLAUDE.md` | the lane in that row, `NessieAI/tests/README.md` for the runner | |
 | Catalog entry, sample type, assay, project | edit `context/*.json` only, never the tables; `python scripts/context_gen.py --emit update`, then `--emit exports` in the same change; the operator reviews an xlsx workbook before ANY database write | `context/README.md`, `scripts/README.md` group C | `NessieAI/tests/api/test_context_gen.py`, `NessieAI/tests/cc/test_cc_context_drift_guard.py` | |
@@ -57,7 +57,9 @@ the details. When a doc and this skill disagree, the doc wins; fix the row here.
      nextseek-nextseek:latest /app/.venv/bin/python -m pytest <paths> -q -p no:cacheprovider
    ```
 2. Blocking CI gates: `ci/gate` (the same command with `ci/gate` as the path), the unit tests that
-   `python3 ci/blocking_lanes.py` prints, and a migration check (`git diff --name-only origin/dev -- '*migrations*'`).
+   `python3 ci/blocking_lanes.py` prints, and the migration check `.github/workflows/ci-pytest.yml` runs: the same
+   container with `/app/.venv/bin/python manage.py makemigrations --check --dry-run --skip-checks nextseek_api`
+   in place of `-m pytest ...` (exit 1 means a model change has no migration).
 3. `python3 ci/docs_map.py` must be clean.
 4. Docs: update the owning folder's README rows, keep root `CLAUDE.md` under its line cap (R7), list new docs in
    `docs/INDEX.md`. No dated counts or run results in a README.
