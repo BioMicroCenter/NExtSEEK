@@ -429,3 +429,161 @@ class FakeSeekMetadata:
 
     def meta(self, sample_id) -> dict:
         return json.loads(self.metadata[sample_id])
+
+
+# --- apply and rollback (tasks 18 onward) --------------------------------------------------------
+
+from types import SimpleNamespace as _NS  # noqa: E402
+
+from nextseek_api.studies.buckets import title_key  # noqa: E402
+from nextseek_api.studies.seek import SeekUnknownOutcome  # noqa: E402
+
+
+class FakeSession:
+    """The SEEK session apply and rollback use. ``script[kind]`` ("study", "assay") says what each POST does in turn:
+    "ok"; "lost" (raises, creates nothing); "late:N" (creates, raises, and the object is hidden from the next N
+    lookups); or an exception to raise."""
+
+    def __init__(self, *, next_study=100, next_assay=302, engine=None):
+        self.login, self.person_id = "operator", 42
+        self.studies: dict = {}
+        self.assays: dict = {}
+        self.posts: list = []
+        self.deleted: list = []
+        self.script = {"study": [], "assay": []}
+        self.hidden: dict = {}
+        self.refuse_delete: set = set()
+        self.engine = engine
+        self._next = {"study": next_study, "assay": next_assay}
+
+    def _post(self, kind, parent, title):
+        how = self.script[kind].pop(0) if self.script[kind] else "ok"
+        self.posts.append((kind, title))
+        if isinstance(how, Exception):
+            raise how
+        if how == "lost":
+            raise SeekUnknownOutcome("timeout")
+        new = self._next[kind]
+        self._next[kind] += 1
+        (self.studies if kind == "study" else self.assays)[new] = (parent, title)
+        if how.startswith("late"):
+            self.hidden[(kind, new)] = int(how.split(":")[1]) if ":" in how else 0
+            raise SeekUnknownOutcome("timeout")
+        return new
+
+    def create_study(self, payload):
+        data = payload["data"]
+        return self._post("study", int(data["relationships"]["investigation"]["data"]["id"]),
+                          data["attributes"]["title"])
+
+    def create_assay(self, payload):
+        data = payload["data"]
+        return self._post("assay", int(data["relationships"]["study"]["data"]["id"]), data["attributes"]["title"])
+
+    def _shown(self, kind, i):
+        left = self.hidden.get((kind, i), 0)
+        if left > 0:
+            self.hidden[(kind, i)] = left - 1
+            return False
+        return True
+
+    def find_study(self, investigation_id, title):
+        return [i for i, (parent, t) in sorted(self.studies.items())
+                if parent == investigation_id and title_key(t) == title_key(title) and self._shown("study", i)]
+
+    def find_assay(self, study_id, title):
+        return [i for i, (parent, t) in sorted(self.assays.items())
+                if parent == study_id and title_key(t) == title_key(title) and self._shown("assay", i)]
+
+    def delete_study(self, study_id):
+        if study_id in self.refuse_delete:
+            return False, 422
+        self.studies.pop(study_id, None)
+        self.deleted.append(("study", study_id))
+        return True, 204
+
+    def delete_assay(self, assay_id):
+        if assay_id in self.refuse_delete:
+            return False, 422
+        self.assays.pop(assay_id, None)
+        self.deleted.append(("assay", assay_id))
+        return True, 204
+
+    def study_assay_count(self, study_id):
+        return sum(1 for parent, _t in self.assays.values() if parent == study_id)
+
+    def assay_link_count(self, assay_id):
+        if self.engine is None:
+            return 0
+        with self.engine.connect() as conn:
+            return conn.execute(text("SELECT COUNT(*) FROM assay_assets WHERE assay_id = :a"),
+                                {"a": assay_id}).scalar()
+
+
+@pytest.fixture
+def apply_env(tmp_path, alpha, seek_db, monkeypatch):
+    """The alpha world ready to apply: SEEK's links on SQLite, sample metadata in one fake cursor, the session faked,
+    the studies release's checks passed, the run lock free, the adoption clock fast. ``make(*targets)`` plans a run
+    in ``tmp_path / name``; ``apply(run_dir)`` applies it."""
+    from nextseek_api.graph_sync import sources
+    from nextseek_api.management.commands import backfill_publication_attributes as backfill
+    from nextseek_api.studies import apply as apply_mod
+    from nextseek_api.studies import planner, preflight, report
+    from nextseek_api.studies.models import AssociationSet, StudyTarget
+
+    seed(seek_db, alpha)
+    meta = FakeSeekMetadata(alpha)
+    monkeypatch.setattr(backfill, "_cursor", meta.cursor)
+    monkeypatch.setattr(sources, "samples_by_ids", meta.samples_by_ids)
+    monkeypatch.setattr(apply_mod, "_connection", lambda: sqlite_connection(seek_db))
+
+    def outbox_exists(key):
+        return any(k == key for _kind, k, _p in outbox_of(seek_db))
+
+    monkeypatch.setattr(apply_mod, "_unit_outbox_exists", outbox_exists)
+    monkeypatch.setattr(apply_mod, "_sleep", lambda seconds: None)
+    ticks = iter(range(0, 10**6, 10))
+    monkeypatch.setattr(apply_mod, "_clock", lambda: next(ticks))
+    monkeypatch.setattr(preflight, "_switch_follows", lambda: True)
+    monkeypatch.setattr(preflight, "_acting_merge_ids", lambda driver, db: [])
+
+    @contextmanager
+    def free_lock():
+        yield True
+
+    monkeypatch.setattr(preflight, "run_lock", free_lock)
+    session = FakeSession(next_study=alpha.next_study_id, next_assay=302, engine=seek_db)
+
+    def make(*targets, name="run-1"):
+        targets = targets or (StudyTarget(key="sheet:7:paper one", investigation_id=7, title="Paper One",
+                                          description="About paper one", doi="10.0000/one", pmid="1111",
+                                          sample_ids=[3]),)
+        aset = AssociationSet(source="replay", source_ref="t", created_at="t", targets=list(targets))
+        plan = planner.plan_study_moves(aset, FakeReader(alpha), run_id=name, now="t")
+        report.write_plan_files(tmp_path / name, plan, aset)
+        return tmp_path / name, plan
+
+    def apply(run_dir, **kwargs):
+        return apply_mod.apply_study_moves(run_dir, session, None, "neo4j", reader=FakeReader(alpha), **kwargs)
+
+    return _NS(world=alpha, engine=seek_db, meta=meta, session=session, make=make, apply=apply, tmp=tmp_path)
+
+
+def journal_events(run_dir) -> list:
+    from nextseek_api.studies.journal import JOURNAL_FILE, read_journal
+
+    return [(line["step"], line["event"]) for line in read_journal(run_dir / JOURNAL_FILE)[0]]
+
+
+def truncate_journal_after(run_dir, step, event) -> None:
+    """Keep the journal up to and including the first line of ``step``/``event``: a crash right after it."""
+    from nextseek_api.studies.journal import JOURNAL_FILE
+
+    path = run_dir / JOURNAL_FILE
+    kept = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        kept.append(raw)
+        line = json.loads(raw)
+        if (line["step"], line["event"]) == (step, event):
+            break
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")

@@ -480,11 +480,13 @@ WRITERS: tuple[Writer, ...] = (
                   "nextseek_api/studies/mapping.py::insert_clone_mappings",
                   "nextseek_api/studies/mapping.py::delete_clone_mappings",
                   "nextseek_api/studies/links.py::undo_link_unit"),
-           tables=("studies", "assays", "assay_assets", "assays_internal_assays"),
-           how=("seek_client", "orm", "sql"),
-           reconcile="RECONCILE_OPERATOR",
-           note="the studies tool (manage.py studies): its SEEK session, the clones' internal-assay rows and a "
-                "link unit's undo; the hook replaces this code when its apply and rollback land in this package"),
+           tables=("studies", "assays", "assay_assets", "assays_internal_assays", "samples"),
+           how=("seek_client", "orm", "sql", "none"),
+           hook="hooks.enqueue",
+           hook_site=("nextseek_api/studies/apply.py::apply_study_moves",),
+           note="the studies tool (manage.py studies): SEEK studies and cloned assays as the operator, the clones' "
+                "internal-assay rows, and sample links moved through WR-01's and WR-02's functions; samples rows go "
+                "in each unit's transaction"),
 )
 
 

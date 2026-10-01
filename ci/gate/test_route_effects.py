@@ -39,6 +39,7 @@ SAMPLE_SEARCH_PAGE = r"^seek/^search/"
 # be named by one.
 NOT_ENTERED_BY_A_ROUTE = frozenset({
     "WR-16",   # manage.py backfill_publication_attributes --apply
+    "WR-33",   # manage.py studies --mode apply | rollback
 })
 
 # The tripwire's bounds. Depth is how many calls it follows from a view, and
