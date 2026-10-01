@@ -27,8 +27,6 @@ import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
-from .context_rows import is_investigation_row
-
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
@@ -753,7 +751,8 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
             continue
         key = _fold_title(name)
         matched = [row for row in rows or () if isinstance(row, dict) and key in row_names(row)]
-        row_level = "investigation" if any(is_investigation_row(r) for r in matched) else (
+        row_level = "investigation" if any(str(r.get("entity_type") or "").strip().lower() == "investigation"
+                                              and str(r.get("parent_project") or "").strip() for r in matched) else (
             "project" if matched else CONTAINER_LEVELS[0])
         allowed = CONTAINER_LEVELS[CONTAINER_LEVELS.index(row_level):]
         folded = {key}
