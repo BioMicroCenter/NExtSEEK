@@ -207,6 +207,7 @@ def test_label_and_relationship_tables_pin():
     # The policy sets keep their literal pins, and name only labels and relationship types the graph has.
     assert cypher_scope.JOINED_LABELS == frozenset({"Study", "Investigation", "Person"})
     assert cypher_scope.JOINED_LABELS <= schema.LABELS_V11
+    assert cypher_scope.ASSAY_LABEL is schema.ASSAY
     assert cypher_scope.FIXED_RELATIONSHIPS == frozenset({"IN_STUDY", "IN_INVESTIGATION", "IN_PROJECT", "MEMBER_OF"})
     assert cypher_scope.FIXED_RELATIONSHIPS <= set(schema.RELATIONSHIPS_V11)
     # A Neo4j procedure, not a graph name.

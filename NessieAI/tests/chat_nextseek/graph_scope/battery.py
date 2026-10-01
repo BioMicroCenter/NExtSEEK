@@ -6,7 +6,8 @@ The graph scope battery: the statements the prover is judged on, shared by the u
   Each carries the ``injected`` and ``joined`` lines the prover must report. The parameters fit the lane's fixture
   (fixture_graph.py) so the lane can run every one.
 - TAUGHT_REFUSED: the one taught shape that reads the catalog, which a non-admin may not (spec decision 4).
-- REFUSALS: one case per row of spec tables 5.4 and 5.5, with the codes of section 5.8.
+- REFUSALS: one case per row of spec tables 5.4 and 5.5, with the codes of section 5.8. The Assay rows follow
+  docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md section 6.4.
 - hidden_variants(): each expression-level construct placed directly, inside a nested EXISTS and after a WITH alias
   chain (all refuse), and inside a comment, a string literal and a backticked name (all accept).
 - WRITES: statements write_clause must refuse, one per write form.
@@ -352,6 +353,11 @@ ACCEPTED: list[Case] = [
     Case("line_comment_ending_in_crlf",
          "MATCH (s:T_SLD) // one line\r\nRETURN s.uuid AS uuid ORDER BY uuid",
          {}, S),
+    # ------------------------------------------------------------------ the Assay layer (graph schema 1.3)
+    Case("assay.catalog_node",
+         "MATCH (a:Assay) WHERE toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]\n"
+         "RETURN a.title AS title, a.input_types AS takes, a.output_types AS makes",
+         {"x": "histology"}, ()),
 ]
 
 # The one taught shape that reads the catalog, whose statistics are computed over every project (decision 4).
@@ -567,6 +573,35 @@ REFUSALS: list[Refusal] = [
     Refusal("function_not_allowed.vector", "MATCH (s:Sample) RETURN vector.similarity.cosine([1.0], [1.0]) AS v",
             ("function_not_allowed",)),
     Refusal("function_not_allowed.unknown", "RETURN randomUUID() AS u", ("function_not_allowed",)),
+    # ------------------------------------------------------------------ the Assay layer (graph schema 1.3)
+    Refusal("label_not_allowed.assay_and_sample", "MATCH (x:Assay:Sample) RETURN x.id AS id", ("label_not_allowed",)),
+    Refusal("unjoined_node.study_of_an_assay",
+            "MATCH (a:Assay)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_a_with_carried_assay",
+            "MATCH (a:Assay) WITH a MATCH (a)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_assay_alias",
+            "MATCH (a:Assay) WITH a AS x MATCH (x)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_unwound_assay_list",
+            "MATCH (a:Assay) WITH collect(a) AS xs UNWIND xs AS x MATCH (x)-[:IN_STUDY]->(st:Study) "
+            "RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_assay_in_a_subquery",
+            "MATCH (a:Assay) WHERE EXISTS { MATCH (a)-[:IN_STUDY]->(st:Study) WHERE st.title = $t } "
+            "RETURN a.title AS t", ("unjoined_node",), {"t": "x"}),
+    Refusal("unjoined_node.study_through_a_comprehension_over_assays",
+            "MATCH (a:Assay) WITH collect(a) AS xs "
+            "RETURN [x IN xs WHERE EXISTS { (x)-[:IN_STUDY]->(st:Study) WHERE st.title = $t } | x.title] AS t",
+            ("unjoined_node",), {"t": "x"}),
+    Refusal("unjoined_node.person_member_of_an_assay_reference",
+            "MATCH (a:Assay) WITH a MATCH (p:Person)-[:MEMBER_OF]->(a) RETURN count(p) AS n", ("unjoined_node",)),
+    # the three relationships a non-admin may not walk: their SampleType or cross-project Study end (spec D7)
+    Refusal("relationship_type.accepted_by",
+            "MATCH (t:SampleType)-[:ACCEPTED_BY]->(a:Assay) RETURN a.title AS t",
+            ("relationship_type", "label_not_allowed")),
+    Refusal("relationship_type.generates",
+            "MATCH (a:Assay)-[:GENERATES]->(t:SampleType) RETURN t.title AS t",
+            ("relationship_type", "label_not_allowed")),
+    Refusal("relationship_type.run_in",
+            "MATCH (a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t", ("relationship_type",)),
 ]
 
 # --------------------------------------------------------------------------- #
