@@ -16,7 +16,7 @@ root project's environment.
 Two groups are live generators. `gen_op_surfaces` renders the generated targets of the
 Container-CC operation registry (`NessieAI/build_tools/gen_op_surfaces/emit.py:205-218`),
 and `ingest_nextseek_docs` refreshes the NExtSEEK user-docs snapshot baked into the agent
-image from GitBook (`NessieAI/build_tools/ingest_nextseek_docs/constants.py:11-14`). The
+image from the in-repo user docs, `themes/NextSeek/docs/` (`NessieAI/build_tools/ingest_nextseek_docs/constants.py:11`). The
 third, `plan005_validate_plugins`, validates the installed plugin trees.
 
 The Plan 005 evidence protocol that used to sit beside them (the five `plan005_*`
@@ -29,11 +29,9 @@ record pins source commit `a429f137`
 module `build_tools.ingest_nextseek_docs` as the upstream entry point it invoked
 from that clone (`NessieAI/docker/cc-runtime/PORT-EVIDENCE.json:20-22`); the same commit pins
 the image port (`NessieAI/docker/cc-runtime/Dockerfile:4-8`). The copy here carries
-NExtSEEK-specific default output paths
-(`NessieAI/build_tools/ingest_nextseek_docs/constants.py:18-21`) and two helpers for GitBook's
-2026-07 export format, one for a leading llms.txt banner
-(`NessieAI/build_tools/ingest_nextseek_docs/fetch.py:94-95`) and one for a repeated trailing
-agent-instructions block (`NessieAI/build_tools/ingest_nextseek_docs/fetch.py:114-115`).
+NExtSEEK-specific default paths
+(`NessieAI/build_tools/ingest_nextseek_docs/constants.py:11-17`) and reads the repo's own
+markdown pages instead of GitBook's site index.
 
 `gen_op_surfaces` is the **generator** end of a contract the operation registry
 documents from the consumer end. See `NessieAI/cc/README.md` for the registry.
@@ -106,8 +104,9 @@ paths, `..` traversal and symlinks pointing outside the root
 
 ### `python -m NessieAI.build_tools.ingest_nextseek_docs`
 
-Fetches the Koch Institute GitBook site index and its Markdown pages
-(`NessieAI/build_tools/ingest_nextseek_docs/fetch.py:43-91`), refetching until two attempts
+Reads `themes/NextSeek/docs/README.md`, takes the page slugs it lists in order (the rule
+`seek/views/pages.py:docs_toc` uses) and joins the existing pages into one corpus
+(`NessieAI/build_tools/ingest_nextseek_docs/fetch.py`), rereading until two attempts
 hash identically, up to three tries, and aborting without writes if they never agree
 (`NessieAI/build_tools/ingest_nextseek_docs/__main__.py:101-145`). It writes numbered section
 files and a `README.md` into `NessieAI/docker/cc-runtime/docs/nextseek/`, replaces the
@@ -115,7 +114,7 @@ files and a `README.md` into `NessieAI/docker/cc-runtime/docs/nextseek/`, replac
 stores the content hash (`NessieAI/build_tools/ingest_nextseek_docs/__main__.py:64-81`). The
 generated README carries a do-not-edit banner naming this tool by its pre-move path
 (`NessieAI/docker/cc-runtime/docs/nextseek/README.md:3`); the next run rewrites it.
-`--force`, `--doc-url`, `--docs-dir` and `--claude-md-path` are the flags
+`--force`, `--source` (a docs directory), `--docs-dir` and `--claude-md-path` are the flags
 (`NessieAI/build_tools/ingest_nextseek_docs/__main__.py:189-209`); exit codes match the other
 generator, 0 / 1 / 2 (`NessieAI/build_tools/ingest_nextseek_docs/__main__.py:32-34`). The
 `CLAUDE.md` rewrite is atomic through a temp file and `os.replace`
@@ -142,9 +141,8 @@ exercises the generators
 `uv run pytest` is not an option: `uv sync` fails building `mysqlclient` on a host
 without MySQL client headers.
 
-The `integration` name is not a network lane: its source-contract test monkeypatches the
-fetcher (`NessieAI/tests/build_tools/integration/test_markdown_source_contract.py:44`), as
-does every other test that touches GitBook (`NessieAI/tests/build_tools/unit/test_fetch.py:36`).
+The `integration` name is not a network lane: nothing here touches the network, and the
+ingester tests read small fixture docs directories under `tmp_path`.
 
 The failures this lane shows have two causes: three tests that shell out to `git show`
 against a pinned revision
@@ -180,10 +178,6 @@ tools read by path:
 - `dmac_assistant.router.capabilities` is imported lazily inside a function, so the
   generator round-trips its own output through the real consumer loader before
   returning it (`NessieAI/build_tools/gen_op_surfaces/route_capabilities.py:301-318`).
-- `httpx` is imported at module scope by the fetcher
-  (`NessieAI/build_tools/ingest_nextseek_docs/fetch.py:10`) but is declared nowhere in the
-  repo-root `pyproject.toml`; the only declaration in the tree is the router package's
-  (`NessieAI/dmac_assistant/pyproject.toml:21`).
 - Django is **not** a dependency, even though every generator reads the registry: no
   line beginning with `import django` or `from django` exists in any file here, and
   importing `NessieAI.build_tools.gen_op_surfaces.route_capabilities` leaves `django`

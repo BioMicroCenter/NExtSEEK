@@ -20,7 +20,7 @@ def _make_section(ordinal: int, title: str, slug: str, description: str) -> Sect
     )
 
 
-SOURCE_URL = "https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/"
+SOURCE_URL = "themes/NextSeek/docs"
 SAMPLE_SECTIONS = [
     _make_section(1, "Welcome", "welcome", "Intro paragraph for welcome."),
     _make_section(2, "Getting Started", "getting-started", "Short intro."),
