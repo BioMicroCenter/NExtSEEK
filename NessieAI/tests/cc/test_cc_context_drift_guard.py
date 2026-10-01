@@ -163,11 +163,6 @@ EXPECTED_SOURCE_ONLY = frozenset({
     # request from ChatConfig.FALLBACK_API_ENDPOINTS. The CC agent never builds that body itself:
     # nextseek-api-read hands its parser plan to the same in-app API agent.
     "scope_fallback_endpoints.json",
-    # The nf-core pipeline selector's catalogs (seqera/nfcore_atlas.py, seqera/param_atlas.py). The
-    # selector runs in the app's pipeline agent; the CC agent never selects or configures a pipeline
-    # itself, so it does not need a copy.
-    "nfcore_rna_atlas.json",
-    "nfcore_param_atlas.json",
 })
 
 # ---------------------------------------------------------------------------
