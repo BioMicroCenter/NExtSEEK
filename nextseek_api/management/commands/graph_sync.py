@@ -21,17 +21,18 @@
 | ``--requeue-dead`` | dead outbox rows back to pending, claimable at once (``--kind``, ``--dry-run``) | no |
 | ``--labels`` | every DERIVED_FROM label against the rule, the whole graph (``run.relabel_all``): new ones, renames and filled protocols written, the rest counted unless approved | yes |
 | ``--merge-studies [IDS]`` | merge each SEEK study of the approval line (``id:kind``, as the dry run prints it) or rekey its legacy node in place, held to its approved kind, journaled to ``study_merge.tsv``; bare, ``all`` or bare ids only with ``--dry-run`` | yes |
-| ``--unmerge-studies PATH[,PATH...]`` | reverse those journals' merges and re-create the IN_STUDY links their archives hold | yes |
+| ``--unmerge-studies PATH[,PATH...]`` | reverse those journals' merges and re-create the IN_STUDY links their archives hold; refused unless given every merge journal under the run root that names the same ids | yes |
 | ``--studies`` | make every sample's IN_STUDY follow SEEK once, removal included whatever the switch says | yes |
 
 ``--dry-run`` makes ``--full``, ``--catalog``, ``--reconcile``, ``--labels``, ``--merge-studies``,
 ``--unmerge-studies`` and ``--studies`` read without writing and print their counts. A written ``--full`` and the
-three study modes make their own run directory, ``<kind>-<UTC time>`` under the loop's run root, when neither
-``--run-dir`` nor ``GS_RUN_DIR`` names one, and print it. ``--apply-label-changes`` (``--full``, ``--reconcile``,
-``--samples``, ``--labels``) is the operator's approval to write the DERIVED_FROM labels that change which assay an
-edge carries, which are otherwise only counted (the sync design, R14; a rename or a filled protocol is written
-without it); the loop takes that approval from ``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record``
-keeps the run out of ``graph_sync_run``, and ``--trigger`` names who started it there (the loop passes ``loop``).
+three study modes make their own run directory, ``<kind>-<UTC time>`` under the loop's run root, when ``--run-dir``
+names none, and print it; ``--unmerge-studies`` saves its result there whether it ends ok, partial or part way.
+``--apply-label-changes`` (``--full``, ``--reconcile``, ``--samples``, ``--labels``) is the operator's approval to
+write the DERIVED_FROM labels that change which assay an edge carries, which are otherwise only counted (the sync
+design, R14; a rename or a filled protocol is written without it); the loop takes that approval from
+``NEXTSEEK_GRAPH_SYNC_LABEL_CHANGES=apply`` instead. ``--no-record`` keeps the run out of ``graph_sync_run``, and
+``--trigger`` names who started it there (the loop passes ``loop``).
 
 ``--verify``, ``--drift``, ``--investigation-counts`` and ``--loop`` run against the live stack's Neo4j without
 ``--i-mean-the-live-graph``: the first three only read, and the loop is what the app container runs against its own
@@ -234,7 +235,8 @@ class Command(BaseCommand):
                                "id's kind and the approval line: every id the merge acts on, with its kind.")
         mode.add_argument("--unmerge-studies", type=_paths, metavar="PATH[,PATH...]",
                           help="Reverse the merges journaled in these run directories or journals, and re-create "
-                               "the IN_STUDY links their in_study_removed.tsv archives hold.")
+                               "the IN_STUDY links their in_study_removed.tsv archives hold; its result is saved in "
+                               "its own unmerge_studies-<UTC time> run directory.")
         mode.add_argument("--studies", action="store_true",
                           help="Make every sample's IN_STUDY follow SEEK once, removing stale links whatever "
                                f"{study_links.SWITCH_ENV} says, each archived to in_study_removed.tsv first.")
@@ -250,12 +252,14 @@ class Command(BaseCommand):
         parser.add_argument("--chunk", type=_positive_int, default=writer.SAMPLE_CHUNK,
                             help="Samples per MySQL page and per write transaction (default %(default)s).")
         parser.add_argument("--run-dir", metavar="PATH",
-                            help="--full: the directory for full_sync.json, census.json and the CHILD_OF archive "
-                                 "(default: a new directory under $GS_RUN_DIR). --catalog, --verify, --drift, "
-                                 "--reconcile and --samples also save their result there.")
+                            help="--full and the three study modes: their run directory, for their report, journal "
+                                 "and archives (default: <kind>-<UTC time> under the run root). --catalog, --verify, "
+                                 "--drift, --reconcile and --samples also save their result there.")
         parser.add_argument("--run-root", metavar="PATH",
-                            help="Where --reconcile, --samples and the loop make their own run directories "
-                                 "(default: $GS_RUN_DIR, else graph_sync under the log directory).")
+                            help="Where --reconcile, --samples, the loop, a written --full and the study modes make "
+                                 "their own run directories (default: $GS_RUN_DIR, else graph_sync under the log "
+                                 "directory); --unmerge-studies also refuses unless given every merge journal there "
+                                 "that names one of its ids.")
         parser.add_argument("--seed", type=int, help="--verify, --drift: the seed of the random samples.")
         parser.add_argument("--bench-keys", metavar="FILE",
                             help="--full: a JSON list of attribute keys or [sample type, attribute] pairs the "
@@ -454,8 +458,10 @@ class Command(BaseCommand):
             raise CommandError(f"graph_sync --merge-studies: {status}: {why}", returncode=_MERGE_EXIT.get(status, 1))
 
     def _unmerge_studies(self, driver, db, options):
-        """Undo merges from their journals (``study_merge.undo``); every path is checked before anything is read or
-        written, and the undo runs under the graph-write lock, recorded as a run."""
+        """Undo merges from their journals (``study_merge.undo``). Every path is checked before anything is read or
+        written, and so is the run root for other merge journals naming the same ids. Otherwise the undo runs under
+        the graph-write lock, recorded as a run, and its result is saved as ``study_merge.json`` in its own run
+        directory, ``unmerge_studies-<UTC time>``, whether it ends ok, partial or with an exception."""
         paths, as_json = options["unmerge_studies"], options["json"]
         run_root = options["run_root"] or loop.default_run_root()
         try:
@@ -472,27 +478,51 @@ class Command(BaseCommand):
             result["mode"] = "unmerge_studies"
             self._emit(result, as_json)
             return
+        run_dir = self._unmerge_run_dir(options, paths)
         handle = None if options["no_record"] else state.start_run("unmerge_studies", trigger=options["trigger"])
+        result = {"mode": "unmerge_studies", "run_dir": run_dir, "paths": [os.path.abspath(p) for p in paths]}
         try:
             with state.graph_write_lock(targeted.LOCK_WAIT_S) as held:
-                result = (study_merge.undo(driver, db, paths, run_root=run_root) if held
-                          else {"status": "lock_timeout", "lock_timeout_s": targeted.LOCK_WAIT_S})
+                result.update(study_merge.undo(driver, db, paths, run_root=run_root) if held
+                              else {"status": "lock_timeout", "lock_timeout_s": targeted.LOCK_WAIT_S})
         except ValueError as exc:
             # The undo's own checks of its paths, journals and archives, which run before it writes: an archive it
             # cannot read, or a merge journal naming the same ids that appeared while this run waited for the lock.
-            if handle is not None:
-                handle.finish("refused", counts={"error": _text(exc)})
+            result.update(status=study_merge.REFUSED, error=_text(exc))
+            self._finish_unmerge(handle, run_dir, result)
             raise CommandError(f"graph_sync --unmerge-studies: refused, nothing written: {exc}", returncode=2) from exc
         except Exception as exc:
-            if handle is not None:
-                handle.finish("failed", counts={"error": _text(exc)})
-            raise CommandError(f"graph_sync --unmerge-studies failed part way: {_text(exc)}", returncode=1) from exc
-        result["mode"] = "unmerge_studies"
-        if handle is not None:
-            handle.finish("ok" if result["status"] == study_merge.OK else "failed", counts=_scalars(result))
+            result.update(status=study_merge.FAILED, error=_text(exc))
+            self._finish_unmerge(handle, run_dir, result)
+            raise CommandError(f"graph_sync --unmerge-studies failed part way: {_text(exc)}; its report is in "
+                               f"{run_dir}", returncode=1) from exc
+        self._finish_unmerge(handle, run_dir, result)
         self._emit(result, as_json)
         if result["status"] != study_merge.OK:
-            raise CommandError(f"graph_sync --unmerge-studies: {result['status']}", returncode=1)
+            raise CommandError(f"graph_sync --unmerge-studies: {result['status']}: {_undo_problems(result)}; its "
+                               f"report is in {run_dir}", returncode=1)
+
+    def _unmerge_run_dir(self, options, paths) -> str:
+        """The undo's run directory (``_manual_run_dir``). A ``--run-dir`` that the undo reads, or that holds a
+        merge's journal or report (whose ``study_merge.json`` the undo's report would replace), is refused, exit 2."""
+        target = os.path.realpath(options["run_dir"]) if options["run_dir"] else None
+        clash = target is not None and (
+            target in {os.path.realpath(p) for p in paths}
+            or any(os.path.exists(os.path.join(target, name))
+                   for name in (study_merge.JOURNAL_FILE, study_merge.REPORT_FILE)))
+        if clash:
+            raise CommandError(f"graph_sync --unmerge-studies: refused, nothing written: the run directory {target} "
+                               "holds a merge's journal or report, or is one of the paths read; name another with "
+                               "--run-dir, or leave it out", returncode=2)
+        return self._manual_run_dir(options, "unmerge_studies")
+
+    @staticmethod
+    def _finish_unmerge(handle, run_dir: str, result: dict) -> None:
+        _save(run_dir, study_merge.REPORT_FILE, result)
+        if handle is not None:
+            status = result["status"]
+            handle.finish(status if status in (study_merge.OK, study_merge.REFUSED) else "failed",
+                          counts=_scalars(result))
 
     def _studies(self, driver, db, options):
         """Every sample's IN_STUDY follows SEEK once (``study_links.rebuild_in_study``), removal included whatever
@@ -666,6 +696,19 @@ class Command(BaseCommand):
         logger = logging.getLogger(PROGRESS_LOGGER)
         logger.removeHandler(handler)
         logger.setLevel(previous)
+
+
+def _undo_problems(result: dict) -> str:
+    """What an undo that did not end ok could not do, in words: each refused id with its reason, each Investigation
+    not restored, each study whose late arrivals stayed on the legacy node, or the busy lock."""
+    parts = [f"study {r['study_id']} refused: {r['reason']}" for r in result.get("refused") or []]
+    parts += [f"study {i['study_id']}: its {i['node']} node's Investigation {i['investigation'].get('id')} was not "
+              "restored" for i in result.get("investigation_not_restored") or []]
+    parts += [f"study {s['study_id']}: {len(s['arrived_left_on_legacy'])} sources that reached it after the merge "
+              "stayed on the legacy node" for s in result.get("studies") or [] if s.get("arrived_left_on_legacy")]
+    if result.get("status") == "lock_timeout":
+        parts.append("the graph-write lock was busy")
+    return "; ".join(parts) or "see its report"
 
 
 def _save(run_dir: str, name: str, payload: dict) -> None:

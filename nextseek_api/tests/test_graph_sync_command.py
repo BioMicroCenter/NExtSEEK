@@ -1440,15 +1440,37 @@ def test_studies_exits_by_the_rebuilds_status(graphdb, studies_cmd, tmp_path, st
 
 def test_unmerge_studies_reads_every_path_and_writes_under_the_lock(graphdb, studies_cmd, tmp_path):
     first, second = _journal_dir(tmp_path, "m1"), _journal_dir(tmp_path, "m2")
-    call_command("graph_sync", "--unmerge-studies", f"{first},{second}", stdout=StringIO(), stderr=StringIO())
+    err = StringIO()
+    call_command("graph_sync", "--unmerge-studies", f"{first},{second}", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=err)
     assert studies_cmd.calls == [("lock", targeted.LOCK_WAIT_S), ("undo", [first, second], False)]
     assert studies_cmd.runs == ["unmerge_studies"]
+    run_dirs = sorted(tmp_path.glob("unmerge_studies-*"))
+    assert len(run_dirs) == 1 and f"run directory: {run_dirs[0]}" in err.getvalue()
+    saved = json.loads((run_dirs[0] / study_merge.REPORT_FILE).read_text())
+    assert (saved["status"], saved["mode"], saved["run_dir"]) == ("ok", "unmerge_studies", str(run_dirs[0]))
+    assert saved["paths"] == [first, second]
 
 
 def test_unmerge_studies_dry_run_takes_no_lock(graphdb, studies_cmd, tmp_path):
     first = _journal_dir(tmp_path, "m1")
-    call_command("graph_sync", "--unmerge-studies", first, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    call_command("graph_sync", "--unmerge-studies", first, "--dry-run", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
     assert studies_cmd.calls == [("undo", [first], True)] and studies_cmd.runs == []
+    assert list(tmp_path.glob("unmerge_studies-*")) == []
+
+
+@pytest.mark.parametrize("name", ["m1", study_merge.JOURNAL_FILE])
+def test_unmerge_studies_never_writes_its_report_into_a_merges_run_directory(graphdb, studies_cmd, tmp_path, name):
+    first = _journal_dir(tmp_path, "m1")
+    target = first if name == "m1" else str(tmp_path / "elsewhere")
+    if name != "m1":
+        os.makedirs(target)
+        Path(target, study_merge.REPORT_FILE).write_text("{}", encoding="utf-8")
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", first, "--run-dir", target, "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == [] and studies_cmd.runs == []
 
 
 def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tmp_path):
@@ -1473,12 +1495,32 @@ def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names
     assert studies_cmd.calls == [] and studies_cmd.runs == []
 
 
-def test_an_undo_that_refused_an_id_exits_1(graphdb, studies_cmd, tmp_path):
-    studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}]}
+def test_an_undo_that_refused_an_id_exits_1_and_keeps_its_report(graphdb, studies_cmd, tmp_path):
+    studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}],
+                        "investigation_not_restored": [{"study_id": 4, "node": "legacy",
+                                                        "investigation": {"id": 901, "title": "Alder"}}]}
     with pytest.raises(CommandError) as exc:
-        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), stdout=StringIO(),
-                     stderr=StringIO())
+        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
     assert exc.value.returncode == 1
+    assert "study 3 refused: changed" in str(exc.value) and "Investigation 901" in str(exc.value)
+    [run_dir] = tmp_path.glob("unmerge_studies-*")
+    saved = json.loads((run_dir / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "partial" and saved["refused"] == [{"study_id": 3, "reason": "changed"}]
+
+
+def test_an_undo_that_fails_part_way_keeps_its_report(graphdb, studies_cmd, tmp_path, monkeypatch):
+    def undo(driver, db, paths, **kwargs):
+        raise RuntimeError("the connection to Neo4j was lost")
+
+    monkeypatch.setattr(study_merge, "undo", undo)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 1 and "connection to Neo4j was lost" in str(exc.value)
+    [run_dir] = tmp_path.glob("unmerge_studies-*")
+    saved = json.loads((run_dir / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "failed" and "connection to Neo4j was lost" in saved["error"]
 
 
 @pytest.mark.parametrize("args", [("--merge-studies", "3", "--dry-run"), ("--studies", "--dry-run"),
