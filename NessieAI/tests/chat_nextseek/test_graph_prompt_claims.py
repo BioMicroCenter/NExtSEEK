@@ -160,8 +160,8 @@ def test_a_collection_date_question_reads_the_uid_date():
 def test_a_file_type_is_matched_in_the_type_field_and_the_file_name_and_kept_apart():
     assert ("- **A file type or format is recorded in two places**: a type or format field (`DataType`) and the "
             "file name's extension (`File_PrimaryData`). Match both and keep them apart: "
-            "`WHERE toLower(toString(s.DataType)) CONTAINS $term OR toLower(toString(s.File_PrimaryData)) "
-            "ENDS WITH $ext RETURN coalesce(toString(s.DataType), '(file name only)') AS value, count(*) AS n "
+            "`WHERE toLower(toString(s.DataType)) CONTAINS $term OR any(e IN $exts WHERE "
+            "toLower(toString(s.File_PrimaryData)) ENDS WITH e) RETURN coalesce(toString(s.DataType), '(file name only)') AS value, count(*) AS n "
             "ORDER BY n DESC`, so the reply can give the total with and without the records known only by "
             "their file name.") in PROMPT
 
