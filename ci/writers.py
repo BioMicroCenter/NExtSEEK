@@ -327,13 +327,17 @@ WRITERS: tuple[Writer, ...] = (
            note="the internal-assay admin pages; a renamed internal assay moves the labels of every edge that "
                 "names it, which is what the assay_map kind is for"),
     Writer(id="WR-16",
-           sites=("nextseek_api/management/commands/backfill_publication_attributes.py::Command.handle",),
+           sites=("nextseek_api/management/commands/backfill_publication_attributes.py::write_publication_attributes",
+                  "nextseek_api/management/commands/backfill_publication_attributes.py::restore_publication_text"),
            tables=("samples",),
            how=("sql",),
            hook="enqueue_graph_sync",
-           hook_site="nextseek_api/management/commands/backfill_publication_attributes.py::Command.handle",
-           note="the publication backfill command with --apply; it does not bump updated_at, so without the "
-                "hook only a full sync would ever see it"),
+           hook_site=("nextseek_api/management/commands/backfill_publication_attributes.py"
+                      "::write_publication_attributes",
+                      "nextseek_api/management/commands/backfill_publication_attributes.py::restore_publication_text"),
+           note="the publication backfill command with --apply, and the studies tool's publication step and its "
+                "rollback through the same two functions; they do not bump updated_at, so without the hook only a "
+                "full sync would ever see them"),
     Writer(id="WR-18",
            sites=("startup/steps/seed.py::load_neo4j_dump",),
            tables=(),

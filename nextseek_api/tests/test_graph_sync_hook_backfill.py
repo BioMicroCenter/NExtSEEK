@@ -196,3 +196,85 @@ def test_the_ids_are_queued_after_their_rows_are_written(seek, tmp_path, monkeyp
     assert seen[0]["payload"] == [11, 12]
     assert seen[0]["stored"] == [{"Title": "a", "DOI": "10.1/a", "PMID": "999"},
                                  {"Title": "b", "DOI": "10.1/a", "PMID": "999"}]
+
+
+# --- write_publication_attributes and restore_publication_text (the studies tool, tool spec 7.5) -----------------
+
+
+def test_publication_pairs_align_pmids_and_drop_blank_dois():
+    assert cmd.publication_pairs("10.0000/a; ; 10.0000/b", "1; 2") == (("10.0000/a", "1"), ("10.0000/b", ""))
+    assert cmd.publication_pairs(None, None) == ()
+    assert cmd.publication_pairs("  ", "5") == ()
+
+
+@pytest.mark.django_db
+def test_values_are_compared_not_text(seek):
+    seek.metadata[11] = json.dumps({"Title": "a", "DOI": "10.0000/a;10.0000/b", "PMID": "1;2"})
+
+    report = cmd.write_publication_attributes({11: ("10.0000/a; 10.0000/b", "1; 2")}, apply=True)
+
+    assert report["updated"] == [] and report["changed"] == 0
+    assert seek.updated == []
+
+
+@pytest.mark.django_db
+def test_unreadable_metadata_is_skipped_and_reported_not_replaced(seek):
+    seek.metadata[12] = "not json"
+    seek.metadata[13] = json.dumps(["a", "list"])
+
+    report = cmd.write_publication_attributes({12: ("10.0000/a", "1"), 13: ("10.0000/a", "1")}, apply=True)
+
+    assert report["unreadable"] == [12, 13]
+    assert seek.updated == []
+    assert seek.metadata[12] == "not json"
+
+
+@pytest.mark.django_db
+def test_on_batch_gets_old_and_new_text_before_the_batch_is_written(seek):
+    seen = []
+
+    def on_batch(rows):
+        seen.append([(sid, old, new, sid in seek.updated) for sid, old, new in rows])
+
+    cmd.write_publication_attributes({11: ("10.0000/a", "1"), 12: ("10.0000/a", "1"), 13: ("10.0000/a", "1")},
+                                     apply=True, batch=2, on_batch=on_batch)
+
+    assert [[row[0] for row in batch] for batch in seen] == [[11, 12], [13]]
+    assert all(not written for batch in seen for *_rest, written in batch)
+    old, new = seen[0][0][1], seen[0][0][2]
+    assert json.loads(old) == {"Title": "a"}
+    assert json.loads(new) == {"Title": "a", "DOI": "10.0000/a", "PMID": "1"}
+
+
+@pytest.mark.django_db
+def test_a_dry_run_calls_no_callback_and_writes_nothing(seek):
+    calls = []
+    report = cmd.write_publication_attributes({11: ("10.0000/a", "1")}, apply=False, on_batch=calls.append)
+    assert calls == [] and seek.updated == [] and report["changed"] == 1
+
+
+@pytest.mark.django_db
+def test_the_enqueue_prefix_and_extra_ids_are_the_callers(seek):
+    cmd.write_publication_attributes({11: ("10.0000/a", "1")}, apply=True,
+                                     enqueue_prefix="batch:studies:run-1:pubs", also_enqueue=[12])
+
+    assert queued() == [("samples", "batch:studies:run-1:pubs:0", [11, 12])]
+
+
+@pytest.mark.django_db
+def test_restore_writes_old_text_only_where_the_new_text_still_stands(seek):
+    old11, new11 = seek.metadata[11], json.dumps({"Title": "a", "DOI": "10.0000/a", "PMID": "1"})
+    seek.metadata[11] = new11
+    old12 = seek.metadata[12]
+    seek.metadata[12] = json.dumps({"Title": "b", "edited": "later"})
+    rows = [(11, old11, new11), (12, old12, json.dumps({"Title": "b", "DOI": "x", "PMID": ""})),
+            (13, seek.metadata[13], "whatever"), (404, "{}", "{}")]
+
+    report = cmd.restore_publication_text(rows, enqueue_prefix="batch:studies:run-1:undo:pubs")
+
+    assert report["restored"] == [11]
+    assert report["already_old"] == [13]
+    assert report["changed_since"] == [12]
+    assert report["missing"] == [404]
+    assert seek.metadata[11] == old11
+    assert queued() == [("samples", "batch:studies:run-1:undo:pubs:0", [11])]
