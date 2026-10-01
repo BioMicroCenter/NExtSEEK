@@ -139,6 +139,20 @@ def test_a_post_that_raised_is_an_unknown_outcome(error):
         session.create_assay({"data": {}})
 
 
+def _refused_connection():
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    return requests.ConnectionError(MaxRetryError(None, "/studies", NewConnectionError(None, "Connection refused")))
+
+
+@pytest.mark.parametrize("error", [requests.ConnectTimeout("no connection made"), _refused_connection()])
+def test_a_post_that_never_connected_sent_nothing_and_stops_at_once(error):
+    session, _ = _session({"create_study": error})
+    with pytest.raises(s.SeekError) as exc:
+        session.create_study({"data": {}})
+    assert exc.value.code == "seek_unreachable"
+
+
 def test_a_get_is_retried_once():
     session, client = _session()
     calls = iter([requests.Timeout("slow"), (200, {"data": {"id": "101"}})])
