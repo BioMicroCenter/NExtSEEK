@@ -942,9 +942,12 @@ def test_the_prompt_no_longer_says_the_chatter_gets_no_query():
     assert "no Cypher" not in text
     assert "You do NOT receive the query itself" not in text
     assert ("there are no others, and you receive no parser plan and no API request. On a graph turn you also "
-            "receive the `Executed query`, for checking only.") in text
+            "receive the `Executed query`.") in text
     assert ("`What the query actually did` describes the query in the user's words; the `Executed query` block "
-            "is there only to check a `NOT APPLIED` line or a note against what ran.") in text
+            "is there to check a `NOT APPLIED` line or a note against what ran, and to say what was counted when "
+            "the user asks how the answer was found.") in text
+    assert "for checking only" not in text
+    assert "there only to check" not in text
 
 
 def test_the_prompt_lets_the_user_ask_how_the_answer_was_found():
@@ -985,18 +988,30 @@ def test_the_one_exception_no_longer_promises_a_not_contains_override():
 
 def test_a_count_column_is_not_summarised_as_a_value_list():
     rows = [{"uuid": f"U-{i}", "Format": f"f{i % 3}", "n": 5 if i < 10 else 7} for i in range(12)]
-    block = _counts(rows, shown=3, aggregate=True)
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Format AS Format, count(*) AS n"))
 
     assert "- Format:" in block
     assert "- n:" not in block
 
 
-def test_a_different_aggregate_shape_also_skips_its_numeric_column():
-    rows = [{"value": f"v{i % 2}", "total": 4, "mean": 1.5} for i in range(8)]
-    rows = [dict(r, **{"count(*)": 3}) for r in rows]
-    block = _counts(rows, shown=2, aggregate=True)
+def test_a_numeric_group_key_is_kept_and_only_the_count_beside_it_is_skipped():
+    rows = [{"Passage": 3 if i % 2 else 4, "n": 6 + i % 2} for i in range(12)]
+    block = _counts(rows, shown=3, aggregate_columns=chatter_mod._aggregate_columns(
+        "MATCH (s:Sample) RETURN s.Passage AS Passage, count(DISTINCT s) AS n ORDER BY n DESC"))
 
+    assert "- Passage: 3 6, 4 6" in block
+    assert "- n:" not in block
+
+
+def test_an_unaliased_count_and_a_sum_are_both_skipped():
+    rows = [{"value": f"v{i % 2}", "count(*)": 3, "total": 4, "Size": 9} for i in range(8)]
+    cols = chatter_mod._aggregate_columns("MATCH (s:Sample) RETURN s.Fmt AS value, count(*), sum(s.Size) AS total")
+    block = _counts(rows, shown=2, aggregate_columns=cols)
+
+    assert cols == {"count(*)", "total"}
     assert "- value:" in block
+    assert "- Size: 9 8" in block
     assert "- count(*):" not in block
     assert "- total:" not in block
 
@@ -1016,3 +1031,17 @@ def test_a_count_query_turn_leaves_its_count_column_out_of_the_value_counts(capt
     assert "- value:" in text
     assert "- n:" not in text
 
+
+
+def test_no_per_turn_line_still_forbids_the_method_the_user_asked_for(captured):
+    count_only = _graph_turn(captured, question="how did you get that number", rows=[{"n": 12}],
+                             cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("the reply ends on the answer, or, when the user asked how it was found, on the one or two "
+            "sentences that say what was counted.") in count_only
+    assert "the reply ends on the answer.\n" not in count_only
+
+    qualified = _graph_turn(captured, question="what did you count", rows=[{"n": 0}], total=0,
+                            cypher="MATCH (s:T_TIS) RETURN count(s) AS n")
+    assert ("not how it was reached, unless the user asked how the answer was found: then also say, in one or "
+            "two plain sentences, what was counted (which records, of which type, under which conditions).") in qualified
+    assert "not how it was reached.\n" not in qualified
