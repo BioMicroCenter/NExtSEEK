@@ -19,9 +19,10 @@ into named communities. It is generated, so do not edit these files by hand.
    `import csv` or a call to `Path(...)` by name to whichever repo file defines that name), how the
    communities are found (Louvain) and how they get their plain names (the `AREAS` table).
 
-Left out of the input: vendored and built trees (`static/admin`, `static/grappelli`,
+Left out of the input, by `.graphifyignore` at the repo root (graphify reads it with `.gitignore`):
+vendored and built trees (`static/admin`, `static/grappelli`,
 `static/filebrowser`, `static/mezzanine`, `static/css`, every jquery-easyui copy, the committed
-chat bundle `static/js/chat_assistant`, vendored bootstrap scripts), `node_modules`, `.venv`,
+chat bundle `static/js/chat_assistant`, the vendored bootstrap, html5shiv and respond scripts), `node_modules`, `.venv`,
 `NessieAI/history`, `docs/archive`, `startup/seed`, `migrations` folders, and runtime folders
 (`filestore`, `logs`, `outputs`, the root `schema_rag/` data).
 
@@ -34,7 +35,7 @@ From the repo root, after the code changed:
 python3 scripts/graph_files.py  # stdlib only; rewrites the three files here
 ```
 
-A first build (no `graphify-out/` yet) is `/graphify .` with the exclusions above. Commit the
+A first build (no `graphify-out/` yet) is `/graphify .`; it applies `.graphifyignore` on its own. Commit the
 three files together; the commit they describe is printed in `graph-files.json` and in the
 title of the svg and the page.
 
