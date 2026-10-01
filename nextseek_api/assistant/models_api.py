@@ -380,7 +380,9 @@ class UploadReingestRequest(BaseModel):
     """
     build_ids: str = Field(..., description="Comma-separated build ids from build-upload-xlsx.")
     confirmed_write: bool = Field(False, strict=True)
-    use_prod: bool = False
+    use_prod: bool = Field(
+        False,
+        description="Ignored by this op: it always uploads to the instance that receives the request.")
     model_config = ConfigDict(extra="forbid")
 
 

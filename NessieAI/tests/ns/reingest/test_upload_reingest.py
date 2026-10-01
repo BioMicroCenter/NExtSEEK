@@ -4,6 +4,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import json
+import os
+import shutil
+
 import pytest
 
 import NessieAI.ns.granular as g
@@ -32,6 +36,20 @@ def _build(env, name, mode, *, user_id=7, project_id=14, disposition="SOFT_FLAG"
         answers_digest="d", user_id=user_id)
 
 
+def _copy_stage(p):
+    shutil.copyfile(p, p + ".staged")
+    return p + ".staged"
+
+
+def _edit_record(file_id, **changes):
+    path = os.path.join(build_records._ROOT, "7", f"{file_id}.json")
+    with open(path) as fh:
+        record = json.load(fh)
+    record.update(changes)
+    with open(path, "w") as fh:
+        json.dump(record, fh)
+
+
 def _op(args, session=None):
     gate = build_gate(set())
     return g.run_op("upload-reingest", args, config=None,
@@ -47,7 +65,7 @@ def test_anything_but_true_is_blocked_before_any_lookup(env, confirmed):
         run.assert_not_called()
 
 
-@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=lambda p: p + ".staged")
+@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=_copy_stage)
 @patch("nextseek_api.batch_upload.views.dispatch_batch_job")
 def test_new_mode_starts_first_and_files_only(dispatch, _stage, env):
     update = _build(env, "reingest_D_SEQ_update", "update")
@@ -62,7 +80,7 @@ def test_new_mode_starts_first_and_files_only(dispatch, _stage, env):
     assert [j["job_id"] for j in result["jobs"]] == ["job-new", "job-update"]
 
 
-@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=lambda p: p)
+@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=_copy_stage)
 @patch("nextseek_api.batch_upload.views.dispatch_batch_job")
 def test_the_second_job_starts_after_the_first_fails(dispatch, _stage, env):
     new = _build(env, "reingest_A_ALN", "new")
@@ -70,7 +88,8 @@ def test_the_second_job_starts_after_the_first_fails(dispatch, _stage, env):
     dispatch.side_effect = [RuntimeError("broker down"), "job-update"]
     result = _op({"build_ids": f"{new['build_id']},{update['build_id']}",
                   "confirmed_write": True})
-    assert "broker down" in result["jobs"][0]["error"]
+    error = result["jobs"][0]["error"]
+    assert "RuntimeError" in error and "broker down" not in error
     assert result["jobs"][1]["job_id"] == "job-update"
 
 
@@ -138,7 +157,7 @@ def test_identity_is_resolved_only_after_the_gate_passes(env):
     assert resolve == []
 
 
-@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=lambda p: p)
+@patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=_copy_stage)
 @patch("nextseek_api.batch_upload.views.dispatch_batch_job", return_value="job-1")
 def test_a_callable_identity_is_resolved_once_confirmed(dispatch, _stage, env):
     new = _build(env, "reingest_A_ALN", "new")
@@ -146,3 +165,82 @@ def test_a_callable_identity_is_resolved_once_confirmed(dispatch, _stage, env):
                  session=SimpleNamespace(user=USER, upload_context=lambda: CTX))
     assert dispatch.call_args.kwargs["user_ctx"] == CTX
     assert result["jobs"][0]["job_id"] == "job-1"
+
+
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_a_staged_copy_with_different_bytes_is_refused_and_removed(dispatch, env):
+    new = _build(env, "reingest_A_ALN", "new")
+    staged_paths = []
+
+    def _tamper(p):
+        staged_paths.append(p + ".staged")
+        with open(p + ".staged", "wb") as fh:
+            fh.write(b"not the reviewed bytes")
+        return p + ".staged"
+
+    with patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=_tamper):
+        with pytest.raises(g.OpValidationError, match="does not match the reviewed workbook"):
+            _op({"build_ids": new["build_id"], "confirmed_write": True})
+    dispatch.assert_not_called()
+    assert staged_paths and not any(os.path.exists(p) for p in staged_paths)
+
+
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_a_staging_failure_removes_earlier_copies_and_starts_nothing(dispatch, env):
+    new = _build(env, "reingest_A_ALN", "new")
+    update = _build(env, "reingest_D_SEQ_update", "update")
+    calls = []
+
+    def _second_raises(p):
+        calls.append(p)
+        if len(calls) == 2:
+            raise OSError("disk full at /secret/path")
+        return _copy_stage(p)
+
+    with patch("nextseek_api.batch_upload.views.stage_workbook_copy", side_effect=_second_raises):
+        with pytest.raises(g.OpValidationError) as info:
+            _op({"build_ids": f"{new['build_id']},{update['build_id']}",
+                 "confirmed_write": True})
+    assert "reingest_D_SEQ_update: could not stage the workbook" in str(info.value)
+    assert "disk full" not in str(info.value)
+    dispatch.assert_not_called()
+    assert not os.path.exists(calls[0] + ".staged")
+
+
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_a_record_built_by_another_user_is_refused_even_under_this_users_id(dispatch, env):
+    new = _build(env, "reingest_A_ALN", "new")
+    _edit_record(new["build_id"], built_by_user_id=8)
+    with pytest.raises(g.OpValidationError, match="built by another user"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True})
+    dispatch.assert_not_called()
+
+
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_a_record_that_does_not_match_its_id_is_refused(dispatch, env):
+    new = _build(env, "reingest_A_ALN", "new")
+    _edit_record(new["build_id"], build_id="0" * 64)
+    with pytest.raises(g.OpValidationError, match="record does not match its id"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True})
+    dispatch.assert_not_called()
+
+
+@pytest.mark.parametrize("disposition", [None, "", "HARD_REJECT", "MAYBE"])
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_only_clean_or_soft_flag_builds_pass(dispatch, disposition, env):
+    new = _build(env, "reingest_A_ALN", "new")
+    _edit_record(new["build_id"], disposition=disposition)
+    with pytest.raises(g.OpValidationError, match="QA did not pass this workbook"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True})
+    dispatch.assert_not_called()
+
+
+@patch("nextseek_api.batch_upload.views.dispatch_batch_job")
+def test_a_record_path_outside_the_artifact_roots_is_refused(dispatch, env, tmp_path_factory):
+    new = _build(env, "reingest_A_ALN", "new")
+    outside = tmp_path_factory.mktemp("elsewhere") / "reingest_A_ALN.xlsx"
+    outside.write_bytes(b"reingest_A_ALN")
+    _edit_record(new["build_id"], path=str(outside))
+    with pytest.raises(g.OpValidationError, match="outside the artifact root"):
+        _op({"build_ids": new["build_id"], "confirmed_write": True})
+    dispatch.assert_not_called()

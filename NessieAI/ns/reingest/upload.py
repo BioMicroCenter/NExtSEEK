@@ -10,6 +10,7 @@ The write gate is called by granular._upload_reingest before anything here runs.
 from __future__ import annotations
 
 import logging
+import os
 
 from NessieAI.ns.reingest import build_records
 
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 # How many workbooks one confirmation may cover: "all" (the ruling, for now)
 # or "per_workbook" (exactly one build per call).
 CONFIRMATION_SCOPE = "all"
+
+
+_PASSING = {"CLEAN", "SOFT_FLAG"}
 
 
 class UploadRefused(ValueError):
@@ -59,6 +63,12 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
             reasons.append(str(exc))
             continue
         key = record.get("artifact_key", build_id[:12])
+        if record.get("built_by_user_id") != user_id:
+            reasons.append(f"{key}: built by another user")
+            continue
+        if record.get("build_id") != build_id:
+            reasons.append(f"{key}: record does not match its id")
+            continue
         safe = _safe_artifact_path(record.get("path"))
         if safe is None or not safe.is_file():
             reasons.append(f"{key}: workbook missing or outside the artifact root")
@@ -66,8 +76,8 @@ def verify(build_ids: list[str], *, user_id) -> list[dict]:
         if build_records.sha256_of(str(safe)) != build_id:
             reasons.append(f"{key}: the workbook changed after it was reviewed")
             continue
-        if record.get("disposition") == "HARD_REJECT":
-            reasons.append(f"{key}: QA blocked this workbook")
+        if record.get("disposition") not in _PASSING:
+            reasons.append(f"{key}: QA did not pass this workbook ({record.get('disposition')})")
             continue
         if record.get("project_id") is None:
             reasons.append(f"{key}: {record.get('project_note') or 'no project'}")
@@ -104,12 +114,35 @@ def run(*, build_ids_raw, user, upload_context) -> dict:
 
     from nextseek_api.batch_upload import views as batch_views
 
-    jobs: list[dict] = []
+    # Phase A: stage every copy and prove it is the reviewed file, before any job starts.
+    staged_paths: list[tuple[dict, str]] = []
+
+    def _discard() -> None:
+        for _, staged in staged_paths:
+            try:
+                os.remove(staged)
+            except FileNotFoundError:
+                pass
+
     for record in records:
+        try:
+            staged = batch_views.stage_workbook_copy(record["path"])
+        except Exception:  # noqa: BLE001
+            logger.exception("upload-reingest: could not stage %s", record["artifact_key"])
+            _discard()
+            raise UploadRefused([f"{record['artifact_key']}: could not stage the workbook"])
+        staged_paths.append((record, staged))
+        if build_records.sha256_of(staged) != record["build_id"]:
+            _discard()
+            raise UploadRefused(
+                [f"{record['artifact_key']}: the staged copy does not match the reviewed workbook"])
+
+    # Phase B: new mode first; a failed start is recorded and never stops the next.
+    jobs: list[dict] = []
+    for record, staged in staged_paths:
         entry = {"build_id": record["build_id"], "artifact_key": record["artifact_key"],
                  "sample_type": record["sample_type"], "mode": record["mode"]}
         try:
-            staged = batch_views.stage_workbook_copy(record["path"])
             entry["job_id"] = batch_views.dispatch_batch_job(
                 user_pk=user_id, user_ctx=upload_context,
                 lababbv=upload_context["lababbv"], project_id=record["project_id"],
@@ -117,6 +150,6 @@ def run(*, build_ids_raw, user, upload_context) -> dict:
                 xlsx_paths=[staged])
         except Exception as exc:  # noqa: BLE001 -- one failed start never stops the next
             logger.exception("upload-reingest: job for %s did not start", record["artifact_key"])
-            entry["error"] = str(exc)
+            entry["error"] = f"did not start ({type(exc).__name__}); see the server log"
         jobs.append(entry)
     return {"jobs": jobs, "reply": _reply(jobs)}
