@@ -52,6 +52,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `deploy` | install, redeploy, rollback or post-deploy verification on any box | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
 | `nextseek-viewset` | adding or changing a `nextseek_api` ViewSet; finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-viewset/SKILL.md` | auto |
+| `share-samples` | sharing samples of one project into another project's existing study through the superuser-only sample-shares endpoint: dry run, plan, apply, verify | `.claude/skills/share-samples/SKILL.md` | auto |
 | `nessie-run-review` | triaging a finished nessie_tests run into an HTML review | `NessieAI/tests/nessie_tests/output-skill/SKILL.md` | by path |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | by path |
 <!-- END DOCS-MAP:skills -->

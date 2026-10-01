@@ -1,9 +1,9 @@
 # Sharing samples into another project's study
 
 How a superuser links samples of one project into an existing study of another project through the
-sample-shares endpoint, reads its dry run, applies it, checks the graph, and undoes it. The `share-samples` skill
-drives these calls step by step; the code is the studies tool's share mode (`nextseek_api/studies/README.md`,
-section "Share mode").
+sample-shares endpoint, reads its dry run, applies it, checks the graph, and undoes it. The skill that drives these
+calls step by step is `.claude/skills/share-samples/SKILL.md`; the code is the studies tool's share mode
+(`nextseek_api/studies/README.md`, section "Share mode").
 
 ## 1. What a share is
 
@@ -147,6 +147,6 @@ resyncs the samples. There is no undo route.
 
 ## 9. Links
 
-- The `share-samples` skill, which drives these calls.
+- The skill: `.claude/skills/share-samples/SKILL.md`.
 - The package: `nextseek_api/studies/README.md`.
 - Who may call the endpoint: `docs/endpoint-authorization-register.md`.
