@@ -467,6 +467,65 @@ def test_a_deferred_row_is_not_failing_and_a_failed_row_is(work):
     assert row("samples_of_type", "type:3").failing_since == T0
 
 
+def _title_conflict_refusal(*more_problems) -> run.PreflightError:
+    """What the catalog sync raises when a SampleType title is held under another id in the graph (a type recreated
+    in SEEK under its old title), with ``more_problems`` beside it."""
+    problems = ["1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)",
+                *more_problems]
+    return run.PreflightError(problems, {
+        "problems": problems, "graph_schema_version": writer.SCHEMA_VERSION,
+        "sample_type_title_conflicts": [{"title": "Tissue", "graph_id": 3, "mysql_id": 9}]})
+
+
+@pytest.mark.django_db
+def test_a_sync_refused_for_title_conflicts_alone_waits_without_an_attempt_and_never_dies(work):
+    """The nightly reconcile clears title conflicts (it retires the graph-only samples holding the old title, then
+    writes the catalog again), so a by-id sync whose catalog sync is refused for them alone is not the row's fault:
+    the row waits, counts no attempt, never dies and never shows as failing, however long the conflict stays."""
+    state.enqueue("samples", "batch:reg:1:0", [11, 12], now=before(minutes=1))
+    work.sync = _title_conflict_refusal()
+    wait = timedelta(seconds=loop.TITLE_CONFLICT_BACKOFF_S)
+    passes = state.MAX_ATTEMPTS + 2
+
+    for n in range(passes):
+        one_pass(work, now=T0 + n * wait)
+
+    last = T0 + (passes - 1) * wait
+    r = row("samples", "batch:reg:1:0")
+    assert len([c for c in work.calls if c.name == "sync"]) == passes
+    assert (r.done_at, r.attempts, r.failing_since) == (None, 0, None)
+    assert r.lease_expires_at == last + wait
+    assert r.last_error.startswith(loop.TITLE_CONFLICT_DEFERRAL)
+    assert state.failing_rows(now=last + wait)["total"] == 0
+    assert state.outbox_summary(now=last + wait)["dead"] == {}
+    # It waits less than the outbox's freshness threshold, so waiting never ages the outbox stale.
+    assert state.freshness(now=last + wait - timedelta(seconds=1))["outbox"]["status"] == "ok"
+
+
+@pytest.mark.django_db
+def test_a_catalog_row_refused_for_title_conflicts_alone_waits_too(work):
+    state.enqueue("catalog", "*", now=before(minutes=1))
+    work.catalog = _title_conflict_refusal()
+
+    one_pass(work)
+
+    r = row("catalog", "*")
+    assert (r.done_at, r.attempts, r.failing_since) == (None, 0, None)
+    assert r.lease_expires_at == T0 + timedelta(seconds=loop.TITLE_CONFLICT_BACKOFF_S)
+
+
+@pytest.mark.django_db
+def test_a_refusal_with_title_conflicts_and_another_problem_still_fails_its_row(work):
+    state.enqueue("samples", "sample:7", now=before(minutes=1))
+    work.sync = _title_conflict_refusal("a label collides with another (label_collisions)")
+
+    one_pass(work)
+
+    r = row("samples", "sample:7")
+    assert (r.attempts, r.failing_since) == (1, T0)
+    assert r.lease_expires_at == T0 + timedelta(seconds=state.backoff_s("samples"))
+
+
 @pytest.mark.django_db
 def test_a_sync_that_left_a_structural_link_unwritten_fails_its_row_naming_the_parts(work):
     state.enqueue("samples", "sample:7", now=before(minutes=2))
@@ -1012,6 +1071,31 @@ def test_a_deferred_merged_sync_puts_every_row_back_without_an_attempt(work):
 
     rows = GraphSyncOutbox.objects.filter(kind="samples")
     assert {(r.done_at, r.attempts, r.claimed_by, r.failing_since) for r in rows} == {(None, 0, None, None)}
+
+
+@pytest.mark.django_db
+def test_rows_a_title_conflict_deferred_drain_alone_so_a_healthy_row_merged_with_them_is_freed(work, monkeypatch):
+    """The refusal does not say which samples of a merged sync needed the catalog, so every row it drained waits;
+    each then drains alone until it syncs, and no other row takes one into its merge."""
+    _single_rows(3)                    # 1000 needs the refused catalog sync; 1001 and 1002 do not
+    wait = loop.TITLE_CONFLICT_BACKOFF_S
+    state.enqueue("samples", "sample:2000", now=before(seconds=1), delay_s=wait + 1)    # claimable with them
+    synced = []
+
+    def sync(driver, db, ids, **kwargs):
+        synced.append(list(ids))
+        if 1000 in ids:
+            raise _title_conflict_refusal()
+        return {"status": targeted.OK}
+
+    monkeypatch.setattr(targeted, "sync_samples", sync)
+    one_pass(work, now=T0)
+    one_pass(work, now=T0 + timedelta(seconds=wait))
+
+    assert synced == [[1000, 1001, 1002], [2000], [1000], [1001], [1002]]
+    assert [row("samples", f"sample:{i}").done_at is not None for i in (1000, 1001, 1002, 2000)] == [
+        False, True, True, True]
+    assert row("samples", "sample:1000").attempts == 0
 
 
 @pytest.mark.django_db

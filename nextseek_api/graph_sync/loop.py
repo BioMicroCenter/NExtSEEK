@@ -16,9 +16,10 @@
    ``batch:`` row is one sync of its own. Every drained row counts toward ``MAX_ROWS_PER_PASS``. A row claimed
    ``ALONE_AFTER_ATTEMPTS`` times since it was last written drains alone, so one sample whose sync raises cannot keep
    failing the rows merged with it; a row whose last failure was a gap traced to it stays mergeable
-   (``TRACED_GAP_ERROR``). A structural link a by-id sync left unwritten fails only the samples its report names:
-   such a sample's own row fails, a row of many samples (a batch, a sample type) is closed and hands each such sample
-   on as a ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
+   (``TRACED_GAP_ERROR``), and a row waiting out a title conflict drains alone (``TITLE_CONFLICT_DEFERRAL``). A
+   structural link a by-id sync left unwritten fails only the samples its report names: such a sample's own row
+   fails, a row of many samples (a batch, a sample type) is closed and hands each such sample on as a
+   ``sample:<id>`` row of its own that keeps the row's attempts, failing time and back-off
    (``state.hand_on_failed``), and every other row is done.
 
 **A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
@@ -28,8 +29,10 @@ attempts untouched, and the loop never turns a 1.1 graph into a 1.2 one by itsel
 **Work it could not do is put back, not punished.** A claim counts an attempt and a row dies at
 ``state.MAX_ATTEMPTS``, so for a row drained in this process the two outcomes that are not the row's fault, the
 graph-write lock being held by another graph_sync write and a graph below the writer's version, are *deferred*: the
-row is re-enqueued, which resets its attempts, and released with a short back-off (``DEFER_BACKOFF_S``). A real
-failure backs off by the kind's own ``state.backoff_s`` with its attempt counted.
+row is re-enqueued, which resets its attempts, and released with a short back-off (``DEFER_BACKOFF_S``). So is a
+catalog sync refused for SampleType titles held under other ids alone, which the nightly reconcile clears, with a
+longer back-off (``TITLE_CONFLICT_BACKOFF_S``). A real failure backs off by the kind's own ``state.backoff_s`` with its
+attempt counted.
 
 **A child's exit status decides its row**: 0 done, 2 done with the refusal recorded (a graph below the writer's
 version, a preflight problem: nothing was written, its own run record says why, and a retry would meet it again),
@@ -93,6 +96,15 @@ ALONE_AFTER_ATTEMPTS = 2
 # merging it cannot fail a healthy row, and isolating it would cost one sync per gapped sample, ahead of every fresh
 # write. An untraced gap names every sample of its chunk, healthy ones too, so its rows are isolated as a raise is.
 TRACED_GAP_ERROR = "structural links left unwritten: "
+# The start of the last_error of a row deferred because a catalog sync was refused for nothing but SampleType titles
+# held under other ids in the graph (``run.only_title_conflicts``: a type recreated in SEEK under its old title). The
+# nightly reconcile clears that: it retires the graph-only samples holding the old title and writes the catalog again.
+# So the row is deferred, not failed: no attempt counted, never dead, never failing. It waits
+# TITLE_CONFLICT_BACKOFF_S, under the outbox's one-hour freshness threshold so that waiting never ages the outbox
+# stale, and drains alone until it syncs: the refusal does not say which samples of a merged sync needed the catalog,
+# so a healthy row merged with one is freed at its next claim.
+TITLE_CONFLICT_DEFERRAL = "waiting for SampleType titles held under other ids to clear: "
+TITLE_CONFLICT_BACKOFF_S = 30 * 60
 
 # Closes every Django connection before each pass. Django refreshes connections only around a web request, so a
 # loop that lives for days keeps each one until MySQL drops it for idling, and every drain on it then fails with
@@ -289,9 +301,9 @@ def _text(error) -> str:
     return f"{type(error).__name__}: {error}" if isinstance(error, BaseException) else str(error)
 
 
-def _defer(claim, reason: str, entry: dict, *, now: datetime, merged=()) -> dict:
-    """Put the row back as it was: pending, no attempt counted against it, a short back-off. The rows ``merged``
-    into it go back the same way.
+def _defer(claim, reason: str, entry: dict, *, now: datetime, merged=(), backoff_s: float = DEFER_BACKOFF_S) -> dict:
+    """Put the row back as it was: pending, no attempt counted against it, a back-off of ``backoff_s`` (short by
+    default). The rows ``merged`` into it go back the same way.
 
     ``finish_failed`` alone would keep the attempt the claim counted, and ``state.MAX_ATTEMPTS`` of them leave the
     row dead with its work never done. Re-enqueueing resets the attempts; the back-off then releases the claim.
@@ -301,7 +313,7 @@ def _defer(claim, reason: str, entry: dict, *, now: datetime, merged=()) -> dict
             state.enqueue(c.kind, c.key, c.payload, now=now)
         except (DatabaseError, ValueError) as exc:
             log.warning("graph_sync: could not put %s %s back after %s: %s", c.kind, c.key, reason, exc)
-        state.finish_failed(c, reason, DEFER_BACKOFF_S, now=now, failure=False)
+        state.finish_failed(c, reason, backoff_s, now=now, failure=False)
     log.info("graph_sync: %s %s waits: %s", claim.kind, claim.key, reason)
     entry["outcome"] = DEFERRED
     return entry
@@ -362,12 +374,18 @@ def _child(claim, opts: Options, entry: dict, *, started: datetime, clock, launc
 
 
 def _refused(claim, exc, entry: dict, *, now: datetime, merged=()) -> dict:
-    """A run that refused before writing: deferred when the lock or the graph's version refused it, failed when it
-    was the data (a SampleType title held twice, say), which the next attempt would meet again."""
-    problems = " ".join(getattr(exc, "problems", None) or [])
-    version = (getattr(exc, "report", None) or {}).get("graph_schema_version")
-    if LOCK_REFUSAL in problems or (version is not None and version != writer.SCHEMA_VERSION):
+    """A run that refused before writing: deferred when the lock or the graph's version refused it, deferred for
+    longer when a catalog sync met SampleType titles held under other ids and nothing else
+    (``TITLE_CONFLICT_DEFERRAL``), failed when it was any other problem of the data (a label collision, say), which
+    the next attempt would meet again."""
+    problems = list(getattr(exc, "problems", None) or [])
+    report = getattr(exc, "report", None) or {}
+    version = report.get("graph_schema_version")
+    if LOCK_REFUSAL in " ".join(problems) or (version is not None and version != writer.SCHEMA_VERSION):
         return _defer(claim, f"{claim.kind} {claim.key}: {_text(exc)}", entry, now=now, merged=merged)
+    if run.only_title_conflicts(problems, report):
+        return _defer(claim, f"{TITLE_CONFLICT_DEFERRAL}{_text(exc)}", entry, now=now, merged=merged,
+                      backoff_s=TITLE_CONFLICT_BACKOFF_S)
     return _fail(claim, exc, entry, now=now, merged=merged)
 
 
@@ -381,9 +399,11 @@ def _gap_error(row: str, why: str) -> str:
 
 def _may_merge(claim) -> bool:
     """Whether more single-sample rows join this claim's sync: a single-sample ``samples`` row claimed at most
-    ``ALONE_AFTER_ATTEMPTS`` times, or one whose last failure was a gap traced to it (``TRACED_GAP_ERROR``)."""
-    return _merges(claim) and (claim.attempts <= ALONE_AFTER_ATTEMPTS
-                               or (claim.last_error or "").startswith(TRACED_GAP_ERROR))
+    ``ALONE_AFTER_ATTEMPTS`` times, or one whose last failure was a gap traced to it (``TRACED_GAP_ERROR``), and never
+    one waiting out a title conflict (``TITLE_CONFLICT_DEFERRAL``)."""
+    last_error = claim.last_error or ""
+    return (_merges(claim) and not last_error.startswith(TITLE_CONFLICT_DEFERRAL)
+            and (claim.attempts <= ALONE_AFTER_ATTEMPTS or last_error.startswith(TRACED_GAP_ERROR)))
 
 
 def _gapped(claim, result: dict, entry: dict, *, now: datetime, merged=(), label: str) -> dict:
@@ -503,10 +523,11 @@ def run_pass(driver, db, worker_id: str, *, opts: Options | None = None, now: da
         if _may_merge(claim):
             # Single-sample rows run as one by-id sync of up to SAMPLE_CHUNK ids, not one sync each (A13). Merged
             # rows count toward MAX_ROWS_PER_PASS like any other. A row that has failed twice merges with nothing,
-            # unless its last failure was a gap traced to it.
+            # unless its last failure was a gap traced to it; a row waiting out a title conflict never does.
             limit = min(writer.SAMPLE_CHUNK - 1, MAX_ROWS_PER_PASS - rows - 1)
             merged = state.claim_more(worker_id, MERGED_KIND, MERGED_KEY_PREFIX, limit, now=tick,
-                                      below_attempts=ALONE_AFTER_ATTEMPTS, or_last_error_prefix=TRACED_GAP_ERROR)
+                                      below_attempts=ALONE_AFTER_ATTEMPTS, or_last_error_prefix=TRACED_GAP_ERROR,
+                                      except_last_error_prefix=TITLE_CONFLICT_DEFERRAL)
         entry = _drain_one(driver, db, claim, opts, now=tick, launch=launch, started=started,
                            clock=(lambda: now) if pinned else dj_timezone.now, merged=merged)
         report["drained"].append(entry)

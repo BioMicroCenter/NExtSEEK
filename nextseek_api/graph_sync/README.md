@@ -96,7 +96,11 @@ to `writer.SAMPLE_CHUNK - 1` more such rows with it into one by-id sync (within 
 closes, defers or fails every row it drained; a `batch:` row is one sync of its own. A row that has failed twice since
 it was last written drains alone, so one sample whose sync raises cannot keep failing the rows merged with it (a
 transient failure costs one merged retry); a row whose last failure was a gap traced to its own sample stays
-mergeable, since a merged sync fails each gapped sample alone. A by-id sync that left a structural link unwritten (a
+mergeable, since a merged sync fails each gapped sample alone. A row whose catalog sync is refused for SampleType
+titles held under other ids and nothing else (a type recreated in SEEK under its old title, which the nightly
+reconcile clears) is deferred, not failed: no attempt is counted, so it never dies and never shows as failing; it
+waits 30 minutes, under the outbox's one-hour freshness threshold, and drains alone until it syncs, since the refusal
+does not say which samples of a merged sync needed the catalog. A by-id sync that left a structural link unwritten (a
 type, a project, a study or an investigation link) fails only the samples it names, each with why in its `last_error`
 (the project ids SEEK lacks, say): a single-sample row fails on its back-off, and a row of many samples (a batch, a
 sample type) is closed and hands each such sample on as a `sample:<id>` row that keeps its attempts, failing time and

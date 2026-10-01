@@ -1263,6 +1263,17 @@ def test_claim_more_also_takes_a_row_whose_last_error_starts_with_the_prefix_it_
 
 
 @pytest.mark.django_db
+def test_claim_more_leaves_out_a_row_whose_last_error_starts_with_the_prefix_it_excludes():
+    for n, error in enumerate(("wait: sample 0", None, "RuntimeError: boom")):
+        state.enqueue("samples", f"sample:{n}", now=at(seconds=n))
+        GraphSyncOutbox.objects.filter(key=f"sample:{n}").update(last_error=error)
+
+    more = state.claim_more("w1", "samples", "sample:", 10, now=at(minutes=1), except_last_error_prefix="wait: ")
+
+    assert [c.key for c in more] == ["sample:1", "sample:2"]
+
+
+@pytest.mark.django_db
 def test_a_claim_carries_the_rows_last_error():
     state.enqueue("samples", "sample:7", now=T0)
     GraphSyncOutbox.objects.filter(key="sample:7").update(last_error="gap: sample 7")
