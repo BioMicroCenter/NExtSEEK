@@ -171,7 +171,7 @@ class WriterRecorder:
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows),
                                                                  "memberships_dropped": 0},
-            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
                 "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "write_missing_lineage": lambda d, db, pairs, chunk=10_000: {

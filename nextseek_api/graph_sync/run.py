@@ -886,7 +886,8 @@ def _write(driver, db, chunk: int, run_dir: str, bench_keys, state_: _Preflight,
     _step(report, "projects", writer.write_projects, driver, db, sources.projects())
     _step(report, "people", writer.write_people_and_memberships, driver, db, sources.memberships())
     _step(report, "investigations", writer.write_investigation_projects, driver, db, sources.investigations(),
-          sources.investigation_projects(), archive_path=os.path.join(run_dir, writer.INVESTIGATIONS_DELETED_FILE))
+          sources.investigation_projects(), archive_path=os.path.join(run_dir, writer.INVESTIGATIONS_DELETED_FILE),
+          seek_study_ids=[s["id"] for s in sources.studies()])
 
     label_sources = _timed(report, "read_label_maps", LabelSources.read)
     label_maps_hash = label_sources.maps_hash()

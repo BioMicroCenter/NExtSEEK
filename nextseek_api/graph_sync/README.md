@@ -269,7 +269,7 @@ A dry run writes no file.
 | `in_study_removed.tsv` | any path that removes an IN_STUDY link | sample id, the Study's `seek_study_id` and `id`, the edge's element id and the path that removed it, before the delete |
 | `study_links.json` | `--studies` | samples read and differing, links added, removed and withheld, paper samples, samples kept with no SEEK study, OrphanSample links |
 | `sample_types_deleted.tsv` | the catalog step (`--full`, `--catalog`, the reconcile, the drain) | each SampleType node deleted because SEEK lost it and no Sample reaches it: id, title, label, attribute keys |
-| `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it: id, title, project ids |
+| `investigations_deleted.tsv` | the small tables (`--full`, the reconcile, the drain) | each Investigation node deleted because SEEK lost it and no Study holds it (only a Study node SEEK still has, or a graph-only paper Study node, holds one): id, title, project ids |
 | `gate_g.json`, `catalog_sync.json` | `--verify`, `--catalog` | that run's report, with `--run-dir` |
 
 ## The modules

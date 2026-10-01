@@ -238,7 +238,7 @@ class Writers:
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows)},
-            "write_investigation_projects": lambda d, db, invs, links, archive_path=None: {
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
                 "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
@@ -708,7 +708,8 @@ def test_the_sample_types_and_investigations_steps_archive_what_they_delete_in_t
     (types,) = writers.of("write_sample_types")
     (invs,) = writers.of("write_investigation_projects")
     assert types.kwargs == {"archive_path": str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE)}
-    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE)}
+    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE),
+                           "seek_study_ids": [7, 8, 9]}
 
 
 def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():

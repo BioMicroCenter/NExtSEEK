@@ -48,7 +48,8 @@ present, carries a few examples. Each name starts with the gate G check it belon
     OrphanSample links and paper samples with the links withheld from them.
 14. ``small``: the small tables follow SEEK: the Project nodes (id and title), the Investigation nodes (id, title and
     their projects through IN_PROJECT) and every MEMBER_OF (person, project, has_left). An Investigation node SEEK
-    lacks fails, unless a Study still holds it (``investigations_not_in_seek_held``, reported).
+    lacks fails, unless a Study still holds it (``investigations_not_in_seek_held``, reported): a Study of a SEEK study
+    that still exists, or a graph-only paper.
 
 Every MySQL side joins ``samples`` and counts distinct sample ids: SEEK's link tables hold rows for samples that are
 gone and rows repeated (``projects_samples``, ``assay_assets``), which would otherwise read as drift. A check whose
@@ -892,7 +893,8 @@ def _check_in_project_edges(driver, db, checks: list, stats: dict) -> None:
 def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     """Family 14: the Project, Investigation, Person and MEMBER_OF nodes and edges equal SEEK's tables. Every check
     expects 0 and lists up to ``EXAMPLES``. An Investigation SEEK lacks that a Study still holds is kept by the small
-    tables (a Study node is not deleted in this release) and reported apart."""
+    tables (a Study node is not deleted in this release) and reported apart; only a Study of a SEEK study that still
+    exists, or a graph-only paper (no ``seek_study_id``), holds one."""
     seek_projects = {int(p["id"]): p.get("title") for p in sources.projects()}
     graph_projects = {r["id"]: r["title"] for r in _records(_read(driver, db, q.GRAPH_PROJECTS)) if _is_id(r["id"])}
     projects_differ = [p for p in sorted(set(seek_projects) | set(graph_projects))
@@ -901,7 +903,9 @@ def _check_small_tables(driver, db, checks: list, stats: dict) -> None:
     for row in sources.investigation_projects():
         links.setdefault(int(row["investigation_id"]), set()).add(int(row["project_id"]))
     seek_invs = {int(i["id"]): (i.get("title"), sorted(links.get(int(i["id"]), ()))) for i in sources.investigations()}
-    graph_rows = [r for r in _records(_read(driver, db, q.GRAPH_INVESTIGATIONS)) if _is_id(r["id"])]
+    study_ids = sorted({int(s["id"]) for s in sources.studies()})
+    graph_rows = [r for r in _records(_read(driver, db, q.GRAPH_INVESTIGATIONS, {"study_ids": study_ids}))
+                  if _is_id(r["id"])]
     graph_invs = {r["id"]: (r["title"], sorted(r["project_ids"] or [])) for r in graph_rows}
     invs_differ = [i for i in sorted(seek_invs) if graph_invs.get(i) != seek_invs[i]]
     gone = [r["id"] for r in graph_rows if r["id"] not in seek_invs and not r["held"]]

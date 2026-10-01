@@ -646,13 +646,15 @@ def relabel_for_maps(driver, db, *, apply_label_changes: bool = False, lock_time
 
 def _small_tables(driver, db, ctx: _Context) -> dict:
     report = {"status": OK}
+    studies = sources.studies()
     report.update(writer.write_projects(driver, db, sources.projects()))
     report.update(writer.write_investigation_projects(driver, db, sources.investigations(),
                                                       sources.investigation_projects(),
-                                                      archive_path=ctx.archive(writer.INVESTIGATIONS_DELETED_FILE)))
+                                                      archive_path=ctx.archive(writer.INVESTIGATIONS_DELETED_FILE),
+                                                      seek_study_ids=[s["id"] for s in studies]))
     report.update(writer.write_people_and_memberships(driver, db, sources.memberships()))
     # Every SEEK study gets its node, with no sample yet included; the Investigation nodes were written just above.
-    report.update(writer.write_seek_study_nodes(driver, db, sources.studies()))
+    report.update(writer.write_seek_study_nodes(driver, db, studies))
     return report
 
 

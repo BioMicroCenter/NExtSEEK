@@ -174,20 +174,24 @@ class StudyGraph:
                     props[key] = r[key]
         return []
 
-    def _held(self, inv_eid) -> bool:
-        return any(inv_eid in invs for invs in self.in_investigation.values())
+    def _held(self, inv_eid, study_ids) -> bool:
+        """A Study holds its Investigation while SEEK has its study, or when it carries no seek_study_id."""
+        return any(inv_eid in invs and self.studies[st].get("seek_study_id") in (None, *study_ids)
+                   for st, invs in self.in_investigation.items())
 
     def _investigations_gone(self, p):
         return [{"element_id": e, "id": i["id"], "title": i.get("title"), "project_ids": sorted(self.inv_projects[e]),
-                 "held": self._held(e)}
+                 "held": self._held(e, p["study_ids"])}
                 for e, i in sorted(self.investigations.items(), key=lambda kv: kv[1]["id"])
                 if i["id"] is not None and i["id"] not in p["ids"]]
 
     def _delete_investigations(self, p):
         deleted = 0
         for eid in p["element_ids"]:
-            if eid in self.investigations and not self._held(eid):
+            if eid in self.investigations and not self._held(eid, p["study_ids"]):
                 del self.investigations[eid], self.inv_projects[eid]
+                for invs in self.in_investigation.values():            # DETACH DELETE: its IN_INVESTIGATION go too
+                    invs[:] = [i for i in invs if i != eid]
                 deleted += 1
         return [{"deleted": deleted}]
 

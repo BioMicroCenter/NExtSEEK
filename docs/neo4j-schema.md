@@ -274,7 +274,9 @@ starts from `MATCH (s:T_X)` never sees one.
 Two other nodes follow the same archive-then-delete rule. A SampleType SEEK no longer has and that no Sample reaches
 is deleted by the catalog step with its Attribute nodes, archived first to `sample_types_deleted.tsv` (one that still
 holds samples is kept and reported), and an Investigation SEEK no longer has and that no Study holds is deleted by
-the small tables, archived first to `investigations_deleted.tsv`. Study nodes are not deleted.
+the small tables, archived first to `investigations_deleted.tsv`. A Study holds it only while SEEK still has its
+study, or when it is a graph-only paper (no `seek_study_id`). Study nodes are not deleted: the node of a SEEK study
+that is gone stays, without its IN_INVESTIGATION.
 
 ### Study nodes and IN_STUDY
 
