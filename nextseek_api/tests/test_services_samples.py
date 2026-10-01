@@ -1167,3 +1167,62 @@ class TestSampleAdvancedSearch:
         assert resp.status_code == 200
         body = json.loads(resp.content)
         assert len(body.get("footer", [])) >= 2  # existing + debug
+
+
+@pytest.mark.parametrize("asked, stored", [("PAT-230522GRI-7", "PAT-230522GRI-7-PUB1"), ("PAT-230522GRI-7-PUB", "PAT-230522GRI-7-PUB2"),
+                                           ("PAT-230522GRI-7-PUB1", "PAT-230522GRI-7")])
+def test_a_sample_uid_resolves_in_any_pub_spelling(monkeypatch, asked, stored):
+    from nextseek_api.services import samples
+    monkeypatch.setattr(samples, "_lookup_sample_id", lambda uid: "9" if uid == stored else None)
+    assert samples.resolve_sample_uid(asked) == ("9", stored)
+
+
+# ============================================================================
+# Writes touch only the UID exactly as written; reads resolve every spelling
+# ============================================================================
+
+_STORED_UIDS = {"TIS-230101ABC-4": "40", "PAT-230202XYZ-9-PUB": "90"}
+_MISSING_SPELLINGS = [("TIS-230101ABC-4-PUB2", "TIS-230101ABC-4"), ("PAT-230202XYZ-9", "PAT-230202XYZ-9-PUB")]
+
+
+def _store(monkeypatch):
+    from nextseek_api.services import samples
+    monkeypatch.setattr(samples, "_lookup_sample_id", lambda uid: _STORED_UIDS.get(uid))
+
+
+@pytest.mark.parametrize("asked, stored", _MISSING_SPELLINGS)
+def test_destroy_of_a_missing_spelling_is_not_found_and_deletes_nothing(monkeypatch, asked, stored):
+    from nextseek_api.services.samples import SampleProxyViewSet
+    _store(monkeypatch)
+    vs = SampleProxyViewSet()
+    vs.client = MagicMock()
+    resp = vs.destroy(_auth_request(method="delete"), uid=asked)
+    assert resp.status_code == 404
+    vs.client.delete_sample.assert_not_called()
+
+
+@pytest.mark.parametrize("asked, stored", _MISSING_SPELLINGS)
+def test_patch_of_a_missing_spelling_is_not_found_and_updates_nothing(monkeypatch, asked, stored):
+    from nextseek_api.services.samples import SampleProxyViewSet
+    _store(monkeypatch)
+    vs = SampleProxyViewSet()
+    vs.client = MagicMock()
+    payload = {"data": {"type": "samples", "attributes": {"title": "Revised"}}}
+    resp = vs.partial_update(_auth_request(method="patch", data=payload), uid=asked)
+    assert resp.status_code in (404, 422)
+    vs.client.update_sample.assert_not_called()
+
+
+@pytest.mark.parametrize("asked, stored", _MISSING_SPELLINGS)
+def test_a_write_in_the_stored_spelling_still_resolves_in_any_case(monkeypatch, asked, stored):
+    from nextseek_api.services.samples import _resolve_uid_to_seek_id
+    _store(monkeypatch)
+    assert _resolve_uid_to_seek_id(stored, as_written_only=True) is not None
+
+
+@pytest.mark.parametrize("asked, stored", _MISSING_SPELLINGS)
+def test_a_read_still_resolves_every_spelling(monkeypatch, asked, stored):
+    from nextseek_api.services.samples import _resolve_uid_to_seek_id
+    _store(monkeypatch)
+    assert _resolve_uid_to_seek_id(asked) == _STORED_UIDS[stored]
+    assert _resolve_uid_to_seek_id(asked, as_written_only=True) is None

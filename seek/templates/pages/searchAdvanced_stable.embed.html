@@ -29,7 +29,9 @@ function downloadSamples0(dg) {
 	return nsDownloadSamples(nsCollectSelectedUids(dg), {includeTree: true});
 }
 
-function deleteSamples(dg, url_delete) {
+// Not "deleteSamples": the Deletion tab's embed defines that name later on the
+// same page and would replace this one.
+function advanced_deleteSamples(dg, url_delete) {
 	var rows = dg.datagrid('getRows');
 	if (rows.length == 0) {
 		alert('No sample in the table is selected for deletion.');
@@ -112,56 +114,14 @@ function deleteSamples(dg, url_delete) {
 }
 
 
-function publishSamples(dg, url_publish) {
-	return publishSamplesAjax(dg, url_publish);
-}
-
-function publishSamplesAjax(dg, url_publish) {
-	var rows = dg.datagrid('getRows');
-	if (rows.length == 0) {
-		alert('No sample in the table is selected for publish.');
+function sendSamples(dg) {
+	var uids = nsCollectSelectedUids(dg);
+	if (uids.length == 0) {
+		alert('No sample in the table is selected.');
 		return;
 	}
-	var allIds = [];
-	for (var i = 0; i < rows.length; i++) {
-		var row = rows[i];
-		if (row.ck) {
-			allIds.push(row.id);
-		} else {}
-	}
-	if (allIds.length == 0) {
-		alert('No sample in the table is selected for publish.');
-		return;
-	}
-	var url = '/seek/samples/publishlist/' + allIds.toString() + '/';
-	window.open(url);
-	return;
-}
-
-function sendSamples(dg, url_publish) {
-	var rows = dg.datagrid('getRows');
-	if (rows.length == 0) {
-		alert('No sample in the table is selected for publish.');
-		return;
-	}
-	var allIds = [];
-	var allUIDs = '';
-	for (var i = 0; i < rows.length; i++) {
-		var row = rows[i];
-		if (row.ck) {
-			allIds.push(row.id);
-			allUIDs += row.uuid + '\n';
-		} else {}
-	}
-	if (allIds.length == 0) {
-		alert('No sample in the table is selected for publish.');
-		return;
-	}
-	$("#input_searchUIDs").textbox('setText', allUIDs);
-	var msg = "Number of samples submitted for retrieval: " + allIds.length;
 	$("#search_tab").tabs('select', "Sample Retrieval");
-	retriveAdvanced();
-	return;
+	$('#retrieval_uids').textbox('setValue', uids.join('\n'));
 }
 </script>
 
@@ -223,8 +183,7 @@ function sendSamples(dg, url_publish) {
 
 	<div id="advanced_tb_toolbar" style="height:auto">
 		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="downloadSamples0($('#advanced_dgtable'))">Download samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="deleteSamples($('#advanced_dgtable'), '/seek/samples/delete/')">Delete samples</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="publishSamples($('#advanced_dgtable'), '/seek/samples/publish/')">Publish samples to FairdomHub</a>
-		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="sendSamples($('#advanced_dgtable'), ' ')">Send to Sample Retrieval</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-remove',plain:true" onclick="advanced_deleteSamples($('#advanced_dgtable'), '/seek/samples/delete/')">Delete samples</a>
+		<a href="javascript:void(0)" class="easyui-linkbutton" data-options="iconCls:'icon-save',plain:true" onclick="sendSamples($('#advanced_dgtable'))">Send to Sample Retrieval</a>
 	</div>
 </div>

@@ -1,6 +1,7 @@
 """Tools + dispatch for the full-agentic nf-core pipeline agent.
 
 Anthropic-style tools driven by BedrockClient.chat_with_tools (submit tools exposed per config):
+  - select_pipeline:   samples' own metadata/protocols + the question -> a pipeline verdict
   - resolve_samples:   UIDs/last-search -> compact leaf table (+ caches refs)
   - write_samplesheet: agent-built cohorts -> validated samplesheet CSV (CSV only)
   - configure_run:     curated params + species references -> params.yml + launch.yml
@@ -40,15 +41,67 @@ from ..seqera.pipeline_params import (
     process_args_for,
     resolve_bundle_for_species,
 )
+from ..seqera.schema_check import check_params, check_reference_flags
 from ..seqera.submitter import submit_launch
+from ..seqera.user_params import (
+    missing_user_params,
+    render_elicitation,
+    validate_user_params,
+)
+from ..seqera.param_atlas import (
+    check_row_column_params,
+    check_run_params,
+    data_driven_params,
+    evaluate_leaf,
+    render_param_elicitation,
+    required_signals,
+)
 from ..luria.submitter import submit_luria
 from ..luria.run_script import local_luria_ref_files
+from ..reports.protocols import gather_protocol_text
+
+import concurrent.futures
+
+from . import selection
+from .sample_digest import DigestError, build_sample_digest
+from .selection_context import PayloadTooLargeError, build_selection_context
+from ..seqera.nfcore_atlas import load_atlas
 
 PIPELINE_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
+        "name": "select_pipeline",
+        "description": (
+            "Choose an nf-core pipeline from the samples' own metadata and protocols "
+            "plus the user's question. Call this FIRST, BEFORE resolve_samples, whenever "
+            "the user described what they want to LEARN rather than naming a pipeline. "
+            "Do NOT call it when the user named a pipeline outright ('run rnaseq on these') "
+            "— go straight to resolve_samples. Returns a verdict: 'chosen' (use it), "
+            "'fork' (ask the user which), 'refused' (these samples cannot answer that — "
+            "conclude(rejected)), or 'out_of_scope' (decide for yourself from the catalog, "
+            "exactly as you would if this tool did not exist). Only RNA pipelines are "
+            "covered; everything else comes back out_of_scope, which is normal."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["last_search", "explicit_uids", "accessions"]},
+                "uids": {"type": "array", "items": {"type": "string"},
+                         "description": "Required when kind='explicit_uids'."},
+                "accessions": {"type": "array", "items": {"type": "string"},
+                               "description": "Required when kind='accessions'."},
+                "question": {"type": "string",
+                             "description": ("The user's question in their own words, VERBATIM. "
+                                             "Do not paraphrase, summarise, or translate it into "
+                                             "pipeline terms — the wording is what is being judged.")},
+            },
+            "required": ["kind", "question"],
+        },
+    },
+    {
         "name": "resolve_samples",
         "description": (
-            "Resolve a sample reference into a per-leaf metadata table. Call this FIRST. "
+            "Resolve a sample reference into a per-leaf metadata table. Call this after "
+            "select_pipeline, or directly when the user named the pipeline themselves. "
             "ref.kind is 'last_search' (the user's most recent search results), "
             "'explicit_uids' (uids you were given), or 'accessions' (raw GEO/ENA accessions "
             "for fetchngs). Returns each sequencing leaf with its uid, sample_type, assay, "
@@ -211,6 +264,7 @@ _SCHEMA_BY_NAME = {t["name"]: t for t in PIPELINE_TOOL_SCHEMAS}
 def build_pipeline_tool_schemas(config) -> list[dict[str, Any]]:
     """Expose only the submit tools whose backend env is complete (core + conclude always)."""
     tools = [
+        _SCHEMA_BY_NAME["select_pipeline"],
         _SCHEMA_BY_NAME["resolve_samples"],
         _SCHEMA_BY_NAME["write_samplesheet"],
         _SCHEMA_BY_NAME["configure_run"],
@@ -258,6 +312,15 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     kind = tool_input.get("kind")
 
     if kind == "accessions":
+        # NOTE: this path returns early without populating state["data_driven_evidence"],
+        # so a row_column or run_param data-driven param (e.g. atlas-declared seq_type,
+        # scrnaseq protocol, smrnaseq three_prime_adapter) would be silently skipped for
+        # accession-only rows -- there is no leaf metadata here to derive it from. Tracked
+        # gap, not unreachable: hlatyping, scrnaseq, and smrnaseq are all atlas pipelines
+        # and are normally uid-based, but a build resolved purely via accessions would
+        # bypass inference for any of them. Must be closed before relying on this path for
+        # an atlas pipeline (or attaching a data-driven column to an accession-based one
+        # like fetchngs).
         accs = [a.strip() for a in (tool_input.get("accessions") or []) if a and a.strip()]
         if not accs:
             return json.dumps({"ok": False, "error": "kind='accessions' requires a non-empty accessions list."})
@@ -323,6 +386,14 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     all_accs: set[str] = set()
     species_votes: Counter = Counter()
     file_paths_by_acc: dict[str, dict] = {}
+    wanted_signals = required_signals(pipeline_key)
+    protocol_text = ""
+    protocol_text_status = None
+    if "__protocol_text__" in wanted_signals:
+        _pt = gather_protocol_text(config, annotated, base_dir=None)
+        protocol_text = _pt.get("text") or ""
+        protocol_text_status = _pt.get("status")
+        state["protocol_text_status"] = protocol_text_status
     for leaf in leaves:
         accs = extract_accessions_from_metadata(leaf.get("metadata") or {})
         all_uids.add(leaf["uid"])
@@ -345,17 +416,37 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
             if isinstance(val, str) and resolve_bundle_for_species(val):
                 species_votes[val.strip()] += 1
         leaf_fields = {f: flat[f] for f in candidate_fields if f in flat}
-        table.append({
+        leaf_signals = {f: flat[f] for f in wanted_signals if f in flat}
+        if protocol_text:
+            leaf_signals["__protocol_text__"] = protocol_text
+        leaf_verdicts = evaluate_leaf(pipeline_key, leaf_signals) if wanted_signals else {}
+        row = {
             "uid": leaf["uid"],
             "sample_type": leaf.get("sample_type", ""),
             "assay": leaf.get("assay", ""),
             "source_uid": leaf.get("source_uid", ""),
             "accessions": accs,
             "fields": leaf_fields,
-        })
+        }
+        if wanted_signals:
+            row["signals"] = {k: v for k, v in leaf_signals.items() if k != "__protocol_text__"}
+            row["data_driven_params"] = leaf_verdicts
+            state.setdefault("data_driven_evidence", {})[str(leaf["uid"])] = leaf_verdicts
+        table.append(row)
 
     seen_sources = {leaf.get("source_uid") for leaf in leaves}
     orphans = [u for u in source_uids if u not in seen_sources]
+    accepted_types = _accepted_types_for(pipeline_key)
+    # A zero-leaf resolution is almost always a type mismatch, and the agent cannot
+    # see which types this pipeline filters on. Say so, or it retries the same UIDs.
+    no_leaf_hint = ""
+    if not table:
+        no_leaf_hint = (
+            f"No {'/'.join(accepted_types) or 'matching'} samples were found under those UIDs. "
+            f"{pipeline_key} builds its rows from {'/'.join(accepted_types) or 'archive accessions'}. "
+            "If the user named samples of a different type, the ones you need may be their "
+            "children (or parents) in the lineage — resolve those instead of retrying these."
+        )
 
     prev = state.get("resolved") or {"uids": [], "accessions": []}
     state["resolved"] = {
@@ -372,17 +463,22 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     state["detected_species"] = detected_species
     state["bundle_key"] = bundle_key
     ctx = load_pipeline_context(pipeline_key)
+    ddp = data_driven_params(pipeline_key)
     return json.dumps({
         "ok": True,
         "kind": kind,
         "leaf_count": len(table),
         "leaves": table,
+        "accepted_leaf_sample_types": accepted_types,
         "grouping_fields": grouping_fields,
         "source_uids_with_no_leaves": orphans,
+        **({"no_leaf_hint": no_leaf_hint} if no_leaf_hint else {}),
         "detected_species": detected_species,
         "bundle_key": bundle_key,
         "param_menu": ctx.get("params", {}),
         "reference_resources": ctx.get("reference_resources", []),
+        **({"data_driven_params": ddp} if ddp else {}),
+        **({"protocol_text_status": protocol_text_status} if protocol_text_status is not None else {}),
     })
 
 
@@ -457,6 +553,37 @@ def tool_write_samplesheet(config: "ChatConfig", state: dict, tool_input: dict, 
             merged_rows.append(r)
         cohort_summaries.append({"label": label, "row_count": len(rows)})
 
+    # Fail-closed data-driven param check (e.g. hlatyping seq_type). A conflict or
+    # absent verdict must stop the build and ask; a decisive verdict the row
+    # disagrees with is returned as a fixable error. No-op when the pipeline has
+    # no atlas entry (check returns empty).
+    ddp = check_row_column_params(pipeline_key, merged_rows, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return json.dumps({
+            "ok": False,
+            "needs_user_input": list(ddp["ask_specs"]),
+            "ask_the_user": render_param_elicitation(
+                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
+            "message": "Relay `ask_the_user` to the user in plain text and STOP. Do not conclude.",
+        })
+    if ddp["corrections"]:
+        errors = [f"row {uid}: {param} should be {val!r} from the sample's metadata — fix the row"
+                  for uid, param, val in ddp["corrections"]]
+        return json.dumps({"ok": False, "errors": errors})
+
+    # rnasplice needs a non-blank 'condition' per row (it defines the comparison).
+    # Nothing derives it yet, so fail closed early rather than emit a samplesheet
+    # nf-schema rejects late. (Deriving condition from the cohort grouping is a follow-up.)
+    if pipeline_key == "rnasplice":
+        missing_cond = [r.get("sample") or r.get("Sample") or "?"
+                        for r in merged_rows
+                        if not str(r.get("condition") or "").strip()]
+        if missing_cond:
+            return json.dumps({"ok": False, "errors": [
+                "rnasplice needs a non-blank 'condition' on every row (it defines the two "
+                f"groups to compare); missing on: {', '.join(map(str, missing_cond))}. "
+                "Set a condition per sample, or group the cohort so each sample gets one."]})
+
     # ENA route retired: Luria resolves fastqs from a local /net/bmc-* path (filled here)
     # or fetches SRR accessions on-cluster (run.sh fetchngs pre-stage). No ENA URL synthesis.
     # resolve_accessions is left imported but unused for a future ENA re-enable.
@@ -513,6 +640,54 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
 
     # A genome override in params can re-select the bundle; else use the detected-species bundle.
     agent_params = dict(tool_input.get("params") or {})
+
+    # Params only the user can supply (a CRISPR guide, a Hi-C digestion protocol, a
+    # miRTrace species). Enforced here rather than in the prompt: an instruction can
+    # be forgotten mid-conversation, this cannot. Fail-closed because a wrong value
+    # of this kind does not error — it silently produces a wrong result.
+    bad = validate_user_params(pipeline_key, agent_params)
+    if bad:
+        return json.dumps({"ok": False, "invalid_user_params": bad,
+                           "message": "Ask the user to correct these; do not guess."})
+    missing = missing_user_params(pipeline_key, agent_params)
+    if missing:
+        return json.dumps({"ok": False,
+                           "needs_user_input": [s["name"] for s in missing],
+                           "ask_the_user": render_elicitation(missing),
+                           "message": ("Relay `ask_the_user` to the user in plain text and STOP. "
+                                       "Do not call conclude, and do not invent values.")})
+
+    # Data-driven run_param inference: fill each param whose leaves UNANIMOUSLY derived a
+    # decisive value the agent didn't set, so the inferred value (e.g. scrnaseq protocol,
+    # smrnaseq three_prime_adapter) is actually written to params.yml rather than lost to
+    # the curated menu default. conflict/absent are NOT decisive and are left to
+    # check_run_params to ask about; an agent-supplied value that disagrees is left for
+    # check_run_params to correct (setdefault does not overwrite it).
+    _evidence = state.get("data_driven_evidence") or {}
+    for _name, _spec in data_driven_params(pipeline_key).items():
+        if _spec.get("target") != "run_param":
+            continue
+        _vals = {(pv.get(_name) or {}).get("value")
+                 for pv in _evidence.values()
+                 if (pv.get(_name) or {}).get("verdict") in ("corroborated", "derived_uncorroborated", "defaulted")}
+        _vals.discard(None)
+        if len(_vals) == 1:
+            agent_params.setdefault(_name, next(iter(_vals)))
+
+    # Run-scope data-driven params (general case; no hlatyping instance in v1).
+    ddp = check_run_params(pipeline_key, agent_params, state.get("data_driven_evidence") or {})
+    if ddp["ask_uids"]:
+        return json.dumps({
+            "ok": False,
+            "needs_user_input": list(ddp["ask_specs"]),
+            "ask_the_user": render_param_elicitation(
+                ddp["ask_specs"], ddp["ask_uids"], state.get("data_driven_evidence") or {}),
+            "message": "Relay `ask_the_user` to the user in plain text and STOP.",
+        })
+    if ddp["corrections"]:
+        return json.dumps({"ok": False, "errors": [
+            f"{param} should be {val!r} from the cohort's metadata" for _, param, val in ddp["corrections"]]})
+
     override = agent_params.get("genome")
     bundle_key = state.get("bundle_key")
     if override:
@@ -533,6 +708,56 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     if errors:
         return json.dumps({"ok": False, "errors": errors})
 
+    # Cross-check the assembled params against the pipeline's OWN pinned schema.
+    # The curated menu above is hand-maintained; four of the six defects found on
+    # 2026-08-05 were curation errors at this step, and nf-schema aborts the run
+    # on any parameter it does not recognise — so drift surfaces on the cluster
+    # rather than here unless we look. Same revision the emitter will use
+    # (emitter.py:669/741), or the check would validate a version nobody runs.
+    #
+    # Split by WHO supplied the param, because only one of the two is fixable by
+    # the agent. A param it can correct and re-send is a hard error. Everything
+    # else it either never asked for or has no way to change, so it becomes a
+    # warning instead — hard-failing on it would spin the agent to MAX_ITER.
+    #
+    # "In agent_params" is NOT the same as "the model sent it": :675 setdefaults
+    # data-driven run_params into agent_params before this point, and :697/700
+    # pop a resolved `genome` override back OUT of agent_params after injecting
+    # the matching bundle default into `merged`. So the split is the
+    # intersection of "in agent_params" and "in what the model actually sent"
+    # (`tool_input["params"]`, never mutated above):
+    #   - a setdefault-filled run_param: in agent_params, not sent -> curated/warns.
+    #     (the agent cannot drop it either way: re-sending a different value is
+    #     rejected by check_run_params as a correction, and re-sending the
+    #     derived value changes nothing — hard-failing here would alternate
+    #     between those two errors forever.)
+    #   - a popped, resolved `genome`: sent, no longer in agent_params -> curated/warns
+    #     (the bundle default came from the curated reference file, not the agent).
+    #   - an ordinary agent param: both -> supplied/hard error.
+    #   - an unresolvable `genome` override: stays in agent_params AND was sent
+    #     -> supplied/hard error, correctly, since the agent chose that literal value.
+    revision = (tool_input.get("revision")
+                or (NFCORE_PIPELINE_CATALOG.get(pipeline_key) or {}).get("default_revision"))
+    sent_by_model = set(tool_input.get("params") or {})
+    supplied = {k: v for k, v in merged.items() if k in agent_params and k in sent_by_model}
+    curated = {k: v for k, v in merged.items() if k not in supplied}
+
+    schema_errors, schema_skip = check_params(pipeline_key, revision, supplied, source="supplied")
+    if schema_errors:
+        return json.dumps({"ok": False, "errors": schema_errors})
+    if schema_skip:
+        schema_check = {"status": "skipped", "reason": schema_skip}
+    else:
+        schema_check = {"status": "ok"}
+        # The schema is cached by (pipeline, revision) after the call above, so
+        # this second call costs a dict lookup, not a fetch.
+        curated_warnings, _ = check_params(pipeline_key, revision, curated)
+        if curated_warnings:
+            schema_check["curated_warnings"] = curated_warnings
+        reference_warnings = check_reference_flags(pipeline_key, revision)
+        if reference_warnings:
+            schema_check["reference_warnings"] = reference_warnings
+
     base = artifacts.get("base_dir") or str(Path(log_dir or getattr(config, "LOG_DIR", ".")))
     plan = SeqeraLaunchPlan(
         run_name=(Path(base).name or pipeline_key),
@@ -549,6 +774,7 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
     state["artifacts"]["launch"] = result.saved_files.get("launch")
     state["launch_plan"] = plan.model_dump()
     state["pipeline_key"] = pipeline_key
+    state["launch_built_at_user_msgs"] = _user_msg_count(state)
 
     ref_files = (local_luria_ref_files(merged.get("genome"))
                  if reference_status == "local_luria" else None)
@@ -559,9 +785,27 @@ def tool_configure_run(config: "ChatConfig", state: dict, tool_input: dict, log_
         "reference_status": reference_status,
         "reference_files": ref_files,
         "bundle_key": bundle_key,
+        "schema_check": schema_check,
         "params_yml": result.saved_files.get("params"),
         "launch_yml": result.saved_files.get("launch"),
     })
+
+
+def _user_msg_count(state: dict) -> int:
+    """Number of user text turns so far (tool results are role user with list content: not counted)."""
+    return sum(1 for m in state.get("messages") or []
+               if isinstance(m, dict) and m.get("role") == "user" and isinstance(m.get("content"), str))
+
+
+def _launch_unconfirmed(state: dict) -> str | None:
+    """A refusal message unless the user has replied since the launch artifact was built.
+
+    A missing mark (a state saved before the gate existed) counts as unconfirmed.
+    """
+    if _user_msg_count(state) > state.get("launch_built_at_user_msgs", _user_msg_count(state)):
+        return None
+    return json.dumps({"ok": False, "message": "Not submitted: the user has not confirmed this run since it was built. "
+                                               "Show them what will run, ask them to confirm, and submit only after their reply."})
 
 
 def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
@@ -569,6 +813,8 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
     launch = artifacts.get("launch")
     if not launch:
         return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    if (refusal := _launch_unconfirmed(state)):
+        return refusal
     tower_env = dict(getattr(config, "TOWER_ENV", {}) or {})
     if not (tower_env.get("access_token") and tower_env.get("workspace")):
         return json.dumps({"ok": False, "message": f"Tower not configured. Samplesheet/launch is at {launch}. "
@@ -583,11 +829,76 @@ def tool_submit_to_tower(config: "ChatConfig", state: dict) -> str:
 
 
 
+def format_luria_followup(runs: list[dict] | None, ssh_target: str | None = None) -> str:
+    """Render the 'how to watch this run' block appended to a successful submit reply.
+
+    Built here in Python rather than left to the model on purpose: a monitoring
+    command carrying a paraphrased job id or a half-remembered path is worse than
+    no command at all. Nothing polls SLURM, so this block is the only thing that
+    tells the user where their run went.
+    """
+    runs = [r for r in (runs or []) if isinstance(r, dict)]
+    if not runs:
+        return ""
+    target = ssh_target or "<user>@luria.mit.edu"
+    user = target.split("@", 1)[0]
+    multi = len(runs) > 1
+
+    out: list[str] = ["", "**Watching this run**" if not multi else "**Watching these runs**", ""]
+    out.append("Copy these into a terminal on your own computer — Terminal on a Mac, or any "
+               "shell that has `ssh`. They will not do anything typed into this chat. Each one "
+               "opens a connection to Luria, prints what it finds, and changes nothing about "
+               "the run.")
+    for run in runs:
+        job_id = run.get("job_id")
+        log = run.get("log")
+        remote_dir = run.get("remote_dir")
+        out.append("")
+        if multi:
+            label = run.get("run_name") or "run"
+            out.append(f"*{label}*" + (f" — job `{job_id}`" if job_id else ""))
+            out.append("")
+        if job_id:
+            out.append("- **Has it finished yet?**")
+            out.append(f'  `ssh {target} "sacct -j {job_id} '
+                       '--format=JobID,JobName%30,State,Elapsed,ExitCode"`')
+            out.append("  Prints the job's state — PENDING (queued), RUNNING, COMPLETED, or "
+                       "FAILED/CANCELLED — with how long it has been going and an exit code "
+                       "(`0:0` means it ended cleanly).")
+        else:
+            # sbatch printed something we couldn't parse a job id out of — fall back
+            # to the queue view rather than emitting a command with a blank id in it.
+            out.append("- **Is it still running?** (the job id didn't come back from sbatch, "
+                       "so this lists everything you have queued)")
+            out.append(f'  `ssh {target} "squeue -u {user}"`')
+            out.append("  Prints one row per job of yours that is still pending or running. "
+                       "An empty list means nothing of yours is left in the queue.")
+        if log:
+            out.append("- **What is it doing right now?**")
+            out.append(f'  `ssh {target} "tail -f {log}"`')
+            out.append("  Streams the pipeline's progress log live, one line per step as it "
+                       "completes. Press Ctrl-C to stop watching — that stops the watching, "
+                       "not the run.")
+        if remote_dir:
+            out.append("- **Where are my results?**")
+            out.append(f"  `{remote_dir}/` on Luria")
+            out.append("  The pipeline writes its output into this directory as it goes, so you "
+                       "can look before it finishes." + (
+                           f" If something goes wrong, `{Path(log).name[:-4]}.err` in that same "
+                           "directory holds the error." if log and log.endswith(".out") else ""))
+    out.append("")
+    out.append("Nothing reports back to this chat — the run keeps going after the "
+               "conversation ends, so the commands above are the way to check on it.")
+    return "\n".join(out)
+
+
 def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | None = None) -> str:
     artifacts = state.get("artifacts") or {}
     launch = artifacts.get("launch")
     if not launch:
         return json.dumps({"ok": False, "message": "No launch artifact to submit — build a samplesheet first."})
+    if (refusal := _launch_unconfirmed(state)):
+        return refusal
     if not getattr(config, "LURIA_ENV_COMPLETE", False):
         return json.dumps({"ok": False, "message": f"Luria not configured. Samplesheet/launch is at {launch}. "
                                                    "Set LURIA_USER / LURIAKEY / LURIA_WORKING_PATH."})
@@ -622,11 +933,243 @@ def tool_submit_to_luria(config: "ChatConfig", state: dict, tool_input: dict | N
     if not runs:
         return json.dumps({"ok": False, "message": "No runs submitted — check Luria logs."})
     state.setdefault("artifacts", {})["luria_runs"] = runs
+    # Stash the ssh target now, while we still have config in hand — _conclude builds the
+    # follow-up block from state alone and has no ChatConfig to ask.
+    if luria_env.get("user") and luria_env.get("host"):
+        state["artifacts"]["luria_ssh_target"] = f'{luria_env["user"]}@{luria_env["host"]}'
     return json.dumps({"ok": True, "luria_runs": runs})
 
 
-def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict, log_dir: str) -> str:
+#: A sanity guard against a pathological request, NOT a cost control.
+#:
+#: Measured 2026-09-14 over seven real cohorts (1-176 UIDs, from
+#: evals/groundtruth_cohorts.json): digest cost tracks PROTOCOL-DOCUMENT
+#: FETCHES, not cohort size. The slowest cohort had ONE UID and took 27.4s;
+#: the largest, 176 UIDs, took 1.5s because it references no protocols. A UID
+#: cap therefore does not bound what it was introduced to bound, and at 75 it
+#: was inverted: it refused the 1.5s cohort and waved the 27.4s one through.
+#: DIGEST_TIMEOUT_SECONDS is the real bound. This only stops an absurd request
+#: before any work begins — the team-questions run supplied 663 UIDs, which is
+#: why some ceiling exists at all.
+#:
+#: Not comparable to MAX_RESOLVE_LEAVES (75), which counts the EXPANDED leaf
+#: set after lineage walking. The same measurement put expansion at 3.2-23.0
+#: records per queried UID, so the two differ by up to an order of magnitude
+#: and share a number only by coincidence.
+MAX_SELECTION_UIDS = 500
+
+#: Wall-clock ceiling on the digest build, and — per the measurement above —
+#: the only bound here doing real work. The digest downloads and text-extracts
+#: every SOP attached to the cohort with token_limit=None, which is unbounded
+#: on paper; worst observed was 27.4s, leaving roughly 3x headroom. On timeout
+#: the build continues without selection.
+DIGEST_TIMEOUT_SECONDS = 90.0
+
+#: Wall-clock ceiling on the selection model call. The payload is ~84k tokens and
+#: botocore's own read_timeout (600s) times its retries is the only other bound,
+#: on a daemon thread gunicorn will not reap. Like DIGEST_TIMEOUT_SECONDS this is
+#: an unmeasured starting value, chosen to be generous enough not to cut off a
+#: legitimate call.
+SELECTION_MODEL_TIMEOUT_SECONDS = 240.0
+
+
+_SELECTION_NEXT_STEP = {
+    "chosen": ("Call resolve_samples with this pipeline_key and carry on. "
+               "Tell the user which pipeline you are using and why, in one line."),
+    "fork": ("Two or three pipelines fit. Ask the user which they want, in plain text, "
+             "giving the reason. STOP — do not call resolve_samples or conclude yet."),
+    "refused": ("These samples cannot answer that question. Call "
+                "conclude(outcome='rejected') and give the reason as your message."),
+    "out_of_scope": ("Selection could not judge this one. Decide the pipeline yourself "
+                     "from the catalog above, exactly as you would if this tool did not "
+                     "exist. Do not mention the selection tool to the user."),
+}
+
+
+def tool_select_pipeline(config: "ChatConfig", session, state: dict, tool_input: dict,
+                         *, send_event=None) -> str:
+    """Choose a pipeline from the cohort's evidence and the scientist's question.
+
+    This is the one tool that makes its own model call. The evidence payload is
+    ~84k tokens; returning it into the agent's conversation would carry that
+    cost on every later turn, so the payload lives and dies inside this call and
+    only a four-way verdict comes back.
+
+    Never raises, and never returns ok=false for a *selection* failure — every
+    one of those becomes the out_of_scope verdict, which puts the agent back on
+    the behaviour it had before this tool existed. ok=false is reserved for a
+    malformed tool call.
+    """
+    def _emit(name: str, payload: dict) -> None:
+        if send_event:
+            try:
+                send_event(name, payload)
+            except Exception as exc:  # noqa: BLE001 - progress events are advisory, never fatal
+                print(f"[DEBUG][PIPELINE_AGENT] send_event({name!r}) failed: {exc!r}")
+
+    def _verdict_json(verdict, n_uids: int) -> str:
+        state["selection"] = {"verdict": verdict.kind, "pipelines": verdict.pipelines,
+                              "reason": verdict.reason}
+        if verdict.dropped:
+            state["selection"]["dropped"] = verdict.dropped
+        _emit("selection_done", {"verdict": verdict.kind, "pipelines": verdict.pipelines})
+        return json.dumps({
+            "ok": True,
+            "verdict": verdict.kind,
+            "pipelines": verdict.pipelines,
+            "reason": verdict.reason,
+            "n_uids": n_uids,
+            "message": _SELECTION_NEXT_STEP[verdict.kind],
+        })
+
+    question = (tool_input.get("question") or "").strip()
+    if not question:
+        return json.dumps({"ok": False, "error": (
+            "select_pipeline requires 'question' — the user's own words, verbatim. "
+            "Do not paraphrase it.")})
+
+    kind = tool_input.get("kind")
+    if kind == "explicit_uids":
+        uids = [u for u in (tool_input.get("uids") or []) if u]
+        if not uids:
+            # Malformed call, not a selection failure — no verdict, so no
+            # selection_started/selection_done pair should fire for it.
+            return json.dumps({"ok": False,
+                               "error": "kind='explicit_uids' requires a non-empty uids list."})
+    elif kind == "last_search":
+        uids = uids_from_last_search(session)
+    elif kind == "accessions":
+        uids = []
+    else:
+        # Also a malformed call — same reasoning as above.
+        return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
+
+    # Every remaining path below produces a verdict, so every one of them gets
+    # a selection_started to pair with the selection_done that _verdict_json
+    # always emits. Emitting it any later would let a UI open a progress row
+    # on selection_started and then see an orphan selection_done for the
+    # accessions/no-pinned-search/over-cap paths, which all return before the
+    # digest is ever built.
+    _emit("selection_started", {"n_uids": len(uids)})
+
+    if kind == "accessions":
+        # Archive accessions carry no NExtSEEK metadata and no protocols, so there
+        # is nothing to profile. This is a real limit, not a refusal — say so.
+        return _verdict_json(selection.out_of_scope(
+            "these are archive accessions, which carry no NExtSEEK metadata or protocol "
+            "text to judge from — choose the pipeline from the request itself"), 0)
+    if kind == "last_search" and not uids:
+        return _verdict_json(selection.out_of_scope(
+            "there is no pinned search to profile"), 0)
+
+    if len(uids) > MAX_SELECTION_UIDS:
+        return _verdict_json(selection.out_of_scope(
+            f"{len(uids)} samples is past the {MAX_SELECTION_UIDS}-sample limit for "
+            "profiling a cohort interactively"), len(uids))
+
+    # build_sample_digest is synchronous and downloads SOP blobs with no
+    # internal deadline. Run it on a worker so a stalled download cannot hold
+    # the turn open. Deliberately NOT `with ThreadPoolExecutor(...) as pool:` —
+    # the context manager's __exit__ calls shutdown(wait=True), which blocks
+    # until the submitted call finishes regardless of the future.result()
+    # timeout below, silently turning the timeout into a no-op. shutdown(wait=
+    # False) in the finally block below lets this call return immediately; the
+    # abandoned future keeps running to its own request timeouts, which is
+    # accepted, since it holds no locks and writes only to a TemporaryDirectory
+    # it owns.
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(build_sample_digest, config, uids)
+        try:
+            digest = future.result(timeout=DIGEST_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            # No future.cancel() here: with max_workers=1 the future is already
+            # running by the time the timeout fires, so cancel() would always
+            # return False and do nothing. The future is deliberately left to
+            # run to its own request timeouts — see the comment above.
+            return _verdict_json(selection.out_of_scope(
+                f"profiling these samples timed out after "
+                f"{DIGEST_TIMEOUT_SECONDS:.0f}s"), len(uids))
+    except DigestError as exc:
+        return _verdict_json(selection.out_of_scope(f"these samples could not be profiled: {exc}"),
+                             len(uids))
+    except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
+        return _verdict_json(selection.out_of_scope(
+            f"profiling these samples failed: {type(exc).__name__}: {exc}"), len(uids))
+    finally:
+        pool.shutdown(wait=False)
+
+    try:
+        atlas = load_atlas()
+        ctx = build_selection_context(
+            config=config, uids=uids, digest=digest, atlas=atlas,
+            sections=selection.SELECTION_SECTIONS,
+        )
+        payload = ctx.to_prompt_text(selection.SELECTION_SECTIONS)
+    except PayloadTooLargeError as exc:
+        return _verdict_json(selection.out_of_scope(
+            f"the evidence for these samples is too large to judge: {exc}"), len(uids))
+    except Exception as exc:  # noqa: BLE001
+        return _verdict_json(selection.out_of_scope(
+            f"assembling the evidence failed: {type(exc).__name__}: {exc}"), len(uids))
+
+    try:
+        size_info = ctx.size_report(selection.SELECTION_SECTIONS)
+    except Exception:  # noqa: BLE001 - progress events are advisory, never fatal
+        size_info = {}
+    _emit("selection_evidence_ready", size_info)
+
+    try:
+        # get_agent_model can raise (a profile missing "model"/"thinking_budget",
+        # or a RuntimeError from config's catalog normalizers) on a misconfigured
+        # AGENT_MODEL_CATALOG. selection.decide itself never raises, but it costs
+        # nothing to keep it inside this guard too.
+        client, model_name, budget = config.get_agent_model("pipeline_agent")
+        # Only atlas keys that are also in the build-path catalog may be chosen:
+        # every downstream tool (resolve_samples, write_samplesheet, configure_run)
+        # validates against NFCORE_PIPELINE_CATALOG, not the atlas, and the two
+        # sets are not nested — differentialabundance is atlas-only. Choosing it
+        # would pass selection's own invented-key check and then fail every tool
+        # after it. differentialabundance stays in the atlas payload itself
+        # (its versus.rnaseq entry is load-bearing for disambiguation), and a
+        # verdict naming it alongside a launchable pipeline keeps that pipeline:
+        # decide() drops the unlaunchable key rather than the whole answer.
+        atlas_keys = set(atlas.get("pipelines") or {})
+        launchable_keys = atlas_keys & set(NFCORE_PIPELINE_CATALOG)
+        # decide() itself never raises, but its Bedrock call has no ceiling of
+        # its own — botocore's read_timeout (600s) times its retries is the only
+        # other bound, on a daemon thread gunicorn will not reap. Bound it the
+        # same way build_sample_digest is bounded above: deliberately NOT
+        # `with ThreadPoolExecutor(...) as pool:`, for the same reason as above
+        # — __exit__ would call shutdown(wait=True) and turn the timeout below
+        # into a no-op.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(selection.decide, client=client, model=model_name,
+                                 budget=budget, payload=payload, question=question,
+                                 atlas_keys=atlas_keys, launchable_keys=launchable_keys)
+            try:
+                verdict = future.result(timeout=SELECTION_MODEL_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                # No future.cancel() here, for the same reason as the digest
+                # timeout above: with max_workers=1 the future is already
+                # running, so cancel() would always return False.
+                return _verdict_json(selection.out_of_scope(
+                    f"choosing a pipeline for these samples timed out after "
+                    f"{SELECTION_MODEL_TIMEOUT_SECONDS:.0f}s"), len(uids))
+        finally:
+            pool.shutdown(wait=False)
+    except Exception as exc:  # noqa: BLE001 - the governing rule: degrade, never block
+        return _verdict_json(selection.out_of_scope(
+            f"the selection model could not be run: {type(exc).__name__}: {exc}"), len(uids))
+    return _verdict_json(verdict, len(uids))
+
+
+def dispatch_pipeline_tool_call(*, config, session, state: dict, name: str, tool_input: dict,
+                                log_dir: str, send_event=None) -> str:
     """Route a non-control tool to its implementation. 'conclude' is intercepted by the loop."""
+    if name == "select_pipeline":
+        return tool_select_pipeline(config, session, state, tool_input, send_event=send_event)
     if name == "resolve_samples":
         pipeline_key = state.get("pipeline_key") or tool_input.get("pipeline_key") or ""
         return tool_resolve_samples(config, session, state, tool_input, pipeline_key)

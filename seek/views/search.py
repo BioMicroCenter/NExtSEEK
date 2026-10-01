@@ -10,10 +10,10 @@ from django.http import HttpResponse
 from django.http import HttpResponseRedirect
 from ..seekdb import SeekDB
 from django.shortcuts import render
-from ..decorators import requires_seek_login_redirect
+from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
-@requires_seek_login_redirect('/seek/samples/search/')
+@requires_seek_login_redirect()
 def sampleSearch(request):
     report = {}
     stype = DBtable_sampletype()
@@ -105,7 +105,7 @@ def _with_names(type_options):
     return json.dumps(options, default=str)
 
 
-@requires_seek_login_redirect('/seek/search/')
+@requires_seek_login_redirect()
 def searchAdvanced(request):
     report = {}
     stype = DBtable_sampletype()
@@ -127,8 +127,7 @@ def searchingUIDs(request):
 
 def smartSearch(request):
     if not request.user.is_authenticated:
-        data = {'msg': 'You do not have access to this page', 'status': 0, 'link': ''}
-        return render(request, 'error.html', {'data': data})
+        return login_redirect(request)
     return render(request, "smartSearch.html")
 
 @requires_seek_login_redirect()

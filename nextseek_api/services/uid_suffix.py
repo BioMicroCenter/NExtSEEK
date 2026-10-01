@@ -16,36 +16,43 @@ two alternatives. Nothing here reaches a database: callers pass their own lookup
 """
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional, Tuple
 
 PUB_SUFFIX = "-PUB"
+# A publication suffix is -PUB or -PUB<n> (a sample published more than once). All of them name the same sample
+# as the bare UID (operator ruling, 1 Oct 2026).
+_PUB_RE = re.compile(r"-PUB\d*$", re.IGNORECASE)
+# ponytail: a bare UID is also tried as -PUB1..-PUB9, because a lookup by exact string cannot enumerate; raise if a
+# sample is ever published more than nine times.
+MAX_PUB_NUMBER = 9
 
 
-def uid_spellings(uid: str) -> list[str]:
+def uid_spellings(uid: str, *, as_written_only: bool = False) -> list[str]:
     """Every spelling of ``uid`` worth trying, in order, without repeats.
 
-    As given, then the same UID with ``-PUB`` removed, then with ``-PUB`` added. A numeric id
-    or an empty string yields only itself: there is nothing to suffix.
+    As given, then the UID without any ``-PUB`` or ``-PUB<n>`` suffix, then with ``-PUB``, then with ``-PUB1`` to
+    ``-PUB<MAX_PUB_NUMBER>``. A numeric id or an empty string yields only itself: there is nothing to suffix.
+    Repeats are judged without case, as SEEK's database compares.
+
+    ``as_written_only=True`` yields just the UID as written: every write (PATCH, PUT, DELETE) uses it, so a missing
+    spelling never lands on another sample's row.
     """
     text = str(uid or "").strip()
-    if not text or text.isdigit():
+    if not text or text.isdigit() or as_written_only:
         return [text] if text else []
 
+    stem = _PUB_RE.sub("", text)
     out = [text]
-    upper = text.upper()
-    if upper.endswith(PUB_SUFFIX):
-        stripped = text[: -len(PUB_SUFFIX)]
-        if stripped and stripped not in out:
-            out.append(stripped)
-    else:
-        suffixed = text + PUB_SUFFIX
-        if suffixed not in out:
-            out.append(suffixed)
+    if stem:
+        for spelling in [stem, stem + PUB_SUFFIX, *(f"{stem}{PUB_SUFFIX}{n}" for n in range(1, MAX_PUB_NUMBER + 1))]:
+            if spelling.casefold() not in {o.casefold() for o in out}:
+                out.append(spelling)
     return out
 
 
 def resolve_uid_with_suffix(
-    uid: str, lookup: Callable[[str], Optional[str]],
+    uid: str, lookup: Callable[[str], Optional[str]], *, as_written_only: bool = False,
 ) -> Tuple[Optional[str], Optional[str]]:
     """Resolve ``uid`` through ``lookup``, trying each spelling.
 
@@ -54,7 +61,7 @@ def resolve_uid_with_suffix(
     can ignore it. ``lookup`` raising is treated as "not this spelling", because the per-service
     resolvers this replaces all swallowed their own exceptions.
     """
-    for spelling in uid_spellings(uid):
+    for spelling in uid_spellings(uid, as_written_only=as_written_only):
         try:
             found = lookup(spelling)
         except Exception:

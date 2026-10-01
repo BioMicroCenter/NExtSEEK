@@ -24,12 +24,13 @@ from chat_nextseek.llm_clients import (
     LLMTimeoutError,
 )
 from chat_nextseek.schemas import schema_helper
-from chat_nextseek.schemas.schema_helper import FAILURE_CLASSES, FALLBACK_REASONS, _EmptyCompletion, failure_reason
+from chat_nextseek.schemas.schema_helper import FAILURE_CLASSES, FALLBACK_REASONS, _DeclinedCompletion, _EmptyCompletion, failure_reason
 
 
 @pytest.mark.parametrize("err, reason", [
     (LLMModelUnusableError("AccessDeniedException"), "model_unusable"),
     (_EmptyCompletion("empty"), "empty"),
+    (_DeclinedCompletion("declined"), "declined"),
     (LLMServiceUnavailableError("503"), "unavailable"),
     (LLMRateLimitError("429"), "rate_limited"),
     (LLMTimeoutError("t"), "timeout"),
@@ -57,7 +58,7 @@ def test_every_outage_marks_the_model_and_an_empty_body_does_not():
     """One strike (D4): the turn remembers a model after one timeout, 5xx, 429, connection error or refusal.
     An empty body is one response, not the model failing."""
     marks = {reason: marks for _, reason, marks in FAILURE_CLASSES}
-    assert marks == {"model_unusable": True, "empty": False, "unavailable": True, "rate_limited": True,
+    assert marks == {"model_unusable": True, "empty": False, "declined": False, "unavailable": True, "rate_limited": True,
                      "timeout": True, "connection": True}
 
 

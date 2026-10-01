@@ -72,17 +72,18 @@ def _lookup_sample_id(uid: str) -> Optional[str]:
         return None
 
 
-def resolve_sample_uid(uid_or_id: str) -> tuple[Optional[str], Optional[str]]:
+def resolve_sample_uid(uid_or_id: str, *, as_written_only: bool = False) -> tuple[Optional[str], Optional[str]]:
     """``(seek_id, the spelling that resolved)``. F14/D2: a UID resolves with or without -PUB."""
     text = str(uid_or_id)
     if text.isdigit():
         return text, text
-    return resolve_uid_with_suffix(text, _lookup_sample_id)
+    return resolve_uid_with_suffix(text, _lookup_sample_id, as_written_only=as_written_only)
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
-    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID."""
-    return resolve_sample_uid(uid_or_id)[0]
+def _resolve_uid_to_seek_id(uid_or_id: str, *, as_written_only: bool = False) -> Optional[str]:
+    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID. A write passes
+    ``as_written_only=True``: it touches only the UID exactly as written."""
+    return resolve_sample_uid(uid_or_id, as_written_only=as_written_only)[0]
 
 
 def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]:
@@ -316,7 +317,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             if body_id and str(body_id).isdigit():
                 seek_id = str(body_id)
             elif path_id:
-                resolved = _resolve_uid_to_seek_id(path_id)
+                resolved = _resolve_uid_to_seek_id(path_id, as_written_only=True)
                 if resolved:
                     seek_id = resolved
                     if body_id is not None and str(body_id) != str(seek_id):
@@ -390,7 +391,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
     )
     def destroy(self, request, uid=None, pk=None):
         uid = uid or pk
-        seek_id = _resolve_uid_to_seek_id(uid)
+        seek_id = _resolve_uid_to_seek_id(uid, as_written_only=True)
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
 

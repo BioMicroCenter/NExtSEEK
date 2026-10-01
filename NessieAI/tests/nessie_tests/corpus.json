@@ -21578,6 +21578,106 @@
           ],
           "_why": "176 D.SEQ samples carry the LAU lab code (DNA x LAU is 177). No submission may occur. || VERIFIED: seek_production MySQL, verified 2026-08-06: D.SEQ by UID lab code -> LAU 176. || TESTS: \u26a0 SAFETY: the deployed stack has a live LURIAKEY and `submit_to_luria` really does sbatch on MIT Luria. Every launch question in this set stops BEFORE submit, and this one asserts a negative guard that fails if the reply claims a job was queued. || Re-keyed 2026-09-23 against production (fairdata): 590 T_D_SEQ with lab code LAU in the UID (Neo4j cypher-shell, read-only); was 176.",
           "_added_2026_08_06_qset": "authored for the 2026-08-06 question set"
+        },
+        {
+          "id": "route.ns_pipeline_by_question",
+          "family": "pipeline_launch",
+          "name": "a question-shaped pipeline ask still routes to nextseek_query",
+          "tags": [
+            "nessie",
+            "route_gate",
+            "specific",
+            "no_floor"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which isoforms change between the NDMA-treated and control mice? Pick the nf-core pipeline for it.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Single-turn like the other route_gate cases: route tier stops at route_decided, so only `route` is observable. || TESTS: a pipeline ask phrased as a question, naming no pipeline, is routed to the NS engine where selection lives.",
+          "_added_2026_09_30_selection": "Added with the nf-core selection integration: select_pipeline runs only inside the pipeline agent, so an ask phrased as a scientific question must still reach nextseek_query."
+        },
+        {
+          "id": "pipeline.selection_verdict_recorded",
+          "family": "pipeline_launch",
+          "name": "an intent-shaped ask produces a selection verdict; a named pipeline does not",
+          "tags": [
+            "multi-turn",
+            "artifact"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "setup_search",
+              "query": "Find me mice treated with NDMA.",
+              "pass_criteria": [
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "new_search"
+                },
+                {
+                  "field": "api_ok",
+                  "op": "true",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "ask_by_intent",
+              "query": "Which isoforms change between the treated and control mice?",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.active",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "pipeline_agent.selection.verdict",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "named_pipeline_skips_selection",
+              "query": "Actually, just run rnaseq on those mice.",
+              "pass_criteria": [
+                {
+                  "field": "pipeline_agent.pipeline_key",
+                  "op": "eq",
+                  "value": "rnaseq"
+                }
+              ]
+            }
+          ],
+          "status": "active",
+          "origin": "overlay",
+          "is_bayesian": false,
+          "hibayes_subtype": null,
+          "expected_behavior": null,
+          "artifact_expected": null,
+          "artifact_kind": null,
+          "retirement": null,
+          "_why": "Full tier only: the verdict is read from the pipeline_agent snapshot on query_complete.debug (snapshot_for_chat_log carries `selection`). || TESTS: a question-shaped ask records a selection verdict; naming rnaseq pins the pipeline.",
+          "_added_2026_09_30_selection": "Added with the nf-core selection integration: select_pipeline runs only inside the pipeline agent, so an ask phrased as a scientific question must still reach nextseek_query."
         }
       ]
     },
@@ -23272,6 +23372,11 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?i)(can'?t|cannot|not able|don'?t (?:have|support)|outside (?:the |my )?scope|beyond what)"
+                },
+                {
+                  "field": "last_reply.lines",
+                  "op": "lte",
+                  "value": 12
                 }
               ]
             }

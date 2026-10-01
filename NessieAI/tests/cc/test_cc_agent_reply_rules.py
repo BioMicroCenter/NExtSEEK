@@ -138,3 +138,26 @@ def test_the_skill_says_to_answer_first_and_keep_it_short():
         "Aim for ten lines or fewer. Do not describe which calls you made, which failed or which you "
         "retried, unless the answer is incomplete because of it; then say in one sentence what is missing.")
     assert surface < short < flat.index("- Do not fabricate counts")
+
+
+ANSWER_FIRST_RULE = (
+    "**Answer first, and keep it short.** The first sentence is the answer, or that you cannot do it "
+    "and why, in plain words. Aim for ten lines or fewer: no headings, no list of the steps you took "
+    "or the things you checked, and no table for fewer than four rows. The `nextseek` skill's "
+    "\"Composing the reply\" has the rest."
+)
+MASK_RULE = (
+    "NExtSEEK masks values that match a credential; never try to recover or repeat a masked value."
+)
+
+
+def test_what_the_user_sees_ends_with_the_answer_first_rule():
+    section = _section(CLAUDE_MD.read_text(encoding="utf-8"), "What the user sees").strip()
+    paragraphs = section.split("\n\n")
+    assert paragraphs[-1] == ANSWER_FIRST_RULE
+    assert paragraphs[-2].startswith("Your reply is read by a researcher")
+
+
+def test_credentials_ends_with_the_masked_value_rule():
+    section = _section(CLAUDE_MD.read_text(encoding="utf-8"), "Credentials").strip()
+    assert section.split("\n\n")[-1] == MASK_RULE

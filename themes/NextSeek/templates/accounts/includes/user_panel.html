@@ -1,7 +1,6 @@
 {% load i18n mezzanine_tags accounts_tags %}
 
 {% if request.user.is_authenticated %}
-  {% url "profile" request.user.username as profile_url %}
   <div class="user-panel">
     <div class="user-avatar">
       {{ request.user.username|slice:":2"|upper }}
@@ -27,14 +26,6 @@
       <i class="bi bi-three-dots"></i>
     </button>
     <div class="user-menu" role="menu">
-      {% if profile_url %}
-        <a href="{{ profile_url }}" role="menuitem">
-          <i class="bi bi-person"></i> {% trans "Profile" %}
-        </a>
-      {% endif %}
-      <a href="{% url 'profile_update' %}" role="menuitem">
-        <i class="bi bi-pencil"></i> {% trans "Update profile" %}
-      </a>
       <a href="{% url 'logout' %}?next={{ request.path }}" role="menuitem">
         <i class="bi bi-box-arrow-right"></i> {% trans "Sign out" %}
       </a>
@@ -43,7 +34,7 @@
 {% else %}
   <div class="user-panel user-panel--anon">
     <a class="btn btn-sm btn-signin"
-       href="/login/?next={{ request.path }}">
+       href="/login/?next={{ request.get_full_path|urlencode }}">
       <i class="bi bi-box-arrow-in-right"></i> {% trans "Sign in" %}
     </a>
   </div>

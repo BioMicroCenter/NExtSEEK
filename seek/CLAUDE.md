@@ -126,16 +126,6 @@
   `verify=False` in `SeekAPI.getPageRequests` disable certificate checks. The
   password is visible in the process table. It is one `shlex.quote`d word: before
   that, a quote in a password ended the word and the rest ran as a command.
-- **`seek/templates/content.embed.html` is never the file that renders.**
-  `themes/NextSeek/templates` is the filesystem `DIRS` entry
-  (`dmac/settings.py:108-110`) and its loader runs before the app-directories one
-  (`dmac/settings.py:129-131`), so the theme copy wins. Comparing the two
-  directories on 2026-09-03 found this is the only name they share, so it is the
-  only file here you can edit with no visible effect.
-- **`seek/templates/pages/dmac.logs` is a committed production stack trace**,
-  not a template — it leaks the deployment's filesystem layout
-  (`seek/templates/pages/dmac.logs:3-5`) into a repository that is public. Two
-  `.html.bk` files sit beside it in the same directory.
 - **`seek/tests/test_dbtables.py:46` cites `/workspace/deslopify/LATENT_BUGS.md`**,
   an absolute path outside this repository. `seek/views/shared.py:6` and
   `seek/models/nextseek.py:32` cite the same document by numbered entry. Nothing

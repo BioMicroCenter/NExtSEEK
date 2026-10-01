@@ -69,6 +69,8 @@ def check_uids(config: Any, uids: list[str], *, run: Callable[..., dict]) -> lis
     query failed or was refused, which claims nothing either way."""
     if not uids:
         return []
+    # UIDs are stored upper-case and the index seek compares exactly, so a UID typed in any case is looked up upper-case.
+    uids = [str(uid).strip().upper() for uid in uids]
     checks = [{"uid": uid, "base": _PUB_SUFFIX.sub("", uid)} for uid in uids]
     result = run(config, CHECK_CYPHER, {"checks": checks})
     if not isinstance(result, dict) or not result.get("ok"):

@@ -169,7 +169,7 @@ def sample_retrieval_data(children_uids, output):
     # nextseek_api.services.sample_workbook so it cannot drift per call path.
     write_samples_workbook(parse_children_uids(children_uids), output)
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def adminClades(request):
     cladedb = DBtable_clades()
@@ -372,7 +372,7 @@ def cladeSampleTypesSave(request):
     return _wb_batch(records, apply_row, 'association(s)',
                      on_change=lambda: hooks.enqueue('catalog', '*'))
 
-@requires_seek_login_redirect('/seek/samples/attributes/')
+@requires_seek_login_redirect()
 @requires_supervisor('Error: You login as admin to view this page.', with_message_key=True)
 def internalAssays(request):
     db_ia = DBtable_internalassays()

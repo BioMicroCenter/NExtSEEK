@@ -47,6 +47,19 @@ def test_resolve_last_reply_strips_html():
     assert resolve_field({}, "last_reply", last_reply="<p>hello <b>world</b></p>") == "hello world"
 
 
+def test_resolve_last_reply_lines_counts_non_blank_lines():
+    reply = "First line.\n\n  \nSecond line.\n- third"
+    assert resolve_field({}, "last_reply.lines", last_reply=reply) == 3
+    assert resolve_field({}, "last_reply.lines", last_reply=None) == 0
+
+
+def test_last_reply_lines_lte_fails_a_long_reply_and_passes_a_short_one():
+    pc = PassCriterion(field="last_reply.lines", op="lte", value=12)
+    long_reply = "\n".join(f"line {i}" for i in range(13))
+    assert check_pass({}, [pc], last_reply=long_reply)[0] is False
+    assert check_pass({}, [pc], last_reply="\n".join(f"line {i}" for i in range(12)))[0] is True
+
+
 def test_resolve_api_artifact_existence(tmp_path):
     run_root = tmp_path / "run_root"
     (run_root / "files").mkdir(parents=True)

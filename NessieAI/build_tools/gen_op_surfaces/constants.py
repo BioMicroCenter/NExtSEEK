@@ -72,15 +72,6 @@ ADDITIONAL_CONTEXTS_BEGIN = "# BEGIN PLAN005-GEN:additional-contexts"
 ADDITIONAL_CONTEXTS_END = "# END PLAN005-GEN:additional-contexts"
 
 CLAUDE_MD_REL = paths.repo_relative(paths.CC_RUNTIME_DIR / "container" / "CLAUDE.md")
-CONTENT_HASH_REL = paths.repo_relative(
-    paths.CC_RUNTIME_DIR / "docs" / "nextseek" / ".content-hash"
-)
-# The docs snapshot is pinned to a commit that predates the NessieAI move, so
-# a `git show <ref>:<path>` against it needs the paths as they were at that
-# commit. History, never rewritten.
-NEXTSEEK_DOCS_PIN_REF = "a9d69522"
-NEXTSEEK_DOCS_PIN_CLAUDE_MD_REL = "docker/cc-runtime/container/CLAUDE.md"
-NEXTSEEK_DOCS_PIN_CONTENT_HASH_REL = "docker/cc-runtime/docs/nextseek/.content-hash"
 
 CLAUDE_PLUGINS_BEGIN = "<!-- BEGIN PLAN005-GEN:plugins -->"
 CLAUDE_PLUGINS_END = "<!-- END PLAN005-GEN:plugins -->"

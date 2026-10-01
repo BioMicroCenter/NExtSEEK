@@ -297,3 +297,9 @@ startup/.ci-write-run.xml
 # The checkout's log directory (LOG_DIR=./logs in docker-compose.yml): graph_sync's run directories, journals and
 # archives are written there.
 /logs/
+
+# nf-core selection evals: outputs built from production metadata and SOP text. Never commit them.
+NessieAI/chat_nextseek/evals/prod_digests*.json
+NessieAI/chat_nextseek/evals/demo-output-*/
+NessieAI/chat_nextseek/evals/team_questions.json
+NessieAI/tests/evals/seqtype_fix/snapshot-*.json

@@ -16,6 +16,13 @@ interface ChatPanelProps {
   apiService?: NextseekApiService;
 }
 
+/** What a screen reader hears when the newest message is not the user's own. */
+function announcement(messages: Message[]): string {
+  const last = messages[messages.length - 1];
+  if (!last || last.isUser) return "";
+  return last.messageType === "system" ? `Notice: ${last.content}` : "Answer ready";
+}
+
 export function ChatPanel({
   messages,
   processingState,
@@ -34,10 +41,13 @@ export function ChatPanel({
   );
 
   return (
-    <div data-testid="chat-panel" className="flex flex-1 flex-col overflow-hidden">
+    <div data-testid="chat-panel" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       {processingState.isProcessing && (
         <ProcessingStepper steps={processingState.steps} />
       )}
+      <div role="status" className="sr-only" data-testid="chat-status">
+        {announcement(messages)}
+      </div>
       <MessageList
         messages={messages}
         scrollRef={scrollRef}
