@@ -63,16 +63,6 @@ EXCLUDED_PREFIXES = (
     "themes/NextSeek/docs/",
     "NessieAI/docker/cc-runtime/build_context/",
     "NessieAI/docker/cc-runtime/container/",
-    # The same trees at their locations before the NessieAI move.
-    "nextseek_api/eval/fit/vendor/",
-    "docker/cc-runtime/docs/",
-    "docker/cc-runtime/build_context/",
-    "docker/cc-runtime/container/",
-    "nextseek_api/cc_assistant/archive/",
-    "nextseek_api/cc_assistant/evidence/",
-    "nextseek_api/cc_assistant/acceptance_evidence/",
-    "nextseek_api/assistant/tests/acceptance_evidence/",
-    "evidence/",
     ".superpowers/",
 )
 
@@ -87,8 +77,6 @@ MAP_FILES = {
 }
 
 ROOT_MD_ALLOWED = {"README.md", "CLAUDE.md", "AGENTS.md", "DEPLOYMENT.md", "NExtSTEPS.md"}
-# Moves to NessieAI/docs/ with the NessieAI move; allowed at the root until then.
-ROOT_MD_ALLOWED_BEFORE_MOVE = {"architecture.md"}
 
 # A CLAUDE.md with no README.md beside it. Everything else needs the pair.
 CLAUDE_WITHOUT_README = {"CLAUDE.md"}
@@ -129,7 +117,6 @@ PINNED = {
     ),
     "DEPLOYMENT.md": ("./startup.sh install",),
 }
-DEPLOY_MD_BEFORE_MOVE = "nextseek_api/cc_assistant/DEPLOY.md"
 DEPLOY_MD_AFTER_MOVE = "NessieAI/cc/DEPLOY.md"
 MUST_EXIST = ("README.md",)
 
@@ -558,7 +545,7 @@ def check_indexes(checker: Checker) -> None:
                 for sub in sorted(tree.subdirs("NessieAI/history")):
                     if f"{sub}/" not in text:
                         checker.fail("R3", history, f"no row for {sub}/")
-    allowed = ROOT_MD_ALLOWED | (set() if moved(tree) else ROOT_MD_ALLOWED_BEFORE_MOVE)
+    allowed = ROOT_MD_ALLOWED
     for path in sorted(p for p in tree.files if "/" not in p and p.endswith(".md")):
         if path not in allowed:
             checker.fail("R3", path, "only " + ", ".join(sorted(ROOT_MD_ALLOWED)) + " live at the root; move it")
@@ -625,8 +612,7 @@ def check_pinned(checker: Checker) -> None:
         if path not in tree.files:
             checker.fail("R8", path, "must exist")
     pinned = dict(PINNED)
-    deploy = DEPLOY_MD_AFTER_MOVE if moved(tree) else DEPLOY_MD_BEFORE_MOVE
-    pinned["DEPLOYMENT.md"] = pinned["DEPLOYMENT.md"] + (deploy,)
+    pinned["DEPLOYMENT.md"] = pinned["DEPLOYMENT.md"] + (DEPLOY_MD_AFTER_MOVE,)
     for path, literals in pinned.items():
         text = tree.text(path)
         for literal in literals:
