@@ -117,10 +117,7 @@ def _host_fields(name: str) -> dict:
     missing = [k for k in _BOX_KEYS[name] if not inst.get(k)]
     if missing:
         raise BoxesConfigError(f"box config {boxes_path()}: instance '{name}' lacks {', '.join(missing)}")
-    out = {k: inst[k] for k in _BOX_KEYS[name]}
-    out["url"] = inst.get("url", "")
-    out["test_logins"] = tuple(inst.get("test_logins", ()))
-    return out
+    return {k: inst[k] for k in _BOX_KEYS[name]}
 
 
 @dataclass(frozen=True)
@@ -133,8 +130,6 @@ class Instance:
     repo: str
     run_as: str                    # account that owns the stack on the box
     home: str                      # that account's home on the box
-    url: str
-    test_logins: tuple
     disk_floor_gb: int
     memory_floor_gib: int
     seek_restart_default: bool     # SEEK restart before Nessie allowed without asking

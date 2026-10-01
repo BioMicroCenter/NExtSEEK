@@ -28,8 +28,8 @@ values into a committed file, a commit message or an issue.
 | `run_as` | dev, prod | The account that owns the stack and the repo on the box. |
 | `home` | dev, prod | That account's home directory; the launch evidence and backups live there. |
 | `in_dir` | dev, prod | Where copied files land first: a world-writable dir such as `/tmp` for `sudo`, the home for `direct`. |
-| `url` | optional | Base URL of the instance, for your own notes and the report. |
-| `test_logins` | optional | Names (never passwords) of the smoke and write accounts CI uses. The passwords live in `ci.env` on the box, never here. |
+| `url` | optional | Base URL of the instance, a note for you; the scripts do not read it. |
+| `test_logins` | optional | Names (never passwords) of the smoke and write accounts CI uses, a note for you; the scripts do not read it. The passwords live in `ci.env` on the box, never here. |
 
 ## Not here
 
