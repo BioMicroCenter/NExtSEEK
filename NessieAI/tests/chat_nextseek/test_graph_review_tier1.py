@@ -669,8 +669,13 @@ def test_d1_a_short_value_is_checked_with_a_whole_word_match():
     assert _check(rv, "unapplied_value").fired and "T_WID.Genotype='KO'" in _check(rv, "unapplied_value").detail
 
 
-def test_d1_a_two_character_term_never_matches_inside_a_longer_word():
+def test_d1_a_longer_value_the_contains_search_also_counted_is_an_other():
     rv = _free_text_turn("How many widgets carry the KO genotype?", "ko", "T_WID", "Genotype", ["KO", "Koala"])
+    assert _check(rv, "unapplied_value").fired
+
+
+def test_d1_a_two_character_term_never_counts_as_naming_a_longer_value():
+    rv = _free_text_turn("How many widgets carry the KO genotype?", "ko", "T_WID", "Genotype", ["Koala", "Koalas"])
     assert not _check(rv, "unapplied_value").fired
 
 
@@ -678,7 +683,7 @@ def test_d1_another_short_value_and_field():
     rv = _free_text_turn("How many gadgets have the wt strain?", "wt", "T_GAD", "Strain", ["WT", "non-WT"])
     assert _check(rv, "unapplied_value").fired
     rv = _free_text_turn("How many gadgets have the wt strain?", "wt", "T_GAD", "Strain", ["WT", "WTX"])
-    assert not _check(rv, "unapplied_value").fired
+    assert _check(rv, "unapplied_value").fired
 
 
 def test_d2_added_words_that_are_a_negation_are_not_exempt():

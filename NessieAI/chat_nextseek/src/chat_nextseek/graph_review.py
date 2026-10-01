@@ -460,7 +460,8 @@ def _negated(value: str, term: str) -> bool:
 
 
 def _holds(value: str, term: str) -> bool:
-    """The free-text term is in the value; a term under 3 characters only as a whole word, never inside a longer one."""
+    """The value is one the user's term NAMES; a term under 3 characters only as a whole word, never inside a longer
+    one. (Which other values the search counted is a plain substring test, as ``CONTAINS`` is.)"""
     low = value.lower()
     if len(term) >= 3:
         return term in low
@@ -830,7 +831,7 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
                 # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended, unless the
                 # added words negate it (Not Hispanic or Latino for Hispanic or Latino)
                 others = [str(w) for w, _n in stored
-                          if any(_holds(str(w), term) for term in hit)
+                          if any(term in str(w).lower() for term in hit)
                           and (not _tokens(vn) <= _tokens(str(w)) or any(_negated(str(w), term) for term in hit))
                           and not any(x in str(w).lower() for x in excl)]
                 if others:                  # applied only as free text, and that text matches another stored value too
