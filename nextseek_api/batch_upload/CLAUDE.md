@@ -95,11 +95,12 @@ lineage, and none of them fails loudly.
 - **A graph failure does not fail the job, and the job reports it in one word.**
   `nextseek_api/batch_upload/orchestrator.py:606-609` logs the exception and returns a
   status, so the task still reports SUCCESS with the SQL rows committed. What tells you
-  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)` means
-  those samples are in the graph, `pending (N)` means the outbox rows are still owed and the
-  sync loop holds them. A graph not yet at schema 1.2, a busy graph-write lock, a Neo4j that
-  is down and no Neo4j configured at all all read as `pending`, so a run of `pending` jobs
-  is a question about the loop, not about this package.
+  which happened is the `graph:` line in the totals and the summary CSV: `synced (N)`
+  means those samples are in the graph, `pending (N)` means the outbox rows are still owed
+  and the sync loop holds them. A graph not yet at graph_sync's schema version
+  (`writer.SCHEMA_VERSION`), a busy graph-write lock, a Neo4j that is down and no Neo4j
+  configured at all all read as `pending`, so a run of `pending` jobs is a question about
+  the loop, not about this package.
 - **A parent this sheet does not resolve is still reported here, but the edge is no longer
   this package's to write.** Stage 2 puts every row whose parent UID is in neither the batch
   nor the database into the job's errors ("Parent UID(s) not found in batch or database;

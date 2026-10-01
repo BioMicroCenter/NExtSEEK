@@ -1,7 +1,7 @@
 """The ordered graph_sync runs (the design, section 6; the sync design, section 11; docs/neo4j-schema.md, sections
-"v1.1" and "v1.2").
+"v1.1", "v1.2" and "v1.3").
 
-``full_sync`` rebuilds the graph at the writer's schema version from MySQL in the design's order:
+``full_sync`` rebuilds graph schema v1.3 from MySQL in the design's order:
 
     preflight > delete ghosts > retire graph-only samples (the deletion rule) > orphan id-less samples > archive and
     delete CHILD_OF > constraints > SampleType > Attribute (declared) > Project, Person, MEMBER_OF > Investigation
@@ -60,7 +60,8 @@ with their ACCEPTED_BY and GENERATES (graph schema 1.3; ``assay_layer`` without 
 undeclared Attribute nodes and the attribute sample counts a full sync wrote. A SampleType SEEK no longer has and no
 Sample reaches is deleted with its Attributes, archived first to ``sample_types_deleted.tsv`` in the run directory; one
 that still holds samples is kept and reported. It holds the lock, records a run, and refuses a graph that is not at the
-writer's schema version: stamping GraphMeta would otherwise turn a graph into 1.2 without the full sync that makes one.
+writer's schema version: stamping GraphMeta would otherwise turn a graph into the writer's version without the full sync
+that makes one.
 
 What is held across a run is one entry per sample in three indexes (sample ids, uuids and declared lineage pairs); from
 the sample pass to the label step, each sample's assay and SOP ids packed 8 bytes a link; from the label step to the

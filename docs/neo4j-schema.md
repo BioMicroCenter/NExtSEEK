@@ -1,8 +1,8 @@
 # Neo4j graph schema
 
 The document of record for the NExtSEEK sample graph: what it holds (v1.0), what the graph_search work builds
-(v1.1), and what keeping it in sync adds (v1.2). Querying Neo4j over HTTP, Browser or bolt is in
-[`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
+(v1.1), what keeping it in sync adds (v1.2), and the assay nodes (v1.3). Querying Neo4j over HTTP, Browser or bolt
+is in [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md).
 The graph agent reads the live catalog on every turn; the committed `neo4j_schema.json` it falls back to is a
 capture (`scripts/graph_schema_fallback.py` regenerates it), not this document.
 The names these sections define are also in `nextseek_graph/schema.py`, one group per version, and
@@ -399,3 +399,37 @@ with s in `seek_assay_ids`, and p gets `INPUT_TO` a with s in `seek_assay_ids`.
 - Range: `Assay.title` (`assay_title`).
 - Neither carries a `gs_*` name, so the index budget never drops them. Both are in the list the full sync applies and
   gate G checks.
+
+### Versioning
+
+`GraphMeta.schema_version` reads `"1.3"`. A graph becomes 1.3 only through a full sync at 1.3; below it every write
+path refuses and the loop claims no rows but drift, as at 1.2. `catalog_hash` keeps its definition, and GraphMeta
+gains no key. The graph agent is told about the Assay only on a graph at 1.3 or later.
+
+### Rolling back
+
+To take a graph from 1.3 back to 1.2, in this order:
+
+1. Deploy the last 1.2 image first. Its writers refuse a graph at 1.3, so nothing rewrites the Assay layer while it
+   is removed; uploads report `graph: pending` until step 4.
+2. Delete the Assay layer in batches, then its constraint and index, as the neo4j user:
+
+```bash
+for rel in INPUT_TO OUTPUT_OF RUN_IN ACCEPTED_BY GENERATES; do
+  docker exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" \
+    "MATCH ()-[r:$rel]->() CALL (r) { DELETE r } IN TRANSACTIONS OF 10000 ROWS"
+done
+docker exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" \
+  "MATCH (a:Assay) CALL (a) { DETACH DELETE a } IN TRANSACTIONS OF 1000 ROWS"
+docker exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "DROP CONSTRAINT assay_id_unique IF EXISTS"
+docker exec neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "DROP INDEX assay_title IF EXISTS"
+```
+
+3. Check that nothing is left: `MATCH (a:Assay) RETURN count(a)` and
+   `MATCH ()-[r:INPUT_TO|OUTPUT_OF|RUN_IN|ACCEPTED_BY|GENERATES]->() RETURN count(r)` both answer 0, and
+   `SHOW CONSTRAINTS` and `SHOW INDEXES` name neither `assay_id_unique` nor `assay_title`.
+4. Run the 1.2 full sync, which writes `schema_version` `"1.2"` back, then gate G and drift:
+   `docker compose exec nextseek uv run manage.py graph_sync --full --i-mean-the-live-graph`.
+
+A Study node that 1.3 added only for an assay's study (no sample of its own) stays. It carries `seek_study_id`, like
+every SEEK study node, and a caller who is not an admin cannot reach it.

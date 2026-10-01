@@ -23,9 +23,10 @@
    (``state.hand_on_failed``), and every other row is done. A sample the sync left out because its type's SampleType
    node cannot be written yet (``catalog_waiting_samples``) defers every row holding it, and only those.
 
-**A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at 1.2,
-the loop claims nothing but the read-only drift check: the writing rows wait in the outbox, unclaimed, with their
-attempts untouched, and the loop never turns a 1.1 graph into a 1.2 one by itself (the design, section 12; R2).
+**A graph below the writer's schema version is only read.** Until the operator's first ``graph_sync --full`` at the
+writer's version, the loop claims nothing but the read-only drift check: the writing rows wait in the outbox,
+unclaimed, with their attempts untouched, and the loop never raises a graph's version by itself (the design, section
+12; R2).
 
 **Work it could not do is put back, not punished.** A claim counts an attempt and a row dies at
 ``state.MAX_ATTEMPTS``, so for a row drained in this process the two outcomes that are not the row's fault, the

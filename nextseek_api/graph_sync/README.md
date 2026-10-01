@@ -3,12 +3,15 @@
 ## What this is
 
 The one writer of the Neo4j sample graph that `graph_search` reads, and the sync that keeps that graph equal to
-MySQL. It reads SEEK's `seek` connection and the dmac `default` connection and writes graph schema v1.2: every
+MySQL. It reads SEEK's `seek` connection and the dmac `default` connection and writes graph schema v1.3: every
 sample with its non-empty metadata as properties, a `T_<code>` type label, `OF_TYPE`, `project_ids`, `IN_PROJECT`,
 `search_text`, the parent lists and a `source_hash`; DERIVED_FROM lineage with its assay and protocol labels; the
-SampleType and Attribute catalog, people, projects, investigations, SEEK studies and one `GraphMeta` node. What the
-graph holds, and every rule the writer enforces, is [`docs/neo4j-schema.md`](../../docs/neo4j-schema.md), sections
-"v1.1: the graph_search target" and "v1.2: what the sync adds".
+SampleType and Attribute catalog; one `Assay` node per internal assay, with `INPUT_TO` and `OUTPUT_OF` from the
+samples that went into and came out of it, `RUN_IN` to the SEEK studies its runs belong to, and `ACCEPTED_BY` and
+`GENERATES` to the sample types its curated card names; people, projects, investigations, SEEK studies and one
+`GraphMeta` node. What the graph holds, and every rule the writer enforces, is
+[`docs/neo4j-schema.md`](../../docs/neo4j-schema.md), sections "v1.1: the graph_search target", "v1.2: what the sync
+adds" and "v1.3: assay nodes".
 
 Nothing else writes the graph. Batch upload's stage 6 calls this package, every other NExtSEEK writer enqueues a row
 for it, and the writers no NExtSEEK code sees (SEEK's Rails UI and REST API, Rails jobs, hand SQL, operator scripts)
@@ -49,8 +52,8 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--loop` | never returns: housekeeping, the schedule, then the drain, once every `--interval` seconds (default 5) | through its passes |
 | `--once` | one pass of the loop | as above |
 | `--full` | the whole ordered sync (`run.py`'s module docstring). Its preflight writes nothing and refuses before the first write on any problem it finds, except SampleType title conflicts alone: then it retires the samples MySQL lacks first and checks the titles once more | yes |
-| `--catalog` | the SampleType and Attribute catalog only | yes |
-| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
+| `--catalog` | the SampleType and Attribute catalog, and the Assay nodes with their ACCEPTED_BY and GENERATES | yes |
+| `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, the assay layer, then the samples whose digest moved; a catalog refused for title conflicts alone is tried once more after the retire | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
 | `--small-tables` | SEEK's small tables once (projects, investigations, people, memberships, every SEEK study's node), as an `isa` row and the nightly reconcile write them; `./startup.sh` runs it on local and dev right before the post-rebuild drift | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
@@ -151,12 +154,14 @@ write landed.
 
 | Kind | Key | Enqueued by | The drain calls |
 |---|---|---|---|
-| `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill | `targeted.sync_samples` |
+| `samples` | `sample:<id>`, or `batch:<name>` with the ids in `payload` | the sample hooks, batch upload stage 5, orphan resolution, assay registration, the publication backfill, the assay proxy (the members an assay links, unlinks or moves; the studies release's rows), and `sync_samples` itself for a hub partner | `targeted.sync_samples` |
 | `samples_of_type` | `type:<id>` | the attribute API, the legacy attribute editor, the sample-type proxy | `targeted.sync_samples_of_type` |
 | `retire` | `sample:<id>` | the proxy destroy (delayed when SEEK did not answer), the legacy delete | `targeted.retire_samples`, which leaves an id MySQL still holds alone |
 | `catalog` | `*` | the attribute API, the legacy attribute editor, the sample-type proxy, the clade admin | `run.catalog_sync` |
-| `assay_map`, `protocol_map` | `*` | the internal-assay admin and the assay proxy; the SOP proxy | `targeted.relabel_for_maps` |
-| `isa`, `membership` | `*` | the project, investigation and study proxies; the users API | `targeted.sync_small_tables` |
+| `assay_map` | `*` | the internal-assay admin and the assay proxy | `targeted.relabel_for_maps`, then `targeted.sync_assays` |
+| `protocol_map` | `*` | the SOP proxy | `targeted.relabel_for_maps` |
+| `isa` | `*` | the project, investigation, study and assay proxies | `targeted.sync_small_tables`, then `targeted.sync_assays` |
+| `membership` | `*` | the users API | `targeted.sync_small_tables` |
 | `reconcile`, `full`, `drift` | `slot:<date or ISO week>` | the schedule | a child `manage.py graph_sync` process |
 
 **`graph_sync_run`**, one row per run of `--full`, `--catalog`, `--reconcile`, `--drift` and `--samples`, with its
@@ -171,12 +176,12 @@ MySQL scan and its graph read. A full sync holds it from its preflight to its la
 most 60 seconds and otherwise returns `lock_timeout` without writing, which leaves its outbox row pending for the
 next pass. On SQLite (the unit-test lane) the lock is a no-op behind the same function.
 
-## Schema 1.2, and what the graph must be before anything is written
+## The schema version, and what the graph must be before anything is written
 
 Every write unit reads `GraphMeta.schema_version` first and refuses, writing nothing, unless it equals
-`writer.SCHEMA_VERSION` (`status: not_at_version`). A graph left at 1.1 therefore waits for the operator's first
-`graph_sync --full --i-mean-the-live-graph`, and until that run an upload reports `graph: pending` and its outbox
-rows keep the work. The loop never turns a graph into 1.2 by itself.
+`writer.SCHEMA_VERSION`, 1.3 (`status: not_at_version`). A graph left at 1.2 therefore waits for the operator's
+first `graph_sync --full --i-mean-the-live-graph` at 1.3, and until that run an upload reports `graph: pending` and
+its outbox rows keep the work. The loop never raises a graph's version by itself.
 
 ## Study nodes and IN_STUDY
 
@@ -284,7 +289,33 @@ One rule, applied by `targeted.retire_samples` on every path. A `:Sample` graph_
 whose id MySQL no longer holds is appended to `retired.tsv` and `DETACH DELETE`d. A `:Sample` graph_sync never wrote
 becomes an `:OrphanSample`: `:Sample`, every `T_` label, `OF_TYPE` and `IN_PROJECT` removed, `orphaned_at` set, its
 properties and its DERIVED_FROM kept, because those edges may be lineage MySQL never had. Existing
-`:OrphanSample` nodes are left as they are.
+`:OrphanSample` nodes are left as they are. The retired sample's lineage partners are read before the delete and get
+their `INPUT_TO` and `OUTPUT_OF` rewritten after it, and a sample that becomes an `:OrphanSample` drops its own (see
+"The assay layer").
+
+## The assay layer
+
+One `Assay` node per `dmac.internal_assays` row, holding catalog facts only: its curated card from `assay_context`,
+the same for every caller. SEEK assays are runs, not nodes; their ids ride on the edges.
+
+- **Sample edges.** For each DERIVED_FROM between two Sample nodes and each SEEK assay both ends hold that maps to
+  an internal assay, the child gets `OUTPUT_OF` and the parent `INPUT_TO` that Assay, with the SEEK id in
+  `seek_assay_ids` (`assays.roles_for_pairs`). A member with no lineage inside its run gets no edge for it, and a
+  SEEK assay with no mapping gives none; the drift check reports both. Two samples on one Assay did not come from
+  each other: lineage is DERIVED_FROM only.
+- **Who rewrites them.** `sync_samples` rewrites the edges of the samples it writes and of their lineage partners,
+  read before the lineage step and after it; a partner with more than `targeted.PARTNER_REWRITE_MAX` DERIVED_FROM
+  edges gets its own `samples` row instead, so a hub parent never holds batch upload's lock. `targeted.sync_assays`,
+  run by the `assay_map` and `isa` drains and by the nightly sync, rewrites the members of every SEEK assay whose
+  mapping moved, and above `targeted.ASSAY_REWRITE_MAX` members enqueues a full sync. The full sync rewrites every
+  sample's edges from the roles its label pass collects.
+- **RUN_IN records the mapping.** `sync_assays` reads a new mapping against the pairs `RUN_IN` holds, and replaces
+  `RUN_IN` only after the members are rewritten, so a crash leaves the rest for the retry and a mapping no member
+  has a role in is read once. That is why `--catalog`, which writes the nodes and the catalog edges, never writes
+  `RUN_IN`.
+- **Deletion.** An Assay whose id left `internal_assays` loses its edges in batches, then its node. `RUN_IN`,
+  `ACCEPTED_BY` and `GENERATES` are replaced whole on each write, and a sample's `INPUT_TO` and `OUTPUT_OF` whenever
+  it is rewritten.
 
 ## What the drift check compares
 
@@ -300,7 +331,11 @@ Three families, and they answer different questions.
   is compared, because an Attribute with `declared` false is an observed key and a normal state.
   `stats.catalog.types_without_context` counts sample types with no `sample_types_context` row. It is a stat and
   never a check: a missing context row is legal, so any threshold would be invented, but the number makes a type
-  that silently lost its curated card visible.
+  that silently lost its curated card visible. `catalog.assays` compares the Assay ids with `internal_assays`' ids.
+  Three findings for the curators are reported and never failed: `assays.unmapped_seek_assays_with_members`,
+  `assays.members_without_role` and `assays.labels_disagree_with_assay_titles` (edge labels still naming an Assay by
+  a title it lost in a rename the relabel has not reached yet; renames relabel without approval since the studies
+  release).
 - **Freshness.** `freshness.full`, `freshness.reconcile`, `freshness.outbox` from the run records, so a stale or
   never-run sync fails; `freshness.readable` fails instead when those records cannot be read.
 
@@ -337,9 +372,10 @@ One concern each; `git ls-files nextseek_api/graph_sync` lists which have landed
 | `projection.py` | pure: one sample row to its property map, type label, `search_text`, parent lists and `source_hash`; the value casts |
 | `catalog.py` | pure: the SampleType and Attribute catalog from SEEK and the dmac context tables |
 | `labels.py` | pure: the DERIVED_FROM label rule and the classification of a stored label against it |
+| `assays.py` | pure: the Assay nodes, their ACCEPTED_BY and GENERATES rows, the RUN_IN rows, and the role rule that gives samples their INPUT_TO and OUTPUT_OF |
 | `label_check.py` | pure: canonicalising and comparing two label maps, for the verification against a graph dump |
 | `schedule.py` | pure: which scheduled runs are owed at a given moment |
-| `sources.py` | MySQL readers: keyset-paged samples, by-id readers, project and assay links, the digest stream, the resolved assay and SOP maps |
+| `sources.py` | MySQL readers: keyset-paged samples, by-id readers, project and assay links, the digest stream, the resolved assay and SOP maps, and the assay layer's internal assays, mapping, studies and catalog |
 | `models_db.py` | the two dmac tables, re-exported from `nextseek_api/models.py` so Django registers them |
 | `state.py` | the outbox, the run records and the graph-write lock |
 | `health.py` | pure, standard library only: the judgement of a status body (stale jobs, dead and failing rows, failed runs, drift) that the smoke suite and `manage.py graph_sync_health` share |
@@ -361,7 +397,7 @@ does not. Batch upload is the exception that also syncs inline: stage 5 writes t
 transaction and stage 6 calls `targeted.sync_samples` for the job's committed ids
 ([`nextseek_api/batch_upload/README.md`](../batch_upload/README.md)). The other hook sites are the native attribute
 API, the legacy sample pages and attribute editor, the SEEK proxy and users ViewSets, the clade and internal-assay
-admin pages, assay registration and the publication backfill command.
+admin pages, assay registration, the publication backfill command, and the assay proxy's member rows.
 
 ## Running and testing
 

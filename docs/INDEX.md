@@ -11,7 +11,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`ISSUE-CONVENTIONS.md`](ISSUE-CONVENTIONS.md) | convention | filing any GitHub issue; `scripts/validate_issue.py` enforces it | |
 | [`endpoint-authorization-register.md`](endpoint-authorization-register.md) | register | changing who may call an endpoint. Incomplete for routes added after 2026-08-11; `ci/routes.py` is the full route list. Its `is_staff` question was ruled by #74 and #75 (admin means `is_superuser`); its per-endpoint buckets are still open under #64 | #64 |
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
-| [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
+| [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds, what graph_search's v1.1 builds, what the sync adds in v1.2 and the assay nodes of v1.3 (with how to roll them back) | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
 | [`sample-sharing.md`](sample-sharing.md) | how-to | sharing samples of one project into another project's study, reading a share's dry run, or undoing a share | |
 | [`UI.md`](UI.md) | snapshot | finding a page's route, view and template. Dated 2026-09-03; check it against the tree | |

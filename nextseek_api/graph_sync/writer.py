@@ -1,5 +1,5 @@
-"""Write graph schema v1.2 to Neo4j (docs/neo4j-schema.md, sections "v1.1" and "v1.2"; the POC design, section 6;
-the sync design, sections 6, 7.3 and 9).
+"""Write graph schema v1.3 to Neo4j (docs/neo4j-schema.md, sections "v1.1", "v1.2" and "v1.3"; the POC design,
+section 6; the sync design, sections 6, 7.3 and 9).
 
 Every function takes ``(driver, db, ...)``, sends statements from ``cypher.py`` through ``driver.execute_query`` with
 bound parameters, retries transient errors with ``_retry``, and returns a counts dict (the index budget returns the

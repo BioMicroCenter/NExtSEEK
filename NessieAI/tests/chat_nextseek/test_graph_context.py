@@ -578,3 +578,40 @@ def test_a_left_out_section_is_reported():
     one_names_only = gc.render_graph_context(snap, details[:1], k=0, budget=10**9)
     fit = gc.fit_graph_context(snap, details, budget=len(one_names_only.encode("utf-8")) + 200)
     assert fit.omitted == ("D.SEQ", "A.VCF") and fit.k == 0 and fit.stepped_down
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# docs/neo4j-schema.md v1.3: Versioning and Rolling back (the graph assay-node spec, sections 4.6 and 10). The graph
+# contract's test reads the section's tables; these read its prose.
+# ---------------------------------------------------------------------------------------------------------------
+
+SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs" / "neo4j-schema.md"
+FENCE = "`" * 3  # a fenced block's marker, built so that this file holds none
+
+
+def _schema_doc_section(version):
+    """The text of the doc's ``## <version>`` section, up to the next ``## `` heading."""
+    doc = SCHEMA_DOC_PATH.read_text(encoding="utf-8")
+    return doc.split(f"\n## {version}", 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_v13_section_carries_its_versioning_and_rollback():
+    v13 = _schema_doc_section("v1.3")
+    for heading in ("Versioning", "Rolling back"):
+        assert f"\n### {heading}\n" in v13, heading
+    assert '`GraphMeta.schema_version` reads `"1.3"`' in v13
+
+
+def test_the_rollback_block_removes_the_whole_assay_layer_then_resyncs_at_12():
+    rollback = _schema_doc_section("v1.3").split("\n### Rolling back\n", 1)[1]
+    (block,) = re.findall(FENCE + r"bash\n(.*?)" + FENCE, rollback, re.S)
+    assert "for rel in INPUT_TO OUTPUT_OF RUN_IN ACCEPTED_BY GENERATES; do" in block
+    assert "IN TRANSACTIONS OF 10000 ROWS" in block and "DETACH DELETE a } IN TRANSACTIONS OF 1000 ROWS" in block
+    assert "DROP CONSTRAINT assay_id_unique IF EXISTS" in block and "DROP INDEX assay_title IF EXISTS" in block
+    assert rollback.index("Deploy the last 1.2 image first") < rollback.index(FENCE + "bash")
+    assert "graph_sync --full --i-mean-the-live-graph" in rollback
+
+
+def test_the_intro_names_v13():
+    intro = SCHEMA_DOC_PATH.read_text(encoding="utf-8").split("\n## ", 1)[0]
+    assert "the assay nodes (v1.3)" in intro

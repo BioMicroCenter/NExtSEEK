@@ -15,7 +15,7 @@ from typing import Final, Mapping
 
 # --- versions ------------------------------------------------------------------------------------
 VERSIONS: Final[tuple[str, ...]] = ("1.1", "1.2", "1.3")   # the doc's sections from v1.1 on, oldest first
-SCHEMA_VERSION: Final[str] = "1.2"      # what graph_sync writes to GraphMeta.schema_version; one of VERSIONS
+SCHEMA_VERSION: Final[str] = "1.3"      # what graph_sync writes to GraphMeta.schema_version; one of VERSIONS
 READER_MIN_VERSION: Final[str] = "1.1"  # the oldest graph the Nessie catalog reader accepts
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
@@ -190,7 +190,6 @@ NODE_PROPERTIES_V13: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 })
 UNIQUE_CONSTRAINTS_V13: Final[tuple[tuple[str, str, str], ...]] = (("assay_id_unique", ASSAY, "id"),)
 RANGE_INDEXES_V13: Final[tuple[tuple[str, str, str], ...]] = (("assay_title", ASSAY, "title"),)
-# SCHEMA_VERSION stays "1.2" until the v1.3 section's Versioning subsection is written (W11 with R2b).
 
 # === the next version =============================================================================
 # A version adds its groups here, each named with its own suffix (LABELS_V13, RELATIONSHIPS_V13,

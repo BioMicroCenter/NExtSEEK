@@ -17,7 +17,8 @@ bring part of the graph up to date without a full sync:
   DERIVED_FROM edge incident to ``ids`` (the studies tool's label approval check).
 
 **Every call is one write unit.** It first reads ``GraphMeta.schema_version`` and refuses, writing nothing, unless it
-is the writer's (``status: not_at_version``): a 1.1 graph waits for the operator's first full sync at 1.2. Then it
+is the writer's (``status: not_at_version``): a graph below it waits for the operator's first full sync at the
+writer's version. Then it
 takes the graph-write lock (``state.graph_write_lock``), waiting at most ``lock_timeout_s`` (``LOCK_WAIT_S``, the
 spec's 60 s, R10); without the lock it returns ``status: lock_timeout`` and writes nothing, so the caller's outbox row
 stays pending. Otherwise it returns ``status: ok`` and every step's counts. An ``ok`` report of ``sync_samples`` can
@@ -113,12 +114,15 @@ _NO_LABEL_WRITES = {"labels_rows": 0, "labels_written": 0, "labels_skipped_label
                     "labels_refreshed": 0, "labels_refresh_skipped_changed": 0, "labels_refresh_edges_missing": 0}
 
 # sync_assays (the 1.3 spec, section 5.6, step 4): above this many members to rewrite, a full sync is enqueued
-# instead. PROVISIONAL until the 1.3 plan's W11 sets it from scripts/graph_search/measure_assay_nodes.py.
+# instead. Set from scripts/graph_search/measure_assay_nodes.py on production: at or above its largest SEEK assay
+# membership, so remapping any one of its SEEK assays never needs a full sync. PROVISIONAL: production has not been
+# measured yet; this is the plan's estimate, replaced by the measured "suggested" value before the rollout.
 ASSAY_REWRITE_MAX = 100_000
 ASSAY_GUARD_SLOT_SUFFIX = "-assays"
 # sync_samples (the 1.3 spec, D10): a lineage partner with more DERIVED_FROM edges than this is not rewritten inline;
-# it gets its own samples row, so a hub parent never holds batch upload's graph lock. PROVISIONAL until the 1.3
-# plan's W11 sets it from scripts/graph_search/measure_assay_nodes.py.
+# it gets its own samples row, so a hub parent never holds batch upload's graph lock. Set from
+# scripts/graph_search/measure_assay_nodes.py on production: its 99.9th percentile DERIVED_FROM degree, rounded up.
+# PROVISIONAL: production has not been measured yet; this is the plan's estimate, replaced by the measured value.
 PARTNER_REWRITE_MAX = 2_000
 _NO_ASSAY_EDGE_WRITES = {"assay_edge_samples": 0, "assay_edge_samples_missing": 0, "assay_edges_written": 0,
                          "assay_edges_dropped": 0, "assay_edge_members_without_role": 0}
