@@ -63,7 +63,7 @@ this directory; the behaviour claims are in the prose around it.
 | `nextseek_api/apps.py`, `nextseek_api/admin.py` | the app config; an admin module that registers nothing (`nextseek_api/admin.py:1-3`) |
 | `nextseek_api/conftest.py` | DRF client and mock-SEEK fixtures shared by every test below this directory |
 | `nextseek_api/seek_api.py`, `nextseek_api/seek_api_helpers.py`, `nextseek_api/example.py` | superseded SEEK-call sketches; see CLAUDE.md for why they are not live |
-| `nextseek_api/tests.py`, `nextseek_api/tests/` | see CLAUDE.md: only one of these two is reachable |
+| `nextseek_api/tests/` | the test package |
 
 Two facts about the description module, both established 2026-09-03: it holds 73
 constants assigned at column zero, running from `nextseek_api/endpoint_descriptions.py:14`

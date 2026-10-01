@@ -53,14 +53,6 @@ from this file.
 
 ## Landmines
 
-- **`nextseek_api/tests.py` is dead code that still looks live.** A regular package
-  shadows a same-named module, so `nextseek_api.tests` resolves to
-  `nextseek_api/tests/__init__.py:2` and never to the file beside it, which runs to
-  `nextseek_api/tests.py:2171`; confirmed on 2026-09-03 with `importlib.util.find_spec`
-  against this checkout. Pytest will not collect it either: the config sets no `python_files` key
-  (`pyproject.toml:146-148`), so only the two built-in patterns apply and `tests.py`
-  matches neither. Editing it changes nothing that runs, and `.coveragerc:4` already
-  omits it.
 - **Nothing under this directory collects without a *configured* Django, not merely an
   installed one.** `nextseek_api/conftest.py:3` imports `django.contrib.auth.models` at
   module scope, which needs `INSTALLED_APPS`. On 2026-09-03 a host run of the one module
