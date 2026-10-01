@@ -38,7 +38,7 @@ only).
 ```
 manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --drift | --verify | --samples IDS
                       | --requeue-dead | --labels | --merge-studies [IDS] | --unmerge-studies PATH[,PATH...]
-                      | --studies)
+                      | --studies | --small-tables)
                      [--json] [--dry-run] [--chunk N] [--run-dir PATH] [--run-root PATH] [--interval S]
                      [--no-record] [--apply-label-changes] [--seed N] [--bench-keys FILE] [--kind KIND]
                      [--i-mean-the-live-graph]
@@ -52,6 +52,7 @@ manage.py graph_sync (--loop | --once | --full | --catalog | --reconcile | --dri
 | `--catalog` | the SampleType and Attribute catalog only | yes |
 | `--reconcile` | the nightly targeted sync: the catalog, the small tables, the map relabel, then the samples whose digest moved | yes |
 | `--samples ID[,ID...]` | those samples, their lineage, their labels and their studies | yes |
+| `--small-tables` | SEEK's small tables once (projects, investigations, people, memberships, every SEEK study's node), as an `isa` row and the nightly reconcile write them; `./startup.sh` runs it on local and dev right before the post-rebuild drift | yes |
 | `--drift` | the reconcile's detection without its writes, the catalog comparison, gate G's structural checks and the freshness checks | no |
 | `--verify` | gate G. `--seed N` fixes the seed of its random samples, so a run can be repeated | no |
 | `--requeue-dead` | dead outbox rows back to pending, claimable at once; `--kind`, `--dry-run` | no |

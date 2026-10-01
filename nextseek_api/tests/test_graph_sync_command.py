@@ -1101,6 +1101,46 @@ def test_a_bad_sample_id_list_is_an_error_before_connecting(graphdb, bad):
     assert graphdb.uris == []
 
 
+# --- --small-tables: the small-tables write an isa row and the nightly run -------------------------------------------
+
+@pytest.mark.django_db
+def test_small_tables_runs_the_small_tables_write_and_records_the_run(graphdb, monkeypatch, tmp_path):
+    seen = {}
+
+    def fake(driver, db, **kwargs):
+        seen.update(kwargs, db=db)
+        return {"status": targeted.OK, "projects_written": 2, "memberships_written": 1}
+
+    monkeypatch.setattr(targeted, "sync_small_tables", fake)
+    out = StringIO()
+    call_command("graph_sync", "--small-tables", "--json", "--run-root", str(tmp_path), "--trigger", "startup",
+                 stdout=out, stderr=StringIO())
+    assert json.loads(out.getvalue())["projects_written"] == 2
+    assert seen["db"] == "neo4j" and seen["run_dir"].startswith(os.path.join(str(tmp_path), "small_tables-"))
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="small_tables")
+    assert (record.status, record.counts_json["trigger"], record.counts_json["projects_written"]) == (
+        "ok", "startup", 2)
+    assert "small_tables" not in sync_state.FAILED_RUN_KINDS        # the drift after it judges the graph, not it
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [targeted.LOCK_TIMEOUT, targeted.NOT_AT_VERSION])
+def test_small_tables_that_wrote_nothing_exits_2(graphdb, monkeypatch, status):
+    monkeypatch.setattr(targeted, "sync_small_tables", lambda driver, db, **kw: {"status": status})
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="small_tables")
+    assert record.status == "refused"
+
+
+def test_small_tables_needs_the_flag_on_the_live_graph(graphdb, settings):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == []
+
+
 # --- --loop and --once ----------------------------------------------------------------------------
 
 def test_loop_runs_for_ever_with_its_interval_and_run_root(graphdb, modes, tmp_path):

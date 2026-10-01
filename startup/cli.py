@@ -901,11 +901,17 @@ def _graph_drift(state: InstanceState, *, app_rebuild: bool = True,
     recorded: a box outside GRAPH_DRIFT_PROFILES, a component whose image says
     nothing about the graph, or a stack whose app container is down, which the
     health report has already said in its own words.
+
+    When it is asked, the app container first rewrites the graph's small tables
+    from SEEK (``validate.refresh_graph_small_tables``, printed, never red by
+    itself), so an edit made in SEEK's own UI since the nightly does not fail
+    the rebuild as drift.
     """
     if not app_rebuild or not stack_is_up:
         return None
     if (state.ci_profile or DEFAULT_CI_PROFILE) not in GRAPH_DRIFT_PROFILES:
         return None
+    _print_health_results([validate.refresh_graph_small_tables(REPO_ROOT, state.compose_env())])
     return validate.check_graph_drift(REPO_ROOT, state.compose_env())
 
 
