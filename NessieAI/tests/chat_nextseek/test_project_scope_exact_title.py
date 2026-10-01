@@ -135,6 +135,15 @@ def test_the_prompt_tells_the_agent_to_scope_on_an_investigation_or_study_title(
     assert PROMPT.index("A project the entity step resolved") < PROMPT.index("A name the PROJECTS NAMED") < PROMPT.index('- **"Study X"')
 
 
+def test_the_contains_rule_for_other_names_yields_to_a_title_the_block_gives():
+    # The "Study X" bullet's case-insensitive match is for names the block resolved to no title; a name the
+    # block gives a title for is scoped on that exact title (the bullet above), never matched by CONTAINS.
+    bullet = PROMPT[PROMPT.index('- **"Study X"'):]
+    assert ("When the name is not a project title and the PROJECTS NAMED IN THIS QUESTION block gives no title "
+            "for it (it is only an investigation or a study, or it is in none of the lists), match it "
+            "case-insensitively") in bullet
+
+
 def test_the_block_names_the_level():
     block = gctx.render_project_titles({"Alpha Cohort": "Gamma Lab"}, {"Alpha Cohort": "investigation"})
     assert '- "Alpha Cohort" is the investigation titled "Gamma Lab"' in block

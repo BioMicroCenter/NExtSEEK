@@ -180,7 +180,7 @@ MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:IN_INVESTIGATION]->(inv:Investigation
 WHERE inv.title = $investigation_title
 ```
   or `WHERE st.title = $study_title` for a study. The block's title wins over the name as the user wrote it.
-- **"Study X", "investigation X", a cohort name, or a name that is no project title**: `Investigation.title` holds the short names people say out loud and most `Study.title` values are full paper titles. When the name is not a project title (it is only an investigation or a study, or it is in none of the lists), match it case-insensitively against both Study and Investigation, with `EXISTS { }`, never `OPTIONAL MATCH` followed by `WHERE`:
+- **"Study X", "investigation X", a cohort name, or a name that is no project title**: `Investigation.title` holds the short names people say out loud and most `Study.title` values are full paper titles. When the name is not a project title and the PROJECTS NAMED IN THIS QUESTION block gives no title for it (it is only an investigation or a study, or it is in none of the lists), match it case-insensitively against both Study and Investigation, with `EXISTS { }`, never `OPTIONAL MATCH` followed by `WHERE`:
 ```
 MATCH (s:Sample)-[:IN_STUDY]->(st:Study)
 WHERE toLower(st.title) CONTAINS toLower($project)
