@@ -860,7 +860,17 @@ def test_catalog_dry_run_calls_catalog_sync_dry(graphdb, monkeypatch):
     seen = {}
     monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
     call_command("graph_sync", "--catalog", "--dry-run", stdout=StringIO(), stderr=StringIO())
-    assert seen == {"dry_run": True, "record": True, "trigger": "command"}
+    assert seen == {"dry_run": True, "record": True, "trigger": "command", "run_dir": None}
+
+
+def test_catalog_archives_into_the_run_dir_it_saves_its_report_in(graphdb, monkeypatch, tmp_path):
+    """A hand ``--catalog --run-dir X``: the catalog sync's ``sample_types_deleted.tsv`` goes into X beside
+    ``catalog_sync.json``, not into a new catalog-<UTC time> directory."""
+    seen = {}
+    monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    call_command("graph_sync", "--catalog", "--run-dir", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert seen["run_dir"] == str(tmp_path) and seen["dry_run"] is False
+    assert (tmp_path / "catalog_sync.json").exists()
 
 
 def test_verify_json_prints_the_gate_and_exits_1_when_it_fails(graphdb, monkeypatch):
