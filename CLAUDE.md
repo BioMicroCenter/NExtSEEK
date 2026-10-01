@@ -21,6 +21,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 
 | Task | Skill | Read |
 |---|---|---|
+| Make any change (add, change, fix) | `add-to-nextseek` | `.claude/skills/add-to-nextseek/SKILL.md` |
 | Bring up a stack | | `README.md`, then `startup/README.md` |
 | See how the parts fit, or find the Neo4j graph code | | `ARCHITECTURE.md` "The Neo4j graph" |
 | Find out why the stack misbehaves | | `./startup.sh doctor`; `startup/README.md` "When bring-up misbehaves"; `docker logs nextseek`; `logs/django.log`; `outputs/<timestamp>_<user>/console.txt` per chat turn |
@@ -50,6 +51,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 <!-- BEGIN DOCS-MAP:skills -->
 | Skill | Use when | Path | Loads |
 |---|---|---|---|
+| `add-to-nextseek` | START HERE for any change (add, change or fix anything): recipes by kind of change, then the shared finish checklist | `.claude/skills/add-to-nextseek/SKILL.md` | auto |
 | `add-cc-op` | adding or wiring a `nextseek-*` op or CC tool; `ops.py` is the source of truth, never `plugin.json` or `discover_ops` | `.claude/skills/add-cc-op/SKILL.md` | auto (`/add-cc-op`) |
 | `deploy` | install, redeploy, rollback, post-deploy verification, or launching a box to a commit on origin/dev (needs a local `boxes.json`) | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |

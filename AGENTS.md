@@ -21,6 +21,8 @@
 
 ## Pinned workflows
 
+- For any change, start with the `add-to-nextseek` skill
+  ([`.claude/skills/add-to-nextseek/SKILL.md`](.claude/skills/add-to-nextseek/SKILL.md)).
 - Container-CC ops: `/add-cc-op` ([`.claude/skills/add-cc-op/SKILL.md`](.claude/skills/add-cc-op/SKILL.md)).
 - ViewSets: `nextseek-create-endpoint`
   ([`.claude/skills/nextseek-create-endpoint/SKILL.md`](.claude/skills/nextseek-create-endpoint/SKILL.md)),
