@@ -31,7 +31,7 @@ import json
 import logging
 import os
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 from django.conf import settings
@@ -103,6 +103,7 @@ class RetrieveResult:
     requested_uids: list  # requested UIDs in request order, numeric ids already resolved, deduped
     unresolved_numeric: int  # numeric identifiers that matched no sample
     lineage_complete: bool  # False when lineage was asked for and could not be fully read
+    resolved_as: dict = field(default_factory=dict)  # {UID as written: stored UID} for those answered under another spelling
 
 
 def _chunks(items, size=MAX_IDS_PER_STATEMENT):
@@ -123,11 +124,33 @@ def _cursor():
 
 
 def _ids_to_uuids(ids):
-    """{id: uuid} for these primary keys. Unscoped: the caller's scope is applied to the ids afterwards."""
+    """{id: uuid} for these primary keys. Unscoped: for a superuser, and to check a graph's ids; a member's own ids
+    go through ``_scoped_ids_to_uuids``."""
     found = {}
     with _cursor() as cursor:
         for chunk in _chunks(sorted({int(i) for i in ids})):
             cursor.execute(f"SELECT id, uuid FROM samples WHERE id IN ({_placeholders(len(chunk))})", chunk)
+            for sample_id, uuid in cursor.fetchall():
+                if sample_id is not None and uuid is not None:
+                    found[int(sample_id)] = str(uuid)
+    return found
+
+
+def _scoped_ids_to_uuids(ids, scope):
+    """{id: uuid} of these primary keys that sit in the caller's projects: one scoped statement per chunk, so a
+    foreign id and an unknown one cost the same statements and look the same."""
+    found = {}
+    ids = sorted({int(i) for i in ids})
+    if not ids or not scope.project_ids:
+        return found
+    projects = [int(p) for p in scope.project_ids]
+    with _cursor() as cursor:
+        for chunk in _chunks(ids):
+            cursor.execute(
+                f"SELECT DISTINCT s.id, s.uuid FROM samples s JOIN projects_samples ps ON s.id = ps.sample_id "
+                f"WHERE s.id IN ({_placeholders(len(chunk))}) AND ps.project_id IN ({_placeholders(len(projects))})",
+                chunk + projects,
+            )
             for sample_id, uuid in cursor.fetchall():
                 if sample_id is not None and uuid is not None:
                     found[int(sample_id)] = str(uuid)
@@ -297,7 +320,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     unresolved_numeric = 0
     if numeric_ids:
         try:
-            by_id = _ids_to_uuids(numeric_ids)
+            by_id = _ids_to_uuids(numeric_ids) if scope.is_admin else _scoped_ids_to_uuids(numeric_ids, scope)
         except Exception:  # noqa: BLE001
             log.exception("sample retrieve: numeric id lookup failed")
             by_id = {}
@@ -316,11 +339,17 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
     # displaced by a guess; only a miss tries the other spelling, through the same scoped statement for a member.
     # MySQL compares uuids case-insensitively, so every comparison here folds case.
     stored = {u.casefold(): u for u in requested.values()}
-    other = {alt for uid in dict.fromkeys(typed) if uid.casefold() not in stored
-             for alt in uid_spellings(uid)[1:] if alt.casefold() not in stored}
+    alts = {uid: uid_spellings(uid)[1:] for uid in dict.fromkeys(typed)
+            if not any(a.casefold() in stored for a in uid_spellings(uid))}
+    other = sorted({a for spellings in alts.values() for a in spellings})
     if other:
-        more, ok = _resolve_requested(sorted(other), scope, use_graph=graph_ok)
+        more, ok = _resolve_requested(other, scope, use_graph=graph_ok)
         graph_ok = graph_ok and ok
+        # One stored sample answers one typed UID: the first spelling found, in the order uid_spellings gives.
+        held = {u.casefold() for u in more.values()}
+        keep = {next(a for a in spellings if a.casefold() in held).casefold()
+                for spellings in alts.values() if held & {a.casefold() for a in spellings}}
+        more = {i: u for i, u in more.items() if u.casefold() in keep}
         requested.update(more)
         stored.update({u.casefold(): u for u in more.values()})
     # Name the stored spelling as the requested one, so it counts as answered and not as failed.
@@ -333,6 +362,9 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
         return uid
 
     requested_uids = list(dict.fromkeys(answered_as(u) for u in requested_uids))
+    # Which stored UID answered each identifier that was answered under another spelling (not just another case).
+    resolved_as = {u: answered_as(u) for u in dict.fromkeys(typed)
+                   if answered_as(u).casefold() != u.casefold()}
     visible = set(requested)
     wanted = set(visible)
 
@@ -361,6 +393,7 @@ def retrieve_samples(identifiers, include_tree: bool, scope: Scope) -> RetrieveR
         requested_uids=requested_uids,
         unresolved_numeric=unresolved_numeric,
         lineage_complete=lineage_complete,
+        resolved_as=resolved_as,
     )
 
 
@@ -435,6 +468,7 @@ def _json_body(result: RetrieveResult) -> dict:
         total_children=max(0, total_samples - len(requested & returned_uids)),
         failed_uids=int(failed_uids),
         lineage_complete=result.lineage_complete,
+        resolved_as=result.resolved_as or None,
     )
     return body.model_dump(mode="json", exclude_none=True)
 
@@ -541,6 +575,7 @@ RETRIEVE_EXAMPLES = [
         value={
             "total_samples": 2, "total_sample_types": 2, "total_children": 1, "failed_uids": 0,
             "lineage_complete": True,
+            "resolved_as": {"NHP-220630FLY-1": "NHP-220630FLY-1-PUB"},
             "data": [
                 {"sample_type": "NHP", "n_samples": 1, "samples": [
                     {"id": "81271", "uuid": "NHP-220630FLY-1-PUB", "sample_type_id": 41,
