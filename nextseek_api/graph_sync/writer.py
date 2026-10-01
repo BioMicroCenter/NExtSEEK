@@ -16,9 +16,14 @@ in the design's order:
 Schema 1.2 adds what the by-id syncs need: ``retire_samples`` (the deletion rule), ``edges_incident`` and
 ``write_edge_labels`` (DERIVED_FROM labels, new ones only unless the operator approves changes),
 ``archive_and_drop_undeclared_for_children``, ``sample_hashes`` (the ``(id, source_hash)`` stream) and ``graphmeta``.
+
 The studies release adds ``write_seek_study_nodes`` (every SEEK study's node, its investigation first) and
 ``replace_seek_in_study`` (IN_STUDY follows SEEK, a removal archived to ``in_study_removed.tsv`` first). The studies
 tool adds ``share_graph_check``, a read of how a share's samples stand.
+
+Schema 1.3 adds the assay layer: ``write_assays``, ``replace_assay_runs``, ``replace_assay_catalog_edges``,
+``replace_sample_assay_edges`` and ``delete_gone_assays``, and the reads the role rule needs:
+``lineage_pairs_incident``, ``lineage_degrees`` and ``sample_ids_with_assay_edges``.
 
 Writes fail loudly: a schema statement that Neo4j refuses raises, and so does a catalog that would clash with the
 graph. Shortfalls the graph can explain (a type, project or endpoint node that is missing) are counted, not raised,
@@ -58,6 +63,7 @@ CHILD_OF_DELETE_BATCH = 50_000
 DERIVED_FROM_DELETE_BATCH = 10_000
 DERIVED_FROM_ARCHIVE_HEADER = "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops\n"
 RETIRED_ARCHIVE_HEADER = "id\tuuid\ttype\tincident_edges\n"
+ASSAY_EDGE_DELETE_BATCH = 10_000   # edges of a gone Assay deleted per transaction
 SAMPLE_TYPES_DELETED_FILE = "sample_types_deleted.tsv"
 SAMPLE_TYPES_ARCHIVE_HEADER = "id\ttitle\tlabel\tattribute_keys\n"
 INVESTIGATIONS_DELETED_FILE = "investigations_deleted.tsv"
@@ -1142,6 +1148,130 @@ def share_graph_check(driver, db, ids, *, project_id: int, study_id: int) -> dic
             if not row["found"] and len(missing) < SHARE_CHECK_MISSING_CAP:
                 missing.append(int(row["id"]))
     return {"ids": len(wanted), **counts, "missing_ids": missing}
+
+
+# --- the assay layer (schema 1.3) ------------------------------------------------------------------
+
+def write_assays(driver, db, rows) -> dict:
+    """MERGE every Assay on ``id`` and replace its property map with the row (``assays.build_catalog``'s nodes).
+    Nothing is deleted here: ``delete_gone_assays`` is the last step of a sync."""
+    written = 0
+    for batch in _batches(list(rows), REL_CHUNK):
+        written += _one(_run(driver, db, q.MERGE_ASSAYS, {"rows": batch}), "written")
+    return {"assays_written": written}
+
+
+def delete_gone_assays(driver, db, ids) -> dict:
+    """DETACH DELETE every Assay whose id is not in ``ids`` (``internal_assays``' ids): its edges first,
+    ``ASSAY_EDGE_DELETE_BATCH`` a transaction, then the nodes. An empty ``ids`` deletes every Assay, which is what an
+    instance without internal assays holds."""
+    keep = sorted({int(i) for i in ids})
+    edges = 0
+    while True:
+        n = _one(_run(driver, db, q.DELETE_GONE_ASSAY_EDGES, {"ids": keep, "batch": ASSAY_EDGE_DELETE_BATCH}),
+                 "deleted")
+        if not n:
+            break
+        edges += n
+    nodes = _one(_run(driver, db, q.DELETE_GONE_ASSAYS, {"ids": keep}), "deleted")
+    return {"assays_deleted": nodes, "assay_edges_deleted_with_gone_assays": edges}
+
+
+def replace_assay_runs(driver, db, rows, studies, *, tables: SeekTables | None = None) -> dict:
+    """Replace every RUN_IN with ``rows`` (``assays.run_rows``). Each study a row names gets its node first through
+    ``write_seek_study_nodes`` (the studies release), from its whole ``sources.studies()`` row in ``studies`` (SEEK
+    study id to that row), so the node takes SEEK's title, description and investigation and no description is
+    cleared. With ``tables`` (SEEK's small tables, ``study_links.seek_tables``) the Investigation node each of those
+    studies names, and its IN_PROJECT, is written before the Study, so a study first seen here is never left under no
+    investigation; without, the caller has just written every Investigation (the full sync). A study missing from
+    ``studies`` gets no node here (``sources.assay_studies`` joins ``studies``, so none is expected); its row then
+    makes no edge. ``assay_runs_dropped`` counts rows whose Assay or Study was missing."""
+    rows = list(rows)
+    needed = sorted({int(r["study_id"]) for r in rows})
+    known = [studies[study_id] for study_id in needed if study_id in studies]
+    if known:
+        write_seek_study_nodes(driver, db, known, tables=tables)
+    linked = _one(_run(driver, db, q.REPLACE_ASSAY_RUNS, {"rows": rows}), "linked")
+    return {"assay_runs": len(rows), "assay_runs_written": linked, "assay_runs_dropped": len(rows) - linked}
+
+
+def replace_assay_catalog_edges(driver, db, accepted, generates) -> dict:
+    """Replace every ACCEPTED_BY and GENERATES with the catalog's rows, in one statement. A row whose SampleType or
+    Assay is missing makes no edge, and the counts show it."""
+    accepted, generates = list(accepted), list(generates)
+    result = _run(driver, db, q.REPLACE_ASSAY_CATALOG_EDGES, {"accepted": accepted, "generates": generates})
+    return {"accepted_by": len(accepted), "accepted_by_written": _one(result, "accepted"),
+            "generates": len(generates), "generates_written": _one(result, "generates")}
+
+
+def _assay_edge_row(row) -> dict:
+    """One ``replace_sample_assay_edges`` row, checked (the function's docstring), as a plain dict."""
+    if not isinstance(row, dict) or not _is_int(row.get("id")) or not all(k in row for k in ("inputs", "outputs")):
+        raise ValueError(f"not a sample assay-edge row: {row!r}")
+    out = {"id": row["id"]}
+    for key in ("inputs", "outputs"):
+        edges = []
+        for edge in row[key]:
+            seek_ids = edge.get("seek_assay_ids") if isinstance(edge, dict) else None
+            if (not isinstance(edge, dict) or not _is_int(edge.get("assay_id"))
+                    or not isinstance(seek_ids, (list, tuple)) or not seek_ids
+                    or not all(_is_int(s) for s in seek_ids)):
+                raise ValueError(f"sample {row['id']}: not an assay edge: {edge!r}")
+            edges.append({"assay_id": edge["assay_id"], "seek_assay_ids": sorted(seek_ids)})
+        out[key] = edges
+    return out
+
+
+def replace_sample_assay_edges(driver, db, rows, chunk: int = SAMPLE_CHUNK) -> dict:
+    """Replace the INPUT_TO and OUTPUT_OF of each row's Sample with the row's edges (``assays.sample_edge_rows``),
+    one ``REPLACE_SAMPLE_ASSAY_EDGES`` statement per ``chunk`` rows, so no transaction grows with the graph.
+
+    Every row is checked before anything is sent: ``id`` an int, ``inputs`` and ``outputs`` lists of ``{"assay_id":
+    int, "seek_assay_ids": non-empty list of int}``, else ValueError. ``assay_edge_samples_missing`` counts rows whose
+    Sample node is missing; ``assay_edges_dropped`` edges whose Assay node is."""
+    checked = [_assay_edge_row(row) for row in rows]
+    samples = written = expected = 0
+    for batch in _batches(checked, chunk):
+        result = _run(driver, db, q.REPLACE_SAMPLE_ASSAY_EDGES, {"rows": batch})
+        samples += _one(result, "samples")
+        written += _one(result, "inputs") + _one(result, "outputs")
+        expected += sum(len(r["inputs"]) + len(r["outputs"]) for r in batch)
+    return {"assay_edge_samples": len(checked), "assay_edge_samples_missing": len(checked) - samples,
+            "assay_edges_written": written, "assay_edges_dropped": expected - written}
+
+
+def lineage_pairs_incident(driver, db, ids) -> list[tuple]:
+    """Every DERIVED_FROM between two Sample nodes with an end among ``ids``, as ``(child id, parent id)``, once
+    each, sorted. Read-only."""
+    pairs = set()
+    for batch in _batches(dict.fromkeys(ids), REL_CHUNK):
+        for record in _records(_run(driver, db, q.LINEAGE_PAIRS_INCIDENT, {"ids": batch}, read=True)):
+            pairs.add((record["child_id"], record["parent_id"]))
+    return sorted(pairs, key=lambda pair: (_id_key(pair[0]), _id_key(pair[1])))
+
+
+def lineage_degrees(driver, db, ids) -> dict[int, int]:
+    """Each Sample of ``ids`` to its DERIVED_FROM count, either direction; an id with no Sample node is absent.
+    Read-only."""
+    degrees = {}
+    for batch in _batches(dict.fromkeys(ids), REL_CHUNK):
+        for record in _records(_run(driver, db, q.SAMPLE_LINEAGE_DEGREES, {"ids": batch}, read=True)):
+            degrees[record["id"]] = int(record["degree"] or 0)
+    return degrees
+
+
+def sample_ids_with_assay_edges(driver, db) -> Iterator[int]:
+    """Yield the id of every Sample that holds an INPUT_TO or OUTPUT_OF, ascending, in keyset pages of
+    ``HASH_PAGE``. Read-only."""
+    limit, after = HASH_PAGE, _INT64_MIN
+    while True:
+        rows = _records(_run(driver, db, q.SAMPLE_IDS_WITH_ASSAY_EDGES_PAGE, {"after": after, "limit": limit},
+                             read=True))
+        for row in rows:
+            yield row["id"]
+        if len(rows) < limit:
+            return
+        after = rows[-1]["id"]
 
 
 # --- GraphMeta -----------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Every Cypher statement the graph schema v1.2 writer sends (docs/neo4j-schema.md, sections "v1.1" and "v1.2").
+"""Every Cypher statement the graph schema writer sends (docs/neo4j-schema.md, sections "v1.1", "v1.2" and "v1.3").
 
 Module constants, so tests assert on the text and a reader sees the whole write surface in one place. Values always
 travel as parameters. The only text built from data is a budget index, whose label must match the ``T_`` rule and
@@ -801,3 +801,129 @@ SET m.schema_version = $schema_version, m.catalog_hash = $catalog_hash, m.label_
     m.synced_at = datetime()
 """
 READ_GRAPHMETA = "MATCH (m:GraphMeta) RETURN properties(m) AS props"
+
+
+# --- the assay layer (schema 1.3) ------------------------------------------------------------------
+
+# The constraint step applies these with CONSTRAINTS_V11; gate G reads their names from the contract. Never a gs_
+# name: the index budget drops those. Rendered from the contract's 1.3 groups by the module's DDL templates, the same
+# way CONSTRAINTS_V11 is rendered from the 1.1 groups; the writer test pins the two statements' exact text.
+ASSAY_CONSTRAINTS = tuple([_ddl(_UNIQUE_DDL, *triple) for triple in schema.UNIQUE_CONSTRAINTS_V13]
+                          + [_ddl(_RANGE_DDL, *triple) for triple in schema.RANGE_INDEXES_V13])
+# One row per internal assay; the property map is replaced whole (catalog facts only).
+MERGE_ASSAYS = """
+UNWIND $rows AS r
+MERGE (a:Assay {id: r.id})
+SET a = r
+RETURN count(a) AS written
+"""
+# An Assay whose id left internal_assays: every edge it has, a batch at a time, then the node.
+DELETE_GONE_ASSAY_EDGES = """
+MATCH (a:Assay) WHERE NOT a.id IN $ids
+MATCH (a)-[r]-()
+WITH r LIMIT $batch
+DELETE r
+RETURN count(*) AS deleted
+"""
+DELETE_GONE_ASSAYS = """
+MATCH (a:Assay) WHERE NOT a.id IN $ids
+DETACH DELETE a
+RETURN count(*) AS deleted
+"""
+# RUN_IN replaced whole: rows are {assay_id, study_id, seek_assay_ids}; the Study nodes exist first
+# (writer.write_seek_study_nodes). A merged Study node is found by seek_study_id like any other. The delete runs once
+# even when $rows is empty.
+REPLACE_ASSAY_RUNS = """
+CYPHER 25
+CALL () { MATCH (:Assay)-[old:RUN_IN]->(:Study) DELETE old }
+UNWIND $rows AS r
+MATCH (a:Assay {id: r.assay_id})
+MATCH (st:Study {seek_study_id: r.study_id})
+CREATE (a)-[:RUN_IN {seek_assay_ids: r.seek_assay_ids}]->(st)
+RETURN count(*) AS linked
+"""
+# ACCEPTED_BY and GENERATES replaced whole, from the curated catalog: $accepted rows are {code, assay_id, required,
+# group}, $generates rows {assay_id, code, group}; a code is a SampleType title.
+REPLACE_ASSAY_CATALOG_EDGES = """
+CYPHER 25
+CALL () { MATCH (:SampleType)-[old:ACCEPTED_BY]->(:Assay) DELETE old }
+CALL () { MATCH (:Assay)-[old:GENERATES]->(:SampleType) DELETE old }
+CALL () {
+  UNWIND $accepted AS r
+  MATCH (t:SampleType {title: r.code})
+  MATCH (a:Assay {id: r.assay_id})
+  CREATE (t)-[:ACCEPTED_BY {required: r.required, group: r.group}]->(a)
+  RETURN count(*) AS accepted
+}
+CALL () {
+  UNWIND $generates AS r
+  MATCH (a:Assay {id: r.assay_id})
+  MATCH (t:SampleType {title: r.code})
+  CREATE (a)-[:GENERATES {group: r.group}]->(t)
+  RETURN count(*) AS generates
+}
+RETURN accepted, generates
+"""
+# A chunk of samples' INPUT_TO and OUTPUT_OF, replaced whole in one statement: rows are {id, inputs, outputs}, each
+# edge {assay_id, seek_assay_ids}. An empty row deletes the sample's edges. The counting subqueries always return one
+# row, so a sample whose Assay node is missing is still reached and shows up as a shortfall.
+REPLACE_SAMPLE_ASSAY_EDGES = """
+CYPHER 25
+UNWIND $rows AS r
+MATCH (s:Sample {id: r.id})
+CALL (s) { MATCH (s)-[old:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE old }
+CALL (s, r) {
+  UNWIND r.inputs AS e
+  MATCH (a:Assay {id: e.assay_id})
+  CREATE (s)-[:INPUT_TO {seek_assay_ids: e.seek_assay_ids}]->(a)
+  RETURN count(a) AS inputs
+}
+CALL (s, r) {
+  UNWIND r.outputs AS e
+  MATCH (a:Assay {id: e.assay_id})
+  CREATE (s)-[:OUTPUT_OF {seek_assay_ids: e.seek_assay_ids}]->(a)
+  RETURN count(a) AS outputs
+}
+RETURN count(s) AS samples, sum(inputs) AS inputs, sum(outputs) AS outputs
+"""
+# Reads. The (SEEK id, Assay id) pairs RUN_IN holds, and those the sample edges hold (sync_assays step 3).
+RUN_IN_PAIRS = """
+MATCH (a:Assay)-[r:RUN_IN]->(:Study)
+UNWIND r.seek_assay_ids AS seek_assay_id
+RETURN DISTINCT seek_assay_id, a.id AS assay_id
+"""
+SAMPLE_ASSAY_EDGE_PAIRS = """
+MATCH (:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay)
+UNWIND r.seek_assay_ids AS seek_assay_id
+RETURN DISTINCT seek_assay_id, a.id AS assay_id
+"""
+SAMPLES_CARRYING_SEEK_ASSAYS = """
+MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(:Assay)
+WHERE any(x IN r.seek_assay_ids WHERE x IN $seek_ids)
+RETURN DISTINCT s.id AS id
+"""
+# Every DERIVED_FROM between two Sample nodes with an end among $ids, as (child, parent), once each: what the role
+# rule reads for these samples. An edge touching an OrphanSample is not lineage here.
+LINEAGE_PAIRS_INCIDENT = """
+UNWIND $ids AS id
+MATCH (c:Sample {id: id})-[:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id
+UNION
+UNWIND $ids AS id
+MATCH (c:Sample)-[:DERIVED_FROM]->(p:Sample {id: id})
+RETURN c.id AS child_id, p.id AS parent_id
+"""
+# How many DERIVED_FROM edges each Sample of $ids has, either direction (the relationship count, cheap): a partner
+# above targeted.PARTNER_REWRITE_MAX is handed to the loop.
+SAMPLE_LINEAGE_DEGREES = """
+UNWIND $ids AS id
+MATCH (s:Sample {id: id})
+RETURN s.id AS id, COUNT { (s)-[:DERIVED_FROM]-() } AS degree
+"""
+# One keyset page of the Sample ids holding an INPUT_TO or OUTPUT_OF, over the Sample.id index: the full sync
+# deletes the edges of those that no longer have a role.
+SAMPLE_IDS_WITH_ASSAY_EDGES_PAGE = """
+MATCH (s:Sample) WHERE s.id > $after AND EXISTS { (s)-[:INPUT_TO|OUTPUT_OF]->(:Assay) }
+RETURN s.id AS id
+ORDER BY s.id LIMIT $limit
+"""

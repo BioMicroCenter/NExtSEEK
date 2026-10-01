@@ -1960,3 +1960,190 @@ def test_the_share_check_counts_and_caps_the_missing_ids(monkeypatch):
     assert got == {"ids": 4, "found": 3, "has_project": 3, "in_project": 3, "in_study": 2, "paper": 2,
                    "paper_in_study": 1, "missing_ids": [4]}
     assert len(driver.calls) == 2 and all(c.kwargs.get("routing_") is not None for c in driver.calls)
+
+
+# --- the assay layer (schema 1.3) -------------------------------------------------------------------
+
+def test_the_assay_constraint_and_index_are_named_and_never_budget_indexes():
+    assert q.ASSAY_CONSTRAINTS == (
+        "CREATE CONSTRAINT assay_id_unique IF NOT EXISTS FOR (a:Assay) REQUIRE a.id IS UNIQUE",
+        "CREATE INDEX assay_title IF NOT EXISTS FOR (a:Assay) ON (a.title)",
+    )
+    assert not any("gs_" in statement for statement in q.ASSAY_CONSTRAINTS)
+
+
+def test_the_assay_write_statements_replace_whole_and_name_both_labels_on_every_delete():
+    assert "MERGE (a:Assay {id: r.id})" in q.MERGE_ASSAYS and "SET a = r" in q.MERGE_ASSAYS
+    for statement in (q.REPLACE_ASSAY_RUNS, q.REPLACE_ASSAY_CATALOG_EDGES, q.REPLACE_SAMPLE_ASSAY_EDGES):
+        assert statement.lstrip().startswith("CYPHER 25")
+    assert "MATCH (:Assay)-[old:RUN_IN]->(:Study) DELETE old" in q.REPLACE_ASSAY_RUNS
+    assert "CREATE (a)-[:RUN_IN {seek_assay_ids: r.seek_assay_ids}]->(st)" in q.REPLACE_ASSAY_RUNS
+    assert "MATCH (:SampleType)-[old:ACCEPTED_BY]->(:Assay) DELETE old" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "MATCH (:Assay)-[old:GENERATES]->(:SampleType) DELETE old" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "[:ACCEPTED_BY {required: r.required, group: r.group}]" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "[:GENERATES {group: r.group}]" in q.REPLACE_ASSAY_CATALOG_EDGES
+    edges = q.REPLACE_SAMPLE_ASSAY_EDGES
+    assert "MATCH (s:Sample {id: r.id})" in edges
+    assert "CALL (s) { MATCH (s)-[old:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE old }" in edges
+    assert "CREATE (s)-[:INPUT_TO {seek_assay_ids: e.seek_assay_ids}]->(a)" in edges
+    assert "CREATE (s)-[:OUTPUT_OF {seek_assay_ids: e.seek_assay_ids}]->(a)" in edges
+    # the delete comes before the creates, inside the one statement per chunk
+    assert edges.index("DELETE old") < edges.index("CREATE (s)-[:INPUT_TO")
+
+
+def test_a_gone_assay_loses_its_edges_in_batches_before_its_node():
+    assert "MATCH (a:Assay) WHERE NOT a.id IN $ids" in q.DELETE_GONE_ASSAY_EDGES
+    assert "WITH r LIMIT $batch" in q.DELETE_GONE_ASSAY_EDGES
+    assert "DETACH DELETE a" in q.DELETE_GONE_ASSAYS
+    calls = []
+
+    def responder(query, params):
+        calls.append(query)
+        if query == q.DELETE_GONE_ASSAY_EDGES:
+            return [{"deleted": [3, 2, 0][len([c for c in calls if c == query]) - 1]}]
+        return [{"deleted": 1}]
+
+    driver = FakeDriver(responder)
+    counts = w.delete_gone_assays(driver, "neo4j", [120, 99, 99])
+    assert calls == [q.DELETE_GONE_ASSAY_EDGES] * 3 + [q.DELETE_GONE_ASSAYS]
+    assert all(c.params["ids"] == [99, 120] for c in driver.calls)
+    assert driver.calls[0].params["batch"] == w.ASSAY_EDGE_DELETE_BATCH
+    assert counts == {"assays_deleted": 1, "assay_edges_deleted_with_gone_assays": 5}
+
+
+def test_the_assay_reads_see_sample_nodes_only():
+    for statement in (q.LINEAGE_PAIRS_INCIDENT,):
+        assert statement.count("(c:Sample") == 2 and statement.count("(p:Sample") == 2
+        assert "UNION" in statement and "UNION ALL" not in statement
+    assert "COUNT { (s)-[:DERIVED_FROM]-() } AS degree" in q.SAMPLE_LINEAGE_DEGREES
+    assert "UNWIND r.seek_assay_ids AS seek_assay_id" in q.RUN_IN_PAIRS
+    assert "(:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay)" in q.SAMPLE_ASSAY_EDGE_PAIRS
+    assert "x IN $seek_ids" in q.SAMPLES_CARRYING_SEEK_ASSAYS
+    page = q.SAMPLE_IDS_WITH_ASSAY_EDGES_PAGE
+    assert "s.id > $after" in page and "EXISTS { (s)-[:INPUT_TO|OUTPUT_OF]->(:Assay) }" in page
+    assert "ORDER BY s.id LIMIT $limit" in page
+
+
+def test_write_assays_merges_the_nodes_in_chunks(monkeypatch):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    driver = FakeDriver(lambda query, params: [{"written": len(params["rows"])}])
+    rows = [{"id": i, "has_context": False} for i in (99, 120, 130)]
+    assert w.write_assays(driver, "neo4j", rows) == {"assays_written": 3}
+    assert [len(c.params["rows"]) for c in driver.calls_of(q.MERGE_ASSAYS)] == [2, 1]
+
+
+def test_replace_assay_runs_gives_each_study_its_whole_seek_row_first_then_replaces_run_in_once(monkeypatch):
+    # The studies release's MERGE_SEEK_STUDIES sets title and description and replaces IN_INVESTIGATION: a row with a
+    # title and an investigation only would clear the description (and fail 12.studies.nodes_differ_from_seek).
+    seen = []
+    real = w.write_seek_study_nodes
+    monkeypatch.setattr(w, "write_seek_study_nodes",
+                        lambda d, db, studies, tables=None: seen.append(list(studies)) or real(d, db, studies,
+                                                                                                tables=tables))
+    driver = FakeDriver(lambda query, params: [{"linked": 1}] if query == q.REPLACE_ASSAY_RUNS else [])
+    rows = [{"assay_id": 99, "study_id": 70, "seek_assay_ids": [5, 6]},
+            {"assay_id": 120, "study_id": 71, "seek_assay_ids": [5]}]
+    studies = {70: {"id": 70, "title": "Study seventy", "description": "What seventy is.", "investigation_id": 3},
+               71: {"id": 71, "title": "Study seventy-one", "description": None, "investigation_id": 3}}
+    counts = w.replace_assay_runs(driver, "neo4j", rows, studies)
+    assert seen == [[studies[70], studies[71]]]
+    assert driver.queries()[-1] == q.REPLACE_ASSAY_RUNS and q.MERGE_SEEK_STUDIES in driver.queries()
+    merged = [r for c in driver.calls_of(q.MERGE_SEEK_STUDIES) for r in c.params["rows"]]
+    assert [r.get("description") for r in merged] == ["What seventy is.", None]
+    assert driver.calls[-1].params == {"rows": rows}
+    assert counts == {"assay_runs": 2, "assay_runs_written": 1, "assay_runs_dropped": 1}
+
+
+def test_replace_assay_runs_writes_no_node_for_a_study_it_has_no_row_for(monkeypatch):
+    seen = []
+    monkeypatch.setattr(w, "write_seek_study_nodes",
+                        lambda d, db, studies, tables=None: seen.append(list(studies)))
+    driver = FakeDriver(lambda query, params: [{"linked": 0}])
+    rows = [{"assay_id": 99, "study_id": 72, "seek_assay_ids": [5]}]
+    counts = w.replace_assay_runs(driver, "neo4j", rows, {})
+    assert seen == [] and driver.queries() == [q.REPLACE_ASSAY_RUNS]
+    assert counts["assay_runs_dropped"] == 1
+
+
+def test_replace_assay_runs_writes_a_new_studys_investigation_before_the_study():
+    # A study first seen through RUN_IN is never left under no investigation (the studies release's A1): with SEEK's
+    # small tables, its Investigation node and IN_PROJECT are written before the Study, and RUN_IN last.
+    driver = FakeDriver(lambda query, params: [{"linked": 1}] if query == q.REPLACE_ASSAY_RUNS else [])
+    study = {"id": 70, "title": "Study seventy", "description": None, "investigation_id": 3}
+    tables = w.SeekTables(studies=(study,), investigations=({"id": 3, "title": "Inv three", "description": None},),
+                          investigation_projects=({"investigation_id": 3, "project_id": 2},),
+                          projects=({"id": 2, "title": "Local"},))
+    rows = [{"assay_id": 99, "study_id": 70, "seek_assay_ids": [5]}]
+    w.replace_assay_runs(driver, "neo4j", rows, {70: study}, tables=tables)
+    queries = driver.queries()
+    assert (queries.index(q.MERGE_INVESTIGATIONS) < queries.index(q.MERGE_SEEK_STUDIES)
+            < queries.index(q.REPLACE_ASSAY_RUNS))
+    assert [r["id"] for r in driver.calls_of(q.MERGE_INVESTIGATIONS)[0].params["rows"]] == [3]
+    assert driver.calls_of(q.MERGE_INVESTIGATION_IN_PROJECT)[0].params["rows"] == [
+        {"investigation_id": 3, "project_id": 2}]
+
+
+def test_replace_assay_runs_with_no_row_still_clears_run_in():
+    driver = FakeDriver(lambda query, params: [{"linked": 0}])
+    assert w.replace_assay_runs(driver, "neo4j", [], {})["assay_runs"] == 0
+    assert driver.queries() == [q.REPLACE_ASSAY_RUNS]
+
+
+def test_replace_assay_catalog_edges_sends_one_statement():
+    driver = FakeDriver(lambda query, params: [{"accepted": 2, "generates": 1}])
+    accepted = [{"code": "TIS", "assay_id": 99, "required": True, "group": 0},
+                {"code": "XYZ", "assay_id": 99, "required": False, "group": 0}]
+    generates = [{"assay_id": 99, "code": "D.SEQ", "group": 0}]
+    counts = w.replace_assay_catalog_edges(driver, "neo4j", accepted, generates)
+    (call,) = driver.calls
+    assert call.query == q.REPLACE_ASSAY_CATALOG_EDGES
+    assert call.params == {"accepted": accepted, "generates": generates}
+    assert counts == {"accepted_by": 2, "accepted_by_written": 2, "generates": 1, "generates_written": 1}
+
+
+def test_replace_sample_assay_edges_sends_one_statement_per_chunk_and_counts_what_it_could_not_write():
+    driver = FakeDriver(lambda query, params: [{"samples": len(params["rows"]) - 1, "inputs": 1, "outputs": 0}])
+    rows = [{"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": [5]}], "outputs": []},
+            {"id": 11, "inputs": [], "outputs": [{"assay_id": 99, "seek_assay_ids": [5]}]},
+            {"id": 12, "inputs": [], "outputs": []}]
+    counts = w.replace_sample_assay_edges(driver, "neo4j", rows, chunk=2)
+    assert [[r["id"] for r in c.params["rows"]] for c in driver.calls_of(q.REPLACE_SAMPLE_ASSAY_EDGES)] == [
+        [10, 11], [12]]
+    assert counts == {"assay_edge_samples": 3, "assay_edge_samples_missing": 2, "assay_edges_written": 2,
+                      "assay_edges_dropped": 0}
+
+
+@pytest.mark.parametrize("row", [
+    {"id": "10", "inputs": [], "outputs": []},
+    {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": []}], "outputs": []},
+    {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": ["5"]}], "outputs": []},
+    {"id": 10, "inputs": [], "outputs": [{"assay_id": None, "seek_assay_ids": [5]}]},
+    {"id": 10, "inputs": []},
+])
+def test_replace_sample_assay_edges_refuses_a_malformed_row_before_sending_anything(row):
+    driver = FakeDriver()
+    with pytest.raises(ValueError):
+        w.replace_sample_assay_edges(driver, "neo4j", [{"id": 9, "inputs": [], "outputs": []}, row])
+    assert driver.calls == []
+
+
+def test_lineage_pairs_incident_reads_both_directions_once_each():
+    records = [{"child_id": 11, "parent_id": 10}, {"child_id": 13, "parent_id": 11}, {"child_id": 11, "parent_id": 10}]
+    driver = FakeDriver(lambda query, params: records)
+    assert w.lineage_pairs_incident(driver, "neo4j", [11, 11]) == [(11, 10), (13, 11)]
+    (call,) = driver.calls
+    assert call.query == q.LINEAGE_PAIRS_INCIDENT and call.params == {"ids": [11]}
+    assert call.kwargs.get("routing_") is not None
+
+
+def test_lineage_degrees_reads_each_sample():
+    driver = FakeDriver(lambda query, params: [{"id": 10, "degree": 3}, {"id": 11, "degree": None}])
+    assert w.lineage_degrees(driver, "neo4j", [10, 11, 12]) == {10: 3, 11: 0}
+
+
+def test_sample_ids_with_assay_edges_pages_by_keyset(monkeypatch):
+    monkeypatch.setattr(w, "HASH_PAGE", 2)
+    pages = {w._INT64_MIN: [{"id": 3}, {"id": 8}], 8: [{"id": 9}]}
+    driver = FakeDriver(lambda query, params: pages[params["after"]])
+    assert list(w.sample_ids_with_assay_edges(driver, "neo4j")) == [3, 8, 9]
+    assert [c.params["after"] for c in driver.calls] == [w._INT64_MIN, 8]
