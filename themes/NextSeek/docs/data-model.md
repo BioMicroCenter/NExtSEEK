@@ -43,7 +43,7 @@ Chain these steps together and you get the whole experiment, with the right meta
 
 <figure>
   <img src="../static/docs/img/data-model/sample-type-flow.png" alt="Panel A: a flow of sample types. A non-human primate sample goes through a visit to a patient visit sample. A bacteria sample joins it through an infection. The visit goes through extraction to two tissue samples. One tissue sample goes through library prep to a DNA sample and through sequencing to a sequencing file. The other tissue sample, together with an antibody sample, goes through flow cytometry to a flow cytometry file. Panel B: the metadata tables of example samples at each step, each with a UID, a name, type-specific fields and a Parent field naming the sample it came from." loading="lazy">
-  <figcaption>A: the sample types and assays of one experiment, from animal to sequencing and flow cytometry. B: the metadata recorded for a sample at each step. Figure: MIT BioMicro Center.</figcaption>
+  <figcaption>A: the sample types and assays of one experiment, from animal to sequencing and flow cytometry. B: the metadata recorded for a sample at each step. Figure from Mugahid D, Lyon J, Demurjian C, et al. A practical guide to FAIR data management in the age of multi-OMICS and AI. <em>Front Immunol</em> 2024;15:1439434, <a href="https://doi.org/10.3389/fimmu.2024.1439434">doi:10.3389/fimmu.2024.1439434</a> (CC BY 4.0).</figcaption>
 </figure>
 
 Every table in panel B has a Parent field. That field is how NExtSEEK knows which sample an assay started from.

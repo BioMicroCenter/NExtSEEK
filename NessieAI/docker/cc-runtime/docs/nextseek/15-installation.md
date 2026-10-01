@@ -18,7 +18,7 @@ Check Docker with `docker version` and `docker compose version`.
 ## Quick start
 
 ```bash
-git clone https://github.com/BioMicroCenter/NExtSEEK.git
+git clone -b main https://github.com/BioMicroCenter/NExtSEEK.git
 cd NExtSEEK
 ./startup.sh install
 ```
