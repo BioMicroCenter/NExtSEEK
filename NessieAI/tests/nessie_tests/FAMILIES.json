@@ -146,8 +146,7 @@
        ],
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
-        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:_sanitize_api_row_strings"
        ],
        "testable_assertion": "api_result_meta.status_code eq 200",
        "expressible": "partial",
@@ -1175,8 +1174,7 @@
        "entry_points": [
         "chat_nextseek/src/chat_nextseek/helpers/tools/nextseek_api.py:tool_nextseek_api_request",
         "chat_nextseek/src/chat_nextseek/context/min_api_endpoints_enriched.json",
-        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt",
-        "chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml"
+        "chat_nextseek/src/chat_nextseek/prompts/api_agent.txt"
        ],
        "testable_assertion": "api_plan.endpoint contains parents_by_child_types",
        "expressible": "yes",

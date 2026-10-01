@@ -173,8 +173,6 @@ this one's:
   `NessieAI/chat_frontend/src/lib/services/chatApi.ts:78` builds request URLs against the prefix,
   and the CC agent's plugin catalog stores endpoint paths as data at
   `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/context/ops.json:1`.
-- `NessieAI/chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml:1-5` is a captured copy of
-  the document this app's schema route generates, not a live read of it, so it drifts.
 
 What a hit here is NOT. A grep for this package name returns far more than the list
 above, and three groups were excluded deliberately. Everything under `NessieAI/` reaches this

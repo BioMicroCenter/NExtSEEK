@@ -144,7 +144,6 @@ EXPECTED_SOURCE_ONLY = frozenset({
     ".gitignore",                     # not context; _files() uses iterdir(), which keeps dotfiles
     "assays_db.json",                 # full catalog; the agent gets min_assays_db.json instead
     "sampletypes_db.json",            # full catalog; the agent gets min_sampletypes_db.json
-    "nextseek_api.yaml",              # full OpenAPI spec; the agent gets min_api_endpoints*.json
     "neo4j_assay-sample-conn.json",   # pipeline-internal graph connectivity map
     "neo4j_protocol_schema.json",     # pipeline-internal protocol schema
     # The NS-side fallback the graph agent uses when the live catalog cannot be read

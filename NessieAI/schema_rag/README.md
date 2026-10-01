@@ -194,8 +194,7 @@ two that constrain it are kept.
   that is a chat ViewSet action and has no relation to
   `NessieAI/schema_rag/session.py:172`. The `min_api_endpoints.json` catalog and
   `NessieAI/tests/nessie_tests/FAMILIES.json` carry this feature's URL paths as data for an agent, not as
-  a code edge. `NessieAI/chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml:1996` is a
-  captured snapshot of a generated document, so it drifts rather than binding anything.
+  a code edge.
 - Excluded deliberately: the hermetic test modules in `NessieAI/tests/schema_rag/`,
   which import this package the ordinary way (`NessieAI/tests/schema_rag/test_schema_rag_unit.py:23-32`
   is typical) but constrain nothing beyond their own assertions.
