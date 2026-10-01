@@ -79,7 +79,7 @@ class TestResolveUidWrapper:
     def test_delegates_to_shared(self, mock_shared):
         mock_shared.return_value = "42"
         result = _resolve_uid_to_seek_id("42")
-        mock_shared.assert_called_once_with("42", "data_files")
+        mock_shared.assert_called_once_with("42", "data_files", as_written_only=False)
         assert result == "42"
 
 
