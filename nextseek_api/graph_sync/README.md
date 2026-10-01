@@ -103,12 +103,12 @@ back-off; every other sample is done. A gap from SEEK's data never heals by itse
 `--requeue-dead` the samples' rows if they died. A child's exit status decides its row: 0 and 2 (a refusal) are done,
 anything else backs off, a busy graph-write lock (exit 1) included, except a `drift` child that exits 1 having saved a
 result that reports drift: that check did its job, so its row is done and the drift is in its run record, never
-retried into the same answer. The newest 20 run directories per kind are kept (the kinds the loop runs; a
-`merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every pass starts by
-closing all of the process's Django database connections: the loop lives for days and Django refreshes connections
-only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on it with
-"Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error 2006 until
-the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
+retried into the same answer. The newest 20 run directories per kind are kept (the kinds the loop runs, and
+`--small-tables`'s; a `merge_studies`, `unmerge_studies`, `study_links` or `catalog` directory is never pruned). Every
+pass starts by closing all of the process's Django database connections: the loop lives for days and Django refreshes
+connections only around a web request, so a connection MySQL dropped for idling would otherwise fail every drain on it
+with "Server has gone away". Before this, the loop never recovered by itself: every pass failed with MySQL error 2006
+until the process was restarted. A child run also ends with the same refresh, since it can hold the loop for hours.
 
 | Cadence | When (UTC) | Fresh for |
 |---|---|---|

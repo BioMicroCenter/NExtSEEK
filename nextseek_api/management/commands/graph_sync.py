@@ -406,7 +406,8 @@ class Command(BaseCommand):
         before the post-rebuild drift, so an edit made in SEEK's own UI since the nightly does not read as drift."""
         handle = None if options["no_record"] else state.start_run("small_tables", trigger=options["trigger"])
         try:
-            result = targeted.sync_small_tables(driver, db, run_dir=self._run_dir(options, "small_tables"))
+            result = targeted.sync_small_tables(driver, db,
+                                                run_dir=self._run_dir(options, loop.SMALL_TABLES_DIR_KIND))
         except Exception as exc:
             if handle is not None:
                 handle.finish("failed", counts={"error": _text(exc)})

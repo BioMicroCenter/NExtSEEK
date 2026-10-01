@@ -3,7 +3,7 @@
 ``manage.py graph_sync --loop`` is one pass after another, for ever; ``--once`` is one pass. A pass:
 
 1. **housekeeping**: ends the runs whose process died (``state.reap_abandoned``) and deletes all but the newest
-   ``KEEP_RUN_DIRS`` run directories of each kind the loop writes;
+   ``KEEP_RUN_DIRS`` run directories of each kind the loop writes, and of ``--small-tables``;
 2. **the schedule**: ``schedule.due_slots`` says which scheduled runs are owed, and each becomes one outbox row.
    ``(kind, key)`` is unique, so a slot already there is left exactly as it is: the schedule asks, the outbox
    decides, and a slot missed while the loop was down runs once at the next pass, not once per day it missed;
@@ -106,7 +106,8 @@ CHILD_KINDS = ("reconcile", "full", "drift")          # run as child processes
 READ_ONLY_KINDS = ("drift",)                          # the kinds a graph below the writer's version still allows
 LABEL_CHANGE_KINDS = ("full", "reconcile")            # the children that take --apply-label-changes
 DRAIN_DIR_KIND = "drain"                              # the run directory the in-process kinds archive into
-PRUNED_KINDS = CHILD_KINDS + (DRAIN_DIR_KIND,)
+SMALL_TABLES_DIR_KIND = "small_tables"                # graph_sync --small-tables, before every local and dev drift
+PRUNED_KINDS = CHILD_KINDS + (DRAIN_DIR_KIND, SMALL_TABLES_DIR_KIND)
 
 # What ``_defer`` answers to, by status and by refusal: neither is the row's fault.
 DEFER_STATUSES = (targeted.LOCK_TIMEOUT, targeted.NOT_AT_VERSION)
@@ -207,10 +208,11 @@ def launch_child(argv: list[str], timeout_s: float) -> int | None:
 # --- the run directories --------------------------------------------------------------------------
 
 def prune_run_dirs(run_root: str, *, keep: int = KEEP_RUN_DIRS, kinds=PRUNED_KINDS) -> int:
-    """Delete all but the newest ``keep`` run directories of each kind the loop writes, and return how many went.
+    """Delete all but the newest ``keep`` run directories of each kind the loop writes, and of the small-tables write
+    the startup CLI runs before every local and dev drift, and return how many went.
 
     A directory of any other name, a hand run's ``graph_sync-<UTC time>`` among them, is left alone: the loop
-    deletes only what it made.
+    deletes only what it made, and those.
     """
     try:
         names = sorted(os.listdir(run_root))

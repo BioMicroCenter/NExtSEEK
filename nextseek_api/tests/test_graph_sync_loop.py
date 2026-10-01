@@ -567,6 +567,18 @@ def test_run_directories_are_pruned_to_the_newest_of_each_kind(work, tmp_path):
     assert (tmp_path / "graph_sync-20260101T000000Z").exists()
 
 
+@pytest.mark.django_db
+def test_the_small_tables_write_directories_are_pruned_like_the_loops_own(work, tmp_path):
+    """``graph_sync --small-tables`` runs before every local and dev drift and archives into its own directory."""
+    for n in range(loop.KEEP_RUN_DIRS + 2):
+        (tmp_path / f"small_tables-20260901T0000{n:02d}Z").mkdir()
+
+    one_pass(work)
+
+    kept = sorted(p.name for p in tmp_path.iterdir() if p.name.startswith("small_tables-"))
+    assert len(kept) == loop.KEEP_RUN_DIRS and kept[0] == "small_tables-20260901T000002Z"
+
+
 # --- the loop itself ------------------------------------------------------------------------------
 
 @pytest.mark.django_db
