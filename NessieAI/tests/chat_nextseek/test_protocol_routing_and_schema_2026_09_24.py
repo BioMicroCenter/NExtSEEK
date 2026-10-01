@@ -82,8 +82,9 @@ def test_sop_is_a_plain_word_like_protocol():
 def test_f1_studies_are_paper_level_or_seek_studies():
     study = _node("Study")
     assert "IS a published paper" not in study
-    assert "IS NOT NULL" in study and "coalesce(st.DOI,'') <> ''" in study
-    assert "a SEEK study, which carries neither key" in study
+    assert "IS NOT NULL" in study and "coalesce(s.DOI,'') <> ''" in study
+    assert "a graph-only paper study (no 'seek_study_id') carries 'DOI' and 'PMID'" in study
+    assert "the samples of a published study carry its paper's 'DOI' and 'PMID'" in study
     assert "it is true for every study" not in study
 
 

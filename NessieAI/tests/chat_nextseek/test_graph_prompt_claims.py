@@ -44,7 +44,12 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # rule gained the five live titles it lacked (Griffith, Impact, RMS-NGC, SRP, Shoulders; the local graph holds 15,
 # less one test record). Checked by replacing that one string in the old frozen JSON, which then equals the new one
 # exactly; no other rule or trigger changed (was 7273608d61fa...bb3673a).
-FROZEN_ROUTING_SHA256 = "0cf426479396fd1f3bec473eb0a4672146304cd712fb9fc97d94c19659e1251f"
+#
+# Re-pinned a fifth time, reviewed (operator, the studies release): DOI and PMID are sample attributes, so the
+# paper trigger reads s.DOI / s.PMID on the sample and st.DOI / st.PMID on a paper study, and the DOI rule says they
+# live on samples and on paper studies. Checked by replacing those two strings in the old frozen JSON, which then
+# equals the new one exactly; no other rule or trigger changed (was 0cf426479396...c19659e1251f).
+FROZEN_ROUTING_SHA256 = "1b36fed1561faece94488d85a8e80aba8e79a55ecaefb90ddec2551e0cd8f7b6"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

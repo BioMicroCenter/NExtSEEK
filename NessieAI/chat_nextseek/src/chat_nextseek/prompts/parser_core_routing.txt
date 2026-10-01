@@ -16,7 +16,7 @@ PATH: graph_query
 --------------------------------------------------
 
 The Neo4j knowledge graph stores biological entities and the relationships between them.
-Node types: Sample, carrying every metadata attribute of the sample as a property (numbers and dates typed, so they compare with < and >), its sample type code in "type" and a type label, its UID in "uuid" (the UID embeds the lab's three-letter code), its project ids, and "search_text", every value of the sample; SampleType and Attribute, a catalog of the attributes each sample type carries; Study, with "title", DOI and PMID; Investigation, project-level grouping with "title"; Project.
+Node types: Sample, carrying every metadata attribute of the sample as a property (numbers and dates typed, so they compare with < and >), its sample type code in "type" and a type label, its UID in "uuid" (the UID embeds the lab's three-letter code), its project ids, and "search_text", every value of the sample; SampleType and Attribute, a catalog of the attributes each sample type carries; Study, with "title"; DOI and PMID on samples, and on paper studies; Investigation, project-level grouping with "title"; Project.
 Relationships: DERIVED_FROM between samples, child to parent across any number of steps, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation; IN_PROJECT from sample to project.
 The graph agent writes Cypher over all of this, so it can filter on any attribute or on text anywhere in a sample, combine conditions with AND, OR and NOT, compare numbers and dates, count, group and break down, list the distinct values of an attribute, match a lab code inside UIDs, and follow lineage in either direction.
 

@@ -94,14 +94,10 @@ def _resolve_report_scope(config, project) -> "tuple[str, Any]":
     Resolve a report's requested scope to ``("project", id)``,
     ``("investigation", (id, title))`` or ``("all", None)``.
 
-    Only ``run_project_sample_report`` used to have the investigation fallback; the
-    protocols and published runners called ``_normalize_project_id`` bare. The six
-    investigations (CSBC, Griffith, Impact, MetNet, SRP, Shoulders) live in
-    ``INVESTIGATION_NAME_TO_ID`` while ``PROJECT_NAME_TO_ID`` holds only
-    {PUB, PUBLISHED, PUBLISHED DATA}, so every investigation name raised
-    ``ValueError("Unknown project 'SRP'")`` and the whole RPPR died — identically in
-    baseline task 751 and post-fix task 815 — while the samples-only mode answered
-    the same string fine.
+    A name is tried as a project first (``PROJECT_NAME_TO_ID``: on a live config
+    every SEEK project, with a fuzzy contains-match), then as an investigation
+    (``INVESTIGATION_NAME_TO_ID``), so the sample, protocols and published runners
+    all accept an investigation name that matches no project.
 
     Raises ValueError only when the name is neither a project nor an investigation,
     preserving the original error for genuinely unknown scopes.
@@ -150,18 +146,27 @@ def _tabulate_sample_uuids(uuids: list[str]) -> dict:
     }
 
 
+def _investigation_condition(inv_id, inv_title) -> "tuple[str, dict]":
+    """The investigation a report names: by ``inv.id`` when resolution gave one (two investigations can share a
+    title), else by exact title, case and surrounding whitespace aside; never a substring."""
+    if inv_id is not None:
+        return "inv.id = $inv_id", {"inv_id": int(inv_id)}
+    return "toLower(trim(inv.title)) = toLower(trim($inv_title))", {"inv_title": str(inv_title)}
+
+
 def _neo4j_investigation_sample_uuids(
     config, inv_title: str,
     years: list[int | str] | None = None,
     month_range: tuple[str, str] | None = None,
     day_range: tuple[str, str] | None = None,
+    *, inv_id: int | None = None,
 ) -> list[str]:
     """Sample UUIDs under an investigation, via Neo4j — the relational DB has no
-    populated sample->study->investigation linkage on this instance. Mirrors the
-    published-report traversal, scoped by EXACT investigation title (case-insensitive)
-    plus the same UUID-substring date filters."""
-    conditions = ["toLower(inv.title) = toLower($inv_title)"]
-    params: dict = {"inv_title": inv_title}
+    populated sample->study->investigation linkage on this instance. Scoped by the
+    investigation's id when one is given, else by its exact title (case-insensitive),
+    plus the same UUID-substring date filters as the published report."""
+    condition, params = _investigation_condition(inv_id, inv_title)
+    conditions = [condition]
     if years:
         params["yy_list"] = _normalize_years(years)
         conditions.append("substring(split(s.uuid, '-')[1], 0, 2) IN $yy_list")
@@ -195,7 +200,7 @@ def _run_investigation_sample_report(
     Returns the SAME result shape as run_project_sample_report so the chatter
     formats it identically; adds ``scope``/``investigation_id``/``investigation_title``."""
     inv_id, inv_title = investigation
-    uuids = _neo4j_investigation_sample_uuids(config, inv_title, years, month_range, day_range)
+    uuids = _neo4j_investigation_sample_uuids(config, inv_title, years, month_range, day_range, inv_id=inv_id)
     tables = _tabulate_sample_uuids(uuids)
     ts = datetime.now().strftime("%Y%m%dT%H%M%S")
     outputs_root_p = Path(outputs_root)
@@ -669,11 +674,13 @@ def run_project_published_report(  # noqa: C901
     """
     Project-scoped published samples and protocols report.
 
-    Published samples and studies are determined via Neo4j: the production graph contains
-    only data that has been published/submitted to public repositories.
-    Traversal: (inv:Investigation) <-[:IN_INVESTIGATION]- (study:Study) <-[:IN_STUDY]- (s:Sample)
-    Filtering by project uses case-insensitive CONTAINS on inv.title (normalized, spaces stripped).
-    Date filtering uses the same YYMMDD substring from the sample UUID.
+    Published samples come from Neo4j. The graph holds every sample, published or not, so a sample counts only
+    when it carries a non-empty DOI or PMID itself or sits in a Study that does (a paper study not yet moved into
+    SEEK). Traversal: (inv:Investigation) <-[:IN_INVESTIGATION]- (study:Study) <-[:IN_STUDY]- (s:Sample), each
+    sample once; its studies are those of the named investigation, a holding study ("... Unpublished") left out.
+    A name that resolves to a project matches the investigations IN_PROJECT to it, by the project's id; one that
+    resolves to an investigation matches it by its id (else by its exact title, case-insensitive); never a
+    substring. Date filtering uses the same YYMMDD substring from the sample UUID.
 
     Published protocols are determined by intersection:
       - Protocols for this project+date in seek_production
@@ -681,8 +688,6 @@ def run_project_published_report(  # noqa: C901
 
     Returns counts of published samples (by type/lab/year/month), study count, and protocol count.
     """
-    # Resolution only — the Cypher below already filters on the raw project string via
-    # $proj_hint, so an investigation name works the moment resolution stops raising.
     kind, scope = _resolve_report_scope(config, project)
     project_id = scope if kind == "project" else None
     investigation_scope = scope if kind == "investigation" else None
@@ -699,19 +704,26 @@ def run_project_published_report(  # noqa: C901
     cypher_conditions: list[str] = []
     cypher_params: dict = {}
 
-    # Umbrella projects (dev-only opt-in, default off) skip the investigation-
-    # title hint and report ALL investigations' samples: a project that contains
-    # every investigation matches no single title, so the hint would wrongly
-    # return 0 (issue #1 / option 2). Date filters below still apply.
+    # Umbrella projects (dev-only opt-in, default off) skip the investigation
+    # filter and report ALL investigations' samples (issue #1 / option 2).
+    # Date filters below still apply.
     is_umbrella = getattr(config, "is_umbrella_published_project", None)
     skip_hint = bool(is_umbrella and is_umbrella(project, project_id))
-    if project is not None and not skip_hint:
-        # Normalize project hint: lowercase, strip spaces for CONTAINS match
-        hint = re.sub(r"\s+", "", str(project).lower())
+    if project_id is not None and not skip_hint:
+        # A project's investigation often carries another title, so a project matches its investigations by id.
         cypher_conditions.append(
-            "replace(toLower(inv.title), ' ', '') CONTAINS $proj_hint"
-        )
-        cypher_params["proj_hint"] = hint
+            "EXISTS { MATCH (inv)-[:IN_PROJECT]->(proj:Project) WHERE proj.id = $project_id }")
+        cypher_params["project_id"] = int(project_id)
+    elif investigation_scope is not None and not skip_hint:
+        condition, params = _investigation_condition(*investigation_scope)
+        cypher_conditions.append(condition)
+        cypher_params.update(params)
+    # Published: a DOI or PMID on the sample, or on a Study it sits in.
+    cypher_conditions.append(
+        "(coalesce(toString(s.DOI), '') <> '' OR coalesce(toString(s.PMID), '') <> '' "
+        "OR EXISTS { MATCH (s)-[:IN_STUDY]->(pub:Study) "
+        "WHERE coalesce(toString(pub.DOI), '') <> '' OR coalesce(toString(pub.PMID), '') <> '' })"
+    )
 
     if years:
         yy_list = _normalize_years(years)
@@ -736,11 +748,13 @@ def run_project_published_report(  # noqa: C901
         cypher_params["date6_start"] = start6
         cypher_params["date6_end"] = end6
 
-    where_clause = (" WHERE " + " AND ".join(cypher_conditions)) if cypher_conditions else ""
+    where_clause = " WHERE " + " AND ".join(cypher_conditions)
     cypher = (
         f"MATCH (inv:Investigation)<-[:IN_INVESTIGATION]-(study:Study)<-[:IN_STUDY]-(s:Sample)"
         f"{where_clause} "
-        f"RETURN s.uuid AS uuid, study.title AS study_title, s.type AS sampletype"
+        f"WITH s, collect(DISTINCT CASE WHEN NOT toLower(trim(study.title)) ENDS WITH 'unpublished' "
+        f"THEN study.title END) AS study_titles "
+        f"RETURN DISTINCT s.uuid AS uuid, study_titles, s.type AS sampletype"
     )
 
     print("[REPORTER][NEO4J] Running published samples query", {"cypher": cypher, "params": cypher_params})
@@ -751,7 +765,7 @@ def run_project_published_report(  # noqa: C901
     else:
         rows = neo4j_result.get("data") or []
         uids = [r["uuid"] for r in rows if r.get("uuid")]
-        study_set = {r["study_title"] for r in rows if r.get("study_title")}
+        study_set = {t for r in rows for t in (r.get("study_titles") or []) if t}
 
         uid_re = re.compile(
             r"^(?P<sampletype>[^-]+)-(?P<yymmdd>\d{6})(?P<lab>[A-Za-z]+)-(?P<inc>\d+)(-\w+)*$"
@@ -786,7 +800,8 @@ def run_project_published_report(  # noqa: C901
             # recomputed from the survivors rather than left contradicting the row
             # count. Dropped again by run_reporter_summary.
             "uuids": uids,
-            "uuid_studies": [[r.get("uuid"), r.get("study_title")] for r in rows if r.get("uuid")],
+            # One pair per (sample, study), and one with no study for a sample only in a holding study.
+            "uuid_studies": [[r["uuid"], t] for r in rows if r.get("uuid") for t in (r.get("study_titles") or [None])],
             "sampletypes_table": dict(sorted(sampletype_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "labs_table": dict(sorted(lab_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
             "years_table": dict(sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0]))),
@@ -1055,8 +1070,8 @@ def _scope_published_to_labs(result: dict, lab_codes: list[str]) -> dict:
 
     pairs = samples.get("uuid_studies") or []
     kept = [(u, s) for u, s in pairs if _lab_of(u) in wanted]
-    unattributable = sum(1 for u, _ in pairs if _lab_of(u) is None)
-    uuids = [u for u, _ in kept]
+    unattributable = len({u for u, _ in pairs if _lab_of(u) is None})
+    uuids = list(dict.fromkeys(u for u, _ in kept))          # a sample in two studies is one sample
     study_set = {s for _, s in kept if s}
 
     scoped_samples = dict(samples)

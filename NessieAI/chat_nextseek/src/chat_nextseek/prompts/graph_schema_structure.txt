@@ -12,8 +12,9 @@
   curated_children})   one per SEEK sample type; title is the code
 (:Attribute {key, title, sample_type, value_type, declared, required, sample_count, meaning, role, unit_key,
   needs_backticks})   one per attribute of a type, declared in SEEK or found in the data
-(:Study {id, title, description, DOI, PMID, seek_study_id})   paper-level studies carry DOI and PMID, which
-  are '' when unset
+(:Study {id, title, description, DOI, PMID, seek_study_id})   a SEEK study (seek_study_id) has no DOI or PMID
+  unless it was a paper study; its samples carry their papers' DOI and PMID, '; '-joined. A graph-only paper study
+  (no seek_study_id) carries them, '' when unset
 (:Investigation {id, title, description, project_id})
 (:Project {id, title})   (:Person {id})   people carry no name or email
 (:OrphanSample) a former sample with no SEEK row. It is not a :Sample, but DERIVED_FROM edges can still end at

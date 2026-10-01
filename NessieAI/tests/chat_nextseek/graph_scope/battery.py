@@ -142,6 +142,21 @@ TAUGHT: list[Case] = [
          "WHERE st.PMID = $pmid\n"
          "RETURN count(DISTINCT s) AS n",
          {"pmid": "1001"}, S, ST_JOINED),
+    # One DOI, or one PMID, inside a sample's '; '-joined list, and the samples associated with a DOI with the studies
+    # they are IN_STUDY to (a study they were shared into included).
+    Case("default.samples_of_doi_in_list",
+         "MATCH (s:Sample) WHERE toLower($doi) IN [d IN split(toLower(s.DOI), ';') | trim(d)]\n"
+         "RETURN s.uuid AS uuid, s.id AS id, s.type AS type LIMIT 5000",
+         {"doi": "10.1000/one"}, S),
+    Case("default.samples_of_pmid_in_list",
+         "MATCH (s:Sample) WHERE $pmid IN [p IN split(toString(s.PMID), ';') | trim(p)]\n"
+         "RETURN count(DISTINCT s) AS n",
+         {"pmid": "1001"}, S),
+    Case("default.associated_with_doi",
+         "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\n"
+         "WHERE toLower($doi) IN [d IN split(toLower(s.DOI), ';') | trim(d)]\n"
+         "RETURN s.uuid AS uuid, collect(DISTINCT st.title) AS studies LIMIT 5000",
+         {"doi": "10.1000/one"}, S, ST_JOINED),
     # ------------------------------------------------------------------ the v2 prompt (variants/v2/graph_agent.txt)
     Case("v2.type_label_count",
          "MATCH (s:T_SLD) RETURN count(*) AS n",

@@ -60,9 +60,10 @@ The knowledge graph captures organizational structure and biological relationshi
 - **Sample**: an individual registered sample record, with its sample type code (e.g. `NHP`, `TIS`, `D.SEQ`) and every metadata attribute it holds.
 - **SampleType** and **Attribute**: the catalog of sample types and the attributes each one carries.
 - **Study**: a named study grouping related samples. Samples belong to studies via the `IN_STUDY` relationship.
-  A paper-level study carries the paper's `DOI` and `PMID` (uppercase; empty string when unset), so a sample
-  inherits the paper of every study it belongs to. You can ask which paper a sample appears in, or which samples
-  a paper used, by title, DOI or PMID. Most studies are unpublished; that is expected, not a gap.
+  The samples of a published study carry the paper's `DOI` and `PMID` (uppercase; absent on a sample with no paper).
+  A paper study that is not yet a SEEK study carries them too, and on some instances so does a SEEK study that was a
+  paper study, so you can ask which paper a sample appears in, which samples are in a paper's study, or which samples
+  carry its DOI or PMID in any study. Most studies are unpublished; that is expected, not a gap.
 - **Investigation**: a grouping of studies within a project (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 - **Project**: a SEEK project. Samples and investigations belong to it via the `IN_PROJECT` relationship.
 
