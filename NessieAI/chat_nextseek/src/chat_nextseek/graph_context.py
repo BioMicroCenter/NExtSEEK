@@ -27,6 +27,8 @@ import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
+from .context_rows import is_investigation_row
+
 STRUCTURE_PATH: Path = Path(__file__).resolve().parent / "prompts" / "graph_schema_structure.txt"
 BUDGET_BYTES = 32_768
 K_STEPS = (25, 15, 10, 0)  # 0 means names only
@@ -716,46 +718,77 @@ def _fold_title(text: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
 
 
-def project_titles_for(names, project_rows, titles) -> dict[str, str]:
-    """Each project name the entity step resolved, mapped to the ``Project.title`` it is stored under.
+#: The container levels a name can be stored under in the graph, narrowest first.
+CONTAINER_LEVELS = ("study", "investigation", "project")
 
-    The entity step resolves a project to the projects catalog's name ("Impact"), and the graph stores the SEEK
-    title ("IMPAcTb"). A name is mapped when it folds to one of ``titles`` itself, or when it is the name or an
-    alternative name of exactly one catalog PROJECT row (``project_rows``, which the caller has already cut to
-    project rows) whose own names fold to exactly one of ``titles``. Anything ambiguous, and any name that reaches
-    no title in ``titles``, is left out: this only ever names a title the graph has and the caller can see.
+
+def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, str, bool]]:
+    """Each name the entity step resolved as a project, mapped to ``(level, title, own)`` for the container
+    title that EXISTS in this graph, narrowest first.
+
+    ``rows`` are the projects catalog rows (project and investigation); ``titles_by_level`` maps ``study``,
+    ``investigation`` and ``project`` to the titles the caller can see. A catalog name sits at its row's level
+    (an investigation row with a ``parent_project`` is an investigation, any other row a project), and a name
+    with no row may sit anywhere. A title that is the name itself wins over one reached through the matching
+    rows' other names (and parent project). Levels are tried narrowest first and only the row's level and the
+    broader ones are allowed. ``own`` is False when only a container broader than the catalog row's level
+    exists: the query may use it, but it does not scope the narrower name, so the scope check still reports it.
+    Anything ambiguous, and any name that reaches no title, is left out.
     """
-    by_fold: dict[str, set[str]] = {}
-    for title in titles or ():
-        if isinstance(title, str) and title.strip():
-            by_fold.setdefault(_fold_title(title), set()).add(title)
-    out: dict[str, str] = {}
+    pools: dict[str, dict[str, set[str]]] = {}
+    for level in CONTAINER_LEVELS:
+        by_fold: dict[str, set[str]] = {}
+        for title in (titles_by_level or {}).get(level) or ():
+            if isinstance(title, str) and title.strip():
+                by_fold.setdefault(_fold_title(title), set()).add(title)
+        pools[level] = by_fold
+
+    def row_names(row) -> set[str]:
+        return {_fold_title(n) for n in [row.get("name"), *(row.get("alternative_names") or [])]
+                if isinstance(n, str) and n.strip()}
+
+    out: dict[str, tuple[str, str, bool]] = {}
     for name in names or ():
         if not isinstance(name, str) or not name.strip() or name in out:
             continue
         key = _fold_title(name)
-        direct = by_fold.get(key, set())
-        if len(direct) == 1:
-            out[name] = next(iter(direct))
-            continue
-        found: set[str] = set()
-        for row in project_rows or ():
-            if not isinstance(row, dict):
-                continue
-            row_names = {_fold_title(n) for n in [row.get("name"), *(row.get("alternative_names") or [])]
-                         if isinstance(n, str) and n.strip()}
-            if key in row_names:
-                for folded in row_names:
-                    found |= by_fold.get(folded, set())
-        if len(found) == 1:
-            out[name] = next(iter(found))
+        matched = [row for row in rows or () if isinstance(row, dict) and key in row_names(row)]
+        row_level = "investigation" if any(is_investigation_row(r) for r in matched) else (
+            "project" if matched else CONTAINER_LEVELS[0])
+        allowed = CONTAINER_LEVELS[CONTAINER_LEVELS.index(row_level):]
+        folded = {key}
+        for row in matched:
+            folded |= row_names(row)
+            if isinstance(row.get("parent_project"), str):
+                folded.add(_fold_title(row["parent_project"]))
+        for wanted in ({key}, folded):
+            for level in allowed:
+                found = set().union(*(pools[level].get(f, set()) for f in wanted))
+                if len(found) == 1:
+                    out[name] = (level, next(iter(found)), level == allowed[0] or not matched)
+                    break
+                if len(found) > 1:
+                    break
+            if name in out:
+                break
     return out
 
 
-def render_project_titles(mapping: dict[str, str]) -> str:
+def project_titles_for(names, project_rows, titles) -> dict[str, str]:
+    """Each project name the entity step resolved, mapped to the ``Project.title`` it is stored under.
+
+    The entity step resolves a project to the projects catalog's name ("Impact"), and the graph stores the SEEK
+    title ("IMPAcTb"). The Project-only view of ``container_titles_for``: only titles in ``titles`` are named.
+    """
+    hits = container_titles_for(names, project_rows, {"project": titles})
+    return {name: title for name, (_level, title, _own) in hits.items()}
+
+
+def render_project_titles(mapping: dict[str, str], levels: dict[str, str] | None = None) -> str:
     """The block telling the graph agent which ``Project.title`` each resolved project is ("" for none)."""
     if not mapping:
         return ""
-    lines = [f"- {_quote(name)} is the project titled {_quote(title)}" for name, title in mapping.items()]
+    lines = [f"- {_quote(name)} is the {(levels or {}).get(name, 'project')} titled {_quote(title)}"
+             for name, title in mapping.items()]
     return ("PROJECTS NAMED IN THIS QUESTION (the exact Project.title each is stored under, found through the "
             "project catalog's names and alternative names; scope on this title, STEP 5):\n" + "\n".join(lines))
