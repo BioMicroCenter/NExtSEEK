@@ -21,11 +21,6 @@ Measured 2026-09-03 with `find` and `wc -l` over this directory: 24 Python files
 SEEK auth and home view module (333 lines), `dmac/__init__.py` is empty, and the
 remaining twelve are the legacy layer (4,364 lines).
 
-Two files here are compiled Python 2.7 bytecode: `dmac/conversion.pyc` and
-`dmac/__init__.pyc`, whose first four bytes are the 2.7 magic number `03 f3 0d 0a`,
-read with `od`. A `find` for `*.pyc` outside any `__pycache__` across the whole worktree
-returns exactly those two.
-
 ## Surface
 
 The surface here has two shapes, and they need separating.

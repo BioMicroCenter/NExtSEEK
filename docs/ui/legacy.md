@@ -60,7 +60,6 @@ To really disable it, use `{# ... #}` or `{% comment %}` around the includes, or
 | Path | What it is | Evidence | Confidence |
 |---|---|---|---|
 | `static/test/image.jpg` | A test image, published under `/static/test/` | No reference found | likely |
-| `dmac/conversion.pyc`, `dmac/__init__.pyc` | Stale bytecode tracked in git next to the sources | `git ls-files dmac` lists them | check-first (not UI) |
 
 ### Templates that nothing reaches
 
@@ -133,7 +132,6 @@ Work from this table. "Certain" means nothing in the tree reaches it and no test
 | check-first | `mezzanine.blog` app and `templates/blog/` | Routes answer 404; the app's migrations and tables remain | Migration and data check before removing the app |
 | check-first | `newSearch.html` and its six `*_new*` embeds | Live by URL; the test's `LIVE` list names some of them | Decide to promote (add a nav link) or retire; update the test either way |
 | check-first | `pages/samples_tree.embed.html` | Still included (inside HTML comments) by `pages/samples.embed.html` | Remove or convert both include lines first |
-| check-first | `dmac/conversion.pyc`, `dmac/__init__.pyc` | Tracked bytecode, not UI | Separate cleanup |
 
 ### Checks to rerun before deleting anything
 
