@@ -342,6 +342,11 @@ def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
 
 # --- apply ---------------------------------------------------------------------------------------------------------
 
+def _now() -> str:
+    """The UTC time a journal line carries; as text it sorts as it orders."""
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
 def _journal(path: str, study_id: int, record: str, payloads) -> None:
     """Append one journal line per payload and flush it to disk, before the write it describes."""
     lines = [f"{int(study_id)}\t{record}\t{json.dumps(p, sort_keys=True, ensure_ascii=True, default=str)}\n"
@@ -363,7 +368,7 @@ def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     _journal(journal, x, "plan", [{"kind": sel.kind, "test": sel.test, "legacy": _journaled_node(legacy),
                                    "seek_keyed": _journaled_node(keyed),
                                    "legacy_sources": _sources(driver, db, legacy.element_id),
-                                   "at": datetime.now(timezone.utc).isoformat(timespec="microseconds")}])
+                                   "at": _now()}])
     if keyed is not None and sel.kind != REKEY_IN_PLACE:
         while True:
             rows = _records(_run(driver, db, q.STUDY_SOURCES_BATCH,
@@ -415,9 +420,10 @@ def _unfinished_kinds(journal: str) -> dict:
 
 def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
     """Merge or rekey each id of ``approved`` (id to the kind the operator approved from the dry run's approval
-    line), in id order, under the caller's hold of the graph-write lock. Each id's kind is
-    read again first: an ``already_merged`` id is counted and not written; an id that reads another kind than its
-    approved one stops the run before its first write, ids done before it staying done. A rerun given the same
+    line), in id order, under the caller's hold of the graph-write lock. Each id's kind is read again first: an
+    ``already_merged`` id is counted and not written (where the journal holds an attempt of it with no done line,
+    whose last step landed before it stopped, that attempt's done line is written); an id that reads another kind than
+    its approved one stops the run before its first write, ids done before it staying done. A rerun given the same
     ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
     a merge by the match that moved every source before a crash, and now reads rekey_in_place, is still finished.
     The status is ``refused`` when the run stopped before anything was written, ``failed`` when it stopped part way:
@@ -433,6 +439,11 @@ def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_C
     for x in sorted(int(i) for i in approved):
         sel = classify(read_index(driver, db), x)
         if sel.kind == ALREADY_MERGED:
+            if x in journaled:
+                # An earlier attempt into this run directory merged it and died before its done line (or lost the
+                # last step's acknowledgement). Its done line, timed, keeps it from being read with a later merge
+                # cycle of the id; the time keeps it with an attempt in another run directory that finished it.
+                _journal(journal, x, "done", [{"kind": journaled[x], "found": ALREADY_MERGED, "at": _now()}])
             result["already_merged"].append(x)
             continue
         expected = journaled.get(x, approved[x])
@@ -460,7 +471,7 @@ def _opt_int(text: str):
 
 
 def _attempt(at: str, plan: dict | None) -> dict:
-    return {"at": at, "plan": plan, "sources": {}, "done": False}
+    return {"at": at, "plan": plan, "sources": {}, "done": False, "done_at": ""}
 
 
 def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
@@ -469,13 +480,15 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
 
     Each ``plan`` line starts an attempt, which owns the ``source`` and ``done`` lines after it in its journal, and the
     attempts of an id are ordered by the UTC time their plan line carries, so the order of ``paths`` changes nothing.
-    Only the latest cycle counts: the attempts after the last one before the newest that ended ``done``. A merge
-    undone and approved again is a new cycle; a crash and its rerun, in one run directory or two, are one. Of that
-    cycle the first plan line wins (a crash and its rerun journal the same nodes), and its sources, and the legacy
-    node's own sources of each plan line, are merged by element id (a source a crashed run moved is in its ``source``
-    lines, which take precedence in the undo). ``legacy_sources_known`` is False when a plan line holds no list of
-    them. A line that cannot be read (a crash cut it short) describes no write, as the apply reads it: it is skipped,
-    and named as ``<journal>:<line number>`` in ``skipped`` when given."""
+    Only the latest cycle counts: the attempts after the last one before the newest that ended ``done`` before the
+    next attempt began (a done line a rerun wrote on finding its unfinished id merged carries its time, and one written
+    after another attempt of the id began does not end the cycle). A merge undone and approved again is a new cycle; a
+    crash and its rerun, in one run directory or two, are one. Of that cycle the first plan line wins (a crash and its
+    rerun journal the same nodes), and its sources, and the legacy node's own sources of each plan line, are merged by
+    element id (a source a crashed run moved is in its ``source`` lines, which take precedence in the undo).
+    ``legacy_sources_known`` is False when a plan line holds no list of them. A line that cannot be read (a crash cut
+    it short) describes no write, as the apply reads it: it is skipped, and named as ``<journal>:<line number>`` in
+    ``skipped`` when given."""
     attempts: dict[int, list] = {}
     archives: list[str] = []
     for raw in paths:
@@ -518,11 +531,11 @@ def read_journals(paths, skipped: list | None = None) -> tuple[dict, list]:
                 if record == "source":
                     current[x]["sources"].setdefault(data["element_id"], data)
                 elif record == "done":
-                    current[x]["done"] = True
+                    current[x].update(done=True, done_at=str(data.get("at") or ""))
     per_id: dict[int, dict] = {}
     for x, found in attempts.items():
         found.sort(key=lambda a: a["at"])                   # stable: lines with no time keep the order read
-        ended = [i for i, a in enumerate(found[:-1]) if a["done"]]
+        ended = [i for i, a in enumerate(found[:-1]) if a["done"] and a["done_at"] <= found[i + 1]["at"]]
         cycle = found[ended[-1] + 1:] if ended else found
         plans = [a["plan"] for a in cycle if a["plan"] is not None]
         entry = per_id[x] = {"plan": plans[0] if plans else None, "sources": {}, "legacy_sources": {},

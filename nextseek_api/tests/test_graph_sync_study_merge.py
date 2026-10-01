@@ -930,3 +930,52 @@ def test_a_journal_line_cut_short_is_skipped_by_the_rerun_and_the_undo_and_repor
     undone = study_merge.undo(world.graph, DB, [str(tmp_path)])
     assert undone["status"] == "ok" and undone["journal_lines_skipped"] == [f"{journal}:2"]
     assert world.graph.keys_of(1002) == {("seek", 1)} and world.graph.keys_of(1003) == {("id", 1), ("seek", 1)}
+
+
+# --- a merge whose done line never reached the journal -------------------------------------------------------------
+
+def _drop_last_journal_line(run_dir):
+    journal = run_dir / study_merge.JOURNAL_FILE
+    lines = journal.read_text(encoding="utf-8").splitlines(keepends=True)
+    assert lines[-1].split("\t")[1] == "done"
+    journal.write_text("".join(lines[:-1]), encoding="utf-8")
+
+
+def test_a_rerun_that_finds_its_unfinished_id_merged_ends_that_attempt_in_its_journal(world, tmp_path):
+    """The last step committed but the process died before the journal's done line (or the statement's
+    acknowledgement was lost and its retry wrote nothing). The rerun into the same run directory reads the id
+    already_merged and writes the done line, so this merge is not read with a later merge cycle of the id: 1002 sat
+    only on the seek-keyed node at the first merge and on both nodes at the second, and the undo of the second keeps
+    its link to the legacy node."""
+    legacy, _ = _split(world, on_l=(1001,), on_k=(1002,), on_both=())
+    m1, m2 = tmp_path / "m1", tmp_path / "m2"
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    _drop_last_journal_line(m1)
+    writes = len(world.graph.writes())
+    rerun = study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m1))
+    assert (rerun["status"], rerun["already_merged"], rerun["merged"]) == ("ok", [1], [])
+    assert len(world.graph.writes()) == writes
+    assert [record for _, record, _ in _journal(m1)] == ["plan", "source", "done"]
+    assert study_merge.undo(world.graph, DB, [str(m1)])["status"] == "ok"
+    world.graph.link(1002, legacy)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(m2))
+    assert study_merge.undo(world.graph, DB, [str(m1), str(m2)])["status"] == "ok"
+    assert world.graph.keys_of(1002) == {("id", 1), ("seek", 1)} and world.graph.keys_of(1001) == {("id", 1)}
+
+
+def test_a_crash_finished_in_another_run_directory_stays_one_cycle_after_a_rerun_into_the_first(world, tmp_path):
+    """A crash part way (m1), its rerun into a new run directory (m2) finishes it, and a later rerun into m1 reads the
+    id already_merged. The done line that rerun writes comes after m2's attempt began, so it does not end m1's
+    attempt on its own: the undo still reads the two as one merge and restores the split exactly."""
+    _split(world, on_l=(1001,), on_k=(1002, 1004), on_both=(1003,))
+    before = _snapshot(world.graph)
+    world.graph.fail_moves_after = 1
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"), batch=1)
+    world.graph.fail_moves_after = None
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m2"), batch=1)
+    assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path / "m1"))["already_merged"] == [1]
+    result = study_merge.undo(world.graph, DB, [str(tmp_path / "m1"), str(tmp_path / "m2")])
+    assert result["status"] == "ok"
+    assert _snapshot(world.graph) == before
+
