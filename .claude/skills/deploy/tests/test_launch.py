@@ -1,4 +1,4 @@
-"""Tests for launch.py and rules.py (the launch-nextseek skill's scripts).
+"""Tests for launch.py and rules.py (the deploy skill's launch scripts).
 
 Run from the skill directory:
     uv run --no-project --with pytest --with pydantic python -m pytest tests -q -p no:cacheprovider

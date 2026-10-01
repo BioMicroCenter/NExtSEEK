@@ -1,4 +1,4 @@
-# launch-nextseek preflight for @@INSTANCE@@ (@@BOX@@). READ-ONLY. Rendered by launch.py; do not edit.
+# deploy launch preflight for @@INSTANCE@@ (@@BOX@@). READ-ONLY. Rendered by launch.py; do not edit.
 # `KV`, `DIRTY`, `IMAGE`, `CONTAINER`, `MEM`, `TMUX` lines are parsed by `launch.py preflight`.
 # Arrives on stdin, so every docker exec reads </dev/null.
 cd @@REPO@@ || { echo "KV repo=missing"; echo "KV done=yes"; exit 0; }

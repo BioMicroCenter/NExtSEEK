@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["pydantic>=2,<3"]
 # ///
-"""launch.py: the forms, rules and renderers of the launch-nextseek skill.
+"""launch.py: the forms, rules and renderers of the deploy skill's launch flow.
 
 The agent fills small JSON forms; this script validates them, applies the rules in
 rules.py, and writes every file the operator reads. The agent never hand-writes the
@@ -1957,7 +1957,7 @@ def cmd_report(a) -> int:
 # CLI
 # =====================================================================================
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="launch-nextseek forms, rules and renderers")
+    ap = argparse.ArgumentParser(description="deploy skill launch flow: forms, rules and renderers")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("brief"); s.add_argument("--form", required=True); s.add_argument("--out-dir")
     s.add_argument("--now", help="UTC time to judge the window against (tests)"); s.add_argument("--force", action="store_true")
