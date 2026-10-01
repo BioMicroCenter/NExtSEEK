@@ -121,7 +121,8 @@ The two `admin/` pages with a decorator pass `next='/seek/samples/attributes/'`,
 
 | URL | URL name | View | Template | Who | Linked from | Covered in |
 |---|---|---|---|---|---|---|
-| `/seek/help/` | `getting_started` | `seek/views/pages.py:getting_started` | `themes/NextSeek/templates/help/getting_started.html` | anonymous | sidebar Resources, "Getting Started" | [docs-and-help.md](docs-and-help.md) |
+| `/docs/`, `/docs/<slug>/` | `docs` | `seek/views/pages.py:docs_page` | `themes/NextSeek/templates/docs/page.html`, content in `themes/NextSeek/docs/` | anonymous | sidebar Resources "Getting Started", Useful Info "Documentation", footer "Docs" | [docs-and-help.md](docs-and-help.md) |
+| `/seek/help/` | `getting_started` | `seek/views/pages.py:getting_started` | none: a 301 to `/docs/` | anonymous | nothing | [docs-and-help.md](docs-and-help.md) |
 | `/nextseek_api/swagger/` | `swagger-ui` (namespace `nextseek_api`) | `SpectacularSwaggerView` in `nextseek_api/urls.py` | `themes/NextSeek/templates/nextseek/swagger_ui.html` | authenticated (`IsAuthenticated`; an anonymous browser gets an API auth error, not a login redirect) | nothing | [docs-and-help.md](docs-and-help.md) |
 | `/nextseek_api/redoc/` | `redoc` | `SpectacularRedocView` | drf-spectacular's own | authenticated | nothing | [docs-and-help.md](docs-and-help.md) |
 | `/nextseek_api/schema/` | `schema` | `SpectacularAPIView` | JSON or YAML | authenticated | used by the two pages above | [docs-and-help.md](docs-and-help.md) |
@@ -181,9 +182,10 @@ The example is a new page for signed-in users under `/seek/`. Project-level page
 
 | Link | Where it appears | Notes |
 |---|---|---|
-| `https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/` (GitBook) | `nav.embed.html` (Useful Info > Documentation), `help/getting_started.html` (near the end); also in the unused `content.embed.html` | opens in a new tab; the only docs link |
+| `https://koch-institute-mit.gitbook.io/mit-data-management-analysis-core/` (GitBook, retired) | only the unused `content.embed.html` | the docs moved to `/docs/` |
+| `https://bmcwiki.mit.edu/index.php/BioMicroCenter:People` | `page-footer.embed.html` and the docs menu ("People") | new tab; there is no About page |
 | `https://fairdomhub.org/programmes/206` | `nav.embed.html` (Resources > Published Studies) | new tab |
-| `mailto:` the team's support address | `nav.embed.html` (Resources > Contact Support), `help/getting_started.html` | team address |
+| `mailto:` the team's support address | `nav.embed.html` (Resources > Contact Support), `page-footer.embed.html` ("Contact"), the docs menu | team address |
 | `SEEK_PUBLIC_URL` + `/signup` | `dmac/views.py:signup_seek` (302), reached from the "Sign up" link in `login.html` | falls back to `SEEK_URL`, the internal docker host, when `SEEK_PUBLIC_URL` is empty; a browser cannot resolve that |
 | `SEEK_PUBLIC_URL` + `/forgot_password` | `login.html` ("Reset it"), value from `dmac/context_processors.py` (`seek_forgot_password_url`) | falls back to Mezzanine's own reset URL (`mezzanine_password_reset`) when `SEEK_PUBLIC_URL` is unset |
 | `ctx.nih_reporter_link`, `ctx.fairdomhub_published_link` | `projectPage.html` (project header) | data from the project context rows, not hard-coded |

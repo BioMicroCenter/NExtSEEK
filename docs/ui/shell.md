@@ -82,7 +82,7 @@ Django drops anything in a child template that sits outside a block, so content 
 | Data | Home `/`; Sample Search `/seek/search/`; Data Entry (collapse `#dataEntrySubmenu`: Assay Sheet Upload `/seek/samples/upload/`, Data & Protocol Upload `/seek/data/upload/`); Data Query (collapse `#dataQuerySubmenu`: `/seek/datafile/query/`, `/seek/sop/query/`); Projects `/seek/projects/`; Useful Info (collapse `#usefulInfoSubmenu`: external docs site, `/seek/templates/`, `/seek/sampletypes/`, `/seek/assays/`) |
 | Quick Access | Ask Nessie (`includes/nessie_button.html`), UID search input `#search-uid`, "+ New sample" link `.qa-cta` to `/seek/samples/upload/` |
 | Admin | only when `request.user.is_superuser`: `/admin`, `/seek/samples/attributes`, `/seek/admin/clades/`, `/seek/admin/internal_assays/` |
-| Resources | Getting Started `/seek/help/`, Published Studies (external), Contact Support (mailto to the team address) |
+| Resources | Getting Started `/docs/`, Published Studies (external), Contact Support (mailto to the team address) |
 
 The Admin test is `is_superuser`, not `is_staff`, on purpose: the login code sets `is_staff` for every
 SEEK user, so `is_staff` would show the section to everyone (see the comment in the template). The
@@ -189,7 +189,7 @@ button" rules in `nextseek.css` (`.nessie-btn`). `nextseek.js` needs no handler 
 | Home, signed in | same, heading says "Welcome, <username>" | hamburger, drawer foot card, three-dot menu: Profile, Update profile, Sign out |
 | Protected page, signed out | redirected (302) to `/login/`, usually with a `next` target; `/seek/assistant/` shows an access error instead (UI-020) | n/a |
 | `/login/` | brand strip (wordmark only) above the form; no sidebar, no hamburger | n/a |
-| `/seek/help/` | hamburger, article, footer (logo strip and copyright squeezed side by side) | hamburger |
+| `/seek/help/` (now a redirect to `/docs/`) | hamburger, article, footer (logo strip and copyright squeezed side by side) | hamburger |
 
 The drawer (seen in the 2026-09-30 phone review) shows the wordmark, all nav sections, Quick
 Access, and the Sign in button pinned at the bottom. Things that make sign in hard

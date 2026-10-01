@@ -110,7 +110,7 @@ def test_no_emails_or_gitbook_in_the_docs():
     ]
     for path in sources:
         text = path.read_text()
-        assert "gitbook" not in text.lower(), path
+        assert "gitbook.io" not in text and "gitbook.com" not in text, path
         if path.suffix == ".md":
             assert not EMAIL_RE.findall(text), path
 

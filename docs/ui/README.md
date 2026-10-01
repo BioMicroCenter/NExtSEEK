@@ -61,7 +61,7 @@ folder is not on the path at all: editing it changes nothing. See [shell.md](she
 | Colours, fonts, spacing, breakpoints | [styles.md](styles.md) | `themes/NextSeek/static/css/nextseek.css` (the `--ns-*` tokens in `:root`) |
 | Shared or page JavaScript, AJAX endpoints | [javascript.md](javascript.md) | `themes/NextSeek/static/js/nextseek.js`, `static/js/`, inline scripts |
 | The Nessie chat page | [chat-frontend.md](chat-frontend.md) | `NessieAI/chat_frontend/src/`, then rebuild and commit `static/js/chat_assistant/` |
-| Help, Getting Started, links to the user docs | [docs-and-help.md](docs-and-help.md) | `themes/NextSeek/templates/help/getting_started.html` |
+| The user docs at /docs/, help links | [docs-and-help.md](docs-and-help.md) | `themes/NextSeek/docs/*.md`, `themes/NextSeek/templates/docs/page.html` |
 | Remove old code | [legacy.md](legacy.md) | the deletion-candidate table |
 | Preview, CI checks, deploy a UI change | [ci-and-deploy.md](ci-and-deploy.md) | `ci/routes.py`, `startup.sh` |
 

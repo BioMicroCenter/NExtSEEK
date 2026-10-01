@@ -313,16 +313,12 @@ Dead templates, duplicate vendored libraries and published leftovers. See [legac
 
 ## docs-and-help
 
-The Getting Started page, API docs pages and help links. See [docs-and-help.md](docs-and-help.md).
+The user docs at /docs/, API docs pages and help links. See [docs-and-help.md](docs-and-help.md).
 
 | ID | Severity | What a user sees | Evidence | Where | Fix idea |
 |---|---|---|---|---|---|
-| UI-220 | confusing | The help text tells users to type into an "Ask Nessie..." sidebar input and use a "Talk to Nessie" link; neither exists (the sidebar has an Ask Nessie button, and the text box under Quick Access is a UID search) | code | `themes/NextSeek/templates/help/getting_started.html` | Rewrite the paragraph to match the sidebar and home page |
-| UI-221 | confusing | Two docs entries with no explanation: "Getting Started" (in-app) and "Documentation" (external GitBook) | code | `themes/NextSeek/templates/nav.embed.html` | Merge into one Docs entry once in-repo docs land |
-| UI-222 | confusing | The footer has no About, Contact, Docs or source links; "Contact Support" in the sidebar is a `mailto:` only, which does nothing without a mail client | code | `page-footer.embed.html`; `nav.embed.html` Contact Support | Add footer links and a visible contact line with the team's support address |
-| UI-223 | debt | No page links to Swagger, ReDoc or the schema, and logged-out visitors get a DRF auth error rather than a login redirect or a clear page | code | `nextseek_api/urls.py` (Spectacular views, `IsAuthenticated`); `themes/NextSeek/templates/nextseek/swagger_ui.html` | Link from Getting Started or Resources; redirect anonymous HTML requests to `/login/?next=...` |
-| UI-224 | debt | The help text is hand-written HTML inside translation tags, a second copy of the GitBook "how to upload and search" | code | `help/getting_started.html` | Replace with the in-repo docs pages when they land |
-| UI-225 | debt | Nessie's knowledge of the docs depends on a third-party site-index format that has already changed twice | code | `NessieAI/build_tools/ingest_nextseek_docs/fetch.py` | Point the ingest at the in-repo markdown |
+| UI-222 | confusing | The footer and docs menu "Contact" links and the sidebar "Contact Support" are `mailto:` only, which does nothing without a mail client | code | `page-footer.embed.html`; `nav.embed.html`; `themes/NextSeek/templates/docs/page.html` | Show the team's address as text beside the link |
+| UI-223 | debt | Logged-out visitors who follow a link to Swagger, ReDoc or the schema get a DRF auth error rather than a login redirect or a clear page | code | `nextseek_api/urls.py` (Spectacular views, `IsAuthenticated`); `themes/NextSeek/templates/nextseek/swagger_ui.html` | Redirect anonymous HTML requests to `/login/?next=...` |
 
 ## Security items (tracked privately)
 
