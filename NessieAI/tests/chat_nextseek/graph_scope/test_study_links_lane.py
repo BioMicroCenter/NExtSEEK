@@ -157,7 +157,10 @@ def test_the_plan_reads_every_kind(graph):
     from nextseek_api.graph_sync import study_merge
     report = study_merge.plan(graph.driver, DB)
     assert report["kinds"] == EXPECTED_KINDS
-    assert report["approval_line"] == "1,2,4,5,6,7" and report["merge_other_investigation"] == [3]
+    assert report["approval_line"] == ("1:merge,2:merge,3:merge_other_investigation,4:rekey_in_place,"
+                                       "5:rekey_in_place,6:merge,7:rekey_in_place")
+    assert study_merge.parse_approval(report["approval_line"]) == APPROVED
+    assert report["merge_other_investigation"] == [3]
     assert report["id_collisions"] == [8] and report["legacy_only"] == [14]
 
 

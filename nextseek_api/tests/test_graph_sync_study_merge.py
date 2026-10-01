@@ -273,7 +273,9 @@ def test_the_plan_reports_each_id_and_ends_with_the_line_to_approve(world):
     assert entry["seek_keyed_other_sources"] == {"OrphanSample": 1}
     assert entry["studies_preview"] == {"kept": 2, "leaves": 1, "no_seek_study": 2, "paper_samples": 1}
     assert entry["description_differs"] is False and entry["seek_description_empty"] is True
-    assert report["approval_line"] == "1,5"
+    assert report["approval_line"] == "1:merge,3:merge_other_investigation,5:rekey_in_place"
+    assert study_merge.parse_approval(report["approval_line"]) == {1: "merge", 3: "merge_other_investigation",
+                                                                   5: "rekey_in_place"}
     assert report["merge_other_investigation"] == [3]
     assert report["id_collisions"] == [8] and report["legacy_only"] == [14]
     assert [(e["study_id"], e["investigation"]["element_id"]) for e in report["investigations_left_empty"]] == [
@@ -426,10 +428,72 @@ def test_an_already_merged_id_is_counted_and_not_written(world, tmp_path):
 
 
 def test_an_id_whose_kind_changed_stops_the_run_before_its_first_write(world, tmp_path):
+    """Nothing written in this run: a refusal (the command exits 2)."""
     _split(world)
     result = study_merge.apply(world.graph, DB, {1: "rekey_in_place"}, run_dir=str(tmp_path))
-    assert (result["status"], result["stopped_at"]) == ("failed", 1)
-    assert world.graph.writes() == []
+    assert (result["status"], result["stopped_at"]) == ("refused", 1)
+    assert "rekey_in_place" in result["problem"] and world.graph.writes() == []
+
+
+def test_a_kind_changed_after_an_earlier_id_merged_stops_the_run_part_way(world, tmp_path):
+    _split(world)
+    _seek(world, 5, "Elm paper")
+    world.graph.add_study(id=5, title="Elm paper", DOI="10.9999/e5", investigation=world.inv[101])
+    result = study_merge.apply(world.graph, DB, {1: "merge", 5: "merge"}, run_dir=str(tmp_path))
+    assert (result["status"], result["stopped_at"]) == ("failed", 5)
+    assert result["merged"] == [{"study_id": 1, "kind": "merge"}]
+
+
+def test_a_rerun_of_a_journaled_id_is_held_to_the_kind_its_journal_recorded(world, tmp_path):
+    """A rekey approved while the seek-keyed node was empty stopped before its last step; the node has gained a
+    sample since. A rerun into the same run directory, even with a fresh approval of merge, is held to the journal's
+    rekey_in_place and refuses."""
+    _seek(world, 6, "Fir paper")
+    world.graph.add_study(id=6, title="Fir paper", DOI="10.9999/f6", investigation=world.inv[101])
+    keyed = world.graph.add_study(seek_study_id=6, title="Fir paper", investigation=world.inv[101])
+
+    def lost_at_the_last_step(query, params):
+        if query == q.FINISH_STUDY_MERGE:
+            raise RuntimeError("the connection to Neo4j was lost")
+
+    world.graph.before_write = lost_at_the_last_step
+    with pytest.raises(RuntimeError):
+        study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path))
+    world.graph.before_write = None
+    world.graph.add_sample(1001)
+    world.graph.link(1001, keyed)
+    assert _kind(world, 6).kind == "merge"
+    writes = len(world.graph.writes())
+    result = study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path))
+    assert (result["status"], result["stopped_at"]) == ("refused", 6)
+    assert "journal" in result["problem"] and len(world.graph.writes()) == writes
+    finished = study_merge.apply(world.graph, DB, {6: "merge"}, run_dir=str(tmp_path / "fresh"))
+    assert finished["status"] == "ok"
+
+
+def test_a_finished_id_in_the_journal_takes_the_approved_kind_again(world, tmp_path):
+    """Merged, undone, then approved again into the same run directory: the journal's attempt finished, so the new
+    approval is the one held to."""
+    _split(world)
+    study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))
+    study_merge.undo(world.graph, DB, [str(tmp_path)])
+    assert study_merge.apply(world.graph, DB, {1: "merge"}, run_dir=str(tmp_path))["status"] == "ok"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("3:merge,4:merge", {3: "merge", 4: "merge"}),
+    (" 4:rekey_in_place , 3 ,4:rekey_in_place", {4: "rekey_in_place", 3: None}),
+    ("6:merge_other_investigation", {6: "merge_other_investigation"}),
+])
+def test_parse_approval(text, expected):
+    parsed = study_merge.parse_approval(text)
+    assert parsed == expected and list(parsed) == list(expected)
+
+
+@pytest.mark.parametrize("text", ["", "3,,4", "x", "3:mergee", "3:merge,3:rekey_in_place", "3:", ":merge"])
+def test_parse_approval_refuses_what_it_cannot_read(text):
+    with pytest.raises(ValueError):
+        study_merge.parse_approval(text)
 
 
 def test_the_last_step_refuses_a_seek_keyed_node_that_gained_a_relationship(world, tmp_path):
@@ -494,7 +558,7 @@ def test_an_approved_rekey_that_now_reads_merge_still_stops(world, tmp_path):
     world.graph.add_sample(1001)
     world.graph.link(1001, keyed)
     result = study_merge.apply(world.graph, DB, {6: "rekey_in_place"}, run_dir=str(tmp_path))
-    assert (result["status"], result["stopped_at"]) == ("failed", 6) and world.graph.writes() == []
+    assert (result["status"], result["stopped_at"]) == ("refused", 6) and world.graph.writes() == []
 
 
 # --- undo ----------------------------------------------------------------------------------------------------------

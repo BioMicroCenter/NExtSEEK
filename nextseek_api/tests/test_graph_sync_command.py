@@ -1259,7 +1259,7 @@ def studies_cmd(monkeypatch):
     rec = SimpleNamespace(
         calls=[], runs=[], refusal=None, duplicates=[], lock=True,
         plan={"ids": [3, 4], "kinds": {3: "merge", 4: "already_merged"}, "counts": {}, "studies": [],
-              "approval_line": "3"},
+              "approval_line": "3:merge"},
         apply={"status": "ok", "merged": [{"study_id": 3, "kind": "merge"}], "already_merged": [4],
                "stopped_at": None},
         undo={"status": "ok", "studies": [], "refused": []},
@@ -1321,8 +1321,9 @@ def test_merge_studies_dry_run_plans_every_id_and_takes_no_lock(graphdb, studies
     assert studies_cmd.calls == [("plan", None)] and studies_cmd.runs == []
 
 
-def test_merge_studies_dry_run_of_ids_plans_those(graphdb, studies_cmd):
-    call_command("graph_sync", "--merge-studies", "4,3,4", "--dry-run", stdout=StringIO(), stderr=StringIO())
+@pytest.mark.parametrize("ids", ["4,3,4", "4:merge,3:rekey_in_place"])
+def test_merge_studies_dry_run_of_ids_plans_those(graphdb, studies_cmd, ids):
+    call_command("graph_sync", "--merge-studies", ids, "--dry-run", stdout=StringIO(), stderr=StringIO())
     assert studies_cmd.calls == [("plan", [4, 3])]
 
 
@@ -1333,46 +1334,71 @@ def test_all_is_refused_without_dry_run_before_connecting(graphdb, studies_cmd, 
     assert exc.value.returncode == 2 and graphdb.uris == [] and studies_cmd.calls == []
 
 
-def test_merge_studies_applies_the_approved_ids_under_the_lock(graphdb, studies_cmd, tmp_path):
+def test_merge_studies_applies_the_approved_kinds_under_the_lock(graphdb, studies_cmd, tmp_path):
+    """apply gets the kinds the operator approved, not the ones read now: comparing them is apply's job, under the
+    lock, where a merge that a crash stopped after its last move is still finished."""
+    studies_cmd.plan["kinds"] = {3: "rekey_in_place", 4: "already_merged"}
     out = StringIO()
-    call_command("graph_sync", "--merge-studies", "3,4", "--run-root", str(tmp_path), "--json", stdout=out,
-                 stderr=StringIO())
+    call_command("graph_sync", "--merge-studies", "3:merge,4:already_merged", "--run-root", str(tmp_path), "--json",
+                 stdout=out, stderr=StringIO())
     assert _names_of(studies_cmd) == ["plan", "lock", "apply"]
     assert studies_cmd.calls[1] == ("lock", targeted.LOCK_WAIT_S)
     _, expected, run_dir = studies_cmd.calls[2]
     assert expected == {3: "merge", 4: "already_merged"}
     assert run_dir.startswith(os.path.join(str(tmp_path), "merge_studies-"))
-    assert json.loads((Path(run_dir) / study_merge.REPORT_FILE).read_text())["status"] == "ok"
+    saved = json.loads((Path(run_dir) / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "ok" and saved["approved"] == {"3": "merge", "4": "already_merged"}
+    assert saved["plan"]["kinds"] == {"3": "rekey_in_place", "4": "already_merged"}
     assert json.loads(out.getvalue())["status"] == "ok"
     assert studies_cmd.runs == ["merge_studies"]
 
 
-def test_merge_studies_refuses_an_id_the_merge_does_not_act_on(graphdb, studies_cmd):
+@pytest.mark.parametrize("ids", ["3,4", "3:merge,4"])
+def test_a_merge_needs_each_ids_approved_kind(graphdb, studies_cmd, ids):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", ids, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "kind" in str(exc.value)
+    assert graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_refuses_an_approved_kind_the_merge_does_not_act_on(graphdb, studies_cmd):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3:merge,8:id_collision", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "8" in str(exc.value)
+    assert graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_refuses_an_id_that_reads_a_kind_it_does_not_act_on_now(graphdb, studies_cmd):
     studies_cmd.plan["kinds"] = {3: "merge", 8: "id_collision"}
     with pytest.raises(CommandError) as exc:
-        call_command("graph_sync", "--merge-studies", "3,8", stdout=StringIO(), stderr=StringIO())
+        call_command("graph_sync", "--merge-studies", "3:merge,8:merge", stdout=StringIO(), stderr=StringIO())
     assert exc.value.returncode == 2 and _names_of(studies_cmd) == ["plan"] and studies_cmd.runs == []
 
 
 def test_merge_studies_refuses_a_graph_not_at_the_writers_version(graphdb, studies_cmd):
     studies_cmd.refusal = {"status": "not_at_version", "schema_version": "1.1", "writer_version": "1.2"}
     with pytest.raises(CommandError) as exc:
-        call_command("graph_sync", "--merge-studies", "3", stdout=StringIO(), stderr=StringIO())
+        call_command("graph_sync", "--merge-studies", "3:merge", stdout=StringIO(), stderr=StringIO())
     assert exc.value.returncode == 2 and studies_cmd.calls == []
 
 
-@pytest.mark.parametrize("field, value", [
-    ("apply", {"status": "failed", "stopped_at": 3, "problem": "study 3 reads paper now", "merged": [],
-               "already_merged": []}),
-    ("lock", False)])
-def test_a_merge_that_stops_part_way_or_finds_the_lock_busy_exits_1(graphdb, studies_cmd, tmp_path, field, value):
+@pytest.mark.parametrize("field, value, code", [
+    ("apply", {"status": "failed", "stopped_at": 4, "problem": "study 4 reads paper now",
+               "merged": [{"study_id": 3, "kind": "merge"}], "already_merged": []}, 1),
+    ("apply", {"status": "refused", "stopped_at": 3, "problem": "study 3 reads merge now, not rekey_in_place",
+               "merged": [], "already_merged": []}, 2),
+    ("lock", False, 1)])
+def test_a_merge_exits_by_how_far_it_got(graphdb, studies_cmd, tmp_path, field, value, code):
+    """Stopped part way or a busy lock: 1. An id whose kind changed before anything was written in the run: 2."""
     setattr(studies_cmd, field, value)
     with pytest.raises(CommandError) as exc:
-        call_command("graph_sync", "--merge-studies", "3", "--run-root", str(tmp_path), stdout=StringIO(),
+        call_command("graph_sync", "--merge-studies", "3:merge", "--run-root", str(tmp_path), stdout=StringIO(),
                      stderr=StringIO())
-    assert exc.value.returncode == 1
+    assert exc.value.returncode == code
     if field == "lock":
         assert "apply" not in _names_of(studies_cmd)
+    else:
+        assert value["problem"] in str(exc.value)
 
 
 def test_studies_removes_whatever_the_switch_says(graphdb, studies_cmd, tmp_path, monkeypatch):
@@ -1450,9 +1476,10 @@ def test_the_studies_modes_need_the_live_flag_even_for_a_dry_run(graphdb, settin
     assert exc.value.returncode == 2 and graphdb.uris == []
 
 
-def test_a_bad_merge_id_is_an_error_before_connecting(graphdb, studies_cmd):
+@pytest.mark.parametrize("ids", ["3,x", "3:mergee", "3:merge,3:rekey_in_place"])
+def test_a_bad_merge_id_is_an_error_before_connecting(graphdb, studies_cmd, ids):
     with pytest.raises(CommandError):
-        call_command("graph_sync", "--merge-studies", "3,x", stdout=StringIO(), stderr=StringIO())
+        call_command("graph_sync", "--merge-studies", ids, "--dry-run", stdout=StringIO(), stderr=StringIO())
     assert graphdb.uris == []
 
 

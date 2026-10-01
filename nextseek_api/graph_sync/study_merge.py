@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 JOURNAL_FILE = "study_merge.tsv"
 REPORT_FILE = "study_merge.json"
 JOURNAL_HEADER = "study_id\trecord\tpayload\n"
-OK, FAILED, DRY_RUN, PARTIAL = "ok", "failed", "dry_run", "partial"
+OK, FAILED, DRY_RUN, PARTIAL, REFUSED = "ok", "failed", "dry_run", "partial", "refused"
 
 ALREADY_MERGED = "already_merged"
 SEEK_ONLY = "seek_only"
@@ -289,9 +289,35 @@ def _left_empty(index: Index, selections) -> list[dict]:
     return out
 
 
+def format_approval(kinds: dict) -> str:
+    """The approval line: ``id:kind`` for each id, ascending, comma-separated (``3:merge,6:rekey_in_place``)."""
+    return ",".join(f"{int(x)}:{kinds[x]}" for x in sorted(kinds, key=int))
+
+
+def parse_approval(text: str) -> dict:
+    """An approval line read back: ``{id: kind}`` in the order given, a bare id mapping to None. Raises ValueError
+    for a part that is not an id or ``id:kind`` with a kind of ``KINDS``, and for one id given two kinds."""
+    approved: dict[int, str | None] = {}
+    for part in (text or "").split(","):
+        study_id, sep, kind = (p.strip() for p in part.strip().partition(":"))
+        if not study_id.isdigit():
+            raise ValueError(f"not a SEEK study id: {part.strip()!r}")
+        if sep and kind not in KINDS:
+            raise ValueError(f"not a merge kind: {kind!r} (study {study_id})")
+        x, kind = int(study_id), (kind if sep else None)
+        if x in approved and approved[x] != kind:
+            raise ValueError(f"study {x} is given two kinds: {approved[x]} and {kind}")
+        approved[x] = kind
+    return approved
+
+
 def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
     """The merge's dry run: each SEEK study id's kind and the facts the operator approves from (the spec's section
-    5.4). ``ids`` None means every id some Study carries; ``detail`` reads each acting id's samples too. Read-only."""
+    5.4). ``ids`` None means every id some Study carries; ``detail`` reads each acting id's samples too. Read-only.
+
+    ``approval_line`` is what the operator approves: every id of an acting kind with that kind (``format_approval``),
+    a merge_other_investigation included, so approving the line leaves no acting id behind. Those ids are also listed
+    apart in ``merge_other_investigation``, with the Investigations they would leave empty."""
     index = read_index(driver, db)
     wanted = study_ids(index) if ids is None else sorted({int(i) for i in ids})
     selections = [classify(index, x) for x in wanted]
@@ -305,7 +331,7 @@ def plan(driver, db, ids=None, *, detail: bool = True) -> dict:
         if detail and sel.kind in ACTING:
             entry.update(_detail(driver, db, sel, acting))
         report["studies"].append(entry)
-    report["approval_line"] = ",".join(str(s.study_id) for s in selections if s.kind in (MERGE, REKEY_IN_PLACE))
+    report["approval_line"] = format_approval({s.study_id: s.kind for s in selections if s.kind in ACTING})
     report["merge_other_investigation"] = [s.study_id for s in selections if s.kind == MERGE_OTHER_INVESTIGATION]
     report["id_collisions"] = [s.study_id for s in selections if s.kind == ID_COLLISION]
     report["legacy_only"] = [s.study_id for s in selections if s.kind == LEGACY_ONLY]
@@ -357,30 +383,59 @@ def _merge_one(driver, db, sel: Selection, journal: str, batch: int) -> None:
     _journal(journal, x, "done", [{"kind": sel.kind}])
 
 
-def apply(driver, db, expected: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
-    """Merge or rekey each id of ``expected`` (id to the kind the operator approved, from ``plan``), in id order,
-    under the caller's hold of the graph-write lock (the spec's section 5.3). Each id is read again first: an
-    ``already_merged`` id is counted and not written; an id whose kind changed stops the run before its first write,
-    ids done before it staying done (``status: failed``). Every step is journaled to ``study_merge.tsv`` in
-    ``run_dir`` before its write; a rerun given the same ``run_dir`` appends to it and finishes a merge a crash
-    stopped. Raises RuntimeError when a move or the last step does not do what was read."""
+def _unfinished_kinds(journal: str) -> dict:
+    """Per study id, the kind of the first ``plan`` line of an attempt this journal holds no ``done`` line for: the
+    kind a rerun into it is held to. A line that cannot be read (a crash cut it short) describes no write; skipped."""
+    pending: dict[int, str] = {}
+    if not os.path.isfile(journal):
+        return pending
+    with open(journal, encoding="utf-8") as fh:
+        for line in fh:
+            parts = line.rstrip("\n").split("\t", 2)
+            if len(parts) != 3 or not parts[0].isdigit():
+                continue
+            x, record = int(parts[0]), parts[1]
+            if record == "done":
+                pending.pop(x, None)
+            elif record == "plan" and x not in pending:
+                try:
+                    pending[x] = json.loads(parts[2])["kind"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+    return pending
+
+
+def apply(driver, db, approved: dict, *, run_dir: str, batch: int = writer.REL_CHUNK) -> dict:
+    """Merge or rekey each id of ``approved`` (id to the kind the operator approved from the dry run's approval
+    line), in id order, under the caller's hold of the graph-write lock (the spec's section 5.3). Each id's kind is
+    read again first: an ``already_merged`` id is counted and not written; an id that reads another kind than its
+    approved one stops the run before its first write, ids done before it staying done. A rerun given the same
+    ``run_dir`` appends to its journal and is held to the kind that journal recorded for an id it did not finish, so
+    a merge by the match that moved every source before a crash, and now reads rekey_in_place, is still finished.
+    The status is ``refused`` when the run stopped before writing anything, ``failed`` when it stopped part way.
+    Every step is journaled to ``study_merge.tsv`` in ``run_dir`` before its write. Raises RuntimeError when a move
+    or the last step does not do what was read."""
     run_dir = os.path.abspath(run_dir)
     journal = os.path.join(run_dir, JOURNAL_FILE)
+    journaled = _unfinished_kinds(journal)
     result = {"status": OK, "run_dir": run_dir, "journal": journal, "merged": [], "already_merged": [],
               "stopped_at": None}
-    for x in sorted(int(i) for i in expected):
+    for x in sorted(int(i) for i in approved):
         sel = classify(read_index(driver, db), x)
         if sel.kind == ALREADY_MERGED:
             result["already_merged"].append(x)
             continue
-        if expected[x] == MERGE and sel.kind == REKEY_IN_PLACE and sel.seek_keyed is not None:
+        expected = journaled.get(x, approved[x])
+        if expected == MERGE and sel.kind == REKEY_IN_PLACE and sel.seek_keyed is not None:
             # A merge by the match whose every source moved before a crash stopped it: K holds no IN_STUDY now, so
             # the id reads rekey_in_place, whose last step is the merge's own. Finish it as that.
             log.info("study %s: its merge moved every source before it stopped; finishing it", x)
-        elif sel.kind != expected[x] or sel.kind not in ACTING:
-            result.update(status=FAILED, stopped_at=x,
-                          problem=f"study {x} reads {sel.kind} now, not {expected[x]}; it and every later id are "
-                                  "left as they are")
+        elif sel.kind != expected or sel.kind not in ACTING:
+            source = (f"its journal's {expected}, from a run it did not finish" if x in journaled
+                      else f"{expected}, as approved")
+            result.update(status=FAILED if result["merged"] else REFUSED, stopped_at=x,
+                          problem=f"study {x} reads {sel.kind} now, not {source}; it and every later id are left "
+                                  "as they are: run the dry run again and approve what it prints")
             return result
         _merge_one(driver, db, sel, journal, batch)
         result["merged"].append({"study_id": x, "kind": sel.kind})
