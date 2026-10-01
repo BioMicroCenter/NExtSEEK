@@ -431,8 +431,8 @@ def test_undeclared_derived_from_returns_its_counts_and_archives_each_edge(tmp_p
     out = tmp_path / "derived_from_undeclared_archive.tsv"
     counts = w.archive_and_drop_undeclared_derived_from(FakeDriver(LineageGraph()), "neo4j", str(out), DECLARED)
 
-    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 3, "derived_from_deleted": 3,
-                      "derived_from_archive_path": str(out)}
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 3, "derived_from_doubled": 0,
+                      "derived_from_deleted": 3, "derived_from_archive_path": str(out)}
     lines = out.read_text(encoding="utf-8").split("\n")
     assert lines == [  # one row per undeclared edge, in stream order (e2, e3, e6)
         "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
@@ -466,8 +466,8 @@ def test_undeclared_derived_from_with_nothing_undeclared_keeps_an_earlier_archiv
     counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out),
                                                         DECLARED | {(12, 10), (70, 70), (11, 13)})
 
-    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                      "derived_from_archive_path": None}
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                      "derived_from_deleted": 0, "derived_from_archive_path": None}
     assert out.read_text().count("\n") == 2
     assert not os.path.exists(str(out) + ".partial")
     assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
@@ -509,6 +509,59 @@ def test_undeclared_derived_from_reads_as_a_read_and_deletes_as_a_write(tmp_path
     assert stream.kwargs.get("routing_") == RoutingControl.READ
     assert all("routing_" not in c.kwargs for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM))
     assert all(c.database == "neo4j" for c in driver.calls)
+
+
+def _doubled_graph(cls):
+    """``cls()`` with a second DERIVED_FROM for the declared pair (11, 10): ``e8``, streamed after ``e1``."""
+    graph = cls()
+    graph.edges["e8"] = ("n11", "n10", {"child_id": 11, "parent_id": 10, "copy": 2})
+    return graph
+
+
+def _gate_lineage(graph, declared) -> dict:
+    """Gate G check 1 over what ``graph`` holds, as verify reads it."""
+    from nextseek_api.graph_sync import run, verify
+
+    def responder(query, params):
+        if query == verify.LINEAGE_PAIRS:
+            return [{"child": graph.nodes[c][1], "parent": graph.nodes[p][1]}
+                    for eid, (c, p, _) in graph.edges.items() if graph._between_samples(eid)]
+        if query == verify.LINEAGE_ON_ORPHANS:
+            return [{"n": sum(1 for c, p, _ in graph.edges.values()
+                              if "OrphanSample" in graph.nodes[c][0] | graph.nodes[p][0])}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+    checks: list = []
+    verify._check_lineage(FakeDriver(responder), "neo4j",
+                          SimpleNamespace(lineage={run.encode_pair(c, p) for c, p in declared}), checks, {})
+    return {c["name"]: c for c in checks}
+
+
+def test_a_second_edge_of_a_declared_pair_is_archived_and_deleted_and_gate_g_check_1_then_passes(tmp_path):
+    graph = _doubled_graph(LineageGraph)
+    assert not _gate_lineage(graph, DECLARED)["1.lineage.duplicate_edges"]["pass"]
+    out = tmp_path / "derived_from_undeclared_archive.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(FakeDriver(graph), "neo4j", str(out), DECLARED)
+
+    assert counts == {"derived_from_between_samples": 6, "derived_from_undeclared": 3, "derived_from_doubled": 1,
+                      "derived_from_deleted": 4, "derived_from_archive_path": str(out)}
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]          # the first edge of (11, 10), e1, stays
+    assert '11\t10\tD.SEQ-11\tTIS-10\t{"child_id": 11, "copy": 2, "parent_id": 10}' in out.read_text(
+        encoding="utf-8").splitlines()
+    gate = _gate_lineage(graph, DECLARED)
+    assert [name for name, check in gate.items() if not check["pass"]] == []
+
+
+def test_a_by_id_sync_deletes_a_second_edge_of_a_declared_pair_of_its_children(tmp_path):
+    graph = _doubled_graph(ChildLineageGraph)
+    out = tmp_path / "a.tsv"
+    counts = w.archive_and_drop_undeclared_for_children(FakeDriver(graph), "neo4j", [11, 12], DECLARED, str(out))
+
+    assert counts == {"derived_from_of_children": 5, "derived_from_undeclared": 2, "derived_from_doubled": 1,
+                      "derived_from_deleted": 3, "derived_from_archive_path": str(out)}
+    assert sorted(graph.deleted) == ["e2", "e6", "e8"]
+    assert [line.split("\t")[:2] for line in out.read_text(encoding="utf-8").splitlines()[1:]] == [
+        ["12", "10"], ["11", "13"], ["11", "10"]]
 
 
 # --- ghosts and orphans --------------------------------------------------------------------------
@@ -1116,8 +1169,8 @@ def test_children_archive_and_drop_only_their_undeclared_edges(tmp_path):
 
     assert sorted(graph.deleted) == ["e2", "e6"]  # e3 (child 70) is not theirs; e4 points at an orphan
     assert sorted(graph.edges) == ["e1", "e3", "e4", "e5", "e7"]
-    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 2, "derived_from_deleted": 2,
-                      "derived_from_archive_path": str(out)}
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 2, "derived_from_doubled": 0,
+                      "derived_from_deleted": 2, "derived_from_archive_path": str(out)}
     assert out.read_text(encoding="utf-8").splitlines() == [
         "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
         '12\t10\tTIS-12\tTIS-10\t{"child_id": 12, "note": "stale", "parent_id": 10}',
@@ -1150,8 +1203,8 @@ def test_children_with_nothing_undeclared_write_no_file_and_delete_nothing(tmp_p
     driver = FakeDriver(ChildLineageGraph())
     counts = w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12],
                                                         DECLARED | {(12, 10), (11, 13)}, str(out))
-    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                      "derived_from_archive_path": None}
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                      "derived_from_deleted": 0, "derived_from_archive_path": None}
     assert not out.exists()
     assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
 

@@ -1,4 +1,5 @@
-"""The assay layer's writer statements (graph schema 1.3) on a real Neo4j, and gate G's family 13 on what they wrote.
+"""The assay layer's writer statements (graph schema 1.3) on a real Neo4j, and gate G's family 13 on what they wrote;
+and the full sync's lineage step on a doubled DERIVED_FROM, with gate G's check 1 after it.
 
 Runs only under lane.sh (a private, throwaway Neo4j); elsewhere every test here skips. The lane has no MySQL, so the
 ``graph_sync.sources`` readers the code under test calls answer from this module's MySQL rows, and no graph-write lock
@@ -187,3 +188,26 @@ def test_the_writer_builds_the_assay_layer_and_gate_g_reads_it(graph, tmp_path):
                              "13.assays.sample_edge_count", "13.assays.sampled_sample_edges"]
     assert [name for name, check in after.items() if not check["pass"]] == []
     assert after["13.assays.sample_edge_count"]["actual"] == 4
+
+
+def test_the_full_syncs_lineage_step_keeps_one_edge_of_a_doubled_declared_pair(graph, tmp_path):
+    """A second DERIVED_FROM for one (child, parent) pair fails gate G check 1. The full sync's lineage step archives
+    and deletes every edge of a declared pair after the first, and the check then passes."""
+    from nextseek_api.graph_sync import run, verify, writer
+
+    graph.write("MATCH (c:Sample {id: 11}), (p:Sample {id: 10}) CREATE (c)-[:DERIVED_FROM {copy: 2}]->(p)")
+    codes = sorted(run.encode_pair(child, parent) for child, parent in LINEAGE)
+    mysql = SimpleNamespace(lineage=set(codes))
+    before: list = []
+    verify._check_lineage(graph.driver, DB, mysql, before, {})
+    assert {c["name"]: c["actual"] for c in before}["1.lineage.duplicate_edges"] == 1
+
+    counts = writer.archive_and_drop_undeclared_derived_from(graph.driver, DB, str(tmp_path / "archive.tsv"),
+                                                             run.DeclaredIdPairs(codes))
+    assert (counts["derived_from_doubled"], counts["derived_from_undeclared"], counts["derived_from_deleted"]) == (
+        1, 1, 2)                                                     # the undeclared one is 16 -> 10
+    assert graph.read("MATCH (:Sample {id: 11})-[e:DERIVED_FROM]->(:Sample {id: 10}) RETURN count(e) AS n") == [
+        {"n": 1}]
+    after: list = []
+    verify._check_lineage(graph.driver, DB, mysql, after, {})
+    assert [c["name"] for c in after if not c["pass"]] == []
