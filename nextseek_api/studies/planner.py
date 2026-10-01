@@ -16,18 +16,21 @@ same snapshot and input give the same plan.
    investigation: it is ignored (neither a source nor removed) and the target is warned (``shared_elsewhere``). A
    sample's source assays are its assays in the bucket; a sample in none of them but in another study of the
    investigation is copied from there, never removed; a sample in no assay but the target study's is ``no_change``.
-3. Clones (6.3). Per target and source assay A: in an existing target, the one assay with A's title and the same set
-   of internal assay ids is reused (several refuse the target); otherwise A is cloned. The payload is built from
+3. Clones (6.3). Per target, its source assays are grouped by title key and internal-assay set, and each group
+   has one clone (share mode's rule, T33): in an existing target, the one assay of that title and set is reused
+   (several refuse the target); otherwise the group's smallest source assay is cloned. The payload is built from
    ``GET /assays/A`` (ontology fields keep only their uri; the study is the target, filled at apply; samples, data
    files, documents, models and publications dropped) and validated as SEEK's proxy would. A clone to create gets a
-   placeholder id above every SEEK assay id, for the label preview only.
+   placeholder id above every SEEK assay id, for the label preview only. An insert names its clone by the group's
+   smallest source assay.
 4. Links (6.4). Per source assay A: the movers are the targets' samples whose source assay is A; each goes into its
-   target's clone with its direction in A (1 where A holds none); each parent of a mover that is a member of A goes
-   in with direction 1 and stays in A. A member stays in A when it is not a mover or one of its children in A stays
-   (a fixpoint); the others leave A, each in the last unit, in apply order, that moves it out of A or brings it in
-   from A as a parent, so a run stopped between units never leaves an edge without a shared assay. A parent that
-   shares no project with the investigation skips its child (``parent_project_mismatch``). One unit per target,
-   ordered by investigation and key, each with the digest its source assays must have just before it runs.
+   target's clone with its direction in A (1 where A holds none; the group's smallest A it is in); each parent of a
+   mover that is a member of A goes in with direction 1 and stays in A; a clone gets each sample once. A member stays
+   in A when it is not a mover or one of its children in A stays (a fixpoint); the others leave A, each in the last
+   unit, in apply order, that moves it out of A or brings it in from A as a parent, so a run stopped between units
+   never leaves an edge without a shared assay. A parent that shares no project with the investigation skips its
+   child (``parent_project_mismatch``). One unit per target, ordered by investigation and key, each with the digest
+   its source assays must have just before it runs.
 5. Publications (6.5): one row per sample the run's units insert, movers and parents, across the whole run: every
    DOI of the targets that touch it (with its PMID, blank where none), in unit order, a DOI compared case-insensitively.
    A target with a PMID and no DOI writes nothing and is warned about.
@@ -75,7 +78,6 @@ STUDY_NOT_IN_INVESTIGATION = "study_not_in_investigation"
 SEEK_STUDY_NOT_FOUND = "seek_study_id_not_found"
 TARGET_IS_BUCKET = "target_is_bucket"
 TITLE_TOO_LONG = "title_too_long"
-SOURCE_ASSAYS_SHARE_TITLE = "source_assays_share_title"
 TARGET_DOUBLED = "target_doubled"
 TARGET_ASSAY_AMBIGUOUS = "target_assay_ambiguous"
 CLONE_PAYLOAD_INVALID = "clone_payload_invalid"
@@ -390,38 +392,35 @@ def _decide_clones(works: list[_Work], snap: _Snapshot, skipped: list, warnings:
         refusal, detail = None, ""
         groups: dict = defaultdict(list)
         for a in used:
-            groups[(title_key(assays[a].title), tuple(sorted(set(mapping[a]))))].append(a)
-        shared = [ids for ids in groups.values() if len(ids) > 1]
-        if shared:
-            refusal, detail = SOURCE_ASSAYS_SHARE_TITLE, f"assays {shared}"
+            groups[_group_key(assays[a].title, mapping[a])].append(a)
         clones: dict = {}
-        for a in used:
-            if refusal:
+        for g, members in sorted(groups.items(), key=lambda item: item[1][0]):
+            first = members[0]
+            if len(assays[first].title or "") > ASSAY_TITLE_MAX:
+                refusal, detail = TITLE_TOO_LONG, f"assay {first}"
                 break
-            if len(assays[a].title or "") > ASSAY_TITLE_MAX:
-                refusal, detail = TITLE_TOO_LONG, f"assay {a}"
-                break
-            if len(mapping[a]) > 1 and a not in warned:
-                warned.add(a)
-                warnings.append(PlanWarning(code=SOURCE_ASSAY_SEVERAL_MAPPINGS, target_key=w.t.key, assay_id=a,
-                                            detail=f"internal assays {mapping[a]}"))
-            reuse = [r.id for r in rows if title_key(r.title) == title_key(assays[a].title)
-                     and set(mapping[r.id]) == set(mapping[a])]
+            for a in members:
+                if len(mapping[a]) > 1 and a not in warned:
+                    warned.add(a)
+                    warnings.append(PlanWarning(code=SOURCE_ASSAY_SEVERAL_MAPPINGS, target_key=w.t.key, assay_id=a,
+                                                detail=f"internal assays {mapping[a]}"))
+            reuse = [r.id for r in rows if _group_key(r.title, mapping[r.id]) == g]
             if len(reuse) > 1:
-                refusal, detail = TARGET_ASSAY_AMBIGUOUS, f"assays {reuse} for source {a}"
+                refusal, detail = TARGET_ASSAY_AMBIGUOUS, f"assays {reuse} for sources {members}"
                 break
+            common = dict(source_assay_id=first, title=assays[first].title, internal_assay_ids=mapping[first],
+                          group_source_assay_ids=members)
             if reuse:
-                clones[a] = ClonePlan(source_assay_id=a, title=assays[a].title, internal_assay_ids=mapping[a],
-                                      action="reuse", seek_assay_id=reuse[0])
-                continue
-            try:
-                payload = clone_payload(reader.assay_representation(a))
-            except (ValidationError, KeyError, TypeError, ValueError) as exc:
-                refusal, detail = CLONE_PAYLOAD_INVALID, f"assay {a}: {str(exc)[:300]}"
-                break
-            placeholder += 1
-            clones[a] = ClonePlan(source_assay_id=a, title=assays[a].title, internal_assay_ids=mapping[a],
-                                  action="create", payload=payload, placeholder_id=placeholder)
+                clone = ClonePlan(action="reuse", seek_assay_id=reuse[0], **common)
+            else:
+                try:
+                    payload = clone_payload(reader.assay_representation(first))
+                except (ValidationError, KeyError, TypeError, ValueError) as exc:
+                    refusal, detail = CLONE_PAYLOAD_INVALID, f"assay {first}: {str(exc)[:300]}"
+                    break
+                placeholder += 1
+                clone = ClonePlan(action="create", payload=payload, placeholder_id=placeholder, **common)
+            clones.update({a: clone for a in members})
         if refusal is None and w.action == "create":
             try:
                 w.payload = study_payload(w.t, reader.study_representation(w.bucket))
@@ -442,6 +441,11 @@ def _decide_clones(works: list[_Work], snap: _Snapshot, skipped: list, warnings:
     return accepted
 
 
+def _group_key(title, internal_ids) -> tuple:
+    """Source assays one clone serves: one title key and one set of internal assay ids (T33, for moves too)."""
+    return title_key(title), tuple(sorted(set(internal_ids)))
+
+
 def _paper_id(key: str) -> Optional[int]:
     return int(key.split(":", 1)[1]) if key.startswith("graph_only:") else None
 
@@ -452,7 +456,9 @@ def _target_plan(w: _Work) -> TargetPlan:
              else StudyAction(action="existing", seek_study_id=w.study_id))
     return TargetPlan(key=t.key, investigation_id=t.investigation_id, title=t.title, description=t.description,
                       doi=t.doi, pmid=t.pmid, paper_id=_paper_id(t.key), study=study,
-                      existing_assay_ids=w.existing_assay_ids, clones=[w.clones[a] for a in sorted(w.clones)])
+                      existing_assay_ids=w.existing_assay_ids,
+                      clones=sorted({c.source_assay_id: c for c in w.clones.values()}.values(),
+                                    key=lambda c: c.source_assay_id))
 
 
 @dataclass
@@ -523,24 +529,31 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
                 movers[(i, a)].add(s)
 
     inserts: dict = defaultdict(list)
+    drawn: dict = defaultdict(set)              # unit -> the source assays its inserts come from
     for i, w in enumerate(works):
+        groups: dict = defaultdict(list)        # one clone per group (T33): its ref -> its source assays here
         for a in sorted({a for src in w.sources.values() for a in src}):
-            clone = w.clones[a]
+            groups[w.clones[a].source_assay_id].append(a)
+        for ref, members in sorted(groups.items()):
+            clone = w.clones[ref]
             here = present.get(clone.seek_assay_id, set()) if clone.action == "reuse" else set()
-            ms = movers[(i, a)]
+            moving = set().union(*(movers[(i, a)] for a in members))
             planned: set = set()
-            for s in sorted(ms):
-                if s not in here:
-                    inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=a, sample_id=s,
+            for a in members:
+                for s in sorted(movers[(i, a)] - here - planned):
+                    inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=ref, sample_id=s,
                                                  direction=_direction(lin.members[a].get(s)), role="mover"))
                     planned.add(s)
-            for s in sorted(ms):
-                for par in sorted(lin.parents.get((a, s), ())):
-                    if par in ms or par in here or par in planned:
-                        continue
-                    inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=a, sample_id=par, direction=1,
-                                                 role="parent"))
-                    planned.add(par)
+                    drawn[i].add(a)
+            for a in members:
+                for s in sorted(movers[(i, a)]):
+                    for par in sorted(lin.parents.get((a, s), ())):
+                        if par in moving or par in here or par in planned:
+                            continue
+                        inserts[i].append(LinkInsert(target_key=w.t.key, source_assay_id=ref, sample_id=par,
+                                                     direction=1, role="parent"))
+                        planned.add(par)
+                        drawn[i].add(a)
 
     # A member leaves A in the last unit that needs it there: one moving it out, or one bringing it in from A as a
     # parent. Leaving earlier, a stop between the two units would let the replan move the child without it.
@@ -579,7 +592,7 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
         ins, rem = inserts[i], sorted(removals[i])
         if not ins and not rem:
             continue
-        src = sorted({x.source_assay_id for x in ins} | {a for a, _s in rem})
+        src = sorted(drawn[i] | {a for a, _s in rem})
         rows = [(a, s, d) for a in src for s, d in state.get(a, [])]
         digest = unit_digest(rows, {s: lin.tokens.get(s, []) for _a, s, _d in rows})
         moved = {x.sample_id for x in ins if x.role == "mover"} | {s for _a, s in rem}
@@ -602,8 +615,8 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
 
 TARGET_REASONS = frozenset({TARGET_DOUBLED, NO_BUCKET, SEVERAL_BUCKETS, STUDY_EXISTS,
                             STUDY_TITLE_IN_OTHER_INVESTIGATION, STUDY_NOT_IN_INVESTIGATION, SEEK_STUDY_NOT_FOUND,
-                            TARGET_IS_BUCKET, TITLE_TOO_LONG, SOURCE_ASSAYS_SHARE_TITLE, TARGET_ASSAY_AMBIGUOUS,
-                            CLONE_PAYLOAD_INVALID, STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
+                            TARGET_IS_BUCKET, TITLE_TOO_LONG, TARGET_ASSAY_AMBIGUOUS, CLONE_PAYLOAD_INVALID,
+                            STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
 
 
 def _publications(units: list, works: list, warnings: list) -> list:

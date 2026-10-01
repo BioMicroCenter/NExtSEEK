@@ -111,11 +111,19 @@ def test_two_candidates_in_the_target_are_ambiguous(alpha):
     assert skips(result) == [(3, p.TARGET_ASSAY_AMBIGUOUS)]
 
 
-def test_two_source_assays_with_one_title_and_mapping_are_refused(alpha):
-    alpha.assays[104] = AssayRow(104, 20, "RNA-seq run")
+def test_two_source_assays_with_one_title_and_mapping_share_one_clone(alpha):
+    alpha.assays[104] = AssayRow(104, 20, "rna-seq RUN ")
     alpha.mapping[104] = [900]
     alpha.links.append((104, 3, 2))
-    assert skips(plan(alpha, target([3]))) == [(3, p.SOURCE_ASSAYS_SHARE_TITLE)]
+    result = plan(alpha, target([3]))
+    assert result.skipped == []
+    [clone] = result.targets[0].clones
+    assert (clone.source_assay_id, clone.group_source_assay_ids, clone.action, clone.title) == (
+        101, [101, 104], "create", "RNA-seq run")
+    [unit] = result.units
+    assert [(x.source_assay_id, x.sample_id, x.role) for x in unit.inserts] == [(101, 3, "mover"), (101, 2, "parent")]
+    assert [(r.assay_id, r.sample_id) for r in unit.removals] == [(101, 3), (104, 3)]
+    assert unit.source_assay_ids == [101, 104]
 
 
 def test_same_title_other_mapping_is_two_clones(alpha):

@@ -58,7 +58,8 @@ def render_plan_text(plan: StudyMovePlan) -> str:
         for c in t.clones:
             what = (f"create (placeholder {c.placeholder_id})" if c.action == "create"
                     else f"reuse {c.seek_assay_id}")
-            out.append(f"    clone: {c.source_assay_id} -> {what}  {c.title!r}  internal {c.internal_assay_ids}")
+            sources = c.group_source_assay_ids if len(c.group_source_assay_ids) > 1 else c.source_assay_id
+            out.append(f"    clone: {sources} -> {what}  {c.title!r}  internal {c.internal_assay_ids}")
         u = units.get(t.key)
         if u:
             movers = sum(1 for x in u.inserts if x.role == "mover")

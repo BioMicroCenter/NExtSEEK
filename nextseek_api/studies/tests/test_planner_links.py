@@ -144,3 +144,11 @@ def test_a_stop_between_units_then_a_replan_keeps_every_edge_on_a_shared_assay(a
     assert again.skipped == []
     apply_to_world(alpha, again)
     assert shared(alpha, 3, 2) and shared(alpha, 2, 1)
+
+
+def test_a_replan_after_a_complete_run_of_overlapping_papers_is_all_no_change(alpha):
+    apply_to_world(alpha, plan(alpha, target([1, 3], **PAPER_A), target([3], **PAPER_B)))
+    again = plan(alpha, target([1, 3], seek_study_id=100, **PAPER_A), target([3], seek_study_id=101, **PAPER_B))
+    assert again.skipped == [] and again.units == []
+    assert again.no_change == {"sheet:7:paper a": [1, 3], "sheet:7:paper b": [3]}
+    assert again.publications == []
