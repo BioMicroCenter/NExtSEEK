@@ -84,11 +84,6 @@
   it in that file's own recursive self-call and nowhere else
   (`themes/NextSeek/templates/pages/menus/tree.html:20`), so an edit here
   reaches no page.
-- `themes/media/` sits on no path Django serves: `STATICFILES_DIRS` names only
-  the theme's own static dir and the repo-root one (`dmac/settings.py:88-91`),
-  and `MEDIA_ROOT` is the container path `/media` (`dmac/settings.py:95`). A
-  `{% static %}` or media URL aimed at one of its 8 logo files therefore
-  renders a broken image instead of failing loudly.
 
 ## Test command
 

@@ -127,13 +127,6 @@ distinct `{% static %}` arguments from the 12 templates on 2026-09-03 and
 testing each for existence under `themes/NextSeek/static/` and then `static/`
 reported no misses.
 
-`themes/media/` is a separate 8-file directory of original-resolution partner
-and BioMicro Center logos. Nothing loads them: grepping each of the eight
-filenames across every `.py`, `.html` and `.css` file in the worktree matches
-seven of them nowhere at all, and the eighth, `favicon.png`, only at
-`themes/NextSeek/templates/base.html:26`, which names a same-named but
-different file under the theme's `static/img/`.
-
 ## Running and testing
 
 **This boundary has no test lane of its own.** There is no `test_*.py`,
