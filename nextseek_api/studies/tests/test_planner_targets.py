@@ -127,6 +127,22 @@ def test_same_title_other_mapping_is_two_clones(alpha):
     assert [(c.source_assay_id, c.placeholder_id) for c in clones] == [(101, 302), (104, 303)]
 
 
+def test_two_targets_naming_one_study_are_both_refused(alpha):
+    result = plan(alpha, target([2], key="graph_only:90"), target([3], key="graph_only:91", title=" paper ONE"))
+    assert result.targets == [] and result.units == []
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+    assert all("graph_only:90" in s.detail and "graph_only:91" in s.detail for s in result.skipped)
+    existing = dict(seek_study_id=21, title="Alpha Paper Existing")
+    result = plan(alpha, target([2], key="a", **existing), target([3], key="b", **existing))
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+
+
+def test_two_targets_with_one_key_are_both_refused(alpha):
+    result = plan(alpha, target([2]), target([3], title="Paper Two"))
+    assert skips(result) == [(2, p.TARGET_DOUBLED), (3, p.TARGET_DOUBLED)]
+    assert all("sheet:7:paper one" in s.detail for s in result.skipped)
+
+
 def test_a_source_with_several_mappings_is_copied_whole_and_warned(alpha):
     alpha.mapping[101] = [900, 905]
     result = plan(alpha, target([3]))

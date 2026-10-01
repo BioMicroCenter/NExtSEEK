@@ -3,10 +3,12 @@
 Pure given the reader (``snapshot.SnapshotReader``; the suite's ``FakeReader``). Sorted reads, sorted output: the
 same snapshot and input give the same plan.
 
-1. Targets (6.1). A target is refused whole, every one of its samples reported with the reason, when its
-   investigation has no bucket or several; it is the bucket; a new target's title is already a study of its
-   investigation or of another; an existing target is missing or sits in another investigation; its title is longer
-   than SEEK's column; SEEK's next study id is not above every graph ``Study.id`` (a new target only, T24).
+1. Targets (6.1). A target is refused whole, every one of its samples reported with the reason, when another
+   target has its key or names its study (the same existing study, or a new one of the same investigation and title
+   key): all of them, ``target_doubled``; its investigation has no bucket or several; it is the bucket; a new
+   target's title is already a study of its investigation or of another; an existing target is missing or sits in
+   another investigation; its title is longer than SEEK's column; SEEK's next study id is not above every graph
+   ``Study.id`` (a new target only, T24).
 2. Samples (6.2). From ``assay_assets``: a sample in no assay, a sample with an assay in another investigation's
    study that it shares no project with (a misfiling, ``cross_investigation``), a sample whose source assay has no
    internal-assay mapping, a sample sharing no project with the target's investigation: each is skipped whole for
@@ -73,6 +75,7 @@ SEEK_STUDY_NOT_FOUND = "seek_study_id_not_found"
 TARGET_IS_BUCKET = "target_is_bucket"
 TITLE_TOO_LONG = "title_too_long"
 SOURCE_ASSAYS_SHARE_TITLE = "source_assays_share_title"
+TARGET_DOUBLED = "target_doubled"
 TARGET_ASSAY_AMBIGUOUS = "target_assay_ambiguous"
 CLONE_PAYLOAD_INVALID = "clone_payload_invalid"
 STUDY_PAYLOAD_INVALID = "study_payload_invalid"
@@ -265,6 +268,28 @@ def _target_refusal(t: StudyTarget, snap: _Snapshot) -> tuple[Optional[str], str
     return None, ""
 
 
+def _doubled(targets: list) -> dict:
+    """Position to detail, for each target another target doubles: the same key, or the same study (one existing
+    study id, or a new study of one investigation and title key). All of them are refused: apply keys its journal by
+    target and looks a lost study POST up by title, so neither may be shared."""
+    by_key: dict = defaultdict(list)
+    by_study: dict = defaultdict(list)
+    for n, t in enumerate(targets):
+        by_key[t.key].append(n)
+        by_study[("existing", t.seek_study_id) if t.seek_study_id is not None
+                 else ("new", t.investigation_id, title_key(t.title))].append(n)
+    out: dict = {}
+    for found in by_key.values():
+        if len(found) > 1:
+            out.update({n: f"{len(found)} targets have the key {targets[n].key!r}" for n in found})
+    for found in by_study.values():
+        if len(found) > 1:
+            keys = sorted(targets[n].key for n in found)
+            for n in found:
+                out.setdefault(n, f"targets {keys} name one study")
+    return out
+
+
 def misfiled_assays(member, target_investigation: int, sample_projects, snap: _Snapshot) -> tuple[list, list]:
     """``(misfiled, shared)``: the sample's assays (``member``) whose study sits in another investigation than
     ``target_investigation``, split by whether the sample shares a project with that investigation (a share) or not (a
@@ -290,8 +315,12 @@ def _decide_samples(targets, snap: _Snapshot, skipped: list, warnings: list) -> 
     members_of = reader.memberships(all_samples) if all_samples else {}
     snap.assays(sorted({a for m in members_of.values() for a in m}))
     projects = reader.sample_projects(all_samples) if all_samples else {}
+    doubled = _doubled(ordered)
     works: list[_Work] = []
-    for t in ordered:
+    for n, t in enumerate(ordered):
+        if n in doubled:
+            _skip(skipped, t.key, t.sample_ids, TARGET_DOUBLED, doubled[n])
+            continue
         refusal, detail = _target_refusal(t, snap)
         if refusal:
             _skip(skipped, t.key, t.sample_ids, refusal, detail)
@@ -563,10 +592,10 @@ def _plan_links(works: list, lin: _Lineage, snap: _Snapshot) -> tuple[list, list
     return units, empty
 
 
-TARGET_REASONS = frozenset({NO_BUCKET, SEVERAL_BUCKETS, STUDY_EXISTS, STUDY_TITLE_IN_OTHER_INVESTIGATION,
-                            STUDY_NOT_IN_INVESTIGATION, SEEK_STUDY_NOT_FOUND, TARGET_IS_BUCKET, TITLE_TOO_LONG,
-                            SOURCE_ASSAYS_SHARE_TITLE, TARGET_ASSAY_AMBIGUOUS, CLONE_PAYLOAD_INVALID,
-                            STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
+TARGET_REASONS = frozenset({TARGET_DOUBLED, NO_BUCKET, SEVERAL_BUCKETS, STUDY_EXISTS,
+                            STUDY_TITLE_IN_OTHER_INVESTIGATION, STUDY_NOT_IN_INVESTIGATION, SEEK_STUDY_NOT_FOUND,
+                            TARGET_IS_BUCKET, TITLE_TOO_LONG, SOURCE_ASSAYS_SHARE_TITLE, TARGET_ASSAY_AMBIGUOUS,
+                            CLONE_PAYLOAD_INVALID, STUDY_PAYLOAD_INVALID, SEEK_STUDY_ID_NOT_ABOVE_GRAPH})
 
 
 def _publications(units: list, works: list, warnings: list) -> list:
