@@ -215,3 +215,94 @@ def test_a_share_undo_deletes_only_the_journaled_pairs_and_reports_one_gone(tmp_
     assert (report["project_pairs_deleted"], report["project_pairs_gone"]) == (1, [[5, 2]])
     assert not any(p == 5 for p, _s in projects_of(seek_db)) and (3, 1) in projects_of(seek_db)
     assert outbox_of(seek_db)[-1] == ("samples", "batch:studies:share-1:undo:1", [1, 2])
+
+
+# --- what the unit checks and reports, each rule pinned by a test -------------------------------------------------------
+
+def test_a_planned_pair_already_in_its_target_assay_refuses_the_unit_before_any_write(tmp_path, seek_db, unit):
+    with seek_db.begin() as conn:     # another writer links sample 3 to the clone after the plan
+        conn.execute(text("INSERT INTO assay_assets (assay_id, asset_id, asset_type, direction) "
+                          "VALUES (302, 3, 'Sample', 1)"))
+    before = rows_of(seek_db)
+    with pytest.raises(links.LinkRefused) as exc:
+        _run(seek_db, unit, Journal(tmp_path / JOURNAL_FILE, run_id="run-1"))
+    assert exc.value.reason == "clone_changed"
+    assert _events(tmp_path) == [] and rows_of(seek_db) == before and outbox_of(seek_db) == []
+
+
+def test_a_removal_pair_left_after_the_delete_rolls_the_unit_back(tmp_path, seek_db, unit, monkeypatch):
+    monkeypatch.setattr(links, "delete_assay_links", lambda removals, conn: 0)
+    with pytest.raises(links.LinkRefused) as exc:
+        _run(seek_db, unit, Journal(tmp_path / JOURNAL_FILE, run_id="run-1"))
+    assert exc.value.reason == "readback_removal_left"
+    assert links_of(seek_db) == ORIGINAL and outbox_of(seek_db) == []
+
+
+def test_the_unit_locks_its_source_rows_its_members_and_its_clone_rows_on_mysql(unit):
+    sent = []
+
+    def execute(statement, params=None):
+        sql = str(statement)
+        sent.append(sql)
+        result = MagicMock()
+        if "FROM assay_assets" in sql and ":a0" in sql and params.get("a0") == 101:
+            result.fetchall.return_value = [(3, 101, 3, 1, None, None, None, "Sample", 2)]
+        elif "FROM samples" in sql:
+            result.fetchall.return_value = [(3, "{}")]
+        else:
+            result.fetchall.return_value = []
+        return result
+
+    conn = MagicMock()
+    conn.dialect.name = "mysql"
+    conn.execute.side_effect = execute
+    with pytest.raises(links.LinkRefused):
+        links.run_link_unit(conn, unit, MagicMock(), CLONES, run_id="run-1")
+    reads = [s for s in sent if s.lstrip().startswith("SELECT")]
+    assert any("FROM assay_assets" in s and s.rstrip().endswith("FOR UPDATE") and "101" not in s for s in reads)
+    assert sum(1 for s in reads if "FROM assay_assets" in s and s.rstrip().endswith("FOR UPDATE")) == 2
+    assert any("FROM samples" in s and s.rstrip().endswith("FOR UPDATE") for s in reads)
+
+
+def test_undo_restores_a_deleted_row_with_every_column_it_had(tmp_path, seek_db, unit):
+    with seek_db.begin() as conn:
+        conn.execute(text("UPDATE assay_assets SET version = 4, created_at = '2025-02-03 04:05:06', "
+                          "updated_at = '2025-03-04 05:06:07', relationship_type_id = 9 WHERE id = 3"))
+    with seek_db.connect() as conn:
+        before = conn.execute(text("SELECT * FROM assay_assets WHERE id = 3")).fetchone()
+    state = _committed_state(tmp_path, seek_db, unit)
+    with sqlite_connection(seek_db) as conn:
+        links.undo_link_unit(conn, unit.unit, state, Journal(tmp_path / JOURNAL_FILE, run_id="run-1"),
+                             run_id="run-1")
+    with seek_db.connect() as conn:
+        after = conn.execute(text("SELECT * FROM assay_assets WHERE id = 3")).fetchone()
+    assert tuple(after) == tuple(before)
+
+
+def test_a_refused_later_chunk_row_sends_every_row_after_the_commit(tmp_path, seek_db, unit, monkeypatch):
+    monkeypatch.setattr(links, "SAMPLE_CHUNK", 1)
+    with seek_db.begin() as conn:
+        conn.execute(text("INSERT INTO dmac.graph_sync_outbox (kind, key, payload, attempts) "
+                          "VALUES ('samples', 'batch:studies:run-1:1:1', '[]', 0)"))
+    result = _run(seek_db, unit, Journal(tmp_path / JOURNAL_FILE, run_id="run-1"))
+    assert not result.outbox_in_transaction
+
+
+def test_the_outbox_row_is_written_before_the_read_back(tmp_path, seek_db, unit, monkeypatch):
+    order = []
+    real_enqueue, real_read = links._enqueue, links.existing_membership_ids
+    monkeypatch.setattr(links, "_enqueue", lambda *a: order.append("outbox") or real_enqueue(*a))
+    monkeypatch.setattr(links, "existing_membership_ids", lambda *a: order.append("read") or real_read(*a))
+    _run(seek_db, unit, Journal(tmp_path / JOURNAL_FILE, run_id="run-1"))
+    assert order[-1] == "read" and "outbox" in order
+
+
+def test_an_undo_run_twice_reports_its_own_rows_as_gone_not_changed(tmp_path, seek_db, unit):
+    state = _committed_state(tmp_path, seek_db, unit)
+    journal = Journal(tmp_path / JOURNAL_FILE, run_id="run-1")
+    with sqlite_connection(seek_db) as conn:
+        links.undo_link_unit(conn, unit.unit, state, journal, run_id="run-1")
+    with sqlite_connection(seek_db) as conn:
+        again = links.undo_link_unit(conn, unit.unit, state, journal, run_id="run-1")
+    assert again["not_deleted_changed"] == [] and sorted(again["not_deleted_gone"]) == [7, 8]
+    assert again["deleted"] == 0 and again["reinserted"] == 0
