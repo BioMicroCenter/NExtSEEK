@@ -941,9 +941,10 @@ def chatter_agent_answer(
             "any of it. Never narrate the retry path either: no 'an initial search returned no matches', no "
             "'another search was run instead'. Qualify what the result covers, not how it was reached.\n"
             if disclosure_qualifies else
-            "- Do not say how the answer was found. Nothing about this result needs qualifying, so the "
-            "search is not part of the reply: no mention of a query, of what it was constrained by, or of "
-            "how the number was determined.\n"
+            "- Unless the user asked how the answer was found, do not say how it was found: nothing about "
+            "this result needs qualifying, so the search is not part of the reply. If the user did ask, after "
+            "the answer say in one or two plain sentences what was counted: which records, of which type, "
+            "under which conditions. Never name Cypher, a field name, a query operator or an endpoint.\n"
         )
         + "- Skip filler phrases like 'diverse set', 'I have truncated the list', 'feel free to refine'. "
         "Be informative and brief."
