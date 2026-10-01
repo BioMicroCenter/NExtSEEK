@@ -172,6 +172,17 @@ class SnapshotReader:
                 out.setdefault(int(sample), {}).setdefault(int(assay), _int(direction))
         return out
 
+    def sample_assay_rows(self, sample_ids) -> list:
+        """Every Sample row of these samples, ``(assay_id, sample_id, direction)`` in ``assay_assets.id`` order,
+        duplicates kept (a share's digest, read by sample, never by whole assay)."""
+        out: list = []
+        for chunk in _chunks(sample_ids):
+            for sample, assay, direction in self._seek(
+                    "SELECT asset_id, assay_id, direction FROM assay_assets WHERE asset_type = %s "
+                    f"AND asset_id IN ({_holes(len(chunk))}) ORDER BY id", ["Sample", *chunk]):
+                out.append((int(assay), int(sample), _int(direction)))
+        return out
+
     def assays(self, assay_ids) -> dict:
         out = {}
         for chunk in _chunks(assay_ids):

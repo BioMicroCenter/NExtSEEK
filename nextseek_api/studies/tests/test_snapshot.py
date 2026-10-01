@@ -119,3 +119,9 @@ def test_a_studys_policy_is_read_from_seeks_tables_in_the_apis_form(reader):
 def test_a_policy_the_api_form_cannot_carry_reads_as_none(reader, policy, permissions):
     r, _ = reader([("JOIN policies", policy), ("FROM permissions", permissions)])
     assert r.study_policy(40) is None
+
+
+def test_sample_assay_rows_read_by_sample_keep_every_row(reader):
+    r, rows = reader([("FROM assay_assets", [(3, 101, 2), (3, 101, 2), (2, 402, None)])])
+    assert r.sample_assay_rows([3, 2]) == [(101, 3, 2), (101, 3, 2), (402, 2, None)]
+    assert "asset_id IN" in rows.sent[0][1] and rows.sent[0][2] == ["Sample", 2, 3]

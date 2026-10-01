@@ -127,6 +127,9 @@ def progress(run_dir) -> dict:
 # --- the share mode (tool spec 16.7) ------------------------------------------------------------------------------
 
 SHARE_FILE = "share.json"
+PARENTS_CSV = "parents.csv"
+PARENTS_COLUMNS = ("uid", "sample_id", "child_uid", "child_id", "source_assay_id", "link", "project",
+                   "outside_source_project", "projects")
 
 
 def share_summary(plan: StudyMovePlan, *, run_dir_name: str, plan_sha256: str) -> dict:
@@ -150,8 +153,14 @@ def render_share_text(plan: StudyMovePlan) -> str:
                    f"permissions {policy.get('permissions')}")
     links = s.get("links", {})
     out += ["", f"Links to insert: {links.get('mover', 0)} movers, {links.get('parent', 0)} parents; "
-                f"project rows to add: {s.get('project_rows', 0)}; parents brought: {s.get('parents_count', 0)}",
-            f"Label changes needing approval after the drain: {s.get('label_changes_needing_approval') or 'none'}",
+                f"project rows to add: {s.get('project_rows', 0)}; parents brought: {s.get('parents_count', 0)} "
+                f"(every parent is in {PARENTS_CSV})"]
+    outside = s.get("parents_outside_source_project") or []
+    out.append(f"Parents outside the source project, skipped (no link, no project row; share them from their own "
+               f"project): {s.get('parents_outside_source_project_count', 0)}")
+    out += [f"  {x['uid']} (child {x['child_uid']}, assay {x['source_assay_id']}): projects {x['projects']}"
+            for x in outside[:EXAMPLES]]
+    out += [f"Label changes needing approval after the drain: {s.get('label_changes_needing_approval') or 'none'}",
             "  (renamed and protocol_filled edges are written by the loop without approval)"]
     for unit in plan.units:
         out.append(f"Unit {unit.unit}: {len(unit.inserts)} inserts, {len(unit.project_inserts)} project rows, "
@@ -163,7 +172,8 @@ def render_share_text(plan: StudyMovePlan) -> str:
 
 def write_share_run(run_dir, plan: StudyMovePlan, summary: dict) -> list[Path]:
     """A share's run directory: ``share.json`` (the request), ``plan.json``, ``plan.txt``, ``unmatched.json`` and
-    ``unmatched.csv`` (every UID or sample not shared, with its reason)."""
+    ``unmatched.csv`` (every UID or sample not shared, with its reason), ``parents.csv`` (every parent, brought or
+    skipped outside the source project)."""
     run_dir = Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     rows = [{"reason": s.reason, "target_key": s.target_key, "investigation_id": plan.targets[0].investigation_id,
@@ -181,4 +191,12 @@ def write_share_run(run_dir, plan: StudyMovePlan, summary: dict) -> list[Path]:
         for row in rows:
             writer.writerow({k: "" if row[k] is None else row[k] for k in UNMATCHED_COLUMNS})
     written.append(run_dir / UNMATCHED_CSV)
+    with (run_dir / PARENTS_CSV).open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=PARENTS_COLUMNS)
+        writer.writeheader()
+        for x in plan.share_parents:
+            row = x.model_dump()
+            writer.writerow({k: " ".join(str(i) for i in row[k]) if k == "projects" else
+                             ("" if row[k] is None else row[k]) for k in PARENTS_COLUMNS})
+    written.append(run_dir / PARENTS_CSV)
     return written

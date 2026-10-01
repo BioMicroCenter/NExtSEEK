@@ -113,6 +113,10 @@ class FakeReader:
                 out.setdefault(sample, {}).setdefault(assay, direction)
         return out
 
+    def sample_assay_rows(self, sample_ids):
+        wanted = set(sample_ids)
+        return [(assay, sample, direction) for assay, sample, direction in self.w.links if sample in wanted]
+
     def assays(self, assay_ids):
         return {a: self.w.assays[a] for a in assay_ids if a in self.w.assays}
 

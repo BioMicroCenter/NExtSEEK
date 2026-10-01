@@ -208,6 +208,21 @@ class GraphPlan(_Model):
     paper_links: list[PaperLinks] = []
 
 
+class ShareParent(_Model):
+    """A direct parent a share's sample brings from one of its source assays (tool spec 16.7): its link and project
+    row when planned, or skipped whole when it sits outside the share's source project (its projects listed)."""
+
+    sample_id: int
+    uid: Optional[str] = None
+    child_id: int
+    child_uid: Optional[str] = None
+    source_assay_id: int
+    link: bool
+    project: bool
+    outside_source_project: bool = False
+    projects: list[int] = []
+
+
 class StudyMovePlan(_Model):
     plan_version: int
     created_at: str
@@ -228,6 +243,7 @@ class StudyMovePlan(_Model):
     summary: dict
     mode: Literal["move", "share"] = "move"
     share: Optional[ShareInput] = None
+    share_parents: list[ShareParent] = []        # every parent of a share, for its run directory's parents.csv
 
     def creates_study(self) -> bool:
         return any(t.study.action == "create" for t in self.targets)
