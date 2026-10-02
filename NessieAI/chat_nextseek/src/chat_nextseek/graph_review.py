@@ -765,6 +765,9 @@ TEXT_MATCH_FACT = "The search matched '{value}' as text, which also matches {oth
 #: ``where`` is "sample" or "related sample" (a match inside another variable, as an EXISTS arm).
 FIELD_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} field and also anywhere in a {where}'s text, so it "
                        "can include records whose {fields} does not say {term}.")
+#: The same fact for two or more fields (operator, 2026-10-02).
+FIELDS_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} fields and also anywhere in a {where}'s text, so "
+                        "it can include records whose {fields} fields do not say {term}.")
 
 
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
@@ -872,7 +875,8 @@ def _free_text_beside_field(t: _Turn) -> _Finding | None:
             holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", cy)}
             where = "sample" if var in holders else "related sample"
             names = used[0] if len(used) == 1 else ", ".join(used[:-1]) + " and " + used[-1]
-            fact = FIELD_AND_TEXT_FACT.format(term=key, fields=names, where=where)
+            template = FIELD_AND_TEXT_FACT if len(used) == 1 else FIELDS_AND_TEXT_FACT
+            fact = template.format(term=key, fields=names, where=where)
             return _Finding(f"'{key}' compared in {names} and matched as free text on {var}", fact)
     return None
 
