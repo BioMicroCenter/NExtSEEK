@@ -84,6 +84,10 @@ def expand_uid_prefixes(config: Any, prefixes: list[str], *, run: Callable[..., 
     for row in result.get("data") or []:
         if isinstance(row, dict) and str(row.get("prefix", "")).rstrip("-") in out and row.get("uuid"):
             out[str(row["prefix"]).rstrip("-")].append(str(row["uuid"]))
+    # `STARTS WITH 'X-'` also returns the published copies of the same samples: keep the copy only when its base is not there.
+    for prefix, uuids in out.items():
+        stored = set(uuids)
+        out[prefix] = [u for u in uuids if _PUB_SUFFIX.sub("", u) == u or _PUB_SUFFIX.sub("", u) not in stored]
     return out
 
 

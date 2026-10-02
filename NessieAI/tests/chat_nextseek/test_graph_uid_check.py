@@ -280,5 +280,21 @@ def test_expand_prefixes_groups_matches_by_prefix_and_upper_cases_the_ask():
     assert out == {"MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"], "TIS-230101ABC": []}
 
 
+def test_expand_prefixes_drops_a_published_copy_whose_base_is_in_the_result():
+    run = lambda c, q, p: _rows(*({"prefix": "MUS-240202XYZ-", "uuid": u} for u in
+                                  ["MUS-240202XYZ-1", "MUS-240202XYZ-1-PUB", "MUS-240202XYZ-1-PUB2", "MUS-240202XYZ-2"]))
+
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["MUS-240202XYZ"], run=run, cap=75) == {
+        "MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"]}
+
+
+def test_expand_prefixes_keeps_a_published_copy_whose_base_is_absent():
+    """Another entity of the same kind: only the -PUB copy is stored, so it is the sample."""
+    run = lambda c, q, p: _rows({"prefix": "TIS-230101ABC-", "uuid": "TIS-230101ABC-7-PUB"})
+
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["TIS-230101ABC"], run=run, cap=75) == {
+        "TIS-230101ABC": ["TIS-230101ABC-7-PUB"]}
+
+
 def test_a_failed_prefix_read_is_none():
     assert uid_check.expand_uid_prefixes(MagicMock(), ["MUS-240202XYZ"], run=lambda c, q, p: {"ok": False}, cap=75) is None

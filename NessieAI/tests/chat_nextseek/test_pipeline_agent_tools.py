@@ -560,6 +560,38 @@ def test_a_prefix_with_more_matches_than_the_leaf_cap_gets_the_narrow_it_error(m
     assert fetched == []
 
 
+def test_an_overflowing_prefix_is_narrowed_even_when_another_prefix_got_no_rows(monkeypatch):
+    """The shared LIMIT filled with one prefix, so the other reads as empty: the overflow is the true answer."""
+    from chat_nextseek.pipeline.agent_tools import MAX_RESOLVE_LEAVES
+    _prefix_graph(monkeypatch, {"D.SEQ-250101ABC": [f"D.SEQ-250101ABC-{i}" for i in range(MAX_RESOLVE_LEAVES + 1)]})
+    fetched = _capture_fetch(monkeypatch)
+
+    out = _resolve(["D.SEQ-250101ABC", "MUS-240202XYZ"])
+
+    assert "narrow" in out["error"].lower()
+    assert "No samples were found" not in out["error"]
+    assert fetched == []
+
+
+def test_an_empty_prefix_beside_a_small_one_is_still_named(monkeypatch):
+    """Other entity of the same kind: no overflow, so the empty prefix is reported."""
+    _prefix_graph(monkeypatch, {"D.SEQ-250101ABC": ["D.SEQ-250101ABC-1"]})
+    _capture_fetch(monkeypatch)
+
+    out = _resolve(["D.SEQ-250101ABC", "MUS-240202XYZ"])
+
+    assert "No samples were found under the prefix MUS-240202XYZ" in out["error"]
+
+
+def test_a_failed_fetch_clips_a_whole_html_body(monkeypatch):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata",
+                        lambda c, u: {"ok": False, "status_code": 502, "data": {"_raw": "<html>" + "x" * 5000}})
+
+    out = _resolve(["MUS-1-PUB"])
+
+    assert "502" in out["error"] and len(out["error"]) < 500
+
+
 def test_an_http_failure_from_the_metadata_fetch_reports_status_and_detail(monkeypatch):
     monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata",
                         lambda c, u: {"ok": False, "status_code": 404, "data": {"detail": "No samples found"}})

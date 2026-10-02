@@ -308,6 +308,7 @@ def _fetch_failure(raw: dict) -> str:
     data = raw.get("data")
     detail = (data.get("detail") or data.get("_raw")) if isinstance(data, dict) else None
     status = raw.get("status_code")
+    detail = str(detail)[:300] if detail else None  # a gateway's whole HTML page can come back as `_raw`
     return f"HTTP {status}" + (f": {detail}" if detail else "") if status else "unknown error"
 
 
@@ -372,14 +373,15 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
             return json.dumps({"ok": False, "error": (
                 f"Could not look up the samples under {', '.join(prefixes)} in the graph. "
                 "Pass their full UIDs instead.")})
+        expanded = [u for p in found.values() for u in p]
+        if len(expanded) > MAX_RESOLVE_LEAVES:
+            # Checked before the empty prefixes: the read has one LIMIT, so a prefix that overflowed it can leave another empty.
+            return json.dumps({"ok": False, "leaf_count": len(expanded), "error": _NARROW_ERROR.format(
+                n=f"more than {MAX_RESOLVE_LEAVES}", cap=MAX_RESOLVE_LEAVES)})
         empty = [p for p in found if not found[p]]
         if empty:
             return json.dumps({"ok": False, "error": (
                 f"No samples were found under the prefix {', '.join(e.upper() for e in empty)}.")})
-        expanded = [u for p in found.values() for u in p]
-        if len(expanded) > MAX_RESOLVE_LEAVES:
-            return json.dumps({"ok": False, "leaf_count": len(expanded), "error": _NARROW_ERROR.format(
-                n=f"more than {MAX_RESOLVE_LEAVES}", cap=MAX_RESOLVE_LEAVES)})
         source_uids = [u for u in source_uids if not is_uid_prefix(u)] + expanded
 
     raw = fetch_reporter_metadata(config, source_uids)
