@@ -91,11 +91,12 @@ def mock_assistant_permission():
 TURN_THREAD_MODULES = ("NessieAI.cc.turn", "NessieAI.ns.turn")
 
 
-def join_turn_threads(timeout=30):
-    """Join every live turn thread (target defined in a TURN_THREAD_MODULES module); fail if one outlives timeout."""
+def join_turn_threads(timeout=30, ignore=()):
+    """Join every live turn thread (target defined in a TURN_THREAD_MODULES module) not in ``ignore``; fail if one
+    outlives timeout."""
     # ponytail: private Thread._target; a start() wrapper if a turn thread ever stops naming its target.
     turn = [t for t in threading.enumerate()
-            if getattr(getattr(t, "_target", None), "__module__", None) in TURN_THREAD_MODULES]
+            if t not in ignore and getattr(getattr(t, "_target", None), "__module__", None) in TURN_THREAD_MODULES]
     for t in turn:
         t.join(timeout)
     alive = [t.name for t in turn if t.is_alive()]
@@ -104,5 +105,7 @@ def join_turn_threads(timeout=30):
 
 @pytest.fixture(autouse=True)
 def join_turn_threads_at_teardown():
+    # Threads alive at setup (an earlier test's leak) are that test's to fail on, not every later test's.
+    before = set(threading.enumerate())
     yield
-    join_turn_threads()
+    join_turn_threads(ignore=before)

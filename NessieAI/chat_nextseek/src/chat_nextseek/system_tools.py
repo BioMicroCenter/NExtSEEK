@@ -53,7 +53,7 @@ def load_docs(docs_dir: Any) -> dict[str, DocPage]:
     root = Path(docs_dir)
     try:
         toc = (root / "README.md").read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return {}
     pages: dict[str, DocPage] = {}
     for line in toc.splitlines():
@@ -62,7 +62,7 @@ def load_docs(docs_dir: Any) -> dict[str, DocPage]:
             continue
         try:
             text = (root / f"{m[2]}.md").read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
         headings = tuple(
             (len(h[1]), h[2]) for h in (_HEADING.match(ln) for ln in text.splitlines()) if h
@@ -208,6 +208,15 @@ def docs_footer(pages: dict[str, DocPage], cited: Any, read: set[str], narrative
         (kept if slug in read and slug in pages else dropped).append(slug)
     links = [f"[{pages[s].title}]({pages[s].url})" for s in kept if pages[s].url not in narrative]
     return (f"See: {', '.join(links)}" if links else ""), kept, dropped
+
+
+_DOC_LINK = re.compile(r"\[([^\]]*)\]\(/docs/([\w-]+)/?[^)]*\)")
+
+
+def strip_unread_doc_links(narrative: str, read: set[str]) -> str:
+    """``narrative`` with each markdown link to ``/docs/<slug>/`` whose slug ``read_doc`` did not return this turn
+    reduced to its link text."""
+    return _DOC_LINK.sub(lambda m: m[0] if m[2].lower() in read else m[1], narrative)
 
 
 def tool_schemas(*, final: bool = False) -> list[dict]:

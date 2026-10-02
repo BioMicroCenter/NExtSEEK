@@ -721,8 +721,12 @@ def _route_retired_sample_search(
 #: The sample type list endpoint is found by its catalog category, never by its path.
 SAMPLETYPE_LIST_CATEGORY = "sampletype_list"
 #: A question SHAPE, not a wording: it asks WHICH (or WHAT) attributes, fields or columns of the sample types have
-#: some property. That is the Attribute catalog on the graph; the list endpoint only lists the types.
-_WHICH_ATTRIBUTES_RE = re.compile(r"\b(which|what)\b[^?.]*\b(attributes?|fields?|columns?)\b", re.IGNORECASE)
+#: some property, a verb of having or marking followed by at least one more word. That is the Attribute catalog on
+#: the graph; the list endpoint only lists the types ("What fields does X have?" names no property).
+_WHICH_ATTRIBUTES_RE = re.compile(
+    r"\b(which|what)\b[^?.]*\b(attributes?|fields?|columns?)\b[^?.]*"
+    r"\b(use|uses|carry|carries|hold|holds|are|is|have|has|need|needs|take|takes|marked|required)\s+\w",
+    re.IGNORECASE)
 _SAMPLE_WORD_RE = re.compile(r"\bsamples?\b", re.IGNORECASE)
 ATTRIBUTE_CATALOG_NOTE = "sent to graph_query: which attributes of the sample types have a property is the graph's Attribute catalog"
 

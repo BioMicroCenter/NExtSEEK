@@ -1173,11 +1173,29 @@ def _drop_uuid_list(result: dict) -> dict:
     return cleaned
 
 
+def lab_names_by_name(entity_result) -> "list[str]":
+    """The lab names the user wrote as names, for ``run_reporter_summary(lab_names=...)``.
+
+    A code match also carries the lab's name, but a request by code must keep the lab scope, so only matches whose
+    rule is not ``code`` count. Takes the entity result as a model or a dict.
+    """
+    matches = (entity_result.get("lab_matches") if isinstance(entity_result, dict)
+               else getattr(entity_result, "lab_matches", None)) or []
+    names: list[str] = []
+    for m in matches:
+        get = m.get if isinstance(m, dict) else lambda k, _m=m: getattr(_m, k, None)
+        name = get("name")
+        if get("rule") != "code" and isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return names
+
+
 def _project_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
     """The one project every lab name the user gave also names, or None.
 
     A name counts when it equals, case-folded, a key of ``PROJECT_NAME_TO_ID`` (a project name or alias, read from
-    the catalog). Any lab without a match, or labs matching different projects, leave the lab scope in place.
+    the catalog). Any lab without a match, labs matching different projects, or a project outside the caller's scope
+    (graph_scope; no scope counts as outside) leave the lab scope in place.
     """
     names = [n.strip() for n in (lab_names or []) if isinstance(n, str) and n.strip()]
     table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
@@ -1185,6 +1203,9 @@ def _project_named_by_labs(config, lab_names: "list[str] | None") -> "dict | Non
         return None
     ids = {table[n.upper()] for n in names}
     if len(ids) != 1:
+        return None
+    scope = graph_scope.scope_of(config)
+    if scope is None or not (scope.is_admin or next(iter(ids)) in scope.project_ids):
         return None
     key = names[0].upper()
     pid = ids.pop()

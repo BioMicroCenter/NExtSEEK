@@ -160,6 +160,8 @@ def _run_tool(config, pages: dict, name: str, args: dict, read: set) -> dict:
 def _finish(args: dict, pages: dict, read: set) -> SystemAgentOutput:
     """The answer, with a link under it for every cited page that was read this turn (and no other)."""
     narrative = str(args.get("narrative") or "").strip()
+    if not narrative:
+        raise RuntimeError("the answer tool gave an empty narrative")
     footer, kept, dropped = system_tools.docs_footer(pages, args.get("docs_cited") or [], read, narrative)
     if footer:
         narrative = f"{narrative}\n\n{footer}"
@@ -172,6 +174,19 @@ def _finish(args: dict, pages: dict, read: set) -> SystemAgentOutput:
     consulted = [str(e) for e in args.get("entities_consulted") or [] if e]
     return SystemAgentOutput(mode=mode, narrative=narrative, entities_consulted=consulted,
                              docs_cited=kept, notes=notes)
+
+
+def _failed(plan_dict: dict, error: str) -> SystemAgentOutput:
+    """The canned answer for a turn that could not be answered."""
+    return SystemAgentOutput(
+        mode="get_capabilities",
+        narrative=(
+            f"I encountered an issue answering your question.\n\n"
+            f"Parser intent: {plan_dict.get('intent_summary', '')}"
+        ),
+        entities_consulted=[],
+        notes=f"error: {error}",
+    )
 
 
 def system_agent(
@@ -201,6 +216,9 @@ def system_agent(
     read: set[str] = set()
 
     sys_client, sys_model, sys_budget = config.get_agent_model(SYSTEM_AGENT_KEY)
+    if not callable(getattr(sys_client, "chat_with_tools", None)):
+        # No tool surface on this profile (as run_followup): nothing here can look anything up.
+        return _failed(plan_dict, "the system agent's model has no tool surface")
     try:
         for iteration in range(MAX_ITER + 1):
             terminal = iteration == MAX_ITER
@@ -227,6 +245,7 @@ def system_agent(
                 # Prose without the answer tool: take it rather than spend another call.
                 text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
                 if text.strip():
+                    text = system_tools.strip_unread_doc_links(text, read)
                     return _finish({"narrative": text, "notes": "answered without the answer tool"}, pages, read)
                 break
             messages.append({"role": "assistant", "content": content})
@@ -248,12 +267,4 @@ def system_agent(
         raise RuntimeError(f"no answer after {MAX_ITER} lookups")
     except Exception as e:
         print(f"[DEBUG][SYSTEM] system_agent failed: {e!r}")
-        return SystemAgentOutput(
-            mode="get_capabilities",
-            narrative=(
-                f"I encountered an issue answering your question.\n\n"
-                f"Parser intent: {plan_dict.get('intent_summary', '')}"
-            ),
-            entities_consulted=[],
-            notes=f"error: {e}",
-        )
+        return _failed(plan_dict, str(e))

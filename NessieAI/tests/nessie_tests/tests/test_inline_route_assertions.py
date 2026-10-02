@@ -220,7 +220,7 @@ STUDY_READING_REPLY = (
 # The study reading with no word about the Cohort value (the 1 Oct production reply's
 # shape). Violates the cohort guard alone.
 STUDY_ONLY_REPLY = (
-    "There are 316 samples associated with 4-week studies across two studies.")
+    "There are 316 samples in the two studies whose titles say 4-week.")
 
 # The Cohort reading with no word about the studies. Violates the study guard alone.
 COHORT_ONLY_REPLY = (
@@ -238,7 +238,7 @@ def _cohort_guards():
 
 
 def _study_guards():
-    return [g for g in _seed_guards() if "stud" in g.lower()]
+    return [g for g in _seed_guards() if "title" in g.lower()]
 
 
 def _failing_guards(reply):
@@ -292,6 +292,28 @@ def test_a_reply_that_never_names_the_cohort_reading_fails_on_that_guard_alone()
 
 def test_a_reply_that_never_names_the_study_reading_fails_on_that_guard_alone():
     assert _failing_guards(COHORT_ONLY_REPLY) == _study_guards()
+
+
+def test_a_reply_that_only_echoes_the_question_does_not_meet_the_study_guard():
+    """The question says "study", so a guard on that word was met by echoing it."""
+    assert _failing_guards('I looked for a 4 week study. Cohort "4 week" marks 2 samples.') == _study_guards()
+
+
+def _who_am_i_guards():
+    v = _merged()["session.who_am_i_and_what_can_i_do"]
+    return [c.value for c in v.turns[0].pass_criteria if c.field == "last_reply" and c.op == "matches_re"]
+
+
+@pytest.mark.parametrize("reply", [
+    "You are signed in as the CI account, and it has admin rights.",
+    "I cannot see which login you used, so I cannot say if you are an admin; the profile page shows it.",
+])
+def test_who_am_i_accepts_the_account_named_or_an_honest_cannot_see(reply):
+    assert all(re.search(g, reply) for g in _who_am_i_guards())
+
+
+def test_who_am_i_does_not_pass_on_the_word_profile_alone():
+    assert not re.search(_who_am_i_guards()[0], "Open your profile to check; admin rights are possible.")
 
 
 def test_the_flat_count_fails_every_guard():

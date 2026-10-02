@@ -44,3 +44,20 @@ def test_a_turn_thread_that_outlives_the_timeout_fails_the_teardown():
             join_turn_threads(timeout=0.05)
     finally:
         stop.set()
+
+
+def test_a_thread_alive_before_the_test_is_ignored():
+    stop = threading.Event()
+
+    def _leaked():
+        stop.wait(5)
+
+    _leaked.__module__ = "NessieAI.cc.turn"
+    leaked = threading.Thread(target=_leaked, daemon=True)
+    leaked.start()
+    try:
+        join_turn_threads(timeout=0.05, ignore={leaked})   # what the fixture passes: the threads it saw at setup
+        with pytest.raises(AssertionError, match="still running"):
+            join_turn_threads(timeout=0.05)
+    finally:
+        stop.set()
