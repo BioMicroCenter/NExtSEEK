@@ -247,3 +247,31 @@ def test_query_async_itself_refuses_a_pass_with_no_login(monkeypatch):
     resp = AssistantViewSet().query_async(request)
     assert resp.status_code == 401
     assert started == [] and QueryTask.objects.count() == before
+
+
+@override_settings(NEXTSEEK_CHAT_CONFIG=_Config(), NEXTSEEK_CHAT_CONFIG_PROD=SimpleNamespace(
+    API_USER="prod-service", API_PASS="prod-pw"))
+def test_query_async_never_swaps_a_pass_onto_the_prod_credentials(monkeypatch):
+    """The view's own not-a-pass gate before the prod swap: even if the pass's config were the prod one."""
+    from django.conf import settings
+    from nextseek_api.services import assistant
+
+    started = []
+
+    class _Thread:
+        def __init__(self, target=None, kwargs=None, daemon=None):
+            started.append(kwargs)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(assistant, "plain_scope", lambda user: None)
+    monkeypatch.setattr(assistant, "_chat_config_for", lambda request, req: settings.NEXTSEEK_CHAT_CONFIG_PROD)
+    monkeypatch.setattr(assistant.threading, "Thread", _Thread)
+    turn, _ = make_turn(login=("op-user", PASSWORD))
+    request = pass_request(turn)
+    request.data = {"query": "x", "mode": "standard", "session_id": str(turn.chat_id)}
+    resp = assistant.AssistantViewSet().query_async(request)
+    assert resp.status_code == 202, resp.data
+    (kwargs,) = started
+    assert (kwargs["api_user"], kwargs["api_pass"]) == ("op-user", PASSWORD)
