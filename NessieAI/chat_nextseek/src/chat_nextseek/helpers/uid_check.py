@@ -25,7 +25,10 @@ from typing import Any, Callable, Iterable
 #: A NExtSEEK UID: <TYPE>-<YYMMDD><LAB>-<n>, optionally -PUB<n>. The same grammar the parser
 #: checks (``agents/parser.py`` ``_WELL_FORMED_UID_RE``), matched case-insensitively here
 #: because users type them in any case.
-UID_RE = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b", re.IGNORECASE)
+_UID_HEAD = r"[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}"
+UID_RE = re.compile(rf"\b{_UID_HEAD}-\d+(?:-PUB\d*)?\b", re.IGNORECASE)
+#: A run's samples named by their common prefix, <TYPE>-<YYMMDD><LAB>: a UID without its number.
+PREFIX_RE = re.compile(rf"{_UID_HEAD}", re.IGNORECASE)
 _PUB_SUFFIX = re.compile(r"-PUB\d*$", re.IGNORECASE)
 
 #: Written in the subset of Cypher the graph scope prover (``cypher_scope.scope_cypher``) can prove, so a
@@ -45,12 +48,43 @@ CHECK_CYPHER = (
 )
 
 
+#: The samples a UID prefix names, read through the same scope proof as CHECK_CYPHER. ``pre`` is computed before the
+#: MATCH so the STARTS WITH compares a plain name and seeks the uuid index. ``cap`` bounds the read.
+PREFIX_CYPHER = (
+    "UNWIND $prefixes AS p\n"
+    "WITH p + '-' AS pre\n"
+    "MATCH (s:Sample) WHERE s.uuid STARTS WITH pre\n"
+    "RETURN pre AS prefix, s.uuid AS uuid\n"
+    "LIMIT $cap"
+)
+
+
 @dataclass(frozen=True)
 class UidCheck:
     """A UID as the user wrote it, and as the graph stores it (None when absent)."""
 
     asked: str
     stored: str | None
+
+
+def is_uid_prefix(text: str) -> bool:
+    """True for a whole string that is a run prefix (``D.SEQ-250101ABC``), not a full UID."""
+    return bool(PREFIX_RE.fullmatch(str(text).strip()))
+
+
+def expand_uid_prefixes(config: Any, prefixes: list[str], *, run: Callable[..., dict], cap: int) -> dict[str, list[str]] | None:
+    """``{prefix: [stored UIDs]}`` (upper-case prefixes, an empty list for one that matches nothing), from one
+    read-only query that stops after ``cap`` rows; ``run`` is ``tool_neo4j_query``, so the caller's graph scope
+    applies. None when the query failed or was refused."""
+    prefixes = [str(p).strip().upper() for p in prefixes]
+    result = run(config, PREFIX_CYPHER, {"prefixes": prefixes, "cap": cap})
+    if not isinstance(result, dict) or not result.get("ok"):
+        return None
+    out: dict[str, list[str]] = {p: [] for p in prefixes}
+    for row in result.get("data") or []:
+        if isinstance(row, dict) and str(row.get("prefix", "")).rstrip("-") in out and row.get("uuid"):
+            out[str(row["prefix"]).rstrip("-")].append(str(row["uuid"]))
+    return out
 
 
 def uids_in(text: str, filter_uids: Iterable[str] | None = None) -> list[str]:

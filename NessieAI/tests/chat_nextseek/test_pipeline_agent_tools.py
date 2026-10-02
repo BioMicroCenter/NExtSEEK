@@ -473,3 +473,99 @@ def test_configure_run_local_luria_without_tower(tmp_path):
     assert out["reference_files"]["fasta"].endswith(".fa.gz")
     assert Path(out["launch_yml"]).exists() and Path(out["params_yml"]).exists()
     assert state["artifacts"]["launch"] and state["artifacts"]["params"]
+
+
+# --- a run named by its UID prefix (R3 A3) ---------------------------------------------------------------------
+
+def _prefix_graph(monkeypatch, matches):
+    """Stub the scoped graph read: `matches` maps an upper-case prefix to the UIDs stored under it."""
+    seen = {"queries": []}
+
+    def run(config, cypher, params=None, **kw):
+        seen["queries"].append(params)
+        rows = [{"prefix": p + "-", "uuid": u} for p in params["prefixes"] for u in matches.get(p, [])]
+        return {"ok": True, "count": len(rows), "data": rows}
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.tool_neo4j_query", run)
+    return seen
+
+
+def _capture_fetch(monkeypatch):
+    fetched = []
+
+    def fake_fetch(c, uids):
+        fetched.append(list(uids))
+        return {"ok": True, "data": {"data": []}}
+
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata", fake_fetch)
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.annotate_metadata_with_sampletypes", lambda c, m: m)
+    return fetched
+
+
+def _resolve(uids):
+    return _json.loads(tool_resolve_samples(_Cfg(), {}, {}, {"kind": "explicit_uids", "uids": uids}, "rnaseq"))
+
+
+def test_a_uid_prefix_resolves_to_the_samples_it_prefixes(monkeypatch):
+    """The counter-example's shape: a run named by its prefix reached the metadata fetch as if it were a UID."""
+    _prefix_graph(monkeypatch, {"D.SEQ-250101ABC": ["D.SEQ-250101ABC-1", "D.SEQ-250101ABC-2", "D.SEQ-250101ABC-3"]})
+    fetched = _capture_fetch(monkeypatch)
+
+    _resolve(["D.SEQ-250101ABC"])
+
+    assert fetched == [["D.SEQ-250101ABC-1", "D.SEQ-250101ABC-2", "D.SEQ-250101ABC-3"]]
+
+
+def test_a_prefix_of_another_type_and_lab_resolves_the_same_way(monkeypatch):
+    """Other entity of the same kind: a different type and lab, typed in lower case."""
+    _prefix_graph(monkeypatch, {"MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"]})
+    fetched = _capture_fetch(monkeypatch)
+
+    _resolve(["mus-240202xyz"])
+
+    assert fetched == [["MUS-240202XYZ-1", "MUS-240202XYZ-2"]]
+
+
+def test_a_prefix_that_matches_nothing_is_a_plain_error_naming_it(monkeypatch):
+    _prefix_graph(monkeypatch, {})
+    fetched = _capture_fetch(monkeypatch)
+
+    out = _resolve(["MUS-240202XYZ"])
+
+    assert out["ok"] is False
+    assert "MUS-240202XYZ" in out["error"]
+    assert fetched == []
+
+
+def test_a_full_uid_beside_a_prefix_expands_only_the_prefix(monkeypatch):
+    seen = _prefix_graph(monkeypatch, {"D.SEQ-250101ABC": ["D.SEQ-250101ABC-1", "D.SEQ-250101ABC-2"]})
+    fetched = _capture_fetch(monkeypatch)
+
+    _resolve(["MUS-1-PUB", "D.SEQ-250101ABC"])
+
+    assert [q["prefixes"] for q in seen["queries"]] == [["D.SEQ-250101ABC"]]
+    assert fetched == [["MUS-1-PUB", "D.SEQ-250101ABC-1", "D.SEQ-250101ABC-2"]]
+
+
+def test_a_prefix_with_more_matches_than_the_leaf_cap_gets_the_narrow_it_error(monkeypatch):
+    from chat_nextseek.pipeline.agent_tools import MAX_RESOLVE_LEAVES
+    _prefix_graph(monkeypatch, {"D.SEQ-250101ABC": [f"D.SEQ-250101ABC-{i}" for i in range(MAX_RESOLVE_LEAVES + 5)]})
+    fetched = _capture_fetch(monkeypatch)
+
+    out = _resolve(["D.SEQ-250101ABC"])
+
+    assert out["ok"] is False
+    assert "narrow" in out["error"].lower()
+    assert str(MAX_RESOLVE_LEAVES) in out["error"]
+    assert fetched == []
+
+
+def test_an_http_failure_from_the_metadata_fetch_reports_status_and_detail(monkeypatch):
+    monkeypatch.setattr("chat_nextseek.pipeline.agent_tools.fetch_reporter_metadata",
+                        lambda c, u: {"ok": False, "status_code": 404, "data": {"detail": "No samples found"}})
+
+    out = _resolve(["MUS-1-PUB"])
+
+    assert out["ok"] is False
+    assert "404" in out["error"] and "No samples found" in out["error"]
+    assert "unknown error" not in out["error"]
