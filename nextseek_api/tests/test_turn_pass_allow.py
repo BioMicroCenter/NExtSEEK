@@ -27,7 +27,7 @@ def test_the_table_lists_exactly_the_approved_routes():
     assert len(names) == len(set(names)), "one row per route"
     assert set(names) == {
         "nextseek_api:projects-list", "nextseek_api:projects-detail",
-        "nextseek_api:assays-list", "nextseek_api:assays-detail",
+        "nextseek_api:assays-list", "nextseek_api:assays-detail", "nextseek_api:studies-detail",
         "nextseek_api:sample_types-list", "nextseek_api:sample_types-detail",
         OPS + "get-session", OPS + "download-bundle", OPS + "download-artifact", OPS + "task-progress",
         OPS + "report", OPS + "generate-submission", OPS + "build-upload-xlsx",
@@ -38,7 +38,8 @@ def test_the_table_lists_exactly_the_approved_routes():
     }
     for refused in (OPS + "api-write", OPS + "query", OPS + "me", OPS + "list-sessions",
                     "nextseek_api:cc-assistant-cc-query-async", "nextseek_api:cc-assistant-query-async",
-                    "nextseek_api:people-current", "nextseek_api:samples-graph-search-list"):
+                    "nextseek_api:people-current", "nextseek_api:samples-graph-search-list",
+                    "nextseek_api:studies-list"):
         assert refused not in names
 
 
@@ -57,7 +58,8 @@ def test_each_route_carries_its_ruled_chat_check_and_methods():
         assert rows[OPS + route].chat_check == "path_session"
     get_routes = {
         "nextseek_api:projects-list", "nextseek_api:projects-detail", "nextseek_api:assays-list",
-        "nextseek_api:assays-detail", "nextseek_api:sample_types-list", "nextseek_api:sample_types-detail",
+        "nextseek_api:assays-detail", "nextseek_api:studies-detail", "nextseek_api:sample_types-list",
+        "nextseek_api:sample_types-detail",
         OPS + "get-session", OPS + "download-bundle", OPS + "download-artifact", OPS + "task-progress",
     }
     for row in allow.ALLOW_TABLE:

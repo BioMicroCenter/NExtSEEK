@@ -42,6 +42,7 @@ ALLOW_TABLE: tuple[AllowRow, ...] = (
     AllowRow("nextseek_api:projects-detail", GET, "none"),
     AllowRow("nextseek_api:assays-list", GET, "none"),
     AllowRow("nextseek_api:assays-detail", GET, "none"),
+    AllowRow("nextseek_api:studies-detail", GET, "none"),
     AllowRow("nextseek_api:sample_types-list", GET, "none"),
     AllowRow("nextseek_api:sample_types-detail", GET, "none"),
     AllowRow(_A + "get-session", GET, "path_session"),

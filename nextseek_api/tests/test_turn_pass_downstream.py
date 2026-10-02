@@ -1,10 +1,14 @@
 """Acting as the user downstream under a turn pass (MAP-APPROACH-1 section 4): every consumer gets the login the
 turn holds; never the pass itself, never a session's login, never the shared config's (piece 1)."""
 import base64
+import importlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
+import httpx
 import pytest
 from django.core.cache import cache
 from django.test import override_settings
@@ -275,3 +279,100 @@ def test_query_async_never_swaps_a_pass_onto_the_prod_credentials(monkeypatch):
     assert resp.status_code == 202, resp.data
     (kwargs,) = started
     assert (kwargs["api_user"], kwargs["api_pass"]) == ("op-user", PASSWORD)
+
+
+# --- GET studies/{id}/ under a pass: the container's batch-upload title resolver reads a study's title -------------
+
+_PLUGIN_BIN = Path(__file__).resolve().parents[2] / "NessieAI/docker/cc-runtime/build_context/plugins/nextseek/bin"
+_SEEK_JSON = {"Content-Type": "application/vnd.api+json"}
+_ASSAY_LISTS = ("creators", "submitter", "organisms", "people", "projects", "data_files", "documents", "models",
+                "sops", "publications", "placeholders", "human_diseases")
+
+
+def _seek_study(study_id, title):
+    return {"data": {"id": str(study_id), "type": "studies", "attributes": {"title": title}, "relationships": {},
+                     "links": {"self": f"/studies/{study_id}"}, "meta": {}}}
+
+
+def _seek_assay(assay_id, study_id, samples=()):
+    rels = {name: {"data": []} for name in _ASSAY_LISTS}
+    rels["investigation"] = {"data": {"id": "1", "type": "investigations"}}
+    rels["study"] = {"data": {"id": str(study_id), "type": "studies"}}
+    rels["samples"] = {"data": [{"id": sample, "type": "samples"} for sample in samples]}
+    return {"data": {"id": str(assay_id), "type": "assays", "attributes": {"title": "Alpha"}, "relationships": rels,
+                     "links": {"self": f"/assays/{assay_id}"}, "meta": {}}}
+
+
+class _SeekWorld:
+    """requests.Session.request stand-in that answers SEEK GETs by path and records (method, path, Authorization)."""
+
+    def __init__(self, bodies):
+        self.bodies, self.calls = bodies, []
+
+    def __call__(self, *args, method=None, url=None, headers=None, **kwargs):
+        path = urlsplit(url).path
+        self.calls.append((method, path, (headers or {}).get("Authorization")))
+        body = next((body for suffix, body in self.bodies.items() if path.endswith(suffix)), None)
+        if body is None:
+            return SimpleNamespace(content=b'{"errors":[{"title":"Not found"}]}', status_code=404, headers=_SEEK_JSON)
+        return SimpleNamespace(content=json.dumps(body).encode(), status_code=200, headers=_SEEK_JSON)
+
+
+def test_a_pass_reads_a_study_as_the_held_login(monkeypatch):
+    turn, raw = make_turn(login=("seek-user", PASSWORD))
+    seek = _SeekWorld({"/studies/20": _seek_study(20, "Alpha Unpublished")})
+    monkeypatch.setattr("requests.Session.request", seek)
+    resp = APIClient().get("/nextseek_api/studies/20/", **pass_header(raw))
+    assert resp.status_code == 200, resp.content
+    assert json.loads(resp.content)["data"]["attributes"]["title"] == "Alpha Unpublished"
+    assert [(method, auth) for method, _path, auth in seek.calls] == [
+        ("GET", basic_auth_header(("seek-user", PASSWORD))["Authorization"])]
+
+
+def test_a_pass_may_only_get_one_study(monkeypatch):
+    """The studies list, a study write and every other method stay refused before the view runs."""
+    turn, raw = make_turn()
+    seek = _SeekWorld({})
+    monkeypatch.setattr("requests.Session.request", seek)
+    client = APIClient()
+    tries = [(method, "/nextseek_api/studies/20/") for method in ("PATCH", "PUT", "POST", "DELETE")]
+    tries += [(method, "/nextseek_api/studies/") for method in ("GET", "POST")]
+    for method, path in tries:
+        resp = client.generic(method, path, b"{}", content_type="application/json", **pass_header(raw))
+        assert resp.status_code == 403, f"{method} {path} -> {resp.status_code}"
+        assert b"PASS_NOT_ALLOWED" in resp.content, f"{method} {path}"
+    assert seek.calls == []
+
+
+def _container_client(monkeypatch, raw):
+    """The container's batch-upload client with its own turn-pass auth; its requests go into this Django app."""
+    monkeypatch.syspath_prepend(str(_PLUGIN_BIN))
+    client_module = importlib.import_module("_batch_upload_client")
+    turn_pass_module = importlib.import_module("_turn_pass")
+    django = APIClient()
+
+    def into_django(request):
+        resp = django.generic(request.method, request.url.raw_path.decode("ascii"), request.content,
+                              content_type=request.headers.get("content-type", ""),
+                              HTTP_AUTHORIZATION=request.headers["authorization"])
+        return httpx.Response(resp.status_code, content=resp.content, headers={"Content-Type": resp["Content-Type"]})
+
+    return client_module.BatchUploadClient("http://nextseek.test", turn_pass_module.TurnPassAuth(raw),
+                                           transport=httpx.MockTransport(into_django))
+
+
+@pytest.mark.parametrize("sample", [None, "5"])
+def test_the_container_title_resolver_picks_the_bucket_assay_under_a_pass(monkeypatch, sample):
+    """Two same-titled assays in the project, one in an Unpublished study and its paper clone (the studies tool's
+    case), with no sample or a sample both hold: the resolver reads each assay's study and that study's title
+    through the pass, as the held login, and picks the bucket's."""
+    turn, raw = make_turn(login=("seek-user", PASSWORD))
+    seek = _SeekWorld({
+        "/assays/351": _seek_assay(351, 20, samples=["5"]), "/assays/260": _seek_assay(260, 21, samples=["5"]),
+        "/studies/20": _seek_study(20, "Alpha Unpublished"), "/studies/21": _seek_study(21, "Alpha Paper"),
+    })
+    monkeypatch.setattr("requests.Session.request", seek)
+    client = _container_client(monkeypatch, raw)
+    assert client.resolve_assay_title("Alpha", {"Alpha": [260, 351]}, {260, 351}, sample_numeric_id=sample) == 351
+    assert {path for _method, path, _auth in seek.calls} >= {"/studies/20", "/studies/21"}
+    assert {auth for _method, _path, auth in seek.calls} == {basic_auth_header(("seek-user", PASSWORD))["Authorization"]}
