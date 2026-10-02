@@ -168,7 +168,7 @@ _CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
 _REDACTED_ENV_KEYS = frozenset({
     "NEXTSEEK_PASSWORD", "API_PASS", "NEXTSEEK_TURN_PASS", "DMAC_PATH_MAPPINGS",
     # belt-and-suspenders: these must NEVER be in the agent env, but redact if seen.
-    "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
+    "SEEK_PASSWORD", "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
     "MYSQL_DEV_PASSWORD", "GCP_API_KEY", "ANTHROPIC_API_KEY",
 })
 # What a transcript scrub removes: the log keys minus the user-facing path mappings (R5).

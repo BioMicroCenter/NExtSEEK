@@ -67,6 +67,8 @@ def test_scrub_secrets_uses_the_names_the_variant_builder_reads():
         "NEXTSEEK_USERNAME": USER, "NEXTSEEK_PASSWORD": PW, "NEXTSEEK_TURN_PASS": PASS}
     assert cc_engine.scrub_secrets(api_user=None, api_pass=None) == {}
     assert "NEXTSEEK_TURN_PASS" in cc_engine._REDACTED_ENV_KEYS
+    assert "SEEK_PASSWORD" in cc_engine._REDACTED_ENV_KEYS
+    assert "SEEK_PASSWORD" in cc_engine._TRANSCRIPT_SECRET_KEYS
     assert cc_engine._redact_env({"NEXTSEEK_TURN_PASS": PASS})["NEXTSEEK_TURN_PASS"] == "<REDACTED>"
 
 
