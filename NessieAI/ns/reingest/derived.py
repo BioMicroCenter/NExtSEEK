@@ -203,9 +203,9 @@ def compute(
     star: dict[str, float] | None,
     counts: dict[str, float] | None,
     n_annotated_genes: int | None,
-) -> dict[str, float]:
+) -> dict[str, int | float]:
     """Every derived metric whose inputs are present. Missing inputs -> missing keys."""
-    out: dict[str, float] = {}
+    out: dict[str, int | float] = {}
 
     if read_distribution:
         # Pass the four percentages straight through so they end up in

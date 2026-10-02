@@ -333,3 +333,16 @@ def test_sense_antisense_ratio_zero_denominator_is_omitted():
         infer_experiment={"forward": 0.5, "reverse": 0.0}, star=None,
         counts=None, n_annotated_genes=None)
     assert "sense_antisense_ratio" not in out
+
+
+def test_an_integer_count_survives_the_manifest_round_trip():
+    """A count stored as 4763343.0 lands in the workbook as a float; the
+    manifest must keep compute()'s int an int, and a ratio a float."""
+    from NessieAI.ns.reingest import manifest
+
+    record = manifest.SampleRecord(nfcore_sample="A",
+                                   derived={"total_reads": 4763343, "cds_pct": 60.5})
+    again = manifest.SampleRecord.model_validate_json(record.model_dump_json())
+    assert again.derived["total_reads"] == 4763343
+    assert isinstance(again.derived["total_reads"], int)
+    assert isinstance(again.derived["cds_pct"], float)

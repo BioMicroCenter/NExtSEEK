@@ -66,7 +66,9 @@ class SampleRecord(BaseModel):
     strandedness_declared: str | None = None
     strandedness_inferred: str | None = None
     metrics: dict[str, float | str] = Field(default_factory=dict)
-    derived: dict[str, float] = Field(default_factory=dict)
+    # int for a count (STAR's read numbers), float for a ratio or percentage:
+    # a count cast to float lands in the workbook as 4763343.0.
+    derived: dict[str, int | float] = Field(default_factory=dict)
 
 
 class OutputRecord(BaseModel):
