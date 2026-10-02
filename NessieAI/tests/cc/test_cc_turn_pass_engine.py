@@ -8,14 +8,20 @@ import re
 import time
 
 import docker as docker_mod
+import pytest
 from docker.errors import APIError
 
 from NessieAI import paths
-from NessieAI.cc import cc_engine
+from NessieAI.cc import cc_engine, safe_fs
 from NessieAI.tests.cc.test_cc_engine_turn_loop import _FakeContainer, _FakeSock, _install_client, _paths, _run_id
 
 PASS = "T" * 43
 PASSWORD_KEYS = ("NEXTSEEK_PASSWORD", "API_PASS", "SEEK_PASSWORD")
+
+
+@pytest.fixture(autouse=True)
+def _reset_safe_fs(monkeypatch):
+    monkeypatch.setattr(safe_fs, "_AGENT_ROOTS", {})
 
 
 def test_the_agent_env_has_the_pass_and_no_password_even_from_a_hostile_source():
