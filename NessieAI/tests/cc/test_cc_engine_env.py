@@ -230,7 +230,7 @@ def test_agent_env_has_no_shared_cred_keys_or_values():
     hostile = dict(SHARED_CRED_CANARIES)
     hostile["NEXTSEEK_URL"] = "http://127.0.0.1:8000"  # positive-control topology
     env = cc_engine.build_agent_environment(
-        source=hostile, api_user="demo", api_pass="userpw",
+        source=hostile, api_user="demo", turn_pass="userpw",
         path_mappings={"scratch": {"x": "y"}},
         turn_deadline=1_800_000_000.0,
     )
@@ -241,28 +241,28 @@ def test_agent_env_has_no_shared_cred_keys_or_values():
 
 def test_chat_session_id_env_present_when_passed():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={},
+        source={}, api_user="u", turn_pass="p", path_mappings={},
         chat_session_id="abc-123")
     assert env["NEXTSEEK_CHAT_SESSION_ID"] == "abc-123"
 
 
 def test_chat_session_id_absent_when_not_passed():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={})
+        source={}, api_user="u", turn_pass="p", path_mappings={})
     assert "NEXTSEEK_CHAT_SESSION_ID" not in env
 
 
 def test_agent_env_exact_key_set():
-    """OI-3: pin the COMPLETE env key set (no such exact-set test exists today —
-    claim-verified). Any future key addition must consciously edit this list."""
+    """OI-3: pin the COMPLETE env key set. Any future key addition must consciously edit this list. Spec piece 1:
+    NEXTSEEK_TURN_PASS in, NEXTSEEK_PASSWORD and API_PASS out."""
     env = cc_engine.build_agent_environment(
         source={"AWS_REGION": "us-east-1", "NEXTSEEK_INTERNAL_BASE_URL": "http://x:8000"},
-        api_user="u", api_pass="p", path_mappings={"a": 1},
+        api_user="u", turn_pass="p", path_mappings={"a": 1},
         chat_session_id="abc", turn_deadline=1_800_000_000.0)
     assert set(env) == {
         "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BEDROCK_BASE_URL",
         "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_ENABLE_AUTO_MODE",
-        "NEXTSEEK_USERNAME", "API_USER", "NEXTSEEK_PASSWORD", "API_PASS",
+        "NEXTSEEK_USERNAME", "API_USER", "NEXTSEEK_TURN_PASS",
         "AWS_REGION", "NEXTSEEK_BASE_URL", "NEXTSEEK_URL",
         "NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT", "DMAC_PATH_MAPPINGS",
         "NEXTSEEK_CHAT_SESSION_ID", "NEXTSEEK_CC_TURN_DEADLINE_EPOCH",
@@ -282,7 +282,7 @@ def _models():
 
 def test_agent_env_bounds_claude_codes_retries_and_request_time_by_default():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={})
+        source={}, api_user="u", turn_pass="p", path_mappings={})
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
     assert env["API_TIMEOUT_MS"] == "60000"
 
@@ -291,7 +291,7 @@ def test_agent_env_points_the_auto_mode_classifier_at_the_maps_sonnet_id():
     """2.1.282 asks its own default Sonnet id unless told otherwise, and the proxy
     refuses any id it does not allow."""
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={})
+        source={}, api_user="u", turn_pass="p", path_mappings={})
     assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == _models().resolve_cc_classifier_model()
 
 
@@ -299,7 +299,7 @@ def test_agent_env_retry_timeout_and_classifier_are_each_overridable():
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_CC_MAX_RETRIES": "5", "NEXTSEEK_CC_API_TIMEOUT_MS": "90000",
                 "NEXTSEEK_CC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-x"},
-        api_user="u", api_pass="p", path_mappings={})
+        api_user="u", turn_pass="p", path_mappings={})
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "5"
     assert env["API_TIMEOUT_MS"] == "90000"
     assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "us.anthropic.claude-sonnet-x"
@@ -309,7 +309,7 @@ def test_agent_env_retry_timeout_and_classifier_are_each_overridable():
 def test_a_malformed_numeric_override_keeps_the_default(bad):
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_CC_MAX_RETRIES": bad, "NEXTSEEK_CC_API_TIMEOUT_MS": bad},
-        api_user="u", api_pass="p", path_mappings={})
+        api_user="u", turn_pass="p", path_mappings={})
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
     assert env["API_TIMEOUT_MS"] == "60000"
 
@@ -323,7 +323,7 @@ def test_a_classifier_override_that_is_not_a_bedrock_id_falls_back_to_the_map(ba
     with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
         env = cc_engine.build_agent_environment(
             source={"NEXTSEEK_CC_DEFAULT_SONNET_MODEL": bad},
-            api_user="u", api_pass="p", path_mappings={})
+            api_user="u", turn_pass="p", path_mappings={})
     assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == _models().resolve_cc_classifier_model()
     assert "NEXTSEEK_CC_DEFAULT_SONNET_MODEL" in caplog.text
 
@@ -336,21 +336,21 @@ def test_a_request_timeout_under_one_second_keeps_the_default(small, caplog):
     with caplog.at_level(logging.WARNING, logger=cc_engine.logger.name):
         env = cc_engine.build_agent_environment(
             source={"NEXTSEEK_CC_API_TIMEOUT_MS": small},
-            api_user="u", api_pass="p", path_mappings={})
+            api_user="u", turn_pass="p", path_mappings={})
     assert env["API_TIMEOUT_MS"] == "60000"
     assert "NEXTSEEK_CC_API_TIMEOUT_MS" in caplog.text
 
 
 def test_a_request_timeout_of_one_second_or_more_is_used():
     env = cc_engine.build_agent_environment(
-        source={"NEXTSEEK_CC_API_TIMEOUT_MS": "1000"}, api_user="u", api_pass="p",
+        source={"NEXTSEEK_CC_API_TIMEOUT_MS": "1000"}, api_user="u", turn_pass="p",
         path_mappings={})
     assert env["API_TIMEOUT_MS"] == "1000"
 
 
 def test_zero_retries_is_a_valid_override():
     env = cc_engine.build_agent_environment(
-        source={"NEXTSEEK_CC_MAX_RETRIES": "0"}, api_user="u", api_pass="p", path_mappings={})
+        source={"NEXTSEEK_CC_MAX_RETRIES": "0"}, api_user="u", turn_pass="p", path_mappings={})
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "0"
 
 
@@ -362,7 +362,7 @@ def test_a_classifier_id_that_fails_to_resolve_is_left_out_not_raised(monkeypatc
 
     monkeypatch.setattr(_models(), "resolve_cc_classifier_model", boom)
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={})
+        source={}, api_user="u", turn_pass="p", path_mappings={})
     assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in env
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "3"
 
@@ -412,14 +412,14 @@ def test_resume_stays_last_with_a_fallback():
 def test_turn_deadline_env_is_whole_unix_seconds_rounded_down():
     """Rounded DOWN, so the agent never believes it has longer than it does."""
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={},
+        source={}, api_user="u", turn_pass="p", path_mappings={},
         turn_deadline=1_800_000_000.9)
     assert env["NEXTSEEK_CC_TURN_DEADLINE_EPOCH"] == "1800000000"
 
 
 def test_turn_deadline_env_absent_when_not_passed():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={})
+        source={}, api_user="u", turn_pass="p", path_mappings={})
     assert "NEXTSEEK_CC_TURN_DEADLINE_EPOCH" not in env
 
 
@@ -428,7 +428,7 @@ def test_turn_deadline_is_not_read_from_the_source_env():
     value must not stand in for it."""
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_CC_TURN_DEADLINE_EPOCH": "9999999999"},
-        api_user="u", api_pass="p", path_mappings={})
+        api_user="u", turn_pass="p", path_mappings={})
     assert "NEXTSEEK_CC_TURN_DEADLINE_EPOCH" not in env
 
 
@@ -530,7 +530,7 @@ def test_run_cc_turn_threads_session_id_into_container_env(tmp_path, monkeypatch
 
 def test_agent_env_points_at_proxy_and_is_unsigned():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="demo", api_pass="pw", path_mappings={},
+        source={}, api_user="demo", turn_pass="pw", path_mappings={},
     )
     assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
     assert env["CLAUDE_CODE_SKIP_BEDROCK_AUTH"] == "1"
@@ -542,35 +542,36 @@ def test_agent_env_points_at_proxy_and_is_unsigned():
 def test_agent_env_proxy_url_overridable():
     env = cc_engine.build_agent_environment(
         source={"DMAC_BEDROCK_PROXY_URL": "http://dmac-bedrock-proxy:8080"},
-        api_user="d", api_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["ANTHROPIC_BEDROCK_BASE_URL"] == "http://dmac-bedrock-proxy:8080"
 
 
-def test_request_credentials_injected_under_both_name_schemes():
-    # The agent acts as the USER's own login (I-9): API_USER/API_PASS (ChatConfig)
-    # and NEXTSEEK_USERNAME/PASSWORD (entrypoint). The password IS legitimately in
-    # the agent — it is the user's own, not a shared secret.
+def test_the_agent_gets_its_name_and_a_turn_pass_never_a_password():
+    # Spec piece 1: the agent acts as the user through a one-turn pass; the password stays inside Django.
     env = cc_engine.build_agent_environment(
-        source={}, api_user="demo", api_pass="userpw", path_mappings={},
+        source={}, api_user="demo", turn_pass="turnpass", path_mappings={},
     )
     assert env["API_USER"] == env["NEXTSEEK_USERNAME"] == "demo"
-    assert env["API_PASS"] == env["NEXTSEEK_PASSWORD"] == "userpw"
+    assert env["NEXTSEEK_TURN_PASS"] == "turnpass"
+    assert not {"NEXTSEEK_PASSWORD", "API_PASS", "SEEK_PASSWORD"} & set(env)
 
 
 def test_no_credentials_leaves_login_unset():
     env = cc_engine.build_agent_environment(
-        source={}, api_user=None, api_pass=None, path_mappings={},
+        source={}, api_user=None, turn_pass=None, path_mappings={},
     )
     assert "API_USER" not in env and "NEXTSEEK_USERNAME" not in env
+    assert "NEXTSEEK_TURN_PASS" not in env
 
 
 def test_redact_env_masks_secret_keys():
     env = {"NEXTSEEK_PASSWORD": "pw", "API_PASS": "pw", "NEXTSEEK_URL": "u",
-           "DMAC_PATH_MAPPINGS": "{}"}
+           "DMAC_PATH_MAPPINGS": "{}", "NEXTSEEK_TURN_PASS": "tp"}
     red = cc_engine._redact_env(env)
     assert red["NEXTSEEK_PASSWORD"] == "<REDACTED>"
     assert red["API_PASS"] == "<REDACTED>"
+    assert red["NEXTSEEK_TURN_PASS"] == "<REDACTED>"
     assert red["DMAC_PATH_MAPPINGS"] == "<REDACTED>"
     assert red["NEXTSEEK_URL"] == "u"  # non-secret passes through
 
@@ -600,7 +601,7 @@ def test_scrub_secret_bytes_is_noop_without_secrets_and_on_empty():
 def test_loopback_base_url_rewritten_to_nginx_service():
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_BASE_URL": "http://127.0.0.1:8000"},
-        api_user="d", api_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
     assert env["NEXTSEEK_URL"] == "http://nextseek_nginx"
@@ -619,7 +620,7 @@ def test_rewrite_helper_leaves_remote_host():
 
 def test_agent_env_includes_sidecar_host_and_port_defaults():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="d", api_pass="p", path_mappings={},
+        source={}, api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_SIDECAR_HOST"] == "nextseek-sidecar"
     assert env["NEXTSEEK_SIDECAR_PORT"] == "8765"
@@ -629,7 +630,7 @@ def test_agent_env_sidecar_host_and_port_overridable():
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_SIDECAR_HOST": "other-sidecar-host",
                 "NEXTSEEK_SIDECAR_PORT": "9999"},
-        api_user="d", api_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_SIDECAR_HOST"] == "other-sidecar-host"
     assert env["NEXTSEEK_SIDECAR_PORT"] == "9999"
@@ -736,7 +737,7 @@ def test_internal_base_url_preferred_for_agent_env():
             "NEXTSEEK_INTERNAL_BASE_URL": "http://127.0.0.1:8000",
             "NEXTSEEK_BASE_URL": "https://nextseek-dev.mit.edu",
         },
-        api_user="d", api_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={},
     )
     # loopback internal URL is rewritten to the in-network nginx route
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
@@ -747,7 +748,7 @@ def test_bumped_host_port_loopback_still_rewritten():
     """A port-bumped greenfield (host :8001) must converge on nginx too."""
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_BASE_URL": "http://127.0.0.1:8001"},
-        api_user="d", api_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={},
     )
     assert env["NEXTSEEK_BASE_URL"] == "http://nextseek_nginx"
 

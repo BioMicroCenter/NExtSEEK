@@ -257,7 +257,7 @@ CC_WIRING_PROBE = (
     "from NessieAI.cc import cc_engine\n"
     "from dmac_assistant.router import models\n"
     "cmd = cc_engine._build_command(model_id=models.resolve_cc_model())\n"
-    "env = cc_engine.build_agent_environment(api_user=None, api_pass=None, path_mappings={})\n"
+    "env = cc_engine.build_agent_environment(api_user=None, turn_pass=None, path_mappings={})\n"
     "def flag(n):\n"
     "    return cmd[cmd.index(n) + 1] if n in cmd else None\n"
     "keys = ('CLAUDE_CODE_MAX_RETRIES', 'API_TIMEOUT_MS', 'ANTHROPIC_DEFAULT_SONNET_MODEL')\n"

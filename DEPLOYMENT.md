@@ -629,13 +629,15 @@ The per-turn CC agent container is sandboxed. These invariants are enforced
 by tests and were live-verified; any deploy that would weaken one is wrong by
 definition:
 
-1. **Zero shared credentials in the agent env.** The agent gets only:
-   Bedrock-via-proxy pointers, per-request SEEK user credentials, sidecar
-   host/port, non-secret path mappings, the turn's stop time
+1. **Zero shared credentials in the agent env, and no user password.** The agent gets only:
+   Bedrock-via-proxy pointers, the user's NExtSEEK name and a one-turn pass
+   (`NEXTSEEK_TURN_PASS`: Django holds the login for the turn and revokes the pass when the turn ends),
+   sidecar host/port, non-secret path mappings, the turn's stop time
    (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number), and three non-secret model-call
    settings: `CLAUDE_CODE_MAX_RETRIES`, `API_TIMEOUT_MS` and
    `ANTHROPIC_DEFAULT_SONNET_MODEL` (a model id). The 16 forbidden shared-cred keys
-   (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) are enumerated in
+   (AWS/Bedrock token, Neo4j, MySQL, GCP, Anthropic) and the three user-password keys
+   (`NEXTSEEK_PASSWORD`, `API_PASS`, `SEEK_PASSWORD`) are enumerated in
    `NessieAI/tests/cc/validate_cc_acceptance.py`; the env
    builder is `NessieAI/cc/cc_engine.py` (`build_agent_environment`), the single source
    of truth.

@@ -74,7 +74,7 @@ def test_what_the_user_sees_no_longer_shows_the_template_as_the_answer():
 
 
 def test_the_path_rule_names_a_variable_the_agent_is_given():
-    env = cc_engine.build_agent_environment(source={}, api_user="u", api_pass="p",
+    env = cc_engine.build_agent_environment(source={}, api_user="u", turn_pass="p",
                                             path_mappings={})
     assert "DMAC_PATH_MAPPINGS" in env
 

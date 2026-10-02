@@ -404,7 +404,7 @@ def build_agent_environment(
     *,
     source: Mapping[str, str] | None = None,
     api_user: str | None,
-    api_pass: str | None,
+    turn_pass: str | None,
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
     turn_deadline: float | None = None,
@@ -416,7 +416,8 @@ def build_agent_environment(
     separate inline dict (audit B3). The agent holds ZERO AWS creds and NONE of
     the 16 shared backend credentials (NEO4J_* / MYSQL_* / GCP_API_KEY): it
     reaches Bedrock only through the auth-proxy, and NExtSEEK data only through
-    the authenticated REST API as the user. ``source`` is the Django/process env
+    the authenticated REST API as the user, with the one-turn pass Django issued for this
+    turn (``turn_pass``); it never holds the user's password. ``source`` is the Django/process env
     to read non-secret topology from (defaults to os.environ; the canary passes a
     hostile source to prove nothing leaks). ``turn_deadline`` is the Unix time by
     which the turn will have been stopped; only the turn driver knows it, so it
@@ -431,14 +432,14 @@ def build_agent_environment(
         "CLAUDE_CODE_SKIP_BEDROCK_AUTH": "1",
         "CLAUDE_CODE_ENABLE_AUTO_MODE": "1",
     }
-    # I-9: the agent acts as the USER's OWN login, injected per-request (never a
-    # shared env secret). Entrypoint maps NEXTSEEK_* -> API_USER/API_PASS.
+    # I-9, spec piece 1: the agent acts as the user through the one-turn pass Django issued for this turn
+    # (sent as `Authorization: NextseekTurn`, answered only by TurnPassAuthentication). It never holds the user's
+    # password. The username is not secret: messages and the staging hash use it.
     if api_user:
         env["NEXTSEEK_USERNAME"] = api_user
         env["API_USER"] = api_user
-    if api_pass:
-        env["NEXTSEEK_PASSWORD"] = api_pass
-        env["API_PASS"] = api_pass
+    if turn_pass:
+        env["NEXTSEEK_TURN_PASS"] = turn_pass
     # Non-secret topology the agent legitimately needs.
     region = src.get("AWS_REGION") or src.get("AWS_DEFAULT_REGION")
     if region:
@@ -1325,6 +1326,9 @@ def run_cc_turn(
     image: str | None = None,
     api_user: str | None = None,
     api_pass: str | None = None,
+    turn_pass: str | None = None,
+    on_deadline: Callable[[float], None] | None = None,
+    on_turn_end: Callable[[], None] | None = None,
     max_budget_usd: float = _DEFAULT_MAX_BUDGET_USD,
     turn_timeout: int = _DEFAULT_TURN_TIMEOUT,
     chat_session: Any | None = None,
@@ -1336,6 +1340,13 @@ def run_cc_turn(
 
     Always terminates with exactly one ``query_complete`` (structured ``artifacts``
     channel for deliverables, ``cc_raw_files`` for scratch/raw/) or ``query_error``.
+
+    ``api_user``/``api_pass`` are the login Django holds for the turn: the staging sweep's name and the scrub's
+    secrets. The password never enters the container; ``turn_pass`` does (spec piece 1). ``on_deadline(epoch)`` is
+    told the watchdog deadline once, before the spawn; ``on_turn_end()`` is called at most once, as soon as the
+    container has stopped: right after ``_stop_and_confirm_exit`` on the normal and timed-out paths, else in the
+    ``finally``, always before the transcript capture and the scrub (the turn driver revokes the pass there). A
+    failure in either is logged and never fails or shortens the turn's clean-up.
     """
     import docker
     from docker.errors import APIError, NotFound
@@ -1419,19 +1430,25 @@ def run_cc_turn(
 
     path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
                                       run_scratch_mnt=dirs.run_scratch_mnt)
-    # OI-3: the COMPLETE agent env from the single builder — zero AWS/backend
-    # creds; Bedrock only via the auth-proxy, NExtSEEK only via the user's login.
+    # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
+    # it is never later than the watchdog's, which starts after the spawn.
+    turn_deadline = time.time() + turn_timeout
+    if on_deadline is not None:
+        try:
+            on_deadline(turn_deadline)
+        except Exception:  # noqa: BLE001 - the pass keeps its provisional expiry; the turn goes on
+            logger.warning("cc: recording the turn deadline failed (run_id=%s)", run_id, exc_info=True)
+    # OI-3: the COMPLETE agent env from the single builder: zero AWS/backend creds, no password; Bedrock only via
+    # the auth-proxy, NExtSEEK only with the turn pass.
     environment = build_agent_environment(
-        source=os.environ, api_user=api_user, api_pass=api_pass,
+        source=os.environ, api_user=api_user, turn_pass=turn_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
-        # 13b.2: from THIS turn's clamped timeout, and taken before the spawn, so
-        # it is never later than the watchdog's, which starts after the spawn.
-        turn_deadline=time.time() + turn_timeout,
+        turn_deadline=turn_deadline,
     )
-    # Spec piece 1: every scrub below takes its secrets from the login Django holds for this turn, never from the
-    # container env, which holds no password.
-    scrub_env = scrub_secrets(api_user=api_user, api_pass=api_pass)
+    # Spec piece 1: every scrub below takes its secrets from the login Django holds for this turn and the pass,
+    # never from the container env, which holds no password.
+    scrub_env = scrub_secrets(api_user=api_user, api_pass=api_pass, turn_pass=turn_pass)
 
     command = _build_command(
         model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
@@ -1463,6 +1480,20 @@ def run_cc_turn(
     # the try and an in-try assignment would make the finally raise
     # UnboundLocalError and mask the real failure.
     transcript_persisted = False
+    # Spec piece 1: the turn pass dies with the container. _end_turn runs the driver's callback at most once: right
+    # after the container stops on the normal path, else from the finally. start_task's own finally revokes again
+    # (idempotent) for the returns that never reach this function.
+    turn_ended = False
+
+    def _end_turn() -> None:
+        nonlocal turn_ended
+        if turn_ended or on_turn_end is None:
+            return
+        turn_ended = True
+        try:
+            on_turn_end()
+        except Exception:  # noqa: BLE001 - never skip the publish, the capture or the scrub
+            logger.warning("cc: revoking the turn pass failed (run_id=%s)", run_id, exc_info=True)
 
     # The --model id, so the turn record can name the model that answered even when the
     # result frame carries no modelUsage.
@@ -1547,6 +1578,9 @@ def run_cc_turn(
         if not agent_gone:
             logger.error("cc: could not confirm the agent container exited (run_id=%s); "
                          "this turn's files are not published", run_id)
+        # Spec piece 1: the container has stopped (or could not be confirmed gone, when the pass matters most):
+        # revoke the pass before the sweep and the publish.
+        _end_turn()
 
         # G7-11 (Task 14): same-turn sidecar staging sweep. Mirrors upstream
         # ws.py:276-293 — sweep this user's ``.complete``-marked staging dirs
@@ -1758,6 +1792,9 @@ def run_cc_turn(
                 container.remove(force=True)
             except Exception:
                 pass
+        # The paths that never reached the stop above (a failed spawn or attach, a docker error): revoke now, before
+        # the #68 capture and the scrub below. A no-op when the try already did.
+        _end_turn()
         # #68: the fallback capture, for a turn that did NOT reach the
         # ``query_complete`` gate above — a ``query_error`` result frame, the
         # watchdog timeout (which returns before the gate), or either exception

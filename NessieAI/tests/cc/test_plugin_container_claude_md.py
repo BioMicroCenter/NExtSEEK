@@ -158,7 +158,7 @@ def test_container_claude_md_names_no_dmac_switch_the_agent_never_gets():
     """Every DMAC_* variable the file names is one build_agent_environment
     sets. The agent never gets DMAC_ROUTER_ENABLED or DMAC_RUNTIME_MODE."""
     env = _engine().build_agent_environment(
-        source={}, api_user="u", api_pass="p", path_mappings={}, chat_session_id="c",
+        source={}, api_user="u", turn_pass="p", path_mappings={}, chat_session_id="c",
     )
     named = set(re.findall(r"\bDMAC_[A-Z0-9_]+\b", CLAUDE_MD.read_text()))
     assert named - set(env) == set()
