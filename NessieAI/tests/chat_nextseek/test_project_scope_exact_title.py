@@ -86,8 +86,43 @@ def test_an_investigation_name_reaches_the_investigation_title_this_graph_holds(
 
 
 def test_a_second_investigation_name_with_another_box_title():
-    hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2], _levels(inv=("Epsilon",)))
+    """Epsilon is also a project row's name here, so it can be the owner's: used, not the row's own scope."""
+    epsilon_project = {"name": "Epsilon Group", "alternative_names": ["Epsilon"], "entity_type": "project"}
+    hits = gctx.container_titles_for(["Delta Trial"], [INV_ROW_2, epsilon_project], _levels(inv=("Epsilon",)))
     assert hits == {"Delta Trial": ("investigation", "Epsilon", False)}
+
+
+# --- A4: an alias only one investigation row holds, and no project row, is that investigation's own scope -------------
+
+
+def test_an_alias_only_one_investigation_row_holds_is_its_own_scope():
+    """The counter-example shape: one investigation row, one alias, no project row holding it, one title."""
+    row = {"name": "Alpha Study", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+           "parent_project": "Alpha Programme"}
+    hits = gctx.container_titles_for(["Alpha Study"], [row], _levels(inv=("Alpha Group",), proj=("Alpha Programme",)))
+    assert hits == {"Alpha Study": ("investigation", "Alpha Group", True)}
+
+
+def test_another_investigation_and_alias_is_its_own_scope_too():
+    row = {"name": "Beta Cohort", "alternative_names": ["Beta Superfund"], "entity_type": "investigation",
+           "parent_project": "Beta Programme"}
+    hits = gctx.container_titles_for(["Beta Cohort"], [row], _levels(inv=("Beta Superfund",)))
+    assert hits == {"Beta Cohort": ("investigation", "Beta Superfund", True)}
+
+
+def test_an_alias_two_investigation_rows_share_stays_broader():
+    rows = [{"name": "Alpha Study", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+             "parent_project": "Alpha Programme"},
+            {"name": "Alpha Study Two", "alternative_names": ["Alpha Group"], "entity_type": "investigation",
+             "parent_project": "Alpha Programme"}]
+    hits = gctx.container_titles_for(["Alpha Study"], rows, _levels(inv=("Alpha Group",)))
+    assert hits == {"Alpha Study": ("investigation", "Alpha Group", False)}
+
+
+def test_the_alias_scope_reaches_the_reply_check():
+    """The title is recorded as the name's own, so a query on it leaves no not-applied caveat."""
+    scope = _inv_scope({"Alpha Cohort": "Gamma Lab"}, "Gamma Lab")
+    assert not scope.not_applied
 
 
 def test_an_investigation_titled_with_the_rows_own_name_is_its_own_scope():
