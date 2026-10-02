@@ -78,8 +78,11 @@ def test_no_new_migrations():                        # Global Constraint
         "nextseek_api/migrations/0022_turn_ledger_query_task.py",
         "nextseek_api/migrations/0023_graph_sync_outbox_failing_since.py",
         "nextseek_api/migrations/0024_sampleshare.py",
+        # Pin updated for the Container-CC turn pass: 0025 creates the one CCTurn table and its indexes, nothing else; _cc_turn_heal.py is its heal helper.
+        "nextseek_api/migrations/0025_cc_turn.py",
         "nextseek_api/migrations/__init__.py",
         "nextseek_api/migrations/_cc_transcript_heal.py",
+        "nextseek_api/migrations/_cc_turn_heal.py",
         "nextseek_api/migrations/_chat_log_normalize.py",
         "nextseek_api/migrations/_turn_ledger_heal.py",
     ]

@@ -95,12 +95,20 @@ class TurnPassAuthentication(BaseAuthentication):
 
     @staticmethod
     def _live(turn) -> bool:
-        """Not revoked, not expired, its task still running as its user, its user active."""
+        """Not revoked, not expired, its task still running as its user, its user active, its login still held."""
         if turn.revoked_at is not None or turn.expires_at is None or turn.expires_at <= timezone.now():
             return False
         if turn.task.status != "running" or turn.task.user_id != turn.user_id:
             return False
-        return bool(turn.user.is_active)
+        if not turn.user.is_active:
+            return False
+        from nextseek_api.assistant import turn_pass
+
+        try:
+            turn_pass.login_for(turn)
+        except turn_pass.TurnPassError:
+            return False  # a wiped or undecryptable login: the pass is dead on every route
+        return True
 
     def authenticate_header(self, request) -> str:
         return self.keyword

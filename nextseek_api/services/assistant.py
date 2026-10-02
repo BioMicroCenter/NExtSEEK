@@ -272,7 +272,7 @@ def _granular_chat_config(request, req) -> ChatConfig:
     chat_config = _chat_config_for(request, req)
     api_user, api_pass = _request_login(request)
     prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-    if prod_config is not None and chat_config is prod_config:
+    if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
         if chat_config.API_USER and chat_config.API_PASS:
             api_user = chat_config.API_USER
             api_pass = chat_config.API_PASS
@@ -636,7 +636,7 @@ class AssistantViewSet(viewsets.ViewSet):
         # prod NExtSEEK with prod credentials — the local session user (e.g.
         # "demo") doesn't exist on prod and would otherwise produce a 401.
         prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if prod_config is not None and chat_config is prod_config:
+        if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
             if chat_config.API_USER and chat_config.API_PASS:
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS
@@ -764,7 +764,7 @@ class AssistantViewSet(viewsets.ViewSet):
         # prod NExtSEEK with prod credentials — the local session user (e.g.
         # "demo") doesn't exist on prod and would otherwise produce a 401.
         prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if prod_config is not None and chat_config is prod_config:
+        if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
             if chat_config.API_USER and chat_config.API_PASS:
                 api_user = chat_config.API_USER
                 api_pass = chat_config.API_PASS

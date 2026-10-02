@@ -160,8 +160,8 @@ def test_a_non_admin_pass_search_is_scoped_by_the_held_login():
 
 
 @override_settings(NEXTSEEK_CHAT_CONFIG=_Config(), NEXTSEEK_CHAT_CONFIG_PROD=None)
-@pytest.mark.parametrize("path", ["query", "query/async"])
-def test_a_wiped_pass_cannot_start_a_turn_as_the_service_login(monkeypatch, path):
+def test_a_wiped_pass_cannot_start_a_turn_as_the_service_login(monkeypatch):
+    """A session_id gets the request past the allow table, so the refusal tested here is the login's."""
     monkeypatch.setattr("nextseek_api.services.assistant.UserInParticipatingProject.has_permission",
                         lambda self, request, view: True)
     started = []
@@ -169,10 +169,49 @@ def test_a_wiped_pass_cannot_start_a_turn_as_the_service_login(monkeypatch, path
                         lambda *a, **k: started.append(k) or SimpleNamespace(start=lambda: None))
     turn, raw = make_turn()
     _wipe_login(turn)
-    resp = APIClient().post(f"{A}/{path}/", {"query": "how many", "mode": "plan"}, format="json",
-                            **pass_header(raw))
-    assert resp.status_code in (401, 403), resp.content  # the pass layer or the view refuses; never a turn
+    before = QueryTask.objects.count()
+    resp = APIClient().post(f"{A}/query/async/",
+                            {"query": "how many", "mode": "plan", "session_id": str(turn.chat_id)},
+                            format="json", **pass_header(raw))
+    assert resp.status_code == 401, resp.content
+    assert QueryTask.objects.count() == before
     assert started == []
+
+
+def test_a_wiped_pass_gets_the_auth_failed_envelope_on_an_op_route():
+    turn, raw = make_turn()
+    _wipe_login(turn)
+    resp = APIClient().post(f"{A}/api-read/", {}, format="json", **pass_header(raw))
+    assert resp.status_code == 401, resp.content
+    assert resp.json()["code"] == "AUTH_FAILED"
+
+
+@override_settings(NEXTSEEK_CHAT_CONFIG=_Config(), NEXTSEEK_CHAT_CONFIG_PROD=None)
+def test_a_wiped_pass_has_no_login_even_with_a_session():
+    from nextseek_api.services.assistant import _granular_chat_config, _request_login
+
+    turn, _ = make_turn()
+    _wipe_login(turn)
+    request = pass_request(turn)
+    request.session = {"username": "someone-else", "password": "their-password"}
+    assert _request_login(request) == (None, None)
+    with patch("nextseek_api.services.assistant.plain_scope", lambda user: None):
+        cfg = _granular_chat_config(request, SimpleNamespace(use_prod=False))
+    assert (cfg.API_USER, cfg.API_PASS) == ("", "")
+
+
+@override_settings(NEXTSEEK_CHAT_CONFIG=_Config(), NEXTSEEK_CHAT_CONFIG_PROD=SimpleNamespace(
+    API_USER="prod-service", API_PASS="prod-pw"))
+def test_a_pass_never_takes_the_prod_credentials(monkeypatch):
+    """Gated by not-a-pass, not by the config being absent: even if the pass's config were the prod one."""
+    from django.conf import settings
+    from nextseek_api.services import assistant
+
+    monkeypatch.setattr(assistant, "plain_scope", lambda user: None)
+    monkeypatch.setattr(assistant, "_chat_config_for", lambda request, req: settings.NEXTSEEK_CHAT_CONFIG_PROD)
+    turn, _ = make_turn(login=("op-user", PASSWORD))
+    cfg = assistant._granular_chat_config(pass_request(turn), SimpleNamespace(use_prod=False))
+    assert (cfg.API_USER, cfg.API_PASS) == ("op-user", PASSWORD)
 
 
 def test_a_password_with_awkward_characters_survives_the_basic_header():
@@ -196,7 +235,6 @@ def test_query_async_itself_refuses_a_pass_with_no_login(monkeypatch):
     before = QueryTask.objects.count()
     request = pass_request(turn)
     request.data = {"query": "x", "mode": "plan"}
-    resp = AssistantViewSet().query_async.__func__(AssistantViewSet(), request) \
-        if hasattr(AssistantViewSet().query_async, "__func__") else None
+    resp = AssistantViewSet().query_async(request)
     assert resp.status_code == 401
     assert started == [] and QueryTask.objects.count() == before
