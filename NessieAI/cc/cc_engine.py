@@ -160,14 +160,19 @@ _USER_ID_RE = re.compile(r"^[A-Za-z0-9._@+-]{1,64}$")
 _CONTAINER_NAME_SAFE_RE = re.compile(r"^[0-9a-f-]{1,64}$")
 
 # I-14: keys whose values must never reach a log line. After OI-3 the agent env
-# holds no AWS/backend creds; the per-request NExtSEEK password is the remaining
-# secret. DMAC_PATH_MAPPINGS encodes host layout (not a credential, still redact).
+# holds no AWS/backend creds, and after the turn pass (spec piece 1) no password
+# either: its one secret is NEXTSEEK_TURN_PASS. The password keys stay listed
+# because the transcript scrub's secrets (scrub_secrets) are keyed by these names.
+# DMAC_PATH_MAPPINGS encodes host layout (not a credential): log lines still mask
+# it, transcripts do not (operator ruling R5, _TRANSCRIPT_SECRET_KEYS).
 _REDACTED_ENV_KEYS = frozenset({
-    "NEXTSEEK_PASSWORD", "API_PASS", "DMAC_PATH_MAPPINGS",
+    "NEXTSEEK_PASSWORD", "API_PASS", "NEXTSEEK_TURN_PASS", "DMAC_PATH_MAPPINGS",
     # belt-and-suspenders: these must NEVER be in the agent env, but redact if seen.
     "AWS_BEARER_TOKEN_BEDROCK", "NEO4J_PASSWORD", "MYSQL_PASSWORD",
     "MYSQL_DEV_PASSWORD", "GCP_API_KEY", "ANTHROPIC_API_KEY",
 })
+# What a transcript scrub removes: the log keys minus the user-facing path mappings (R5).
+_TRANSCRIPT_SECRET_KEYS = _REDACTED_ENV_KEYS - {"DMAC_PATH_MAPPINGS"}
 
 # I-10 (audit checklist 2): auto mode with a classifier gating each tool call —
 # NOT ``--dangerously-skip-permissions``. Model + caps + $defaults-first
@@ -575,7 +580,7 @@ def _secret_variants(environment: Mapping[str, str]) -> list[bytes]:
     transform, which is a moving part inside a security-critical function bought
     for no known emitter).
     """
-    secrets = {v for k in _REDACTED_ENV_KEYS if (v := environment.get(k))}
+    secrets = {v for k in _TRANSCRIPT_SECRET_KEYS if (v := environment.get(k))}
     # Not secrets themselves — only the left half of the Basic-auth pair.
     users = {u for k in ("NEXTSEEK_USERNAME", "API_USER") if (u := environment.get(k))}
     variants: set[bytes] = set()
@@ -620,6 +625,32 @@ def transcript_scrubber(environment: Mapping[str, str]) -> Callable[[bytes], byt
     """Bind ``environment`` to a ``bytes -> bytes`` scrub for read/copy points
     that hold credentials but not the whole agent env (memory staging)."""
     return lambda raw: _scrub_secret_bytes(raw, environment)
+
+
+#: The names under which a scrub is given the user's password. A scrub given neither never writes the clean
+#: watermark (#76): it cannot vouch for the absence of a password it was never told.
+_PASSWORD_KEYS = ("NEXTSEEK_PASSWORD", "API_PASS")
+
+
+def scrub_secrets(*, api_user: str | None, api_pass: str | None, turn_pass: str | None = None) -> dict[str, str]:
+    """The secrets a transcript scrub removes: the login Django holds for this turn, and the turn pass.
+
+    Keyed by the env names ``_secret_variants`` reads, so the variant builder is unchanged. Built from what Django
+    holds, never from the agent's container env, which no longer carries the password (spec piece 1): a scrub fed
+    from that env would find nothing and watermark a transcript that still holds a password as clean.
+    """
+    secrets: dict[str, str] = {}
+    if api_user:
+        secrets["NEXTSEEK_USERNAME"] = api_user
+    if api_pass:
+        secrets["NEXTSEEK_PASSWORD"] = api_pass
+    if turn_pass:
+        secrets["NEXTSEEK_TURN_PASS"] = turn_pass
+    return secrets
+
+
+def _holds_password(environment: Mapping[str, str]) -> bool:
+    return any(environment.get(key) for key in _PASSWORD_KEYS)
 
 
 class ScrubReport(NamedTuple):
@@ -848,6 +879,12 @@ def scrub_transcript_store(
             continue
         rewritten += 1
         verified[key] = _transcript_digest(clean)
+    if not _holds_password(environment):
+        # A scrub given no password cannot vouch that none is left: record nothing, so cc_sweep keeps skipping
+        # these files until a turn with the user's login scrubs them (spec piece 1).
+        logger.info("cc #76: the scrub of %s had no password to look for; no clean watermark written",
+                    cc_state_dir)
+        return ScrubReport(rewritten=rewritten, skipped=skipped)
     try:
         _write_scrub_manifest(cc_state_dir, verified)
     except OSError as exc:
@@ -1392,6 +1429,9 @@ def run_cc_turn(
         # it is never later than the watchdog's, which starts after the spawn.
         turn_deadline=time.time() + turn_timeout,
     )
+    # Spec piece 1: every scrub below takes its secrets from the login Django holds for this turn, never from the
+    # container env, which holds no password.
+    scrub_env = scrub_secrets(api_user=api_user, api_pass=api_pass)
 
     command = _build_command(
         model_id=model_id, session_id=effective_session_id, max_budget_usd=max_budget_usd,
@@ -1626,7 +1666,7 @@ def run_cc_turn(
                 dirs.cc_state_mnt,
                 turn_start=translator._turn_start_ts,
                 prior_lines=pre_turn_lines,
-                environment=environment,
+                environment=scrub_env,
             )
             if captured.turn:
                 # The SCRUBBED per-TURN slice (not shutil.copy2 of the raw file):
@@ -1774,7 +1814,7 @@ def run_cc_turn(
                     dirs.cc_state_mnt,
                     turn_start=translator._turn_start_ts,
                     prior_lines=pre_turn_lines,
-                    environment=environment,
+                    environment=scrub_env,
                 )
                 if not fallback.turn:
                     # Every outcome of this block logs, including the two that
@@ -1826,7 +1866,7 @@ def run_cc_turn(
         try:
             if dirs.cc_state_mnt:
                 current = Path(dirs.cc_state_mnt)
-                report = scrub_transcript_store(current, environment)
+                report = scrub_transcript_store(current, scrub_env)
                 # #76: and every OTHER session store this user owns. This turn
                 # holds the only thing that can clean them — the user's own
                 # credential — and a session whose own turn died before this
@@ -1841,7 +1881,7 @@ def run_cc_turn(
                 # latency, but it does hold the turn's thread. See the
                 # scrub_sibling_transcript_stores docstring for the trade.
                 siblings = scrub_sibling_transcript_stores(
-                    current.parent, environment, exclude=current)
+                    current.parent, scrub_env, exclude=current)
                 total_skipped = report.skipped + siblings.skipped
                 if total_skipped:
                     total_files = (total_skipped + report.rewritten

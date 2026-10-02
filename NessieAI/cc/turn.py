@@ -602,11 +602,8 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # those bytes (to a third-party model / to a later agent
                     # container), and the engine's in-place source scrub
                     # covers neither for a session that never runs again.
-                    transcript_scrub = cc_engine.transcript_scrubber({
-                        "NEXTSEEK_USERNAME": user_api_user or "",
-                        "NEXTSEEK_PASSWORD": user_api_pass or "",
-                        "API_PASS": user_api_pass or "",
-                    })
+                    transcript_scrub = cc_engine.transcript_scrubber(
+                        cc_engine.scrub_secrets(api_user=user_api_user, api_pass=user_api_pass))
                     metas = _session_metas(
                         request.user, cc_state_key, paths, mem_cfg, project_dirname)
                     tgt = cc_memory.select_sync_target(metas, current_id=cc_state_key)
