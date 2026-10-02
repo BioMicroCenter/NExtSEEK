@@ -278,7 +278,7 @@ That is lineage: use graph_query, which checks each required descendant type dir
 Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use graph_query: numeric and date attributes are stored typed on the graph, so the comparison runs inside the query. Never reduce the comparison to a keyword search on the field name.
 
 9. Is the request for something only a REST endpoint provides: catalog records, registered user accounts, files, a metadata export of samples named by UID, or the lineage tree view of one UID?
-If yes, use new_search and pick the most specific endpoint from the catalog. Sample searches by type, keyword, attribute, UID or assay were answered at step 6.
+If yes, use new_search and pick the most specific endpoint from the catalog. Sample searches by type, keyword, attribute, UID or assay were answered at step 6. A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, a value type) is about the Attribute catalog on the graph: use graph_query. The sample type list endpoint only lists the types.
 
 9b. Does the request name an organization, project, investigation or study you do not recognise?
 That is not grounds for unsupported. Route graph_query: the graph agent is given the live

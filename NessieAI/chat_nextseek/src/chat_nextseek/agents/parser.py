@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import functools
 import json
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -716,6 +718,36 @@ def _route_retired_sample_search(
     return plan
 
 
+#: The sample type list endpoint is found by its catalog category, never by its path.
+SAMPLETYPE_LIST_CATEGORY = "sampletype_list"
+#: A question SHAPE, not a wording: it asks WHICH (or WHAT) attributes, fields or columns of the sample types have
+#: some property. That is the Attribute catalog on the graph; the list endpoint only lists the types.
+_WHICH_ATTRIBUTES_RE = re.compile(r"\b(which|what)\b[^?.]*\b(attributes?|fields?|columns?)\b", re.IGNORECASE)
+_SAMPLE_WORD_RE = re.compile(r"\bsamples?\b", re.IGNORECASE)
+ATTRIBUTE_CATALOG_NOTE = "sent to graph_query: which attributes of the sample types have a property is the graph's Attribute catalog"
+
+
+@functools.lru_cache(maxsize=1)
+def _sampletype_list_paths() -> frozenset[str]:
+    """Paths of the catalog entries whose category is the sample type list."""
+    rows = json.loads((Path(__file__).resolve().parent.parent / "context" / "min_api_endpoints_enriched.json").read_text(encoding="utf-8"))
+    return frozenset(r["path"] for r in rows if r.get("category") == SAMPLETYPE_LIST_CATEGORY)
+
+
+def _route_attribute_question(user_query: str, plan: ParserPlan) -> ParserPlan:
+    """A new_search on the sample type list that asks which attributes have a property becomes graph_query."""
+    if (
+        plan.mode == "new_search"
+        and plan.target_endpoint in _sampletype_list_paths()
+        and _WHICH_ATTRIBUTES_RE.search(user_query)
+        and _SAMPLE_WORD_RE.search(user_query)
+    ):
+        print(f"[DEBUG][PARSER] {ATTRIBUTE_CATALOG_NOTE} (endpoint={plan.target_endpoint!r})")
+        note = ((plan.notes + " | ") if plan.notes else "") + ATTRIBUTE_CATALOG_NOTE
+        return plan.model_copy(update={"mode": "graph_query", "target_endpoint": None, "notes": note})
+    return plan
+
+
 #: Modes the parser may emit that the orchestrator dispatches under another name.
 #: ``schemas/router.py`` has documented ``memory_lookup`` as an alias of
 #: ``ask_about_last_results`` since it was added, and nothing ever performed the
@@ -771,6 +803,7 @@ def _apply_parser_guardrails(
             report_type=None,
         )
     plan = _route_retired_sample_search(session, plan)
+    plan = _route_attribute_question(user_query, plan)
     return _force_parser_mode(plan, force_mode)
 
 
