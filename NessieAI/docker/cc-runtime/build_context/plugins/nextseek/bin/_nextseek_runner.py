@@ -95,10 +95,11 @@ def _dispatch_parse(args):
 
 def _make_client():  # pragma: no cover
     import _assistant_client as ac  # pragma: no cover
+    import _turn_pass as tp  # pragma: no cover
     return ac.AssistantClient(  # pragma: no cover
         base_url=os.environ["NEXTSEEK_URL"],  # pragma: no cover
         assistant_prefix=os.environ.get("NEXTSEEK_ASSISTANT_PREFIX", "nextseek_api/assistant"),  # pragma: no cover
-        auth=(_api_user(), _api_pass()),  # pragma: no cover
+        auth=tp.TurnPassAuth(tp.turn_pass_from_env()),  # pragma: no cover
     )  # pragma: no cover
 
 
@@ -184,7 +185,10 @@ def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dic
 
 
 def _dispatch_plan(args):
-    """multi_parser + planner advisor via the assistant viewset (plan mode)."""
+    """multi_parser + planner advisor via the assistant viewset (plan mode), in the live chat session.
+
+    The chat session id is required: the server accepts a turn pass on query/async only for this turn's own chat.
+    """
     if _dry_run():  # pragma: no branch
         return {  # pragma: no cover
             "plan": [],
@@ -194,7 +198,10 @@ def _dispatch_plan(args):
             "skipped_steps": [],
             "recommended_next_actions": [],
         }
-    return _run_viewset(args.query, mode="plan")  # pragma: no cover
+    session_id = os.environ.get("NEXTSEEK_CHAT_SESSION_ID")
+    if not session_id:
+        _err("CONFIG_MISSING", "NEXTSEEK_CHAT_SESSION_ID not set", 2)
+    return _run_viewset(args.query, mode="plan", session_id=session_id)  # pragma: no cover
 
 
 def _dispatch_api_read(args):
@@ -488,6 +495,8 @@ def _api_user() -> str:  # pragma: no cover
     return os.environ.get("API_USER", "")  # pragma: no cover
 
 
+# The sidecar road's frame only (ns_login), until plan 03 moves those ops to the direct road with the turn pass.
+# The container holds no password any more, so this is empty.
 def _api_pass() -> str:  # pragma: no cover
     return os.environ.get("API_PASS", "")  # pragma: no cover
 
@@ -593,8 +602,9 @@ def main() -> None:
     # exercised, so we skip the check -- matching old runner behavior where
     # _load_config was only called outside the dry-run branch.
     if not _dry_run():
-        if not os.environ.get("API_USER") or not os.environ.get("API_PASS"):
-            _err("CONFIG_MISSING", "API_USER / API_PASS not set", 2)
+        import _turn_pass as tp
+        if not tp.turn_pass_from_env():
+            _err("CONFIG_MISSING", "NEXTSEEK_TURN_PASS not set", 2)
 
     try:
         result = _DISPATCH[args.agent](args)

@@ -2,7 +2,7 @@
 # DMAC Assistant container entrypoint.
 #
 # Responsibilities:
-#   1. Bridge NEXTSEEK_* env vars to chat_nextseek's API_USER/API_PASS names.
+#   1. Bridge NEXTSEEK_USERNAME to chat_nextseek's API_USER name (the container holds no password).
 #   2. Rebuild ~/.claude from the image: delete everything a turn left there except the
 #      memory CLAUDE.md and this chat's --resume store, then install the baked settings
 #      files, the plugin link, the allow list (setup.sh) and the entity hook.
@@ -11,20 +11,19 @@
 
 set -eu
 
-# D20: chat_nextseek's ChatConfig reads API_USER / API_PASS.
+# D20: chat_nextseek's ChatConfig reads API_USER. The container holds no password (spec piece 1): the nextseek-*
+# tools authenticate with the one-turn pass in NEXTSEEK_TURN_PASS.
 : "${API_USER:=${NEXTSEEK_USERNAME:-}}"
-: "${API_PASS:=${NEXTSEEK_PASSWORD:-}}"
 : "${NEXTSEEK_BASE_URL:=${NEXTSEEK_URL:-}}"
 # D23: GCP-only profile.
 : "${NEXTSEEK_MODE:=gcp}"
-export API_USER API_PASS NEXTSEEK_BASE_URL NEXTSEEK_MODE
+export API_USER NEXTSEEK_BASE_URL NEXTSEEK_MODE
+# Never pass a password on to the agent, even from a host older than the turn pass.
+unset NEXTSEEK_PASSWORD API_PASS SEEK_PASSWORD
 
-# Backward compat: SEEK_USER / SEEK_PASSWORD still exported for any host-side
-# tooling that grew up reading them. Removable post-Plan-B once nothing
-# downstream depends on them.
+# Backward compat: SEEK_USER still exported for any host-side tooling that grew up reading it.
 : "${SEEK_USER:=$API_USER}"
-: "${SEEK_PASSWORD:=$API_PASS}"
-export SEEK_USER SEEK_PASSWORD
+export SEEK_USER
 
 # ~/.claude is the chat's cc-state folder: kept across the chat's turns and writable by
 # the agent. What one turn writes there (settings, hooks, skills, agents, commands,

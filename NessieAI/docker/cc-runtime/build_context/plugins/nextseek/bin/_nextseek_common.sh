@@ -1,11 +1,11 @@
 #!/bin/sh
 # Sourced by every nextseek-* shim. Translates env vars chat_nextseek expects.
 
-# D20: re-export env names chat_nextseek's ChatConfig reads.
+# D20: re-export the env names chat_nextseek's ChatConfig reads. The container holds no password (spec piece 1):
+# the tools authenticate with the one-turn pass in NEXTSEEK_TURN_PASS (see _turn_pass.py).
 : "${API_USER:=${NEXTSEEK_USERNAME:-}}"
-: "${API_PASS:=${NEXTSEEK_PASSWORD:-}}"
 : "${NEXTSEEK_BASE_URL:=${NEXTSEEK_URL:-}}"
-export API_USER API_PASS NEXTSEEK_BASE_URL
+export API_USER NEXTSEEK_BASE_URL
 
 # D23: force GCP profile.
 : "${NEXTSEEK_MODE:=gcp}"

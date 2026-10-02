@@ -299,3 +299,16 @@ def test_setup_overwrites_the_allow_list(tmp_path):
                                             "HOME": str(tmp_path), "SETTINGS_FILE": str(settings)},
                    check=True, capture_output=True, timeout=60)
     assert json.loads(settings.read_text())["permissions"]["allow"] == _setup_allow_list()
+
+
+def test_the_entrypoint_drops_a_password_a_host_still_sends(tmp_path):
+    """The container holds no password (spec piece 1): a host that still sends one loses it at start; the turn
+    pass and API_USER reach the agent."""
+    env = {**_env(tmp_path), "NEXTSEEK_USERNAME": "demo", "NEXTSEEK_TURN_PASS": "T" * 43,
+           "NEXTSEEK_PASSWORD": "pw", "API_PASS": "pw", "SEEK_PASSWORD": "pw"}
+    out = subprocess.run(["sh", str(ENTRYPOINT), "env"], env=env, cwd=tmp_path, capture_output=True, text=True,
+                         timeout=60)
+    assert out.returncode == 0, out.stderr
+    names = {line.split("=", 1)[0] for line in out.stdout.splitlines() if "=" in line}
+    assert not names & {"NEXTSEEK_PASSWORD", "API_PASS", "SEEK_PASSWORD"}
+    assert {"NEXTSEEK_TURN_PASS", "API_USER"} <= names

@@ -19,7 +19,7 @@ class _Args:
 def _env(monkeypatch):
     monkeypatch.setenv("NEXTSEEK_URL", "http://testserver")
     monkeypatch.setenv("API_USER", "u")
-    monkeypatch.setenv("API_PASS", "p")
+    monkeypatch.setenv("NEXTSEEK_TURN_PASS", "T" * 43)
     monkeypatch.delenv("NEXTSEEK_DRY_RUN", raising=False)
 
 
