@@ -63,10 +63,13 @@ def make_stage_bytes(
 ) -> tuple[Callable[[str, str, bytes], str], Callable[[], None]]:
     """Return a (stage_bytes, commit) pair for the download-and-stage path (T16, DD-A5-5).
 
-    stage_bytes(op, key, data):
-        Writes downloaded artifact bytes into the per-user hashed dir layout under a
-        filename derived from key. Returns the staged path. Does NOT write the .complete
-        marker — that is commit()'s job (F-T16-2-B).
+    stage_bytes(op, key, data, filename=None):
+        Writes downloaded artifact bytes into the per-user hashed dir layout under
+        the artifact's real filename when the server sent one (its last path
+        component only), else under a name derived from key. The key is word
+        characters only, so naming by key alone dropped the extension
+        (reingest_A.ALN.xlsx -> reingest_A_ALN). Returns the staged path. Does NOT
+        write the .complete marker — that is commit()'s job (F-T16-2-B).
 
     commit():
         Writes the atomic .complete marker (the bridge-sweep signal) EXACTLY ONCE,
@@ -78,12 +81,17 @@ def make_stage_bytes(
     req_dir = base / request_id
     marker = base / f"{request_id}.complete"
 
-    def stage_bytes(op: str, key: str, data: bytes) -> str:
+    def stage_bytes(op: str, key: str, data: bytes, filename: str | None = None) -> str:
         """Write artifact bytes to staging; return the staged file path."""
         try:
             req_dir.mkdir(parents=True, exist_ok=True)
-            # Sanitize key to a safe filename (strip path separators + neutralize ..)
-            safe_name = key.replace("/", "_").replace("\\", "_").replace("..", "__")
+            # A sent filename keeps only its last component, so it cannot leave
+            # req_dir; then the same sanitizing the key always had (strip path
+            # separators + neutralize ..).
+            name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+            if name in ("", ".", ".."):
+                name = key
+            safe_name = name.replace("/", "_").replace("\\", "_").replace("..", "__")
             dst = req_dir / safe_name
             dst.write_bytes(data)
         except OSError as exc:

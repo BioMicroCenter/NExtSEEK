@@ -294,6 +294,25 @@ _ARTIFACT_CONTENT_TYPES = {
 }
 
 
+def artifact_download_entries(saved_files, base: str) -> list[dict]:
+    """The ``download.artifacts`` list for an op's saved files.
+
+    Each entry is ``{key, url, filename}``. The key is the URL segment, word
+    characters only, so it cannot carry the extension (``reingest_A.ALN.xlsx``
+    is keyed ``reingest_A_ALN``); ``filename`` is the file's real basename, which
+    the sidecar stages it under so it still opens as what it is. A key holding
+    several paths is served as its first one, so that one names it.
+    """
+    entries = []
+    for key, value in (saved_files or {}).items():
+        first = value[0] if isinstance(value, (list, tuple)) and value else value
+        entry = {"key": key, "url": f"{base}/{key}/"}
+        if isinstance(first, str) and first:
+            entry["filename"] = os.path.basename(first)
+        entries.append(entry)
+    return entries
+
+
 def _artifact_content_type(path) -> str:
     ext = os.path.splitext(str(path))[1].lower()
     return _ARTIFACT_CONTENT_TYPES.get(ext, "application/octet-stream")
@@ -1297,10 +1316,11 @@ class AssistantViewSet(viewsets.ViewSet):
 
         base = (f"/nextseek_api/assistant/sessions/{chat_session.session_id}"
                 f"/bundles/{bundle_id}/artifacts")
-        artifacts = [{"key": k, "url": f"{base}/{k}/"} for k in (saved_files or {})]
+        artifacts = artifact_download_entries(saved_files, base)
         if op == "generate-submission":
             # The submission output has no on-disk file; expose it as a combined xlsx.
-            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/"})
+            artifacts.append({"key": "all_tables", "url": f"{base}/all_tables/",
+                              "filename": "all_tables.xlsx"})
         return {"session_id": str(chat_session.session_id), "bundle_id": bundle_id,
                 "artifacts": artifacts}
 

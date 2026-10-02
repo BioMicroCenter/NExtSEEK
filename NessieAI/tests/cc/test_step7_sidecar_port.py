@@ -93,9 +93,9 @@ PINNED_SOURCE_SHA256 = {
     "app/granular_models.py": "392a9b1840118c907dd300ae0823a65f1a127f878554e41a5b18db74e2fca981",
     "app/healthcheck.py": "bb0bb5db69201a895ea6c55bad3f74142971a550c167e9e0b8b99c2b1dfb8ba3",
     "app/ns_client.py": "e565dea4c67bccb1fcccc14356b0c1988b1cd0e4f9f4606e7c06a519b0f59ae5",
-    "app/ops.py": "776bf37ef4fc416a46267deb494481983d8ee2a2e8693c6261b24968085fbf5d",
+    "app/ops.py": "1f67c6fd475fb43486c55603c84d980d566f7de4a688c257c3309de86bf5bf46",
     "app/server.py": "dd2a9266dba4fb61287c1b18eb1fb639408abedb6dbd3a2fddf69a5113f3c17b",
-    "app/staging.py": "a34b2c40c8a3b8f907960d1b4f2ad6ac38c60703d1c64d0a7c37860527814ac9",
+    "app/staging.py": "8e967dc65311628794c043fec22bbe03c1a4c98f4836c3e74d73ec54bca6e24b",
     "app/write_gate.py": "86ec8f617cd287d89b35856307bd7a04fdd0bdafc4edbc789391eb69ce4b788e",
 }
 

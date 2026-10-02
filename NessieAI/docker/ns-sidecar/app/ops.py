@@ -3,7 +3,7 @@
 Call shapes mirror the pre-sidecar runner dispatchers so behavior is preserved.
 write_gate(op, api_plan_endpoint, api_plan_method, confirmed_write) -> None|raises.
 stage(op, result) -> result' (T7 path-copy stage; used when no download block).
-stage_bytes(op, key, data) -> staged_path (bytes writer for download block; writes NO marker).
+stage_bytes(op, key, data, filename=None) -> staged_path (bytes writer for download block; writes NO marker).
 commit_bytes() -> None (writes the atomic .complete marker once after all artifacts staged).
 """
 from __future__ import annotations
@@ -146,7 +146,7 @@ def _report(args, config, session, write_gate, stage, stage_bytes, commit_bytes)
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, auth=config.auth)
-            staged_path = stage_bytes("report", art["key"], data)
+            staged_path = stage_bytes("report", art["key"], data, art.get("filename"))
             result["saved_files"][art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
         return result
@@ -167,7 +167,7 @@ def _generate_submission(args, config, session, write_gate, stage, stage_bytes, 
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, auth=config.auth)
-            staged_path = stage_bytes("generate-submission", art["key"], data)
+            staged_path = stage_bytes("generate-submission", art["key"], data, art.get("filename"))
             staged_files[art["key"]] = staged_path
         commit_bytes()  # exactly once after ALL artifacts are staged
         result["staged_files"] = staged_files
@@ -207,7 +207,7 @@ def _build_upload_xlsx(args, config, session, write_gate, stage, stage_bytes, co
         for art in download["artifacts"]:
             data = ns_client.fetch_artifact(art["url"],
                                             base_url=config.base_url, auth=config.auth)
-            staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data)
+            staged_files[art["key"]] = stage_bytes("build-upload-xlsx", art["key"], data, art.get("filename"))
         commit_bytes()  # exactly once after ALL artifacts are staged
         result["staged_files"] = staged_files
         return result
