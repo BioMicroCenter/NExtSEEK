@@ -315,3 +315,32 @@ def test_chat_never_sends_blank_text_block():
     for m in sent:
         for block in m["content"]:
             assert block["text"].strip() != "", f"blank text block sent: {m}"
+
+
+def _sent_messages(messages):
+    client = _bedrock_client_with_mock_converse(_stub_converse_response("end_turn", [{"text": "ok"}]))
+    client.chat_with_tools(model="us.anthropic.claude-opus-4-7", messages=messages, tools=[], system="sys")
+    return client.client.converse.call_args.kwargs["messages"]
+
+
+def test_two_user_turns_in_a_row_are_sent_as_one_turn_with_both_blocks():
+    """A tool_result turn followed by a user text turn (the answer-only last pass) is two user turns to Converse."""
+    sent = _sent_messages([
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "n", "input": {}}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "r"}]},
+        {"role": "user", "content": "answer now"},
+    ])
+
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]
+    assert "toolResult" in sent[2]["content"][0] and sent[2]["content"][1] == {"text": "answer now"}
+
+
+def test_an_alternating_history_is_sent_unchanged():
+    """Another history of the same kind: roles already alternate, so nothing merges."""
+    sent = _sent_messages([
+        {"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}, {"role": "user", "content": "c"},
+    ])
+
+    assert sent == [{"role": "user", "content": [{"text": "a"}]}, {"role": "assistant", "content": [{"text": "b"}]},
+                    {"role": "user", "content": [{"text": "c"}]}]

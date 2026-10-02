@@ -1205,12 +1205,16 @@ class BedrockClient(BaseLLMClient):
         for msg in messages:
             content = msg.get("content")
             if isinstance(content, str):
-                converse_messages.append({"role": msg["role"], "content": [{"text": content}]})
+                blocks = [{"text": content}]
             elif isinstance(content, list):
-                translated = [self._anthropic_block_to_converse(b) for b in content]
-                converse_messages.append({"role": msg["role"], "content": translated})
+                blocks = [self._anthropic_block_to_converse(b) for b in content]
             else:
                 raise ValueError(f"Unsupported message content type: {type(content).__name__}")
+            if converse_messages and converse_messages[-1]["role"] == msg["role"]:
+                # Converse rejects two turns of one role in a row (a tool_result turn then a user text turn).
+                converse_messages[-1]["content"] += blocks
+            else:
+                converse_messages.append({"role": msg["role"], "content": blocks})
         if not (traits.always_thinks or thinking_budget is not None):
             # A model that is not thinking is not handed another model's reasoning (an Opus 5.5 step's blocks
             # sent on to a Sonnet 4.6 or older). Removing every reasoning block is the documented way to send such
