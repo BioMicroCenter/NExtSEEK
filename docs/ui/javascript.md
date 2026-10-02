@@ -54,7 +54,7 @@ context processor; `{% static %}` also works.
 | Cytoscape, dagre, cytoscape-dagre | `@3`, `@0.8`, `@2` (major versions only) | CDN unpkg, written by `rows_to_html` in `nextseek_api/services/sampletype_connections.py` (constant `_CYTO_CDN`) | the project "Sample flow" iframe page only |
 | d3, d3-dag | 7.8.4, 1.1.0 | CDN skypack, ES module imports at the top of `static/js/dag/dag.js` | sample tree v2 (`pages/samples_tree_new.embed.html`) |
 | d3, lodash | 3.5.5, 3.3.1 | CDN cdnjs, top of `seek/templates/pages/samples_tree.embed.html` | sample tree v1, commented out (see gotchas) |
-| Mezzanine jQuery, Bootstrap 2/3 JS, html5shiv, respond | jQuery 1.8.3 by default | vendored: `static/mezzanine/js/`, `static/js/bootstrap.js` and siblings | nothing on the site: the stock `templates/base.html` that names them is not on the template path, and `base.html` resolves to the theme's copy |
+| Mezzanine jQuery, Bootstrap 2/3 JS, html5shiv, respond | jQuery 1.8.3 by default | vendored: `static/mezzanine/js/`, `static/js/bootstrap.js` and siblings | nothing on the site: the only template that named them was Mezzanine's stock `base.html`, which the theme's `base.html` shadows |
 | Google Fonts | Inter (theme), Playfair Display and Source Sans 3 (login) | CDN | CSS only |
 
 Third-party script loading is security item SEC-0930-F (tracked privately). Bootstrap (jsDelivr),
@@ -62,15 +62,13 @@ Bootstrap Icons (jsDelivr) and Google Fonts load on every page: if jsDelivr is u
 the sidebar collapse break. SheetJS, select2, moment, DataTables and vis are not used by any Django page (`xlsx`
 appears only inside the React bundle).
 
-A jQuery 1.6.2 copy exists at `static/js/buildtree/jquery-1.6.2.min.js` and is loaded by nothing.
-
 ### EasyUI components in use
 
 | Component | Used on |
 |---|---|
-| datagrid | search pages (`searchAdvanced.html`, `newSearch.html`), `sopsPage.html`, `dataFilesPage.html`, `sampleQuery.html`, `clades.html`, `internal_assays.html` |
+| datagrid | search pages (`searchAdvanced.html`), `sopsPage.html`, `dataFilesPage.html`, `sampleQuery.html`, `clades.html`, `internal_assays.html` |
 | tabs, layout | search pages, `batchUpload.html`, the table pages, admin pages, `pages/samples.embed.html` (tree tabs) |
-| combobox | `pages/batch_upload.embed.html`, `dataFileUpload.html`, the `*_search` and `*_newsearch` partials |
+| combobox | `pages/batch_upload.embed.html`, `dataFileUpload.html`, the `*_search` partials |
 | messager (`alert`, `confirm`, `progress`, `show`) | search, upload, vocab workbench, `ns_sample_download.js` |
 | linkbutton, textbox, pagination | most EasyUI pages (toolbars, pagers) |
 
@@ -94,7 +92,7 @@ EasyUI. `/seek/search/` breaks that rule today: `searchAdvanced.html` and the in
 | File | Loaded by | What it does |
 |---|---|---|
 | `themes/NextSeek/static/js/nextseek.js` (255 lines) | `base.html` (not `base_auth.html`) | Theme-wide behavior, see next section |
-| `static/js/ns_sample_download.js` | `searchAdvanced.html`, `newSearch.html`, `pages/samples.embed.html` | The one download client. Exposes `window.nsDownloadSamples`, `nsCollectSelectedUids`, `nsExtractUid`. POSTs to `/nextseek_api/samples/retrieve/` with `X-CSRFToken` read from the cookie, and has a `.catch` that alerts |
+| `static/js/ns_sample_download.js` | `searchAdvanced.html`, `pages/samples.embed.html` | The one download client. Exposes `window.nsDownloadSamples`, `nsCollectSelectedUids`, `nsExtractUid`. POSTs to `/nextseek_api/samples/retrieve/` with `X-CSRFToken` read from the cookie, and has a `.catch` that alerts |
 | `static/js/custom/datagrid-custom.js` (530 lines) | about a dozen templates (the "EUI trio": this file plus `datagrid-filter.js` and `datagrid-export.js`) | Legacy EasyUI grid helpers inherited from another app (download, upload, save, delete). All top-level `function`s, all global. The newer `ns*` helpers at the end (`nsEscapeHtml`, `nsEllipsisFormatter`, `nsEnableColumnFilters`, `nsResetSearch`) are the ones to reuse |
 | `static/js/custom/ns-vocab-workbench.js` (1156 lines) | `clades.html`, `internal_assays.html` | Curator workbench for EasyUI datagrids: `nsVocabWorkbench(config)`, `nsPostJson`, `nsAcceptPost`, `nsRemovePost`, `NS_WB_*`. jQuery `$.ajax` with the CSRF token passed in as config |
 | `static/js/dag/dag.js` (184 lines) | `pages/samples_tree_new.embed.html`, as `type="module"` | Sample tree v2: imports d3 and d3-dag from skypack, then does a top-level `await d3.json("/nextseek_api/sample-tree/<uid>/tree")`. Reads the UID from `location.href` with a regex |
@@ -102,8 +100,7 @@ EasyUI. `/seek/search/` breaks that rule today: `searchAdvanced.html` and the in
 | `static/js/sample_timeline/` | `seek/templates/sample_timeline.html` (`extra_head`) | Built Vite bundle (React, MUI, axios), file names hard-coded in the template. A rebuild changes the hashed names |
 | `static/js/chat_assistant/assets/` | `seek/templates/smartSearch.html` via the `{% vite_assets %}` tag (`seek/templatetags/vite_assets.py`) | The React chat panel. See [chat-frontend.md](chat-frontend.md) |
 
-Dead or vendored, safe to ignore: `static/js/buildtree/` (old tree builder,
-d3 v3 copies), and `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
+Dead or vendored, safe to ignore: `static/mezzanine/`, `static/admin/`, `static/filebrowser/`, tinymce.
 
 ### What nextseek.js does
 
@@ -133,7 +130,6 @@ are on routed pages. Counts below are approximate inline lines (they drift as th
 | `seek/templates/searchAdvanced.html` | about 400, plus about 830 from its embeds | Live: `/seek/search/`. Defines the search globals and mobile `runMobileSearch()` |
 | `pages/sampleSearch_core.embed.html` | about 320 | Live. `SampleSearchCore` request builder, has a Node test (`seek/tests/test_sample_search_js.py`) |
 | `pages/samples_search`, `searchAdvanced_search`, `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion` | 60 to 260 each | Live (included by `searchAdvanced.html`) |
-| `seek/templates/newSearch.html` and `pages/*newsearch*`, `samples_new_stable` | about 175 plus about 180 | Live: `/seek/newsearch/` |
 | `pages/batch_upload.embed.html` (inside `batchUpload.html`) | about 275 | Live: "+ New sample", `/seek/samples/upload/` |
 | `dataFileUpload.html` | about 150 | Live |
 | `sampleAttributes.html` | about 1,020 (vanilla JS, no EasyUI) | Live, admin page |
@@ -149,10 +145,10 @@ are on routed pages. Counts below are approximate inline lines (they drift as th
 | Family | Members | What repeats |
 |---|---|---|
 | Downloadable table page | `pages/sops_table`, `datafile_table` (`.embed.html`) | Mostly identical. Each has its own `getCookie`, a download `fetch` and a list `fetch`, and the same `console.log("Error")` |
-| Sample search generations | `samples_search`, `searchAdvanced_search`, `samples_newsearch`, `searchAdvanced_newsearch` and the matching `*_stable` | Three generations of the same UI (old, advanced, new) with partial overlap |
+| Sample search generations | `samples_search`, `searchAdvanced_search` and the matching `*_stable` | Two generations of the same UI (old, advanced) with partial overlap |
 | Admin vocab pages | `clades.html`, `internal_assays.html` | Same `nsVocabWorkbench` config and the same un-checked sync `fetch` |
-| `getCookie` | `newSearch.html`, `dataFileUpload.html`, `batch_upload.embed.html`, `datafile_table`, `sops_table` | The Django docs snippet pasted verbatim five times |
-| Delete samples | `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion`, `newSearch.html` | Four implementations that POST to `/seek/samples/delete/` |
+| `getCookie` | `dataFileUpload.html`, `batch_upload.embed.html`, `datafile_table`, `sops_table` | The Django docs snippet pasted verbatim four times |
+| Delete samples | `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion` | Three implementations that POST to `/seek/samples/delete/` |
 | Full screen | `samples_tree_new.embed.html` and the overlay in `nextseek.js` | Two unrelated implementations |
 
 Global-name collisions to watch when adding a function to any page:
@@ -179,8 +175,6 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 |---|---|---|
 | `/nextseek_api/samples/retrieve/` | POST | `static/js/ns_sample_download.js` |
 | `/nextseek_api/samples/graph_search/` | POST | `pages/sampleSearch_core.embed.html` (`ENDPOINT`), used by `searchAdvanced.html` |
-| `/nextseek_api/samples/advanced_search/` | POST | `pages/samples_newsearch.embed.html`, `pages/searchAdvanced_newsearch.embed.html` |
-| `/nextseek_api/sample_types/` | GET | `newSearch.html` |
 | `/nextseek_api/projects/` | GET | `pages/batch_upload.embed.html`, `dataFileUpload.html` |
 | `/nextseek_api/batch-upload/validate/`, `start/` | POST (multipart) | `pages/batch_upload.embed.html` |
 | `/nextseek_api/batch-upload/status/<job>` | GET, polled every second | `pages/batch_upload.embed.html` |
@@ -196,8 +190,8 @@ Every `fetch`, `$.ajax`, `$.get`, `$.post`, datagrid `url` and form action in te
 
 | URL | Method | Called from |
 |---|---|---|
-| `/seek/samples/delete/` | POST | `newSearch.html`, `pages/samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion` |
-| `/seek/attributes/id=<id>`, `/seek/operators/`, `/seek/sample_types/id=<id>/` | GET | the `*_search` and `*_newsearch` partials |
+| `/seek/samples/delete/` | POST | `pages/samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion` |
+| `/seek/attributes/id=<id>`, `/seek/operators/`, `/seek/sample_types/id=<id>/` | GET | the `*_search` partials |
 | `/seek/retrieve/samples/` | datagrid url | `pages/samples_table.embed.html` |
 | `/seek/samples/export/` | POST | `pages/samples_stable.embed.html` |
 | `syncSampleTypes/`, `syncInternalAssays` (relative URLs) | POST | `clades.html`, `internal_assays.html` |
@@ -219,7 +213,7 @@ Five patterns are in use, none shared:
 
 | Pattern | Where | Notes |
 |---|---|---|
-| 1. `getCookie("csrftoken")` into an `X-CSRFToken` header | `newSearch.html`, `batch_upload.embed.html`, `dataFileUpload.html`, two `*_table` partials | Works because the CSRF cookie is not HttpOnly. Five copies of the helper |
+| 1. `getCookie("csrftoken")` into an `X-CSRFToken` header | `batch_upload.embed.html`, `dataFileUpload.html`, two `*_table` partials | Works because the CSRF cookie is not HttpOnly. Four copies of the helper |
 | 2. Inline regex on `document.cookie` | `nsCsrfToken()` in `searchAdvanced.html`, `getCsrfToken()` in `ns_sample_download.js` | Same idea, two more copies |
 | 3. Token baked into the page by the template: `'{{ csrf_token }}'` in a `$.post` body or header | `samples_stable`, `searchAdvanced_stable`, `searchAdvanced_deletion`, `clades.html`, `internal_assays.html` | Only works inside a template, never in a static file |
 | 4. Hidden `{% csrf_token %}` input in a form | `projectPage.html`, `templatesList.html` | Needs a real `<form>` |

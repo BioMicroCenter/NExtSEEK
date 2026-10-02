@@ -5,8 +5,8 @@
 The Sample Search page (`/seek/search/`): its four desktop EasyUI tabs, its separate phone form,
 what each control posts to (mostly `graph_search`), the results grids, the unified download client
 (`static/js/ns_sample_download.js` to `/nextseek_api/samples/retrieve/`), and the Data File Query,
-Protocol (SOP) Query and old Sample Query pages. It also lists the unlinked `/seek/newsearch/` page
-and which search templates and routes are dead.
+Protocol (SOP) Query and old Sample Query pages. It also lists
+which search templates and routes are dead.
 
 It does not cover the Nessie chat UI (see [chat-frontend.md](chat-frontend.md)), the sample detail
 and tree pages (see [upload-and-samples.md](upload-and-samples.md)), or upload (see [upload-and-samples.md](upload-and-samples.md)).
@@ -79,7 +79,6 @@ another live template links to it.
 | Sample Search, old URL | `/seek/samples/search/` | `search.py: sampleSearch` | none | no | 302 to `/seek/search/` |
 | Data File Query | `/seek/datafile/query/` | `views/assets.py: datafileQuery` | `dataFilesPage.html` + `pages/datafile_table.embed.html` | nav, "Data Query" submenu | Live, see Gotchas |
 | Protocol (SOP) Query | `/seek/sop/query/` | `assets.py: sopQuery` | `sopsPage.html` + `pages/sops_table.embed.html` | nav, "Data Query" submenu | Live |
-| New Search | `/seek/newsearch/` | `search.py: newSearch` | `newSearch.html` + six `*_new*` embeds | no | Live but unlinked; uses `advanced_search`, not `graph_search` |
 | Sample Query (old) | `/seek/samples/query/`, `/seek/sample_types/id=<n>/` | `views/samples.py: sampleQuery`, `sample_type` | `sampleQuery.html` + `pages/samples_table.embed.html` | no | Legacy, unlinked; grid loads `/seek/retrieve/samples/` |
 | Nessie | `/seek/assistant/` | `search.py: smartSearch` | `smartSearch.html` | sidebar button (`includes/nessie_button.html`) | Live; anonymous users are sent to sign in |
 
@@ -105,7 +104,6 @@ The initial tab comes from `?tab=simple|advanced|retrieve` in the ready handler 
 | POST `/seek/samples/delete/` (`allids` or `alluids`) | delete buttons | `views/samples.py: sampleDelete` (POST only, login) |
 | POST `/seek/samples/export/`, then GET `/seek/exports/<token>/<file>` | "Export samples to Import", Simple toolbar only | `views/samples.py: sampleExport`; `views/exports.py` serves per-user files |
 | GET `/seek/sample_timeline/<uid>/` | "View Timeline", Simple toolbar (client only allows UIDs starting `NHP` and containing `FLY`) | `sample_timeline` TemplateView in `seek/urls.py` (security item SEC-0930-G, tracked privately) |
-| POST `/nextseek_api/samples/advanced_search/` | `/seek/newsearch/` only | `nextseek_api` (older engine) |
 | GET/POST `/nextseek_api/data_files/`, `/sops/`, `.../download/` | Data File and SOP Query | `nextseek_api` services |
 
 ### Download flows
@@ -121,7 +119,6 @@ returned blob, and alerts on failure. The file also exports `nsCollectSelectedUi
 | Advanced tab download | always |
 | Sample Retrieval tab | always |
 | Sample detail page "Download All Samples" | always (`pages/samples.embed.html`; see [upload-and-samples.md](upload-and-samples.md)) |
-| `/seek/newsearch/` grids | no (`includeTree:false`) |
 
 Other exports: "Export samples to Import" (ImmPort workbook, Simple toolbar, link file with a
 24 hour lifetime), Data File and SOP "Download selected" (a file or a `<date>-data-files.zip`
@@ -134,7 +131,6 @@ blob), and the Nessie search-results artifact (chat side).
 | `#simple_dgtable`, `#advanced_dgtable` | `/seek/search/` | separate pager, server pages | text filter over loaded rows; no column chooser |
 | `#dgtable` | Data File and SOP Query | `pagination:true`, `pageSize:50`, all records loaded once | `id` only |
 | `#dgtable` | `/seek/samples/query/` | none, loads `/seek/retrieve/samples/` | `id` only |
-| `#simple_dgtable`, `#advanced_dgtable` | `/seek/newsearch/` | client-side only | none |
 
 Grid helpers (`nsEllipsisFormatter`, `nsEnableColumnFilters`, `nsResetSearch`) are in
 `static/js/custom/datagrid-custom.js`. `datagrid-export.js` is loaded but no rendered page calls an
@@ -146,15 +142,14 @@ Under 768px only the `.m-only` card shows: a keyword box and a type `<select>`, 
 `runMobileSearch` in `searchAdvanced.html`. A keyword is required (an empty one silently does
 nothing). Results are capped at 100 (`MOBILE_RENDER_CAP`) with a "refine search" hint, link to
 `/seek/sampletree/uid=<uid>/`, and have no paging, selection, download or delete. Attribute, lineage
-and boolean search are desktop only. Data File, SOP, old Sample Query and `/seek/newsearch/` have no
+and boolean search are desktop only. Data File, SOP, and old Sample Query have no
 phone layout at all (fixed-height EasyUI tabs and layouts).
 
 ### Dead or orphan search templates
 
 The dead templates were deleted on 2026-10-01 (see [legacy.md](legacy.md)). The old engine routes `/seek/searchAdvanced/`, `/seek/searchUIDs/` and `/seek/samples/searching/` are still routed but have no live caller.
 
-The repo-root `templates/search_results.html` is Mezzanine's stock template and is not in
-`TEMPLATES["DIRS"]` (`dmac/settings.py`), so it is never used from this repo. Mezzanine's own
+Mezzanine's own
 site search, `/search/`, answers 404.
 
 ## Where to edit
@@ -196,7 +191,7 @@ site search, `/search/`, answers 404.
 - EasyUI sizing: the Advanced grid is built while its tab is hidden, so it needs
   `nsResizeGridsIn` on tab select plus the `#search_tab .layout-panel-center { display:block !important }`
   rule in `nextseek.css`. Neither works alone. The `#search_tab` id is reused by
-  `dataFilesPage.html`, `sopsPage.html` and `newSearch.html`, so they inherit the same CSS.
+  `dataFilesPage.html` and `sopsPage.html`, so they inherit the same CSS.
 - `datagrid-filter.js`, `datagrid-export.js` and `datagrid-custom.js` are loaded by both
   `searchAdvanced.html` and `samples_stable.embed.html`, so they load twice. `datagrid-filter.js` is
   deliberately not in `base.html`; a page that needs it must load it itself.

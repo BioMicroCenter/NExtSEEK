@@ -62,8 +62,7 @@ this directory; the behaviour claims are in the prose around it.
 | `nextseek_api/urls.py` | the router and the three documentation routes |
 | `nextseek_api/apps.py`, `nextseek_api/admin.py` | the app config; an admin module that registers nothing (`nextseek_api/admin.py:1-3`) |
 | `nextseek_api/conftest.py` | DRF client and mock-SEEK fixtures shared by every test below this directory |
-| `nextseek_api/seek_api.py`, `nextseek_api/seek_api_helpers.py`, `nextseek_api/example.py` | superseded SEEK-call sketches; see CLAUDE.md for why they are not live |
-| `nextseek_api/tests.py`, `nextseek_api/tests/` | see CLAUDE.md: only one of these two is reachable |
+| `nextseek_api/tests/` | the test package |
 
 Two facts about the description module, both established 2026-09-03: it holds 73
 constants assigned at column zero, running from `nextseek_api/endpoint_descriptions.py:14`
@@ -88,12 +87,11 @@ where it decides: `nextseek_api/views.py:268-274` for the tree, and `handle_retr
 | `assay_registration/` | batch registration of samples as SEEK assay members: three superuser-gated routes, a job row, a drain loop, a Neo4j label recompute | `nextseek_api/assay_registration/README.md` |
 | `assistant/` | the API half of the assistant: ORM models (including the `eval_*` tables), wire models, the progress WebSocket consumer, session and pipeline adapters, OpenAPI descriptions, `excel_export.py`, and the granular-op HTTP contract `CONTRACT.md` | `nextseek_api/assistant/README.md` |
 | `attributes/` | the native attribute API: a catalog plus plan-then-execute mutations | `nextseek_api/attributes/README.md` |
-| `batch_delete/` | pydantic models for delete eligibility; no views, no ORM | this row |
 | `batch_upload/` | bulk sample ingest from a workbook or JSON rows, stages 0 to 7, stage 6 syncing this job's samples through `graph_sync/`; owns the shared Celery app | `nextseek_api/batch_upload/README.md` |
 | `cc_assistant/` | Django shell for Container-CC; engine at `NessieAI/cc/`. Never rename the app label or the Celery tasks `cc_assistant.upload` and `cc_assistant.sweep_cc_summaries` | `NessieAI/cc/README.md` |
 | `graph_search/` | the engine behind `POST /nextseek_api/samples/graph_search/`: scope from MySQL membership, a Cypher query builder, the catalog cache and page hydration | `nextseek_api/graph_search/README.md` |
 | `graph_sync/` | the one writer of the Neo4j sample graph (schema v1.2) and the sync that keeps it equal to MySQL: the outbox every other writer enqueues to, the drain loop, the nightly targeted sync, the weekly full sync, the drift check and the `graph_sync` command | `nextseek_api/graph_sync/README.md` |
-| `management/` | management commands, including the five loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs`, `run_share_jobs` and `graph_sync --loop`), the studies tool `studies`, the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | this row |
+| `management/` | management commands, including the five loops the app entrypoint starts by name (`dispatch_attribute_outbox`, `recover_attribute_sync_jobs`, `run_assay_registration_jobs`, `run_share_jobs` and `graph_sync --loop`), the studies tool `studies`, the harness entry point `nessie`, the staging-sweep recovery `cc_sweep_staging` and the one-off `scrub_stored_sample_properties`, which removes two derived sample properties from stored graph results (dry run unless `--apply`; its docstring lists the stores); deleting a loop's shim removes a command the entrypoint calls | `nextseek_api/management/README.md` |
 | `migrations/` | the one migration chain for the app and every subpackage; it forks, so check the heads first | `nextseek_api/CLAUDE.md` |
 | `services/` | the ViewSet and service layer; a new ViewSet module goes here | `nextseek_api/services/README.md` |
 | `studies/` | the studies tool (`manage.py studies`): create a SEEK study if it is missing and move a list of samples into it, from a curator sheet, a dev-graph export or the graph-only paper studies; plan, apply, graph step, rollback | `nextseek_api/studies/README.md` |
@@ -132,15 +130,14 @@ its own current result in CLAUDE.md.
 
 ## Depends on / depended on by
 
-Depends on, outside this directory. Derived by reading every import line in the 15
+Depends on, outside this directory. Derived by reading every import line in the 12
 modules directly under `nextseek_api/`:
 
-- `seek/`, at module scope in six of those modules, so the SEEK app must import cleanly
+- `seek/`, at module scope in four of those modules, so the SEEK app must import cleanly
   before this one loads at all: `nextseek_api/helpers.py:10`, `nextseek_api/models.py:16-17`,
-  `nextseek_api/serializers.py:2-3`, `nextseek_api/seek_api_helpers.py:5-6`,
-  `nextseek_api/example.py:1`, and `nextseek_api/views.py:24-28`.
+  `nextseek_api/serializers.py:2-3`, and `nextseek_api/views.py:24-28`.
 - Django settings read at import time rather than per request: `nextseek_api/views.py:33-34`
-  binds two database aliases, and `nextseek_api/seek_api.py:7` binds the SEEK base URL.
+  binds two database aliases.
 - `MySQLdb` and the `neo4j` driver, both imported unconditionally, at
   `nextseek_api/views.py:6` and `nextseek_api/views.py:19-22`.
 - `drf_spectacular`, which supplies the three documentation views imported at
@@ -174,8 +171,6 @@ this one's:
   `NessieAI/chat_frontend/src/lib/services/chatApi.ts:78` builds request URLs against the prefix,
   and the CC agent's plugin catalog stores endpoint paths as data at
   `NessieAI/docker/cc-runtime/build_context/plugins/nextseek/context/ops.json:1`.
-- `NessieAI/chat_nextseek/src/chat_nextseek/context/nextseek_api.yaml:1-5` is a captured copy of
-  the document this app's schema route generates, not a live read of it, so it drifts.
 
 What a hit here is NOT. A grep for this package name returns far more than the list
 above, and three groups were excluded deliberately. Everything under `NessieAI/` reaches this

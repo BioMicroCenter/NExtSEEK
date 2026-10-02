@@ -308,7 +308,7 @@ and `./startup.sh rebuild --component cc-agent`. Stack health checks the second 
 every `rebuild`, whatever the component and with or without `--no-ci`, and before every `ci`,
 it reads `/app/plugins/nextseek/context/` out of `dmac-assistant:poc` without starting a
 container and compares each file's bytes with the checkout (`validate.check_cc_agent_context`).
-A difference fails the line, names every file that differs or is missing, and prints the
+It also compares the Nessie docs snapshot's `.content-hash` (`/app/docs/nextseek/` in the image, `NessieAI/docker/cc-runtime/docs/nextseek/` in the checkout). A difference fails the line, names every file that differs or is missing, and prints the
 command that fixes it. `rebuild` then exits non-zero at the end, after the smoke suite has
 run, and `ci` only prints it. A `--source-tree` rebuild is compared with the clean tree it
 built, not the runtime checkout. The files in the checkout are guarded separately, by

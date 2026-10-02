@@ -116,9 +116,8 @@ That is the artifact plumbing proving itself; it is not an evaluation.
 No file named `testing.json` exists in this repository. Established
 2026-09-03 by two exhaustive searches from the worktree root that returned
 nothing: `git ls-files | grep -i 'testing\.json'`, and `find . -name
-testing.json -not -path './.git/*'`. `NessieAI/chat_nextseek/CITATIONS.txt:139-142`
-records why: the `smart_test.py` / `test.py` / `testing.json` harness was
-retired.
+testing.json -not -path './.git/*'`. The `smart_test.py` / `test.py` / `testing.json`
+harness was retired, which is why.
 
 This is not only a documentation defect. The CLI itself still names the file, in
 its own help text: two epilog examples at

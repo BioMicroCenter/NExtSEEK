@@ -4,7 +4,7 @@
 No Docker, no network, no DB (fakes + tmp dirs only). Grounds every layout fact
 against the ported upstream contract at
 ``docker/ns-sidecar/app/staging.py`` (byte-identical to
-``/home/taishajo/work/dmac-assistant/sidecar/app/staging.py`` @ a429f13):
+``<source-checkout>/sidecar/app/staging.py`` @ a429f13):
 
     {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}/<files>
     {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}.complete

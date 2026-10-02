@@ -1,0 +1,30 @@
+seek.Sops: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.User_profile: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+seek.Users: (models.W042) Auto-created primary key used when not defining a primary key type, by default 'django.db.models.AutoField'.
+	HINT: Configure the DEFAULT_AUTO_FIELD setting or the DataConfig.default_auto_field attribute to point to a subclass of AutoField, e.g. 'django.db.models.BigAutoField'.
+[  1/6] PASS   ccfu.species_and_sex_file_from_samples_csv     container_cc       85.8s  $0.34  1m27s
+[  2/6] PASS   ccfu.ndma_by_sex_file_from_samples_csv         container_cc       75.4s  $0.51  2m42s
+[  3/6] PASS   ccfu.count_only_seed_keeps_its_filter          container_cc      142.4s  $0.80  5m05s
+[  4/6] PASS   ccfu.count_only_breakdown_is_given_not_refused container_cc      113.7s  $1.11  6m59s
+[  5/6] FAIL   ccfu.newest_turn_after_ns_cc_ns                container_cc      228.4s  $1.34  10m47s  <- main:cc_trace_text
+[  6/6] PASS   ccfu.own_previous_file_is_read_not_redone      container_cc       94.4s  $1.57  12m21s
+
+Nessie harness  tier=full  scope=specific  (7 cases)
+  passed  : 6
+  failed  : 1
+  skipped : 0
+  error   : 0
+  xpass   : 0  (known_fail that PASSED — stale expectation, counted as a failure)
+  no-assert: 0  (evaluated ZERO criteria — green here would be vacuous, counted as a failure)
+  known-fail that failed as expected (excluded from gate): 0
+  cost    : $1.5679 observed on 6 of 7 executed case(s) — PARTIAL, 1 reported no cost, so the real spend is higher
+
+  cases=/app/runs/launch-20260925-0921-cases-1.json  corpus=0273b7d08a93  git=None
+
+GATE: FAIL — 1 real failure(s):
+    - cc_followup_reruns/ccfu.newest_turn_after_ns_cc_ns  [failed]  main:cc_trace_text
+
+  report:   /app/runs/dev-launch-20260925-0921-cases-1/report.html
+  manifest: /app/runs/dev-launch-20260925-0921-cases-1/manifest.json

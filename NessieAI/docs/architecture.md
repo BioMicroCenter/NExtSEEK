@@ -314,7 +314,6 @@ Each folder below documents itself in a `README.md` (plus a `CLAUDE.md` where it
 | `NessieAI/chat_frontend/README.md` | the React chat UI (embedded entry `src/main.embedded.tsx`) |
 | `NessieAI/docker/README.md` | the four AI image build contexts |
 | `NessieAI/tests/README.md` | every AI test lane; `NessieAI/tests/nessie_tests/README.md` is the router-aware harness |
-| `api_app/README.md` | the original REST API app, kept after the surface moved |
 | `ci/README.md` | the single route declaration and the gates over it |
 | `dmac/README.md` | the Django project package: settings, root URLconf, ASGI, SEEK login |
 | `docker/README.md` | nginx config and the app image's entrypoint |
@@ -327,7 +326,7 @@ Each folder below documents itself in a `README.md` (plus a `CLAUDE.md` where it
 | `scripts/README.md` | validators and one-off operational programs, not a package |
 | `seek/README.md` | the SEEK-schema mirror app and most server-rendered pages |
 | `startup/README.md` | the bring-up CLI and the data bring-up installs |
-| `themes/README.md` | the server-rendered chrome (and the dead repo-root `templates/`) |
+| `themes/README.md` | the server-rendered chrome |
 
 The Django shell of the CC route (the `cc_assistant` app label, its Celery tasks and the
 endpoint ownership guard) stays in `nextseek_api/cc_assistant/`, described in

@@ -16,38 +16,21 @@ Install creates two accounts, `demo` (administrator) and `user` (regular), with 
 
 ### 2. Lock down Django
 
-In `docker/nextseek.env`:
-
-- Leave `DJANGO_DEBUG` unset. Debug turns on only for the values `1`, `true` or `yes`.
-- Set `DJANGO_ALLOWED_HOSTS` to your host name only.
-- Set `DJANGO_CSRF_TRUSTED_ORIGINS` to your `https://` address.
-
-```ini
-DJANGO_ALLOWED_HOSTS="nextseek.example.org"
-DJANGO_CSRF_TRUSTED_ORIGINS="https://nextseek.example.org"
-```
-
-Apply: `docker compose up -d --no-deps --force-recreate nextseek`
+In `docker/nextseek.env`, leave `DJANGO_DEBUG` unset, set `DJANGO_ALLOWED_HOSTS` to your host name only, and set `DJANGO_CSRF_TRUSTED_ORIGINS` to your `https://` address. Examples and the apply command: [NExtSTEPS 1b](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1b-make-sure-django_debug-is-unset-for-anything-internet-facing) and [1c](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1c-tighten-django_allowed_hosts-and-django_csrf_trusted_origins).
 
 ### 3. Set the public SEEK address
 
-SEEK is served on its own host name. Set it once at install time so that NExtSEEK's links and SEEK's own identifiers agree.
-
-- Install with `./startup.sh install --seek-public-url https://seek.example.org`. Give the host only, with no path. On a laptop, leave the flag out.
-- Do this at the first install, before items 2, 4 and 6. Running install again writes `docker/db.env`, `docker/nextseek.env` and `dmac/local_settings.py` again from their templates, which undoes those edits.
-- Check with `./startup.sh doctor` (the "SEEK public URL" line).
+SEEK is served on its own host name. Set it once, at the first install, with `./startup.sh install --seek-public-url https://seek.example.org` (host only, no path; leave it out on a laptop), so that NExtSEEK's links and SEEK's own identifiers agree. Do this before items 2, 4 and 6: running install again writes the config files again from their templates, which undoes those edits. Details: [NExtSTEPS 1d](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#1d-set-the-browser-reachable-seek-url---seek-public-url).
 
 ### 4. Rotate credentials
 
-- **MySQL.** Change the passwords inside the running database (`ALTER USER` for the root and app users), then edit `docker/db.env` to match and run `docker compose up -d --no-deps --force-recreate nextseek seek seek_workers` (all three read that file). Leave user names and database names alone. Do not use `reset --keep-config` for this: it writes the demo passwords back.
-- **Neo4j.** The password is stored in the Neo4j volume after the first start. Change it with a Cypher `ALTER CURRENT USER`, then update both password variables in `docker/nextseek.env` and recreate `nextseek`. Steps: `docs/neo4j-programmatic-access.md` in the repository.
-- **Django secret key.** Install generates one. If it was ever logged or shared, put a new random 64-character value in `DJANGO_SECRET_KEY` in `docker/nextseek.env` and recreate `nextseek`. Everyone is signed out and old password-reset links stop working.
+- **MySQL.** Change the passwords inside the running database, then in `docker/db.env`, and recreate the services that read it. Leave user names and database names alone, and do not use `reset --keep-config` for this: it writes the demo passwords back. Commands: [NExtSTEPS 2a](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2a-mysql-dockerdbenv).
+- **Neo4j.** The password lives in the Neo4j volume after the first start, so editing files alone does nothing. Steps: [NExtSTEPS 2b](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#2b-neo4j).
+- **Django secret key.** Install generates one. If it was ever logged or shared, replace it; everyone is signed out and old password-reset links stop working. Steps: [NExtSTEPS 3](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#3-django-secret-key).
 
 ### 5. Add TLS
 
-The built-in nginx serves plain HTTP on localhost. Put a TLS-terminating reverse proxy in front of it, pointing your `https://` address at `http://localhost:8000`. Caddy (automatic certificates), nginx with certbot, or a Cloudflare Tunnel all work.
-
-- Set `DJANGO_CSRF_TRUSTED_ORIGINS` to the `https://` address (item 2).
+The built-in nginx serves plain HTTP. Put a TLS-terminating reverse proxy (Caddy, nginx with certbot, or a Cloudflare Tunnel) in front of `http://localhost:8000`, and set `DJANGO_CSRF_TRUSTED_ORIGINS` to the `https://` address (item 2). Options: [NExtSTEPS 5](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#5-tls--https).
 
 ### 6. Add LLM keys for Nessie
 
@@ -60,13 +43,7 @@ Apply: `docker compose up -d --no-deps --force-recreate nextseek`. See [Nessie](
 
 ### 7. Set up backups
 
-Back up three things on a schedule:
-
-- The MySQL databases `dmac` and `seek_production` (`mysqldump`).
-- The Neo4j graph.
-- The SEEK file store (uploads and blobs).
-
-The commands are in `NExtSTEPS.md` in the repository. Run `mysqldump` through `docker compose exec -T` so the dump is not corrupted.
+Back up three things on a schedule: the MySQL databases `dmac` and `seek_production`, the Neo4j graph, and the SEEK file store (uploads and blobs). The commands, including the `-T` flag that keeps a MySQL dump from being corrupted: [NExtSTEPS 6](https://github.com/BioMicroCenter/NExtSEEK/blob/main/NExtSTEPS.md#6-backups).
 
 ### 8. Update safely
 

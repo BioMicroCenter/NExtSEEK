@@ -7,7 +7,7 @@ import NessieAI.ns.granular as g
 
 class _Cfg:
     LURIA_ENV = {"working_path": "/net/bmc-pub10/data1/bmc/pipeline_cd",
-                 "key": "/keys/luria", "user": "cdemu", "host": "luria.mit.edu"}
+                 "key": "/keys/luria", "user": "alice", "host": "luria.mit.edu"}
 
 
 def _call(monkeypatch, run_dir, ssh_out="total 0\n-rw-r--r-- 1 u u 10 matrix.h5\n"):

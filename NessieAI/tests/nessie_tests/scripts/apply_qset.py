@@ -16,8 +16,7 @@ from pathlib import Path
 
 CORPUS = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "corpus.json"
 SPEC = Path(sys.argv[2] if len(sys.argv) > 2 else
-            "/tmp/claude-1000/-home-cdemu-code-dmac-docker/"
-            "7c6b89bb-13b7-48d6-8ccd-7b0eda6e02a0/scratchpad/qset.json")
+            "qset.json")
 
 TEMPLATE = {
     "artifact_expected": None, "artifact_kind": None, "expected_behavior": None,

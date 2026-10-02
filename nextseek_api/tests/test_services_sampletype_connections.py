@@ -299,7 +299,7 @@ def test_clade_lookup_failure_still_returns_connections():
 
 
 # ---------------------------------------------------------------------------
-# Schema generation (nextseek-viewset SKILL.md section 10.2)
+# Schema generation (nextseek-create-endpoint SKILL.md section 10.2)
 #
 # The endpoint's own tests all passed while this route was returning a 500,
 # because they call the viewset method directly and never build the schema.

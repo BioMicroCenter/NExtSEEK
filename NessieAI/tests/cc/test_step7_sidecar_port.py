@@ -53,7 +53,7 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 # PORT_SOURCE_PATH_RECORDED is a plain string used ONLY to cross-check what
 # PORT-EVIDENCE.json records -- no test touches that filesystem path (it is
 # not mounted in the mandated hermetic harness container).
-PORT_SOURCE_PATH_RECORDED = "/home/taishajo/work/dmac-assistant/sidecar"
+PORT_SOURCE_PATH_RECORDED = "<source-checkout>/sidecar"
 PORT_SOURCE_COMMIT = "a429f1372a075e5db586a1b6efc8c3b1663e211a"
 
 APP_MODULES = (

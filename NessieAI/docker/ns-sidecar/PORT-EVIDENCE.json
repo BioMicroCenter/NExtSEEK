@@ -1,5 +1,5 @@
 {
- "port_source_path": "/home/taishajo/work/dmac-assistant/sidecar",
+ "port_source_path": "<source-checkout>/sidecar",
  "port_source_commit": "a429f1372a075e5db586a1b6efc8c3b1663e211a",
  "port_source_verified_clean_tree": true,
  "generated_at": "2026-07-02T09:54:00Z",

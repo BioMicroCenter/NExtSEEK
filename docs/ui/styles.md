@@ -54,9 +54,9 @@ theme stylesheet. The timeline page links a Vite-built bundle (`static/js/sample
 ### The dead Bootstrap 3 / Mezzanine chain
 
 `static/css/` at the repo root holds `bootstrap.css`, `bootstrap-theme.css`, `bootstrap-rtl.css` and
-`mezzanine.css` (Bootstrap 3 era, about 8,600 lines). They are linked only from the stock
-`templates/base.html`, which the theme's `base.html` shadows, so no app page loads them. The same stock
-`base.html` links `cartridge.css` and `cartridge.rtl.css`. (The stock `templates/mobile/` folder, which linked more missing files, was deleted.)
+`mezzanine.css` (Bootstrap 3 era, about 8,600 lines). They are linked only from
+Mezzanine's stock `base.html`, which the theme's `base.html` shadows, so no app page loads them. That
+stock `base.html` also links `cartridge.css` and `cartridge.rtl.css`. (The repo-root copy of it was deleted on 2026-10-01.)
 
 The visible leftover is Bootstrap 3 vocabulary in live templates: `glyphicon-*` icon classes (no font is
 loaded, so they render blank) and `.well` (removed in Bootstrap 5; `nextseek.css` restyles it by hand).
@@ -110,7 +110,7 @@ only.
 |---|---|---|
 | Bootstrap Icons 1.11.3 (CDN) | `bi bi-*` | The house icon set, used across the shell and newer pages |
 | EasyUI sprites | `icon-*` from `jquery-easyui-1.5.2/themes/icon.css` | Used by EasyUI buttons, tabs and tree nodes |
-| Bootstrap 3 glyphicons | `glyphicon glyphicon-*` | Dead: no font loaded. Still in `seek/templates/pages/searchAdvanced_search.embed.html`, `samples_search.embed.html`, `searchAdvanced_newsearch.embed.html`, and stock `templates/accounts/includes/user_panel*.html`, `generic/includes/comment.html`, `twitter/tweets.html` |
+| Bootstrap 3 glyphicons | `glyphicon glyphicon-*` | Dead: no font loaded. Still in `seek/templates/pages/searchAdvanced_search.embed.html`, `samples_search.embed.html`, and stock `templates/accounts/includes/user_panel*.html`, `generic/includes/comment.html`, `twitter/tweets.html` |
 
 No Font Awesome. All CDN loads are a dependency for styling (see the security item in Known issues).
 
@@ -169,7 +169,7 @@ Copy-pasted rule families (change one, change all):
 
 | Family | Copies |
 |---|---|
-| `.datagrid-row-alt { background: #e6f2ff; }` | Six templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `samples_stable`, `samples_new_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
+| `.datagrid-row-alt { background: #e6f2ff; }` | Five templates: `searchAdvanced.html` and `pages/` `samples_table`, `datafile_table`, `sops_table`, `samples_stable` (`.embed.html`). All dead: the `!important` rule in `nextseek.css` wins |
 | `.ns-page-title` | Four identical copies (1.8rem): `projectsList.html`, `sampleAttributes.html`, `templatesList.html`, and as `.cat-page .ns-page-title` in `catalog_styles.html` |
 | Pill chips (11px radius, mono 0.72 to 0.74rem) | `.cat-chip`, `.tpl-chip`, `.stat-chip`, `.attrs-chip` (in `nextseek.css`), `.project-types a` |
 | Focus-ring shadow | Literals in `nextseek.css` and templates |

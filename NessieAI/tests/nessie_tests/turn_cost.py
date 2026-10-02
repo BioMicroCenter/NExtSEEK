@@ -1,6 +1,6 @@
 """One turn's spend and one case's spend, summed one way everywhere.
 
-Standard library only, on purpose. `output-skill/scripts/fetch_run.py` loads this file
+Standard library only, on purpose. `.claude/skills/nessie-run-review/scripts/fetch_run.py` loads this file
 by path so a grading pull sums a case exactly as the harness does, and that script runs
 on an operator's host with python3 and nothing else. The runner and the manifest import
 it by package.

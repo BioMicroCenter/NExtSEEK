@@ -79,6 +79,8 @@ The catalog-driven E2E runner moved to the test tree: `NessieAI/tests/e2e/__main
 run as `python -m NessieAI.tests.e2e`. Its catalog is `NessieAI/tests/e2e/catalog.json`,
 whose variants carry a tag for the Playwright browser tier.
 
+The hand-run nf-core selection evals are in `NessieAI/chat_nextseek/evals/README.md`; their outputs are built from production data and stay out of git.
+
 ### 3. Data other build steps read
 
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` is named as the
