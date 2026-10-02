@@ -4,6 +4,7 @@ SEEK are stubbed; the database is real."""
 from __future__ import annotations
 
 import base64
+import logging
 import time
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -96,7 +97,8 @@ def _assert_revoked(task):
     assert row.login_nonce is None and row.login_ciphertext is None
 
 
-def test_the_container_gets_the_pass_and_the_row_holds_the_callers_own_login(cc, monkeypatch):
+def test_the_container_gets_the_pass_and_the_row_holds_the_callers_own_login(cc, monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="NessieAI.cc")
     seen = {}
 
     def engine(**kwargs):
@@ -108,11 +110,16 @@ def test_the_container_gets_the_pass_and_the_row_holds_the_callers_own_login(cc,
     prod = _Config()
     monkeypatch.setattr(cc_turn, "_select_chat_config", lambda request, req: prod)
     with override_settings(NEXTSEEK_CHAT_CONFIG_PROD=prod):
-        task, _ = _start(make_user("caller"))
+        task, events = _start(make_user("caller"))
     assert len(seen["turn_pass"]) == 43
     assert seen["held"] == ("caller", PASSWORD), "the caller's own login, never the prod swap"
     assert (seen["api_user"], seen["api_pass"]) == ("caller", PASSWORD)
     _assert_revoked(task)
+    row = repr(QueryTask.objects.get(pk=task.pk).__dict__)
+    for secret in (seen["turn_pass"], PASSWORD):
+        assert secret not in caplog.text
+        assert secret not in repr(events)
+        assert secret not in row
 
 
 @pytest.mark.parametrize("way_out", ["runner_down", "no_project", "project_changed", "engine_raises"])
