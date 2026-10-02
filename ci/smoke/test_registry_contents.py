@@ -55,8 +55,8 @@ from ci.smoke.test_reachability import _callable_routes
 OWNED_ROUTE_COUNT = 177
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
-# static asset and the Django admin login page.
-NON_RESOLVER_COUNT = 2
+# static asset, the Django admin login page and the retired /seek/newsearch/ (404).
+NON_RESOLVER_COUNT = 3
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
