@@ -33,11 +33,14 @@ def _checkout(tmp_path: Path, files: dict[str, bytes] | None = None) -> Path:
     for name, data in wanted.items():
         if data is not None:
             (context / name).write_bytes(data)
+    docs_hash = repo / layout.CANONICAL_DOCS_HASH
+    docs_hash.parent.mkdir(parents=True)
+    docs_hash.write_bytes(b"docs-hash-1\n")
     return repo
 
 
 def _image(monkeypatch, baked: dict[str, bytes | None] | None = None, *,
-           present: bool = True) -> list[tuple]:
+           present: bool = True, docs_hash: bytes = b"docs-hash-1\n") -> list[tuple]:
     """An image baking the checkout's default bytes, overridden or dropped by `baked`.
 
     Returns the copy calls, so a test can see what was read and from where.
@@ -51,6 +54,9 @@ def _image(monkeypatch, baked: dict[str, bytes | None] | None = None, *,
     def fake_copy(image, src, dest):
         calls.append((image, src, dest))
         dest = Path(dest)
+        if src == layout.CC_AGENT_DOCS_HASH:
+            dest.write_bytes(docs_hash)
+            return
         dest.mkdir(parents=True)
         for name, data in files.items():
             if data is not None:
@@ -84,6 +90,17 @@ def test_names_every_file_the_image_bakes_differently(monkeypatch, tmp_path):
     # The four that match are not reported as problems.
     assert "min_assays_db.json" not in result.detail
     assert "2 of 6" in result.detail
+    assert "./startup.sh rebuild --component cc-agent" in result.detail
+
+
+def test_fails_when_the_baked_docs_snapshot_is_stale(monkeypatch, tmp_path):
+    """The Nessie docs snapshot is baked into the cc-agent image alone."""
+    _image(monkeypatch, docs_hash=b"docs-hash-0\n")
+
+    result = validate.check_cc_agent_context(_checkout(tmp_path))
+
+    assert result.ok is False
+    assert "docs snapshot" in result.detail
     assert "./startup.sh rebuild --component cc-agent" in result.detail
 
 
@@ -125,7 +142,8 @@ def test_reads_the_cc_agent_image_at_the_path_the_dockerfile_fills(monkeypatch, 
     validate.check_cc_agent_context(_checkout(tmp_path))
 
     assert asked == [IMAGE]
-    assert [(image, src) for image, src, _ in calls] == [(IMAGE, layout.CC_AGENT_CONTEXT_DIR)]
+    assert [(image, src) for image, src, _ in calls] == [
+        (IMAGE, layout.CC_AGENT_CONTEXT_DIR), (IMAGE, layout.CC_AGENT_DOCS_HASH)]
 
 
 def test_skips_with_a_warning_when_the_image_is_absent(monkeypatch, tmp_path):
