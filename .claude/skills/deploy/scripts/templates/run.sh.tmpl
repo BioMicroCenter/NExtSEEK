@@ -1,0 +1,206 @@
+#!/bin/bash
+# deploy launch runner @@TAG@@ for @@INSTANCE@@. Rendered by launch.py from the validated brief;
+# do not edit it by hand (re-render instead). Sequential; every step appends one line to $ST that
+# ends in a UTC HH:MM:SS, and the last line is ALL_DONE. It never rolls anything back.
+set -u
+cd @@REPO@@ || exit 1
+H=@@HOME@@
+TAG=@@TAG@@
+EXP=@@EXP@@
+INSTANCE=@@INSTANCE@@
+IN=@@IN@@
+COMPONENTS="@@COMPONENTS@@"
+CONTINUE_ON_FAILURE=" @@CONTINUE_ON_FAILURE@@ "
+DO_STATIC=@@DO_STATIC@@ DO_LABS=@@DO_LABS@@ DO_CI=@@DO_CI@@ DO_NESSIE=@@DO_NESSIE@@
+CI_FLAGS="@@CI_FLAGS@@"
+SEEK_RESTART_OK=@@SEEK_RESTART_OK@@ SEEK_RESTART_GIB=@@SEEK_RESTART_GIB@@
+CASES="@@CASES@@"
+NESSIE_FLAGS="@@NESSIE_FLAGS@@"
+KNOWN_CI_REDS='@@KNOWN_CI_REDS@@'
+KNOWN_HEALTH_REDS='@@KNOWN_HEALTH_REDS@@'
+WINDOWS="@@WINDOWS@@"
+DISCARD="@@DISCARD@@"
+
+ST=$H/launch-$TAG.status; L=$H/launch-$TAG
+# >>> functions (tests/test_launch.py sources this block)
+say(){ echo "$* $(date -u +%H:%M:%S)" >> "$ST"; }
+stop(){ say "STOPPED: $*"; say ALL_DONE; exit 1; }
+logname(){ case "$1" in
+@@LOGNAME_CASES@@
+esac; }
+success_line(){ case "$1" in
+@@SUCCESS_CASES@@
+esac; }
+need_of(){ case "$1" in
+@@HEALTH_CASES@@
+  *) echo "";; esac; }
+in_window(){ # the stop window the current UTC time falls in, if any (HHMM-HHMM)
+  now=$(date -u +%H%M)
+  for w in $WINDOWS; do
+    s=${w%-*}; e=${w#*-}
+    if [ "$s" -lt "$e" ]; then
+      [ "$now" -ge "$s" ] && [ "$now" -lt "$e" ] && echo "$w"
+    else
+      { [ "$now" -ge "$s" ] || [ "$now" -lt "$e" ]; } && echo "$w"
+    fi
+  done
+  return 0
+}
+health_reds(){ # $1 log: every ✗ line, its wrapped continuation lines joined, the mark stripped
+  awk '
+    /^[[:space:]]+✗ / { if (r != "") print r; r = $0; sub(/^[[:space:]]+✗ /, "", r); next }
+    r != "" && /^[^[:space:]]/ && !/^(╭|│|╰|FAILED|ERROR|XFAIL|XPASS|PASSED|=)/ { r = r $0; next }
+    { if (r != "") print r; r = "" }
+    END { if (r != "") print r }' "$1" | sed -E 's/[[:space:]]+$//'
+}
+classify(){ # $1 one red: skip | known | pending <component> | stale <component> | unexplained
+  case "$1" in "CI failed"*|"CI passed"*|"stopped before building"*) echo skip; return;; esac
+  if printf '%s\n' "$1" | grep -qE "$KNOWN_HEALTH_REDS"; then echo known; return; fi
+  n=$(need_of "$1")
+  if [ -n "$n" ]; then
+    case " $PENDING " in *" $n "*) echo "pending $n";; *) echo "stale $n";; esac
+    return
+  fi
+  echo unexplained
+}
+judge(){ # $1 log $2 label: records every red with its class; prints the reds nothing explains
+  health_reds "$1" | while IFS= read -r line; do
+    c=$(classify "$line")
+    [ "$c" = skip ] && continue
+    say "RED $2 [$c] $(echo "$line" | cut -c1-160)"
+    case "$c" in known|pending*) ;; *) echo "$line";; esac
+  done
+}
+rebuild(){ # $1 component; returns 1 when its success line is missing
+  ./startup.sh rebuild --component "$1" --no-ci > "$L/$(logname "$1").log" 2>&1 </dev/null
+  say "REBUILD $1 exit=$?"
+  t=$(grep -m1 -o "rollback tag verified: [^ ]*" "$L/$(logname "$1").log")
+  [ -n "$t" ] && say "ROLLBACK $1 ${t#rollback tag verified: }"
+  PENDING=$(echo " $PENDING " | sed "s/ $1 / /; s/^ *//; s/ *\$//")
+  grep -qF "$(success_line "$1")" "$L/$(logname "$1").log"
+}
+marker(){ # $1 container $2 file $3 fixed string
+  n=$(docker exec "$1" grep -cF -- "$3" "$2" 2>/dev/null </dev/null)
+  echo "MARKER count=${n:-0} container=$1 file=$2 pattern=$3"
+}
+# <<< functions
+
+mkdir -p "$L" "$H/backups"
+: > "$ST"
+say "START tag=$TAG instance=$INSTANCE components=${COMPONENTS:-none}"
+
+w=$(in_window); [ -n "$w" ] && stop "inside the $w UTC stop window; start after it"
+busy=$(docker compose exec -T nextseek sh -c 'pgrep -af "manage.py (graph_sync --full|graph_sync --drift|nessie)" || true' </dev/null 2>/dev/null)
+[ -n "$busy" ] && stop "busy inside nextseek: $busy"
+
+git fetch -q origin || stop "git fetch failed"
+[ "$(git rev-parse origin/dev)" = "$EXP" ] || stop "origin/dev is $(git rev-parse --short origin/dev), not the expected sha"
+for p in $DISCARD; do git checkout -- "$p" 2>/dev/null; done   # the app's daily context refresh only
+rm -f @@REFRESH_MARKER@@
+git merge --ff-only "$EXP" >> "$L/pull.log" 2>&1 || stop "fast-forward refused, see $L/pull.log"
+[ "$(git rev-parse HEAD)" = "$EXP" ] || stop "HEAD $(git rev-parse --short HEAD) is not the expected sha"
+say "HEAD $(git log --oneline -1 | cut -c1-70)"
+
+post_app(){
+  if [ $DO_STATIC = 1 ]; then
+    docker compose exec -T nextseek uv run manage.py collectstatic --noinput > "$L/static.log" 2>&1 </dev/null
+    say "STATIC exit=$? $(tail -1 "$L/static.log" | cut -c1-100)"
+  fi
+  if [ $DO_LABS = 1 ]; then   # the recreate dropped the copied labs file (dev only)
+    if [ -f /tmp/labs_db.json ]; then
+      docker cp /tmp/labs_db.json nextseek:/app/NessieAI/chat_nextseek/src/chat_nextseek/context/labs_db.json && say "LABS copied"
+      docker compose restart nextseek > /dev/null 2>&1; sleep 60
+    else
+      say "LABS source missing: /tmp/labs_db.json"
+    fi
+  fi
+  docker compose exec -T nextseek mkdir -p /app/runs </dev/null
+}
+
+PENDING="$COMPONENTS"
+for c in $COMPONENTS; do
+  if rebuild "$c"; then
+    say "REBUILT $c"
+  else
+    case "$CONTINUE_ON_FAILURE" in
+      *" $c "*) say "FAILED $c, continuing (continue_on_failure): the old image stays, see $L/$(logname "$c").log";;
+      *) stop "$c: no '$(success_line "$c")' line, see $L/$(logname "$c").log";;
+    esac
+  fi
+  [ "$c" = app ] && post_app
+  bad=$(judge "$L/$(logname "$c").log" "$c")
+  if [ -n "$bad" ]; then
+    if [ -n "$PENDING" ]; then stop "unexplained red after $c: $(echo $bad | cut -c1-300)"
+    else say "FINDING red after the last rebuild ($c): $(echo $bad | cut -c1-300)"; fi
+  fi
+done
+
+C=/app/NessieAI/chat_nextseek/src/chat_nextseek/context
+{
+  echo "CHECK http $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/)"
+  for k in nextseek nextseek-sidecar dmac-bedrock-proxy; do
+    echo "CHECK container $k $(docker inspect -f 'status={{.State.Status}} restarts={{.RestartCount}} oom={{.State.OOMKilled}} started={{.State.StartedAt}}' $k 2>&1)"
+  done
+  echo "CHECK boot_markers $(docker logs nextseek 2>&1 | grep -cE 'COLLECTSTATIC-FAILED|DB-UNREACHABLE|MIGRATE-FAILED')"
+  echo "CHECK cc_runner $(docker compose exec -T nextseek uv run --no-sync python -c 'from NessieAI.cc import cc_engine; print(cc_engine.cc_runner_available())' </dev/null 2>&1 | tail -1)"
+  echo "CHECK labs_line $(docker logs nextseek 2>&1 | grep -F '[CONFIG][LABS]' | tail -1 | cut -c1-200)"
+  echo "CHECK labs_file $(docker compose exec -T nextseek sh -c "stat -c %y $C/labs_db.json 2>/dev/null || echo missing" </dev/null)"
+  echo "CHECK refresh_marker $(docker compose exec -T nextseek sh -c "stat -c %y $C/.context_db_refresh 2>/dev/null || echo missing" </dev/null)"
+  running=$(docker exec nextseek-sidecar sh -c 'grep -A3 "SIDECAR_OPS = frozenset" /app/sidecar/app/contract.py' 2>/dev/null | tr -d ' \n')
+  repo=$(git show HEAD:NessieAI/docker/ns-sidecar/app/contract.py | grep -A3 "SIDECAR_OPS = frozenset" | tr -d ' \n')
+  [ -n "$running" ] && [ "$running" = "$repo" ] && echo "CHECK sidecar_ops match" || echo "CHECK sidecar_ops differ"
+  for i in nextseek-nextseek:latest dmac-assistant:poc nextseek-ns-sidecar:latest nextseek-bedrock-proxy:latest; do
+    echo "IMAGE $i $(docker image inspect -f '{{.Created}}' $i 2>&1)"
+  done
+  case " $COMPONENTS " in *" cc-agent "*)
+    echo "CHECK cc_agent_versions $(timeout 90 docker run --rm --network none --entrypoint sh dmac-assistant:poc -c 'echo node $(node --version) claude $(claude --version 2>&1)' 2>&1 | tail -1)";;
+  esac
+@@MARKERS@@
+  echo "CHECK memory $(free -g | awk '/^Mem:/{print "available_gib=" $7}')"
+  docker stats --no-stream --format 'MEM {{.Name}} {{.MemUsage}}'
+} > "$L/checks.log" 2>&1
+say "CHECKS $(grep -m1 '^CHECK http' "$L/checks.log")"
+
+CI_OK=1
+if [ $DO_CI = 1 ]; then
+  W=""; case " $COMPONENTS " in *" app "*) W="--wait-ready";; esac   # 300 s floor after an app restart
+  ./startup.sh ci $W $CI_FLAGS > "$L/ci.log" 2>&1 </dev/null
+  say "CI exit=$?"
+  r=$(grep -E "CI passed|CI failed" "$L/ci.log" | tail -1 | sed -E 's/^[[:space:]]*[^[:space:]]+ //')
+  say "CI_RESULT ${r:-none}"
+  [ -z "$r" ] && CI_OK=0
+  new=$(grep -E "^(FAILED|ERROR) " "$L/ci.log" | awk '{print $2}' | grep -vE "$KNOWN_CI_REDS")
+  [ -n "$new" ] && { say "CI_NEW_REDS $(echo $new)"; CI_OK=0; }
+  bad=$(judge "$L/ci.log" ci)
+  [ -n "$bad" ] && say "FINDING red stack health in CI: $(echo $bad | cut -c1-300)"
+fi
+
+if [ $DO_NESSIE = 1 ]; then
+  [ $CI_OK = 1 ] || stop "CI is not green apart from the known reds; the paid Nessie step did not start"
+  # a refused model id silently moves every call to its fallback (F1), so a paid run needs every id proven reachable;
+  # the check's yellow "!" (not proven) is never seen by judge(), so require the green line itself (2026-09-28)
+  grep -qE '✓ model ids reachable' "$L/ci.log" 2>/dev/null || stop "model ids reachable is not green in CI (or CI did not run); the paid Nessie step did not start"
+  m=$(docker stats --no-stream --format '{{.MemUsage}}' seek | awk '{print $1}'); say "SEEK_MEM $m"
+  case "$m" in *GiB) g=${m%GiB}
+    if [ "${g%.*}" -ge "$SEEK_RESTART_GIB" ] && [ "$SEEK_RESTART_OK" = 1 ]; then
+      docker compose restart seek > /dev/null 2>&1
+      for i in $(seq 1 24); do s=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/); [ "$s" = 200 ] || [ "$s" = 302 ] && break; sleep 10; done
+      say "SEEK restarted (http $s)"
+    fi;;
+  esac
+  set -a; . "$H/.config/nextseek/ci.env"; set +a        # never echo these
+  docker compose exec -T nextseek mkdir -p /app/runs </dev/null
+  for f in $CASES; do
+    RUN=$INSTANCE-${f%.json}
+    cp "$IN/$f" "$L/$f" || { say "CASES missing $f"; continue; }
+    docker cp "$L/$f" nextseek:/app/runs/$f
+    say "NESSIE_START run=$RUN utc=$(date -u +%FT%TZ)"
+    docker compose exec -T -e CI_WRITE_PASS nextseek uv run manage.py nessie --tier full \
+      --cases /app/runs/$f --user "$CI_WRITE_USER" --password-env CI_WRITE_PASS $NESSIE_FLAGS \
+      --out /app/runs/$RUN </dev/null > "$L/nessie-$RUN.log" 2>&1
+    say "NESSIE_EXIT run=$RUN exit=$? utc=$(date -u +%FT%TZ)"
+    docker cp nextseek:/app/runs/$RUN "$L/" > /dev/null 2>&1
+    docker cp nextseek:/app/runs/$RUN "$H/backups/" > /dev/null 2>&1
+  done
+fi
+say ALL_DONE

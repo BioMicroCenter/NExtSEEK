@@ -33,6 +33,11 @@ CHAT_NEXTSEEK_DIR = Path("NessieAI") / "chat_nextseek"
 # `cc-agent context` is what notices when the second one was skipped.
 CANONICAL_CONTEXT_DIR = CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
 CC_AGENT_CONTEXT_DIR = "/app/plugins/nextseek/context"
+# Nessie's user-docs snapshot (generated from themes/NextSeek/docs/ by
+# NessieAI/build_tools/ingest_nextseek_docs) is baked into the cc-agent image
+# only; its .content-hash stands for the whole snapshot.
+CANONICAL_DOCS_HASH = Path("NessieAI") / "docker" / "cc-runtime" / "docs" / "nextseek" / ".content-hash"
+CC_AGENT_DOCS_HASH = "/app/docs/nextseek/.content-hash"
 CANONICAL_CONTEXT_FILES = (
     "capabilities.md",
     "min_api_endpoints.json",

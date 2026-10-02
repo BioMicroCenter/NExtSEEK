@@ -130,7 +130,7 @@ Measured on the local stack before the tool's first write anywhere; the provisio
 |---|---|
 | `models.py` | the input model (`AssociationSet`) and the plan model |
 | `buckets.py` | the bucket rule, shared with the registration resolver |
-| `sources/` | the three adapters and the shared matching; `dev_investigations.json`, the dev-to-SEEK investigation title map |
+| [`sources/`](sources/README.md) | the three adapters and the shared matching; `dev_investigations.json`, the dev-to-SEEK investigation title map |
 | `snapshot.py` | every read the plan makes |
 | `planner.py` | `plan_study_moves` |
 | `seek.py` | the operator's SEEK session |

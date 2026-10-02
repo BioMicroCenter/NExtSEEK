@@ -42,8 +42,8 @@ lane" for the database-backed tests, and the route and full tier rows for live r
 ## See also
 
 - See `NessieAI/tests/nessie_tests/README.md` for the lanes explained, the two entry points and the paid run's flags.
-- See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for triaging a finished run into a report.
-- See `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for the paired run's grading flow.
+- See `.claude/skills/nessie-run-review/SKILL.md:2-3` for triaging a finished run into a report.
+- See `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for the paired run's grading flow.
 - See `NessieAI/docs/nessie-question-set-2026-08-06.md:1` for the question set and its ground truth.
 - See `NessieAI/router/README.md` for the route decision this harness observes, and `NessieAI/cc/README.md` for the CC engine.
 - See the repository-root `CLAUDE.md` for stack-wide build and test conventions.

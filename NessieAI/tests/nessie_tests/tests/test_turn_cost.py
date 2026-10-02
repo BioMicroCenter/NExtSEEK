@@ -253,7 +253,7 @@ def test_a_turn_fell_back_when_any_model_did():
 
 
 def test_the_module_imports_nothing_outside_the_standard_library():
-    """`output-skill/scripts/fetch_run.py` loads this file by path on an operator's
+    """`.claude/skills/nessie-run-review/scripts/fetch_run.py` loads this file by path on an operator's
     host that has python3 and nothing else."""
     import ast
     import sys

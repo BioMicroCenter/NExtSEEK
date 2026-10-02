@@ -18,9 +18,9 @@ def test_detect_mode_rejects_unknown_and_falls_back():
 
 
 def test_build_luria_env_maps_the_four_fields():
-    env = {"LURIA_USER": "cdemu", "LURIAKEY": "/k", "LURIA_WORKING_PATH": "/net/x"}
+    env = {"LURIA_USER": "alice", "LURIAKEY": "/k", "LURIA_WORKING_PATH": "/net/x"}
     le = build_luria_env(env)
-    assert le == {"user": "cdemu", "key": "/k", "working_path": "/net/x", "host": "luria.mit.edu"}
+    assert le == {"user": "alice", "key": "/k", "working_path": "/net/x", "host": "luria.mit.edu"}
 
 
 def test_luria_env_complete_requires_user_key_working_path():

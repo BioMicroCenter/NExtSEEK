@@ -1,0 +1,34 @@
+       Disk /var/lib/docker: 268.4 GB total, 105.8 GB free
+       Floor for profile 'dev': 20 GB
+       ✓ 105.8 GB free, at or above the 20 GB floor
+╭──────────────────────────────────────╮
+│ Rebuilding app for instance NExtSEEK │
+╰──────────────────────────────────────╯
+
+       ✓ rollback tag verified: nextseek-nextseek:pre-20260925T082633-926be1e3 
+(sha256:fe15acc6c96aafc9dc44904620b2084486fa59dd93c9fab01d247c902b28220e)
+
+
+       ✓ app rebuilt and restarted
+       ✓ front door (nextseek_nginx) running
+       ✓ app + front door: nextseek + nextseek_nginx running
+       ✓ first-party images: all 4 present (nextseek-nextseek:latest, 
+dmac-assistant:poc, nextseek-ns-sidecar:latest, nextseek-bedrock-proxy:latest)
+       ✓ cc services: bedrock-proxy + nextseek-sidecar running
+       ✓ cc-agent context: dmac-assistant:poc bakes all 6 canonical context 
+files as the checkout has them
+       ✗ graph drift: DRIFT: 1 of 43 checks failed: 
+catalog.assistant_investigations
+╭──────────────────────────────────────────────────────────╮
+│ ⚠ OFF-BOX ROLLBACK BASELINE NOT PUSHED — ACTION NEEDED ⚠ │
+╰──────────────────────────────────────────────────────────╯
+       ✗ no usable GHCR credential at 
+/home/runas/.config/nextseek/ghcr.env
+       → off-box rollback baselines are NOT being saved — after a disk cleanup 
+this host's images would be unrecoverable (it has happened). Fix: mint a classic
+PAT with the write:packages scope on YOUR OWN GitHub account (the account must 
+be a BioMicroCenter org member), then write it to 
+/home/runas/.config/nextseek/ghcr.env as GHCR_USER=<github-username> /
+GHCR_TOKEN=<token> (file mode 600). Details: DEPLOYMENT.md §5.2.
+       ! the deploy itself is unaffected; 'startup doctor' will keep flagging 
+this

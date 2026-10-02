@@ -124,8 +124,8 @@ variants over 542 turns; `curated`, which drops the unreviewed atlas set
 consistency group is defined; and 4 variants carry the `route_gate` tag.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
-here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
-into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
+here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
+into a triage report, and `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
 the testable logic for each lives in the underscore-named package beside it and the
 skill's scripts are thin entry points
@@ -415,18 +415,14 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   commits later. The string does not move. Do not chase the silent ones as real
   regressions.
 
-### Known-failing everywhere but one laptop: `test_v4_2_set3_replay.py`
+### Needs the delivery directory: `test_v4_2_set3_replay.py`
 
-Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` open a
-delivery zip through an absolute path into another developer's home directory:
-`v4_2_verifier.py:20` pins `V13A_DELIVERY` to a `testquestions-2026-08-07` directory
-under that developer's home directory.
-On any machine that is not that one they die
-`FileNotFoundError: ... testquestions.zip`: the same five, on every run, with
-everything else green. That is the machine, not a regression; do not chase it.
-(The sixth test in the file drives a synthetic producer and passes anywhere.)
-The right fix is a `pytest.mark.skipif` on the delivery path's existence:
-noted here, not yet applied.
+Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` read the
+`testquestions-2026-08-07` delivery zip. Set `NESSIE_TESTQUESTIONS_DIR` to the directory that holds
+it; when the zip is missing those five tests skip with that reason. (The sixth test drives a
+synthetic producer and runs anywhere.) The same variable locates the delivery for the HiBayes and
+paired-evidence tests that read it. The stored seed6b run evidence the other replay tests read is
+located the same way, with `NESSIE_SEED6B_DIR`.
 
 ### DB/contract tests: in-container lane
 

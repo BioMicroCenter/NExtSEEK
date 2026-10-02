@@ -15,7 +15,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-SCRIPTS = Path(__file__).resolve().parents[1] / "output-skill" / "scripts"
+SCRIPTS = Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-run-review" / "scripts"
 
 
 def _load(name):

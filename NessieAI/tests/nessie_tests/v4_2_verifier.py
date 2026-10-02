@@ -5,6 +5,7 @@ checks V13-A identities, pair conservation, and route-trace integrity.
 """
 from __future__ import annotations
 
+import os
 import hashlib
 import zipfile
 from dataclasses import dataclass, field
@@ -17,7 +18,7 @@ from pydantic import ValidationError
 from NessieAI.tests.nessie_tests import bayes_manifest as bm
 from NessieAI.tests.nessie_tests import runner
 
-V13A_DELIVERY = Path("/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07")
+V13A_DELIVERY = Path(os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"))
 V13A_ZIP = V13A_DELIVERY / "testquestions.zip"
 SET3_ZIP_MEMBER = "testquestions/set3_final/bayes_manifest.json"
 CORPUS_ZIP_MEMBER = "testquestions/corpus/corpus.json"

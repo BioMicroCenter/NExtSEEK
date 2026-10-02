@@ -329,6 +329,12 @@ REGISTRY: list[Route] = [
           resolver=False,
           note="Django admin is outside the gate's denominator; kept as the "
                "cheapest proof Django itself serves"),
+    Route(pattern=r"^seek/newsearch/$", path="/seek/newsearch/",
+          effect="n/a",
+          methods=("GET",), profiles="local,dev,prod", auth="anon", expect=404,
+          resolver=False,
+          note="guards that the retired /seek/newsearch/ page stays gone (removed "
+               "in 118c28fd); a 404 here means the route or a catch-all brought it back"),
     Route(pattern=r"^static/(?P<path>.*)$", path="/static/css/nextseek.css",
           effect="n/a",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=200,
@@ -376,10 +382,6 @@ REGISTRY: list[Route] = [
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="anon", expect=301,
           note="the old Getting Started page; a permanent redirect to /docs/"),
-    Route(pattern=r"^seek/^newsearch/", path="/seek/newsearch/",
-          effect="reads",
-          methods=("GET",), profiles="local,dev,prod", auth="web", expect=200,
-          note="unlinked from the UI; recorded so nobody mistakes it for the daily driver"),
     Route(pattern=r"^seek/^projects/$", path="/seek/projects/",
           effect="reads",
           methods=("GET",), profiles="local,dev,prod", auth="web", expect=200),

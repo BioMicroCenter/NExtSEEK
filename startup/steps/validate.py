@@ -26,6 +26,8 @@ from startup.lib.env import read_env
 from startup.lib.layout import (
     CANONICAL_CONTEXT_DIR,
     CANONICAL_CONTEXT_FILES,
+    CANONICAL_DOCS_HASH,
+    CC_AGENT_DOCS_HASH,
     CC_AGENT_CONTEXT_DIR,
     LEGACY_PROXY_SECRET_ENV,
     PROXY_SECRET_ENV,
@@ -480,18 +482,34 @@ def check_cc_agent_context(
                 detail=f"could not read {CC_AGENT_CONTEXT_DIR} out of {image}: {exc}",
             )
         stale = _context_mismatches(checkout / CANONICAL_CONTEXT_DIR, baked)
+        docs_hash = Path(tmp) / "docs-content-hash"
+        try:
+            copy_from_image(image, CC_AGENT_DOCS_HASH, docs_hash)
+        except (DockerOpsError, OSError) as exc:
+            return HealthResult(
+                name=name, ok=False,
+                detail=f"could not read {CC_AGENT_DOCS_HASH} out of {image}: {exc}",
+            )
+        source_hash = checkout / CANONICAL_DOCS_HASH
+        docs_stale = not source_hash.is_file() or (
+            source_hash.read_bytes() != docs_hash.read_bytes()
+        )
     total = len(CANONICAL_CONTEXT_FILES)
+    n_files = len(stale)
+    if docs_stale:
+        # The Nessie docs snapshot is baked into the cc-agent image alone.
+        stale.append("the Nessie docs snapshot (.content-hash differs)")
     if stale:
         return HealthResult(
             name=name, ok=False,
-            detail=(f"STALE: {image} bakes {len(stale)} of {total} canonical context "
+            detail=(f"STALE: {image} bakes {n_files} of {total} canonical context "
                     f"files unlike the checkout: {', '.join(stale)}. The CC agent "
                     "reads its baked copy until you run: "
                     "./startup.sh rebuild --component cc-agent"),
         )
     return HealthResult(
         name=name, ok=True,
-        detail=f"{image} bakes all {total} canonical context files as the checkout has them",
+        detail=f"{image} bakes all {total} canonical context files and the docs snapshot as the checkout has them",
     )
 
 

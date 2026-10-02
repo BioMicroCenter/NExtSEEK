@@ -123,7 +123,7 @@ def test_the_cypher_batch_names_every_measured_case():
 
 
 def test_the_batch_is_cypher_that_labels_its_own_output():
-    """cypher-shell rejects `--` comment lines (fairdata-dev, 2026-09-22: four lines of error,
+    """cypher-shell rejects `--` comment lines (the dev box, 2026-09-22: four lines of error,
     no numbers). Every non-blank line is a `//` comment or a statement, and each case opens
     with a one-row RETURN of its id so the output maps back without counting statements."""
     spec = json.loads(DEV_BOX_PROBE.read_text(encoding="utf-8"))

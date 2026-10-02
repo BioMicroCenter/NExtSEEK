@@ -202,10 +202,8 @@ non-Python and non-import contexts, then grouped. Test modules are omitted:
 - `ci/routes.py` declares the HTTP routes this directory serves and annotates them with source
   locations as prose, not imports: `ci/routes.py:800` and `ci/routes.py:629` are two.
 
-What a hit here is NOT. Four groups were excluded deliberately, each for a different reason.
-`nextseek_api/tests.py` imports service ViewSets on more than 40 lines, `nextseek_api/tests.py:875`
-among them, and none of them run; see `nextseek_api/CLAUDE.md` for why that module is
-unreachable. `NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/tests/nessie_tests/manifest.py:169` name
+What a hit here is NOT. Three groups were excluded deliberately, each for a different reason.
+`NessieAI/tests/e2e/playwright/poll.py:11` and `NessieAI/tests/nessie_tests/manifest.py:169` name
 modules here inside docstrings, which is documentation and not a dependency.
 `seek/timeline/services/` is a different `services` package entirely, imported at
 `nextseek_api/views.py:27-28`, and has nothing to do with this directory. And

@@ -447,8 +447,8 @@ WRITERS: tuple[Writer, ...] = (
            tables=("samples", "assay_assets"),
            how=("dbtable", "sql"),
            reconcile="RECONCILE_DEAD",
-           note="dead code: the first two are reached only from api_app, which is never mounted, and the other "
-                "two have no caller"),
+           note="dead code: the first two were reached only from the retired api_app and have no caller left, "
+                "and the other two have no caller either"),
     Writer(id="WR-29",
            sites=("nextseek_api/services/people.py::PeopleProxyViewSet.create",
                   "nextseek_api/services/people.py::PeopleProxyViewSet.partial_update"),
@@ -530,25 +530,6 @@ UNRESOLVED_SITES: tuple[str, ...] = (
     "dmac/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
     "dmac/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
     "dmac/datagrid_custom.py::DataGrid.__save",
-    # The same two layers again inside api_app, which is installed and imported but
-    # never mounted, plus its sample-tree writer on a table the graph does not read.
-    "api_app/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "api_app/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "api_app/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__insertOneRecord",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__insertRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__updateRecords",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.updateOneRecord",
-    "api_app/remoteJob/dbconn_mysql.py::DBconn_mysql.__deleteRecords",
-    "api_app/updateTrees.py::saveSampleTree",
-    "api_app/updateTrees.py::saveTreesToDB",
-    "api_app/remoteJob/updateTrees.py::saveSampleTree",
-    "api_app/remoteJob/updateTrees.py::saveTreesToDB",
-    # A module the scan cannot parse, so cannot clear: it is Python 2, under the
-    # app that is never mounted.
-    "api_app/api_sampleParser.py",
     # The context generator's two table-agnostic renderers (WR-21). Both take the
     # table as an argument and read its name off cg.TABLES, so the scan sees a
     # statement with no literal table; and neither writes anything anyway, they

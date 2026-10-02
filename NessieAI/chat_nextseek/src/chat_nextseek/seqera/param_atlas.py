@@ -15,7 +15,7 @@ from typing import Any
 from chat_nextseek.seqera.catalog import NFCORE_PIPELINE_CATALOG
 from chat_nextseek.seqera.pipeline_params import _load_pipeline_doc, load_pipeline_context
 
-ATLAS_PATH = Path(__file__).resolve().parent.parent / "context" / "nfcore_param_atlas.json"
+ATLAS_PATH = Path(__file__).resolve().parent / "nfcore_param_atlas.json"
 
 _VALID_TARGETS = {"row_column", "run_param"}
 

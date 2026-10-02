@@ -22,7 +22,7 @@ from NessieAI.tests.nessie_tests.output_skill.common import (
     FormError, Strict, atomic_write, dump, read_json, validate,
 )
 
-# The six words every review uses (output-skill/SKILL.md "Assign one verdict per case").
+# The six words every review uses (.claude/skills/nessie-run-review/SKILL.md "Assign one verdict per case").
 Verdict = Literal["pass", "real", "drift", "policy", "masked", "notrun"]
 VERDICTS = ("pass", "real", "drift", "policy", "masked", "notrun")
 # The tones the page styles (templates/report.html.tpl: .n.<tone>, .find.<severity>).

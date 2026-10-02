@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 580" width="1000" height="580" font-family="Helvetica, Arial, sans-serif">
+<rect width="1000" height="580" fill="#ffffff"/>
+<text x="500.0" y="24" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">NExtSEEK code communities (file-level graph, commit fd290c4f)</text>
+<line x1="302" y1="282" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="6.0"><title>SEEK pages and table layer - nextseek_api core: 118</title></line>
+<line x1="302" y1="180" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.5"><title>Graph search and sync - nextseek_api core: 74</title></line>
+<line x1="498" y1="486" x2="302" y2="486" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.4"><title>NS engine - Pipeline launch: 69</title></line>
+<line x1="498" y1="384" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.4"><title>Container-CC engine - nextseek_api core: 65</title></line>
+<line x1="692" y1="384" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="5.0"><title>Ops and op registry - nextseek_api core: 46</title></line>
+<line x1="302" y1="384" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="4.7"><title>Router and HiBayes - nextseek_api core: 34</title></line>
+<line x1="498" y1="180" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="4.4"><title>Batch upload - nextseek_api core: 24</title></line>
+<line x1="692" y1="282" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="4.1"><title>Schema RAG - nextseek_api core: 18</title></line>
+<line x1="108" y1="180" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.9"><title>Attribute API - nextseek_api core: 15</title></line>
+<line x1="498" y1="180" x2="302" y2="180" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.8"><title>Batch upload - Graph search and sync: 14</title></line>
+<line x1="498" y1="384" x2="692" y2="384" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.8"><title>Container-CC engine - Ops and op registry: 13</title></line>
+<line x1="692" y1="180" x2="498" y2="282" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.8"><title>Assay registration - nextseek_api core: 13</title></line>
+<line x1="498" y1="384" x2="498" y2="486" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.6"><title>Container-CC engine - NS engine: 11</title></line>
+<line x1="498" y1="486" x2="692" y2="384" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.6"><title>NS engine - Ops and op registry: 11</title></line>
+<line x1="692" y1="180" x2="498" y2="180" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.5"><title>Assay registration - Batch upload: 10</title></line>
+<line x1="498" y1="486" x2="692" y2="486" stroke="#8a8f98" stroke-opacity="0.55" stroke-width="3.4"><title>NS engine - Retry evaluator: 9</title></line>
+<rect x="405" y="456" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="405" y="456" width="185" height="60" rx="8" fill="#4e79a7" fill-opacity="0.22" stroke="#4e79a7" stroke-width="2"/>
+<text x="498" y="483" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">NS engine</text>
+<text x="498" y="502" text-anchor="middle" font-size="12" fill="#444">406 files</text>
+<rect x="405" y="252" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="405" y="252" width="185" height="60" rx="8" fill="#f28e2b" fill-opacity="0.22" stroke="#f28e2b" stroke-width="2"/>
+<text x="498" y="279" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">nextseek_api core</text>
+<text x="498" y="298" text-anchor="middle" font-size="12" fill="#444">186 files</text>
+<rect x="210" y="354" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="210" y="354" width="185" height="60" rx="8" fill="#e15759" fill-opacity="0.22" stroke="#e15759" stroke-width="2"/>
+<text x="302" y="381" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Router and HiBayes</text>
+<text x="302" y="400" text-anchor="middle" font-size="12" fill="#444">179 files</text>
+<rect x="405" y="354" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="405" y="354" width="185" height="60" rx="8" fill="#76b7b2" fill-opacity="0.22" stroke="#76b7b2" stroke-width="2"/>
+<text x="498" y="381" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Container-CC engine</text>
+<text x="498" y="400" text-anchor="middle" font-size="12" fill="#444">150 files</text>
+<rect x="210" y="252" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="210" y="252" width="185" height="60" rx="8" fill="#59a14f" fill-opacity="0.22" stroke="#59a14f" stroke-width="2"/>
+<text x="302" y="279" text-anchor="middle" font-size="10.9" font-weight="bold" fill="#1a1a1a">SEEK pages and table layer</text>
+<text x="302" y="298" text-anchor="middle" font-size="12" fill="#444">144 files</text>
+<rect x="210" y="48" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="210" y="48" width="185" height="60" rx="8" fill="#edc948" fill-opacity="0.22" stroke="#edc948" stroke-width="2"/>
+<text x="302" y="75" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Chat frontend</text>
+<text x="302" y="94" text-anchor="middle" font-size="12" fill="#444">129 files</text>
+<rect x="15" y="456" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="15" y="456" width="185" height="60" rx="8" fill="#b07aa1" fill-opacity="0.22" stroke="#b07aa1" stroke-width="2"/>
+<text x="108" y="483" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Nessie test harness</text>
+<text x="108" y="502" text-anchor="middle" font-size="12" fill="#444">122 files</text>
+<rect x="405" y="150" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="405" y="150" width="185" height="60" rx="8" fill="#ff9da7" fill-opacity="0.22" stroke="#ff9da7" stroke-width="2"/>
+<text x="498" y="177" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Batch upload</text>
+<text x="498" y="196" text-anchor="middle" font-size="12" fill="#444">92 files</text>
+<rect x="600" y="354" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="600" y="354" width="185" height="60" rx="8" fill="#9c755f" fill-opacity="0.22" stroke="#9c755f" stroke-width="2"/>
+<text x="692" y="381" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Ops and op registry</text>
+<text x="692" y="400" text-anchor="middle" font-size="12" fill="#444">88 files</text>
+<rect x="795" y="48" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="795" y="48" width="185" height="60" rx="8" fill="#bab0ac" fill-opacity="0.22" stroke="#bab0ac" stroke-width="2"/>
+<text x="888" y="75" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">startup CLI</text>
+<text x="888" y="94" text-anchor="middle" font-size="12" fill="#444">75 files</text>
+<rect x="15" y="150" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="15" y="150" width="185" height="60" rx="8" fill="#86bcb6" fill-opacity="0.22" stroke="#86bcb6" stroke-width="2"/>
+<text x="108" y="177" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Attribute API</text>
+<text x="108" y="196" text-anchor="middle" font-size="12" fill="#444">67 files</text>
+<rect x="795" y="456" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="795" y="456" width="185" height="60" rx="8" fill="#d37295" fill-opacity="0.22" stroke="#d37295" stroke-width="2"/>
+<text x="888" y="483" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">AI images</text>
+<text x="888" y="502" text-anchor="middle" font-size="12" fill="#444">52 files</text>
+<rect x="600" y="48" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="600" y="48" width="185" height="60" rx="8" fill="#a0cbe8" fill-opacity="0.22" stroke="#a0cbe8" stroke-width="2"/>
+<text x="692" y="75" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">CI</text>
+<text x="692" y="94" text-anchor="middle" font-size="12" fill="#444">44 files</text>
+<rect x="600" y="150" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="600" y="150" width="185" height="60" rx="8" fill="#ffbe7d" fill-opacity="0.22" stroke="#ffbe7d" stroke-width="2"/>
+<text x="692" y="177" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Assay registration</text>
+<text x="692" y="196" text-anchor="middle" font-size="12" fill="#444">29 files</text>
+<rect x="210" y="456" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="210" y="456" width="185" height="60" rx="8" fill="#8cd17d" fill-opacity="0.22" stroke="#8cd17d" stroke-width="2"/>
+<text x="302" y="483" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Pipeline launch</text>
+<text x="302" y="502" text-anchor="middle" font-size="12" fill="#444">28 files</text>
+<rect x="405" y="48" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="405" y="48" width="185" height="60" rx="8" fill="#b6992d" fill-opacity="0.22" stroke="#b6992d" stroke-width="2"/>
+<text x="498" y="75" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Scripts</text>
+<text x="498" y="94" text-anchor="middle" font-size="12" fill="#444">24 files</text>
+<rect x="15" y="48" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="15" y="48" width="185" height="60" rx="8" fill="#499894" fill-opacity="0.22" stroke="#499894" stroke-width="2"/>
+<text x="108" y="75" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Site JavaScript</text>
+<text x="108" y="94" text-anchor="middle" font-size="12" fill="#444">24 files</text>
+<rect x="210" y="150" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="210" y="150" width="185" height="60" rx="8" fill="#f1ce63" fill-opacity="0.22" stroke="#f1ce63" stroke-width="2"/>
+<text x="302" y="177" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#1a1a1a">Graph search and sync</text>
+<text x="302" y="196" text-anchor="middle" font-size="12" fill="#444">23 files</text>
+<rect x="600" y="252" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="600" y="252" width="185" height="60" rx="8" fill="#79706e" fill-opacity="0.22" stroke="#79706e" stroke-width="2"/>
+<text x="692" y="279" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Schema RAG</text>
+<text x="692" y="298" text-anchor="middle" font-size="12" fill="#444">20 files</text>
+<rect x="600" y="456" width="185" height="60" rx="8" fill="#ffffff"/>
+<rect x="600" y="456" width="185" height="60" rx="8" fill="#d4a6c8" fill-opacity="0.22" stroke="#d4a6c8" stroke-width="2"/>
+<text x="692" y="483" text-anchor="middle" font-size="14.0" font-weight="bold" fill="#1a1a1a">Retry evaluator</text>
+<text x="692" y="502" text-anchor="middle" font-size="12" fill="#444">15 files</text>
+<text x="500.0" y="570" text-anchor="middle" font-size="11" fill="#555">Line width: import, call and inherit links between non-test files (6 or more). Regenerate: python3 scripts/graph_files.py</text>
+</svg>
