@@ -58,13 +58,14 @@
   },
 
   "qc_attributes": {
-    "TotalReads":           { "from": "star-total_reads", "target": "D.SEQ",
+    "TotalReads":           { "from": "$derived.total_reads", "target": "D.SEQ",
                               "datatype": "number",
-                              "alternates": ["samtools_stats-raw_total_sequences"],
-                              "note": "reads entering alignment, i.e. post-trim. The raw pre-trim count is NOT on the sample row: fastqc_raw-total_sequences appears only on the per-read <sample>_1/_2 rows.",
+                              "note": "STAR's \"Number of input reads\" in <sample>.Log.final.out: reads entering alignment, i.e. post-trim. Not MultiQC's star-total_reads, which is the same number in millions. No samtools fallback: raw_total_sequences counts BAM records (both mates), not reads.",
                               "provenance": "seed" },
-    "NumAligned":           { "from": "star-uniquely_mapped", "target": "D.SEQ",
-                              "datatype": "number", "provenance": "seed" },
+    "NumAligned":           { "from": "$derived.uniquely_mapped_reads", "target": "D.SEQ",
+                              "datatype": "number",
+                              "note": "STAR's \"Uniquely mapped reads number\" in <sample>.Log.final.out. Not MultiQC's star-uniquely_mapped, which is in millions.",
+                              "provenance": "seed" },
     "MappedPercent":        { "from": "star-uniquely_mapped_percent", "target": "D.SEQ",
                               "datatype": "number",
                               "alternates": ["samtools_stats-reads_mapped_percent", "salmon-percent_mapped"],
@@ -115,6 +116,12 @@
   },
 
   "deliberately_unmapped": [
+    { "key": "star-total_reads",
+      "why": "MultiQC prints it in millions. TotalReads reads the exact count from the STAR log ($derived.total_reads)." },
+    { "key": "star-uniquely_mapped",
+      "why": "MultiQC prints it in millions. NumAligned reads the exact count from the STAR log ($derived.uniquely_mapped_reads)." },
+    { "key": "samtools_stats-raw_total_sequences",
+      "why": "In millions, and it counts BAM records (both mates of a pair), not reads, so it is no stand-in for TotalReads." },
     { "key": "strandedness_inferred",
       "why": "D.SEQ has no strandedness attribute. LibraryDesign is the plausible target but that is a schema decision, not a mapping one." },
     { "key": "ReadLanePct",

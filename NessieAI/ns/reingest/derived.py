@@ -17,7 +17,7 @@ DERIVED_METRICS: tuple[str, ...] = (
     # parse_read_distribution (MultiQC/RSeQC report tag COUNTS per group,
     # and D.SEQ has one UTR slot where RSeQC reports two), not by compute()'s
     # own arithmetic. compute() still merges them into its result so that
-    # sample.derived (and a map's $derived.cds_pct) carries all eleven names.
+    # sample.derived (and a map's $derived.cds_pct) carries every name below.
     "cds_pct",
     "utr_pct",
     "intron_pct",
@@ -29,6 +29,10 @@ DERIVED_METRICS: tuple[str, ...] = (
     "genes_detected_percent",
     "top30_count_percent",
     "unaligned_reads",
+    # STAR's exact counts, passed through: MultiQC's general stats print the
+    # same numbers in millions, so a map must never read those columns.
+    "total_reads",
+    "uniquely_mapped_reads",
 )
 
 _GROUP_ROW = re.compile(r"^(\S+)\s+\d+\s+(\d+)\s")
@@ -234,6 +238,13 @@ def compute(
         # only sets "unmapped" when all three lines were found, so a partial sum
         # can never arrive here looking like a whole one.
         out["unaligned_reads"] = round(float(star["unmapped"]), 4)
+    if star:
+        # Integers straight from STAR's log, never MultiQC's general-stats
+        # columns: those are in millions (4.763343 for 4763343 reads).
+        if "total" in star:
+            out["total_reads"] = int(star["total"])
+        if "unique" in star:
+            out["uniquely_mapped_reads"] = int(star["unique"])
 
     if counts:
         values = sorted(v for v in counts.values() if v > 0)

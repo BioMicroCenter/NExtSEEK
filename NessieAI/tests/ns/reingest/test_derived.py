@@ -19,7 +19,7 @@ def test_derived_metric_names_are_a_closed_set():
         "cds_pct", "utr_pct", "intron_pct", "intergenic_pct",
         "exon_intron_ratio", "exon_intergenic_ratio", "sense_antisense_ratio",
         "genes_detected", "genes_detected_percent", "top30_count_percent",
-        "unaligned_reads",
+        "unaligned_reads", "total_reads", "uniquely_mapped_reads",
     )
 
 
@@ -254,6 +254,25 @@ def test_unaligned_reads_is_stars_own_unmapped_sum():
     assert out["unaligned_reads"] == 20.0
     subtracted = 1000.0 - 800.0 - 150.0
     assert out["unaligned_reads"] != subtracted, "the old reading included too_many_loci"
+
+
+def test_read_counts_are_stars_exact_integers_not_multiqc_millions():
+    """MultiQC's general stats print STAR's counts in millions (4.763343 for
+    4763343 reads); the STAR log is the exact count, written as an integer."""
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"total": 4763343.0, "unique": 4259026.0},
+                          counts=None, n_annotated_genes=None)
+    assert out["total_reads"] == 4763343
+    assert out["uniquely_mapped_reads"] == 4259026
+    assert isinstance(out["total_reads"], int)
+    assert isinstance(out["uniquely_mapped_reads"], int)
+
+
+def test_a_star_log_without_a_count_line_omits_that_count():
+    out = derived.compute(read_distribution=None, infer_experiment=None,
+                          star={"unique": 800.0}, counts=None, n_annotated_genes=None)
+    assert "total_reads" not in out
+    assert out["uniquely_mapped_reads"] == 800
 
 
 def test_without_the_unmapped_lines_there_is_no_unaligned_count():

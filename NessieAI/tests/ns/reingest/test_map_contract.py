@@ -232,6 +232,30 @@ def test_every_derived_ref_names_a_real_derived_metric(name):
                 f"{name}: unknown derived metric {metric!r}"
 
 
+# MultiQC's general-stats table prints read counts in MILLIONS (STAR's
+# 4763343 input reads appear as star-total_reads 4.763343), so a map that
+# reads one of these columns writes a count a million times too small. Exact
+# counts come from the tool's own log, as $derived.* metrics. Every count
+# column seen in a real nf-core/rnaseq multiqc_general_stats.txt is listed.
+_MULTIQC_MILLION_SCALED_COUNTS = frozenset({
+    "star-total_reads", "star-mapped", "star-uniquely_mapped", "star-multimapped",
+    "salmon-num_mapped",
+    "samtools_stats-raw_total_sequences", "samtools_stats-reads_mapped",
+    "samtools_flagstat-flagstat_total", "samtools_flagstat-mapped_passed",
+    "qualimap_rnaseq-reads_aligned", "qualimap_rnaseq-reads_aligned_exonic",
+    "qualimap_rnaseq-reads_aligned_intronic", "qualimap_rnaseq-reads_aligned_intergenic",
+    "qualimap_rnaseq-reads_aligned_overlapping_exon",
+    "fastqc_raw-total_sequences", "fastqc_trimmed-total_sequences",
+})
+
+
+@pytest.mark.parametrize("name", ALL_MAPS)
+def test_no_qc_attribute_reads_a_million_scaled_multiqc_count(name):
+    for attribute, rule in maps.load(name).qc_attributes.items():
+        scaled = {rule.from_key, *rule.alternates} & _MULTIQC_MILLION_SCALED_COUNTS
+        assert not scaled, f"{name}: {attribute} reads {sorted(scaled)}, which MultiQC prints in millions"
+
+
 @pytest.mark.parametrize("name", ALL_MAPS)
 def test_every_ruling_explains_itself(name):
     for ruling in maps.load(name).deliberately_unmapped:
