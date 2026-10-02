@@ -198,41 +198,33 @@ def test_the_refine_recall_override_is_kept_and_now_agrees():
 
 # ── counterfactual replies ───────────────────────────────────────────────────
 #
-# Each of the three below violates EXACTLY ONE guard and satisfies the others, so
-# the test that uses it names the guard it is really testing. An earlier revision
-# used fixtures that violated two or three at once, which proved only "some guard
-# rejected this" and would have kept passing if the guard under test were deleted.
+# Operator ruling B4, 2026-10-02 (round 3): "4 week study" may be read as the studies whose
+# titles say 4-week or as the Cohort value; EITHER reading passes when the reply says which
+# definition it used and names the other. The seed therefore asserts two guards: the Cohort
+# reading is named, and the study reading is named. Each fixture below violates at most one
+# guard, so the test that uses it names the guard it is really testing.
 
-# The naive failure mode this case exists to catch: a flat count with no reading of
-# what the keyword actually matched. Violates all three, and is the only fixture
-# for which that is the point.
+# The naive failure mode: a flat count with no reading of what "4 week" matched.
 NAIVE_REPLY = 'The keyword search for "4 week" returned 15 samples.'
 
-# Right shape, right disclosure, WRONG samples. This one passed all four criteria
-# under the bare `NHP-220524FLY-` prefix guard the first revision shipped: a prefix
-# matches any ordinal, so nothing pinned the ground truth the rewrite rests on.
-WRONG_UIDS_REPLY = (
-    'Cohort "4 week" has 9 samples: NHP-220524FLY-9-PUB. '
-    "The other 6 are substring artifacts.")
+# The Cohort reading, naming the other one. Passes.
+COHORT_READING_REPLY = (
+    'No study is titled "4 week"; it is a Cohort value. Cohort "4 week" marks 2 samples: '
+    "NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.")
 
-# Correct on the facts, never names the field they rest on. Violates the cohort
-# guard alone, and is the honest price of that guard: see the test below.
-NO_COHORT_REPLY = (
-    "Two samples genuinely match: NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB. "
-    'The other 13 are substring hits on "14 weeks".')
+# The study reading, naming the other one. Passes.
+STUDY_READING_REPLY = (
+    "Two studies have 4-week in their titles and hold 316 samples. Separately, the Cohort "
+    'field says "4 week" on 2 samples.')
 
-# Names both genuine samples and the field, then reports the raw count as if all 15
-# were real. Violates the disclosure guard alone.
-NO_DISCLOSURE_REPLY = (
-    "NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB have Cohort 4 week. "
-    "15 samples matched in total.")
+# The study reading with no word about the Cohort value (the 1 Oct production reply's
+# shape). Violates the cohort guard alone.
+STUDY_ONLY_REPLY = (
+    "There are 316 samples associated with 4-week studies across two studies.")
 
-# The same violation reached a different way, and the reason the `artifact` branch
-# was dropped: `artifact` is ALSO Container-CC's word for an output file, so on a CC
-# turn it satisfied a disclosure guard while disclosing nothing.
-CC_ARTIFACT_REPLY = (
-    "NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB matched the cohort search. "
-    "Artifacts written to /data/out.csv.")
+# The Cohort reading with no word about the studies. Violates the study guard alone.
+COHORT_ONLY_REPLY = (
+    'Cohort "4 week" marks 2 samples: NHP-220524FLY-1-PUB and NHP-220524FLY-2-PUB.')
 
 
 def _seed_guards():
@@ -241,17 +233,12 @@ def _seed_guards():
             if c.field == "last_reply" and c.op == "matches_re"]
 
 
-def _uid_guards():
-    return [g for g in _seed_guards() if "NHP-220524FLY" in g]
-
-
 def _cohort_guards():
-    return [g for g in _seed_guards()
-            if "cohort" in g.lower() and "NHP-220524FLY" not in g]
+    return [g for g in _seed_guards() if "cohort" in g.lower()]
 
 
-def _disclosure_guards():
-    return [g for g in _seed_guards() if "substring" in g.lower()]
+def _study_guards():
+    return [g for g in _seed_guards() if "stud" in g.lower()]
 
 
 def _failing_guards(reply):
@@ -263,12 +250,12 @@ def _passes_seed_guards(reply):
     return not _failing_guards(reply)
 
 
-def test_the_three_seed_guards_partition_cleanly_so_each_test_names_its_own():
-    """Without this, adding a fourth guard would silently escape every isolation
+def test_the_two_seed_guards_partition_cleanly_so_each_test_names_its_own():
+    """Without this, adding a third guard would silently escape every isolation
     test below and each of them would quietly go back to proving "something failed".
     """
-    groups = [_uid_guards(), _cohort_guards(), _disclosure_guards()]
-    assert [len(g) for g in groups] == [2, 1, 1]
+    groups = [_cohort_guards(), _study_guards()]
+    assert [len(g) for g in groups] == [1, 1]
     assert sorted(g for group in groups for g in group) == sorted(_seed_guards())
 
 
@@ -291,64 +278,25 @@ def test_the_seed_turn_no_longer_asserts_ns_rest_internals():
     assert offenders == [], f"seed turn still asserts NS REST fields: {offenders}"
 
 
-def test_the_seed_turn_pins_both_genuine_uids_by_ordinal():
-    """A bare `NHP-220524FLY-` prefix matches ANY ordinal, so a right-shaped answer
-    about the wrong samples passed it. Ground truth is 2 specific samples, and that
-    is what the entire rewrite rests on, so both ordinals are named.
-
-    The `-PUB` suffix is deliberately left off: a correct reply that omits it should
-    still pass, and the ordinal is what distinguishes right from wrong here.
-    """
-    assert sorted(_uid_guards()) == ["NHP-220524FLY-1", "NHP-220524FLY-2"]
-    assert _passes_seed_guards(
-        "Two samples have Cohort \"4 week\": NHP-220524FLY-1-PUB and "
-        "NHP-220524FLY-2-PUB. The other 13 hits are substring artifacts on 14 weeks.")
-    assert _failing_guards(WRONG_UIDS_REPLY) == _uid_guards(), (
-        "a reply naming the wrong samples must fail on the UID guards and nothing else")
+def test_either_reading_passes_when_the_reply_names_the_other():
+    """Operator ruling B4 (2026-10-02): the Cohort reading and the study reading both pass,
+    as long as the reply says which definition it used and names the other."""
+    assert _passes_seed_guards(COHORT_READING_REPLY)
+    assert _passes_seed_guards(STUDY_READING_REPLY)
 
 
-def test_the_seed_turn_requires_the_cohort_field_the_truth_rests_on():
-    """`Cohort` is HOW the 2 are established. A keyword-count answer never says it.
-
-    `NO_COHORT_REPLY` makes the cost of this guard explicit rather than hiding it:
-    a reply that gets both samples and both counts right but never names the field
-    goes RED. That is the operator's ruling, deliberately kept, because the naive
-    keyword-count answer this case exists to catch is exactly the one that reports
-    matches without ever reading which field they matched on.
-    """
+def test_a_reply_that_never_names_the_cohort_reading_fails_on_that_guard_alone():
     assert _cohort_guards() == ["(?i)cohort"]
-    assert _failing_guards(NO_COHORT_REPLY) == _cohort_guards()
-    assert not _passes_seed_guards(NAIVE_REPLY), "the naive reply must fail everything"
+    assert _failing_guards(STUDY_ONLY_REPLY) == _cohort_guards()
+
+
+def test_a_reply_that_never_names_the_study_reading_fails_on_that_guard_alone():
+    assert _failing_guards(COHORT_ONLY_REPLY) == _study_guards()
+
+
+def test_the_flat_count_fails_every_guard():
     assert _failing_guards(NAIVE_REPLY) == _seed_guards(), (
-        "the flat-count answer is the one fixture that must violate all three")
-
-
-def test_the_seed_turn_requires_the_false_positives_to_be_disclosed():
-    """The real failure mode is answering "15 samples" flat.
-
-    13 of the 15 keyword hits are "14 weeks" substrings. A reply that reports the
-    raw count without saying so is wrong even though its number is what the search
-    returned, and no route or plumbing criterion can tell the two apart.
-    """
-    assert _disclosure_guards(), "nothing demands the false positives be disclosed"
-    assert _failing_guards(NO_DISCLOSURE_REPLY) == _disclosure_guards(), (
-        "a reply that names the UIDs and the field but hides the 13 bad hits must "
-        "fail on the disclosure guard and nothing else")
-
-
-def test_the_disclosure_guard_does_not_accept_container_cc_output_file_talk():
-    """`artifact` is Container-CC's own word for a produced file, so on a CC turn it
-    is not evidence that anything was disclosed. The branch was dropped after review.
-
-    Asserted from both sides: the reply below WOULD have satisfied the three-branch
-    guard the first revision shipped, and does not satisfy the shipped one. Only 1 of
-    the 66 replies in the stored seed-6 run contains "artifact" and it is the good
-    one, so the base rate was reassuring and the branch still had to go.
-    """
-    assert re.search("(?i)(substring|false positive|artifact)", CC_ARTIFACT_REPLY), (
-        "the fixture must be one the dropped branch accepted, or this proves nothing")
-    assert _failing_guards(CC_ARTIFACT_REPLY) == _disclosure_guards()
-    assert not any("artifact" in g.lower() for g in _seed_guards())
+        "the flat-count answer is the one fixture that must violate both")
 
 
 def test_the_seed_turn_does_not_assert_the_4wk_spelling():
@@ -504,10 +452,8 @@ def test_the_new_seed_criteria_all_pass_on_the_reply_that_was_observed():
 @requires_seed6b
 @pytest.mark.parametrize("bad_reply", [
     pytest.param(NAIVE_REPLY, id="flat_count"),
-    pytest.param(WRONG_UIDS_REPLY, id="wrong_ordinal"),
-    pytest.param(NO_COHORT_REPLY, id="no_cohort_field"),
-    pytest.param(NO_DISCLOSURE_REPLY, id="false_positives_hidden"),
-    pytest.param(CC_ARTIFACT_REPLY, id="cc_output_file_talk"),
+    pytest.param(STUDY_ONLY_REPLY, id="study_reading_without_the_cohort"),
+    pytest.param(COHORT_ONLY_REPLY, id="cohort_reading_without_the_studies"),
 ])
 def test_the_same_criteria_still_reject_a_wrong_answer_on_that_evidence(bad_reply):
     """The counterfactuals, run through the same path as the green above.
