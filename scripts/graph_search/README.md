@@ -45,6 +45,7 @@ It holds the seeds (`$GS_WORK/seeds/`), run reports (`$GS_WORK/runs/<task>/`) an
 | `GS_NEO4J_HEAP` | `1500m` | Neo4j heap, initial and maximum |
 | `GS_NEO4J_PAGECACHE` | `1500m` | Neo4j page cache |
 | `GS_NEO4J_TX_MAX` | `1g` | `db.memory.transaction.max`; keep it below the heap |
+| `GS_NEO4J_TX_TIMEOUT` | `120s` | `db.transaction.timeout`, production's and dev's; a run that passes here fits their limit |
 | `GS_APP_MEMORY` | `4g` | the app container's memory cap |
 | `GS_APP_IMAGE` | `nextseek-nextseek:latest` | the app image |
 
