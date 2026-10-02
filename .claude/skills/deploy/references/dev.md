@@ -105,7 +105,8 @@ status file, unpacked into the launch folder).
 
 ## 7. Dev gotchas
 
-- **`REBUILD app exit=1` is often not a failure.** The rebuild exits 1 when graph drift is red (known:
+- **`REBUILD app exit=1` is often not a failure.** A red `graph sync health` line also makes it exit 1, and
+  that one is always a finding (ci.md, "The graph sync health line"). The rebuild exits 1 when graph drift is red (known:
   1 of 43, `catalog.assistant_investigations`) or when there is no GHCR credential for the
   rollback push (loud banner, harmless). The deciding line is `✓ app rebuilt and restarted`.
 - **The refresh marker.** `.context_db_refresh` inside the container is fine if its mtime is

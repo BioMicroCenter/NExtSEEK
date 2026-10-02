@@ -44,6 +44,21 @@ bedrock-proxy allow list, CC fallback wiring). `ci` exits on the suite only, so 
 is a finding even when every test passes; after the last rebuild every one must be green apart from
 the known reds. The report refuses `shipped` while one is red.
 
+## The graph sync health line
+
+Every box built from this branch prints one more stack-health line, production included: `graph sync health:
+<summary>`, from `manage.py graph_sync_health --json` in the app container. Green: nothing to fail on. Yellow
+(`warnings:` under it): label changes awaiting approval, or `skipped` while the container is still migrating; not a
+finding. Red, with one detail line per problem: an outbox row failing past its kind's back-off plus 30 minutes, the
+latest full, reconcile, catalog or drift run failed, stale freshness, or dead rows. A red line makes `rebuild` exit 1
+at its end and `ci` exit 1 after the suite, so it is never a known red: read its detail lines and report each as a
+finding. `graph_sync_health could not complete (exit 3)` means the tables could not be read.
+
+Between an app rebuild that moves the graph writer to a new schema version and the full sync that follows it, the
+graph is still at the old version, so every graph write path refuses on purpose, drift prints `skipped` and `graph
+small tables` warns: run the full sync straight after the rebuild, then `ci`. The full sync closes the rows enqueued
+before it.
+
 ## Known reds
 
 The table lives in `.claude/skills/deploy/scripts/rules.py` (`INSTANCES[...].known_reds`), each with the date it was last
