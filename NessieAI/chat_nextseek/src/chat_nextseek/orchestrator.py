@@ -2290,8 +2290,11 @@ def run_query(
                 # empty list is the entity agent's answer (no lab record matched), and
                 # run_reporter_summary does not replace it with the plan's codes.
                 _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+                # The lab NAMES go too: a name that is also a project's name or alias scopes the report to
+                # that project (run_reporter_summary reads the catalog).
+                _lab_names = list(getattr(entity_result, "labs", None) or [])
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
-                    config, reporter_plan, log_dir, lab_codes=_lab_codes)
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names)
                 send_event(
                     "search_complete",
                     {
