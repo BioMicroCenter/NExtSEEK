@@ -615,6 +615,16 @@ def test_which_attributes_of_the_sample_types_goes_to_the_graph(question):
     assert "Attribute catalog" in out.notes
 
 
+@pytest.mark.parametrize("question", [
+    "What fields does the Zorbex sample type have?",
+    "Which attributes does the Quillon sample type have?",
+])
+def test_a_question_about_one_types_attribute_list_names_no_property_and_stays_on_the_list_endpoint(question):
+    """No property after the attribute word: it asks for the type's list, which the list endpoint answers."""
+    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
+    assert _apply_parser_guardrails(question, plan) == plan
+
+
 def test_a_list_of_the_sample_types_stays_on_the_list_endpoint():
     plan = _plan(target_endpoint=SAMPLETYPE_LIST)
     assert _apply_parser_guardrails("What sample types can I register?", plan) == plan
