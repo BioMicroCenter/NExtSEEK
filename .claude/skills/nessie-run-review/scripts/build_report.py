@@ -144,8 +144,17 @@ def norm(s):
     return (s or "").strip().replace("—", "-").replace("�", "-").lower()
 
 
-def turn_defs(entry, variants, cgroups):
-    """The declared turns of a case. Consistency groups keep their queries elsewhere."""
+def task_key(task_id):
+    """A task id in one form: the pull has 32 hex without hyphens, the manifest hyphenated."""
+    return str(task_id).replace("-", "").lower()
+
+
+def turn_defs(entry, variants, cgroups, tasks=()):
+    """The declared turns of a case. Consistency groups keep their queries elsewhere.
+
+    A case outside the corpus (a production extra) has no declaration: its turns come from the
+    manifest's own per-turn records, matched to the pulled turns by task id, which carry the query.
+    """
     v = variants.get(entry["id"], {})
     if v.get("turns"):
         return [{"label": t.get("label", ""), "query": t.get("query", ""),
@@ -156,7 +165,18 @@ def turn_defs(entry, variants, cgroups):
     if g:
         return [{"label": f"q{i+1}", "query": q, "criteria": []}
                 for i, q in enumerate(g.get("queries", []))]
-    return []
+    if v or g:
+        return []
+    by_task = {task_key(t["task_uuid"]): t for t in tasks if t.get("task_uuid")}
+    ids = [m.get("task_id") for m in entry.get("turns_meta") or [] if m.get("task_id")] or entry.get("task_ids") or []
+    out = []
+    for i, tid in enumerate(ids):
+        src = by_task.get(task_key(tid))
+        if src is None:
+            continue
+        out.append({"label": f"q{i+1}", "query": src.get("q") or "", "criteria": [], "task": src.get("id"),
+                    **{k: src[k] for k in CARRY if src.get(k) is not None}})
+    return out
 
 
 # `reply` is the chatter's final answer — the thing the user actually reads. It is
@@ -181,6 +201,9 @@ def align(flat_turns, tasks):
     """
     i = matched = 0
     for t in flat_turns:
+        if "task" in t:   # already joined by task id (a case outside the corpus)
+            matched += 1
+            continue
         want = norm(t["query"])[:60]
         j = i
         while j < len(tasks) and norm(tasks[j].get("q"))[:60] != want:
@@ -245,7 +268,7 @@ def main():
     verdicts = triage.get("verdicts", {})
     cases, flat_turns = [], []
     for e in manifest["entries"]:
-        tds = turn_defs(e, variants, cgroups)
+        tds = turn_defs(e, variants, cgroups, tasks)
         flat_turns.extend(tds)
         tri = verdicts.get(e["id"], {})
         verdict = tri.get("verdict") or default_verdict(e)

@@ -26,7 +26,7 @@ from chat_nextseek import orchestrator as orch
 from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.agents import system as system_mod
 from chat_nextseek.graph_scope import GraphScope
-from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan
 
 FALLBACK_SCHEMA = {
     "fetched_at": "2026-08-21T00:00:00Z",
@@ -377,16 +377,10 @@ def _system_config(scope=ADMIN):
 
 
 def _system_schema_block(monkeypatch, scope=ADMIN):
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_capabilities", narrative="ok")
-
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(_system_config(scope), "what is a tissue sample", {"sampletypes": [{"code": "TIS"}]},
-                            ParserPlan(mode="system_question"))
-    return next(m["content"] for m in seen["messages"] if m["content"].startswith("GRAPH_SCHEMA"))
+    messages = system_mod.build_messages(_system_config(scope), "what is a tissue sample",
+                                         {"sampletypes": [{"code": "TIS"}]},
+                                         ParserPlan(mode="system_question").model_dump())
+    return next(m["content"] for m in messages if m["content"].startswith("GRAPH_SCHEMA"))
 
 
 def test_the_system_agent_sends_the_rendering_when_the_catalog_is_live(monkeypatch, live):

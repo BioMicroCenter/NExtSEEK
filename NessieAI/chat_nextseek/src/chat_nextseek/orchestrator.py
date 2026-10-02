@@ -73,6 +73,7 @@ from .helpers import (
     generate_report_outputs,
     log_api_call,
     reporter_reply_footer,
+    lab_names_by_name,
     run_reporter_summary,
     shortlist_catalog,
     slim_api_result_for_llm,
@@ -2290,8 +2291,12 @@ def run_query(
                 # empty list is the entity agent's answer (no lab record matched), and
                 # run_reporter_summary does not replace it with the plan's codes.
                 _lab_codes = list(getattr(entity_result, "lab_codes", None) or [])
+                # The lab NAMES go too: a name the user wrote that is also a project's name or alias scopes the
+                # report to that project (run_reporter_summary reads the catalog). A lab asked for by its code
+                # passes no name, so it keeps the lab scope.
+                _lab_names = lab_names_by_name(entity_result)
                 reporter_result, saved_files, reporter_summary = run_reporter_summary(
-                    config, reporter_plan, log_dir, lab_codes=_lab_codes)
+                    config, reporter_plan, log_dir, lab_codes=_lab_codes, lab_names=_lab_names)
                 send_event(
                     "search_complete",
                     {

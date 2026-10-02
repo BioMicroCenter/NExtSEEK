@@ -17,6 +17,7 @@ from typing import Any
 from .. import graph_scope
 from ..artifacts import ArtifactStore
 from ..config import live_db_conn
+from ..context_rows import is_project_row
 from ..helpers.dates import (
     _normalize_project_id,
     _normalize_years,
@@ -1129,18 +1130,20 @@ def reporter_reply_footer(
     scope = (reporter_result.get("scope")
              or (reporter_result.get("samples") or {}).get("scope")
              or {})
-    if isinstance(scope, dict) and scope.get("kind") == "lab":
-        codes = ", ".join(scope.get("lab_codes") or [])
-        # Investigation titles are every project's; only an admin is shown them. The config does not record which
-        # investigations a caller's projects hold, so anyone else is shown none.
-        known = sorted(getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}) if graph_scope.sees_all(config) else []
-        note = (
-            f"- **Scope:** this report covers lab {codes}, not a project. "
-            "The name you gave is recorded as a lab code rather than an investigation"
+    via_lab = reporter_result.get("lab_project")
+    if isinstance(via_lab, dict):
+        lines.append(
+            f"- **Scope:** {via_lab['name']} is both a lab and the project {via_lab['project']}; "
+            "this report covers the project. Ask for the lab by its code "
+            f"{', '.join(via_lab['lab_codes'])} if you meant the lab's samples across projects."
         )
-        if known:
-            note += f"; the investigations are {', '.join(known)}"
-        lines.append(note + ".")
+    elif isinstance(scope, dict) and scope.get("kind") == "lab":
+        codes = ", ".join(scope.get("lab_codes") or [])
+        name = ", ".join(reporter_result.get("lab_names") or []) or codes
+        lines.append(
+            f"- **Scope:** this report covers lab {codes}, not a project. "
+            f"{name} is a lab here and is not the name of a project or investigation."
+        )
 
     return lines
 
@@ -1170,11 +1173,53 @@ def _drop_uuid_list(result: dict) -> dict:
     return cleaned
 
 
+def lab_names_by_name(entity_result) -> "list[str]":
+    """The lab names the user wrote as names, for ``run_reporter_summary(lab_names=...)``.
+
+    A code match also carries the lab's name, but a request by code must keep the lab scope, so only matches whose
+    rule is not ``code`` count. Takes the entity result as a model or a dict.
+    """
+    matches = (entity_result.get("lab_matches") if isinstance(entity_result, dict)
+               else getattr(entity_result, "lab_matches", None)) or []
+    names: list[str] = []
+    for m in matches:
+        get = m.get if isinstance(m, dict) else lambda k, _m=m: getattr(_m, k, None)
+        name = get("name")
+        if get("rule") != "code" and isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return names
+
+
+def _project_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
+    """The one project every lab name the user gave also names, or None.
+
+    A name counts when it equals, case-folded, a key of ``PROJECT_NAME_TO_ID`` (a project name or alias, read from
+    the catalog). Any lab without a match, labs matching different projects, or a project outside the caller's scope
+    (graph_scope; no scope counts as outside) leave the lab scope in place.
+    """
+    names = [n.strip() for n in (lab_names or []) if isinstance(n, str) and n.strip()]
+    table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
+    if not names or any(n.upper() not in table for n in names):
+        return None
+    ids = {table[n.upper()] for n in names}
+    if len(ids) != 1:
+        return None
+    scope = graph_scope.scope_of(config)
+    if scope is None or not (scope.is_admin or next(iter(ids)) in scope.project_ids):
+        return None
+    key = names[0].upper()
+    pid = ids.pop()
+    canonical = next((p["name"] for p in getattr(config, "FULL_PROJECTS", None) or []
+                      if is_project_row(p) and p.get("project_id") == pid and p.get("name")), key)
+    return {"name": ", ".join(names), "project": canonical, "key": key}
+
+
 def run_reporter_summary(
     config,
     reporter_plan,
     log_dir: "str | Path | None",
     lab_codes: "list[str] | None" = None,
+    lab_names: "list[str] | None" = None,
 ) -> "tuple[dict, dict[str, str], dict]":
     """
     Execute the summary reporter pipeline (samples / protocols / published / RPPR).
@@ -1209,6 +1254,11 @@ def run_reporter_summary(
         if lab_codes:
             print(f"[DEBUG][REPORTER] lab_codes not passed; taking {lab_codes} "
                   "from reporter_plan.reporter_context")
+    lab_project = _project_named_by_labs(config, lab_names) if project is None and lab_codes else None
+    if lab_project:
+        # The user's lab name is also a project's name or alias: the report is that project's, and the footer says so.
+        project = lab_project.pop("key")
+        lab_project = {**lab_project, "lab_codes": list(lab_codes)}
     fallback_labs = list(lab_codes or []) if project is None else []
     if fallback_labs:
         print(f"[DEBUG][REPORTER] No project resolved; scoping by lab {fallback_labs}")
@@ -1279,6 +1329,10 @@ def run_reporter_summary(
     # build_metadata_bundle, and this can be ~50k strings. The durable copy lives in
     # uuid_report_file, which is what the reply links to.
     reporter_result = _drop_uuid_list(reporter_result)
+    if lab_project and isinstance(reporter_result, dict):
+        reporter_result["lab_project"] = lab_project
+    elif fallback_labs and lab_names and isinstance(reporter_result, dict):
+        reporter_result["lab_names"] = list(lab_names)
 
     # ── Register output files ─────────────────────────────────────────
     saved_files: dict[str, str] = {}

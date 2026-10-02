@@ -377,6 +377,11 @@ def price_turns(turns: list[dict]) -> list[dict]:
     return turns
 
 
+def _norm_id(task_id) -> str:
+    """A task id in one form: SQL gives 32 hex with no hyphens, the manifest gives them hyphenated."""
+    return str(task_id).replace("-", "").lower()
+
+
 def case_costs(manifest: dict, turns: list[dict]) -> dict:
     """Each manifest case's cost, summed over its pulled turns by the harness's rule.
 
@@ -387,7 +392,7 @@ def case_costs(manifest: dict, turns: list[dict]) -> dict:
     those. A missing turn makes a number partial, and so does the run's own
     `cost_partial` for the case. A case that sent no turn is left out.
     """
-    by_task = {t.get("task_uuid"): t for t in turns if t.get("task_uuid")}
+    by_task = {_norm_id(t["task_uuid"]): t for t in turns if t.get("task_uuid")}
     out = {}
     for e in manifest.get("entries") or []:
         ids = list(e.get("task_ids") or []) or [
@@ -395,7 +400,12 @@ def case_costs(manifest: dict, turns: list[dict]) -> dict:
         sent = max(len(ids), e.get("turns_sent") or 0)
         if not sent:
             continue
-        rows = [by_task[i] for i in ids if i in by_task]
+        rows = [by_task[_norm_id(i)] for i in ids if _norm_id(i) in by_task]
+        if not rows and e.get("cost") is not None:
+            # Nothing joined: keep the cost the run itself recorded, so the case is not read as $0.
+            out[e["id"]] = {"cost": e["cost"], "cost_partial": bool(e.get("cost_partial")),
+                            "turns": 0, "missing_turns": sent, "fallback_turns": 0}
+            continue
         missing = max(0, sent - len(rows))
         cost, partial = turn_cost.case_total(
             [(r["turn_cost"], r["turn_cost_partial"]) for r in rows], missing_turns=missing)
@@ -496,6 +506,10 @@ def main() -> None:
         cases = case_costs(manifest, turns)
         (out / "case_costs.json").write_text(json.dumps(cases, indent=1), encoding="utf-8")
         known = [c for c in cases.values() if c["cost"] is not None]
+        joined = sum(1 for c in cases.values() if c["turns"])
+        if not joined:
+            print(f"case_costs.json: 0 of {len(cases)} cases joined to a pulled turn "
+                  f"(costs are the manifest's own, or unmeasured)")
         print(f"case_costs.json {len(cases)} cases, ${sum(c['cost'] for c in known):.4f} on "
               f"{len(known)}, {sum(1 for c in known if c['cost_partial'])} partial, "
               f"{len(cases) - len(known)} unmeasured")

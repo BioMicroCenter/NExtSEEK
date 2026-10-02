@@ -12,4 +12,8 @@ class SystemAgentOutput(BaseModel):
         default_factory=list,
         description="Entity names/codes (sampletype, assay, or project/study) that were looked up from the catalog.",
     )
+    docs_cited: list[str] = Field(
+        default_factory=list,
+        description="Slugs of the user docs pages the answer used and read this turn (system_tools.docs_footer).",
+    )
     notes: str = Field(default="", description="Internal reasoning notes — not shown to user.")

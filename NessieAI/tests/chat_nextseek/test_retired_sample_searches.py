@@ -595,6 +595,47 @@ def test_the_config_loads_the_fallback_file_beside_the_catalog():
     assert cfg._load_json_list("scope_fallback_endpoints.json", "fallback API endpoints") == _fallback()
 
 
+# --------------------------------------------------------------------------- the guard: which attributes
+
+SAMPLETYPE_LIST = next(r["path"] for r in _catalog() if r.get("category") == "sampletype_list")
+
+
+@pytest.mark.parametrize("question", [
+    "Which sample attributes use a controlled vocabulary?",  # the counter-example
+    "Which attributes of the sample types are marked confidential?",
+    "Which fields on any sample type hold a date?",
+    "What attributes are required on every sample type?",
+])
+def test_which_attributes_of_the_sample_types_goes_to_the_graph(question):
+    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
+
+    out = _apply_parser_guardrails(question, plan)
+
+    assert out.mode == "graph_query" and out.target_endpoint is None
+    assert "Attribute catalog" in out.notes
+
+
+@pytest.mark.parametrize("question", [
+    "What fields does the Zorbex sample type have?",
+    "Which attributes does the Quillon sample type have?",
+])
+def test_a_question_about_one_types_attribute_list_names_no_property_and_stays_on_the_list_endpoint(question):
+    """No property after the attribute word: it asks for the type's list, which the list endpoint answers."""
+    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
+    assert _apply_parser_guardrails(question, plan) == plan
+
+
+def test_a_list_of_the_sample_types_stays_on_the_list_endpoint():
+    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
+    assert _apply_parser_guardrails("What sample types can I register?", plan) == plan
+
+
+def test_a_which_attributes_question_on_another_endpoint_is_untouched():
+    plan = _plan(target_endpoint=SOPS)
+    out = _apply_parser_guardrails("Which sample attributes use a controlled vocabulary?", plan)
+    assert out.mode == "new_search" and out.target_endpoint == SOPS
+
+
 # --------------------------------------------------------------------------- the prompts
 
 
@@ -608,6 +649,9 @@ def test_the_parser_routing_core_names_no_retired_search():
             'a sample search an earlier turn ran on REST (set "refine_engine": "graph").') in flat
     assert "Do not reinterpret unscoped bulk export as an unfiltered sample search." in flat
     assert "That is lineage: use graph_query, which checks each required descendant type directly." in flat
+    assert ("A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, "
+            "a value type) is about the Attribute catalog on the graph: use graph_query. The sample type list endpoint "
+            "only lists the types.") in flat
 
 
 def test_the_api_prompt_drops_the_parents_by_child_types_block_and_keeps_the_graph_search_rules():

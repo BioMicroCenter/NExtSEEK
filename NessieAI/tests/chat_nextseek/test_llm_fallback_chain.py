@@ -315,9 +315,9 @@ def test_every_fallback_chain_key_uses_the_catalog_vocabulary():
 SONNET_55 = "global.anthropic.claude-sonnet-5-5"
 
 
-@pytest.mark.parametrize("agent", ["graph", "api", "system", "evaluator"])
+@pytest.mark.parametrize("agent", ["graph", "api", "evaluator"])
 def test_the_flash_agents_move_to_sonnet_55_first(agent):
-    """Graph, API, system and plan evaluator run on Gemini flash in the shipped
+    """Graph, API and plan evaluator run on Gemini flash in the shipped
     `default` profile; their chain's first entry is Sonnet 5.5 on Bedrock."""
     gcp = _StubClient("gcp")
     bedrock = _StubClient("bedrock")
@@ -371,6 +371,23 @@ def test_the_tool_loops_move_to_sonnet_55_not_the_opus_that_failed(profile, agen
     assert chain, f"{agent} has nowhere to move in {profile}"
     assert chain[0] == (bedrock, SONNET_55, None)
     assert all(model != primary["model"] for _, model, _ in chain), "the failed model is never retried"
+
+
+def test_the_system_agent_moves_from_sonnet_55_to_opus_55():
+    """The system agent's tool loop runs on Sonnet 5.5 (operator ruling 2026-10-02), so _fallback names Opus 5.5."""
+    bedrock = _ToolStub("bedrock")
+    catalog = _normalized_shipped_catalog()
+    assert (catalog["default"]["system"]["provider"], catalog["default"]["system"]["model"]) == ("anth", SONNET_55)
+    config = types.SimpleNamespace(
+        LLM_CLIENT=None, LLM_MODEL="unused", LLM_CLIENTS={"anth": bedrock, "gcp": _StubClient("gcp")},
+        AGENT_MODEL_CATALOG=catalog, _CATALOG_KEY="default",
+        _THINKING_BUDGET_MAP=ChatConfig._THINKING_BUDGET_MAP,
+    )
+
+    chain = _get_fallback_agent_configs(config, "system", "anth", failed_model=SONNET_55)
+
+    assert chain and chain[0][:2] == (bedrock, "us.anthropic.claude-opus-5-5")
+    assert all(model != SONNET_55 for _, model, _ in chain), "the failed model is never retried"
 
 
 def test_the_fallback_block_changes_no_profiles_primary():

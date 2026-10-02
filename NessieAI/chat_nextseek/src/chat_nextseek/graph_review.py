@@ -161,7 +161,7 @@ class GraphReview:
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
 SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "premise_count")
+        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count")
 INFO_ONLY = ("title_contains_multi", "count_only")
 
 NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
@@ -761,6 +761,14 @@ NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {valu
 #: The fact for a named value the query matched only as free text, when that text also matches other stored values.
 TEXT_MATCH_FACT = "The search matched '{value}' as text, which also matches {others}."
 
+#: The fact for a term the query compares in a structured field and also matches anywhere in a sample's text.
+#: ``where`` is "sample" or "related sample" (a match inside another variable, as an EXISTS arm).
+FIELD_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} field and also anywhere in a {where}'s text, so it "
+                       "can include records whose {fields} does not say {term}.")
+#: The same fact for two or more fields (operator, 2026-10-02).
+FIELDS_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} fields and also anywhere in a {where}'s text, so "
+                        "it can include records whose {fields} fields do not say {term}.")
+
 
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
     """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``;
@@ -846,6 +854,33 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     return None
 
 
+def _free_text_beside_field(t: _Turn) -> _Finding | None:
+    """A term the plan matched in structured fields (``keyword_fields``) that the query also matches as free text.
+
+    "How many Arcadia rats ..." counted ``m.Strain =~ $p OR toLower(m.search_text) CONTAINS $k``: the OR takes in every
+    record whose text says Arcadia, whatever its Strain (R3 A5). The same term through an EXISTS arm over a related
+    sample's text widens it again (A6). Fires when a free-text term equals a ``keyword_fields`` key and one of that
+    key's fields is also read by the query."""
+    # The field must be read by the matching, not only returned to group by: look before the final RETURN.
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", t.cy, re.IGNORECASE)]
+    cy = t.cy[:returns[-1]] if returns else t.cy
+    for var, _tok, term in _free_text_terms(t.cy, t.params):
+        for key, fields in (t.inp.keyword_fields or {}).items():
+            if str(key).strip().lower() != term:
+                continue
+            fields = [fields] if isinstance(fields, str) else [f for f in fields or [] if isinstance(f, str)]
+            used = [f for f in fields if f != "search_text" and re.search(rf"\b\w+\.{re.escape(f)}\b", cy)]
+            if not used:
+                continue
+            holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", cy)}
+            where = "sample" if var in holders else "related sample"
+            names = used[0] if len(used) == 1 else ", ".join(used[:-1]) + " and " + used[-1]
+            template = FIELD_AND_TEXT_FACT if len(used) == 1 else FIELDS_AND_TEXT_FACT
+            fact = template.format(term=key, fields=names, where=where)
+            return _Finding(f"'{key}' compared in {names} and matched as free text on {var}", fact)
+    return None
+
+
 def _premise_count(t: _Turn) -> _Finding | None:
     got = {t.result_n(), t.inp.total, t.inp.count}
     partners = _of_partners(t.q)
@@ -916,6 +951,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("all_question_narrowed", lambda: _all_question_narrowed(turn))
         run("zero_unproven_base", lambda: _zero_unproven_base(turn))
         run("unapplied_value", lambda: _unapplied_value(turn))
+        run("free_text_beside_field", lambda: _free_text_beside_field(turn))
         run("premise_count", lambda: _premise_count(turn))
 
     # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
@@ -945,7 +981,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
                 facts.append(f.fact)
         disclosure = " ".join(facts) or None
         for name in ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-                     "all_question_narrowed", "unapplied_value"):
+                     "all_question_narrowed", "unapplied_value", "free_text_beside_field"):
             f = findings.get(name)
             if f and f.suggestion:
                 suggestion = f.suggestion
@@ -980,7 +1016,9 @@ FOLLOWUP_TIER1_SKIP = {"premise_count": "skipped: a follow-up's result is part o
 #: A loop query bound to the earlier result's UIDs ($uids) holds every filter that result had: "How many of the
 #: 1,641 NDMA-treated mice are female?" rightly filters on sex alone, so unapplied_value would call NDMA dropped.
 FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the earlier result's UIDs, "
-                                            "which carry that result's filters"}
+                                            "which carry that result's filters",
+                        "free_text_beside_field": "skipped: the query is scoped to the earlier result's UIDs, "
+                                                  "which carry that result's filters"}
 
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
 #: Sequencing Data (D.SEQ) files". It must follow a word that points at a set (``SET_ANCHOR``, which premise_count's

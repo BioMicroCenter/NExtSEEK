@@ -45,9 +45,10 @@ DEFAULT_PROFILE = {
     "pipeline_agent": (OPUS55, 4000, "low"),
     "followup": (OPUS55, 4000, "low"),
     "memory": (SONNET, None, None),
+    "system": (SONNET, None, None),  # its docs and catalog tool loop needs Bedrock (operator ruling 2026-10-02)
     "entity": (FLASH38, 8000, None),  # medium thinking, sent as a level (operator ruling 2026-09-30)
     **{agent: (FLASH38, None, None) for agent in (
-        "api", "reporter", "chatter", "graph", "system", "context_engineer", "memory_coder",
+        "api", "reporter", "chatter", "graph", "context_engineer", "memory_coder",
         "evaluator", "seqera_agent")},
 }
 

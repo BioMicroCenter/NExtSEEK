@@ -30,6 +30,7 @@ from chat_nextseek.reports.runners import (
     reporter_reply_footer,
     _run_investigation_sample_report,
     _scope_report_to_labs,
+    lab_names_by_name,
     run_project_sample_report,
     run_reporter_summary,
 )
@@ -357,7 +358,7 @@ def test_footer_says_a_lab_scope_is_not_a_project():
     joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, {}, "samples"))
 
     assert "lab KAM, not a project" in joined
-    assert "SRP" in joined and "MetNet".upper() in joined.upper()
+    assert "KAM is a lab here and is not the name of a project or investigation." in joined
 
 
 def test_footer_stays_quiet_when_the_scope_is_a_real_project():
@@ -400,4 +401,114 @@ def test_lab_codes_are_taken_from_the_plan_when_the_caller_passes_none(tmp_path)
     result, _saved, _summary = run_reporter_summary(config, plan, tmp_path)
 
     assert result["uuids_saved"] == 2, "the plan's lab_codes were ignored"
+    assert result["scope"]["kind"] == "lab"
+
+
+# --------------------------------------------------------------------------- #
+# A lab named like a project scopes the report to that project (operator ruling, 2 Oct 2026)
+# --------------------------------------------------------------------------- #
+
+def _project_run(monkeypatch, tmp_path, project_names, lab_codes, lab_names, scope=None):
+    """Run the summary with the runner stubbed; return (what the runner was asked for, the result, the footer)."""
+    import chat_nextseek.reports.runners as runners
+
+    asked = []
+
+    def fake_runner(config, project, **kw):
+        asked.append(project)
+        return {"ok": True, "rows_returned": 1, "uuids": list(UIDS), "uuids_saved": 5, "project_id": project}
+
+    monkeypatch.setattr(runners, "run_project_sample_report", fake_runner)
+    config = types.SimpleNamespace(PROJECT_NAME_TO_ID=project_names, INVESTIGATION_NAME_TO_ID={},
+                                   GRAPH_SCOPE=scope or GraphScope.admin("test"))
+    plan = types.SimpleNamespace(project=None, years=[], month_range=None, day_range=None,
+                                 summary_mode="samples", reporter_context=None)
+    result, _saved, summary = run_reporter_summary(config, plan, tmp_path, lab_codes=lab_codes, lab_names=lab_names)
+    footer = "\n".join(reporter_reply_footer(config, result, {}, "samples"))
+    return asked, result, summary, footer
+
+
+def test_a_lab_named_like_a_project_scopes_the_report_to_the_project(monkeypatch, tmp_path):
+    """The counter-example's shape: the lab name equals a project name."""
+    asked, result, summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21, "OTHER": 22}, ["NFD"], ["Northfield"])
+
+    assert asked == ["NORTHFIELD"]
+    assert result.get("scope", {}).get("kind") != "lab"
+    assert summary["project"] == "NORTHFIELD"
+    assert "Northfield is both a lab and the project NORTHFIELD; this report covers the project." in footer
+    assert "Ask for the lab by its code NFD" in footer
+    assert "not a project" not in footer
+
+
+def test_another_lab_and_project_of_the_same_kind(monkeypatch, tmp_path):
+    """Another entity: the match is an alias key with a space, case-folded."""
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"BEND LAB": 31, "NORTHFIELD": 21}, ["BND"], ["bend lab"])
+
+    assert asked == ["BEND LAB"]
+    assert "both a lab and the project BEND LAB" in footer
+    assert "code BND" in footer
+
+
+def test_a_lab_with_no_matching_project_stays_a_lab_scope(monkeypatch, tmp_path):
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["QLN"], ["Quillon"])
+
+    assert asked == [None]
+    assert result["scope"]["kind"] == "lab"
+    assert "this report covers lab QLN, not a project. Quillon is a lab here and is not the name of a project or investigation." in footer
+
+
+def test_labs_that_resolve_to_two_projects_stay_a_lab_scope(monkeypatch, tmp_path):
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21, "BEND LAB": 31}, ["NFD", "BND"], ["Northfield", "Bend Lab"])
+
+    assert asked == [None]
+    assert result["scope"]["kind"] == "lab"
+    assert "both a lab and the project" not in footer
+
+
+def test_a_member_without_the_project_keeps_the_lab_scope(monkeypatch, tmp_path):
+    """F2: the project is not the caller's, so the lab's samples within their projects are what they get."""
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], ["Northfield"], scope=GraphScope.for_projects([5]))
+
+    assert asked == [None]
+    assert result["scope"]["kind"] == "lab"
+    assert "both a lab and the project" not in footer
+
+
+def test_a_member_with_the_project_is_redirected_to_it(monkeypatch, tmp_path):
+    """Another caller of the same kind: the project id is in the member's scope."""
+    asked, _result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], ["Northfield"], scope=GraphScope.for_projects([5, 21]))
+
+    assert asked == ["NORTHFIELD"]
+    assert "both a lab and the project NORTHFIELD" in footer
+
+
+def _entity(*matches):
+    return types.SimpleNamespace(lab_matches=[
+        types.SimpleNamespace(name=n, rule=r) for n, r in matches])
+
+
+def test_a_lab_asked_for_by_its_code_passes_no_name_to_the_reporter():
+    """F1: the code match adds the lab's name, which must not redirect the report to a project of that name."""
+    assert lab_names_by_name(_entity(("Northfield", "code"))) == []
+
+
+def test_a_lab_asked_for_by_its_name_passes_the_name():
+    """Another request of the same kind: a name rule (and a dict-shaped entity result) still counts."""
+    assert lab_names_by_name(_entity(("Northfield", "name"), ("Bend", "possessive"), ("Northfield", "lab_phrase"))) \
+        == ["Northfield", "Bend"]
+    assert lab_names_by_name({"lab_matches": [{"name": "Bend", "rule": "honorific"}, {"name": "X", "rule": "code"}]}) \
+        == ["Bend"]
+
+
+def test_a_code_only_request_keeps_the_lab_scope(monkeypatch, tmp_path):
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], lab_names_by_name(_entity(("Northfield", "code"))))
+
+    assert asked == [None]
     assert result["scope"]["kind"] == "lab"
