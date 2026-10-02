@@ -601,7 +601,21 @@ def _run_graph_sync(sample_ids: List[int]) -> str:
             report = targeted.sync_samples(
                 driver, neo4j_config.NEO4J_DB, sample_ids, lock_timeout_s=GRAPH_LOCK_WAIT_S,
             )
+        for key in ("structural_gap_samples", "catalog_waiting_samples"):
+            named = report.get(key) or {}
+            if named:
+                # Up to a chunk of names, each with its reason; the loop names each on its own outbox row when it
+                # retries this job's rows, so this line carries a count and the first few ids.
+                report = {**report, key: f"{len(named)} samples, first " + ", ".join(map(str, sorted(named)[:5]))}
         log.info("GRAPH SYNC: %s", report)
+        if report.get("status") == "ok" and report.get("catalog_waiting_samples"):
+            # Left out until SampleType titles held under other ids clear (the nightly reconcile does it): the job's
+            # outbox rows stay open for the loop, which waits with them (graph_sync.loop.TITLE_CONFLICT_DEFERRAL).
+            return "catalog_waiting"
+        if report.get("status") == "ok" and report.get("structural_gaps"):
+            # Written, but a type, project, study or investigation link is missing: the job's outbox rows stay open
+            # for the loop, which retries them (graph_sync.targeted.STRUCTURAL_GAP_KEYS).
+            return "structural_gaps"
         return str(report.get("status"))
     except Exception as exc:  # noqa: BLE001 - the upload stands; the sync loop catches the graph up
         log.warning("GRAPH SYNC failed for %d sample(s) (the outbox keeps the work): %s",
@@ -626,7 +640,8 @@ def _mark_outbox_done(job_id: str, before) -> int:
             GraphSyncOutbox.objects.using(alias)
             .filter(kind="samples", key__startswith=f"batch:{job_id}:",
                     done_at__isnull=True, enqueued_at__lte=before)
-            .update(done_at=timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None)
+            .update(done_at=timezone.now(), claimed_by=None, lease_expires_at=None, last_error=None,
+                    failing_since=None)
         )
     except Exception:  # noqa: BLE001
         log.warning("GRAPH SYNC: could not close this job's outbox rows; the sync loop will redo them",

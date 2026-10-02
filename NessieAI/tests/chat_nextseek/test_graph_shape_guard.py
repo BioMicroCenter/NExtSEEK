@@ -636,3 +636,184 @@ def test_a_repair_message_with_no_shape_problem_is_the_catalog_message_unchanged
     run(monkeypatch, llm)
     problems = graph_mod._property_problems(bad, SNAPSHOT)
     assert llm.repair() == graph_mod._catalog_repair_message(problems, [], SNAPSHOT, [])
+
+
+# ------------------------------------------------------------------------------ assay_join (graph schema 1.3)
+# Two samples on one Assay did not come from each other (spec 2026-09-25-graph-assay-nodes-design.md section 6.3):
+# every form that pairs them through one Assay is refused, and a sample that reaches an Assay alone passes.
+
+
+def test_the_assay_join_names_are_the_contracts_and_its_relationships_are_pinned():
+    from chat_nextseek.agents import graph as graph_mod
+    from chat_nextseek.graph_contract import schema
+    assert graph_mod._ASSAY_LABEL is schema.ASSAY
+    assert graph_mod._ASSAY_RELATIONSHIPS == frozenset({"INPUT_TO", "OUTPUT_OF"})   # policy, pinned by a literal
+
+ASSAY_PARAMS = {"u": "X-1", "t": "x", "x": "a", "y": "b"}
+
+ASSAY_JOINS = [
+    ("one_pattern", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay)<-[:INPUT_TO]-(p:Sample) "
+                    "RETURN c.uuid AS child, p.uuid AS parent"),
+    ("comma_joined_parts", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay), (p:Sample)-[:INPUT_TO]->(a) "
+                           "RETURN count(*) AS n"),
+    ("separate_match_clauses", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) MATCH (p:T_TIS)-[:INPUT_TO]->(a) "
+                               "RETURN count(DISTINCT c) AS n"),
+    ("optional_match", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) OPTIONAL MATCH (p:Sample)-[:INPUT_TO]->(a) "
+                       "RETURN c.uuid AS c, p.uuid AS p"),
+    ("carried_by_with", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WITH c, a MATCH (p:Sample)-[:INPUT_TO]->(a) "
+                        "RETURN count(*) AS n"),
+    ("carried_by_with_alias", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WITH c, a AS run "
+                              "MATCH (p:Sample)-[:INPUT_TO]->(run) RETURN count(*) AS n"),
+    ("carried_by_with_star", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WITH * MATCH (p:Sample)-[:INPUT_TO]->(a) "
+                             "RETURN count(*) AS n"),
+    ("undirected", "MATCH (c:Sample)-[:OUTPUT_OF]-(a:Assay)-[:INPUT_TO]-(p:Sample) RETURN count(*) AS n"),
+    ("alternated", "MATCH (c:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(p:Sample) "
+                   "RETURN count(*) AS n"),
+    ("variable_length_between_samples", "MATCH (c:T_D_SEQ)-[:OUTPUT_OF|INPUT_TO*2]-(p:T_TIS) RETURN count(*) AS n"),
+    ("variable_length_to_an_assay", "MATCH (c:Sample)-[*1..2]->(a:Assay)<-[*1..2]-(p:Sample) RETURN count(*) AS n"),
+    ("untyped_arrows", "MATCH (c:Sample)-->(a:Assay)<--(p:Sample) RETURN count(*) AS n"),
+    ("untyped_named", "MATCH (c:Sample)-[r1]->(a:Assay)<-[r2]-(p:Sample) RETURN count(*) AS n"),
+    ("shortest_path", "MATCH (c:T_D_SEQ {uuid: $u}), (p:T_TIS) MATCH x = shortestPath((c)-[:INPUT_TO|OUTPUT_OF*]-(p)) "
+                      "RETURN length(x) AS n"),
+    ("shortest_path_to_the_assay", "MATCH (a:Assay {title: $t}) MATCH p1 = shortestPath((c:Sample)-[:OUTPUT_OF*]-(a)) "
+                                   "MATCH p2 = shortestPath((p:Sample)-[:INPUT_TO*]-(a)) RETURN count(*) AS n"),
+    ("unlabelled_assay_by_arrow", "MATCH (c:Sample)-[:OUTPUT_OF]->(a)<-[:INPUT_TO]-(p:Sample) RETURN count(*) AS n"),
+    ("assay_labelled_in_where", "MATCH (c:Sample)--(a)--(p:Sample) WHERE a:Assay RETURN count(*) AS n"),
+    ("anonymous_assay_and_sample", "MATCH (c:T_D_SEQ)-[:OUTPUT_OF]->(:Assay)<-[:INPUT_TO]-(:T_TIS) "
+                                   "RETURN count(DISTINCT c) AS n"),
+    ("unlabelled_samples", "MATCH (c)-[:OUTPUT_OF]->(a:Assay)<-[:INPUT_TO]-(p) RETURN count(*) AS n"),
+    ("inside_a_subquery", "MATCH (c:Sample) WHERE EXISTS { (c)-[:OUTPUT_OF]->(a:Assay)<-[:INPUT_TO]-(p:T_TIS) } "
+                          "RETURN count(c) AS n"),
+    ("outer_samples_through_two_subqueries", "MATCH (c:Sample), (p:T_TIS), (a:Assay) WHERE EXISTS { "
+                                             "(c)-[:OUTPUT_OF]->(a) } AND EXISTS { (p)-[:INPUT_TO]->(a) } "
+                                             "RETURN count(*) AS n"),
+    ("outer_sample_after_with_in_a_subquery", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WITH c, a MATCH (p:T_TIS) "
+                                              "WHERE EXISTS { (p)-[:INPUT_TO]->(a) } RETURN count(*) AS n"),
+    ("inside_a_count_subquery", "MATCH (a:Assay) RETURN a.title AS t, "
+                                "COUNT { (c:Sample)-[:OUTPUT_OF]->(a)<-[:INPUT_TO]-(p:Sample) } AS pairs"),
+    # one Assay node pattern written twice with the same inline map is one Assay
+    ("same_map_twice_anonymous", "MATCH (i:Sample)-[:INPUT_TO]->(:Assay {title: $x}), "
+                                 "(o:Sample)-[:OUTPUT_OF]->(:Assay {title:$x}) "
+                                 "RETURN i.uuid AS input, o.uuid AS output"),
+    ("same_map_twice_named", "MATCH (i:Sample)-[:INPUT_TO]->(a1:Assay {title: $x}) "
+                             "MATCH (o:Sample)-[:OUTPUT_OF]->(a2:Assay {title: $x}) RETURN count(*) AS pairs"),
+    # a COUNT, a COLLECT or a pattern comprehension gives one value per outer row: its local sample on the Assay an
+    # outer sample reaches reads what the outer sample was "made from" through the Assay
+    ("correlated_count", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                         "RETURN a.title AS assay, COUNT { (p:Sample)-[:INPUT_TO]->(a) } AS parents"),
+    ("correlated_collect", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                           "RETURN COLLECT { MATCH (p:Sample)-[:INPUT_TO]->(a) RETURN p.uuid } AS made_from"),
+    ("correlated_comprehension", "MATCH (c:Sample {uuid: $u})-[:OUTPUT_OF]->(a:Assay) "
+                                 "RETURN [(p:Sample)-[:INPUT_TO]->(a) | p.uuid] AS made_from"),
+]
+
+ASSAY_SINGLES = [
+    ("one_sample", "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE a.title = $x RETURN count(DISTINCT s) AS n"),
+    ("the_prompts_went_through", "MATCH (a:Assay) WHERE toLower(a.title) = toLower($x) OR toLower($x) IN "
+                                 "[n IN a.other_names | toLower(n)] MATCH (s:Sample) WHERE EXISTS { "
+                                 "(s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) } "
+                                 "RETURN count(DISTINCT s) AS n"),
+    ("one_sample_both_roles", "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay), (s)-[:OUTPUT_OF]->(a) "
+                              "RETURN count(DISTINCT s) AS n"),
+    ("local_count_subqueries", "MATCH (a:Assay) RETURN a.title AS assay, COUNT { (s:Sample)-[:INPUT_TO]->(a) } AS "
+                               "inputs, COUNT { (t:Sample)-[:OUTPUT_OF]->(a) } AS outputs"),
+    ("local_exists_sample", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WHERE EXISTS { (p:T_TIS)-[:INPUT_TO]->(a) } "
+                            "RETURN count(DISTINCT c) AS n"),
+    ("local_pattern_comprehensions", "MATCH (a:Assay) RETURN a.title AS t, [(s:Sample)-[:INPUT_TO]->(a) | s.uuid] "
+                                     "AS inputs, [(o:Sample)-[:OUTPUT_OF]->(a) | o.uuid] AS outputs"),
+    ("two_different_assays", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay {title: $x}) "
+                             "MATCH (p:Sample)-[:INPUT_TO]->(b:Assay {title: $y}) RETURN count(*) AS n"),
+    ("with_that_ends_the_assay", "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay) WITH c "
+                                 "MATCH (p:Sample)-[:INPUT_TO]->(a:Assay) RETURN count(*) AS n"),
+    ("union_parts", "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) RETURN s.uuid AS uuid UNION "
+                    "MATCH (t:Sample)-[:OUTPUT_OF]->(a:Assay) RETURN t.uuid AS uuid"),
+    ("lineage_beside_an_assay", "MATCH (c:T_SLD)-[:DERIVED_FROM]->(p:T_TIS) WHERE EXISTS { "
+                                "(c)-[:OUTPUT_OF]->(:Assay {title: $x}) } RETURN count(DISTINCT c) AS n"),
+    ("lineage_then_the_childs_assay", "MATCH (p:T_TIS)<-[:DERIVED_FROM]-(c:Sample)-[:OUTPUT_OF]->(a:Assay) "
+                                      "WHERE a.title = $x RETURN count(DISTINCT c) AS n"),
+    ("undirected_one_sample", "MATCH (s:Sample)-[:INPUT_TO]-(a:Assay) RETURN count(*) AS n"),
+    ("untyped_assay_to_a_study", "MATCH (a:Assay)-->(st:Study) RETURN st.title AS t"),
+    ("catalog_edges", "MATCH (t:SampleType)-[:ACCEPTED_BY]->(a:Assay)-[:GENERATES]->(u:SampleType) "
+                      "RETURN t.title, u.title"),
+    ("study_beside_the_assay", "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay), (s)-[:IN_STUDY]->(st:Study) "
+                               "RETURN st.title AS study, count(DISTINCT s) AS n"),
+    ("no_assay_at_all", "MATCH (c:Sample)-[:DERIVED_FROM]->(p:Sample) RETURN count(*) AS n"),
+    ("untyped_path_between_samples", "MATCH (c:T_TIS {uuid: $u})-[*1..2]-(p:Sample) RETURN count(*) AS n"),
+]
+
+
+@pytest.mark.parametrize("cypher", [c for _, c in ASSAY_JOINS], ids=[n for n, _ in ASSAY_JOINS])
+def test_samples_paired_through_one_assay_are_refused(cypher):
+    assert "assay_join" in kinds(cypher, ASSAY_PARAMS), graph_mod.query_shape_problems(cypher, ASSAY_PARAMS)
+
+
+@pytest.mark.parametrize("cypher", [c for _, c in ASSAY_SINGLES], ids=[n for n, _ in ASSAY_SINGLES])
+def test_a_sample_that_reaches_an_assay_alone_passes(cypher):
+    assert "assay_join" not in kinds(cypher, ASSAY_PARAMS), graph_mod.query_shape_problems(cypher, ASSAY_PARAMS)
+
+
+PAIRED = "MATCH (c:T_TIS)-[:OUTPUT_OF]->(a:Assay)<-[:INPUT_TO]-(p:T_NHP) RETURN count(DISTINCT c) AS n"
+ONE_SIDE = "MATCH (c:T_TIS) WHERE EXISTS { (c)-[:OUTPUT_OF]->(:Assay {title: $assay}) } RETURN count(DISTINCT c) AS n"
+
+
+def test_the_assay_join_names_the_assay_and_its_samples():
+    cypher = "MATCH (c:Sample)-[:OUTPUT_OF]->(a:Assay)<-[:INPUT_TO]-(p:Sample) RETURN c.uuid AS c, p.uuid AS p"
+    (problem,) = graph_mod.query_shape_problems(cypher)
+    assert (problem.kind, problem.text) == ("assay_join", "(a:Assay)")
+    assert problem.detail.startswith("the samples c and p both reach it through INPUT_TO or OUTPUT_OF")
+    assert graph_mod.refused_query_shapes(cypher) == [f"assay join (a:Assay): {problem.detail}"]
+
+
+def test_an_anonymous_sample_and_an_unnamed_assay_are_named_by_their_patterns():
+    anonymous = "MATCH (c:T_D_SEQ)-[:OUTPUT_OF]->(:Assay)<-[:INPUT_TO]-(:T_TIS) RETURN count(DISTINCT c) AS n"
+    (problem,) = graph_mod.query_shape_problems(anonymous)
+    assert problem.text == "(:Assay)" and "the samples c and (:T_TIS) both" in problem.detail
+    hidden = "MATCH (c:T_D_SEQ)-[:OUTPUT_OF|INPUT_TO*2]-(p:T_TIS) RETURN count(*) AS n"
+    assert [(p.kind, p.text) for p in graph_mod.query_shape_problems(hidden)] == [
+        ("assay_join", "[:OUTPUT_OF|INPUT_TO*2]")]
+
+
+def test_three_samples_on_one_assay_are_named_together():
+    cypher = ("MATCH (a:Assay) MATCH (x:T_TIS)-[:INPUT_TO]->(a) MATCH (y:T_CEL)-[:INPUT_TO]->(a) "
+              "MATCH (z:T_D_SEQ)-[:OUTPUT_OF]->(a) RETURN count(*) AS n")
+    (problem,) = graph_mod.query_shape_problems(cypher)
+    assert "the samples x, y and z all reach it" in problem.detail
+
+
+def test_an_assay_join_is_reported_beside_a_path_problem_in_the_order_written():
+    cypher = ("MATCH (a:Sample)-[:DERIVED_FROM*]->(b:Sample) "
+              "MATCH (c:Sample)-[:OUTPUT_OF]->(x:Assay)<-[:INPUT_TO]-(p:Sample) RETURN count(*) AS n")
+    assert kinds(cypher) == ["unbounded_path", "assay_join"]
+
+
+def test_the_assay_join_repair_says_lineage_is_derived_from_and_how_to_ask_instead():
+    message = _message(PAIRED)
+    assert "Lineage is DERIVED_FROM only." in message
+    assert "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }" in message
+    assert "COUNT { } subquery" in message and message.endswith("answered from the graph.")
+
+
+def test_the_assay_join_refusal_names_the_assay():
+    refusal = graph_mod._shape_refusal(graph_mod.query_shape_problems(PAIRED))
+    assert refusal.startswith("Graph agent could not produce valid Cypher; the query pairs samples through the Assay "
+                              "(a:Assay): the samples c and p both reach it")
+    assert refusal.endswith("; lineage is DERIVED_FROM.")
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_an_assay_join_is_repaired_once(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(PAIRED, (ONE_SIDE, {"assay": "Staining"}))
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == ONE_SIDE
+    assert "Lineage is DERIVED_FROM only" in llm.repair() and "(a:Assay)" in llm.repair()
+
+
+@pytest.mark.parametrize("mode", ["live", "down"])
+def test_a_repair_that_still_pairs_through_an_assay_is_refused(monkeypatch, request, mode):
+    request.getfixturevalue(mode)
+    llm = FakeLLM(PAIRED, PAIRED)
+    out = run(monkeypatch, llm)
+    assert len(llm.calls) == 2 and out.cypher == ""
+    assert "pairs samples through the Assay (a:Assay)" in out.explanation
+    assert out.explanation.endswith("lineage is DERIVED_FROM.")

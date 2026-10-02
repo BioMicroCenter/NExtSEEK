@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import random
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -17,9 +18,11 @@ import pytest
 from django.utils import timezone
 
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
-from nextseek_api.graph_sync import labels, projection, run, sources, state, writer
+from nextseek_api.graph_sync import labels, projection, run, sources, state, study_links, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
+from nextseek_api.tests import graph_sync_pages as pages
+from nextseek_graph import schema
 
 pytestmark = pytest.mark.django_db
 
@@ -107,7 +110,11 @@ def world(monkeypatch):
         "memberships": lambda: [{"person_id": 144, "project_id": 2, "has_left": False, "time_left_at": None}],
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
-        "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
+        "iter_seek_study_links": lambda: iter([(11, 7)]),
+        "internal_assays": lambda: [{"id": 99, "title": "Patient Visit"}],
+        "assay_internal_pairs": lambda: [(500, 99)],
+        "assay_studies": lambda: [(500, 7), (501, 7), (502, 7)],
+        "assay_context_rows": lambda: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -127,12 +134,19 @@ class Graph:
         self.studies: list[dict] = []
         self.graphmeta: dict = {}
         self.attribute_state: list[dict] = []
+        self.study_duplicates: list[dict] = []
+        self.samples_with_assay_edges: list[int] = []
+        self.page_ids = pages.ONE_PAGE                     # the Sample ids the paged reads' bounds see
+        self.read_budget = None                            # records one read may stream (pages.budgeted)
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
         self.calls.append(SimpleNamespace(query=query, params=params, kwargs=kwargs))
-        records, counters = self.answer(query, params)
+        paged = pages.page_answer(query, params, lambda template: self.answer(template, params)[0], self.page_ids)
+        records, counters = (paged, {}) if paged is not None else self.answer(query, params)
         if result_transformer_ is not None:
+            if self.read_budget is not None:
+                result_transformer_ = pages.budgeted(result_transformer_, self.read_budget)
             return result_transformer_(iter(records))
         return SimpleNamespace(records=records, summary=SimpleNamespace(counters=SimpleNamespace(**counters)))
 
@@ -153,7 +167,7 @@ class Graph:
                         self.edges[(child, parent)] = {"child_id": child, "parent_id": parent}
                         created += 1
             return [{"matched": matched}], {"relationships_created": created}
-        if query == run.LABEL_EDGES:
+        if query in (run.LABEL_EDGES, LABEL_EDGES_AT_C6089B4A):
             self.events.append("label_stream")
             return [{"child_id": c, "parent_id": p, "stored": self.stored((c, p))} for c, p in self.edges], {}
         if query == run.LABELS_FOR_PAIRS:
@@ -176,7 +190,7 @@ class Graph:
             moved = 0
             for s in self.studies:
                 if s["element_id"] in params["element_ids"] and s.get("seek_study_id") is None:
-                    s["seek_study_id"], s["id"] = s["id"], None
+                    s["seek_study_id"] = s["id"]
                     moved += 1
             return [{"n": moved}], {}
         if query in (q.WRITE_GRAPHMETA, q.WRITE_GRAPHMETA_WITH_LABEL_MAPS):
@@ -186,6 +200,8 @@ class Graph:
             return ([{"props": dict(self.graphmeta)}] if self.graphmeta else []), {}
         if query == run.ATTRIBUTE_STATE:
             return list(self.attribute_state), {}
+        if query == q.STUDY_SEEK_ID_DUPLICATES:
+            return list(self.study_duplicates), {}
         return [], {}
 
     def _write_labels(self, query, rows):
@@ -223,23 +239,33 @@ class Writers:
         self.graph = graph
         self.calls = []
         self.ghosts = ghosts if ghosts is not None else NO_GHOSTS
+        self.sample_edge_rows = []
         fakes = {
+            "sample_ids_with_assay_edges": lambda d, db: iter(list(self.graph.samples_with_assay_edges)),
+            "replace_sample_assay_edges": self._replace_sample_assay_edges,
+            "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
+            "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
+                "accepted_by": len(accepted), "accepted_by_written": len(accepted),
+                "generates": len(generates), "generates_written": len(generates)},
+            "replace_assay_runs": lambda d, db, rows, studies, tables=None: {
+                "assay_runs": len(rows), "assay_runs_written": len(rows), "assay_runs_dropped": 0},
+            "delete_gone_assays": lambda d, db, ids: {"assays_deleted": 0, "assay_edges_deleted_with_gone_assays": 0},
             "find_ghosts": lambda d, db, ids, uuids: copy.deepcopy(self.ghosts),
             "delete_ghosts": lambda d, db, element_ids: {"ghosts_deleted": len(element_ids)},
             "archive_and_drop_child_of": lambda d, db, path, declared: {
                 "child_of_pairs": 0, "child_of_undeclared": 0, "child_of_deleted": 0, "archive_path": None},
             "ensure_constraints_v11": lambda d, db: {"schema_statements": 14},
-            "write_sample_types": lambda d, db, rows: {"sample_types_written": len(rows),
+            "write_sample_types": lambda d, db, rows, archive_path=None: {"sample_types_written": len(rows),
                                                        "graph_only_sample_types": []},
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows)},
-            "write_investigation_projects": lambda d, db, invs, links: {"investigations_written": len(invs)},
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
+                "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
                 "derived_from_between_samples": 0, "derived_from_undeclared": 0, "derived_from_deleted": 0,
                 "derived_from_archive_path": None},
-            "write_seek_studies": lambda d, db, links: {"in_study_written": len(links), "in_study_dropped": 0},
             "write_attribute_counts": lambda d, db, counts: {"attribute_counts_set": len(counts)},
             "write_sample_type_counts": lambda d, db: {"sample_type_counts_set": 2},
             "ensure_index_budget": lambda d, db, census, bench_keys=frozenset(): [],
@@ -250,6 +276,12 @@ class Writers:
             monkeypatch.setattr(writer, name, self._recording(name, fn))
         for name in self.REAL:
             monkeypatch.setattr(writer, name, self._recording(name, getattr(writer, name)))
+        monkeypatch.setattr(study_links, "rebuild_in_study", self._recording("rebuild_in_study", self._rebuild))
+
+    @staticmethod
+    def _rebuild(d, db, **kwargs):
+        return {"status": "ok", "dry_run": False, "remove": kwargs["remove"], "in_study_added": 1,
+                "in_study_removed": 0}
 
     def _recording(self, name, fn):
         def call(*args, **kwargs):
@@ -262,6 +294,13 @@ class Writers:
         self.graph.samples.update(p.id for p in projections)
         return {"samples_written": len(projections), "of_type": len(projections), "untyped": 0, "in_project": 0,
                 "in_project_expected": 0, "in_project_missing": 0, "cast_failures": 0}
+
+    def _replace_sample_assay_edges(self, d, db, rows, chunk=5000):
+        rows = list(rows)
+        self.sample_edge_rows.extend(rows)
+        written = sum(len(r["inputs"]) + len(r["outputs"]) for r in rows)
+        return {"assay_edge_samples": len(rows), "assay_edge_samples_missing": 0, "assay_edges_written": written,
+                "assay_edges_dropped": 0}
 
     def names(self):
         return [c.name for c in self.calls]
@@ -322,7 +361,7 @@ def test_full_sync_and_catalog_sync_keep_their_signatures():
 
 # --- the order -----------------------------------------------------------------------------------
 
-def test_full_sync_runs_the_schema_1_2_steps_in_order(world, monkeypatch, tmp_path, lock):
+def test_full_sync_runs_its_steps_in_order(world, monkeypatch, tmp_path, lock):
     graph = Graph()
     lock.events = graph.events
     writers = Writers(monkeypatch, graph)
@@ -334,15 +373,75 @@ def test_full_sync_runs_the_schema_1_2_steps_in_order(world, monkeypatch, tmp_pa
         "ensure_constraints_v11", "write_sample_types", "write_attributes", "write_projects",
         "write_people_and_memberships", "write_investigation_projects", "write_samples", "write_samples",
         "write_missing_lineage", "archive_and_drop_undeclared_derived_from", "write_edge_labels",
-        "write_seek_studies", "write_attributes", "write_attribute_counts", "write_sample_type_counts",
+        "rebuild_in_study", "write_assays", "replace_assay_catalog_edges", "sample_ids_with_assay_edges",
+        "replace_sample_assay_edges", "replace_assay_runs", "delete_gone_assays",
+        "write_attributes", "write_attribute_counts", "write_sample_type_counts",
         "ensure_index_budget", "ensure_fulltext", "await_indexes", "write_graphmeta"]
     events = graph.events
     # The label step reads every edge after the lineage steps; the Study re-key is read before the SEEK studies.
     assert (events.index("archive_and_drop_undeclared_derived_from") < events.index("label_stream")
-            < events.index("write_edge_labels") < events.index("study_read") < events.index("write_seek_studies"))
+            < events.index("write_edge_labels") < events.index("study_read") < events.index("rebuild_in_study"))
+    # The assay layer: after the rebuild, nodes before the sample edges, RUN_IN after them, the gone Assays last.
+    assert (events.index("rebuild_in_study") < events.index("write_assays")
+            < events.index("replace_sample_assay_edges") < events.index("replace_assay_runs")
+            < events.index("delete_gone_assays") < events.index("write_graphmeta"))
     # relabel_orphans is left with the id-less nodes only; the graph-only ids go to the deletion rule.
     (relabel,) = writers.of("relabel_orphans")
     assert list(relabel.args[2]) == []
+
+
+# --- the assay layer (schema 1.3) ----------------------------------------------------------------
+
+def test_the_full_sync_writes_every_samples_assay_edges_from_the_label_stream(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples_with_assay_edges = [12]          # an edge from before, and no role now
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path, chunk=2)
+
+    # (11, 10) shares SEEK assay 500, mapped to 99; (12, 10) shares nothing
+    assert {r["id"]: r for r in writers.sample_edge_rows} == {
+        10: {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": [500]}], "outputs": []},
+        11: {"id": 11, "inputs": [], "outputs": [{"assay_id": 99, "seek_assay_ids": [500]}]},
+        12: {"id": 12, "inputs": [], "outputs": []}}
+    assert [len(c.args[2]) for c in writers.of("replace_sample_assay_edges")] == [2, 1]
+    assert (report["assay_role_codes"], report["samples_holding_assay_edges_before"]) == (2, 1)
+    (runs,) = writers.of("replace_assay_runs")
+    assert runs.args[2] == [{"assay_id": 99, "study_id": 7, "seek_assay_ids": [500]}]
+    (gone,) = writers.of("delete_gone_assays")
+    assert gone.args[2] == [99]
+
+
+def test_role_codes_keep_a_million_links_at_eight_bytes_each():
+    import tracemalloc
+
+    roles = run.RoleCodes({7: (99,)})
+    tracemalloc.start()
+    try:
+        for i in range(1, 500_001):
+            roles.add_edge(2 * i, 2 * i - 1, (7,), (7,))
+        held, _ = tracemalloc.get_traced_memory()
+        assert len(roles) == 1_000_000
+        assert held < 12 * 2 ** 20                   # the array: 8 bytes a code and its growth headroom
+        tracemalloc.reset_peak()
+        samples = sum(1 for _ in roles.by_sample())
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert samples == 1_000_000
+    assert peak < 96 * 2 ** 20                       # sorting once costs a list of the codes, never a dict per sample
+    assert len(roles) == 0                           # by_sample freed the codes
+
+
+def test_role_codes_answer_by_sample_with_every_role_once():
+    roles = run.RoleCodes({5: (99,), 7: (99, 120), 9: (130,)})
+    roles.add_edge(2, 1, (5, 7, 13), (5, 7))         # 13 is not mapped
+    roles.add_edge(2, 1, (5,), (5,))                  # the same roles again
+    roles.add_edge(3, 2, (9,), (9, 5))
+    roles.add_edge(4, 4, (5,), (5,))                  # a self-loop is not lineage
+    assert list(roles.by_sample()) == [
+        (1, {("INPUT_TO", 99): {5, 7}, ("INPUT_TO", 120): {7}}),
+        (2, {("OUTPUT_OF", 99): {5, 7}, ("OUTPUT_OF", 120): {7}, ("INPUT_TO", 130): {9}}),
+        (3, {("OUTPUT_OF", 130): {9}})]
 
 
 def test_every_sample_carries_its_source_hash_and_parent_lists(world, monkeypatch, tmp_path, lock):
@@ -441,7 +540,8 @@ def test_a_cleared_label_is_reported_and_kept(world, monkeypatch, tmp_path, lock
 def test_apply_label_changes_writes_changed_cleared_and_plural_missing_edges(world, monkeypatch, tmp_path, lock):
     graph = Graph()
     graph.samples.update({10, 11, 12})
-    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_id=98, internal_assay_title="Old title",
+                                 internal_assay_titles=["Old title"])
     graph.edges[(12, 10)] = dict(LABELS_12_10, assay_id=502, internal_assay_id=502, internal_assay_title="Other")
     Writers(monkeypatch, graph)
     report = _full(graph, tmp_path, apply_label_changes=True)
@@ -456,13 +556,283 @@ def test_apply_label_changes_writes_changed_cleared_and_plural_missing_edges(wor
     assert all(c.params.get("rows") for c in graph.calls if c.query == q.WRITE_EDGE_LABELS_CHANGED)
 
 
+def test_a_rename_is_written_without_approval(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert graph.stored((11, 10)) == LABELS_11_10
+    assert (report["labels_renamed"], report["labels_refreshed"], report["labels_changed"]) == (1, 1, 0)
+    assert report["labels_by_property"]["renamed"] == {"internal_assay_title": 1, "internal_assay_titles": 1}
+
+
+def test_a_rename_that_became_a_change_before_the_write_is_not_written(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    real = graph.answer
+
+    def meanwhile(query, params):
+        if query == run.LABELS_FOR_PAIRS:            # another writer moved the edge to another assay
+            graph.edges[(11, 10)]["internal_assay_id"] = 98
+        return real(query, params)
+
+    graph.answer = meanwhile
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert graph.edges[(11, 10)]["internal_assay_id"] == 98 and report["labels_refreshed"] == 0
+
+
+def test_relabel_all_classifies_every_edge_and_a_dry_run_writes_nothing(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.samples.update({10, 11, 12})
+    graph.graphmeta = {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "c"}
+    graph.edges[(11, 10)] = dict(LABELS_11_10, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+    dry = run.relabel_all(graph, "neo4j", dry_run=True)
+    assert (dry["status"], dry["labels_renamed"], dry["labels_refreshed"]) == ("dry_run", 1, 0)
+    assert lock.timeouts == [] and graph.stored((11, 10))["internal_assay_title"] == "Old title"
+    done = run.relabel_all(graph, "neo4j", record=False)
+    assert (done["status"], done["labels_refreshed"]) == ("ok", 1)
+    assert graph.stored((11, 10)) == LABELS_11_10 and lock.timeouts == [run.FULL_LOCK_TIMEOUT_S]
+
+
+def test_relabel_all_refuses_a_graph_not_at_the_writers_version(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.graphmeta = {"schema_version": "1.1"}
+    with pytest.raises(run.PreflightError, match="schema"):
+        run.relabel_all(graph, "neo4j", record=False)
+    assert lock.timeouts == []
+
+
+# --- the label step reads in pages (Neo4j's 120 s transaction limit) ----------------------------
+
+# The label step as it was at c6089b4a, frozen: one read transaction over every DERIVED_FROM between two Sample nodes.
+# The paged step must give the same report, role codes and writes on any graph.
+LABEL_EDGES_AT_C6089B4A = """
+MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id, {stored} AS stored
+""".replace("{stored}", run._STORED_LABELS)
+
+
+def _label_edges_at_c6089b4a(driver, db, label_sources, *, apply_label_changes=False, dry_run=False,
+                             internal_by_seek=None, role_sink=None):
+    from array import array
+    from collections import Counter
+
+    def classify_all(result):
+        classes: Counter = Counter()
+        by_property = {cls: Counter() for cls in run._REPORTED_CLASSES}
+        examples = {cls: [] for cls in run._REPORTED_CLASSES}
+        targets, refresh_targets = array("q"), array("q")
+        roles = run.RoleCodes(internal_by_seek) if internal_by_seek is not None else None
+        edges = legacy = 0
+        for record in result:
+            edges += 1
+            child, parent = record["child_id"], record["parent_id"]
+            if not (run._is_packable(child) and run._is_packable(parent)):
+                legacy += 1
+                continue
+            if roles is not None:
+                roles.add_edge(child, parent, label_sources.assays.get(child), label_sources.assays.get(parent))
+            stored = record["stored"] or {}
+            computed = label_sources.edge(child, parent)
+            cls = labels.classify(stored, computed)
+            classes[cls] += 1
+            if cls in by_property:
+                diff = labels.differences(stored, computed)
+                by_property[cls].update(diff)
+                if len(examples[cls]) < run.EXAMPLES:
+                    examples[cls].append({"child_id": child, "parent_id": parent,
+                                          "stored": {k: stored.get(k) for k in diff},
+                                          "computed": {k: computed[k] for k in diff}})
+            if cls == labels.NEW or (apply_label_changes and cls != labels.EQUAL):
+                targets.append(run.encode_pair(child, parent))
+            elif cls in labels.REFRESH_CLASSES:
+                refresh_targets.append(run.encode_pair(child, parent))
+        return edges, legacy, classes, by_property, examples, targets, refresh_targets, roles
+
+    edges, legacy, classes, by_property, examples, targets, refresh_targets, roles = writer._run(
+        driver, db, LABEL_EDGES_AT_C6089B4A, read=True, transformer=classify_all)
+    role_codes = len(roles) if roles is not None else 0
+    if roles is not None and role_sink is not None:
+        role_sink(roles)
+    if dry_run:
+        targets, refresh_targets = array("q"), array("q")
+    written: Counter = Counter()
+    for batch in run._sorted_unique_batches(targets, writer.REL_CHUNK):
+        pairs = [run.decode_pair(code) for code in batch]
+        if apply_label_changes:
+            rows = run._approved_rows(driver, db, pairs, label_sources)
+        else:
+            rows = [{"child_id": c, "parent_id": p, "labels": label_sources.edge(c, p)} for c, p in pairs]
+        if rows:
+            out = writer.write_edge_labels(driver, db, rows, apply_label_changes=apply_label_changes)
+            written.update({key: out.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    for batch in run._sorted_unique_batches(refresh_targets, writer.REL_CHUNK):
+        rows = [row for row in run._approved_rows(driver, db, [run.decode_pair(code) for code in batch],
+                                                  label_sources)
+                if labels.classify(row["stored"], row["labels"]) in labels.REFRESH_CLASSES]
+        if rows:
+            out = writer.write_edge_label_refreshes(driver, db, rows)
+            written.update({key: out.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    report = {"labels_edges": edges, "labels_legacy_id_edges": legacy, "labels_apply_changes": apply_label_changes}
+    report.update({f"labels_{cls}": classes.get(cls, 0) for cls in labels.CLASSES})
+    report.update({key: written.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    report["labels_by_property"] = {cls: dict(sorted(c.items())) for cls, c in by_property.items()}
+    report["labels_examples"] = examples
+    report["assay_role_codes"] = role_codes
+    report["assay_role_codes_unpackable"] = roles.unpackable if roles is not None else 0
+    return report
+
+
+NAN = float("nan")
+LEGACY_EDGES = [(None, 5), ("x-7", 5), (2 ** 31, 5), (-1, 5), (5.5, 5), (NAN, 5), (9, "y"), (9, 2 ** 31), (9, None)]
+INTERNAL_BY_SEEK = {500: (99,), 501: (96, 98), 503: (97,)}
+
+
+def _label_world(shuffled: bool, seed: int = 5):
+    """A graph of 300 samples and 1,500 random DERIVED_FROM (self-loops included) whose stored labels fall in every
+    class, plus edges with legacy ends; and the label rule's inputs. Stored in child-id order unless ``shuffled``."""
+    rng = random.Random(seed)
+    sops = {7: "Extraction", 8: "RNA prep"}
+    label_sources = run.LabelSources({500: (99, "Patient Visit"), 501: (98, "Seq run"), 502: (None, "Other"),
+                                      503: (97, "Prep")}, sops, labels.sop_title_index(sops))
+    ids = list(range(1, 301))
+    for i in ids:
+        label_sources.assays.add(i, rng.sample([500, 501, 502, 503], rng.randint(0, 3)))
+        if rng.random() < 0.6:
+            label_sources.protocols.add(i, (rng.choice([7, 8]),))
+    pairs = set()
+    while len(pairs) < 1500:
+        pairs.add((rng.choice(ids), rng.choice(ids)))
+    rows = []
+    for child, parent in sorted(pairs):
+        computed = label_sources.edge(child, parent)
+        roll = rng.random()
+        if roll < 0.25:
+            stored = dict(computed)
+        elif roll < 0.4:
+            stored = {}
+        elif roll < 0.5:
+            stored = {k: v for k, v in computed.items() if k not in ("internal_assay_ids", "internal_assay_titles")}
+        elif roll < 0.6:
+            stored = dict(computed, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+        elif roll < 0.7:
+            stored = dict(computed, internal_assay_id=95, internal_assay_ids=[95])
+        elif roll < 0.8:
+            stored = dict(computed, protocol_id=None, protocol_title=None)
+        else:
+            stored = dict(computed, assay_id=502, internal_assay_id=502, internal_assay_title="Other",
+                          internal_assay_ids=[502], internal_assay_titles=["Other"])
+        rows.append(((child, parent), {k: v for k, v in stored.items() if v is not None}))
+    for i, pair in enumerate(LEGACY_EDGES):
+        rows.insert(rng.randrange(len(rows) + 1) if shuffled else 151 * i, (pair, {}))
+    if shuffled:
+        rng.shuffle(rows)
+    graph = Graph()
+    graph.samples.update(ids)
+    for pair, props in rows:
+        graph.edges[pair] = props
+    graph.page_ids = tuple(ids) + (2 ** 31, -1, 5.5, NAN, None, "x-7")
+    return graph, label_sources
+
+
+def _label_runs(monkeypatch, shuffled: bool, page: int, **kwargs):
+    """The frozen single read and the paged step on two copies of one graph: (report, roles, edges) for each."""
+    monkeypatch.setattr(writer, "ID_PAGE", page)
+    out = []
+    for fn in (_label_edges_at_c6089b4a, run.label_edges):
+        graph, label_sources = _label_world(shuffled)
+        sink: list = []
+        report = fn(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK, role_sink=sink.append,
+                    **kwargs)
+        (roles,) = sink
+        out.append((report, roles.unpackable, list(roles.by_sample()), graph.edges, graph))
+    return out
+
+
+@pytest.mark.parametrize("mode", [{}, {"apply_label_changes": True}, {"dry_run": True}])
+def test_the_paged_label_step_equals_the_single_read_byte_for_byte(monkeypatch, mode):
+    (old, old_unpackable, old_roles, old_edges, _), (new, new_unpackable, new_roles, new_edges, graph) = \
+        _label_runs(monkeypatch, shuffled=False, page=7, **mode)
+
+    assert json.dumps(new, sort_keys=True, default=repr) == json.dumps(old, sort_keys=True, default=repr)
+    assert (new_unpackable, new_roles) == (old_unpackable, old_roles)
+    assert repr(sorted(new_edges.items(), key=repr)) == repr(sorted(old_edges.items(), key=repr))
+    # Every class the step reports was met, more than EXAMPLES times for the cap to merge across pages.
+    assert all(new[f"labels_{cls}"] > run.EXAMPLES for cls in run._REPORTED_CLASSES), new
+    assert new["labels_legacy_id_edges"] == len(LEGACY_EDGES) and new["assay_role_codes"] > 0
+    # One read transaction per page of 7 ids and one for the ids no page holds; each page read after its bounds.
+    page_query, rest_query = writer.page_forms(run.LABEL_EDGES)
+    reads = [c for c in graph.calls if c.query in (page_query, rest_query)]
+    numeric = sum(1 for v in graph.page_ids if pages._number(v))
+    assert [c.query for c in reads] == [page_query] * -(-numeric // 7) + [rest_query]
+    assert all(c.kwargs.get("routing_") is not None for c in reads)
+    assert LABEL_EDGES_AT_C6089B4A not in [c.query for c in graph.calls]
+
+
+def test_the_paged_label_step_equals_the_single_read_in_any_stream_order(monkeypatch):
+    """Stored out of id order, the counts, role codes and writes are still equal; the examples are the first
+    EXAMPLES in stream order, so with the cap lifted they are the same set."""
+    monkeypatch.setattr(run, "EXAMPLES", 10 ** 6)
+    (old, _, old_roles, old_edges, _), (new, _, new_roles, new_edges, _) = _label_runs(
+        monkeypatch, shuffled=True, page=11, apply_label_changes=True)
+
+    examples = (old.pop("labels_examples"), new.pop("labels_examples"))
+    assert new == old and new_roles == old_roles
+    assert repr(sorted(new_edges.items(), key=repr)) == repr(sorted(old_edges.items(), key=repr))
+    assert {cls: sorted(map(repr, rows)) for cls, rows in examples[1].items()} == \
+        {cls: sorted(map(repr, rows)) for cls, rows in examples[0].items()}
+
+
+def test_no_label_read_streams_more_than_a_page_of_edges(monkeypatch):
+    """Dev's failure in miniature: a read that streams every edge outlives the transaction timeout (here a budget of
+    records per read); the paged step keeps each read to a page of child ids."""
+    graph, label_sources = _label_world(False)
+    graph.read_budget = 300                     # a page of 20,000 ids, scaled to 7: about 40 edges; the graph has 1,509
+    monkeypatch.setattr(writer, "ID_PAGE", 7)
+    report = run.label_edges(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK)
+    assert report["labels_edges"] == 1500 + len(LEGACY_EDGES)
+
+
+def test_a_retried_label_page_is_counted_once(monkeypatch):
+    from neo4j.exceptions import TransientError
+
+    monkeypatch.setattr(writer.time, "sleep", lambda s: None)
+    (old, _, old_roles, _, _), _ = _label_runs(monkeypatch, shuffled=False, page=7)
+    graph, label_sources = _label_world(False)
+    page_query, _ = writer.page_forms(run.LABEL_EDGES)
+    real, failed = graph.execute_query, []
+
+    def flaky(query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
+        if query == page_query and parameters_["after"] > 40 and not failed:
+            failed.append(parameters_["after"])
+
+            def broken(records):
+                def stream():
+                    for i, record in enumerate(records):
+                        if i == 3:
+                            raise TransientError("connection lost mid-page")
+                        yield record
+                return result_transformer_(stream())
+            return real(query, parameters_, database_, broken, **kwargs)
+        return real(query, parameters_, database_, result_transformer_, **kwargs)
+
+    graph.execute_query = flaky
+    sink: list = []
+    new = run.label_edges(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK, role_sink=sink.append)
+    assert failed and json.dumps(new, sort_keys=True, default=repr) == json.dumps(old, sort_keys=True, default=repr)
+    assert list(sink[0].by_sample()) == old_roles
+
+
 def test_graphmeta_gets_the_label_maps_hash(world, monkeypatch, tmp_path, lock):
     graph = Graph()
     Writers(monkeypatch, graph)
     report = _full(graph, tmp_path)
 
     expected = labels.label_maps_hash(ASSAY_MAP, SOPS)
-    assert graph.graphmeta["label_maps_hash"] == expected and graph.graphmeta["schema_version"] == "1.2"
+    assert graph.graphmeta["label_maps_hash"] == expected and graph.graphmeta["schema_version"] == schema.SCHEMA_VERSION
     assert report["label_maps_hash"] == expected
 
 
@@ -486,6 +856,64 @@ def test_graph_only_samples_follow_the_deletion_rule(world, monkeypatch, tmp_pat
     rows = (tmp_path / run.RETIRED_FILE).read_text().splitlines()
     assert rows[1:] == ["99\tTIS-X-99\tTIS\t3"]
     assert (report["retired_deleted"], report["retired_orphaned"]) == (1, 1)
+
+
+# A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title: the old node still
+# holds a Sample node MySQL lacks, so its title reads as held under another id until that sample is retired.
+_TITLE_CONFLICT = [{"title": "TIS", "graph_id": 9, "mysql_id": 26}]
+_GONE_SAMPLE = {"element_id": "4:s:99", "id": 99, "uuid": "TIS-X-99", "type": "TIS", "synced": True,
+                "incident_edges": 2}
+
+
+def _conflicts_then(graph, *answers):
+    """Answer the title-conflict read with each of ``answers`` in turn."""
+    pending, real = list(answers), graph.answer
+
+    def answer(query, params):
+        if query == q.SAMPLE_TYPE_TITLE_CONFLICTS:
+            return pending.pop(0), {}
+        return real(query, params)
+
+    graph.answer = answer
+    return pending
+
+
+def test_a_title_held_only_by_a_gone_types_samples_is_retired_then_checked_once_more(world, monkeypatch, tmp_path,
+                                                                                    lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT, [])
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    report = _full(graph, tmp_path)
+
+    assert report["status"] == "ok" and report["problems"] == [] and pending == []
+    assert (report["title_conflicts_retried"], report["sample_type_title_conflicts"]) == (_TITLE_CONFLICT, [])
+    assert len(writers.of("retire_samples")) == 1 and report["retired_deleted"] == 1
+    assert writers.names().index("retire_samples") < writers.names().index("delete_ghosts")
+    assert (tmp_path / run.RETIRED_FILE).read_text().splitlines()[1:] == ["99\tTIS-X-99\tTIS\t2"]
+
+
+def test_a_title_conflict_the_retire_does_not_clear_still_refuses(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT, _TITLE_CONFLICT)
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    with pytest.raises(run.PreflightError, match="SampleType titles are held under other ids"):
+        _full(graph, tmp_path)
+
+    assert pending == [] and writers.names() == ["find_ghosts", "retire_samples"]
+
+
+def test_a_title_conflict_beside_another_problem_refuses_without_retiring(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.retire_candidates = [dict(_GONE_SAMPLE)]
+    graph.study_duplicates = [{"seek_study_id": 3, "nodes": 2}]
+    pending = _conflicts_then(graph, _TITLE_CONFLICT)
+    writers = Writers(monkeypatch, graph, ghosts=dict(NO_GHOSTS, orphan_ids=[99]))
+    with pytest.raises(run.PreflightError):
+        _full(graph, tmp_path)
+
+    assert pending == [] and writers.names() == ["find_ghosts"]
 
 
 # --- the lock, the run record and the outbox -----------------------------------------------------
@@ -577,7 +1005,7 @@ def test_a_failed_run_records_failed_and_marks_no_outbox_row(world, monkeypatch,
     def boom(*args, **kwargs):
         raise RuntimeError("neo4j went away")
 
-    monkeypatch.setattr(writer, "write_seek_studies", boom)
+    monkeypatch.setattr(study_links, "rebuild_in_study", boom)
     with pytest.raises(RuntimeError):
         _full(Graph(), tmp_path)
     assert _one_run().status == "failed"
@@ -599,6 +1027,9 @@ def test_a_dry_run_takes_no_lock_records_nothing_and_writes_nothing(world, monke
     report = run.full_sync(graph, "neo4j", dry_run=True)
 
     assert report["status"] == "dry_run"
+    assert report["study_links_preview"]["dry_run"] is True and report["study_links_preview"]["status"] == "ok"
+    assert report["study_merge_preview"] == {"counts": {}, "approval_line": "", "merge_other_investigation": [],
+                                             "id_collisions": [], "legacy_only": []}
     assert lock.timeouts == [] and not GraphSyncRun.objects.exists()
     assert writers.names() == ["find_ghosts"]
     assert all(c.kwargs.get("routing_") is not None for c in graph.calls)
@@ -607,21 +1038,22 @@ def test_a_dry_run_takes_no_lock_records_nothing_and_writes_nothing(world, monke
 
 # --- SEEK Study nodes keyed on id ----------------------------------------------------------------
 
-def test_seek_study_nodes_keyed_by_id_move_to_seek_study_id(world, monkeypatch, tmp_path, lock):
+def test_the_rekey_moves_every_node_whose_id_and_title_are_seeks_and_keeps_its_id(world, monkeypatch, tmp_path,
+                                                                                   lock):
     graph = Graph()
     graph.studies = [
-        {"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},             # a SEEK study batch upload keyed
-        {"element_id": "4:st:8", "id": 8, "title": "Paper", "paper": True},          # carries a DOI or PMID
-        {"element_id": "4:st:9", "id": 9, "title": "Another study", "paper": False},  # SEEK's title differs
-        {"element_id": "4:st:50", "id": 50, "title": "Local", "paper": False}]       # no SEEK study 50
+        {"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},              # a SEEK study batch upload keyed
+        {"element_id": "4:st:8", "id": 8, "title": " Paper ", "paper": True},         # SEEK's title, with a DOI: moves
+        {"element_id": "4:st:9", "id": 9, "title": "Another study", "paper": False},  # SEEK's title differs: left
+        {"element_id": "4:st:50", "id": 50, "title": "Local", "paper": False}]        # no SEEK study 50: not listed
     Writers(monkeypatch, graph)
     report = _full(graph, tmp_path)
 
     (rekey,) = [c for c in graph.calls if c.query == run.REKEY_STUDY]
-    assert rekey.params["element_ids"] == ["4:st:7"]
-    assert graph.studies[0]["seek_study_id"] == 7 and graph.studies[0]["id"] is None
-    assert graph.events.index("study_rekey") < graph.events.index("write_seek_studies")
-    assert report["studies_rekeyed"] == 1 and report["study_ids_left_keyed_by_id"] == [8, 9]
+    assert rekey.params["element_ids"] == ["4:st:7", "4:st:8"]
+    assert [(s["id"], s.get("seek_study_id")) for s in graph.studies] == [(7, 7), (8, 8), (9, None), (50, None)]
+    assert graph.events.index("study_rekey") < graph.events.index("rebuild_in_study")
+    assert report["studies_rekeyed"] == 2 and report["study_ids_left_keyed_by_id"] == [9]
 
 
 def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(world, monkeypatch, tmp_path,
@@ -636,9 +1068,88 @@ def test_a_graph_that_already_keys_seek_studies_on_seek_study_id_is_not_rekeyed(
     assert report["studies_rekeyed"] == 0
 
 
+def test_the_sample_types_and_investigations_steps_archive_what_they_delete_in_the_run_directory(world, monkeypatch,
+                                                                                               tmp_path, lock):
+    graph = Graph()
+    writers = Writers(monkeypatch, graph)
+    _full(graph, tmp_path)
+    (types,) = writers.of("write_sample_types")
+    (invs,) = writers.of("write_investigation_projects")
+    assert types.kwargs == {"archive_path": str(tmp_path / writer.SAMPLE_TYPES_DELETED_FILE)}
+    assert invs.kwargs == {"archive_path": str(tmp_path / writer.INVESTIGATIONS_DELETED_FILE),
+                           "seek_study_ids": [7, 8, 9]}
+
+
+def test_the_rekey_statements_keep_id_and_read_an_empty_doi_as_no_paper():
+    assert "REMOVE" not in run.REKEY_STUDY and "SET st.seek_study_id = st.id" in run.REKEY_STUDY
+    assert "coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> ''" in run.STUDIES_KEYED_BY_ID
+
+
+@pytest.mark.parametrize("switch, remove", [(None, False), ("add", False), ("follow", True)])
+def test_the_seek_studies_step_rebuilds_in_study_with_the_boxs_switch(world, monkeypatch, tmp_path, lock, switch,
+                                                                      remove):
+    if switch is None:
+        monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    else:
+        monkeypatch.setenv(study_links.SWITCH_ENV, switch)
+    graph = Graph()
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+
+    (call,) = writers.of("rebuild_in_study")
+    assert call.kwargs == {"remove": remove, "run_dir": str(tmp_path), "lock": None, "path": "full"}
+    assert report["steps"]["seek_studies"] == {"in_study_added": 1, "in_study_removed": 0}
+    assert report["status"] == "ok" and report["dry_run"] is False
+
+
+@pytest.mark.parametrize("graphmeta", [{}, {"schema_version": "1.1", "catalog_hash": "old"}])
+def test_the_seek_studies_step_runs_before_graphmeta_whatever_the_graphs_version(world, monkeypatch, tmp_path, lock,
+                                                                                 graphmeta):
+    """A fresh install's first sync (no GraphMeta) and an upgrade or rollback sync (another version) run the step."""
+    graph = Graph()
+    graph.graphmeta = dict(graphmeta)
+    writers = Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    names = writers.names()
+    assert report["status"] == "ok"
+    assert names.index("rebuild_in_study") < names.index("write_graphmeta")
+
+
+def test_a_seek_studies_step_that_does_not_answer_ok_fails_the_run(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    Writers(monkeypatch, graph)
+    monkeypatch.setattr(study_links, "rebuild_in_study",
+                        lambda d, db, **kw: {"status": "refused", "problems": ["two nodes"]})
+    with pytest.raises(RuntimeError, match="refused"):
+        _full(graph, tmp_path)
+
+
+def test_the_preflight_refuses_two_study_nodes_sharing_a_seek_study_id(world, monkeypatch, tmp_path, lock):
+    graph = Graph()
+    graph.study_duplicates = [{"seek_study_id": 7, "nodes": 2}]
+    writers = Writers(monkeypatch, graph)
+    with pytest.raises(run.PreflightError, match="seek_study_id"):
+        _full(graph, tmp_path)
+    assert writers.names() == ["find_ghosts"]
+    saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
+    assert saved["seek_study_id_duplicates"] == [{"seek_study_id": 7, "nodes": 2}]
+
+
+def test_an_unmerged_split_is_left_in_place_and_makes_no_duplicate(world, monkeypatch, tmp_path, lock):
+    """A box rebuilt before its merge: a legacy node keeps its id alone, the SEEK-keyed node exists, the rekey is a
+    no-op (the graph already holds a SEEK-keyed node) and the preflight finds no duplicate."""
+    graph = Graph()
+    graph.studies = [{"element_id": "4:st:7", "id": 7, "title": "S", "paper": False},
+                     {"element_id": "4:st:k7", "id": None, "seek_study_id": 7, "title": "S", "paper": False}]
+    Writers(monkeypatch, graph)
+    report = _full(graph, tmp_path)
+    assert report["status"] == "ok" and report["studies_rekeyed"] == 0
+    assert run.REKEY_STUDY not in graph.queries()
+
+
 # --- catalog_sync --------------------------------------------------------------------------------
 
-def _catalog_graph(version="1.2"):
+def _catalog_graph(version=schema.SCHEMA_VERSION):
     graph = Graph()
     if version is not None:
         graph.graphmeta = {"schema_version": version, "catalog_hash": "old"}
@@ -657,7 +1168,8 @@ def test_catalog_sync_holds_the_lock_and_records_a_run(world, monkeypatch, lock)
     assert lock.timeouts == [run.CATALOG_LOCK_TIMEOUT_S]
     assert graph.events[0] == "lock" and graph.events[-1] == "unlock"
     assert writers.names() == ["write_sample_types", "write_attributes", "write_attribute_counts",
-                               "write_sample_type_counts", "write_graphmeta"]
+                               "write_sample_type_counts", "write_assays", "replace_assay_catalog_edges",
+                               "delete_gone_assays", "write_graphmeta"]
     assert "label_maps_hash" not in writers.of("write_graphmeta")[0].kwargs
     record = _one_run("catalog")
     assert record.status == "ok" and record.counts_json["trigger"] == "command"
@@ -671,6 +1183,25 @@ def test_catalog_sync_refuses_a_graph_not_at_the_writers_version(world, monkeypa
         run.catalog_sync(graph, "neo4j")
     assert writers.names() == []
     assert _one_run("catalog").status == "refused"
+
+
+def test_catalog_sync_writes_the_assay_nodes_and_catalog_edges_and_leaves_members_and_run_in_alone(
+        world, monkeypatch, lock):
+    """catalog_sync is what sync_samples calls for a missing type or a new undeclared key, inside its write unit:
+    no member rewrite belongs there, and RUN_IN records the mapping the members were last written from."""
+    graph = _catalog_graph()
+    writers = Writers(monkeypatch, graph)
+    report = run.catalog_sync(graph, "neo4j")
+
+    (nodes,) = writers.of("write_assays")
+    assert [n["id"] for n in nodes.args[2]] == [99]
+    (deleted,) = writers.of("delete_gone_assays")
+    assert deleted.args[2] == [99]
+    assert writers.of("replace_assay_runs") == []
+    for statement in (q.RUN_IN_PAIRS, q.SAMPLE_ASSAY_EDGE_PAIRS, q.LINEAGE_PAIRS_INCIDENT,
+                      q.REPLACE_SAMPLE_ASSAY_EDGES):
+        assert statement not in graph.queries()
+    assert report["steps"]["assays"]["assays"] == 1
 
 
 def test_catalog_sync_refuses_when_the_lock_is_not_acquired(world, monkeypatch, lock):

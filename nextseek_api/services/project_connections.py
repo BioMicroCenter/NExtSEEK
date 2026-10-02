@@ -6,9 +6,9 @@ the project page is visible to every member of the project, and reaching the
 same code directly means the page's own membership check is the gate, with no
 new authorization surface and no change to a shipped endpoint.
 
-`seek_inv_id` is a SEEK *project* id and covers every investigation in that
-project, which is exactly the project page's scope. That module's docstring
-states it; this one restates it because the parameter name does not.
+`project_id` selects the samples linked to the project (IN_PROJECT), whatever
+their study or investigation, which is exactly the project page's scope: a
+project whose samples no study of its investigations holds still has a diagram.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def connection_rows(project_id: int) -> list[dict]:
     """
     try:
         selector = SampleTypeConnectionsRequest.model_validate({
-            "seek_inv_id": int(project_id),
+            "project_id": int(project_id),
             "graph_inv_id": None,
             "name": None,
             "sample_type": None,

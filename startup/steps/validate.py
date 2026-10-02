@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -682,6 +683,167 @@ def check_graph_drift(repo_root: Path, env: dict[str, str]) -> HealthResult:
         return HealthResult(name=name, ok=False, detail=f"cannot run docker: {exc}")
     return _graph_drift_result(name, result.returncode,
                                _stream_text(result.stdout), _stream_text(result.stderr))
+
+
+# The small tables the drift compares (projects, investigations, people, memberships, every SEEK study's node) are
+# written by the nightly reconcile, so on local and dev, where the drift runs after every rebuild, an edit made in
+# SEEK's own UI since then would read as drift and fail the rebuild until the next nightly. The app container
+# rewrites them right before the drift, with the code an `isa` outbox row runs; production is not asked (cli.py).
+GRAPH_SMALL_TABLES_SERVICE = GRAPH_DRIFT_SERVICE
+GRAPH_SMALL_TABLES_COMMAND = (
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync", "--small-tables", "--json",
+    "--trigger", "startup",
+    # The app container's own graph is the live one: the flag says this write means it, as the loop's children do.
+    "--i-mean-the-live-graph",
+)
+GRAPH_SMALL_TABLES_TIMEOUT_S = 300    # Django's start-up, the graph-write lock's 60 s wait and a few hundred rows
+_SMALL_TABLES_SHOWN = (("projects_written", "projects"), ("investigations_written", "investigations"),
+                       ("memberships_written", "memberships"), ("seek_studies", "SEEK studies"))
+
+
+def refresh_graph_small_tables(repo_root: Path, env: dict[str, str]) -> HealthResult:
+    """Ask the app container to rewrite the graph's small tables from SEEK, right before the post-rebuild drift.
+
+    Never red: the drift that follows judges the graph, and this write only spares it a SEEK edit made since the
+    nightly. A refusal (a graph below the writer's version, a graph-write lock another write held) or any failure is
+    a warning that carries the reason. Asked as the drift is, through ``subprocess`` with empty stdin and the exit
+    status kept (``check_graph_drift``), and not at all in a tree with no compose file.
+    """
+    name = "graph small tables"
+    if not (repo_root / "docker-compose.yml").is_file():
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_SMALL_TABLES_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_SMALL_TABLES_SERVICE, *GRAPH_SMALL_TABLES_COMMAND]
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(repo_root), env={**os.environ, **env},
+            input=b"",                 # empty stdin, never the caller's (check_graph_drift)
+            capture_output=True, timeout=GRAPH_SMALL_TABLES_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=f"timed out after {GRAPH_SMALL_TABLES_TIMEOUT_S}s; the drift below compares the "
+                                   "small tables the nightly wrote")
+    except OSError as exc:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"cannot run docker: {exc}")
+    stdout, stderr = _stream_text(result.stdout), _stream_text(result.stderr)
+    payload = _graph_drift_payload(stdout)
+    if result.returncode == 0:
+        counts = ", ".join(f"{payload[key]} {label}" for key, label in _SMALL_TABLES_SHOWN if key in payload)
+        detail = "rewrote SEEK's small tables before the drift check"
+        return HealthResult(name=name, ok=True, detail=f"{detail}: {counts}" if counts else detail)
+    reason = (payload.get("status") or _last_line(stderr) or _last_line(stdout) or "no output")
+    if result.returncode == 2:
+        return HealthResult(name=name, ok=True, warn=True, detail=f"skipped, nothing written: {reason}")
+    return HealthResult(name=name, ok=True, warn=True,
+                        detail=f"could not rewrite them (exit {result.returncode}): {reason}")
+
+
+# The graph sync health line, on every box, production included. The app container's own
+# manage.py judges the graph_sync tables, so it needs no HTTP login and runs where the smoke suite holds no superuser
+# rights. Exit 0 nothing to fail on, 1 a problem, 3 the tables could not be read, 4 migrations not applied yet.
+GRAPH_SYNC_HEALTH_SERVICE = "nextseek"
+GRAPH_SYNC_HEALTH_COMMAND = (
+    "uv", "run", "--no-sync", "python", "manage.py", "graph_sync_health", "--json",
+)
+GRAPH_SYNC_HEALTH_TIMEOUT_S = 120     # one ask: Django's start-up and two small tables
+GRAPH_SYNC_HEALTH_WAIT_S = 300        # how long a just-recreated container may take to finish `migrate`
+GRAPH_SYNC_HEALTH_POLL_S = 10
+GRAPH_SYNC_HEALTH_NOT_READY = 4
+# Detail lines sit under the text of a printed health line: ui's seven spaces, the mark, a space, then two more.
+GRAPH_SYNC_HEALTH_INDENT = "\n" + " " * 11
+
+
+def _graph_sync_health_payload(stdout: str) -> dict:
+    """The JSON line ``graph_sync_health --json`` printed, or an empty dict. The last such line wins; a line that
+    is not JSON (a library writing to stdout) is passed over."""
+    for line in reversed(stdout.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _indented(head: str, lines: list[str]) -> str:
+    return head + "".join(GRAPH_SYNC_HEALTH_INDENT + line for line in lines)
+
+
+def _graph_sync_health_result(name: str, returncode: int, stdout: str, stderr: str,
+                              wait_s: float) -> HealthResult:
+    """Read the command's exit status and its JSON line into one health line."""
+    payload = _graph_sync_health_payload(stdout)
+    verdict = payload.get("verdict")
+    summary = str(payload.get("summary") or "")
+    problems = [str(p) for p in payload.get("problems") or []]
+    warnings = [str(w) for w in payload.get("warnings") or []]
+    if returncode == 0 and verdict == "ok":
+        if warnings:
+            return HealthResult(name=name, ok=True, warn=True,
+                                detail=_indented(f"{summary}; warnings:", warnings))
+        return HealthResult(name=name, ok=True, detail=summary)
+    if returncode == 1 and verdict == "problems":
+        return HealthResult(name=name, ok=False,
+                            detail=_indented(summary, problems + [f"warning: {w}" for w in warnings]))
+    if returncode == 3 and verdict == "unavailable":
+        return HealthResult(name=name, ok=False, detail=summary)
+    if returncode == GRAPH_SYNC_HEALTH_NOT_READY:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=(f"skipped: the app container had not applied its migrations after "
+                                    f"{int(wait_s)}s ({summary or 'no detail'}); run `./startup.sh ci` once it "
+                                    "is up"))
+    if "Unknown command" in stderr:
+        return HealthResult(name=name, ok=True, warn=True,
+                            detail=("skipped: the running app image has no graph_sync_health command, so it "
+                                    "predates this check; rebuild the app"))
+    return HealthResult(name=name, ok=False,
+                        detail=(f"graph_sync_health could not complete (exit {returncode}): "
+                                f"{_last_line(stderr) or _last_line(stdout) or 'no output'}"))
+
+
+def check_graph_sync_health(repo_root: Path, env: dict[str, str], *,
+                            wait_s: float = GRAPH_SYNC_HEALTH_WAIT_S, poll_s: float = GRAPH_SYNC_HEALTH_POLL_S,
+                            sleep=time.sleep, clock=time.monotonic) -> HealthResult:
+    """How the graph sync is doing, asked of the app container. Reads only.
+
+    Not through ``compose_exec``, like ``check_graph_drift``: the exit status is the verdict and stdout its detail.
+    A container still running its entrypoint's ``migrate`` answers 4 and is asked again every ``poll_s`` seconds for
+    up to ``wait_s``. A red line is advisory in ``rebuild`` and fails ``ci`` after the suite (``startup/cli.py``).
+    """
+    name = "graph sync health"
+    if not (repo_root / "docker-compose.yml").is_file():
+        return HealthResult(
+            name=name, ok=True, warn=True,
+            detail=("skipped: this tree has no docker-compose.yml, so there is no "
+                    f"{GRAPH_SYNC_HEALTH_SERVICE} container to ask"),
+        )
+    cmd = ["docker", "compose", "exec", "-T", GRAPH_SYNC_HEALTH_SERVICE, *GRAPH_SYNC_HEALTH_COMMAND]
+    deadline = clock() + wait_s
+    while True:
+        try:
+            # Empty stdin, never the caller's: `exec -T` swallows whatever it is given (check_graph_drift).
+            result = subprocess.run(cmd, cwd=str(repo_root), env={**os.environ, **env}, input=b"",
+                                    capture_output=True, timeout=GRAPH_SYNC_HEALTH_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return HealthResult(
+                name=name, ok=False,
+                detail=(f"timed out after {GRAPH_SYNC_HEALTH_TIMEOUT_S}s; run `docker compose exec "
+                        f"{GRAPH_SYNC_HEALTH_SERVICE} {' '.join(GRAPH_SYNC_HEALTH_COMMAND)}` by hand"),
+            )
+        except OSError as exc:
+            return HealthResult(name=name, ok=False, detail=f"cannot run docker: {exc}")
+        if result.returncode != GRAPH_SYNC_HEALTH_NOT_READY or clock() >= deadline:
+            return _graph_sync_health_result(name, result.returncode, _stream_text(result.stdout),
+                                             _stream_text(result.stderr), wait_s)
+        sleep(poll_s)
 
 
 def check_seek_url_consistency(

@@ -16,6 +16,8 @@ import pytest
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import writer as w
 from nextseek_api.graph_sync.projection import SampleProjection
+from nextseek_api.tests import graph_sync_pages as pages
+from nextseek_graph import schema
 
 
 class FakeDriver:
@@ -23,12 +25,13 @@ class FakeDriver:
 
     ``responder(query, params)`` returns the records (dicts) for a call, or raises. A call with a
     ``result_transformer_`` gets the records as an iterable, as the real driver's Result is.
-    ``counters`` gives the summary counters of every call.
+    ``counters`` gives the summary counters of every call. The paged reads' statements are answered from the
+    responder's rows for their template (``pages.paged``).
     """
 
     def __init__(self, responder=None, counters=None):
         self.calls = []
-        self.responder = responder or (lambda query, params: [])
+        self.responder = pages.paged(responder or (lambda query, params: []))
         self.counters = counters or {}
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
@@ -73,13 +76,35 @@ def test_write_samples_takes_the_parent_lists_from_the_props_when_present():
     assert q.WRITE_SAMPLES.index("AS pth") < q.WRITE_SAMPLES.index("SET s = r.props")
 
 
+# The schema DDL as it was written by hand before it was rendered from the contract's 1.1 triples: the rendering must
+# give these statements byte for byte.
+GOLDEN_CONSTRAINTS_V11 = [
+    "CREATE CONSTRAINT sample_id_unique IF NOT EXISTS FOR (s:Sample) REQUIRE s.id IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_id_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.id IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_title_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.title IS UNIQUE",
+    "CREATE CONSTRAINT sample_type_label_unique IF NOT EXISTS FOR (t:SampleType) REQUIRE t.label IS UNIQUE",
+    "CREATE CONSTRAINT attribute_key_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.key IS UNIQUE",
+    "CREATE CONSTRAINT attribute_id_unique IF NOT EXISTS FOR (a:Attribute) REQUIRE a.id IS UNIQUE",
+    "CREATE CONSTRAINT project_id_unique IF NOT EXISTS FOR (p:Project) REQUIRE p.id IS UNIQUE",
+    "CREATE CONSTRAINT person_id_unique IF NOT EXISTS FOR (p:Person) REQUIRE p.id IS UNIQUE",
+    "CREATE CONSTRAINT study_id_unique IF NOT EXISTS FOR (s:Study) REQUIRE s.id IS UNIQUE",
+    "CREATE CONSTRAINT investigation_id_unique IF NOT EXISTS FOR (i:Investigation) REQUIRE i.id IS UNIQUE",
+    "CREATE INDEX sample_uuid IF NOT EXISTS FOR (s:Sample) ON (s.uuid)",
+    "CREATE INDEX sample_type IF NOT EXISTS FOR (s:Sample) ON (s.type)",
+    "CREATE INDEX study_seek_study_id IF NOT EXISTS FOR (s:Study) ON (s.seek_study_id)",
+]
+GOLDEN_FULLTEXT = "CREATE FULLTEXT INDEX sample_search_text IF NOT EXISTS FOR (s:Sample) ON EACH [s.search_text]"
+
+
+def test_the_schema_ddl_is_byte_identical_to_the_hand_written_statements():
+    assert isinstance(q.CONSTRAINTS_V11, list)
+    assert q.CONSTRAINTS_V11 == GOLDEN_CONSTRAINTS_V11
+    assert q.FULLTEXT == GOLDEN_FULLTEXT
+    assert q.FULLTEXT_INDEX == "sample_search_text"
+
+
 def test_constraints_are_the_v11_set():
     joined = "\n".join(q.CONSTRAINTS_V11)
-    for prop in ("(s:Sample) REQUIRE s.id", "(t:SampleType) REQUIRE t.id", "(t:SampleType) REQUIRE t.title",
-                 "(t:SampleType) REQUIRE t.label", "(a:Attribute) REQUIRE a.key", "(a:Attribute) REQUIRE a.id",
-                 "(p:Project) REQUIRE p.id", "(p:Person) REQUIRE p.id", "(s:Study) REQUIRE s.id",
-                 "(i:Investigation) REQUIRE i.id"):
-        assert prop in joined
     # uuid is indexed but never unique while MySQL holds duplicate uuids
     assert "REQUIRE s.uuid" not in joined
     assert any("ON (s.uuid)" in stmt for stmt in q.CONSTRAINTS_V11)
@@ -367,7 +392,7 @@ DECLARED = {(11, 10), (12, 11)}
 
 
 def test_undeclared_derived_from_statements_touch_only_edges_between_samples():
-    assert "MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_BETWEEN_SAMPLES
+    assert "MATCH (c:Sample) WHERE {page}\nMATCH (c)-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_BETWEEN_SAMPLES
     for key in ("child_id", "parent_id", "child_uuid", "parent_uuid", "props", "element_id"):
         assert f" AS {key}" in q.DERIVED_FROM_BETWEEN_SAMPLES
     assert "properties(e) AS props" in q.DERIVED_FROM_BETWEEN_SAMPLES
@@ -389,7 +414,8 @@ def test_undeclared_derived_from_archive_is_written_before_any_delete(tmp_path):
     w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), DECLARED)
 
     queries = driver.queries()
-    assert queries.index(q.DERIVED_FROM_BETWEEN_SAMPLES) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)
+    _page, rest = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    assert queries.index(rest) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)   # every read before any delete
     assert seen_at_delete == [(4, False)]  # header plus three rows, renamed into place before the first delete
 
 
@@ -408,8 +434,8 @@ def test_undeclared_derived_from_returns_its_counts_and_archives_each_edge(tmp_p
     out = tmp_path / "derived_from_undeclared_archive.tsv"
     counts = w.archive_and_drop_undeclared_derived_from(FakeDriver(LineageGraph()), "neo4j", str(out), DECLARED)
 
-    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 3, "derived_from_deleted": 3,
-                      "derived_from_archive_path": str(out)}
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 3, "derived_from_doubled": 0,
+                      "derived_from_deleted": 3, "derived_from_archive_path": str(out)}
     lines = out.read_text(encoding="utf-8").split("\n")
     assert lines == [  # one row per undeclared edge, in stream order (e2, e3, e6)
         "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
@@ -443,8 +469,8 @@ def test_undeclared_derived_from_with_nothing_undeclared_keeps_an_earlier_archiv
     counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out),
                                                         DECLARED | {(12, 10), (70, 70), (11, 13)})
 
-    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                      "derived_from_archive_path": None}
+    assert counts == {"derived_from_between_samples": 5, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                      "derived_from_deleted": 0, "derived_from_archive_path": None}
     assert out.read_text().count("\n") == 2
     assert not os.path.exists(str(out) + ".partial")
     assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
@@ -482,20 +508,158 @@ def test_undeclared_derived_from_reads_as_a_read_and_deletes_as_a_write(tmp_path
 
     driver = FakeDriver(LineageGraph())
     w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(tmp_path / "a.tsv"), DECLARED)
-    (stream,) = driver.calls_of(q.DERIVED_FROM_BETWEEN_SAMPLES)
-    assert stream.kwargs.get("routing_") == RoutingControl.READ
+    streams = [c for c in driver.calls if c.query in w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)]
+    assert len(streams) == 2 and all(c.kwargs.get("routing_") == RoutingControl.READ for c in streams)
     assert all("routing_" not in c.kwargs for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM))
     assert all(c.database == "neo4j" for c in driver.calls)
 
 
-# --- ghosts and orphans --------------------------------------------------------------------------
+def _doubled_graph(cls):
+    """``cls()`` with a second DERIVED_FROM for the declared pair (11, 10): ``e8``, streamed after ``e1``."""
+    graph = cls()
+    graph.edges["e8"] = ("n11", "n10", {"child_id": 11, "parent_id": 10, "copy": 2})
+    return graph
 
-def test_find_ghosts_splits_ghosts_orphans_and_unresolved():
-    sample_ids = [{"id": i} for i in (1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900)] + [{"id": None}]
+
+def _gate_lineage(graph, declared) -> dict:
+    """Gate G check 1 over what ``graph`` holds, as verify reads it."""
+    from nextseek_api.graph_sync import run, verify
 
     def responder(query, params):
+        if query == verify.LINEAGE_PAIRS:
+            return [{"child": graph.nodes[c][1], "parent": graph.nodes[p][1]}
+                    for eid, (c, p, _) in graph.edges.items() if graph._between_samples(eid)]
+        if query == verify.LINEAGE_ON_ORPHANS:
+            return [{"n": sum(1 for c, p, _ in graph.edges.values()
+                              if "OrphanSample" in graph.nodes[c][0] | graph.nodes[p][0])}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+    checks: list = []
+    verify._check_lineage(FakeDriver(responder), "neo4j",
+                          SimpleNamespace(lineage={run.encode_pair(c, p) for c, p in declared}), checks, {})
+    return {c["name"]: c for c in checks}
+
+
+def test_a_second_edge_of_a_declared_pair_is_archived_and_deleted_and_gate_g_check_1_then_passes(tmp_path):
+    graph = _doubled_graph(LineageGraph)
+    assert not _gate_lineage(graph, DECLARED)["1.lineage.duplicate_edges"]["pass"]
+    out = tmp_path / "derived_from_undeclared_archive.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(FakeDriver(graph), "neo4j", str(out), DECLARED)
+
+    assert counts == {"derived_from_between_samples": 6, "derived_from_undeclared": 3, "derived_from_doubled": 1,
+                      "derived_from_deleted": 4, "derived_from_archive_path": str(out)}
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]          # the first edge of (11, 10), e1, stays
+    assert '11\t10\tD.SEQ-11\tTIS-10\t{"child_id": 11, "copy": 2, "parent_id": 10}' in out.read_text(
+        encoding="utf-8").splitlines()
+    gate = _gate_lineage(graph, DECLARED)
+    assert [name for name, check in gate.items() if not check["pass"]] == []
+
+
+SAMPLE_NODE_IDS = (10, 11, 12, 13, 70)    # LineageGraph's Sample ids; 99 is an OrphanSample
+
+
+def test_the_undeclared_archive_reads_a_page_of_children_at_a_time(tmp_path, monkeypatch):
+    """Dev's lineage_undeclared read took 88 s of a 120 s limit: no read may stream every edge. A page of one child
+    gives the counts, the deletes and the rows one page gives; a pair's doubled edge shares its first's page."""
+    one = tmp_path / "one.tsv"
+    whole = w.archive_and_drop_undeclared_derived_from(FakeDriver(_doubled_graph(LineageGraph)), "neo4j", str(one),
+                                                       DECLARED)
+    monkeypatch.setattr(w, "ID_PAGE", 1)
+    graph = _doubled_graph(LineageGraph)
+    driver = FakeDriver(pages.paged(graph, ids=SAMPLE_NODE_IDS, budget=3, on=(q.DERIVED_FROM_BETWEEN_SAMPLES,)))
+    out = tmp_path / "paged.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), DECLARED)
+
+    assert counts == dict(whole, derived_from_archive_path=str(out)) and counts["derived_from_doubled"] == 1
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]
+    paged_rows, whole_rows = out.read_text().splitlines(), one.read_text().splitlines()
+    assert paged_rows[0] == whole_rows[0] and sorted(paged_rows[1:]) == sorted(whole_rows[1:])
+    page, rest = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 5 + [rest]
+
+
+def test_a_retried_page_of_the_undeclared_archive_is_archived_once(tmp_path, monkeypatch):
+    from neo4j.exceptions import TransientError
+
+    monkeypatch.setattr(w.time, "sleep", lambda s: None)
+    monkeypatch.setattr(w, "ID_PAGE", 1)
+    page, _ = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    failed = []
+
+    class Flaky(FakeDriver):
+        def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
+            if query == page and parameters_["last"] == 11 and not failed:   # child 11: e1, e6, e8
+                failed.append(query)
+                inner = result_transformer_
+
+                def result_transformer_(records):
+                    def stream():
+                        for i, record in enumerate(records):
+                            if i == 2:
+                                raise TransientError("connection lost mid-page")
+                            yield record
+                    return inner(stream())
+            return super().execute_query(query, parameters_, database_, result_transformer_, **kwargs)
+
+    graph = _doubled_graph(LineageGraph)
+    out = tmp_path / "a.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(Flaky(pages.paged(graph, ids=SAMPLE_NODE_IDS)), "neo4j",
+                                                        str(out), DECLARED)
+    assert failed and (counts["derived_from_undeclared"], counts["derived_from_doubled"]) == (3, 1)
+    assert [line.split("\t")[:2] for line in out.read_text().splitlines()[1:]] == [
+        ["11", "13"], ["11", "10"], ["12", "10"], ["70", "70"]]
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]
+
+
+def test_a_by_id_sync_deletes_a_second_edge_of_a_declared_pair_of_its_children(tmp_path):
+    graph = _doubled_graph(ChildLineageGraph)
+    out = tmp_path / "a.tsv"
+    counts = w.archive_and_drop_undeclared_for_children(FakeDriver(graph), "neo4j", [11, 12], DECLARED, str(out))
+
+    assert counts == {"derived_from_of_children": 5, "derived_from_undeclared": 2, "derived_from_doubled": 1,
+                      "derived_from_deleted": 3, "derived_from_archive_path": str(out)}
+    assert sorted(graph.deleted) == ["e2", "e6", "e8"]
+    assert [line.split("\t")[:2] for line in out.read_text(encoding="utf-8").splitlines()[1:]] == [
+        ["12", "10"], ["11", "13"], ["11", "10"]]
+
+
+# --- ghosts and orphans --------------------------------------------------------------------------
+
+GHOST_SAMPLE_IDS = [{"id": i} for i in (1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900)] + [{"id": None}]
+
+
+def _ghost_graph(query, params):
+    """Sample ids, duplicates and nodes for find_ghosts: 3 and 5 have a ghost beside them, 4 is unresolved."""
+    if query == q.SAMPLE_IDS:
+        return GHOST_SAMPLE_IDS
+    if query == q.DUPLICATE_SAMPLE_IDS:
+        return [{"id": 3}, {"id": 4}, {"id": 5}, {"id": 900}]
+    if query == q.NODES_FOR_IDS:
+        return [{"id": 3, "element_id": "e3a", "uuid": "live-3"}, {"id": 3, "element_id": "e3b", "uuid": "ghost-3"},
+                {"id": 4, "element_id": "e4a", "uuid": "live-4"}, {"id": 4, "element_id": "e4b", "uuid": "live-x"},
+                {"id": 5, "element_id": "e5a", "uuid": "g-5a"}, {"id": 5, "element_id": "e5b", "uuid": "g-5b"},
+                {"id": 900, "element_id": "e9a", "uuid": "o-a"}, {"id": 900, "element_id": "e9b", "uuid": "o-b"}]
+    if query == q.SAMPLES_WITHOUT_ID:
+        return [{"element_id": "enull"}]
+    return []
+
+
+def test_find_ghosts_reads_a_page_of_sample_ids_at_a_time(monkeypatch):
+    """No read streams every Sample id (dev's labels read timed out that way); pages of two ids give the same
+    answer, a duplicated id's nodes always in one page."""
+    whole = w.find_ghosts(FakeDriver(_ghost_graph), "neo4j", {1, 2, 3, 4, 5, 6}, {"live-3", "live-4", "live-x"})
+    monkeypatch.setattr(w, "ID_PAGE", 2)
+    driver = FakeDriver(pages.paged(_ghost_graph, ids=(1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900), budget=4,
+                                    on=(q.SAMPLE_IDS,)))
+    assert w.find_ghosts(driver, "neo4j", {1, 2, 3, 4, 5, 6}, {"live-3", "live-4", "live-x"}) == whole
+    page, rest = w.page_forms(q.SAMPLE_IDS)
+    assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 5 + [rest]
+
+
+def test_find_ghosts_splits_ghosts_orphans_and_unresolved():
+    def responder(query, params):
         if query == q.SAMPLE_IDS:
-            return sample_ids
+            return GHOST_SAMPLE_IDS
         if query == q.DUPLICATE_SAMPLE_IDS:
             return [{"id": 3}, {"id": 4}, {"id": 5}, {"id": 900}]
         if query == q.NODES_FOR_IDS:
@@ -542,8 +706,9 @@ def test_ensure_constraints_runs_every_statement_and_drops_the_v10_uuid_constrai
     counts = w.ensure_constraints_v11(driver, "neo4j")
     queries = driver.queries()
     assert queries[0] == q.DROP_V10_CONSTRAINTS[0]
-    assert queries[1:] == list(q.CONSTRAINTS_V11)
-    assert counts == {"schema_statements": len(q.DROP_V10_CONSTRAINTS) + len(q.CONSTRAINTS_V11)}
+    assert queries[1:] == [*q.CONSTRAINTS_V11, *q.ASSAY_CONSTRAINTS]
+    assert counts == {"schema_statements": len(q.DROP_V10_CONSTRAINTS) + len(q.CONSTRAINTS_V11)
+                      + len(q.ASSAY_CONSTRAINTS)}
 
 
 def test_ensure_constraints_fails_loudly():
@@ -585,7 +750,9 @@ def test_write_sample_types_backfills_by_title_then_merges_by_id():
     assert driver.calls_of(q.BACKFILL_SAMPLE_TYPE_ID)[0].params["rows"] == [{"id": 26, "title": "TIS"},
                                                                           {"id": 33, "title": "D.SEQ"}]
     assert driver.calls_of(q.MERGE_SAMPLE_TYPES)[0].params["rows"] == rows
-    assert counts == {"sample_types_written": 2, "graph_only_sample_types": ["OLD"]}
+    assert counts == {"sample_types_written": 2, "graph_only_sample_types": ["OLD"], "sample_types_deleted": 0}
+    assert driver.calls_of(q.SAMPLE_TYPE_TITLE_CONFLICTS)[0].params["ids"] == [26, 33]
+    assert q.SAMPLE_TYPES_GONE not in queries                    # no archive path: nothing is deleted
 
 
 def test_write_sample_types_refuses_a_title_held_by_another_id():
@@ -594,6 +761,99 @@ def test_write_sample_types_refuses_a_title_held_by_another_id():
     with pytest.raises(ValueError, match="TIS"):
         w.write_sample_types(driver, "neo4j", [{"id": 26, "title": "TIS", "label": "T_TIS"}])
     assert q.MERGE_SAMPLE_TYPES not in driver.queries()
+
+
+def test_a_gone_sample_type_no_sample_reaches_is_archived_then_deleted(tmp_path):
+    gone = [{"element_id": "4:t:9", "id": 9, "title": "OLD", "label": "T_OLD", "attribute_keys": ["9:Organ"]}]
+    archive = tmp_path / w.SAMPLE_TYPES_DELETED_FILE
+    seen = []
+
+    def responder(query, params):
+        if query == q.SAMPLE_TYPES_GONE:
+            return gone
+        if query == q.DELETE_SAMPLE_TYPES:
+            seen.append(archive.read_text(encoding="utf-8").splitlines())
+            return [{"deleted": len(params["element_ids"])}]
+        return []
+
+    driver = FakeDriver(responder)
+    counts = w.write_sample_types(driver, "neo4j", [{"id": 26, "title": "TIS", "label": "T_TIS"}],
+                                  archive_path=str(archive))
+    assert seen == [[w.SAMPLE_TYPES_ARCHIVE_HEADER.rstrip("\n"), "9\tOLD\tT_OLD\t9:Organ"]]
+    assert driver.calls_of(q.DELETE_SAMPLE_TYPES)[0].params["element_ids"] == ["4:t:9"]
+    queries = driver.queries()
+    assert queries.index(q.DELETE_SAMPLE_TYPES) < queries.index(q.MERGE_SAMPLE_TYPES)
+    assert counts["sample_types_deleted"] == 1
+
+
+def test_a_title_held_by_a_gone_empty_type_is_no_conflict():
+    """A type deleted and recreated in SEEK under its old title: the old node (its id gone, no sample) is not a
+    conflict, so the catalog step deletes it and writes the new one instead of refusing every night."""
+    text = q.SAMPLE_TYPE_TITLE_CONFLICTS
+    assert "t.id IN $ids OR EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in text
+    assert "NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in q.SAMPLE_TYPES_GONE
+    assert "NOT EXISTS { (t)<-[:OF_TYPE]-(:Sample) }" in q.DELETE_SAMPLE_TYPES
+
+
+def test_a_gone_investigation_no_study_holds_is_archived_then_deleted_and_a_held_one_kept(tmp_path):
+    gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [5, 3], "held": False},
+            {"element_id": "4:i:8", "id": 8, "title": "Still held", "project_ids": [], "held": True}]
+    archive = tmp_path / w.INVESTIGATIONS_DELETED_FILE
+
+    def responder(query, params):
+        if query == q.INVESTIGATIONS_GONE:
+            return gone
+        if query == q.DELETE_INVESTIGATIONS:
+            return [{"deleted": len(params["element_ids"])}]
+        return [{"linked": 0}] if query == q.MERGE_INVESTIGATION_IN_PROJECT else []
+
+    driver = FakeDriver(responder)
+    counts = w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                            archive_path=str(archive), seek_study_ids=[])
+    assert archive.read_text(encoding="utf-8").splitlines() == [w.INVESTIGATIONS_ARCHIVE_HEADER.rstrip("\n"),
+                                                                "7\tGone\t3,5"]
+    assert driver.calls_of(q.DELETE_INVESTIGATIONS)[0].params["element_ids"] == ["4:i:7"]
+    assert (counts["investigations_deleted"], counts["investigations_not_in_seek_held"]) == (1, 1)
+    assert "NOT EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study)" in q.DELETE_INVESTIGATIONS
+
+
+def test_a_gone_investigation_is_held_only_by_a_live_seek_study_or_a_paper_node(tmp_path):
+    """SEEK deletes an investigation after its studies and this release deletes no Study node, so a node whose
+    SEEK study is gone does not hold its Investigation. The read and the delete's own re-check both take SEEK's study
+    ids; a Study with no seek_study_id (a graph-only paper) still holds."""
+    gone = [{"element_id": "4:i:7", "id": 7, "title": "Gone", "project_ids": [], "held": False}]
+
+    def responder(query, params):
+        if query == q.INVESTIGATIONS_GONE:
+            return gone
+        return [{"deleted": len(params["element_ids"])}] if query == q.DELETE_INVESTIGATIONS else []
+
+    driver = FakeDriver(responder)
+    w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                   archive_path=str(tmp_path / "a.tsv"), seek_study_ids=[42, 41, 42])
+    assert driver.calls_of(q.INVESTIGATIONS_GONE)[0].params["study_ids"] == [41, 42]
+    assert driver.calls_of(q.DELETE_INVESTIGATIONS)[0].params["study_ids"] == [41, 42]
+    held = ("EXISTS { (i)<-[:IN_INVESTIGATION]-(st:Study) "
+            "WHERE st.seek_study_id IS NULL OR st.seek_study_id IN $study_ids }")
+    for statement in (q.INVESTIGATIONS_GONE, q.DELETE_INVESTIGATIONS, q.GRAPH_INVESTIGATIONS):
+        assert " ".join(held.split()) in " ".join(statement.split())
+
+
+def test_the_investigation_deletes_need_seeks_study_ids(tmp_path):
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="SEEK's study ids"):
+        w.write_investigation_projects(driver, "neo4j", [{"id": 2, "title": "A", "description": None}], [],
+                                       archive_path=str(tmp_path / "a.tsv"))
+    assert driver.calls == []
+
+
+def test_an_empty_investigation_list_refuses_to_delete_every_investigation(tmp_path):
+    driver = FakeDriver(lambda query, params: [{"element_id": "4:i:7", "id": 7, "title": "x", "project_ids": [],
+                                                "held": False}] if query == q.INVESTIGATIONS_GONE else [])
+    with pytest.raises(ValueError, match="every Investigation"):
+        w.write_investigation_projects(driver, "neo4j", [], [], archive_path=str(tmp_path / "a.tsv"),
+                                       seek_study_ids=[])
+    assert q.DELETE_INVESTIGATIONS not in driver.queries() and q.MERGE_INVESTIGATIONS not in driver.queries()
 
 
 def test_write_projects_drops_none_and_deletes_gone_projects():
@@ -629,7 +889,9 @@ def test_write_investigation_projects_sets_the_lowest_project_id():
                     {"id": 30, "title": "TCGA", "description": "d", "project_id": 16}]
     queries = driver.queries()
     assert queries.index(q.DELETE_INVESTIGATION_IN_PROJECT) < queries.index(q.MERGE_INVESTIGATION_IN_PROJECT)
-    assert counts == {"investigations_written": 2, "investigation_links": 3, "investigation_links_dropped": 0}
+    assert counts == {"investigations_written": 2, "investigation_links": 3, "investigation_links_dropped": 0,
+                      "investigations_deleted": 0, "investigations_not_in_seek_held": 0}
+    assert q.INVESTIGATIONS_GONE not in queries                  # no archive path: nothing is deleted
 
 
 # --- lineage, studies, counts, GraphMeta ----------------------------------------------------------
@@ -652,31 +914,6 @@ def test_write_missing_lineage_follows_the_existing_edge_form(existing, by_uuid)
     assert counts == {"lineage_pairs": 2, "lineage_matched": 2, "lineage_created": 1, "lineage_dropped": 0}
 
 
-def test_write_seek_studies_skips_samples_in_a_paper_level_study():
-    links = [{"sample_id": 1, "study_id": 40, "study_title": "S40", "investigation_id": 30},
-             {"sample_id": 2, "study_id": 40, "study_title": "S40", "investigation_id": 30},
-             {"sample_id": 2, "study_id": 41, "study_title": "S41", "investigation_id": 30},
-             {"sample_id": 3, "study_id": 42, "study_title": "S42", "investigation_id": None}]
-
-    def responder(query, params):
-        if query == q.SAMPLES_IN_PAPER_STUDIES:
-            return [{"id": 1}]
-        if query == q.MERGE_SEEK_IN_STUDY:
-            return [{"linked": len(params["rows"])}]
-        return []
-
-    driver = FakeDriver(responder)
-    counts = w.write_seek_studies(driver, "neo4j", links)
-    studies = driver.calls_of(q.MERGE_SEEK_STUDIES)[0].params["rows"]
-    assert studies == [{"study_id": 40, "title": "S40", "investigation_id": 30},
-                       {"study_id": 41, "title": "S41", "investigation_id": 30},
-                       {"study_id": 42, "title": "S42", "investigation_id": None}]
-    edges = driver.calls_of(q.MERGE_SEEK_IN_STUDY)[0].params["rows"]
-    assert edges == [{"sample_id": 2, "study_id": 40}, {"sample_id": 2, "study_id": 41},
-                     {"sample_id": 3, "study_id": 42}]
-    assert counts == {"seek_studies": 3, "in_study_written": 3, "in_study_dropped": 0,
-                      "samples_skipped_in_paper_study": 1}
-
 
 def test_write_attribute_counts_sets_counts_and_zeroes_the_rest():
     driver = FakeDriver(lambda query, params: [{"n": len(params.get("rows", []))}]
@@ -694,16 +931,17 @@ def test_write_sample_type_counts():
     assert driver.queries() == [q.SET_SAMPLE_TYPE_COUNTS]
 
 
-def test_the_schema_version_is_1_2():
-    assert w.SCHEMA_VERSION == "1.2"
+def test_the_schema_version_is_the_contracts():
+    assert w.SCHEMA_VERSION is schema.SCHEMA_VERSION
 
 
 def test_write_graphmeta_stamps_the_schema_version():
     driver = FakeDriver()
-    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": "1.2", "catalog_hash": "abc"}
+    assert w.write_graphmeta(driver, "neo4j", "abc") == {"schema_version": schema.SCHEMA_VERSION,
+                                                         "catalog_hash": "abc"}
     (call,) = driver.calls
     assert call.query == q.WRITE_GRAPHMETA
-    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc"}
+    assert call.params == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc"}
 
 
 def test_write_graphmeta_without_label_maps_hash_keeps_the_stored_one():
@@ -715,10 +953,11 @@ def test_write_graphmeta_without_label_maps_hash_keeps_the_stored_one():
 def test_write_graphmeta_with_label_maps_hash():
     driver = FakeDriver()
     counts = w.write_graphmeta(driver, "neo4j", "abc", label_maps_hash="def")
-    assert counts == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    assert counts == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc", "label_maps_hash": "def"}
     (call,) = driver.calls
     assert call.query == q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
-    assert call.params == {"schema_version": "1.2", "catalog_hash": "abc", "label_maps_hash": "def"}
+    assert call.params == {"schema_version": schema.SCHEMA_VERSION, "catalog_hash": "abc",
+                           "label_maps_hash": "def"}
     assert "m.label_maps_hash = $label_maps_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
     assert "m.schema_version = $schema_version, m.catalog_hash = $catalog_hash" in q.WRITE_GRAPHMETA_WITH_LABEL_MAPS
 
@@ -1018,8 +1257,8 @@ def test_children_archive_and_drop_only_their_undeclared_edges(tmp_path):
 
     assert sorted(graph.deleted) == ["e2", "e6"]  # e3 (child 70) is not theirs; e4 points at an orphan
     assert sorted(graph.edges) == ["e1", "e3", "e4", "e5", "e7"]
-    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 2, "derived_from_deleted": 2,
-                      "derived_from_archive_path": str(out)}
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 2, "derived_from_doubled": 0,
+                      "derived_from_deleted": 2, "derived_from_archive_path": str(out)}
     assert out.read_text(encoding="utf-8").splitlines() == [
         "child_id\tparent_id\tchild_uuid\tparent_uuid\tprops",
         '12\t10\tTIS-12\tTIS-10\t{"child_id": 12, "note": "stale", "parent_id": 10}',
@@ -1052,8 +1291,8 @@ def test_children_with_nothing_undeclared_write_no_file_and_delete_nothing(tmp_p
     driver = FakeDriver(ChildLineageGraph())
     counts = w.archive_and_drop_undeclared_for_children(driver, "neo4j", [11, 12],
                                                         DECLARED | {(12, 10), (11, 13)}, str(out))
-    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 0, "derived_from_deleted": 0,
-                      "derived_from_archive_path": None}
+    assert counts == {"derived_from_of_children": 4, "derived_from_undeclared": 0, "derived_from_doubled": 0,
+                      "derived_from_deleted": 0, "derived_from_archive_path": None}
     assert not out.exists()
     assert q.DELETE_UNDECLARED_DERIVED_FROM not in driver.queries()
 
@@ -1379,56 +1618,689 @@ def test_sample_hashes_of_an_empty_graph():
     assert len(driver.calls) == 1
 
 
-class TestAStudyWhoseSamplesAreAllInPaperStudiesStillGetsItsNode:
-    """Node creation must not sit below the paper-study skip.
+# --- the studies release: Study nodes and IN_STUDY -----------------------------------------------------------------
 
-    Measured 2026-09-17 against the live graph with the graph-evidence POC: SEEK study 14 has 568 of
-    568 samples in paper-level Study nodes and study 55 has 23 of 23, so every link row was skipped,
-    `studies.setdefault` was never reached, and neither study got a node. 81 SEEK studies minus 40 with
-    no sample-bearing assay minus these 2 is the 39 nodes the graph held.
+from nextseek_api.tests.graph_sync_study_fakes import StudyGraph  # noqa: E402
 
-    The skip is meant to suppress only the IN_STUDY edge, which is the documented paper-level rule
-    ("A sample already in a paper-level Study is left as it is"). It must not suppress the node.
-    """
+DB = "neo4j"
 
-    def _run_write(self, links, in_paper):
-        seen = {"studies": [], "edges": []}
 
-        def respond(query, params):
-            if query == q.SAMPLES_IN_PAPER_STUDIES:
-                return [{"id": i} for i in in_paper]
-            if query == q.MERGE_SEEK_STUDIES:
-                seen["studies"].extend(params["rows"])
-                return []
-            if query == q.MERGE_SEEK_IN_STUDY:
-                seen["edges"].extend(params["rows"])
-                return [{"linked": len(params["rows"])}]
-            raise AssertionError(f"unexpected statement: {query}")
+def _study_row(sid, title="Alder", description=None, investigation_id=101):
+    return {"id": sid, "title": title, "description": description, "investigation_id": investigation_id}
 
-        result = w.write_seek_studies(FakeDriver(respond), "neo4j", links)
-        return result, seen
 
-    def test_the_study_node_is_written_even_when_every_sample_is_skipped(self):
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
-                  "investigation_id": 22},
-                 {"sample_id": 2, "study_id": 55, "study_title": "BioMicroCenter - Unpublished",
-                  "investigation_id": 22}]
-        result, seen = self._run_write(links, in_paper={1, 2})
-        assert [s["study_id"] for s in seen["studies"]] == [55], (
-            "the study got no node because every one of its samples was skipped"
-        )
-        assert result["seek_studies"] == 1
+# SEEK's side of the unit worlds below: investigations 101 and 102, studies 1 and 2 under 101, 3 under 102.
+SEEK_STUDIES = [_study_row(1, "Alder Unpublished"), _study_row(2, "Birch"), _study_row(3, "Birch Study", None, 102)]
+SEEK_INVESTIGATIONS = [{"id": 101, "title": "Alder Investigation", "description": None},
+                       {"id": 102, "title": "Birch Investigation", "description": None}]
+SCOPE = w.paper_scope(SEEK_STUDIES, SEEK_INVESTIGATIONS)
 
-    def test_no_in_study_edge_is_written_for_a_skipped_sample(self):
-        """The paper-level rule itself is unchanged: the node appears, the edge does not."""
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22}]
-        result, seen = self._run_write(links, in_paper={1})
-        assert seen["edges"] == []
-        assert result["samples_skipped_in_paper_study"] == 1
 
-    def test_a_mixed_study_writes_the_node_once_and_only_the_unskipped_edge(self):
-        links = [{"sample_id": 1, "study_id": 55, "study_title": "S", "investigation_id": 22},
-                 {"sample_id": 2, "study_id": 55, "study_title": "S", "investigation_id": 22}]
-        _, seen = self._run_write(links, in_paper={1})
-        assert [s["study_id"] for s in seen["studies"]] == [55]
-        assert [e["sample_id"] for e in seen["edges"]] == [2]
+def test_in_study_statements_hold_the_rule():
+    replace = q.REPLACE_SEEK_IN_STUDY
+    assert replace.lstrip().startswith("CYPHER 25")
+    for part in ("elementId(e) = eid", "st.seek_study_id IS NOT NULL", "NOT st.seek_study_id IN r.study_ids",
+                 "p.seek_study_id IS NULL", "MERGE (s)-[:IN_STUDY]->(st)", "RETURN count(s) AS samples",
+                 "[sid IN r.study_ids WHERE NOT sid IN withhold]",
+                 "CASE WHEN paper AND NOT r.paper THEN r.study_ids ELSE r.withhold END", "AS paper_added"):
+        assert part in replace, part
+    assert "DETACH" not in replace
+    statement = q.MERGE_SEEK_STUDIES
+    assert statement.lstrip().startswith("CYPHER 25")
+    assert "MERGE (st:Study {seek_study_id: r.study_id})" in statement
+    assert "SET st.title = r.title, st.description = r.description" in statement
+    assert "DELETE old" in statement and "MERGE (st)-[:IN_INVESTIGATION]->(i)" in statement
+    assert "AS investigation_missing" in statement
+    assert not hasattr(q, "SET_SEEK_STUDIES")
+    assert "investigations: [(st)-[:IN_INVESTIGATION]->(i:Investigation)" in q.SAMPLE_STUDIES_OF
+    assert "ORDER BY s.id LIMIT $limit" in q.SAMPLE_STUDIES_PAGE and "s.id > $after" in q.SAMPLE_STUDIES_PAGE
+    assert "count(*) AS nodes" in q.STUDY_SEEK_ID_DUPLICATES and "nodes > 1" in q.STUDY_SEEK_ID_DUPLICATES
+    assert "NOT x:Sample" in q.ORPHAN_IN_STUDY
+
+
+def test_write_seek_study_nodes_takes_seeks_title_description_and_investigation():
+    g = StudyGraph()
+    old_inv, new_inv = g.add_investigation(101, "Alder Investigation"), g.add_investigation(102, "Birch Investigation")
+    node = g.add_study(seek_study_id=7, title="Old title", description="Old text", investigation=old_inv)
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(7, "Alder", "New text", 102), _study_row(8, "Birch")])
+    assert counts == {"seek_studies": 2, "seek_study_nodes_written": 2, "seek_study_investigation_missing": 0}
+    assert g.studies[node] == {"seek_study_id": 7, "title": "Alder", "description": "New text"}
+    assert g.in_investigation[node] == [new_inv]
+    (created,) = g.studies_by_seek(8)
+    assert g.investigation_ids_of(created) == [101]
+
+
+def test_a_study_with_no_investigation_loses_its_link():
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    node = g.add_study(seek_study_id=7, title="Alder", description="text", investigation=inv)
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(7, "Alder", None, None)])
+    assert g.in_investigation[node] == []
+    assert "description" not in g.studies[node]      # SEEK's null removes the property
+    assert counts["seek_study_investigation_missing"] == 0
+
+
+def test_a_study_in_an_investigation_with_no_node_gets_it_written_first():
+    """A study created in SEEK in a new investigation: the investigation's node and its IN_PROJECT come first, so the
+    study is linked when its first samples are written, not at the next nightly."""
+    g = StudyGraph()
+    g.add_project(5, "Poplar")
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", "About", 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},
+                                          {"id": 104, "title": "Not named", "description": None}),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},
+                                                  {"investigation_id": 104, "project_id": 5}))
+    counts = w.write_seek_study_nodes(g, DB, tables.studies, tables=tables)
+    (node,) = g.studies_by_seek(9)
+    inv = g.investigation_by_id(103)
+    assert g.in_investigation[node] == [inv] and g.inv_projects[inv] == {5}
+    assert g.investigations[inv] == {"id": 103, "title": "Poplar Investigation", "project_id": 5}
+    assert g.investigation_by_id(104) is None                           # only the investigations named
+    assert (counts["investigations_written"], counts["investigation_links"],
+            counts["seek_study_investigation_missing"]) == (1, 1, 0)
+    assert [c.query for c in g.writes()] == [q.MERGE_INVESTIGATIONS, q.MERGE_INVESTIGATION_IN_PROJECT,
+                                             q.MERGE_SEEK_STUDIES]
+    assert q.DELETE_INVESTIGATION_IN_PROJECT not in [c.query for c in g.calls]
+
+
+def test_a_study_whose_investigation_is_still_missing_is_counted():
+    g = StudyGraph()
+    counts = w.write_seek_study_nodes(g, DB, [_study_row(9, "Poplar Study", None, 103)])
+    assert counts["seek_study_investigation_missing"] == 1
+    assert g.in_investigation[g.studies_by_seek(9)[0]] == []
+
+
+def _in_study_world():
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    seek1 = g.add_study(seek_study_id=1, title="Alder", investigation=inv)
+    seek2 = g.add_study(seek_study_id=2, title="Birch", investigation=inv)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
+    for sid in (1001, 1002, 1003, 1004):
+        g.add_sample(sid)
+    g.link(1001, seek2)             # SEEK holds 1 only: 2 is stale, 1 is missing
+    g.link(1002, seek1)             # SEEK places it in no study: kept
+    g.link(1003, paper)             # a paper sample: SEEK's 2 (its own investigation) is withheld, the paper link kept
+    g.link(1003, seek1)             # ...but its stale SEEK link still goes
+    return g, {"seek1": seek1, "seek2": seek2, "paper": paper}
+
+
+def test_replace_seek_in_study_follows_seek_and_archives_before_it_deletes(tmp_path):
+    g, _ = _in_study_world()
+    archive = tmp_path / "in_study_removed.tsv"
+    seen = []
+    g.before_write = lambda query, params: seen.append(archive.exists())
+    rows = [{"sample_id": 1001, "study_ids": [1]}, {"sample_id": 1002, "study_ids": []},
+            {"sample_id": 1003, "study_ids": [2]}, {"sample_id": 1004, "study_ids": [2, 3]},
+            {"sample_id": 1099, "study_ids": [1]}]
+    counts = w.replace_seek_in_study(g, DB, rows, remove=True, archive_path=str(archive), scope=SCOPE,
+                                     path="studies")
+
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert g.keys_of(1002) == {("seek", 1)}
+    assert g.keys_of(1003) == {("id", 9)}
+    assert g.keys_of(1004) == {("seek", 2)}
+    assert seen == [True]
+    lines = archive.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == w.IN_STUDY_ARCHIVE_HEADER.rstrip("\n")
+    assert sorted(line.split("\t")[:3] + line.split("\t")[4:] for line in lines[1:]) == [
+        ["1001", "2", "", "studies"], ["1003", "1", "", "studies"]]
+    assert counts == {"in_study_rows": 5, "in_study_added": 2, "in_study_removed": 2, "in_study_stale": 0,
+                      "in_study_kept_no_seek_study": 1, "in_study_paper_samples": 1, "in_study_withheld": 1,
+                      "in_study_paper_links_written": 0, "in_study_paper_investigation_unknown": 0,
+                      "in_study_samples_missing": 1, "in_study_studies_missing": 1}
+
+
+def test_without_remove_nothing_is_archived_or_deleted(tmp_path):
+    g, _ = _in_study_world()
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=False,
+                                     archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert g.keys_of(1001) == {("seek", 1), ("seek", 2)}
+    assert counts["in_study_stale"] == 1 and counts["in_study_removed"] == 0
+    assert not (tmp_path / "a.tsv").exists()
+
+
+def test_removing_with_no_archive_path_raises_before_any_write():
+    g, _ = _in_study_world()
+    with pytest.raises(ValueError, match="archive"):
+        w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=True, archive_path=None,
+                                scope=SCOPE)
+    assert g.writes() == []
+
+
+def test_replace_seek_in_study_takes_its_scope_as_a_required_keyword(tmp_path):
+    g, _ = _in_study_world()
+    with pytest.raises(TypeError):
+        w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=False, archive_path=None)
+
+
+def test_parallel_stale_edges_are_archived_and_removed(tmp_path):
+    g, nodes = _in_study_world()
+    g.link(1001, nodes["seek2"])     # a second, parallel stale edge
+    archive = tmp_path / "a.tsv"
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1001, "study_ids": [1]}], remove=True,
+                                     archive_path=str(archive), scope=SCOPE)
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert counts["in_study_removed"] == 2
+    assert len(archive.read_text(encoding="utf-8").splitlines()) == 3
+
+
+def test_replace_seek_in_study_works_in_chunks(monkeypatch, tmp_path):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    g = StudyGraph()
+    g.add_study(seek_study_id=1, title="Alder")
+    for sid in range(1001, 1006):
+        g.add_sample(sid)
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": s, "study_ids": [1]} for s in range(1001, 1006)],
+                                     remove=True, archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert len(g.of(q.REPLACE_SEEK_IN_STUDY)) == 3 and len(g.of(q.SAMPLE_STUDIES_OF)) == 3
+    assert counts["in_study_added"] == 5
+
+
+def test_sample_study_pages_walk_every_numeric_sample_by_keyset():
+    g = StudyGraph()
+    for sid in (1003, 1001, 1005, 1002, 1004):
+        g.add_sample(sid)
+    g.add_sample("legacy-1")         # a non-numeric id is never paged
+    pages = list(w.sample_study_pages(g, DB, page=2))
+    assert [[r["id"] for r in page] for page in pages] == [[1001, 1002], [1003, 1004], [1005]]
+    assert [c.params["after"] for c in g.of(q.SAMPLE_STUDIES_PAGE)][1:] == [1002, 1004]
+    assert all(c.read for c in g.calls)
+
+
+def test_duplicates_and_orphan_links_are_read_only_counts():
+    g = StudyGraph()
+    a, b = g.add_study(seek_study_id=4, title="x"), g.add_study(seek_study_id=4, title="y")
+    g.link(g.add_sample(1001, label="OrphanSample"), a)
+    assert w.seek_study_id_duplicates(g, DB) == [{"seek_study_id": 4, "nodes": 2}]
+    assert w.orphan_in_study(g, DB) == 1
+    assert all(c.read for c in g.calls)
+
+
+# --- a paper sample's SEEK links are withheld only inside its own investigation (operator ruling SHARED SAMPLES) ----
+
+def _two_investigation_world():
+    g = StudyGraph()
+    alder = g.add_investigation(101, "Alder Investigation")
+    birch = g.add_investigation(102, "Birch Investigation")
+    bucket = g.add_study(seek_study_id=1, title="Alder Unpublished", investigation=alder)
+    shared = g.add_study(seek_study_id=3, title="Birch Study", investigation=birch)
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=alder)
+    g.add_sample(1003)
+    g.link(1003, paper)
+    return g, {"bucket": bucket, "shared": shared, "paper": paper}
+
+
+def test_a_paper_sample_links_another_investigations_study_and_never_its_bucket(tmp_path):
+    g, _ = _two_investigation_world()
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1, 3]}], remove=True,
+                                     archive_path=str(tmp_path / "a.tsv"), scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9), ("seek", 3)}
+    assert [c.params["rows"] for c in g.of(q.REPLACE_SEEK_IN_STUDY)] == [[
+        {"sample_id": 1003, "study_ids": [1, 3], "withhold": [1], "paper": True, "remove": []}]]
+    assert (counts["in_study_added"], counts["in_study_paper_samples"], counts["in_study_withheld"],
+            counts["in_study_paper_links_written"], counts["in_study_paper_investigation_unknown"]) == (1, 1, 1, 1, 0)
+
+
+def _paper_links(*investigations):
+    """One paper link per entry: None for a Study with no IN_INVESTIGATION, else a list of (id, title)."""
+    return [{"element_id": f"e:{n}", "seek_study_id": None, "id": 90 + n,
+             "investigations": [] if invs is None else [{"id": i, "title": t} for i, t in invs]}
+            for n, invs in enumerate(investigations)]
+
+
+@pytest.mark.parametrize("links, own, written, withheld", [
+    (_paper_links(None), None, (), (1, 3)),                                                     # no IN_INVESTIGATION
+    (_paper_links([(101, "Alder Investigation"), (102, "Birch Investigation")]), None, (), (1, 3)),   # two
+    (_paper_links([(105, "Alder Investigation")]), None, (), (1, 3)),                          # an id SEEK lacks
+    (_paper_links([(101, "Alder investigation 2")]), None, (), (1, 3)),                        # a title that differs
+    (_paper_links([(101, "  ALDER investigation ")]), frozenset({101}), (3,), (1,)),            # case and spaces aside
+    (_paper_links([(101, "Alder Investigation")], [(102, "Birch Investigation")]), frozenset({101, 102}), (), (1, 3)),
+], ids=["no investigation", "two", "id seek lacks", "title differs", "case and spaces", "two papers"])
+def test_paper_split_withholds_only_the_papers_own_investigations(links, own, written, withheld):
+    split = w.paper_split(links, [3, 1], SCOPE)
+    assert (split.paper, split.own, split.written, split.withheld) == (True, own, written, withheld)
+
+
+def test_paper_split_withholds_a_study_seek_files_under_no_investigation():
+    scope = w.paper_scope([_study_row(4, "Loose", None, None)], SEEK_INVESTIGATIONS)
+    split = w.paper_split(_paper_links([(101, "Alder Investigation")]), [4], scope)
+    assert (split.written, split.withheld) == ((), (4,))
+
+
+def test_paper_split_links_every_study_of_a_sample_that_is_not_a_paper_sample():
+    links = [{"element_id": "e:1", "seek_study_id": 1, "id": None, "investigations": []}]
+    assert w.paper_split(links, [3, 1], SCOPE) == w.PaperSplit(False, None, (1, 3), ())
+
+
+def test_an_unknown_paper_investigation_withholds_every_link_and_is_counted(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.in_investigation[nodes["paper"]] = []
+    counts = w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1, 3]}], remove=False,
+                                     archive_path=None, scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9)}
+    assert (counts["in_study_withheld"], counts["in_study_paper_investigation_unknown"]) == (2, 1)
+
+
+def test_a_sample_that_became_a_paper_sample_after_the_read_withholds_every_study(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.add_sample(1004)
+    g.link(1004, nodes["paper"])
+    rows = [{"sample_id": 1004, "study_ids": [1, 3], "withhold": [], "paper": False, "remove": []}]
+    g.execute_query(q.REPLACE_SEEK_IN_STUDY, {"rows": rows})
+    assert g.keys_of(1004) == {("id", 9)}
+
+
+def test_a_shared_link_seek_no_longer_holds_is_removed_like_any_other(tmp_path):
+    g, nodes = _two_investigation_world()
+    g.link(1003, nodes["shared"])
+    archive = tmp_path / "a.tsv"
+    w.replace_seek_in_study(g, DB, [{"sample_id": 1003, "study_ids": [1]}], remove=True, archive_path=str(archive),
+                            scope=SCOPE)
+    assert g.keys_of(1003) == {("id", 9)}
+    assert archive.read_text(encoding="utf-8").splitlines()[1].split("\t")[:2] == ["1003", "3"]
+    g2, nodes2 = _two_investigation_world()
+    g2.link(1003, nodes2["shared"])
+    counts = w.replace_seek_in_study(g2, DB, [{"sample_id": 1003, "study_ids": [1]}], remove=False,
+                                     archive_path=None, scope=SCOPE)
+    assert counts["in_study_stale"] == 1 and g2.keys_of(1003) == {("id", 9), ("seek", 3)}
+
+
+# --- the by-id path: write_seek_studies ----------------------------------------------------------------------------
+
+def _link(sample_id, study_id, title="Alder", description=None, investigation_id=101):
+    return {"sample_id": sample_id, "study_id": study_id, "study_title": title,
+            "study_description": description, "investigation_id": investigation_id}
+
+
+TABLES = w.SeekTables(studies=tuple(SEEK_STUDIES), investigations=tuple(SEEK_INVESTIGATIONS))
+
+
+def test_write_seek_studies_writes_the_nodes_then_one_row_per_written_sample(tmp_path):
+    g = StudyGraph()
+    inv = g.add_investigation(101, "Alder Investigation")
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=inv)
+    old = g.add_study(seek_study_id=2, title="Birch", investigation=inv)
+    for sid in (1001, 1002, 1003):
+        g.add_sample(sid)
+    g.link(1002, old)           # SEEK now places 1002 in no study: its link is kept and counted
+    g.link(1003, paper)         # a paper sample: its SEEK link to its own investigation's study is withheld
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1, "Alder", "About alder"), _link(1003, 1)],
+                                  [1001, 1002, 1003], remove=True, archive_path=str(tmp_path / "a.tsv"),
+                                  tables=TABLES)
+    (node,) = g.studies_by_seek(1)
+    assert g.studies[node] == {"seek_study_id": 1, "title": "Alder", "description": "About alder"}
+    assert [c.params["rows"] for c in g.of(q.REPLACE_SEEK_IN_STUDY)] == [[
+        {"sample_id": 1001, "study_ids": [1], "withhold": [], "paper": False, "remove": []},
+        {"sample_id": 1002, "study_ids": [], "withhold": [], "paper": False, "remove": []},
+        {"sample_id": 1003, "study_ids": [1], "withhold": [1], "paper": True, "remove": []}]]
+    assert g.keys_of(1001) == {("seek", 1)} and g.keys_of(1002) == {("seek", 2)} and g.keys_of(1003) == {("id", 9)}
+    assert (counts["seek_studies"], counts["in_study_added"], counts["in_study_kept_no_seek_study"],
+            counts["in_study_paper_samples"], counts["in_study_withheld"]) == (1, 1, 1, 1, 1)
+
+
+def test_a_study_whose_samples_are_all_paper_samples_still_gets_its_node():
+    g = StudyGraph()
+    alder = g.add_investigation(101, "Alder Investigation")
+    paper = g.add_study(id=9, title="A paper", DOI="10.9999/p9", investigation=alder)
+    g.add_sample(1001)
+    g.link(1001, paper)
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1)], [1001], remove=False, archive_path=None, tables=TABLES)
+    assert len(g.studies_by_seek(1)) == 1
+    assert counts["in_study_withheld"] == 1 and g.keys_of(1001) == {("id", 9)}
+
+
+def test_write_seek_studies_removes_a_moved_samples_old_link_when_asked(tmp_path):
+    g = StudyGraph()
+    old = g.add_study(seek_study_id=2, title="Birch")
+    g.add_sample(1001)
+    g.link(1001, old)
+    archive = tmp_path / "in_study_removed.tsv"
+    counts = w.write_seek_studies(g, DB, [_link(1001, 1)], [1001], remove=True, archive_path=str(archive),
+                                  tables=TABLES)
+    assert g.keys_of(1001) == {("seek", 1)}
+    assert counts["in_study_removed"] == 1 and archive.read_text().splitlines()[1].split("\t")[4] == "by_id"
+
+
+def test_one_by_id_sync_links_a_shared_paper_sample_to_the_destination_study_only(tmp_path):
+    """The production shape: a paper sample shared into another investigation's study."""
+    g, _ = _two_investigation_world()
+    w.write_seek_studies(g, DB, [_link(1003, 1, "Alder Unpublished"), _link(1003, 3, "Birch Study",
+                                                                             investigation_id=102)],
+                         [1003], remove=True, archive_path=str(tmp_path / "a.tsv"), tables=TABLES)
+    assert g.keys_of(1003) == {("id", 9), ("seek", 3)}
+
+
+def test_the_by_id_path_writes_a_new_investigation_before_its_study():
+    g = StudyGraph()
+    g.add_project(5, "Poplar")
+    g.add_sample(1001)
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", None, 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},))
+    counts = w.write_seek_studies(g, DB, [_link(1001, 9, "Poplar Study", investigation_id=103)], [1001],
+                                  remove=False, archive_path=None, tables=tables)
+    (node,) = g.studies_by_seek(9)
+    assert g.investigation_ids_of(node) == [103] and g.keys_of(1001) == {("seek", 9)}
+    assert (counts["investigations_written"], counts["seek_study_investigation_missing"]) == (1, 0)
+
+
+# --- missing Project nodes, and a sample that is not fully linked -------------------------------------------------
+
+def test_write_samples_leaves_the_hash_of_a_half_linked_sample_null():
+    assert ("SET s.source_hash = CASE WHEN typed = 0 OR linked < size(coalesce(r.props.project_ids, [])) THEN null"
+            in q.WRITE_SAMPLES)
+    assert q.WRITE_SAMPLES.index("AS linked") < q.WRITE_SAMPLES.index("SET s.source_hash") < \
+        q.WRITE_SAMPLES.index("RETURN count(s) AS written")
+
+
+def test_merge_missing_projects_writes_only_the_missing_ones_and_counts_the_ones_seek_lacks():
+    g = StudyGraph()
+    g.add_project(2, "Kept")
+    counts = w.merge_missing_projects(g, DB, [2, 5, 77, 5], [{"id": 2, "title": "Alder"}, {"id": 5, "title": "Birch"}])
+    assert counts == {"projects_written_for_links": 1, "project_ids_not_in_seek": 1}
+    assert g.projects == {2: {"id": 2, "title": "Kept"}, 5: {"id": 5, "title": "Birch"}}
+    assert [c.query for c in g.writes()] == [q.MERGE_PROJECTS]
+    assert q.DELETE_GONE_PROJECTS not in [c.query for c in g.calls]
+
+
+def test_merge_missing_projects_reads_nothing_for_no_id():
+    g = StudyGraph()
+    assert w.merge_missing_projects(g, DB, [], []) == {"projects_written_for_links": 0, "project_ids_not_in_seek": 0}
+    assert g.calls == []
+
+
+def test_a_new_investigations_project_is_written_before_its_link():
+    g = StudyGraph()
+    tables = w.SeekTables(studies=(_study_row(9, "Poplar Study", None, 103),),
+                          investigations=({"id": 103, "title": "Poplar Investigation", "description": None},),
+                          investigation_projects=({"investigation_id": 103, "project_id": 5},),
+                          projects=({"id": 5, "title": "Poplar"},))
+    counts = w.write_seek_study_nodes(g, DB, tables.studies, tables=tables)
+    inv = g.investigation_by_id(103)
+    assert g.inv_projects[inv] == {5} and g.projects[5] == {"id": 5, "title": "Poplar"}
+    assert (counts["investigation_projects_written"], counts["investigation_links"]) == (1, 1)
+    writes = [c.query for c in g.writes()]
+    assert writes.index(q.MERGE_PROJECTS) < writes.index(q.MERGE_INVESTIGATION_IN_PROJECT)
+
+
+# --- renames and filled protocols need no approval (the operator's RELABEL ruling) ---------------------------------
+
+REFRESH_LABELS = {"assay_id": 5, "internal_assay_id": 99, "internal_assay_title": "New name",
+                  "internal_assay_ids": [99], "internal_assay_titles": ["New name"], "protocol_id": 7,
+                  "protocol_title": "SOP 7"}
+
+
+def _refresh_row(**stored):
+    return {"child_id": 11, "parent_id": 10, "labels": dict(REFRESH_LABELS),
+            "stored": dict(REFRESH_LABELS, **stored)}
+
+
+def test_write_edge_label_refreshes_sends_the_compare_and_set_statement():
+    driver = FakeDriver(lambda query, params: [{"matched": 2, "written": 1, "pairs": 2}]
+                        if query == q.WRITE_EDGE_LABELS_CHANGED else [])
+    rows = [_refresh_row(internal_assay_title="Old name", internal_assay_titles=["Old name"]),
+            dict(_refresh_row(protocol_id=None, protocol_title=None), child_id=12)]
+    counts = w.write_edge_label_refreshes(driver, "neo4j", rows)
+    (call,) = driver.calls_of(q.WRITE_EDGE_LABELS_CHANGED)
+    assert [r["stored"]["internal_assay_title"] for r in call.params["rows"]] == ["Old name", "New name"]
+    assert counts == {"labels_refresh_rows": 2, "labels_refreshed": 1, "labels_refresh_skipped_changed": 1,
+                      "labels_refresh_edges_missing": 0}
+
+
+@pytest.mark.parametrize("stored", [{"internal_assay_id": 98}, {"protocol_id": 6}, {}],
+                         ids=["another internal assay", "another protocol", "equal"])
+def test_write_edge_label_refreshes_refuses_any_other_class_before_sending(stored):
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="approval"):
+        w.write_edge_label_refreshes(driver, "neo4j", [_refresh_row(**stored)])
+    assert driver.calls == []
+
+
+def test_write_edge_label_refreshes_refuses_a_rename_that_would_add_an_assay():
+    """An edge stored with singular fields only: renaming its title would also write the plural lists, and a second
+    internal assay the pair shares would reach the edge without approval."""
+    computed = dict(REFRESH_LABELS, internal_assay_ids=[99, 120], internal_assay_titles=["New name", "Other assay"])
+    stored = dict(REFRESH_LABELS, internal_assay_title="Old name", internal_assay_ids=None,
+                  internal_assay_titles=None)
+    driver = FakeDriver()
+    with pytest.raises(ValueError, match="changed label needs the operator's approval"):
+        w.write_edge_label_refreshes(driver, "neo4j",
+                                     [{"child_id": 11, "parent_id": 10, "labels": computed, "stored": stored}])
+    assert driver.calls == []
+
+
+def test_write_edge_label_refreshes_needs_the_stored_values():
+    row = _refresh_row(internal_assay_title="Old name")
+    del row["stored"]
+    with pytest.raises(ValueError, match="stored"):
+        w.write_edge_label_refreshes(FakeDriver(), "neo4j", [row])
+
+
+# --- the studies tool's share check (tool spec 16.8) -------------------------------------------------------------
+
+def test_the_share_check_is_one_read_only_statement_in_cypher_py():
+    text = q.SHARE_CHECK
+    assert "OPTIONAL MATCH (s:Sample {id: id})" in text and "$project_id IN s.project_ids" in text
+    assert "(:Study {seek_study_id: $study_id})" in text and "WHERE p.seek_study_id IS NULL" in text
+    for word in ("MERGE", "CREATE", "SET ", "DELETE", "REMOVE"):
+        assert word not in text, word
+
+
+def test_the_share_check_counts_and_caps_the_missing_ids(monkeypatch):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    rows = {1: (True, True, True, True, False), 2: (True, True, True, False, True), 3: (True, True, True, True, True),
+            4: (False, False, False, False, False)}
+
+    def respond(query, params):
+        assert query == q.SHARE_CHECK and (params["project_id"], params["study_id"]) == (5, 40)
+        keys = ("found", "has_project", "in_project", "in_study", "paper")
+        return [{"id": i, **dict(zip(keys, rows[i]))} for i in params["ids"]]
+
+    driver = FakeDriver(respond)
+    got = w.share_graph_check(driver, "neo4j", [4, 3, 2, 1, 1], project_id=5, study_id=40)
+    assert got == {"ids": 4, "found": 3, "has_project": 3, "in_project": 3, "in_study": 2, "paper": 2,
+                   "paper_in_study": 1, "missing_ids": [4]}
+    assert len(driver.calls) == 2 and all(c.kwargs.get("routing_") is not None for c in driver.calls)
+
+
+# --- the assay layer (schema 1.3) -------------------------------------------------------------------
+
+def test_the_assay_constraint_and_index_are_named_and_never_budget_indexes():
+    assert q.ASSAY_CONSTRAINTS == (
+        "CREATE CONSTRAINT assay_id_unique IF NOT EXISTS FOR (a:Assay) REQUIRE a.id IS UNIQUE",
+        "CREATE INDEX assay_title IF NOT EXISTS FOR (a:Assay) ON (a.title)",
+    )
+    assert not any("gs_" in statement for statement in q.ASSAY_CONSTRAINTS)
+
+
+def test_the_assay_write_statements_replace_whole_and_name_both_labels_on_every_delete():
+    assert "MERGE (a:Assay {id: r.id})" in q.MERGE_ASSAYS and "SET a = r" in q.MERGE_ASSAYS
+    for statement in (q.REPLACE_ASSAY_RUNS, q.REPLACE_ASSAY_CATALOG_EDGES, q.REPLACE_SAMPLE_ASSAY_EDGES):
+        assert statement.lstrip().startswith("CYPHER 25")
+    assert "MATCH (:Assay)-[old:RUN_IN]->(:Study) DELETE old" in q.REPLACE_ASSAY_RUNS
+    assert "CREATE (a)-[:RUN_IN {seek_assay_ids: r.seek_assay_ids}]->(st)" in q.REPLACE_ASSAY_RUNS
+    assert "MATCH (:SampleType)-[old:ACCEPTED_BY]->(:Assay) DELETE old" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "MATCH (:Assay)-[old:GENERATES]->(:SampleType) DELETE old" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "[:ACCEPTED_BY {required: r.required, group: r.group}]" in q.REPLACE_ASSAY_CATALOG_EDGES
+    assert "[:GENERATES {group: r.group}]" in q.REPLACE_ASSAY_CATALOG_EDGES
+    edges = q.REPLACE_SAMPLE_ASSAY_EDGES
+    assert "MATCH (s:Sample {id: r.id})" in edges
+    assert "CALL (s) { MATCH (s)-[old:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE old }" in edges
+    assert "CREATE (s)-[:INPUT_TO {seek_assay_ids: e.seek_assay_ids}]->(a)" in edges
+    assert "CREATE (s)-[:OUTPUT_OF {seek_assay_ids: e.seek_assay_ids}]->(a)" in edges
+    # the delete comes before the creates, inside the one statement per chunk
+    assert edges.index("DELETE old") < edges.index("CREATE (s)-[:INPUT_TO")
+    # the edges asked for, counted over the rows whose Sample matched only (assay_edges_dropped)
+    assert "sum(size(r.inputs) + size(r.outputs)) AS expected" in edges
+
+
+def test_a_gone_assay_loses_its_edges_in_batches_before_its_node():
+    assert "MATCH (a:Assay) WHERE NOT a.id IN $ids" in q.DELETE_GONE_ASSAY_EDGES
+    assert "WITH r LIMIT $batch" in q.DELETE_GONE_ASSAY_EDGES
+    assert "DETACH DELETE a" in q.DELETE_GONE_ASSAYS
+    calls = []
+
+    def responder(query, params):
+        calls.append(query)
+        if query == q.DELETE_GONE_ASSAY_EDGES:
+            return [{"deleted": [3, 2, 0][len([c for c in calls if c == query]) - 1]}]
+        return [{"deleted": 1}]
+
+    driver = FakeDriver(responder)
+    counts = w.delete_gone_assays(driver, "neo4j", [120, 99, 99])
+    assert calls == [q.DELETE_GONE_ASSAY_EDGES] * 3 + [q.DELETE_GONE_ASSAYS]
+    assert all(c.params["ids"] == [99, 120] for c in driver.calls)
+    assert driver.calls[0].params["batch"] == w.ASSAY_EDGE_DELETE_BATCH
+    assert counts == {"assays_deleted": 1, "assay_edges_deleted_with_gone_assays": 5}
+
+
+def test_the_gone_assay_edge_delete_names_both_end_labels():
+    assert ("MATCH (a)-[r:INPUT_TO|OUTPUT_OF|RUN_IN|ACCEPTED_BY|GENERATES]-(:Sample|Study|SampleType)"
+            in q.DELETE_GONE_ASSAY_EDGES)
+
+
+def test_the_assay_reads_see_sample_nodes_only():
+    for statement in (q.LINEAGE_PAIRS_INCIDENT,):
+        assert statement.count("(c:Sample") == 2 and statement.count("(p:Sample") == 2
+        assert "UNION" in statement and "UNION ALL" not in statement
+    assert "COUNT { (s)-[:DERIVED_FROM]-() } AS degree" in q.SAMPLE_LINEAGE_DEGREES
+    assert "UNWIND r.seek_assay_ids AS seek_assay_id" in q.RUN_IN_PAIRS
+    assert "(:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay)" in q.SAMPLE_ASSAY_EDGE_PAIRS
+    assert "x IN $seek_ids" in q.SAMPLES_CARRYING_SEEK_ASSAYS
+    page = q.SAMPLE_IDS_WITH_ASSAY_EDGES_PAGE
+    assert "s.id > $after" in page and "EXISTS { (s)-[:INPUT_TO|OUTPUT_OF]->(:Assay) }" in page
+    assert "ORDER BY s.id LIMIT $limit" in page
+
+
+def test_write_assays_merges_the_nodes_in_chunks(monkeypatch):
+    monkeypatch.setattr(w, "REL_CHUNK", 2)
+    driver = FakeDriver(lambda query, params: [{"written": len(params["rows"])}])
+    rows = [{"id": i, "has_context": False} for i in (99, 120, 130)]
+    assert w.write_assays(driver, "neo4j", rows) == {"assays_written": 3}
+    assert [len(c.params["rows"]) for c in driver.calls_of(q.MERGE_ASSAYS)] == [2, 1]
+
+
+def test_replace_assay_runs_gives_each_study_its_whole_seek_row_first_then_replaces_run_in_once(monkeypatch):
+    # The studies release's MERGE_SEEK_STUDIES sets title and description and replaces IN_INVESTIGATION: a row with a
+    # title and an investigation only would clear the description (and fail 12.studies.nodes_differ_from_seek).
+    seen = []
+    real = w.write_seek_study_nodes
+    monkeypatch.setattr(w, "write_seek_study_nodes",
+                        lambda d, db, studies, tables=None: seen.append(list(studies)) or real(d, db, studies,
+                                                                                                tables=tables))
+    driver = FakeDriver(lambda query, params: [{"linked": 1}] if query == q.REPLACE_ASSAY_RUNS else [])
+    rows = [{"assay_id": 99, "study_id": 70, "seek_assay_ids": [5, 6]},
+            {"assay_id": 120, "study_id": 71, "seek_assay_ids": [5]}]
+    studies = {70: {"id": 70, "title": "Study seventy", "description": "What seventy is.", "investigation_id": 3},
+               71: {"id": 71, "title": "Study seventy-one", "description": None, "investigation_id": 3}}
+    counts = w.replace_assay_runs(driver, "neo4j", rows, studies)
+    assert seen == [[studies[70], studies[71]]]
+    assert driver.queries()[-1] == q.REPLACE_ASSAY_RUNS and q.MERGE_SEEK_STUDIES in driver.queries()
+    merged = [r for c in driver.calls_of(q.MERGE_SEEK_STUDIES) for r in c.params["rows"]]
+    assert [r.get("description") for r in merged] == ["What seventy is.", None]
+    assert driver.calls[-1].params == {"rows": rows}
+    assert counts == {"assay_runs": 2, "assay_runs_written": 1, "assay_runs_dropped": 1}
+
+
+def test_replace_assay_runs_writes_no_node_for_a_study_it_has_no_row_for(monkeypatch):
+    seen = []
+    monkeypatch.setattr(w, "write_seek_study_nodes",
+                        lambda d, db, studies, tables=None: seen.append(list(studies)))
+    driver = FakeDriver(lambda query, params: [{"linked": 0}])
+    rows = [{"assay_id": 99, "study_id": 72, "seek_assay_ids": [5]}]
+    counts = w.replace_assay_runs(driver, "neo4j", rows, {})
+    assert seen == [] and driver.queries() == [q.REPLACE_ASSAY_RUNS]
+    assert counts["assay_runs_dropped"] == 1
+
+
+def test_replace_assay_runs_writes_a_new_studys_investigation_before_the_study():
+    # A study first seen through RUN_IN is never left under no investigation (the studies release's A1): with SEEK's
+    # small tables, its Investigation node and IN_PROJECT are written before the Study, and RUN_IN last.
+    driver = FakeDriver(lambda query, params: [{"linked": 1}] if query == q.REPLACE_ASSAY_RUNS else [])
+    study = {"id": 70, "title": "Study seventy", "description": None, "investigation_id": 3}
+    tables = w.SeekTables(studies=(study,), investigations=({"id": 3, "title": "Inv three", "description": None},),
+                          investigation_projects=({"investigation_id": 3, "project_id": 2},),
+                          projects=({"id": 2, "title": "Local"},))
+    rows = [{"assay_id": 99, "study_id": 70, "seek_assay_ids": [5]}]
+    w.replace_assay_runs(driver, "neo4j", rows, {70: study}, tables=tables)
+    queries = driver.queries()
+    assert (queries.index(q.MERGE_INVESTIGATIONS) < queries.index(q.MERGE_SEEK_STUDIES)
+            < queries.index(q.REPLACE_ASSAY_RUNS))
+    assert [r["id"] for r in driver.calls_of(q.MERGE_INVESTIGATIONS)[0].params["rows"]] == [3]
+    assert driver.calls_of(q.MERGE_INVESTIGATION_IN_PROJECT)[0].params["rows"] == [
+        {"investigation_id": 3, "project_id": 2}]
+
+
+def test_replace_assay_runs_with_no_row_still_clears_run_in():
+    driver = FakeDriver(lambda query, params: [{"linked": 0}])
+    assert w.replace_assay_runs(driver, "neo4j", [], {})["assay_runs"] == 0
+    assert driver.queries() == [q.REPLACE_ASSAY_RUNS]
+
+
+def test_replace_assay_catalog_edges_sends_one_statement():
+    driver = FakeDriver(lambda query, params: [{"accepted": 2, "generates": 1}])
+    accepted = [{"code": "TIS", "assay_id": 99, "required": True, "group": 0},
+                {"code": "XYZ", "assay_id": 99, "required": False, "group": 0}]
+    generates = [{"assay_id": 99, "code": "D.SEQ", "group": 0}]
+    counts = w.replace_assay_catalog_edges(driver, "neo4j", accepted, generates)
+    (call,) = driver.calls
+    assert call.query == q.REPLACE_ASSAY_CATALOG_EDGES
+    assert call.params == {"accepted": accepted, "generates": generates}
+    assert counts == {"accepted_by": 2, "accepted_by_written": 2, "generates": 1, "generates_written": 1}
+
+
+def test_replace_sample_assay_edges_sends_one_statement_per_chunk_and_counts_what_it_could_not_write():
+    driver = FakeDriver(lambda query, params: [{"samples": len(params["rows"]) - 1, "inputs": 1, "outputs": 0,
+                                                "expected": 1}])
+    rows = [{"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": [5]}], "outputs": []},
+            {"id": 11, "inputs": [], "outputs": [{"assay_id": 99, "seek_assay_ids": [5]}]},
+            {"id": 12, "inputs": [], "outputs": []}]
+    counts = w.replace_sample_assay_edges(driver, "neo4j", rows, chunk=2)
+    assert [[r["id"] for r in c.params["rows"]] for c in driver.calls_of(q.REPLACE_SAMPLE_ASSAY_EDGES)] == [
+        [10, 11], [12]]
+    assert counts == {"assay_edge_samples": 3, "assay_edge_samples_missing": 2, "assay_edges_written": 2,
+                      "assay_edges_dropped": 0}
+
+
+@pytest.mark.parametrize("row", [
+    {"id": "10", "inputs": [], "outputs": []},
+    {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": []}], "outputs": []},
+    {"id": 10, "inputs": [{"assay_id": 99, "seek_assay_ids": ["5"]}], "outputs": []},
+    {"id": 10, "inputs": [], "outputs": [{"assay_id": None, "seek_assay_ids": [5]}]},
+    {"id": 10, "inputs": []},
+])
+def test_replace_sample_assay_edges_refuses_a_malformed_row_before_sending_anything(row):
+    driver = FakeDriver()
+    with pytest.raises(ValueError):
+        w.replace_sample_assay_edges(driver, "neo4j", [{"id": 9, "inputs": [], "outputs": []}, row])
+    assert driver.calls == []
+
+
+def test_lineage_pairs_incident_reads_both_directions_once_each():
+    records = [{"child_id": 11, "parent_id": 10}, {"child_id": 13, "parent_id": 11}, {"child_id": 11, "parent_id": 10}]
+    driver = FakeDriver(lambda query, params: records)
+    assert w.lineage_pairs_incident(driver, "neo4j", [11, 11]) == [(11, 10), (13, 11)]
+    (call,) = driver.calls
+    assert call.query == q.LINEAGE_PAIRS_INCIDENT and call.params == {"ids": [11]}
+    assert call.kwargs.get("routing_") is not None
+
+
+def test_lineage_degrees_reads_each_sample():
+    driver = FakeDriver(lambda query, params: [{"id": 10, "degree": 3}, {"id": 11, "degree": None}])
+    assert w.lineage_degrees(driver, "neo4j", [10, 11, 12]) == {10: 3, 11: 0}
+
+
+def test_sample_ids_with_assay_edges_pages_by_keyset(monkeypatch):
+    monkeypatch.setattr(w, "HASH_PAGE", 2)
+    pages = {w._INT64_MIN: [{"id": 3}, {"id": 8}], 8: [{"id": 9}]}
+    driver = FakeDriver(lambda query, params: pages[params["after"]])
+    assert list(w.sample_ids_with_assay_edges(driver, "neo4j")) == [3, 8, 9]
+    assert [c.params["after"] for c in driver.calls] == [w._INT64_MIN, 8]
+
+
+def test_an_orphan_swap_drops_the_samples_assay_edges_and_keeps_its_lineage():
+    assert "CALL (s) { MATCH (s)-[r:INPUT_TO|OUTPUT_OF]->(:Assay) DELETE r }" in q.ORPHAN_SWAP
+    for statement in (q.RELABEL_ORPHANS, q.RELABEL_ORPHANS_BY_ELEMENT_ID):
+        assert statement.rstrip().endswith(q.ORPHAN_SWAP.strip())
+    assert "DERIVED_FROM" not in q.ORPHAN_SWAP and "DETACH" not in q.ORPHAN_SWAP

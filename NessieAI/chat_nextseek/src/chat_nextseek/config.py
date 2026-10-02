@@ -214,10 +214,9 @@ class ChatConfig:
 
         # Published-report umbrella projects (DEV-ONLY opt-in; DEFAULT EMPTY so
         # prod is unaffected). For a project listed here, run_project_published_report
-        # reports ALL investigations' samples instead of filtering investigation
-        # titles by the project-name hint — needed where one umbrella project
-        # (e.g. the dev "Published Data") contains every investigation and so
-        # matches no investigation title. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
+        # reports ALL investigations' samples instead of only the named project's
+        # investigations, for an umbrella project (e.g. the dev "Published Data")
+        # that contains every investigation. Set via NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS
         # (comma-separated project names and/or ids). See issue #1 / option 2.
         self.PUBLISHED_UMBRELLA_PROJECTS = self._parse_umbrella_projects(
             os.environ.get("NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS", "")
@@ -1128,8 +1127,8 @@ class ChatConfig:
         }
 
     def is_umbrella_published_project(self, project, project_id=None) -> bool:
-        """True when the published report should SKIP the investigation-title
-        hint (report ALL samples) for this project. Opt-in via
+        """True when the published report should SKIP its project or investigation
+        filter (report every investigation's samples) for this project. Opt-in via
         NEXTSEEK_PUBLISHED_UMBRELLA_PROJECTS; empty by default so prod is
         unchanged. Matches on normalized project name OR id."""
         umbrella = getattr(self, "PUBLISHED_UMBRELLA_PROJECTS", None) or set()
@@ -1726,51 +1725,6 @@ class ChatConfig:
 
         print("[CONFIG][SCHEMA] Validation OK for endpoint", endpoint)
         return True, None
-
-    # ======================================================
-    # Neo4j / Graph DB helpers
-    # ======================================================
-
-    def _connect_neo4j(self):
-        """
-        Return a connected neo4j Driver, or None when unconfigured or unavailable.
-        Caller is responsible for closing the driver after use.
-        """
-        try:
-            from neo4j import GraphDatabase  # type: ignore
-        except ImportError:
-            print("[CONFIG][GRAPHDB] neo4j driver not installed; run 'uv add neo4j'.")
-            return None
-
-        if not getattr(self, "NEO4J_PASSWORD", None):
-            print("[CONFIG][GRAPHDB] NEO4J_PASSWORD not set; skipping Neo4j connection.")
-            return None
-
-        try:
-            try:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                    notifications_min_severity="OFF",
-                )
-            except TypeError:
-                driver = GraphDatabase.driver(
-                    self.NEO4J_URI,
-                    auth=(self.NEO4J_USER, self.NEO4J_PASSWORD),
-                )
-            driver.verify_connectivity()
-            print(f"[CONFIG][GRAPHDB] Connected to Neo4j at {self.NEO4J_URI}")
-            return driver
-        except Exception as e:
-            print(f"[CONFIG][GRAPHDB] Failed to connect to Neo4j: {e!r}")
-            return None
-
-    def _close_neo4j_driver(self, driver) -> None:
-        """Close a Neo4j driver instance without surfacing cleanup errors."""
-        try:
-            driver.close()
-        except Exception:
-            pass
 
     def get_config_snapshot(self) -> dict[str, object]:
         """

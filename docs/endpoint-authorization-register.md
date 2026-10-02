@@ -175,7 +175,7 @@ Note that a cross-project export path already exists and is correctly gated:
 
 ## Register
 
-57 routed read endpoints. `permission_classes` values are the declared class list; several
+58 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
@@ -193,8 +193,8 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/sampletypes/{uid}/child_types/` | `SampleTypeChildrenViewSet.child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): the sample and every sample on the lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers 404; superuser unscoped. See note C | project-scoped (done) |
 | `POST /nextseek_api/sample_types/get_parents/parents_by_child_types/` | `SamplesByChildTypesViewSet.parents_by_child_types` | `IsAuthenticated` (`services/sample_types.py`) | **Yes** (2026-09-18): parent, child and every sample on the path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; superuser unscoped. See note C | project-scoped (done) |
 | `GET /nextseek_api/entity_tree/nodes/` | `EntityTreeViewSet.list_nodes` | `IsAuthenticated` (`services/entity_tree.py:85`) | **None.** `SELECT ... FROM dmac.sample_types_context` at `services/entity_tree.py:138-148`. See note D | public-to-authenticated |
-| `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:303-311` | public-to-authenticated |
-| `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher at `services/entity_tree.py:388-397` | public-to-authenticated |
+| `GET /nextseek_api/entity_tree/edges/` | `EntityTreeViewSet.list_edges` | `IsAuthenticated` (same) | **None.** Cypher in `_EDGES_CYPHER` (`services/entity_tree.py`) | public-to-authenticated |
+| `GET /nextseek_api/entity_tree/edge_attributes/` | `EntityTreeViewSet.list_edge_attributes` | `IsAuthenticated` (same) | **None.** Cypher in `_EDGE_ATTRIBUTES_CYPHER` (`services/entity_tree.py`) | public-to-authenticated |
 | `POST /nextseek_api/entity_tree/lineage/` | `EntityTreeViewSet.lineage` | `IsAuthenticated` (same) | **Yes** (2026-09-18): the sample and every sample on each lineage path pass graph_search's scope clause, from `graph_search/scope.py::resolve_scope`; a sample outside the caller's projects answers as one that does not exist; superuser unscoped. See note D | project-scoped (done) |
 | `GET /nextseek_api/sops/` | `SopProxyViewSet.list` | `IsAuthenticated` (`services/sops.py:48`) | Delegated to SEEK (`services/sops.py:84` -> `helpers.py:135-148`) | public-to-authenticated |
 | `GET /nextseek_api/sops/{uid}/` | `SopProxyViewSet.retrieve` | `IsAuthenticated` (same) | Delegated to SEEK (`services/sops.py:140`) | public-to-authenticated |
@@ -236,7 +236,8 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 | `GET /nextseek_api/batch-upload/status/{job_id}/` | `BatchUploadViewSet.job_status` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:538` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/batch-upload/summary/{job_id}/` | `BatchUploadViewSet.summary` | same | Owner-scoped: `_check_ownership` at `batch_upload/views.py:589` | public-to-authenticated (owner-scoped) |
 | `GET /nextseek_api/admin/project-export/{pk}/` | `ProjectExportViewSet.retrieve` | `IsAuthenticated, IsSuperUser` (`services/project_export.py:267`) | **None on the caller's own membership**: `project_id` comes from the URL (`services/project_export.py:316` -> `:197`). Superuser gate is the whole control. See note J | admin-only |
-| `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:85`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:54`), and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
+| `GET /nextseek_api/admin/graph-sync/status/` | `GraphSyncStatusViewSet.status` | `IsAuthenticated, IsDjangoSuperuser` (`services/graph_sync_status.py:96`) | n/a, no sample data: it reads `graph_sync_outbox` and `graph_sync_run` on the dmac connection and nothing else (`services/graph_sync_status.py:61`), and publishes each failing row's and failed run's error only as a one-line excerpt of at most 240 characters with URLs and IPv4 addresses replaced (`graph_sync/state.py` `error_excerpt`), which can still name an identifier the failing statement named, and answers 503 in the JSON:API envelope when they cannot be read. Declared for `local` and `dev` only in `ci/routes.py`, because an instance without migration 0021 does not have those tables | admin-only |
+| `GET /nextseek_api/sample-shares/{share_id}/` | `SampleShareViewSet.retrieve` | `IsAuthenticated, IsDjangoSuperuser` (`services/sample_shares.py:112`) | **None on the caller's membership**: the projects and the study come from the share's own request, and the answer lists up to 50 sample UIDs per outcome. The superuser gate is the whole control; the share's two POST routes (create, apply) sit behind the same gate, and its SEEK assay creates are authorised by SEEK as the caller. See note E | admin-only |
 
 ### Bucket totals
 
@@ -244,8 +245,8 @@ endpoints add a second inline auth gate inside the handler, which is noted where
 |---|---|
 | public-to-authenticated | 42 (of which 13 are owner-scoped) |
 | project-scoped | 8 |
-| admin-only | 7 |
-| **Total** | **57** |
+| admin-only | 8 |
+| **Total** | **58** |
 
 ### NOT ROUTED
 
@@ -438,6 +439,12 @@ The `sops/download/` and `data_files/download/` actions genuinely stream file bl
 authorized entirely by the caller's own SEEK credentials
 (`services/content_blobs.py:220-221` -> `helpers.py:334-346`). Upstream 401/403/404 are
 propagated (`services/content_blobs.py:228-247`).
+
+The sample-shares endpoint (`services/sample_shares.py`, the studies tool's share mode) writes to SEEK as the caller:
+each destination assay it creates is a `POST /assays` with the caller's own credential, proved as the SEEK person bound
+to the caller and never stored. Its links and project rows are SQL (no
+Rails), so SEEK's policies are neither consulted nor changed; the shared samples reach the destination project's
+members through `projects_samples` and the graph's `Sample.project_ids`.
 
 Two wrinkles worth recording, neither a leak:
 

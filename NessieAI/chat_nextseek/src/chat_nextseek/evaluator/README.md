@@ -57,6 +57,9 @@ docker run --rm -v <scratch-copy>:/app/NessieAI/chat_nextseek:z -w /app/NessieAI
       --eval-batch eval-queries.txt --eval-batch-limit 5
 ```
 
+The image must be built from a commit that has `nextseek_graph/` at the checkout root: the batch finds the graph
+contract through the image's own checkout (`NessieAI/chat_nextseek/src/chat_nextseek/graph_contract.py`).
+
 Two of those env vars are load-bearing beyond the credentials:
 
 - `CATALOG_FILE` (or `AGENT_MODEL_CATALOG`) is required: without it, config

@@ -22,7 +22,20 @@ with a ``reason``; nothing else is read). Its checks, under these names:
   expecting 0; ``samples.new_uuids`` is reported, never failed;
 - ``freshness.full``, ``freshness.reconcile``, ``freshness.outbox``: ``state.freshness``, each expecting ``ok``, so a
   stale or never-run sync fails; ``freshness.readable`` fails instead when the run records cannot be read;
+- ``catalog.sample_types``, ``catalog.types_with_attribute_set_diff`` (titles), ``catalog.type_properties_differ``
+  (``label``, ``deprecated``), ``catalog.attribute_properties_differ`` (``value_type``, ``required``, ``pos``) and
+  ``catalog.type_counts_stale``: the graph's catalog against the one MySQL declares, each expecting 0;
+- ``catalog.assays``: the Assay ids against ``internal_assays``', expecting none apart (graph schema 1.3); and three
+  reports for the curators that never fail: ``assays.unmapped_seek_assays_with_members`` (SEEK assays with members
+  and no internal mapping, D9), ``assays.members_without_role`` (memberships of a mapped SEEK assay that carry no
+  role: no lineage inside the run) and ``assays.labels_disagree_with_assay_titles`` (edge labels still naming an
+  Assay by a title it lost in a rename the relabel has not reached yet; renames relabel without approval since the
+  studies release, A12, so a count that stays means a rename that reached MySQL without an ``assay_map`` row or a
+  relabel that failed);
 - gate G's checks under their own names (``verify.gate_g``), without the named accounts of the merged dataset.
+
+An input that cannot be read fails its check rather than skipping it (capabilities.md for
+``catalog.assistant_investigations``); every MySQL side joins ``samples`` and counts distinct ids, as gate G's does.
 
 Nothing is written to the graph. With a ``trigger`` the run is recorded in ``graph_sync_run`` (best-effort, as every
 run record); without one nothing is written at all.
@@ -32,6 +45,9 @@ from __future__ import annotations
 import logging
 import re
 import time
+from array import array
+from bisect import bisect_left
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -67,6 +83,20 @@ UUIDS_ON_NODES = """
 UNWIND $uuids AS uuid
 MATCH (s:Sample {uuid: uuid})
 RETURN DISTINCT s.uuid AS uuid
+"""
+# The assay layer (graph schema 1.3): every (sample, SEEK assay) a sample edge carries, and the singular labels of
+# the DERIVED_FROM edges with the edges holding each.
+MEMBER_SEEK_PAIRS = """
+MATCH (c:Sample) WHERE {page}
+MATCH (c)-[r:INPUT_TO|OUTPUT_OF]->(:Assay)
+UNWIND r.seek_assay_ids AS seek_assay_id
+RETURN c.id AS id, seek_assay_id
+"""
+EDGE_ASSAY_LABELS = """
+MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
+WHERE e.internal_assay_id IS NOT NULL
+RETURN e.assay_id AS assay_id, e.internal_assay_id AS internal_assay_id,
+       e.internal_assay_title AS internal_assay_title, count(*) AS edges
 """
 
 
@@ -289,6 +319,27 @@ def _check_detection(driver, db, chunk: int, checks: list, stats: dict):
     return cat
 
 
+# The catalog comparison's graph side beyond titles: each SampleType's label and deprecated flag, each declared
+# Attribute's value_type, required and pos (what graph_search and the agent cast and order by), and the SampleTypes
+# whose stored sample_count is not the number of Samples typed to them.
+GRAPH_TYPE_PROPERTIES = """
+MATCH (t:SampleType) WHERE t.id IS NOT NULL
+RETURN t.id AS id, t.label AS label, t.deprecated AS deprecated
+"""
+GRAPH_DECLARED_ATTRIBUTES = """
+MATCH (a:Attribute) WHERE a.declared = true AND a.id IS NOT NULL
+RETURN a.id AS id, a.value_type AS value_type, a.required AS required, a.pos AS pos
+"""
+TYPE_COUNTS_STALE = """
+MATCH (t:SampleType)
+WITH t, COUNT { (t)<-[:OF_TYPE]-(:Sample) } AS n
+WHERE coalesce(t.sample_count, -1) <> n
+RETURN count(t) AS n, collect(t.title)[..$limit] AS examples
+"""
+TYPE_PROPERTY_KEYS = ("label", "deprecated")
+ATTRIBUTE_PROPERTY_KEYS = ("value_type", "required", "pos")
+
+
 # The names the assistant is told to scope by, and whether the graph answers them. Measured 2026-09-17 on a graph
 # graph_sync had just written at 1.2: of the eight names capabilities.md lists, GBM matched no Investigation at all
 # and Griffith, Impact, SRP and Shoulders each matched one holding zero studies and zero samples. A full sync does
@@ -443,6 +494,96 @@ def _check_catalog(driver, db, cat, checks: list, stats: dict) -> None:
            detail={"only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES]})
     _check(checks, "catalog.types_with_attribute_set_diff", 0, len(differing),
            detail=dict(list(differing.items())[:EXAMPLES]))
+    _check_catalog_properties(driver, db, cat, checks, stats)
+
+
+def _check_assays(driver, db, checks: list, stats: dict) -> None:
+    """The assay layer against MySQL (graph schema 1.3): the Assay id set fails when it differs, as the SampleType
+    set does in ``_check_catalog``; the three findings of the module docstring are reported and never fail.
+
+    Memory: the (sample, SEEK assay) pairs the sample edges carry, packed 8 bytes each and sorted, and one stream of
+    ``assay_assets`` checked against them by bisection."""
+    st = run.read_assays()
+    graph_ids = {r["id"] for r in _records(_run(driver, db, verify.ASSAY_IDS, read=True))}
+    only_mysql = sorted(set(st.ids) - graph_ids)
+    only_graph = sorted(graph_ids - set(st.ids), key=str)
+    _check(checks, "catalog.assays", 0, len(only_mysql) + len(only_graph),
+           detail={"only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES]})
+
+    def pack(result):
+        codes = array("q")   # one page's, built here so a retried read starts clean
+        for record in result:
+            sample_id, seek_id = record["id"], record["seek_assay_id"]
+            if run._is_packable(sample_id) and run._is_packable(seek_id):
+                codes.append(run.encode_pair(sample_id, seek_id))
+        return codes
+
+    held = array("q")
+    for codes in writer.read_sample_pages(driver, db, MEMBER_SEEK_PAIRS, pack, name="drift: assay members read"):
+        held.extend(codes)
+    held = array("q", sorted(held))
+    unmapped: Counter = Counter()
+    without_role: Counter = Counter()
+    for sample_id, seek_id in sources.iter_assay_links():
+        if seek_id not in st.internal_by_seek:
+            unmapped[seek_id] += 1
+            continue
+        packable = run._is_packable(sample_id) and run._is_packable(seek_id)
+        code = run.encode_pair(sample_id, seek_id) if packable else None
+        i = bisect_left(held, code) if code is not None else len(held)
+        if i == len(held) or held[i] != code:
+            without_role[seek_id] += 1
+    _check(checks, "assays.unmapped_seek_assays_with_members", "any", len(unmapped), passed=True,
+           detail={"members": sum(unmapped.values()),
+                   "largest": [[s, n] for s, n in unmapped.most_common(EXAMPLES)]})
+    _check(checks, "assays.members_without_role", "any", sum(without_role.values()), passed=True,
+           detail={"largest": [[s, n] for s, n in without_role.most_common(EXAMPLES)]})
+
+    titles = {node["id"]: node.get("title") for node in st.catalog.nodes}
+    stale, examples = 0, []
+    for r in _records(_run(driver, db, EDGE_ASSAY_LABELS, read=True)):
+        internal_id = r["internal_assay_id"]
+        if internal_id not in st.internal_by_seek.get(r["assay_id"], ()):
+            continue   # an unmapped SEEK assay's fallback label, or a mapping that moved: the relabel's to report
+        if r["internal_assay_title"] != titles.get(internal_id):
+            stale += int(r["edges"] or 0)
+            if len(examples) < EXAMPLES:
+                examples.append({"assay_id": r["assay_id"], "internal_assay_id": internal_id,
+                                 "stored_title": r["internal_assay_title"], "assay_title": titles.get(internal_id),
+                                 "edges": int(r["edges"] or 0)})
+    _check(checks, "assays.labels_disagree_with_assay_titles", "any", stale, passed=True, detail=examples)
+    stats["assays"] = {"mysql_assays": len(st.ids), "graph_assays": len(graph_ids),
+                       "unmapped_seek_assays": len(unmapped), "unmapped_members": sum(unmapped.values()),
+                       "members_without_role": sum(without_role.values()), "labels_disagree": stale}
+
+
+def _differing(mysql: dict, graph: dict, keys: tuple) -> list[dict]:
+    """By id, over the ids both sides hold, the entries whose ``keys`` differ (a missing key reads as None)."""
+    out = []
+    for item_id in sorted(set(mysql) & set(graph)):
+        want = {k: mysql[item_id].get(k) for k in keys}
+        got = {k: graph[item_id].get(k) for k in keys}
+        if want != got:
+            out.append({"id": item_id, "mysql": want, "graph": got})
+    return out
+
+
+def _check_catalog_properties(driver, db, cat, checks: list, stats: dict) -> None:
+    """The catalog's properties beyond titles, by id. Titles, and ids on one side only, are the
+    checks above and gate G's check 5; these compare what the catalog sync writes besides them."""
+    mysql_types = {int(t["id"]): t for t in cat.sample_types if t.get("id") is not None}
+    graph_types = {int(r["id"]): r for r in _records(_run(driver, db, GRAPH_TYPE_PROPERTIES, read=True))}
+    types_differ = _differing(mysql_types, graph_types, TYPE_PROPERTY_KEYS)
+    mysql_attrs = {int(a["id"]): a for a in cat.attributes if a.get("id") is not None}
+    graph_attrs = {int(r["id"]): r for r in _records(_run(driver, db, GRAPH_DECLARED_ATTRIBUTES, read=True))}
+    attrs_differ = _differing(mysql_attrs, graph_attrs, ATTRIBUTE_PROPERTY_KEYS)
+    stale = _records(_run(driver, db, TYPE_COUNTS_STALE, {"limit": EXAMPLES}, read=True))
+    stale_n = int(stale[0]["n"] or 0) if stale else 0
+    stats["catalog"].update(types_with_property_diff=len(types_differ), attributes_with_property_diff=len(attrs_differ),
+                            types_with_stale_count=stale_n)
+    _check(checks, "catalog.type_properties_differ", 0, len(types_differ), detail=types_differ[:EXAMPLES])
+    _check(checks, "catalog.attribute_properties_differ", 0, len(attrs_differ), detail=attrs_differ[:EXAMPLES])
+    _check(checks, "catalog.type_counts_stale", 0, stale_n, detail=(stale[0]["examples"] if stale else None))
 
 
 def _check_freshness(now, checks: list, stats: dict) -> None:
@@ -473,8 +614,13 @@ def _drift(driver, db, sample_size: int, seed, chunk: int, now) -> dict:
     cat = _timed(timings, "detection", _check_detection, driver, db, chunk, checks, stats)
     if cat is not None:
         _timed(timings, "catalog", _check_catalog, driver, db, cat, checks, stats)
+    _timed(timings, "assays", _check_assays, driver, db, checks, stats)
     text = _capabilities_text()
-    if text is not None:
+    if text is None:
+        # Unreadable is a failure, not a skip: a skipped check reads as a passing one.
+        _check(checks, "catalog.assistant_investigations", "readable", "unreadable", passed=False,
+               detail="/".join(ASSISTANT_CAPABILITIES))
+    else:
         _timed(timings, "assistant_investigations", _check_assistant_investigations,
                driver, db, assistant_investigation_entries(text), checks, stats)
     _timed(timings, "freshness", _check_freshness, now, checks, stats)

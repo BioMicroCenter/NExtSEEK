@@ -55,6 +55,12 @@ def _stub_the_rebuild_ci_hook(monkeypatch: pytest.MonkeyPatch) -> None:
             advisory=(),
         ),
     )
+    # Nor may one ask a real app container how its graph sync is doing. These tests run `rebuild` on the real
+    # checkout, whose docker-compose.yml lets that check reach a real docker daemon on any profile.
+    monkeypatch.setattr(
+        validate, "check_graph_sync_health",
+        lambda repo_root, env: validate.HealthResult("graph sync health", True, "not asked in this test"),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -63,6 +63,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..graph_contract import schema
 from .lab_code import fold
 
 #: One English phrase per endpoint, for the single sentence the reply may say about
@@ -292,7 +293,7 @@ def _type_label(code: str) -> str:
     alone read ``MATCH (s:T_RNA)`` as not constraining RNA: 19 of the 30 Pilot A v2
     replies (2026-09-18) opened by saying the sample type was not applied.
     """
-    return "T_" + re.sub(r"[^A-Za-z0-9_]", "_", code)
+    return schema.type_label(code)
 
 
 def _type_is_applied(code: str, haystack: str) -> bool:
@@ -301,7 +302,7 @@ def _type_is_applied(code: str, haystack: str) -> bool:
 
 #: A graph label (``:T_D_SEQ``), removed before ``_name_is_applied`` splits on underscores, so
 #: a name never counts as applied because it is one segment of a sample type's label.
-_GRAPH_LABEL = re.compile(r":\s*`?T_[A-Za-z0-9_]+`?")
+_GRAPH_LABEL = re.compile(r":\s*`?" + schema.TYPE_LABEL_PATTERN + "`?")
 
 
 def _name_is_applied(value: str, haystack: str) -> bool:
@@ -329,10 +330,7 @@ def _keyword_is_applied(keyword: str, haystack: str) -> bool:
 
 #: Properties every Sample carries. A keyword said to be realised as one of these was matched as
 #: text (``search_text``) or not at all, so the declaration proves nothing about a field.
-_SYSTEM_PROPERTIES = frozenset({
-    "id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
-    "parent_titles", "parent_title_hashes",
-})
+_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 
 def _declared_fields(keyword: str, graph_plan: dict | None) -> list[str]:

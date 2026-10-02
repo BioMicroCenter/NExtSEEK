@@ -77,6 +77,36 @@ _LINEAGE_SCOPED_CYPHER = f"""
                 RETURN parents + children AS nodes, up + down AS relationships
             """
 
+# The type-pair statements of GET entity_tree/edges/ and GET entity_tree/edge_attributes/. An edge several assays
+# share names one of them in internal_assay_title and every one in internal_assay_titles (docs/neo4j-schema.md, v1.2
+# "DERIVED_FROM labels"), so both read the plural list when an edge carries one and the singular field otherwise. An
+# empty title (the label rule writes "" in the plural list for an untitled assay) makes no row.
+_EDGES_CYPHER = """
+MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
+WHERE r.internal_assay_title IS NOT NULL OR size(coalesce(r.internal_assay_titles, [])) > 0
+WITH parent, child,
+     CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0
+          THEN r.internal_assay_titles ELSE [r.internal_assay_title] END AS titles
+UNWIND titles AS annotation
+WITH parent, child, annotation WHERE annotation IS NOT NULL AND annotation <> ''
+RETURN DISTINCT parent.type AS source, child.type AS target, annotation
+ORDER BY source, target, annotation
+"""
+# The same rows, each title with the id at its own index of internal_assay_ids (null past the end of a shorter list).
+_EDGE_ATTRIBUTES_CYPHER = """
+MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
+WHERE r.internal_assay_title IS NOT NULL OR size(coalesce(r.internal_assay_titles, [])) > 0
+WITH parent, child,
+     CASE WHEN size(coalesce(r.internal_assay_titles, [])) > 0
+          THEN [i IN range(0, size(r.internal_assay_titles) - 1) |
+                {title: r.internal_assay_titles[i], id: coalesce(r.internal_assay_ids, [])[i]}]
+          ELSE [{title: r.internal_assay_title, id: r.internal_assay_id}] END AS assays
+UNWIND assays AS a
+WITH parent, child, a WHERE a.title IS NOT NULL AND a.title <> ''
+RETURN DISTINCT parent.type AS source, child.type AS target, a.title AS annotation, a.id AS internal_assay_id
+ORDER BY source, target, annotation, internal_assay_id
+"""
+
 
 def _caller_scope(request) -> Optional[Scope]:
     """The caller's project scope, as graph_search resolves it, or None when it cannot be resolved.
@@ -108,6 +138,68 @@ def _not_found_tree(input_id: str) -> LineageTree:
         rels=[],
         warning=f"Sample not found: {input_id}",
     )
+
+
+def _internal_assay_rows(records) -> Tuple[List[Dict[str, Any]], set[int]]:
+    """The edge_attributes rows and the internal assay ids to enrich them by.
+
+    One read of ``dmac.internal_assays`` for every id and every title the rows name. A row keeps the id the graph gave
+    it only when that read holds the id with the row's own title, compared as stored. Any other row (a null id, an
+    index past the end of a shorter id list, an unmapped entry holding a SEEK assay id, an edge that kept an old title
+    after a rename) takes the id the read gives its title (the smallest, when two share one), or none. The rows are
+    then de-duplicated on (source, target, annotation, id) in the statement's order. When the read fails, no row keeps
+    an id, so nothing is enriched from a wrong assay.
+    """
+    rows: List[Dict[str, Any]] = []
+    graph_ids: set[int] = set()
+    titles: set[str] = set()
+    for record in records:
+        source, target, annotation = record.get("source"), record.get("target"), record.get("annotation")
+        if not (source and target and annotation):
+            continue
+        raw_id = record.get("internal_assay_id")
+        graph_id = int(raw_id) if raw_id is not None and str(raw_id).isdigit() else None
+        if graph_id is not None:
+            graph_ids.add(graph_id)
+        titles.add(str(annotation))
+        rows.append({"source": str(source), "target": str(target), "annotation": str(annotation),
+                     "graph_id": graph_id})
+
+    title_by_id: Dict[int, Optional[str]] = {}
+    id_by_title: Dict[str, int] = {}
+    if rows:
+        ids, names = sorted(graph_ids), sorted(titles)
+        where = [f"internal_assay_title IN ({', '.join(['%s'] * len(names))})"]
+        if ids:
+            where.insert(0, f"id IN ({', '.join(['%s'] * len(ids))})")
+        query = f"SELECT id, internal_assay_title FROM dmac.internal_assays WHERE {' OR '.join(where)}"
+        try:
+            for found in _run_sql_query(query, [*ids, *names]):
+                internal_id, title = found.get("id"), found.get("internal_assay_title")
+                if internal_id is None:
+                    continue
+                internal_id, title = int(internal_id), None if title is None else str(title)
+                title_by_id[internal_id] = title
+                if title is not None and internal_id < id_by_title.get(title, internal_id + 1):
+                    id_by_title[title] = internal_id
+        except Exception:
+            title_by_id, id_by_title = {}, {}
+
+    out: List[Dict[str, Any]] = []
+    seen: set[tuple] = set()
+    for row in rows:
+        graph_id = row["graph_id"]
+        if graph_id is not None and title_by_id.get(graph_id) == row["annotation"]:
+            internal_id = graph_id
+        else:
+            internal_id = id_by_title.get(row["annotation"])
+        key = (row["source"], row["target"], row["annotation"], internal_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"source": row["source"], "target": row["target"], "annotation": row["annotation"],
+                    "internal_assay_id": None if internal_id is None else str(internal_id)})
+    return out, {int(r["internal_assay_id"]) for r in out if r["internal_assay_id"] is not None}
 
 
 class EntityTreePagination(PageNumberPagination):
@@ -362,17 +454,8 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         try:
             with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
-                cypher = """
-                    MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
-                    WHERE r.internal_assay_title IS NOT NULL
-                    RETURN DISTINCT
-                        parent.type AS source,
-                        child.type AS target,
-                        r.internal_assay_title AS annotation
-                    ORDER BY source, target, annotation
-                """
                 records, summary, keys = driver.execute_query(
-                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                    _EDGES_CYPHER, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
                 )
         except Neo4jError as e:
             return Response(
@@ -449,18 +532,8 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
         NEO4J_DATABASE = settings.NEO4J_DATABASE
         try:
             with GraphDatabase.driver(NEO4J_DATABASE["URI"], auth=NEO4J_DATABASE["AUTH"]) as driver:
-                cypher = """
-                    MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
-                    WHERE r.internal_assay_title IS NOT NULL
-                    RETURN DISTINCT
-                        parent.type AS source,
-                        child.type AS target,
-                        r.internal_assay_title AS annotation,
-                        r.internal_assay_id AS internal_assay_id
-                    ORDER BY source, target, annotation
-                """
                 records, summary, keys = driver.execute_query(
-                    cypher, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
+                    _EDGE_ATTRIBUTES_CYPHER, database_=NEO4J_DATABASE["NAME"], routing_=neo4j.RoutingControl.READ
                 )
         except Neo4jError as e:
             return Response(
@@ -473,64 +546,8 @@ class EntityTreeViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-        # Normalize rows and collect keys for enrichment
-        edge_rows: List[Dict[str, Any]] = []
-        ids_from_neo4j: set[int] = set()
-        titles_missing_id: set[str] = set()
-
-        for r in records:
-            source = r.get("source")
-            target = r.get("target")
-            annotation = r.get("annotation")
-            internal_assay_id = r.get("internal_assay_id")
-            if not (source and target and annotation):
-                continue
-
-            internal_id_str: Optional[str] = None
-            if internal_assay_id is not None and str(internal_assay_id).isdigit():
-                internal_id_str = str(int(internal_assay_id))
-                ids_from_neo4j.add(int(internal_assay_id))
-            else:
-                titles_missing_id.add(str(annotation))
-
-            edge_rows.append(
-                {
-                    "source": str(source),
-                    "target": str(target),
-                    "annotation": str(annotation),
-                    "internal_assay_id": internal_id_str,
-                }
-            )
-
-        # Step 2a: if Neo4j doesn't have internal_assay_id, map from title -> id via dmac.internal_assays
-        title_to_id: Dict[str, str] = {}
-        if titles_missing_id:
-            try:
-                placeholders = ", ".join(["%s"] * len(titles_missing_id))
-                q = f"""
-                    SELECT id, internal_assay_title
-                    FROM dmac.internal_assays
-                    WHERE internal_assay_title IN ({placeholders})
-                """
-                rows = _run_sql_query(q, list(titles_missing_id))
-                for row in rows:
-                    t = row.get("internal_assay_title")
-                    i = row.get("id")
-                    if t is not None and i is not None:
-                        title_to_id[str(t)] = str(int(i))
-            except Exception:
-                # continue without IDs if lookup fails
-                title_to_id = {}
-
-        # Apply mapped ids and collect final ids for enrichment
-        all_internal_ids: set[int] = set(ids_from_neo4j)
-        for er in edge_rows:
-            if er["internal_assay_id"] is None:
-                mapped = title_to_id.get(er["annotation"])
-                if mapped is not None:
-                    er["internal_assay_id"] = mapped
-                    if mapped.isdigit():
-                        all_internal_ids.add(int(mapped))
+        # Step 2: each row's internal assay id, validated against dmac.internal_assays (_internal_assay_rows)
+        edge_rows, all_internal_ids = _internal_assay_rows(records)
 
         db = settings.DATABASES[SEEK_DATABASE]
         nextseekdb = settings.DATABASES[NEXTSEEK_DATABASE]

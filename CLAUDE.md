@@ -56,6 +56,7 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 | `deploy` | install, redeploy, rollback, post-deploy verification, or launching a box to a commit on origin/dev (needs a local `boxes.json`) | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
 | `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
+| `share-samples` | sharing samples of one project into another project's existing study through the superuser-only sample-shares endpoint: dry run, plan, apply, verify | `.claude/skills/share-samples/SKILL.md` | auto |
 | `nessie-run-review` | the Nessie run report: triaging a nessie_tests run or real users' questions into an HTML review | `.claude/skills/nessie-run-review/SKILL.md` | auto |
 | `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `.claude/skills/nessie-bayes-report/SKILL.md` | auto |
 <!-- END DOCS-MAP:skills -->
@@ -78,6 +79,7 @@ Personal and external tools (session handoff, the parallel fix lane, the dmac-cu
 | `docker/` | nginx config, app-container scripts, env docs; AI images are in `NessieAI/docker/` | `docker/README.md` | `deployment` |
 | `docs/` | cross-cutting docs only; folder docs live beside their code | `docs/INDEX.md` | by subject |
 | `nextseek_api/` | the Django app behind every `/nextseek_api/` URL, and the API half of the assistant | `nextseek_api/README.md` | `nextseek_api` |
+| `nextseek_graph/` | the graph contract: schema versions, labels, relationships, properties, constraint and index names, shared by the writer and every reader; standard library only | `nextseek_graph/README.md` | `graph-neo4j` |
 | `scripts/` | validators, the macOS/worktree test runner, one-off programs | `scripts/README.md`, `scripts/CLAUDE.md` | by subject |
 | `seek/` | Django app over SEEK's tables: table layer, search, the NExtSEEK pages | `seek/README.md` | `ui`, `sample-search` |
 | `startup/` | the `./startup.sh` Typer CLI (its own uv project) and the seed data | `startup/README.md` | `installer` |

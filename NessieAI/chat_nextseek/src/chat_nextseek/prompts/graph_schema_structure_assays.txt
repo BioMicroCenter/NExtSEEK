@@ -1,0 +1,10 @@
+## Assays (schema 1.3)
+(:Assay {id, title, other_names, description, tags, input_types, optional_input_types, output_types,
+  parent_clade, child_clade})   one per assay kind, the same for every caller
+(:Sample)-[:INPUT_TO {seek_assay_ids}]->(:Assay)    the sample went into the assay
+(:Sample)-[:OUTPUT_OF {seek_assay_ids}]->(:Assay)   the sample came out of it
+11. Lineage is DERIVED_FROM only. Two samples on one Assay did not come from each other: never pair samples through
+   an Assay. "Went into / came out of / used in X" and "which assays": use the Assay, matching
+   toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]. Went through X:
+   WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. Studies that ran X: the IN_STUDY of
+   those samples. "Underwent / processed via X" stays the DERIVED_FROM edge test of STEP 4.

@@ -124,10 +124,8 @@ of two strategies (`nextseek_api/batch_upload/insert_strategies.py:32` and
 
 Read only: `sample_types` (`nextseek_api/batch_upload/prefetch.py:47`), `assays`
 (`nextseek_api/batch_upload/prefetch.py:73`), `sample_attributes`
-(`nextseek_api/batch_upload/prefetch.py:286-289`), `sops`
-(`nextseek_api/batch_upload/helpers.py:289`), `studies`
-(`nextseek_api/batch_upload/neo4j_sync.py:84`) and `investigations`
-(`nextseek_api/batch_upload/neo4j_sync.py:117`). `assays_tbl` and `child_assays` are not
+(`nextseek_api/batch_upload/prefetch.py:286-289`) and `sops`
+(`nextseek_api/batch_upload/helpers.py:289`). `assays_tbl` and `child_assays` are not
 tables in that schema at all: they are an in-memory DuckDB registration and a CTE inside
 `nextseek_api/batch_upload/dag.py:201-205`.
 
@@ -144,9 +142,9 @@ this job's outbox rows only when that succeeded
 carry the outcome as `graph: synced (N)` or `graph: pending (N)`
 (`nextseek_api/batch_upload/orchestrator.py:637`,
 `nextseek_api/batch_upload/report.py:182-187`), and `pending` is not a failure: the outbox
-rows stand and the sync loop drains them. What is left in
-`nextseek_api/batch_upload/neo4j_sync.py` reads MySQL and builds payloads; graph_sync's own
-labels and parent lists are coded against it and compared with it on the same fixtures.
+rows stand and the sync loop drains them. graph_sync's labels and parent lists are checked
+against the frozen outputs of this package's former graph payload rule
+(`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`).
 
 ### Background work and scripts
 

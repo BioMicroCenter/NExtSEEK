@@ -21,13 +21,16 @@ import pytest
 from chat_nextseek import cypher_text
 from chat_nextseek import graph_catalog as gcat
 from chat_nextseek import prompt_variants as pv
-from chat_nextseek.agents.graph import catalog_unknown_properties, whole_node_returns
+from chat_nextseek.agents.graph import catalog_unknown_properties, query_shape_problems, whole_node_returns
+from chat_nextseek.cypher_scope import Scoped, scope_cypher
+from chat_nextseek.graph_scope import GraphScope
 
 NESSIE = Path(__file__).resolve().parents[2]
 PACKAGE = NESSIE / "chat_nextseek" / "src" / "chat_nextseek"
 PROMPTS = PACKAGE / "prompts"
 CORPUS = NESSIE / "tests" / "nessie_tests" / "corpus.json"
-GRAPH_FILES = ("graph_agent.txt", "graph_schema_structure.txt")
+ASSAY_FILE = "graph_schema_structure_assays.txt"
+GRAPH_FILES = ("graph_agent.txt", "graph_schema_structure.txt", ASSAY_FILE)
 
 
 def read(path: Path) -> str:
@@ -90,7 +93,7 @@ def test_every_worked_example_passes_the_write_check_and_both_guards(cypher):
 @pytest.mark.parametrize("name", GRAPH_FILES)
 def test_every_variable_length_path_is_bounded_and_none_starts_at_zero(name):
     hops = re.findall(r"DERIVED_FROM\s*\*[^\]\s]*", prompt(name))
-    assert hops
+    assert hops or name == ASSAY_FILE, "the lineage files teach a bounded path; the Assay section teaches none"
     for hop in hops:
         assert re.fullmatch(r"DERIVED_FROM\s*\*[1-9]\d*\.\.\d+", hop), hop
 
@@ -216,3 +219,55 @@ def test_f12_a_breakdown_groups_on_the_folded_value():
     agent = prompt("graph_agent.txt")
     assert "Group a free-text attribute on its folded value" in agent
     assert "toLower(trim(toString(s.Organ))) AS organ" in agent
+
+
+# --- graph schema 1.3: every Cypher the Assay section teaches -------------------------------------------------------
+
+NAME_MATCH = "toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]"
+WENT_THROUGH = "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }"
+MEMBER = GraphScope.for_projects([1], source="test")
+
+
+def _assay_statements():
+    """Every Cypher the Assay section teaches, as a statement: its name match, its went-through test, and a read of
+    each sample relationship it lists."""
+    text = " ".join(prompt(ASSAY_FILE).split())
+    out = [("went_through", f"MATCH (a:Assay) WHERE {NAME_MATCH} MATCH (s:Sample) {WENT_THROUGH} "
+                            "RETURN count(DISTINCT s) AS n", ("s: sample clause",)),
+           ("which_assays", f"MATCH (a:Assay) WHERE {NAME_MATCH} RETURN a.id AS id, a.title AS title", ())]
+    for rel, prop in re.findall(r"\(:Sample\)-\[:([A-Z_]+) \{([a-z_]+)\}\]->\(:Assay\)", text):
+        out.append((rel, f"MATCH (s:Sample)-[r:{rel}]->(a:Assay) WHERE {NAME_MATCH} "
+                         f"RETURN s.uuid AS uuid, r.{prop} AS {prop} ORDER BY uuid", ("s: sample clause",)))
+    return out
+
+
+ASSAY_STATEMENTS = _assay_statements()
+
+
+def test_the_assay_section_teaches_the_case_insensitive_name_match():
+    # Review Focus 1: an assay name typed in another case, or by one of its other names, still finds the Assay.
+    (line,) = [l for l in prompt(ASSAY_FILE).splitlines() if "a.other_names" in l]
+    assert line.strip().startswith(NAME_MATCH + ". ")
+    joined = " ".join(prompt(ASSAY_FILE).split())
+    assert NAME_MATCH in joined and WENT_THROUGH in joined
+    assert [name for name, _, _ in ASSAY_STATEMENTS] == ["went_through", "which_assays", "INPUT_TO", "OUTPUT_OF"]
+
+
+@pytest.mark.parametrize("name, cypher, injected", ASSAY_STATEMENTS, ids=[s[0] for s in ASSAY_STATEMENTS])
+def test_every_assay_example_passes_the_scope_for_a_non_admin(name, cypher, injected):
+    out = scope_cypher(cypher, {"x": "rna-seq"}, MEMBER)
+    assert isinstance(out, Scoped), getattr(out, "reasons", out)
+    assert out.decision == "proven" and out.injected == injected
+
+
+@pytest.mark.parametrize("name, cypher, injected", ASSAY_STATEMENTS, ids=[s[0] for s in ASSAY_STATEMENTS])
+def test_every_assay_example_passes_the_write_check_and_every_guard(name, cypher, injected):
+    assert cypher_text.write_clause(cypher) is None
+    assert whole_node_returns(cypher) == []
+    assert catalog_unknown_properties(cypher, SNAPSHOT) == []
+    assert query_shape_problems(cypher, {"x": "rna-seq"}) == []
+
+
+def test_a_variant_cannot_carry_the_assay_section():
+    # It is appended by version to the default structure and to every variant's, so no variant replaces it.
+    assert ASSAY_FILE not in pv.PROMPT_FILES | pv.JSON_FILES

@@ -6,7 +6,8 @@ The graph scope battery: the statements the prover is judged on, shared by the u
   Each carries the ``injected`` and ``joined`` lines the prover must report. The parameters fit the lane's fixture
   (fixture_graph.py) so the lane can run every one.
 - TAUGHT_REFUSED: the one taught shape that reads the catalog, which a non-admin may not (spec decision 4).
-- REFUSALS: one case per row of spec tables 5.4 and 5.5, with the codes of section 5.8.
+- REFUSALS: one case per row of spec tables 5.4 and 5.5, with the codes of section 5.8. The Assay rows follow
+  docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md section 6.4.
 - hidden_variants(): each expression-level construct placed directly, inside a nested EXISTS and after a WITH alias
   chain (all refuse), and inside a comment, a string literal and a backticked name (all accept).
 - WRITES: statements write_clause must refuse, one per write form.
@@ -142,6 +143,21 @@ TAUGHT: list[Case] = [
          "WHERE st.PMID = $pmid\n"
          "RETURN count(DISTINCT s) AS n",
          {"pmid": "1001"}, S, ST_JOINED),
+    # One DOI, or one PMID, inside a sample's '; '-joined list, and the samples associated with a DOI with the studies
+    # they are IN_STUDY to (a study they were shared into included).
+    Case("default.samples_of_doi_in_list",
+         "MATCH (s:Sample) WHERE toLower($doi) IN [d IN split(toLower(s.DOI), ';') | trim(d)]\n"
+         "RETURN s.uuid AS uuid, s.id AS id, s.type AS type LIMIT 5000",
+         {"doi": "10.1000/one"}, S),
+    Case("default.samples_of_pmid_in_list",
+         "MATCH (s:Sample) WHERE $pmid IN [p IN split(toString(s.PMID), ';') | trim(p)]\n"
+         "RETURN count(DISTINCT s) AS n",
+         {"pmid": "1001"}, S),
+    Case("default.associated_with_doi",
+         "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)\n"
+         "WHERE toLower($doi) IN [d IN split(toLower(s.DOI), ';') | trim(d)]\n"
+         "RETURN s.uuid AS uuid, collect(DISTINCT st.title) AS studies LIMIT 5000",
+         {"doi": "10.1000/one"}, S, ST_JOINED),
     # ------------------------------------------------------------------ the v2 prompt (variants/v2/graph_agent.txt)
     Case("v2.type_label_count",
          "MATCH (s:T_SLD) RETURN count(*) AS n",
@@ -337,6 +353,67 @@ ACCEPTED: list[Case] = [
     Case("line_comment_ending_in_crlf",
          "MATCH (s:T_SLD) // one line\r\nRETURN s.uuid AS uuid ORDER BY uuid",
          {}, S),
+    # ------------------------------------------------------------------ the Assay layer (graph schema 1.3)
+    Case("assay.catalog_node",
+         "MATCH (a:Assay) WHERE toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]\n"
+         "RETURN a.title AS title, a.input_types AS takes, a.output_types AS makes",
+         {"x": "histology"}, ()),
+    Case("assay.inputs_count",
+         "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.outputs_with_runs",
+         "MATCH (s:Sample)-[r:OUTPUT_OF]->(a:Assay) WHERE a.title = $assay\n"
+         "RETURN s.uuid AS uuid, r.seek_assay_ids AS runs ORDER BY uuid",
+         {"assay": "Staining"}, S),
+    Case("assay.went_through",
+         "MATCH (a:Assay)\n"
+         "WHERE toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]\n"
+         "MATCH (s:Sample)\n"
+         "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }\n"
+         "RETURN count(DISTINCT s) AS n",
+         {"x": "staining"}, S),
+    Case("assay.with_carried_reference",
+         "MATCH (a:Assay {title: $assay})\nWITH a\nMATCH (s:T_TIS)-[:INPUT_TO]->(a)\nRETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.anonymous_assay",
+         "MATCH (s:T_SLD)-[:OUTPUT_OF]->(:Assay {title: $assay}) RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.count_subquery_per_assay",
+         "MATCH (a:Assay)\nRETURN a.title AS assay, COUNT { (s:Sample)-[:INPUT_TO]->(a) } AS inputs ORDER BY assay",
+         {}, S),
+    Case("assay.written_from_the_assay",
+         "MATCH (a:Assay)<-[:INPUT_TO]-(s:T_TIS) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.lineage_beside_an_assay",
+         "MATCH (c:T_SLD)-[:DERIVED_FROM]->(p:T_TIS)\n"
+         "WHERE EXISTS { (c)-[:OUTPUT_OF]->(:Assay {title: $assay}) }\n"
+         "RETURN count(DISTINCT c) AS n",
+         {"assay": "Staining"}, ("c: sample clause", "p: sample clause")),
+    Case("assay.study_of_a_sample_beside_its_assay",
+         "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay), (s)-[:IN_STUDY]->(st:Study) WHERE a.title = $assay\n"
+         "RETURN st.title AS study, count(DISTINCT s) AS n ORDER BY study",
+         {"assay": "Staining"}, S, ("st (Study): joined to s",)),
+    # INPUT_TO and OUTPUT_OF are the two roles of one link, both from a sample to an Assay: an alternation of those two
+    # types alone is one assay link; every other alternation is refused.
+    Case("assay.either_role",
+         "MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) WHERE a.title = $assay "
+         "RETURN type(r) AS role, count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.either_role_per_assay",
+         "MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN type(r) AS role, a.title AS t, count(*) AS n",
+         {}, S),
+    Case("assay.either_role_unnamed",
+         "MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) WHERE a.title = $assay RETURN count(DISTINCT s) AS n",
+         {"assay": "Staining"}, S),
+    Case("assay.either_role_undirected",
+         "MATCH (a:Assay)-[r:OUTPUT_OF|INPUT_TO]-(s:T_TIS) RETURN a.title AS t, type(r) AS role, count(*) AS n",
+         {}, S),
+    Case("assay.either_role_optional",
+         "MATCH (a:Assay) OPTIONAL MATCH (a)<-[r:INPUT_TO|OUTPUT_OF]-(s:Sample) RETURN a.title AS t, count(r) AS n",
+         {}, S),
+    Case("assay.either_role_of_one_sample",
+         "MATCH (s:Sample {uuid: $uid})-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN type(r) AS role, a.title AS t",
+         {"uid": "TIS-230202BBB-2"}, S),
 ]
 
 # The one taught shape that reads the catalog, whose statistics are computed over every project (decision 4).
@@ -486,6 +563,15 @@ REFUSALS: list[Refusal] = [
             ("relationship_type",)),
     Refusal("relationship_type.alternation", "MATCH (s:Sample)-[:DERIVED_FROM|IN_STUDY]->(p:Sample) RETURN p.id AS id",
             ("relationship_type",)),
+    Refusal("relationship_type.input_to_or_in_study",
+            "MATCH (s:Sample)-[r:INPUT_TO|IN_STUDY]->(a:Assay) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.input_to_or_run_in",
+            "MATCH (s:Sample)-[r:INPUT_TO|RUN_IN]->(a:Assay) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.either_role_from_a_study",
+            "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN count(*) AS n",
+            ("relationship_type",)),
+    Refusal("variable_length.either_role",
+            "MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF*1..2]-(t:Sample) RETURN count(*) AS n", ("variable_length",)),
     Refusal("relationship_type.of_type", "MATCH (s:Sample)-[:OF_TYPE]->(t:SampleType) RETURN t.title AS t",
             ("relationship_type", "label_not_allowed")),
     Refusal("relationship_type.has_attribute",
@@ -552,6 +638,50 @@ REFUSALS: list[Refusal] = [
     Refusal("function_not_allowed.vector", "MATCH (s:Sample) RETURN vector.similarity.cosine([1.0], [1.0]) AS v",
             ("function_not_allowed",)),
     Refusal("function_not_allowed.unknown", "RETURN randomUUID() AS u", ("function_not_allowed",)),
+    # ------------------------------------------------------------------ the Assay layer (graph schema 1.3)
+    Refusal("label_not_allowed.assay_and_sample", "MATCH (x:Assay:Sample) RETURN x.id AS id", ("label_not_allowed",)),
+    Refusal("unjoined_node.study_of_an_assay",
+            "MATCH (a:Assay)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_a_with_carried_assay",
+            "MATCH (a:Assay) WITH a MATCH (a)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_assay_alias",
+            "MATCH (a:Assay) WITH a AS x MATCH (x)-[:IN_STUDY]->(st:Study) RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_unwound_assay_list",
+            "MATCH (a:Assay) WITH collect(a) AS xs UNWIND xs AS x MATCH (x)-[:IN_STUDY]->(st:Study) "
+            "RETURN st.title AS t", ("unjoined_node",)),
+    Refusal("unjoined_node.study_through_an_assay_in_a_subquery",
+            "MATCH (a:Assay) WHERE EXISTS { MATCH (a)-[:IN_STUDY]->(st:Study) WHERE st.title = $t } "
+            "RETURN a.title AS t", ("unjoined_node",), {"t": "x"}),
+    Refusal("unjoined_node.study_through_a_comprehension_over_assays",
+            "MATCH (a:Assay) WITH collect(a) AS xs "
+            "RETURN [x IN xs WHERE EXISTS { (x)-[:IN_STUDY]->(st:Study) WHERE st.title = $t } | x.title] AS t",
+            ("unjoined_node",), {"t": "x"}),
+    Refusal("unjoined_node.person_member_of_an_assay_reference",
+            "MATCH (a:Assay) WITH a MATCH (p:Person)-[:MEMBER_OF]->(a) RETURN count(p) AS n", ("unjoined_node",)),
+    # the three relationships a non-admin may not walk: their SampleType or cross-project Study end (spec D7)
+    Refusal("relationship_type.accepted_by",
+            "MATCH (t:SampleType)-[:ACCEPTED_BY]->(a:Assay) RETURN a.title AS t",
+            ("relationship_type", "label_not_allowed")),
+    Refusal("relationship_type.generates",
+            "MATCH (a:Assay)-[:GENERATES]->(t:SampleType) RETURN t.title AS t",
+            ("relationship_type", "label_not_allowed")),
+    Refusal("relationship_type.run_in",
+            "MATCH (a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t", ("relationship_type",)),
+    Refusal("relationship_type.run_in_from_a_samples_assay",
+            "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t",
+            ("relationship_type",)),
+    Refusal("relationship_type.input_to_from_a_study",
+            "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:INPUT_TO]->(a:Assay) RETURN a.title AS t",
+            ("relationship_type",)),
+    Refusal("relationship_type.output_of_between_two_samples",
+            "MATCH (c:Sample)-[:OUTPUT_OF]->(p:Sample) RETURN count(*) AS n", ("relationship_type",)),
+    Refusal("relationship_type.input_to_from_an_assay_reference",
+            "MATCH (a:Assay), (b:Assay) WITH a, b MATCH (a)-[:INPUT_TO]->(b) RETURN count(*) AS n",
+            ("relationship_type",)),
+    Refusal("variable_length.input_to",
+            "MATCH (s:Sample)-[:INPUT_TO*1..2]->(a:Assay) RETURN count(*) AS n", ("variable_length",)),
+    Refusal("unlabelled_node.assay_end",
+            "MATCH (s:Sample)-[:INPUT_TO]->(x) RETURN x.title AS t", ("unlabelled_node",)),
 ]
 
 # --------------------------------------------------------------------------- #

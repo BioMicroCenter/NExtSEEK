@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from chat_nextseek import graph_scope as gs
+from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import (
     HIDDEN_SAMPLE_PROPERTIES,
     OPERATOR_OPT_IN_ENV,
@@ -37,6 +38,8 @@ def test_constants_are_the_spec_values():
     assert SCOPE_PARAM.startswith(RESERVED_PREFIX)
     assert OPERATOR_OPT_IN_ENV == "CHAT_NEXTSEEK_GRAPH_ADMIN"
     assert HIDDEN_SAMPLE_PROPERTIES == frozenset({"parent_titles", "parent_title_hashes"})
+    # Policy, not a schema fact: a literal pin, and every name in it is a Sample system property of the contract.
+    assert HIDDEN_SAMPLE_PROPERTIES <= schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 
 # --------------------------------------------------------------------------- #

@@ -4,9 +4,6 @@ Covers:
 - SampleTypeDescription: save_to_json, from_pd_df, load_from_json (lines 60-77, 81-82)
 - InputRowModel: assay_titles coercion edge cases, assay_ids coercion, validators
 - InsertableSample: coerce_assay_ids edge cases, normalize_json_metadata None
-- RelRow validators
-- DerivedFromRelRow validators
-- OfTypeRelRow validators
 - AssaySheetRow direction validator
 - InstructionRow property accessors
 """
@@ -20,22 +17,12 @@ from nextseek_api.batch_upload.models import (
     SampleTypeDescription,
     InputRowModel,
     InsertableSample,
-    RelRow,
-    DerivedFromRelRow,
-    OfTypeRelRow,
     InstructionRow,
     AssaySheetRow,
-    SampleTypeNodeRow,
-    StudyNodeRow,
-    InvestigationNodeRow,
-    InInvestigationRelRow,
-    InStudyRelRow,
     RowOutcome,
     PermissionCreate,
     StreamResult,
     BatchResult,
-    PayloadStats,
-    ConstraintStatus,
 )
 
 
@@ -288,115 +275,6 @@ class TestInsertableSample:
 
 
 # ---------------------------------------------------------------------------
-# RelRow validators
-# ---------------------------------------------------------------------------
-
-class TestRelRow:
-
-    def test_positive_child_id(self):
-        with pytest.raises(Exception, match="child_id must be positive"):
-            RelRow(child_id=0, child_uuid="A", parent_uuid="B")
-
-    def test_empty_uuid_raises(self):
-        with pytest.raises(Exception, match="uuid must be non-empty"):
-            RelRow(child_id=1, child_uuid="", parent_uuid="B")
-
-    def test_valid_row(self):
-        r = RelRow(child_id=1, child_uuid=" A ", parent_uuid=" B ")
-        assert r.child_uuid == "A"
-        assert r.parent_uuid == "B"
-
-
-# ---------------------------------------------------------------------------
-# DerivedFromRelRow validators
-# ---------------------------------------------------------------------------
-
-class TestDerivedFromRelRow:
-
-    def test_positive_ids(self):
-        with pytest.raises(Exception, match="id must be positive"):
-            DerivedFromRelRow(child_id=0, child_uuid="A", parent_id=1, parent_uuid="B")
-
-    def test_empty_uuid_raises(self):
-        with pytest.raises(Exception, match="uuid must be non-empty"):
-            DerivedFromRelRow(child_id=1, child_uuid="  ", parent_id=2, parent_uuid="B")
-
-    def test_valid_row(self):
-        r = DerivedFromRelRow(child_id=1, child_uuid="A", parent_id=2, parent_uuid="B")
-        assert r.child_id == 1
-
-
-# ---------------------------------------------------------------------------
-# OfTypeRelRow validators
-# ---------------------------------------------------------------------------
-
-class TestOfTypeRelRow:
-
-    def test_positive_ids(self):
-        with pytest.raises(Exception, match="id must be positive"):
-            OfTypeRelRow(sample_id=0, sample_uuid="A", sample_type_id=1)
-
-
-# ---------------------------------------------------------------------------
-# InStudyRelRow validators
-# ---------------------------------------------------------------------------
-
-class TestInStudyRelRow:
-
-    def test_positive_study_id(self):
-        with pytest.raises(Exception, match="study_id must be positive"):
-            InStudyRelRow(sample_uuid="A", study_id=0)
-
-    def test_empty_uuid_raises(self):
-        with pytest.raises(Exception, match="sample_uuid must be non-empty"):
-            InStudyRelRow(sample_uuid="  ", study_id=1)
-
-
-# ---------------------------------------------------------------------------
-# StudyNodeRow validators
-# ---------------------------------------------------------------------------
-
-class TestStudyNodeRow:
-
-    def test_empty_title_raises(self):
-        with pytest.raises(Exception, match="title must be non-empty"):
-            StudyNodeRow(id=1, title="  ")
-
-
-# ---------------------------------------------------------------------------
-# InvestigationNodeRow validators
-# ---------------------------------------------------------------------------
-
-class TestInvestigationNodeRow:
-
-    def test_empty_title_raises(self):
-        with pytest.raises(Exception, match="title must be non-empty"):
-            InvestigationNodeRow(id=1, title="")
-
-
-# ---------------------------------------------------------------------------
-# InInvestigationRelRow validators
-# ---------------------------------------------------------------------------
-
-class TestInInvestigationRelRow:
-
-    def test_positive_ids(self):
-        with pytest.raises(Exception, match="id must be positive"):
-            InInvestigationRelRow(study_id=0, investigation_id=1)
-
-
-# ---------------------------------------------------------------------------
-# SampleTypeNodeRow validators
-# ---------------------------------------------------------------------------
-
-class TestSampleTypeNodeRow:
-
-    def test_empty_title_raises(self):
-        with pytest.raises(Exception, match="title must be non-empty"):
-            SampleTypeNodeRow(title="  ")
-
-
-# ---------------------------------------------------------------------------
 # InstructionRow
 # ---------------------------------------------------------------------------
 
@@ -446,14 +324,6 @@ class TestSimpleModels:
         assert br.inserted_count == 0
         assert br.updated_count == 0
         assert br.stopped_early is False
-
-    def test_payload_stats(self):
-        ps = PayloadStats(eligible_children=10, skipped_children_missing_parents=2)
-        assert ps.created_count == 0
-
-    def test_constraint_status(self):
-        cs = ConstraintStatus()
-        assert cs.sample_id == "skipped"
 
     def test_row_outcome(self):
         ro = RowOutcome(status="success", sample_id=1)

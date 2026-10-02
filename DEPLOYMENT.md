@@ -545,6 +545,11 @@ docker image inspect nextseek-nextseek:pre-<name> --format '{{.Id}}'
 ./startup.sh doctor
 ```
 
+`./startup.sh rebuild` and `ci` also print a "graph sync health" line, which fails the run when the graph sync is
+failing (rows stuck past their retry, a failed run, drift). To read it by hand, run
+`docker exec nextseek uv run --no-sync python manage.py graph_sync_health`: it prints one line per problem and exits
+1 when there is one.
+
 For CC-touching deploys, additionally run the OI-3 checks in §9. For a full
 greenfield acceptance (all plugin ops live, paid), see the Appendix.
 

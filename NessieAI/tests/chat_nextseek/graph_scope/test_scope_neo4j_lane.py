@@ -322,3 +322,53 @@ def test_tool_without_a_scope_refuses_before_any_query(lane):
     assert result["ok"] is False
     assert is_scope_refusal(result)
     assert "no_scope" in result["scope"]["codes"]
+
+
+# --------------------------------------------------------------------------- #
+# The Assay layer (graph schema 1.3): a count over an Assay's inputs is the caller's own
+# --------------------------------------------------------------------------- #
+
+ASSAY_INPUTS = "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE a.title = $assay RETURN count(DISTINCT s) AS n"
+# The TIS samples that went into Staining: TIS-230102AAA-2 (project 1), TIS-230202BBB-2 (2), TIS-230402DDD-2 (3).
+STAINING_INPUTS = {"projects_1_3": 2, "project_2": 1, "no_projects": 0}
+
+
+@pytest.mark.parametrize("name", list(NON_ADMIN))
+def test_prover_counts_only_the_callers_inputs_of_an_assay(lane, name):
+    lane.reload()
+    out = scope_cypher(ASSAY_INPUTS, {"assay": "Staining"}, GraphScope.for_projects(NON_ADMIN[name], source="test"))
+    assert isinstance(out, Scoped) and out.injected == ("s: sample clause",)
+    assert lane.read(out.cypher, out.parameters) == [{"n": STAINING_INPUTS[name]}]
+    assert lane.read(ASSAY_INPUTS, {"assay": "Staining"}) == [{"n": 3}], "the admin count is every input"
+
+
+def test_the_fixture_holds_the_whole_assay_layer(lane):
+    lane.reload()
+    accepted, generates = fixture_graph.assay_catalog_edges()
+    links = fixture_graph.assay_links()
+    counts = {row["t"]: row["n"] for row in lane.read(
+        "MATCH ()-[r:INPUT_TO|OUTPUT_OF|RUN_IN|ACCEPTED_BY|GENERATES]->() RETURN type(r) AS t, count(r) AS n")}
+    assert counts == {"INPUT_TO": sum(link["role"] == "INPUT_TO" for link in links),
+                      "OUTPUT_OF": sum(link["role"] == "OUTPUT_OF" for link in links),
+                      "RUN_IN": len(fixture_graph.assay_runs_in()), "ACCEPTED_BY": len(accepted),
+                      "GENERATES": len(generates)}
+    assert lane.read("MATCH (a:Assay) RETURN count(a) AS n") == [{"n": len(fixture_graph.ASSAYS)}]
+
+
+def test_a_shared_sample_s_assay_edge_reads_for_a_caller_of_its_destination_project_alone(lane):
+    """The studies tool's share mode: a caller who holds only the project a sample was shared into walks INPUT_TO or
+    OUTPUT_OF from it to the Assay and reads every SEEK run on the edge; RUN_IN stays refused (spec D7)."""
+    lane.reload()
+    edge = ("MATCH (s:Sample {uuid: $uid})-[r:INPUT_TO|OUTPUT_OF]->(a:Assay) "
+            "RETURN type(r) AS role, a.title AS assay, r.seek_assay_ids AS runs")
+    base = fixture_graph.RUN_BASE
+    cases = [("TIS-230202BBB-2", (2,), "INPUT_TO", "Staining", [base + 3, base + 7]),   # DERIVED_FROM rows 3 and 7
+             ("MUS-230107AAA-7", (3,), "OUTPUT_OF", "Treatment", [base + 10])]          # shared into project 3
+    for uid, projects, role, assay, runs in cases:
+        caller = GraphScope.for_projects(projects, source="test")
+        one_type = edge.replace("INPUT_TO|OUTPUT_OF", role)
+        out = scope_cypher(one_type, {"uid": uid}, caller)
+        assert isinstance(out, Scoped), out
+        assert lane.read(out.cypher, out.parameters) == [{"role": role, "assay": assay, "runs": runs}]
+        run_in = scope_cypher("MATCH (a:Assay)-[:RUN_IN]->(st:Study) RETURN st.title AS t", {}, caller)
+        assert isinstance(run_in, Refused) and run_in.codes == ("relationship_type",)

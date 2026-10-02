@@ -20,6 +20,7 @@ a container of the live `nextseek` compose project.
 | `load_live.sh` | OPERATOR-RUN (plan task L1): snapshot the live stack's data, load the merged MySQL and the v1.1 graph into it, verify, and restore the snapshot afterwards |
 | `nessie_venue.sh`, `nessie_venue_check.py` | OPERATOR-RUN (Nessie follow-up plan, task T8, runbook step 1 and stage P): the evaluation venue `gs-nessie-venue`, a throwaway app container on `nextseek_default` (not `gs-net`: it reaches the live MySQL and Neo4j) that runs a snapshot of HEAD; `prepare`, `up`, `check`, `exec`, `run`, `bg`, `progress`, `stop`, `logs`, `down`, and `--dry-run`. `up` renders the live compose env files the way compose reads them. The venue runs as the image's root user (a non-root `--user` cannot execute the venv's interpreter, which lives under `/root`) and hands what it writes back to the invoking user after each command and at `down`. `python3 scripts/graph_search/nessie_venue_check.py selftest` tests both without a container |
 | `verify_labels.py` | read-only (sync plan task V1): the DERIVED_FROM label rule on the merged MySQL against the dev box's TCGA labels (singular fields, ids through `gs_remap`) and the local graph's production labels (every property, per `labels.classify` class), both from their dumps; `--local-host` adds a host the protocol rule reads as local; writes `$GS_RUN_DIR/labels/report.json` and `report.md`, exits 1 unless (a) matches every edge |
+| `measure_assay_nodes.py` | read-only (graph schema 1.3, spec section 9): on one box, what the assay layer will hold before its first full sync at 1.3, the role rule over the live DERIVED_FROM pairs, the DERIVED_FROM degree and the largest memberships, and the two limits they suggest; copied into the app container and run there (its docstring), writes one JSON file |
 
 Files other than `lane.sh` land with their tasks in the plan; `git ls-files scripts/graph_search` lists what exists.
 
@@ -44,6 +45,7 @@ It holds the seeds (`$GS_WORK/seeds/`), run reports (`$GS_WORK/runs/<task>/`) an
 | `GS_NEO4J_HEAP` | `1500m` | Neo4j heap, initial and maximum |
 | `GS_NEO4J_PAGECACHE` | `1500m` | Neo4j page cache |
 | `GS_NEO4J_TX_MAX` | `1g` | `db.memory.transaction.max`; keep it below the heap |
+| `GS_NEO4J_TX_TIMEOUT` | `120s` | `db.transaction.timeout`, production's and dev's; a run that passes here fits their limit |
 | `GS_APP_MEMORY` | `4g` | the app container's memory cap |
 | `GS_APP_IMAGE` | `nextseek-nextseek:latest` | the app image |
 

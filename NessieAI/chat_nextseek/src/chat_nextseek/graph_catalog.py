@@ -49,12 +49,14 @@ from typing import Any, Iterable, Mapping
 
 from . import graph_scope
 from .cypher_scope import SCOPE_CLAUSE_TEMPLATE
+from .graph_contract import schema
 
 log = logging.getLogger(__name__)
 
-# The minimum GraphMeta.schema_version this reader accepts. Later versions are read as they are: 1.2 (the sync work)
-# adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1 defines it.
-SCHEMA_VERSION = "1.1"
+# The minimum GraphMeta.schema_version this reader accepts (the contract's READER_MIN_VERSION). Later versions are read
+# as they are: 1.2 (the sync work) adds Sample.source_hash and GraphMeta.label_maps_hash and leaves the catalog as v1.1
+# defines it.
+SCHEMA_VERSION = schema.READER_MIN_VERSION
 HASH_RECHECK_S, DETAIL_TTL_S, VOCAB_TTL_S, FAILURE_MEMORY_S, QUERY_TIMEOUT_S = 60, 600, 3600, 60, 10
 # The VOCAB_* statements only: dev's graph measured them at 11-14 s, and their result is cached for VOCAB_TTL_S.
 VOCAB_QUERY_TIMEOUT_S = 30
@@ -66,18 +68,9 @@ SCOPED_VOCAB_MAX = 256
 # 120,000-sample graph (7.1 red team, finding N4), so minutes, not the admin form's hour.
 SCOPED_VOCAB_TTL_S = 300
 
-_VERSION_RE = re.compile(r"^(\d+)\.(\d+)$")
-
-
-def _version_tuple(value) -> tuple[int, int] | None:
-    match = _VERSION_RE.match(str(value).strip()) if value is not None else None
-    return (int(match.group(1)), int(match.group(2))) if match else None
-
-
 def schema_version_supported(value) -> bool:
     """True when ``value`` is a ``major.minor`` version at or above ``SCHEMA_VERSION`` ("1.2" and "1.10" are)."""
-    version = _version_tuple(value)
-    return version is not None and version >= _version_tuple(SCHEMA_VERSION)
+    return schema.at_least(value, SCHEMA_VERSION)
 
 # The catalog holds no attribute values: graph_sync writes none, and the reader of the old top_values was removed
 # (889abe89). Stored values are read per caller, through the graph tool, by the graph reviewer (graph_review_counts).
@@ -140,8 +133,10 @@ WHERE type = 'RANGE' AND entityType = 'NODE' AND state = 'ONLINE'
 RETURN labelsOrTypes, properties
 """.strip()
 
+# Only containers a sample reaches: every SEEK study has a node now, and an empty one is no scope to offer.
 VOCAB_INVESTIGATIONS = """
 MATCH (i:Investigation) WHERE i.title IS NOT NULL
+  AND EXISTS { MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(:Sample) }
 RETURN DISTINCT i.title AS title ORDER BY title
 """.strip()
 
@@ -152,6 +147,7 @@ RETURN DISTINCT p.title AS title ORDER BY title
 
 VOCAB_STUDIES = """
 MATCH (s:Study) WHERE s.title IS NOT NULL
+  AND EXISTS { MATCH (s)<-[:IN_STUDY]-(:Sample) }
 RETURN DISTINCT s.title AS title ORDER BY title
 """.strip()
 
@@ -161,6 +157,29 @@ MATCH (s:Study)
 WHERE coalesce(s.DOI, '') <> '' OR coalesce(s.PMID, '') <> ''
 RETURN s.title AS title, s.DOI AS doi, s.PMID AS pmid ORDER BY title
 """.strip()
+
+# What the samples record (the studies release: DOI and PMID are sample attributes, and a paper that moves into SEEK
+# leaves its graph-only Study node): per SEEK-keyed Study, each (DOI, PMID) pair more than half of its samples carry,
+# counting only samples on no graph-only paper study. A sample in several papers holds their DOIs '; '-joined with its
+# PMIDs at the same positions, so each position is one pair; a sample counts once for a pair however often its list
+# repeats it, and once in the study's total (its first position, i = 0). Each row carries its pair's sample count and
+# the study's total, from which _published keeps one study per paper. A bucket (a title ending in "Unpublished") is
+# never published; trim() here keeps a no-break space, so _published applies the exact rule to what comes back.
+_PUBLISHED_SAMPLES_TAIL = """
+WITH st, s, split(coalesce(toString(s.DOI), ''), ';') AS dois, split(coalesce(toString(s.PMID), ''), ';') AS pmids
+UNWIND range(0, CASE WHEN size(dois) > size(pmids) THEN size(dois) ELSE size(pmids) END - 1) AS i
+WITH st, s, i, trim(coalesce(dois[i], '')) AS doi, trim(coalesce(pmids[i], '')) AS pmid
+WITH st, doi, pmid, count(DISTINCT s) AS n, sum(CASE WHEN i = 0 THEN 1 ELSE 0 END) AS firsts
+WITH st, collect({doi: doi, pmid: pmid, n: n}) AS pairs, sum(firsts) AS total
+UNWIND pairs AS pair
+WITH st, pair, total WHERE (pair.doi <> '' OR pair.pmid <> '') AND pair.n * 2 > total
+RETURN st.title AS title, pair.doi AS doi, pair.pmid AS pmid, pair.n AS n, total AS total ORDER BY title
+"""
+_PUBLISHED_SAMPLES_HEAD = """
+MATCH (st:Study)<-[:IN_STUDY]-(s:Sample)
+WHERE st.seek_study_id IS NOT NULL AND st.title IS NOT NULL AND NOT toLower(trim(st.title)) ENDS WITH 'unpublished'
+  AND NOT EXISTS { MATCH (s)-[:IN_STUDY]->(p:Study) WHERE p.seek_study_id IS NULL }"""
+VOCAB_PUBLISHED_SAMPLES = (_PUBLISHED_SAMPLES_HEAD + _PUBLISHED_SAMPLES_TAIL).strip()
 
 # One pass over DERIVED_FROM gives the assay titles, the protocol titles and the assay connections, with no cap
 # (the old connection fetch stopped at LIMIT 300). Only Sample-to-Sample edges: no search sees an OrphanSample.
@@ -218,6 +237,9 @@ WHERE (coalesce(st.DOI, '') <> '' OR coalesce(st.PMID, '') <> '')
 RETURN st.title AS title, st.DOI AS doi, st.PMID AS pmid ORDER BY title
 """.strip()
 
+VOCAB_PUBLISHED_SAMPLES_SCOPED = (_PUBLISHED_SAMPLES_HEAD + f"\n  AND {_visible('s')}" +
+                                  _PUBLISHED_SAMPLES_TAIL).strip()
+
 VOCAB_EDGES_SCOPED = f"""
 MATCH (c:Sample)-[r:DERIVED_FROM]->(p:Sample)
 WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_EDGE_HAS_PLURAL_TITLE})
@@ -228,12 +250,13 @@ WHERE (r.internal_assay_title IS NOT NULL OR r.protocol_title IS NOT NULL OR {_E
 # (field, statement) per source, for every project and for a caller's projects.
 _VOCAB_SOURCES = (
     ("investigation_titles", VOCAB_INVESTIGATIONS), ("project_titles", VOCAB_PROJECTS),
-    ("study_titles", VOCAB_STUDIES), ("published_studies", VOCAB_PUBLISHED), ("assay_connections", VOCAB_EDGES),
+    ("study_titles", VOCAB_STUDIES), ("published_studies", VOCAB_PUBLISHED),
+    ("published_from_samples", VOCAB_PUBLISHED_SAMPLES), ("assay_connections", VOCAB_EDGES),
 )
 _SCOPED_VOCAB_SOURCES = (
     ("investigation_titles", VOCAB_INVESTIGATIONS_SCOPED), ("project_titles", VOCAB_PROJECTS_SCOPED),
     ("study_titles", VOCAB_STUDIES_SCOPED), ("published_studies", VOCAB_PUBLISHED_SCOPED),
-    ("assay_connections", VOCAB_EDGES_SCOPED),
+    ("published_from_samples", VOCAB_PUBLISHED_SAMPLES_SCOPED), ("assay_connections", VOCAB_EDGES_SCOPED),
 )
 
 
@@ -625,6 +648,44 @@ def get_vocabulary(config) -> Vocabulary:
         return vocab
 
 
+def _is_bucket(title) -> bool:
+    """A holding study whose samples move out on publication: its title ends in "Unpublished", surrounding
+    whitespace and case aside (the studies tool's rule)."""
+    return (title or "").strip().casefold().endswith("unpublished")
+
+
+def _paper(row) -> str:
+    """The paper a row names: its DOI, lowercased, or its PMID where it has no DOI."""
+    doi = str(row.get("doi") or "").strip().lower()
+    return doi or "pmid " + str(row.get("pmid") or "").strip()
+
+
+def _published(node_rows, sample_rows) -> tuple[dict, ...]:
+    """The published studies. A SEEK study is a candidate for a paper only when more than half of its samples carry
+    it, and a bucket never is. Then each paper is listed for one study. A Study node carrying a DOI or PMID is that
+    paper's own study. Any other paper goes to the candidate holding the most of its samples, a tie to the one where
+    it is on the larger share of its own samples, then to the first title in order. A caller who sees only a paper's
+    samples shared into another study, which holds nothing else that caller sees, meets an exact tie there, so title
+    order names the study. Each (title, lowercased DOI, PMID) is listed once, the Study node's spelling first."""
+    node_rows = list(node_rows)
+    taken, chosen = {_paper(r) for r in node_rows}, []
+    ranked = sorted((r for r in sample_rows if not _is_bucket(r.get("title"))),
+                    key=lambda r: (-(r.get("n") or 0), -(r.get("n") or 0) / (r.get("total") or 1),
+                                   str(r.get("title") or ""), str(r.get("doi") or ""), str(r.get("pmid") or "")))
+    for row in ranked:
+        if _paper(row) not in taken:
+            taken.add(_paper(row))
+            chosen.append(row)
+    seen, out = set(), []
+    for row in node_rows + chosen:
+        entry = {"title": _opt_str(row.get("title")), "doi": row.get("doi"), "pmid": row.get("pmid")}
+        key = (entry["title"], str(entry["doi"] or "").lower(), str(entry["pmid"] or ""))
+        if key not in seen:
+            seen.add(key)
+            out.append(entry)
+    return tuple(sorted(out, key=lambda e: (e["title"] or "", str(e["doi"] or ""), str(e["pmid"] or ""))))
+
+
 def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tuple[Vocabulary, list[str]]:
     """One read per source, each with ``VOCAB_QUERY_TIMEOUT_S``; a source whose read fails is empty and named in the
     returned list."""
@@ -644,10 +705,7 @@ def _read_vocabulary(driver, database: str, sources, params: dict | None) -> tup
         investigation_titles=_titles(rows["investigation_titles"]),
         project_titles=_titles(rows["project_titles"]),
         study_titles=_titles(rows["study_titles"]),
-        published_studies=tuple(
-            {"title": _opt_str(r.get("title")), "doi": r.get("doi"), "pmid": r.get("pmid")}
-            for r in rows["published_studies"]
-        ),
+        published_studies=_published(rows["published_studies"], rows["published_from_samples"]),
         assay_titles=_titles({"title": r.get("assay")} for r in edges),
         protocol_titles=_titles({"title": r.get("protocol")} for r in edges),
         assay_connections=_connections(edges),
@@ -718,7 +776,6 @@ def reset_cache() -> None:
 # --- row conversion -------------------------------------------------------------------------------------------------
 
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_LABEL_UNSAFE = re.compile(r"[^A-Za-z0-9_]")
 
 
 def _age(now: float, then: float | None) -> float | None:
@@ -767,7 +824,7 @@ def _index_row(row: dict) -> TypeIndexRow:
     title = str(row["title"])
     return TypeIndexRow(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         clade=_opt_str(row.get("clade")),
         sample_count=_opt_int(row.get("sample_count")),
@@ -809,7 +866,7 @@ def _type_detail(row: dict) -> TypeDetail:
     title = str(row["title"])
     return TypeDetail(
         title=title,
-        label=str(row.get("label") or "T_" + _LABEL_UNSAFE.sub("_", title)),
+        label=str(row.get("label") or schema.type_label(title)),
         name=_opt_str(row.get("name")),
         summary=_opt_str(row.get("summary")),
         clade=_opt_str(row.get("clade")),

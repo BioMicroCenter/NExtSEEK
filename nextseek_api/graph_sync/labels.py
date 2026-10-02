@@ -1,8 +1,9 @@
 """The DERIVED_FROM label rule: batch upload's, moved into graph_sync and fed from MySQL (sync design 7.3).
 
-Pure: no database, no Neo4j. The rule is `nextseek_api/batch_upload/neo4j_sync.py::build_derived_from_payloads_from_db`
-Steps 1 to 3, and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function
-returns for the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py`):
+Pure: no database, no Neo4j. The rule is batch upload's former `build_derived_from_payloads_from_db` Steps 1 to 3,
+and on data where the upload sheet says nothing MySQL does not, `edge_labels` returns what that function returned for
+the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_labels.py` against its frozen outputs,
+`nextseek_api/tests/fixtures/graph_sync_batch_upload_parity.json`):
 
 - **Assays.** The SEEK assays both endpoints share in `assay_assets`, each resolved through the map `sources` reads
   (SEEK assay id to `(internal assay id or None, title)`, the smallest internal id on 1:N). An assay with no internal
@@ -17,8 +18,10 @@ returns for the same edge (R5; pinned by `nextseek_api/tests/test_graph_sync_lab
   compared stripped and casefolded as `helpers.lookup_sop_ids_by_title` does; a foreign URL resolves to nothing.
 
 Every label set carries all five assay keys and the protocol pair, nulls and empty lists included (R15): never a
-subset. `classify` sorts a stored edge against the rule for R14, which lets only `new` edges be written without the
-operator's approval; `label_maps_hash` is the digest `GraphMeta.label_maps_hash` holds, so a changed map is seen.
+subset. `classify` sorts a stored edge against the rule for R14, which lets only `new`, `renamed` and `protocol_filled`
+edges be written without the operator's approval (an internal assay renamed under its id, a protocol filled where
+none was stored; any change of which assay an edge carries still needs it); `label_maps_hash` is the digest
+`GraphMeta.label_maps_hash` holds, so a changed map is seen.
 """
 from __future__ import annotations
 
@@ -27,15 +30,20 @@ import json
 from collections.abc import Iterable, Mapping
 
 from nextseek_api.batch_upload.helpers import parse_protocol_value
+from nextseek_graph import schema
 
-SINGULAR_ASSAY_KEYS = ("assay_id", "internal_assay_id", "internal_assay_title")
-PLURAL_ASSAY_KEYS = ("internal_assay_ids", "internal_assay_titles")
-ASSAY_KEYS = SINGULAR_ASSAY_KEYS + PLURAL_ASSAY_KEYS
-PROTOCOL_KEYS = ("protocol_id", "protocol_title")
-LABEL_KEYS = ASSAY_KEYS + PROTOCOL_KEYS
+SINGULAR_ASSAY_KEYS = schema.DERIVED_FROM_SINGULAR_ASSAY_KEYS
+PLURAL_ASSAY_KEYS = schema.DERIVED_FROM_PLURAL_ASSAY_KEYS
+ASSAY_KEYS = schema.DERIVED_FROM_ASSAY_KEYS
+PROTOCOL_KEYS = schema.DERIVED_FROM_PROTOCOL_KEYS
+LABEL_KEYS = schema.DERIVED_FROM_LABEL_KEYS
 
 NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED = "new", "equal", "plural_missing", "changed", "cleared"
-CLASSES = (NEW, EQUAL, PLURAL_MISSING, CHANGED, CLEARED)
+RENAMED, PROTOCOL_FILLED = "renamed", "protocol_filled"
+CLASSES = (NEW, EQUAL, PLURAL_MISSING, RENAMED, PROTOCOL_FILLED, CHANGED, CLEARED)
+TITLE_KEYS = ("internal_assay_title", "internal_assay_titles")
+REFRESH_CLASSES = (RENAMED, PROTOCOL_FILLED)                 # written without approval, compare-and-set
+WRITABLE_WITHOUT_APPROVAL = (NEW,) + REFRESH_CLASSES
 
 
 # --- protocol ----------------------------------------------------------------------------------------------------
@@ -150,16 +158,48 @@ def differences(stored: Mapping | None, computed: Mapping) -> list[str]:
     return [key for key in LABEL_KEYS if _stored_value(stored, key) != computed.get(key)]
 
 
+def _is_refresh(stored: Mapping, computed: Mapping, rest: list[str]) -> bool:
+    """Whether every differing key (``rest``) is a title renamed under the same ids or a protocol filled where none was
+    stored. The ids (``assay_id``, ``internal_assay_id`` and, when stored, ``internal_assay_ids``) are not in ``rest``,
+    so they are equal: the edge carries the same assay. On an edge stored without ``internal_assay_ids`` the refresh
+    writes the rule's list too, so it must hold only the edge's own internal assay: a second one would be added
+    without approval."""
+    filled_ids = list(computed.get("internal_assay_ids") or ())
+    if stored.get("internal_assay_ids") is None and filled_ids != [computed.get("internal_assay_id")]:
+        return False
+    for key in rest:
+        if key == "internal_assay_title":
+            value = computed.get(key)
+            if not (isinstance(value, str) and value.strip()):
+                return False
+        elif key == "internal_assay_titles":
+            old, new = stored.get(key), computed.get(key)
+            if stored.get("internal_assay_ids") is None or old is None or new is None or len(old) != len(new):
+                return False
+            if any(n == "" and o != "" for o, n in zip(old, new)):
+                return False
+        elif key in PROTOCOL_KEYS:
+            if stored.get(key) is not None or computed.get(key) is None:
+                return False
+        else:
+            return False
+    return True
+
+
 def classify(stored: Mapping | None, computed: Mapping) -> str:
     """One stored edge against the rule (sync design 7.3, R14); `computed` is `edge_labels(...)`.
 
     - `equal`: every label property matches.
     - `new`: none of the three singular assay fields is stored; the only edges the default write labels.
     - `plural_missing`: the only differences are absent plural lists; the singular fields and the protocol match.
+    - `renamed`: the edge keeps its SEEK assay and internal assay ids and only an internal assay title differs (a
+      rename under the same id), a protocol possibly filled beside it.
+    - `protocol_filled`: the only difference is a protocol filled where none was stored.
     - `cleared`: every other difference is a stored value the rule would remove (a null, or an empty list).
     - `changed`: a stored value the rule would replace with another.
 
-    A missing plural list never makes an edge `changed` by itself.
+    A missing plural list never makes an edge `changed` by itself. Beside a rename or a filled protocol it does when
+    the rule's list holds more than the edge's own internal assay: that write would add an assay, which needs approval.
     """
     stored = stored or {}
     diff = differences(stored, computed)
@@ -170,6 +210,8 @@ def classify(stored: Mapping | None, computed: Mapping) -> str:
     rest = [key for key in diff if not (key in PLURAL_ASSAY_KEYS and stored.get(key) is None)]
     if not rest:
         return PLURAL_MISSING
+    if _is_refresh(stored, computed, rest):
+        return RENAMED if any(key in TITLE_KEYS for key in rest) else PROTOCOL_FILLED
     if all(computed.get(key) in (None, []) for key in rest):
         return CLEARED
     return CHANGED

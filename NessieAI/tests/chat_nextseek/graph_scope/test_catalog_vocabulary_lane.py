@@ -141,7 +141,10 @@ def test_the_graph_agent_context_carries_no_foreign_value(graph, caller):
 def test_an_admin_vocabulary_holds_every_project(graph):
     vocab = gc.get_vocabulary(_config(GraphScope.admin("test")))
 
-    assert set(vocab.study_titles) == {st["title"] for st in fixture_graph.STUDIES}
-    assert set(vocab.investigation_titles) == {i["title"] for i in fixture_graph.INVESTIGATIONS}
+    # Only containers a sample reaches: the fixture's empty study is no scope to offer.
+    assert set(vocab.study_titles) == {st["title"] for st in fixture_graph.STUDIES if st["samples"]}
+    assert set(vocab.investigation_titles) == {
+        i["title"] for i in fixture_graph.INVESTIGATIONS
+        if any(st["investigation"] == i["id"] and st["samples"] for st in fixture_graph.STUDIES)}
     assert set(vocab.project_titles) == {p["title"] for p in fixture_graph.PROJECTS}
     assert set(vocab.protocol_titles) == {protocol for *_, protocol in fixture_graph.DERIVED_FROM}

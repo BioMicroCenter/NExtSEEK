@@ -32,11 +32,13 @@ def _clear_cache():
 class TestConnectionRows:
     @patch("nextseek_api.services.project_connections.run_connections_query",
            return_value=ROWS)
-    def test_the_project_id_is_passed_as_the_seek_investigation_selector(self, run):
+    def test_the_project_id_is_passed_as_the_project_selector(self, run):
+        """The project's own samples, whatever their study: a project whose investigation has no Study node, or
+        whose samples no study of its investigation holds, still has a diagram."""
         assert pc.connection_rows(2) == ROWS
         selector = run.call_args[0][0]
-        assert selector.seek_inv_id == 2
-        assert selector.graph_inv_id is None
+        assert selector.project_id == 2
+        assert selector.seek_inv_id is None and selector.graph_inv_id is None
         assert selector.sample_type is None
 
     @patch("nextseek_api.services.project_connections.run_connections_query")

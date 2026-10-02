@@ -652,6 +652,37 @@ def test_a_count_per_value_still_states_the_split():
     assert rv.verdict == "ok", [c for c in rv.checks if c.fired]
 
 
+# --- graph schema 1.3: a zero over Assay nodes is a catalog zero, not a sample zero ---------------------------------
+
+
+def _zero(cypher, params):
+    return ReviewInput(question="how many", cypher=cypher, parameters=params, keyword_fields={}, rows=[{"n": 0}],
+                       count=1, total=None, ok=True, error=None)
+
+
+@pytest.mark.parametrize("label", ["Attribute", "SampleType", "Assay"])
+def test_a_zero_over_catalog_nodes_is_not_a_sample_zero(label):
+    cypher = (f"MATCH (a:{label}) WHERE toLower(a.title) CONTAINS toLower($x) "
+              "AND toLower(a.description) CONTAINS toLower($y) RETURN count(a) AS n")
+    rv = review_tier1(_zero(cypher, {"x": "seq", "y": "rna"}), DictCatalog({}))
+    assert not _check(rv, "zero_unproven_base").fired
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:T_TIS)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    # the taught "went through" form: the Assay by name, then the samples with an edge to it
+    "MATCH (a:Assay) WHERE toLower(a.title) = toLower($y) MATCH (s:Sample) "
+    "WHERE (EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }) "
+    "AND toLower(s.search_text) CONTAINS toLower($x) RETURN count(DISTINCT s) AS n",
+], ids=["type_label", "sample_label", "went_through"])
+def test_a_zero_over_samples_that_reach_an_assay_still_opens(cypher):
+    rv = review_tier1(_zero(cypher, {"x": "lung", "y": "rna"}), DictCatalog({}))
+    assert _check(rv, "zero_unproven_base").fired
+
+
 # ------------------------------------- short values and negations over a free-text search (round 2, D1 and D2) -------
 # Reviewer-only records, inline: the shared replay fixture must cover exactly the query-scope replay's turns. Types,
 # attributes and values are made up.

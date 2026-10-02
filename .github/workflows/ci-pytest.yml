@@ -118,8 +118,9 @@ jobs:
         run: uv run pytest ci/gate -q
 
       # The second blocking step: the unit tests ci/blocking_lanes.py names by
-      # glob (the graph_sync and graph_search tests, and the Sample Search page's
-      # view and JavaScript tests). They also run in the lanes above, where a
+      # glob (the graph_sync and graph_search tests, the studies tool's tests, and
+      # the Sample Search page's view and JavaScript tests) and by name (the entity_tree view and
+      # read-routing tests). They also run in the lanes above, where a
       # failure is only a report; here any failure fails the job. A new module
       # joins by its name. The page's JavaScript module skips wherever node is
       # missing, and a skip is green, so a runner without node fails here

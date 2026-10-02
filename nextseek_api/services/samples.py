@@ -327,7 +327,16 @@ class SampleProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
+        try:
+            body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back.
+            hooks.enqueue("samples", f"sample:{seek_id}", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
+            hooks.enqueue("samples", f"sample:{seek_id}", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -359,12 +368,6 @@ class SampleProxyViewSet(viewsets.ViewSet):
         except Exception as e:
             log.warning("samples_proxy.validation_exception action=partial_update error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
-
-        if 200 <= code < 300:
-            # Rails committed the update: the graph follows it through one outbox row (spec 5 E1, E2).
-            sample_id = _graph_sync_sample_id(data, seek_id)
-            if sample_id is not None:
-                hooks.enqueue("samples", f"sample:{sample_id}")
 
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)

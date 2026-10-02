@@ -8,6 +8,7 @@ tables in the SQLite test database.
 from __future__ import annotations
 
 import json
+import os
 from contextlib import contextmanager
 from datetime import datetime, timezone as dt_timezone
 from types import SimpleNamespace
@@ -15,8 +16,9 @@ from types import SimpleNamespace
 import pytest
 
 from nextseek_api.graph_sync import cypher as q
-from nextseek_api.graph_sync import drift, reconcile, run, sources, state, targeted, writer
+from nextseek_api.graph_sync import drift, reconcile, run, sources, state, study_links, targeted, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
+from nextseek_graph import schema
 
 DB = "neo4j"
 T0 = datetime(2026, 9, 15, 2, 0, tzinfo=dt_timezone.utc)
@@ -26,7 +28,7 @@ CAT = run.Catalog(sample_types=[], attributes=[], type_titles={26: "TIS"}, value
 class FakeDriver:
     """Answers the GraphMeta read and fails on every other statement."""
 
-    def __init__(self, schema_version="1.2"):
+    def __init__(self, schema_version=schema.SCHEMA_VERSION):
         self.version = schema_version
         self.calls = []
 
@@ -69,18 +71,20 @@ def steps(monkeypatch):
     called with from its recorded call.
     """
     rec = SimpleNamespace(calls=[], detection=_detection(), naming=[],
-                          catalog=None, small=None, relabel=None, sync=None, retire=None)
+                          catalog=None, small=None, relabel=None, sync=None, retire=None, study_links=None,
+                          assays=None)
 
-    def catalog_sync(driver, db, dry_run=False, *, record=True, trigger="command", **kwargs):
-        rec.calls.append(SimpleNamespace(name="catalog", dry_run=dry_run, record=record, trigger=trigger))
+    def catalog_sync(driver, db, dry_run=False, *, record=True, trigger="command", run_dir=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="catalog", dry_run=dry_run, record=record, trigger=trigger,
+                                         run_dir=run_dir))
         return _answer(rec.catalog, {"mode": "catalog", "status": "ok", "sample_types": 3})
 
     def build_catalog():
         rec.calls.append(SimpleNamespace(name="build_catalog"))
         return CAT
 
-    def sync_small_tables(driver, db, **kwargs):
-        rec.calls.append(SimpleNamespace(name="small_tables"))
+    def sync_small_tables(driver, db, *, run_dir=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="small_tables", run_dir=run_dir))
         return _answer(rec.small, {"status": "ok", "projects_written": 2})
 
     def relabel_for_maps(driver, db, *, apply_label_changes=False, **kwargs):
@@ -100,16 +104,27 @@ def steps(monkeypatch):
         rec.calls.append(SimpleNamespace(name="retire", ids=list(ids), run_dir=run_dir))
         return _answer(rec.retire, {"status": "ok", "retired_deleted": len(list(ids))})
 
+    def sync_assays(driver, db, *, run_dir=None, chunk=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="assays", run_dir=run_dir, chunk=chunk))
+        return _answer(rec.assays, {"status": "ok", "assay_members_to_rewrite": 0})
+
     def samples_naming(uuids, chunk=5000):
         rec.calls.append(SimpleNamespace(name="samples_naming", uuids=list(uuids), chunk=chunk))
         return list(rec.naming)
 
+    def rebuild_in_study(driver, db, *, remove, run_dir, dry_run=False, lock=None, **kwargs):
+        rec.calls.append(SimpleNamespace(name="study_links", remove=remove, run_dir=run_dir, dry_run=dry_run,
+                                         lock=lock))
+        return _answer(rec.study_links, {"status": "ok", "in_study_added": 0, "in_study_removed": 0})
+
+    monkeypatch.setattr(study_links, "rebuild_in_study", rebuild_in_study)
     monkeypatch.setattr(run, "catalog_sync", catalog_sync)
     monkeypatch.setattr(run, "build_catalog", build_catalog)
     monkeypatch.setattr(targeted, "sync_small_tables", sync_small_tables)
     monkeypatch.setattr(targeted, "relabel_for_maps", relabel_for_maps)
     monkeypatch.setattr(targeted, "sync_samples", sync_samples)
     monkeypatch.setattr(targeted, "retire_samples", retire_samples)
+    monkeypatch.setattr(targeted, "sync_assays", sync_assays)
     monkeypatch.setattr(drift, "detect_sample_drift", detect_sample_drift)
     monkeypatch.setattr(sources, "samples_naming", samples_naming)
     return rec
@@ -138,11 +153,12 @@ def test_runs_every_step_in_the_designs_order(steps, tmp_path):
     result = _reconcile(tmp_path)
 
     assert result["status"] == "ok"
-    assert _names(steps) == ["catalog", "small_tables", "relabel", "build_catalog", "detect",
-                             "sync_samples", "retire", "samples_naming", "sync_samples"]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect",
+                             "sync_samples", "retire", "samples_naming", "sync_samples", "study_links"]
     assert result["mode"] == "reconcile"
-    assert result["schema_version"] == writer.SCHEMA_VERSION == "1.2"
-    assert set(result["steps"]) == {"catalog", "small_tables", "relabel", "samples", "retire", "new_parents"}
+    assert result["schema_version"] == writer.SCHEMA_VERSION == schema.SCHEMA_VERSION
+    assert set(result["steps"]) == {"catalog", "small_tables", "relabel", "assays", "samples", "retire",
+                                    "new_parents", "study_links"}
     assert result["timings_s"]["detection"] >= 0
 
 
@@ -278,6 +294,64 @@ def test_no_old_row_names_a_new_uuid_so_nothing_more_is_synced(steps, tmp_path):
     assert "new_parents" not in result["steps"]
 
 
+def test_the_catalog_and_small_tables_steps_archive_into_the_run_directory(steps, tmp_path):
+    run_dir = str(tmp_path / "nightly")
+    _reconcile(tmp_path, run_dir=run_dir)
+    assert _one(steps, "catalog").run_dir == _one(steps, "small_tables").run_dir == os.path.abspath(run_dir)
+
+
+# --- the study_links step (the studies release) ------------------------------------------------------------------
+
+@pytest.mark.parametrize("switch, remove", [(None, False), ("follow", True)])
+def test_the_study_links_step_runs_last_with_the_switch_and_the_lock_per_chunk(steps, tmp_path, monkeypatch, switch,
+                                                                               remove):
+    if switch is None:
+        monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    else:
+        monkeypatch.setenv(study_links.SWITCH_ENV, switch)
+    steps.detection = _detection(changed=[11])
+    run_dir = str(tmp_path / "nightly")
+    result = _reconcile(tmp_path, run_dir=run_dir)
+
+    assert result["status"] == "ok"
+    assert _names(steps)[-1] == "study_links"
+    call = _one(steps, "study_links")
+    assert (call.remove, call.run_dir, call.lock, call.dry_run) == (remove, os.path.abspath(run_dir), "chunk", False)
+    assert "study_links" in result["timings_s"]
+
+
+@pytest.mark.django_db
+def test_the_study_links_step_does_not_run_when_the_guard_trips(steps, tmp_path):
+    steps.detection = _detection(changed=[1, 2, 3], mysql_samples=4, graph_samples=4)
+    result = _reconcile(tmp_path)
+    assert result["status"] == "guard_tripped" and "study_links" not in _names(steps)
+
+
+@pytest.mark.django_db
+def test_the_study_links_step_never_enqueues_a_full_sync_nor_counts_toward_the_guard(steps, tmp_path):
+    steps.study_links = {"status": "ok", "in_study_added": 50_000, "in_study_removed": 50_000}
+    result = _reconcile(tmp_path)
+    assert result["status"] == "ok" and result["differing"] == 0
+    assert not GraphSyncOutbox.objects.exists()
+
+
+@pytest.mark.parametrize("version", ["1.1", None])
+def test_a_graph_not_at_the_writers_version_never_reaches_the_study_links_step(steps, tmp_path, version):
+    result = _reconcile(tmp_path, driver=FakeDriver(version))
+    assert result["status"] == "not_at_version" and "study_links" not in _names(steps)
+
+
+def test_a_samples_step_that_left_structural_gaps_does_not_stop_the_run(steps, tmp_path):
+    """The by-id sync reports the gaps and leaves those samples' source_hash null, so the next night retries them;
+    the nightly run goes on to its later steps."""
+    steps.detection = _detection(changed=[11], extra=[9])
+    steps.sync = {"status": "ok", "structural_gaps": 1, "structural_gap_parts": {"in_project_missing": 1}}
+    result = _reconcile(tmp_path)
+    assert result["status"] == "ok"
+    assert result["steps"]["samples"]["structural_gaps"] == 1
+    assert _names(steps)[-2:] == ["retire", "study_links"]
+
+
 # --- dry runs ------------------------------------------------------------------------------------
 
 def test_a_dry_run_writes_nothing_and_reports_what_it_would_do(steps, tmp_path):
@@ -287,7 +361,8 @@ def test_a_dry_run_writes_nothing_and_reports_what_it_would_do(steps, tmp_path):
     result = _reconcile(tmp_path, run_dir=str(run_dir), dry_run=True)
 
     assert result["status"] == "dry_run"
-    assert _names(steps) == ["build_catalog", "detect", "samples_naming"]
+    assert _names(steps) == ["build_catalog", "detect", "samples_naming", "study_links"]
+    assert result["study_links_preview"]["status"] == "ok" and _one(steps, "study_links").dry_run is True
     assert (result["samples_to_sync"], result["samples_to_retire"]) == (1, 1)
     assert result["new_parent_pass"]["to_sync"] == 1
     assert result["steps"] == {}
@@ -318,15 +393,87 @@ def test_refuses_a_graph_not_at_the_writers_version_and_does_nothing(steps, tmp_
     assert GraphSyncRun.objects.get(kind="reconcile").status == "refused"
 
 
-def test_a_catalog_sync_that_refuses_stops_the_run(steps, tmp_path):
-    problem = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
-    steps.catalog = run.PreflightError([problem], {"mode": "catalog"})
+_CONFLICT = "1 SampleType titles are held under other ids in the graph (sample_type_title_conflicts)"
+_OTHER = "the graph is at schema '1.1', not '1.2'; run a full sync first, which brings it there"
+
+
+def _refusal(*problems, conflicts=True):
+    report = {"mode": "catalog", "sample_type_title_conflicts": [{"title": "TIS", "graph_id": 9, "mysql_id": 26}]
+              if conflicts else []}
+    return run.PreflightError(list(problems), report)
+
+
+@pytest.mark.parametrize("refusal", [_refusal(_OTHER, conflicts=False), _refusal(_CONFLICT, _OTHER)],
+                         ids=["another reason", "title conflicts beside another reason"])
+def test_a_catalog_sync_that_refuses_still_writes_the_small_tables_and_the_relabel(steps, tmp_path, refusal):
+    """Neither reads the catalog: a night whose catalog refuses still writes the Investigation, Project, Person and
+    Study nodes and the relabel; detection and the sample steps, which build the catalog, do not run. Only a refusal
+    for nothing but title conflicts goes on to the retire."""
+    steps.catalog = refusal
+    steps.detection = _detection(extra=[9])
     result = _reconcile(tmp_path)
 
     assert result["status"] == "refused"
-    assert result["problems"] == [problem]
+    assert result["problems"] == refusal.problems
     assert result["stopped_at"] == "catalog"
-    assert _names(steps) == ["catalog"]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays"]
+
+
+def test_a_catalog_refused_only_for_title_conflicts_retires_then_tries_once_more(steps, tmp_path):
+    """A type deleted in SEEK with its samples (no hook sees either) and recreated under its old title. The old
+    node still holds Sample nodes only the retire step removes, so the catalog refuses: detection and the retire run,
+    the catalog is tried once more, and the night goes on without a second retire."""
+    steps.catalog = [_refusal(_CONFLICT), None]
+    steps.detection = _detection(changed=[11], extra=[9, 3])
+    result = _reconcile(tmp_path)
+
+    assert result["status"] == "ok"
+    assert "problems" not in result and "stopped_at" not in result
+    assert result["catalog_retried"] == [_CONFLICT]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "retire",
+                             "catalog", "sync_samples", "study_links"]
+    assert _one(steps, "retire").ids == [3, 9] and _one(steps, "sync_samples").ids == [11]
+    assert set(result["steps"]) >= {"small_tables", "relabel", "retire", "catalog_retry", "samples", "study_links"}
+
+
+def test_a_second_title_conflict_refusal_stops_the_run_after_the_retire(steps, tmp_path):
+    steps.catalog = [_refusal(_CONFLICT), _refusal(_CONFLICT)]
+    steps.detection = _detection(changed=[11], extra=[9])
+    result = _reconcile(tmp_path)
+
+    assert (result["status"], result["stopped_at"], result["problems"]) == ("refused", "catalog_retry", [_CONFLICT])
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "retire",
+                             "catalog"]
+
+
+@pytest.mark.django_db
+def test_a_title_conflict_night_whose_guard_trips_retires_nothing(steps, tmp_path):
+    steps.catalog = [_refusal(_CONFLICT), None]
+    steps.detection = _detection(extra=list(range(1, 30)), mysql_samples=100)
+    result = _reconcile(tmp_path)
+
+    assert result["status"] == "guard_tripped" and result["catalog_retried"] == [_CONFLICT]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect"]
+
+
+@pytest.mark.django_db
+def test_a_catalog_sync_that_raises_still_writes_the_small_tables_and_records_the_failure(steps, tmp_path):
+    steps.catalog = RuntimeError("the catalog read failed")
+    result = _reconcile(tmp_path, record=True)
+
+    assert (result["status"], result["stopped_at"]) == ("failed", "catalog")
+    assert "the catalog read failed" in result["error"]
+    assert _names(steps) == ["catalog", "small_tables", "relabel", "assays"]
+    assert GraphSyncRun.objects.get(kind="reconcile").status == "failed"
+
+
+def test_a_refused_catalog_and_a_busy_lock_at_the_small_tables_stop_there(steps, tmp_path):
+    steps.catalog = run.PreflightError(["a problem"], {"mode": "catalog"})
+    steps.small = {"status": "lock_timeout", "lock_timeout_s": 60}
+    result = _reconcile(tmp_path)
+
+    assert (result["status"], result["stopped_at"]) == ("lock_timeout", "small_tables")
+    assert _names(steps) == ["catalog", "small_tables"]
 
 
 _REAL_CATALOG_SYNC = run.catalog_sync          # ``steps`` stubs it; the lock refusal below is the real one's
@@ -356,7 +503,10 @@ def test_a_catalog_step_that_found_the_lock_busy_is_a_lock_timeout_not_a_refusal
 @pytest.mark.parametrize("field, stopped, ran", [
     ("small", "small_tables", ["catalog", "small_tables"]),
     ("relabel", "relabel", ["catalog", "small_tables", "relabel"]),
-    ("sync", "samples", ["catalog", "small_tables", "relabel", "build_catalog", "detect", "sync_samples"]),
+    ("assays", "assays", ["catalog", "small_tables", "relabel", "assays"]),
+    ("sync", "samples", ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect", "sync_samples"]),
+    ("study_links", "study_links", ["catalog", "small_tables", "relabel", "assays", "build_catalog", "detect",
+                                    "sync_samples", "retire", "samples_naming", "study_links"]),
 ])
 def test_a_step_that_cannot_take_the_lock_stops_the_run(steps, tmp_path, field, stopped, ran):
     steps.detection = _detection(changed=[11], extra=[9], new_uuids=["a-1"])
@@ -367,6 +517,12 @@ def test_a_step_that_cannot_take_the_lock_stops_the_run(steps, tmp_path, field, 
     assert result["stopped_at"] == stopped
     assert result["lock_timeout_s"] == 60
     assert _names(steps) == ran
+
+
+def test_sync_assays_gets_the_runs_directory_and_chunk(steps, tmp_path):
+    _reconcile(tmp_path, chunk=9)
+    call = _one(steps, "assays")
+    assert (call.run_dir, call.chunk) == (str(tmp_path / "reconcile-1"), 9)
 
 
 @pytest.mark.parametrize("kwargs", [{"chunk": 0}, {"guard_fraction": -0.1}, {"guard_fraction": 1.5},

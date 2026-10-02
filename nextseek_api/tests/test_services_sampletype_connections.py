@@ -35,6 +35,18 @@ from nextseek_api.services.sampletype_connections import (
 
 MODULE = "nextseek_api.services.sampletype_connections"
 
+from nextseek_api.services.sampletype_connections import closest_sample_types as REAL_CLOSEST  # noqa: E402
+from nextseek_api.services.sampletype_connections import empty_result_notes as REAL_NOTES  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_graph_reads_in_the_view(monkeypatch):
+    """The view reads the sample type catalog (a 422 for an unknown code) and, for an empty answer, why it is
+    empty. Both open their own Neo4j driver; a test that means to exercise them patches GraphDatabase."""
+    from nextseek_api.services import sampletype_connections as sc
+    monkeypatch.setattr(sc, "closest_sample_types", lambda code: None)
+    monkeypatch.setattr(sc, "empty_result_notes", lambda selector: [])
+
 ROWS = [
     {"parent_sample_type": "CEL", "child_sample_type": "D.IMG",
      "internal_assay": "Imaging", "n_edges": 1932},
@@ -124,15 +136,17 @@ def test_unknown_output_format_is_rejected():
 def test_scope_hops_are_exists_subqueries_not_joins():
     """A hard MATCH would inflate n_edges and drop samples with no IN_STUDY edge.
 
-    Both scope predicates -- investigation and study -- reach the graph through
-    IN_STUDY, and each must stay inside its own EXISTS. Two of them now, one per
-    scope, which is what lets them AND together without multiplying rows.
+    The three scope predicates (project, investigation and study) each stay
+    inside their own EXISTS, which is what lets them AND together without
+    multiplying rows; the investigation's project link is a fourth, nested
+    inside the investigation's.
     """
-    assert CONNECTIONS_CYPHER.count("EXISTS {") == 2
+    assert CONNECTIONS_CYPHER.count("EXISTS {") == 4
     assert CONNECTIONS_CYPHER.count("MATCH (child)-[:IN_STUDY]") == 2
-    # neither hop may appear at the top level, where it would be a join
+    assert CONNECTIONS_CYPHER.count("MATCH (child)-[:IN_PROJECT]") == 1
+    # no hop may appear at the top level, where it would be a join
     top_level = CONNECTIONS_CYPHER.split("EXISTS {")[0]
-    assert "IN_STUDY" not in top_level
+    assert "IN_STUDY" not in top_level and "IN_PROJECT" not in top_level
 
 
 def test_cypher_short_circuits_when_no_investigation_selector_given():
@@ -316,10 +330,12 @@ class TestConnectionsSchema:
         op = self._schema()["paths"]["/nextseek_api/sample_types/connections/"]["get"]
         names = {p["name"] for p in op.get("parameters", [])}
         assert names == {
+            # project scope
+            "project_id",
             # investigation scope
             "graph_inv_id", "seek_inv_id", "investigation_name",
             # study scope
-            "study_id", "study_name",
+            "study_id", "study_name", "graph_study_id", "seek_study_id",
             # sample type scope
             "sample_type", "direct_connections",
             # whole graph
@@ -874,78 +890,290 @@ def test_the_two_modes_do_not_share_a_download_filename():
 # ---------------------------------------------------------------------------
 
 class TestStudyScope:
-    """The graph and SEEK agree on study ids but disagree on 44 of 48 titles."""
+    """The graph's Study.id and SEEK's study id can differ: a graph-only paper study holds an id that is also a
+    different SEEK study's, and a SEEK study's node may hold only seek_study_id. Every study selector resolves to
+    nodes, the selectors intersect over them, and the predicate reads each node by the key it has."""
 
     @staticmethod
-    def _driver(graph_hits):
+    def _driver(nodes):
         drv = MagicMock()
         drv.execute_query.return_value = (
-            [{"id": i} for i in graph_hits], None, None)
+            [{"id": i, "seek_study_id": k, "title": t} for i, k, t in nodes], None, None)
         return drv
 
-    def test_no_study_filter_returns_none_not_empty(self):
-        """None means 'no study filter'. [] would filter everything out."""
-        from nextseek_api.services.sampletype_connections import resolve_study_ids
-        sel = SampleTypeConnectionsRequest.model_validate({"all_conns": True})
-        assert resolve_study_ids(self._driver([]), "neo4j", sel) is None
+    # a graph-only paper whose graph id 7 is also SEEK study 7's id, SEEK study 7's own node, a merged node
+    NODES = [(7, None, "A paper title"), (None, 7, "Rowan Study"), (3, 3, "Alder Unpublished")]
 
-    def test_study_id_alone_needs_no_lookup(self):
+    @staticmethod
+    def _resolve(selector, nodes=NODES, seek_titles=()):
+        from nextseek_api.services.sampletype_connections import resolve_study_ids
+        sel = SampleTypeConnectionsRequest.model_validate(selector)
+        with patch(f"{MODULE}._seek_study_ids_by_title", return_value=set(seek_titles)) as seek:
+            return resolve_study_ids(TestStudyScope._driver(nodes), "neo4j", sel), seek
+
+    def test_no_study_selector_returns_none_and_reads_nothing(self):
         from nextseek_api.services.sampletype_connections import resolve_study_ids
         drv = self._driver([])
-        sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14})
-        assert resolve_study_ids(drv, "neo4j", sel) == [14]
+        sel = SampleTypeConnectionsRequest.model_validate({"all_conns": True})
+        assert resolve_study_ids(drv, "neo4j", sel) is None
         drv.execute_query.assert_not_called()
 
-    def test_study_name_resolves_against_the_graph_first(self):
-        from nextseek_api.services.sampletype_connections import resolve_study_ids
-        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "CSBC Unpublished"})
-        with patch(f"{MODULE}._seek_study_ids_by_title") as seek:
-            assert resolve_study_ids(self._driver([13]), "neo4j", sel) == [13]
-            seek.assert_not_called()          # graph matched; SEEK never consulted
+    def test_graph_study_id_and_seek_study_id_tell_a_collision_apart(self):
+        assert self._resolve({"graph_study_id": 7})[0] == {"graph_study_ids": [7], "seek_study_ids": []}
+        assert self._resolve({"seek_study_id": 7})[0] == {"graph_study_ids": [], "seek_study_ids": [7]}
+        assert self._resolve({"graph_study_id": 7, "seek_study_id": 7})[0] == {"graph_study_ids": [],
+                                                                               "seek_study_ids": []}
 
-    def test_study_name_falls_back_to_seek_when_the_graph_misses(self):
-        """The graph says 'CSBC Unpublished' where SEEK says the full name."""
-        from nextseek_api.services.sampletype_connections import resolve_study_ids
-        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "Collagen Study"})
-        with patch(f"{MODULE}._seek_study_ids_by_title", return_value={14}) as seek:
-            assert resolve_study_ids(self._driver([]), "neo4j", sel) == [14]
-            seek.assert_called_once()
+    def test_study_id_is_the_deprecated_alias_of_graph_study_id(self):
+        assert self._resolve({"study_id": 7})[0] == self._resolve({"graph_study_id": 7})[0]
+        assert self._resolve({"study_id": 7, "graph_study_id": 3})[0] == {"graph_study_ids": [], "seek_study_ids": []}
 
-    def test_a_name_matching_nothing_returns_empty_not_none(self):
-        """Empty filters everything out; None would silently widen to the whole graph."""
-        from nextseek_api.services.sampletype_connections import resolve_study_ids
-        sel = SampleTypeConnectionsRequest.model_validate({"study_name": "does not exist"})
-        with patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
-            assert resolve_study_ids(self._driver([]), "neo4j", sel) == []
+    def test_a_merged_node_answers_both_of_its_ids(self):
+        for selector in ({"graph_study_id": 3}, {"seek_study_id": 3}, {"graph_study_id": 3, "seek_study_id": 3}):
+            assert self._resolve(selector)[0] == {"graph_study_ids": [3], "seek_study_ids": []}
 
-    def test_id_and_name_together_intersect(self):
-        from nextseek_api.services.sampletype_connections import resolve_study_ids
-        sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14, "study_name": "x"})
-        with patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
-            assert resolve_study_ids(self._driver([13, 14]), "neo4j", sel) == [14]
+    def test_a_node_with_no_id_is_reached_by_name(self):
+        found, seek = self._resolve({"study_name": "rowan study"})
+        assert found == {"graph_study_ids": [], "seek_study_ids": [7]}
+        seek.assert_not_called()
+
+    def test_seeks_title_fallback_never_matches_a_graph_id(self):
+        """A SEEK title the graph lacks resolves to SEEK ids and reaches only nodes carrying that seek_study_id,
+        never the graph-only paper that holds the same number as its id."""
+        found, seek = self._resolve({"study_name": "A SEEK only title"}, seek_titles={7})
+        assert found == {"graph_study_ids": [], "seek_study_ids": [7]}
+        seek.assert_called_once()
+
+    def test_a_name_matching_nothing_returns_empty_lists_not_none(self):
+        assert self._resolve({"study_name": "does not exist"})[0] == {"graph_study_ids": [], "seek_study_ids": []}
+
+    def test_a_name_and_an_id_intersect_over_nodes(self):
+        assert self._resolve({"study_name": "Alder Unpublished", "graph_study_id": 3})[0] == {
+            "graph_study_ids": [3], "seek_study_ids": []}
+        assert self._resolve({"study_name": "Alder Unpublished", "seek_study_id": 7})[0] == {
+            "graph_study_ids": [], "seek_study_ids": []}
 
     def test_a_seek_lookup_failure_degrades_to_no_match(self):
         from nextseek_api.services.sampletype_connections import _seek_study_ids_by_title
         with patch(f"{MODULE}.connections", side_effect=RuntimeError("db down")):
             assert _seek_study_ids_by_title("anything") == set()
 
-    def test_both_cypher_variants_carry_the_study_predicate(self):
+    def test_both_cypher_variants_carry_the_split_study_predicate(self):
         for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
-            assert "$study_ids IS NULL" in cy
-            assert "st.id IN $study_ids" in cy
+            assert "$graph_study_ids IS NULL AND $seek_study_ids IS NULL" in cy
+            assert "st.id IN coalesce($graph_study_ids, [])" in cy
+            assert "st.seek_study_id IN coalesce($seek_study_ids, [])" in cy
+            assert "$study_ids" not in cy
+
+    def test_the_query_receives_both_lists(self):
+        from nextseek_api.services import sampletype_connections as sc
+        drv = self._driver(self.NODES)
+        drv.execute_query.side_effect = [drv.execute_query.return_value, ([], None, None)]
+        graphdb = MagicMock()
+        graphdb.driver.return_value.__enter__.return_value = drv
+        sel = SampleTypeConnectionsRequest.model_validate({"seek_study_id": 7})
+        with patch(f"{MODULE}.GraphDatabase", graphdb), patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
+            sc.run_connections_query(sel)
+        params = drv.execute_query.call_args_list[1].kwargs
+        assert (params["graph_study_ids"], params["seek_study_ids"]) == ([], [7])
 
 
 @pytest.mark.parametrize("selector", [
-    {"study_id": 14}, {"study_name": "Collagen Study"},
-    {"study_id": 14, "sample_type": "CEL"},
+    {"study_id": 14}, {"graph_study_id": 14}, {"seek_study_id": 14}, {"study_name": "Alder Study"},
+    {"seek_study_id": 14, "sample_type": "CEL"}, {"project_id": 2},
 ])
-def test_study_selectors_satisfy_the_required_scope(selector):
+def test_study_and_project_selectors_satisfy_the_required_scope(selector):
     assert SampleTypeConnectionsRequest.model_validate(selector) is not None
 
 
-def test_a_study_scope_renders_radial_like_the_other_scopes():
-    sel = SampleTypeConnectionsRequest.model_validate({"study_id": 14, "sample_type": "CEL"})
-    assert choose_layout(sel) == "radial"
+@pytest.mark.parametrize("selector", [{"study_id": 14, "sample_type": "CEL"},
+                                      {"seek_study_id": 14, "sample_type": "CEL"},
+                                      {"graph_study_id": 14, "sample_type": "CEL"},
+                                      {"project_id": 2, "sample_type": "CEL"}])
+def test_a_study_or_project_scope_renders_radial_like_the_other_scopes(selector):
+    assert choose_layout(SampleTypeConnectionsRequest.model_validate(selector)) == "radial"
+
+
+@pytest.mark.parametrize("selector, expected", [
+    ({"graph_study_id": 7}, "sampletype_connections_gstudy7.svg"),
+    ({"seek_study_id": 7}, "sampletype_connections_sstudy7.svg"),
+    ({"study_id": 7}, "sampletype_connections_study7.svg"),
+    ({"project_id": 2}, "sampletype_connections_project2.svg"),
+])
+def test_download_name_names_the_study_or_project_selector(selector, expected):
+    assert download_name(SampleTypeConnectionsRequest.model_validate(selector), "svg") == expected
+
+
+def test_the_study_parameter_text_names_no_count_and_says_which_key_each_reads():
+    from nextseek_api.endpoint_descriptions import SAMPLETYPE_CONNECTIONS_DESC
+    from nextseek_api.services.sampletype_connections import _QUERY_PARAMS
+    texts = {p.name: p.description for p in _QUERY_PARAMS}
+    assert {"graph_study_id", "seek_study_id", "study_id", "study_name"} <= set(texts)
+    fields = SampleTypeConnectionsRequest.model_fields
+    for text in (texts["graph_study_id"], texts["seek_study_id"], texts["study_id"], texts["study_name"],
+                 fields["graph_study_id"].description, fields["seek_study_id"].description,
+                 fields["study_id"].description, fields["study_name"].description):
+        assert "agree on study" not in text
+        assert not re.search(r"\d", text), text          # the study texts name no id, title count or study count
+    assert "agree on study" not in SAMPLETYPE_CONNECTIONS_DESC
+    assert "Study nodes against" not in SAMPLETYPE_CONNECTIONS_DESC and "44 of" not in SAMPLETYPE_CONNECTIONS_DESC
+    assert "Study.seek_study_id" in texts["seek_study_id"] and "Study.id" in texts["graph_study_id"]
+
+
+# ---------------------------------------------------------------------------
+# Project scope, empty answers, plural-only edges
+# ---------------------------------------------------------------------------
+
+def test_both_cypher_variants_carry_the_project_predicate_over_the_samples_own_membership():
+    for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
+        assert "$project_id IS NULL" in cy
+        assert "(child)-[:IN_PROJECT]->(:Project {id: $project_id})" in cy
+
+
+def test_seek_inv_id_reads_the_investigations_project_links_not_its_lowest_project():
+    for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
+        assert "i.project_id" not in cy
+        assert "(i)-[:IN_PROJECT]->(:Project {id: $seek_inv_id})" in cy
+
+
+def test_an_edge_with_only_plural_assay_titles_is_kept():
+    for cy in (CONNECTIONS_CYPHER, CONNECTIONS_SUBTREE_CYPHER):
+        assert ("WHERE (r.internal_assay_title IS NOT NULL\n"
+                "       OR any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> ''))") in cy
+
+
+def test_the_query_receives_the_project_id():
+    from nextseek_api.services import sampletype_connections as sc
+    seen = {}
+    with patch(f"{MODULE}.GraphDatabase.driver") as drv:
+        drv.return_value.__enter__.return_value.execute_query.side_effect = (
+            lambda cy, **kw: seen.update(kw) or ([], None, None))
+        sc.run_connections_query(SampleTypeConnectionsRequest.model_validate({"project_id": 2}))
+    assert seen["project_id"] == 2 and seen["seek_inv_id"] is None
+
+
+def test_the_project_id_is_a_query_parameter_of_the_endpoint():
+    captured = {}
+
+    def _fake(selector):
+        captured["project_id"] = selector.project_id
+        return ROWS
+
+    with patch(f"{MODULE}.run_connections_query", side_effect=_fake), \
+         patch(f"{MODULE}.fetch_clade_map", return_value=CLADES):
+        resp = SampleTypeConnectionsViewSet().list(_request({"project_id": "2"}))
+    assert resp.status_code == 200 and captured["project_id"] == 2
+    assert resp.data["filters"] == {"project_id": 2}
+
+
+def test_an_empty_answer_to_a_selector_carries_its_notes():
+    with patch(f"{MODULE}.empty_result_notes", return_value=["No Study node matches the study selectors."]) as notes:
+        resp = _call({"seek_study_id": "7"}, rows=[])
+    assert resp.status_code == 200 and resp.data["total"] == 0
+    assert resp.data["notes"] == ["No Study node matches the study selectors."]
+    notes.assert_called_once()
+
+
+def test_an_answer_with_rows_or_a_whole_graph_request_carries_no_notes():
+    with patch(f"{MODULE}.empty_result_notes") as notes:
+        assert _call({"graph_inv_id": "2"}).data["notes"] == []
+        assert _call({"all_conns": "yes"}, rows=[]).data["notes"] == []
+    notes.assert_not_called()
+
+
+def _graph(answers):
+    """A GraphDatabase stand-in whose execute_query answers by statement: ``answers`` maps a statement (or the
+    exception to raise) to its records."""
+    graphdb = MagicMock()
+    drv = graphdb.driver.return_value.__enter__.return_value
+
+    def execute(cy, **kwargs):
+        answer = answers[cy]
+        if isinstance(answer, BaseException):
+            raise answer
+        return (answer, None, None)
+
+    drv.execute_query.side_effect = execute
+    return graphdb
+
+
+def test_the_notes_say_the_investigation_has_no_study_node():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.INVESTIGATION_NOTES_CYPHER: [{"investigations": 1, "with_studies": 0}]})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        notes = REAL_NOTES(SampleTypeConnectionsRequest.model_validate({"seek_inv_id": 2}))
+    assert len(notes) == 1 and "have no Study node" in notes[0] and "project_id" in notes[0]
+
+
+def test_the_notes_name_a_missing_project_investigation_and_study():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.PROJECT_NOTES_CYPHER: [{"projects": 0, "samples": 0}],
+                      sc.INVESTIGATION_NOTES_CYPHER: [{"investigations": 0, "with_studies": 0}],
+                      sc.STUDY_KEYS_CYPHER: []})
+    selector = SampleTypeConnectionsRequest.model_validate({"project_id": 9, "graph_inv_id": 101,
+                                                            "seek_study_id": 7, "sample_type": "CEL"})
+    with patch(f"{MODULE}.GraphDatabase", graphdb), patch(f"{MODULE}._seek_study_ids_by_title", return_value=set()):
+        notes = REAL_NOTES(selector)
+    assert notes == ["No Project node has id 9.", "No Investigation node matches the investigation selectors.",
+                     "No Study node matches the study selectors.",
+                     "No lineage edge of sample type CEL lies inside the selectors given."]
+
+
+def test_the_notes_of_a_project_with_no_sample():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.PROJECT_NOTES_CYPHER: [{"projects": 1, "samples": 0}]})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        notes = REAL_NOTES(SampleTypeConnectionsRequest.model_validate({"project_id": 9}))
+    assert notes == ["No sample is linked to project 9 (IN_PROJECT)."]
+
+
+def test_the_notes_when_every_selector_matches_but_no_edge_does():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.INVESTIGATION_NOTES_CYPHER: [{"investigations": 1, "with_studies": 1}]})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        notes = REAL_NOTES(SampleTypeConnectionsRequest.model_validate({"graph_inv_id": 101}))
+    assert notes == ["Every selector matches nodes in the graph, but no lineage edge with an assay title joins "
+                     "samples inside them."]
+
+
+def test_the_notes_never_raise():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.PROJECT_NOTES_CYPHER: RuntimeError("neo4j down")})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        notes = REAL_NOTES(SampleTypeConnectionsRequest.model_validate({"project_id": 9}))
+    assert notes == ["The graph could not be read to say why nothing matched."]
+
+
+def test_an_unknown_sample_type_code_answers_422_with_the_closest_codes():
+    with patch(f"{MODULE}.closest_sample_types", return_value=["CEL", "CELL"]), \
+         patch(f"{MODULE}.run_connections_query") as run:
+        resp = SampleTypeConnectionsViewSet().list(_request({"sample_type": "CELX"}))
+    assert resp.status_code == 422
+    error = resp.data["errors"][0]
+    assert error["title"] == "Unknown sample type" and error["closest"] == ["CEL", "CELL"]
+    run.assert_not_called()
+    json.dumps(resp.data)
+
+
+@pytest.mark.parametrize("titles, code, expected", [
+    (["CEL", "TIS", "D.IMG"], "CEL", None),                  # known
+    (["CEL", "TIS", "D.IMG"], "cel", ["CEL"]),               # case is not ignored, but it is suggested
+    (["CEL", "TIS", "D.IMG"], "CELX", ["CEL"]),
+    (["CEL", "TIS"], "ZZZZZZ", []),                          # nothing close: refused with no suggestion
+    ([], "CEL", None),                                       # an empty catalog refuses nothing
+])
+def test_closest_sample_types(titles, code, expected):
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.SAMPLE_TYPE_TITLES_CYPHER: [{"title": t} for t in titles]})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        assert REAL_CLOSEST(code) == expected
+
+
+def test_closest_sample_types_refuses_nothing_when_the_catalog_cannot_be_read():
+    from nextseek_api.services import sampletype_connections as sc
+    graphdb = _graph({sc.SAMPLE_TYPE_TITLES_CYPHER: RuntimeError("neo4j down")})
+    with patch(f"{MODULE}.GraphDatabase", graphdb):
+        assert REAL_CLOSEST("CEL") is None
 
 
 def test_investigation_name_and_its_deprecated_alias_agree():

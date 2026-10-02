@@ -425,6 +425,7 @@ API_TAG_ORDER = [
     "People",
     "Projects",
     "Samples",
+    "SampleShares",
     "SampleTypes",
     "Schema RAG",
     "SOPs",
