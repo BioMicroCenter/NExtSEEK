@@ -198,3 +198,17 @@ def test_a_drift_check_that_stopped_running_is_a_stale_job():
     b = body(freshness={"drift": {"status": "stale", "age_s": 100_000.0, "threshold_s": 93_600}})
     assert health.stale_jobs(b) == ["drift is stale: 27.8 h old against 26.0 h"]
     assert health.problems(b) == health.stale_jobs(b)
+
+
+def test_only_the_assistant_investigations_drift_is_allowed_and_only_off_production():
+    from ci.smoke.test_graph_sync_status import drift_allowed_off_prod
+
+    def drift(*names):
+        return body(runs={"drift": drift_run("drift", counts={"trigger": "loop", "failed_checks": list(names)})})
+
+    op14 = drift("catalog.assistant_investigations")
+    assert drift_allowed_off_prod(op14, "dev") and drift_allowed_off_prod(op14, "local")
+    assert not drift_allowed_off_prod(op14, "prod")
+    assert not drift_allowed_off_prod(drift("catalog.assistant_investigations", "1.lineage.duplicate_edges"), "dev")
+    assert not drift_allowed_off_prod(body(runs={"drift": drift_run("drift")}), "dev")  # no named check
+    assert not drift_allowed_off_prod(QUIET, "dev")

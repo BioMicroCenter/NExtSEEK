@@ -181,8 +181,23 @@ def test_no_kinds_latest_run_failed(status_body):
     )
 
 
-def test_the_latest_drift_check_found_no_drift(status_body):
+#: Drift checks a box that is not production may fail: capabilities.md names production's investigations, which another
+#: box's graph need not hold (operator ruling OP14, 2026-10-02). The profile comes from startup/.instance.json.
+OFF_PROD_ALLOWED_DRIFT = frozenset({"catalog.assistant_investigations"})
+
+
+def drift_allowed_off_prod(body: dict, profile: str) -> bool:
+    """True when the box is not production and every check the latest drift run failed is allowed off production."""
+    run = (body.get("runs") or {}).get("drift") or {}
+    names = set(health._drift_names(run))
+    return profile != "prod" and run.get("status") == "drift" and bool(names) and names <= OFF_PROD_ALLOWED_DRIFT
+
+
+def test_the_latest_drift_check_found_no_drift(status_body, profile):
     lines = health.drift_found(status_body)
+    if lines and drift_allowed_off_prod(status_body, profile):
+        warnings.warn(f"graph sync warning, allowed off production: {lines[0]}", stacklevel=1)
+        return
     assert not lines, (
         "\n".join(lines)
         + "\nThe drift check reports and never repairs. After the fix, `manage.py graph_sync --drift` in the app "
