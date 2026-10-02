@@ -30,6 +30,7 @@ from chat_nextseek.reports.runners import (
     reporter_reply_footer,
     _run_investigation_sample_report,
     _scope_report_to_labs,
+    lab_names_by_name,
     run_project_sample_report,
     run_reporter_summary,
 )
@@ -407,7 +408,7 @@ def test_lab_codes_are_taken_from_the_plan_when_the_caller_passes_none(tmp_path)
 # A lab named like a project scopes the report to that project (operator ruling, 2 Oct 2026)
 # --------------------------------------------------------------------------- #
 
-def _project_run(monkeypatch, tmp_path, project_names, lab_codes, lab_names):
+def _project_run(monkeypatch, tmp_path, project_names, lab_codes, lab_names, scope=None):
     """Run the summary with the runner stubbed; return (what the runner was asked for, the result, the footer)."""
     import chat_nextseek.reports.runners as runners
 
@@ -419,7 +420,7 @@ def _project_run(monkeypatch, tmp_path, project_names, lab_codes, lab_names):
 
     monkeypatch.setattr(runners, "run_project_sample_report", fake_runner)
     config = types.SimpleNamespace(PROJECT_NAME_TO_ID=project_names, INVESTIGATION_NAME_TO_ID={},
-                                   GRAPH_SCOPE=GraphScope.admin("test"))
+                                   GRAPH_SCOPE=scope or GraphScope.admin("test"))
     plan = types.SimpleNamespace(project=None, years=[], month_range=None, day_range=None,
                                  summary_mode="samples", reporter_context=None)
     result, _saved, summary = run_reporter_summary(config, plan, tmp_path, lab_codes=lab_codes, lab_names=lab_names)
@@ -466,3 +467,48 @@ def test_labs_that_resolve_to_two_projects_stay_a_lab_scope(monkeypatch, tmp_pat
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
     assert "both a lab and the project" not in footer
+
+
+def test_a_member_without_the_project_keeps_the_lab_scope(monkeypatch, tmp_path):
+    """F2: the project is not the caller's, so the lab's samples within their projects are what they get."""
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], ["Northfield"], scope=GraphScope.for_projects([5]))
+
+    assert asked == [None]
+    assert result["scope"]["kind"] == "lab"
+    assert "both a lab and the project" not in footer
+
+
+def test_a_member_with_the_project_is_redirected_to_it(monkeypatch, tmp_path):
+    """Another caller of the same kind: the project id is in the member's scope."""
+    asked, _result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], ["Northfield"], scope=GraphScope.for_projects([5, 21]))
+
+    assert asked == ["NORTHFIELD"]
+    assert "both a lab and the project NORTHFIELD" in footer
+
+
+def _entity(*matches):
+    return types.SimpleNamespace(lab_matches=[
+        types.SimpleNamespace(name=n, rule=r) for n, r in matches])
+
+
+def test_a_lab_asked_for_by_its_code_passes_no_name_to_the_reporter():
+    """F1: the code match adds the lab's name, which must not redirect the report to a project of that name."""
+    assert lab_names_by_name(_entity(("Northfield", "code"))) == []
+
+
+def test_a_lab_asked_for_by_its_name_passes_the_name():
+    """Another request of the same kind: a name rule (and a dict-shaped entity result) still counts."""
+    assert lab_names_by_name(_entity(("Northfield", "name"), ("Bend", "possessive"), ("Northfield", "lab_phrase"))) \
+        == ["Northfield", "Bend"]
+    assert lab_names_by_name({"lab_matches": [{"name": "Bend", "rule": "honorific"}, {"name": "X", "rule": "code"}]}) \
+        == ["Bend"]
+
+
+def test_a_code_only_request_keeps_the_lab_scope(monkeypatch, tmp_path):
+    asked, result, _summary, footer = _project_run(
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["NFD"], lab_names_by_name(_entity(("Northfield", "code"))))
+
+    assert asked == [None]
+    assert result["scope"]["kind"] == "lab"
