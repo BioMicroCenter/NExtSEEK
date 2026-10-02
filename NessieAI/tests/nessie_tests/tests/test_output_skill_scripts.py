@@ -340,6 +340,33 @@ def test_the_turn_records_survive_the_round_trip(tmp_path):
             == M.fallback_summary(original)["fallback_display"])
 
 
+def test_a_case_outside_the_corpus_gets_its_turns_from_the_manifest_task_ids(tmp_path):
+    """Made-up ids: the manifest hyphenated, the pull 32 hex, the query only on the pulled turn."""
+    entry = {"id": "prod.made_up_case", "family": "project_summary_report", "tier": "full",
+             "status": "passed", "route": "nextseek_query", "engine": "reporter", "elapsed_s": 1.0,
+             "failed_criteria": [], "expected_fail": False, "observations": [],
+             "task_ids": ["aaaaaaaa-1111-2222-3333-444444444444"],
+             "turns_meta": [{"turn": "main", "task_id": "aaaaaaaa-1111-2222-3333-444444444444"}],
+             "turns_sent": 1}
+    run, tri = _run_dir(tmp_path, entries=[entry])
+    (run / "turns.json").write_text(json.dumps([
+        {"id": "9", "q": "A made-up question about nothing", "task_uuid": "aaaaaaaa111122223333444444444444",
+         "route": "nextseek_query", "reply": "A made-up reply", "status": "completed"},
+        {"id": "10", "q": "Some other turn", "task_uuid": "bbbbbbbb111122223333444444444444"}]), encoding="utf-8")
+    out = tmp_path / "report.html"
+    old, sys.argv = sys.argv, ["build_report.py", "--run", str(run), "--repo", str(ROOT),
+                               "--triage", str(tri), "--out", str(out)]
+    try:
+        build_report.main()
+    finally:
+        sys.argv = old
+
+    (case,) = _literal(out.read_text(encoding="utf-8"), "CASES")
+    (turn,) = case["turns"]
+    assert turn["query"] == "A made-up question about nothing" and turn["task"] == "9"
+    assert turn["reply"] == "A made-up reply" and case["task"] == "9"
+
+
 def test_a_pulled_turn_brings_its_summed_cost_into_the_report():
     turns = [{"query": "How many mice?"}]
     tasks = [{"q": "How many mice?", "id": 5, "cost": 0.5, "turn_cost": 0.51,
