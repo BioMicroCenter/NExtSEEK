@@ -74,7 +74,11 @@ BACK_EDGE_ALLOWLIST: dict[str, frozenset[str]] = {
     # The CC turn (Phase B, moved from nextseek_api/services/cc_assistant.py,
     # which already held this edge): ChatSession reads and summary writes, and
     # the CCSessionTranscript upsert when a CC turn completes.
-    "NessieAI/cc/turn.py": frozenset({"nextseek_api.assistant.models_db"}),
+    "NessieAI/cc/turn.py": frozenset({
+        "nextseek_api.assistant.models_db",
+        # Spec piece 1 (plan 02): the CC turn issues, dates and revokes its turn pass.
+        "nextseek_api.assistant.turn_pass",
+    }),
     # Router telemetry and the posterior leg, through the ORM models.
     "NessieAI/router/risk_overlay.py": frozenset({"nextseek_api.assistant.models_db"}),
     "NessieAI/router/turn_ledger.py": frozenset({"nextseek_api.assistant.models_db"}),

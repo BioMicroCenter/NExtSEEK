@@ -72,6 +72,7 @@ source-tree checks out of the in-container run.
 Depends on, outside this directory:
 
 - `NessieAI/dmac_assistant/`: `run_tracker.diff_files`, imported lazily inside `cc_engine.py`.
+- `nextseek_api.assistant.turn_pass`, from `turn.py` (issues, dates and revokes the turn pass).
 - `nextseek_api.assistant.models_db`, from `cc_transcript_store.py` and `turn.py`, and `seek.seekdb`,
   lazily, from `cc_provision.py` (both allowed back-edges, `NessieAI/CLAUDE.md` "Boundary").
 - `NessieAI/router/` (`policy.py`, the route decision) and `NessieAI/ns/turn.py`, from `turn.py`.

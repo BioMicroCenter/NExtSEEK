@@ -27,6 +27,9 @@ import threading
 from pathlib import Path
 
 from nextseek_api.assistant.models_db import CCSessionTranscript, ChatSession
+# Spec piece 1: the Container-CC turn issues, dates and revokes its turn pass (a frozen edge in
+# NessieAI/tests/api/test_nessie_boundaries.py).
+from nextseek_api.assistant import turn_pass as cc_turn_pass
 
 from chat_nextseek.agents.parser import FORCE_MODES as PARSER_FORCE_MODES
 from chat_nextseek import prompt_variants
@@ -87,6 +90,13 @@ def _save_before_complete(send_event, adapter):
 # QueryRequest.prompt_variant reach the NS agents. The venue sets it; no compose
 # file or env template does.
 EVAL_PARSER_FORCE_ENV = "NEXTSEEK_EVAL_PARSER_FORCE"
+
+# Shown when this server cannot issue a turn pass (it has no Django secret key): the turn stops before any
+# container starts.
+TURN_PASS_SETUP_ERROR = (
+    "Container-CC is not set up on this server (it has no secret key to protect the turn with). "
+    "Please tell the NExtSEEK administrator."
+)
 
 
 def _merge_extra_state(session, **updates) -> None:
@@ -440,6 +450,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     def _run() -> None:
         ran_ns = False
         decision = None
+        cc_pass_row = None
         try:
             # Fresh state per turn: the adapter was built in the request thread, possibly while the
             # previous turn's save was still in flight. reload() refreshes chat_session itself (the
@@ -519,6 +530,21 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     # docstring), so consumers must de-duplicate on run_root.
                     _emit_ns_run_root(send_event, adapter)
             else:
+                # Spec piece 1: the container gets a one-turn pass, never the user's password. Issued before any
+                # early return below, so the finally revokes it on every way out. The row holds the caller's OWN
+                # login (user_api_*), never the prod-config swap above.
+                try:
+                    cc_pass_row, cc_pass_raw = cc_turn_pass.issue_pass(
+                        task=query_task, chat=chat_session, user=request.user,
+                        login=(user_api_user or "", user_api_pass or ""),
+                    )
+                except cc_turn_pass.TurnPassError:
+                    logger.error("cc: no turn pass could be issued (no server secret key); the turn stops")
+                    send_event("query_error", {
+                        "error": TURN_PASS_SETUP_ERROR,
+                        "agent": "container_cc", "session_id": resolved_session_id,
+                    })
+                    return
                 ok, detail = cc_engine.cc_runner_available()
                 if not ok:
                     send_event("query_error", {
@@ -677,6 +703,9 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     transcripts_subpath=transcripts_subpath,
                     previous_turns=staged_prior is not None,
                     api_user=user_api_user, api_pass=user_api_pass,
+                    turn_pass=cc_pass_raw,
+                    on_deadline=lambda epoch: cc_turn_pass.set_deadline(cc_pass_row, epoch),
+                    on_turn_end=lambda: cc_turn_pass.revoke(cc_pass_row),
                     chat_session=chat_session,
                     user_query=req.query or "",
                     on_turn_complete=_append_cc_turn_complete,
@@ -699,6 +728,13 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                     "session_id": resolved_session_id,
                 })
         finally:
+            if cc_pass_row is not None:
+                # Idempotent: run_cc_turn revoked it once the container stopped. This covers every return and
+                # exception between the issue and the engine.
+                try:
+                    cc_turn_pass.revoke(cc_pass_row)
+                except Exception:  # noqa: BLE001 - the next issue_pass wipes an expired row
+                    logger.warning("cc: revoking the turn pass failed", exc_info=True)
             unrelated = decision is not None and decision.route == cc_router.ROUTE_UNRELATED
             if cc_turn_complete.should_append_non_answer(terminal_seen, unrelated=unrelated):
                 from django.utils import timezone
