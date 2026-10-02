@@ -40,6 +40,7 @@ def render_upload_workbook(
     *,
     mode: str = MODE_NEW,
     provenance: list[dict[str, Any]] | None = None,
+    schema_fields: list[str] | None = None,
 ) -> None:
     """Write a NExtSEEK upload workbook for one ``sample_type`` to ``out_path``.
 
@@ -48,16 +49,26 @@ def render_upload_workbook(
     ``provenance`` is given, a fifth ``Provenance`` sheet is also written — the
     traditional parser reads only the four named sheets, so it is inert on
     upload.
+
+    ``schema_fields`` is the sample type's attribute list, in schema order.
+    Every one of them gets a column, even when no row carries a value, so a
+    curator sees and can fill the blanks; keys the rows carry beyond it follow.
+    A blank cell is safe in both modes: convert.py skips empty cells, so it
+    never reaches json_metadata and never clears an existing value.
     """
     if not rows:
         raise ValueError("render_upload_workbook: no rows to render")
     if mode not in (MODE_NEW, MODE_UPDATE):
         raise ValueError(f"render_upload_workbook: unknown mode {mode!r}")
 
-    # Field set = union of json_metadata keys, first-seen order. UID is handled
-    # separately: convert.py intercepts it before the Instructions lookup, so
-    # declaring it there would be redundant.
+    # Field set = the schema's attributes, then the union of json_metadata keys
+    # in first-seen order. UID is handled separately: convert.py intercepts it
+    # before the Instructions lookup, so declaring it there would be redundant.
     fields: list[str] = []
+    for key in (schema_fields or []):
+        key = str(key or "").strip()
+        if key and key != "UID" and key not in fields:
+            fields.append(key)
     for row in rows:
         for key in (row.get("json_metadata") or {}):
             if key != "UID" and key not in fields:
@@ -87,7 +98,9 @@ def render_upload_workbook(
                                  f"{uid!r} in new mode (new mode creates samples; it "
                                  f"has no UID column and cannot target an existing one)")
 
-    if not fields:
+    # Checked against the rows, not `fields`: schema columns alone would render
+    # a workbook of nothing but blanks.
+    if not any(set(row.get("json_metadata") or {}) - {"UID"} for row in rows):
         raise ValueError("render_upload_workbook: rows carry no json_metadata")
 
     wb = openpyxl.Workbook()

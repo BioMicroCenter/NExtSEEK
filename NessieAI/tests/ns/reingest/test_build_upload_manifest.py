@@ -555,8 +555,8 @@ def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, m
     run-checksum -- `_save_manifest`'s default outputs (a harvested
     inventory, as run-harvest always produces), no `checksums` at all --
     must still render both workbooks, with `File_PrimaryData` filled from
-    that inventory but no Checksum_PrimaryData column at all rather than a
-    blank/error one."""
+    that inventory and the schema's Checksum_PrimaryData column kept but
+    blank (every schema attribute gets a column), never an error value."""
     rows.return_value = [_A_ALN_ROW, _A_GEX_ROW]
     manifest_id = _save_manifest(tmp_path, monkeypatch)
 
@@ -566,8 +566,8 @@ def test_a_manifest_with_no_checksums_still_renders_a_workbook(rows, tmp_path, m
     assert set(result["saved_files"]) == {"reingest_A_ALN", "reingest_A_GEX"}
     for key in ("reingest_A_ALN", "reingest_A_GEX"):
         wb = openpyxl.load_workbook(result["saved_files"][key])
-        header = [c.value for c in wb["Samples"][1]]
-        assert "Checksum_PrimaryData" not in header
+        checksums = _cell_by_header(wb["Samples"], "Checksum_PrimaryData")
+        assert set(checksums.values()) == {None}
 
     # Minor 3 (2026-09-17 review): the docstring above has promised
     # "File_PrimaryData filled from that inventory" since this test was

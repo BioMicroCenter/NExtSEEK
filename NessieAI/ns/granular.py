@@ -1304,7 +1304,8 @@ def _build_upload_xlsx_from_rows(args, outputs_dir):
         # with a hyphen/space/slash silently drops out of the QA report.
         safe_key = safe_name.replace(".", "_").replace("-", "_")
         path = os.path.join(out_root, f"reingest_{safe_name}.xlsx")
-        render_upload_workbook(st, st_rows, path)
+        render_upload_workbook(st, st_rows, path,
+                               schema_fields=[a["title"] for a in attrs])
         saved_files[f"reingest_{safe_key}"] = path
     return {"saved_files": saved_files, "qa": qa}
 
@@ -1616,8 +1617,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
                     })
 
         reports_by_type = {}
+        schema_fields_by_type: dict[str, list[str]] = {}
         for sample_type, type_rows in rows_by_type.items():
             attrs = attributes_for(sample_type)
+            schema_fields_by_type[sample_type] = [a["title"] for a in attrs]
             required = [a["title"] for a in attrs if a.get("required")]
             # See the legacy-rows path above for why the fallback default is the
             # entry's own "required" rather than False.
@@ -1646,7 +1649,7 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
             ambiguous_primary_groups=ambiguous_primary_groups,
             provenance_by_type=provenance_by_type, rows_by_type=rows_by_type,
             mapped_by_type=mapped_by_type, needs_definition=needs_definition,
-            reports_by_type=reports_by_type)
+            reports_by_type=reports_by_type, schema_fields_by_type=schema_fields_by_type)
 
     def _existing_values(uids: list[str], attribute: str) -> dict:
         """What a place would overwrite: the samples' current SEEK values.
@@ -1719,7 +1722,8 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
         safe_key = f"reingest_{safe_name}{suffix}".replace(".", "_").replace("-", "_")
         path = os.path.join(out_root, f"reingest_{safe_name}{suffix}.xlsx")
         render_upload_workbook(sample_type, type_rows, path, mode=mode,
-                               provenance=final.provenance_by_type.get(sample_type))
+                               provenance=final.provenance_by_type.get(sample_type),
+                               schema_fields=final.schema_fields_by_type.get(sample_type))
         saved_files[safe_key] = path
         builds.append(build_records.write(
             path=path, artifact_key=safe_key, sample_type=sample_type, mode=mode,
