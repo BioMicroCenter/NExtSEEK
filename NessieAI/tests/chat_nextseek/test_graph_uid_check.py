@@ -244,3 +244,41 @@ def test_a_lower_case_uid_is_looked_up_in_upper_case():
 
         assert seen["checks"][0]["uid"] == upper
         assert checks == [uid_check.UidCheck(asked=upper, stored=upper)]
+
+
+# --------------------------------------------------------------------------
+# A run's samples named by their common prefix, <TYPE>-<YYMMDD><LAB>.
+# --------------------------------------------------------------------------
+
+def test_a_prefix_is_told_from_a_full_uid():
+    assert uid_check.is_uid_prefix("D.SEQ-250101ABC")
+    assert uid_check.is_uid_prefix("mus-240202xyz")
+    assert not uid_check.is_uid_prefix("D.SEQ-250101ABC-1")
+    assert not uid_check.is_uid_prefix("D.SEQ-250101ABC-1-PUB")
+    assert not uid_check.is_uid_prefix("MUS-1-PUB")
+
+
+def test_the_prefix_query_is_scoped_provable_and_seekable():
+    out = scope_cypher(uid_check.PREFIX_CYPHER, {"prefixes": ["D.SEQ-250101ABC"], "cap": 76},
+                       GraphScope.for_projects([2, 13], source="test"))
+
+    assert isinstance(out, Scoped) and out.decision == "proven"
+    assert "CASE WHEN" not in out.cypher
+
+
+def test_expand_prefixes_groups_matches_by_prefix_and_upper_cases_the_ask():
+    seen = {}
+
+    def run(config, cypher, params):
+        seen["params"] = params
+        return _rows({"prefix": "MUS-240202XYZ-", "uuid": "MUS-240202XYZ-1"},
+                     {"prefix": "MUS-240202XYZ-", "uuid": "MUS-240202XYZ-2"})
+
+    out = uid_check.expand_uid_prefixes(MagicMock(), ["mus-240202xyz", "TIS-230101ABC"], run=run, cap=75)
+
+    assert seen["params"]["prefixes"] == ["MUS-240202XYZ", "TIS-230101ABC"]
+    assert out == {"MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"], "TIS-230101ABC": []}
+
+
+def test_a_failed_prefix_read_is_none():
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["MUS-240202XYZ"], run=lambda c, q, p: {"ok": False}, cap=75) is None

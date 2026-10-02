@@ -59,6 +59,8 @@ from ..seqera.param_atlas import (
 from ..luria.submitter import submit_luria
 from ..luria.run_script import local_luria_ref_files
 from ..reports.protocols import gather_protocol_text
+from ..helpers.tools.neo4j import tool_neo4j_query
+from ..helpers.uid_check import expand_uid_prefixes, is_uid_prefix
 
 import concurrent.futures
 
@@ -291,6 +293,23 @@ _ARCHIVE_ACCESSION_RE = re.compile(
 # user to narrow the set instead (matches the "be specific / start from D.SEQ" flow).
 MAX_RESOLVE_LEAVES = 75
 
+_NARROW_ERROR = (
+    "Resolved {n} sequencing samples — more than the "
+    "{cap}-sample limit for an interactive build. Ask the user to "
+    "narrow the set: specific D.SEQ UIDs, a tighter search, or a filter (e.g. one "
+    "study, lab, or treatment). Large cohorts can't be assembled in a single pass yet."
+)
+
+
+def _fetch_failure(raw: dict) -> str:
+    """Why a metadata fetch failed: its own error, else the HTTP status and the API's detail."""
+    if raw.get("error"):
+        return str(raw["error"])
+    data = raw.get("data")
+    detail = (data.get("detail") or data.get("_raw")) if isinstance(data, dict) else None
+    status = raw.get("status_code")
+    return f"HTTP {status}" + (f": {detail}" if detail else "") if status else "unknown error"
+
 
 def _flatten_lineage(uid: str, uid_index: dict) -> dict:
     """Merge metadata from root down to the leaf (leaf wins) via the parent chain."""
@@ -344,9 +363,28 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
     else:
         return json.dumps({"ok": False, "error": f"Unknown ref kind {kind!r}."})
 
+    prefixes = [u for u in source_uids if is_uid_prefix(u)]
+    if prefixes:
+        # A run named by its common prefix is not a UID the metadata endpoint knows (it answers 404): expand it
+        # to the samples it prefixes first, through the scoped graph read.
+        found = expand_uid_prefixes(config, prefixes, run=tool_neo4j_query, cap=MAX_RESOLVE_LEAVES + 1)
+        if found is None:
+            return json.dumps({"ok": False, "error": (
+                f"Could not look up the samples under {', '.join(prefixes)} in the graph. "
+                "Pass their full UIDs instead.")})
+        empty = [p for p in found if not found[p]]
+        if empty:
+            return json.dumps({"ok": False, "error": (
+                f"No samples were found under the prefix {', '.join(e.upper() for e in empty)}.")})
+        expanded = [u for p in found.values() for u in p]
+        if len(expanded) > MAX_RESOLVE_LEAVES:
+            return json.dumps({"ok": False, "leaf_count": len(expanded), "error": _NARROW_ERROR.format(
+                n=f"more than {MAX_RESOLVE_LEAVES}", cap=MAX_RESOLVE_LEAVES)})
+        source_uids = [u for u in source_uids if not is_uid_prefix(u)] + expanded
+
     raw = fetch_reporter_metadata(config, source_uids)
     if not raw.get("ok"):
-        return json.dumps({"ok": False, "error": f"Metadata fetch failed: {raw.get('error') or 'unknown error'}"})
+        return json.dumps({"ok": False, "error": f"Metadata fetch failed: {_fetch_failure(raw)}"})
 
     annotated = annotate_metadata_with_sampletypes(config, raw)
     leaves = enumerate_lineage_leaves(annotated, accepted_types=_accepted_types_for(pipeline_key))
@@ -357,12 +395,7 @@ def tool_resolve_samples(config: "ChatConfig", session, state: dict, tool_input:
         return json.dumps({
             "ok": False,
             "leaf_count": len(leaves),
-            "error": (
-                f"Resolved {len(leaves)} sequencing samples — more than the "
-                f"{MAX_RESOLVE_LEAVES}-sample limit for an interactive build. Ask the user to "
-                "narrow the set: specific D.SEQ UIDs, a tighter search, or a filter (e.g. one "
-                "study, lab, or treatment). Large cohorts can't be assembled in a single pass yet."
-            ),
+            "error": _NARROW_ERROR.format(n=len(leaves), cap=MAX_RESOLVE_LEAVES),
         })
 
     # Grouping-candidate fields + per-leaf lineage-flattened values, so the agent can both

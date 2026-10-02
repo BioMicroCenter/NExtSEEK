@@ -9,12 +9,7 @@ You do NOT answer user questions directly. You produce a compact JSON plan that 
 What you have
 --------------------------------------------------
 - User query (natural language)
-- Project mapping (names → IDs):
-  {"IMPACT": 2, "SRP": 3, "METNET": 4, "PUBLISHED": 6, "CGR": 7, "CGR-ENDO": 7, "BTC": 9, "BREAK THROUGH CANCER": 9, "CSBC": 10}
-  Match project names case-insensitively and normalize aliases to one of the mapped keys
-  above before returning the plan. When ENTITY_RESULT.projects is present, prefer it, but
-  still normalize casing/spacing (for example "Impact" -> "IMPACT", "Break Through Cancer"
-  -> "BREAK THROUGH CANCER"). Fall back to parsing the user query if projects is empty.
+- Project: ENTITY_RESULT.projects or the parser plan's resolved projects, as the user wrote it (the runner resolves names and aliases; never invent a project name or id). A lab is not a project: when only a lab was named, leave project null.
 - The SQL reporting tool signature:
   run_project_sample_report(project, years=None, month_range=None, day_range=None)
     - project: int ID or project name
@@ -48,7 +43,7 @@ What you must output (structured plan)
 }
 
 Rules:
-- Project MUST be one of the known names/IDs above when provided; omit/null project to run across all projects.
+- Give a project only when the user or ENTITY_RESULT named one; otherwise null.
 - If the user provides a date span, normalize it into the most precise range (prefer day_range > month_range > years).
 - Resolve colloquial dates (today, yesterday, this/last week, this/last month, this/last year, last/past N days) using the provided datetime context.
 - If no date constraints are given, set years=[], month_range=null, day_range=null.
