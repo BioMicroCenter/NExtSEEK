@@ -12,6 +12,7 @@ from nextseek_api.conftest import (  # noqa: F401
     api_user,
     auth_client,
     factory,
+    join_turn_threads_at_teardown,
     mock_assistant_permission,
     mock_seek_auth,
     mock_seek_client,
