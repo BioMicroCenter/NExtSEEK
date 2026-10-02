@@ -773,7 +773,8 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
     lists its owner's names among its alternative names too, so those never make a project name an investigation.
     A name only investigation rows hold maps to an Investigation title: the name itself or the row's own name
     first (``own`` True), then a Project title that is the name itself (``own`` True, as before any other level was
-    read), then the row's alternative names (``own`` False: they can be the owner's names), then, with ``own``
+    read), then an alternative name that one investigation row holds and no project row does (``own`` True: it is
+    not the owner's), then the row's other alternative names (``own`` False: they can be the owner's names), then, with ``own``
     False, a Project title through those names or the ``parent_project``, which is never tried as an investigation
     title. A name with no row may sit at any level, narrowest first. ``own`` False means the query may use the
     title but it does not scope the name itself, so the scope check still reports it. Anything ambiguous, and any
@@ -811,8 +812,11 @@ def container_titles_for(names, rows, titles_by_level) -> dict[str, tuple[str, s
             own_names = {key} | folded(r.get("name") for r in matched)
             aliases = set().union(*(row_names(r) for r in matched))
             parents = folded(r.get("parent_project") for r in matched)
+            held_by = {a: [r for r in rows or () if isinstance(r, dict) and a in row_names(r)] for a in aliases}
+            sole = {a for a, holders in held_by.items() if len(holders) == 1 and is_investigation(holders[0])}
             attempts = [("investigation", {key}, True), ("investigation", own_names, True), ("project", {key}, True),
-                        ("investigation", aliases, False), ("project", aliases | parents, False)]
+                        ("investigation", sole, True), ("investigation", aliases, False),
+                        ("project", aliases | parents, False)]
         else:
             attempts = [(level, {key}, True) for level in CONTAINER_LEVELS]
         for level, wanted, own in attempts:
