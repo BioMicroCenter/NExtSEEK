@@ -858,15 +858,18 @@ def _free_text_beside_field(t: _Turn) -> _Finding | None:
     record whose text says Arcadia, whatever its Strain (R3 A5). The same term through an EXISTS arm over a related
     sample's text widens it again (A6). Fires when a free-text term equals a ``keyword_fields`` key and one of that
     key's fields is also read by the query."""
+    # The field must be read by the matching, not only returned to group by: look before the final RETURN.
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", t.cy, re.IGNORECASE)]
+    cy = t.cy[:returns[-1]] if returns else t.cy
     for var, _tok, term in _free_text_terms(t.cy, t.params):
         for key, fields in (t.inp.keyword_fields or {}).items():
             if str(key).strip().lower() != term:
                 continue
             fields = [fields] if isinstance(fields, str) else [f for f in fields or [] if isinstance(f, str)]
-            used = [f for f in fields if f != "search_text" and re.search(rf"\b\w+\.{re.escape(f)}\b", t.cy)]
+            used = [f for f in fields if f != "search_text" and re.search(rf"\b\w+\.{re.escape(f)}\b", cy)]
             if not used:
                 continue
-            holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", t.cy)}
+            holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", cy)}
             where = "sample" if var in holders else "related sample"
             names = used[0] if len(used) == 1 else ", ".join(used[:-1]) + " and " + used[-1]
             fact = FIELD_AND_TEXT_FACT.format(term=key, fields=names, where=where)
