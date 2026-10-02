@@ -105,7 +105,8 @@ class TurnPassAuthentication(BaseAuthentication):
         from nextseek_api.assistant import turn_pass
 
         try:
-            turn_pass.login_for(turn)
+            if not all(turn_pass.login_for(turn)):
+                return False  # an empty name or password: nothing to act as, so the pass is dead too
         except turn_pass.TurnPassError:
             return False  # a wiped or undecryptable login: the pass is dead on every route
         return True

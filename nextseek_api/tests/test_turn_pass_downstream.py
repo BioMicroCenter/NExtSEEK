@@ -186,6 +186,15 @@ def test_a_wiped_pass_gets_the_auth_failed_envelope_on_an_op_route():
     assert resp.json()["code"] == "AUTH_FAILED"
 
 
+@pytest.mark.parametrize("login", [("", ""), ("user", ""), ("", PASSWORD)])
+def test_a_pass_holding_an_empty_login_part_gets_the_auth_failed_envelope(login):
+    """A turn issued with an empty name or password (the issuer maps a missing one to "") is dead on every route."""
+    turn, raw = make_turn(login=login)
+    resp = APIClient().post(f"{A}/api-read/", {}, format="json", **pass_header(raw))
+    assert resp.status_code == 401, resp.content
+    assert resp.json()["code"] == "AUTH_FAILED"
+
+
 @override_settings(NEXTSEEK_CHAT_CONFIG=_Config(), NEXTSEEK_CHAT_CONFIG_PROD=None)
 def test_a_wiped_pass_has_no_login_even_with_a_session():
     from nextseek_api.services.assistant import _granular_chat_config, _request_login
