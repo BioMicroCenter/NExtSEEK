@@ -453,11 +453,11 @@ def test_another_lab_and_project_of_the_same_kind(monkeypatch, tmp_path):
 
 def test_a_lab_with_no_matching_project_stays_a_lab_scope(monkeypatch, tmp_path):
     asked, result, _summary, footer = _project_run(
-        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["KAM"], ["Kamm"])
+        monkeypatch, tmp_path, {"NORTHFIELD": 21}, ["QLN"], ["Quillon"])
 
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
-    assert "this report covers lab KAM, not a project. Kamm is a lab here and is not the name of a project or investigation." in footer
+    assert "this report covers lab QLN, not a project. Quillon is a lab here and is not the name of a project or investigation." in footer
 
 
 def test_labs_that_resolve_to_two_projects_stay_a_lab_scope(monkeypatch, tmp_path):
