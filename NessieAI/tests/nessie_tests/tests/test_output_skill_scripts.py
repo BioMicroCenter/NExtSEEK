@@ -675,6 +675,34 @@ def test_a_pulled_case_counts_a_turn_the_run_sent_but_could_not_join():
     assert cases["run.partial"]["cost_partial"] is True
 
 
+def test_a_pulled_case_joins_hyphenated_manifest_ids_to_bare_and_upper_case_task_ids():
+    """SQL returns 32 hex with no hyphens, the manifest hyphenated, either may be upper case."""
+    manifest = {"entries": [
+        {"id": "hy", "task_ids": ["3f2a9c10-aaaa-bbbb-cccc-0123456789ab"]},
+        {"id": "up", "task_ids": ["3F2A9C10-AAAA-BBBB-CCCC-0123456789AB"]},
+    ]}
+    turns = fetch_run.price_turns([
+        _pulled("3f2a9c10aaaabbbbcccc0123456789ab", route="nextseek_query", cost=0.2,
+                router_cost=0.01, cost_partial=False)])
+
+    cases = fetch_run.case_costs(manifest, turns)
+
+    for cid in ("hy", "up"):
+        assert cases[cid]["turns"] == 1 and cases[cid]["cost"] == 0.21, cid
+
+
+def test_a_pulled_case_that_joins_nothing_keeps_the_manifest_cost():
+    manifest = {"entries": [
+        {"id": "a", "task_ids": ["aaaa"], "cost": 0.3, "cost_partial": True},
+        {"id": "b", "task_ids": ["bbbb"]}]}
+
+    cases = fetch_run.case_costs(manifest, fetch_run.price_turns([_pulled("zzzz")]))
+
+    assert cases["a"] == {"cost": 0.3, "cost_partial": True, "turns": 0,
+                          "missing_turns": 1, "fallback_turns": 0}
+    assert cases["b"]["cost"] is None
+
+
 # The launch skill copies fetch_run.py ALONE into a scratch directory and runs it
 # there, so the summing rule may be absent. The pull must still work: priced
 # fields come back None, never a crash.
@@ -764,6 +792,16 @@ def test_the_in_tree_pull_prices_the_same_fixture(tmp_path, monkeypatch):
                                                                         (0.01, True)]
     cases = json.loads((out / "case_costs.json").read_text(encoding="utf-8"))
     assert cases["cc.two"]["cost"] == 0.52 and cases["cc.two"]["cost_partial"] is True
+
+
+def test_a_pull_that_joins_no_case_says_so(tmp_path, monkeypatch, capsys):
+    manifest = {"entries": [{"id": "x.one", "task_ids": ["no-such-turn"], "cost": 0.4}]}
+
+    out = _pull(fetch_run, monkeypatch, tmp_path, manifest=manifest)
+
+    assert "0 of 1 cases joined" in capsys.readouterr().out
+    cases = json.loads((out / "case_costs.json").read_text(encoding="utf-8"))
+    assert cases["x.one"]["cost"] == 0.4
 
 
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
