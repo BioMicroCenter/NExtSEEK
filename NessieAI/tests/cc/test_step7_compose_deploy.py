@@ -1715,3 +1715,14 @@ def test_cc_runner_available_network_missing_detail_excludes_make_image_build_an
     assert "make image-build" not in detail
     assert "docker compose" in detail
     assert "NEXTSEEK_CC_NETWORK" in detail
+
+
+@pytest.mark.host_only
+def test_compose_config_cc_agent_builds_for_the_platform_the_engine_runs_it_on(tmp_path):
+    """cc_engine starts every agent container as ``CC_PLATFORM``. Without a
+    matching ``platform:`` here, an Apple-silicon host builds and files the
+    image under linux/arm64 (its content is amd64: the Dockerfile pins an
+    amd64 base), and Docker refuses the spawn with NotFound, "does not
+    provide the specified platform". An x86 server never notices."""
+    cfg = _real_compose_config(tmp_path)
+    assert cfg["services"]["cc-agent"].get("platform") == cc_engine.CC_PLATFORM
