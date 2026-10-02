@@ -31,7 +31,13 @@ _FRIENDLY = {
     "DuplicationPercent": "Duplication rate",
     "File_PrimaryData": "the file path",
     "Link_PrimaryData": "the download link",
+    "Checksum_PrimaryData": "Checksum",
 }
+
+# Findings rendered as ONE item across every workbook they touch, two lines
+# each: what is missing and where, then the choice. A finding shared by three
+# workbooks used to be three numbered items of five lines apiece.
+_COMPACT_CODES = (qa.LINEAGE_UNRESOLVED, qa.CATALOG_REQUIRED_MISSING)
 
 # UNRESOLVED_UID lists affected samples by name; cap it so a genuinely large
 # batch doesn't turn into the exact log-in-a-chat-window leak rule 1 forbids.
@@ -120,8 +126,28 @@ def _children_first(item):
     return (0 if item[0].startswith("A.") else 1, item[0])
 
 
+def _rows(count: int) -> str:
+    return f"{count} {_plural(count)}"
+
+
+def _compact_item(index, code, attribute, where):
+    """Two lines for a finding shared across workbooks: the headline naming
+    each workbook and its row count, then the choice."""
+    places = ", ".join(f"{name} ({_rows(count)})" for name, count in where)
+    if code == qa.LINEAGE_UNRESOLVED:
+        return [f"  {index}.  No parent found — {places}.",
+                "      They upload fine. Attach the parents in NExtSEEK later, or tell me"
+                " the source samples and I'll rebuild."]
+    what = "No checksum" if attribute == "Checksum_PrimaryData" else f"{_name(attribute)} missing"
+    return [f"  {index}.  {what} — {places}.",
+            "      The server accepts these rows without it. Fill it in if you have it,"
+            " or upload as-is."]
+
+
 def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str],
-                        run_name: str, ambiguous_primary: list[dict] | None = None) -> str:
+                        run_name: str, ambiguous_primary: list[dict] | None = None,
+                        row_counts: dict[str, int] | None = None,
+                        unmapped_count: int = 0) -> str:
     """Render the whole run's QA outcome as plain-language text.
 
     ``reports`` -- ``{sample_type: QaReport}``, one entry per sample type QA'd
@@ -153,6 +179,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     entry in ``candidates`` are harvested, run-relative paths -- the only way
     to show the directory a same-named basename hides.
 
+    ``row_counts`` -- ``{sample_type: rows}``, shown beside each workbook.
+
+    ``unmapped_count`` -- how many raw QC keys the map could not place; one
+    line says they are queued for review, so the agent has nothing to add.
+
     Returns the full report as one string. This is the module's only public
     function, and its output is relayed to the user VERBATIM by the calling
     agent -- see the module docstring's three rules -- so nothing here should
@@ -172,16 +203,33 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
     # sample type can't appear in a different position in each.
     ordered = sorted(reports.items(), key=_children_first)
 
+    row_counts = row_counts or {}
     for sample_type, built in ordered:
-        mark = {"CLEAN": "OK", "SOFT_FLAG": "!", "HARD_REJECT": "X"}[built.disposition]
         name = _artifact_name(artifacts, sample_type)
-        lines.append(f"  {mark}  {name}")
+        parts = [name]
+        if sample_type in row_counts:
+            parts.append(_rows(row_counts[sample_type]))
+        if built.disposition == qa.HARD_REJECT:
+            parts.append("blocked")
+        lines.append("  " + " — ".join(parts))
     lines.append("")
 
     hard_checks: list[tuple] = []
     soft_checks: list[tuple] = []
+    # (code, attribute) -> [(workbook name, rows)] for the compact codes, in
+    # first-seen order; filled below instead of soft_checks.
+    compact: dict[tuple, list] = {}
     for sample_type, built in ordered:
-        for (code, attribute), bucket in qa.group(built.findings).items():
+        grouped = qa.group(built.findings)
+        # "No parent found" already says Parent is missing on these rows.
+        unparented = (qa.LINEAGE_UNRESOLVED, "") in grouped
+        for (code, attribute), bucket in grouped.items():
+            if (bucket["severity"] == qa.SOFT and code in _COMPACT_CODES):
+                if not (unparented and code == qa.CATALOG_REQUIRED_MISSING
+                        and attribute == "Parent"):
+                    compact.setdefault((code, attribute), []).append(
+                        (_artifact_name(artifacts, sample_type), bucket["count"]))
+                continue
             # The Finding itself often leaves sample_type blank for row-level
             # checks (a blank Parent, a duplicate name, ...); the QaReport
             # we're iterating is already scoped to one sample type, which is
@@ -208,12 +256,17 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             lines.extend(_render_one(index, code, attribute, bucket))
             lines.append("")
 
-    if soft_checks:
-        header = ("ONE THING TO CHECK" if len(soft_checks) == 1
-                   else f"{len(soft_checks)} THINGS TO CHECK")
-        lines.append(header)
+    if soft_checks or compact:
+        lines.append("CHECK BEFORE UPLOADING")
         lines.append("")
-        for index, (code, attribute, bucket) in enumerate(soft_checks, start=1):
+        index = 0
+        for (code, attribute), where in compact.items():
+            index += 1
+            lines.extend(_compact_item(index, code, attribute, where))
+        if compact:
+            lines.append("")
+        for code, attribute, bucket in soft_checks:
+            index += 1
             lines.extend(_render_one(index, code, attribute, bucket))
             lines.append("")
 
@@ -238,6 +291,11 @@ def render_qa_for_user(reports: dict[str, qa.QaReport], artifacts: dict[str, str
             lines.append(
                 "      on the right one and rebuild — the hashed file wins the pick.")
             lines.append("")
+
+    if unmapped_count:
+        lines.append(f"{unmapped_count} QC metrics had no matching attribute; they are"
+                     " queued for an administrator to review.")
+        lines.append("")
 
     lines.append("TO UPLOAD")
     lines.append("")

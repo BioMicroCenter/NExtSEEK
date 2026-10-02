@@ -264,7 +264,10 @@ produce workbooks for the user to REVIEW and never write to NExtSEEK. Only step 
 4. `nextseek-build-upload-xlsx --manifest-id <id — step 3's id if you ran it, else step 1's>
    --mode new` for the analysis children, then `--mode update` for the D.SEQ backfill. **Relay the
    `reply` field of each result VERBATIM**, flags included. It is already written for the user;
-   re-summarising it loses the wording and the calibration.
+   re-summarising it loses the wording and the calibration. The `reply` IS your answer: do not
+   introduce it ("here is the report"), quote it, or summarise it again after it, and do not
+   restate its unmapped-metric count. If the update build produced no workbook, say so in one
+   line instead of relaying an empty report. End with one question: upload, or fix a flag first.
 
    **4b. The fix loop.** Collect the user's answers to the flags in chat. Three kinds, each only for
    what this run flagged: `fill` (a value for a flagged, empty cell), `choose` (one of the listed

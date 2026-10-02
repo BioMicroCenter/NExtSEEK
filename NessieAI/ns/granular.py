@@ -1760,8 +1760,10 @@ def _build_upload_xlsx_from_manifest(args, outputs_dir, session=None):
                              f"`{entry['source_file']}` |\n")
         saved_files[f"map_proposals_{_slug(pipeline)}"] = proposals_path
 
-    reply = user_report.render_qa_for_user(reports_by_type, saved_files, run_name,
-                                           ambiguous_primary=ambiguous_primary)
+    reply = user_report.render_qa_for_user(
+        reports_by_type, saved_files, run_name, ambiguous_primary=ambiguous_primary,
+        row_counts={st: len(rows) for st, rows in final.rows_by_type.items()},
+        unmapped_count=len(result.unmapped or []))
 
     # A key the curator placed is still proposed: the placement covers this
     # run only, and making it a standing map rule is an admin's call.

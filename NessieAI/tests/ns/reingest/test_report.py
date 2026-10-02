@@ -164,9 +164,9 @@ def test_severity_split_blockers_and_advisories_get_separate_headers():
     text = report.render_qa_for_user({"Z.BOGUS": hard, "D.SEQ": soft}, ARTIFACTS, RUN)
 
     assert "WHAT IS BLOCKING" in text
-    assert "THING" in text  # "ONE THING TO CHECK" / "N THINGS TO CHECK"
+    assert "CHECK BEFORE UPLOADING" in text
     blocking_at = text.index("WHAT IS BLOCKING")
-    checking_at = text.index("THING", blocking_at + len("WHAT IS BLOCKING"))
+    checking_at = text.index("CHECK BEFORE UPLOADING", blocking_at + len("WHAT IS BLOCKING"))
     leave_as_is_at = text.index("Leave it as-is")
 
     assert blocking_at < checking_at < leave_as_is_at
@@ -196,8 +196,10 @@ def test_lineage_unresolved_stands_on_its_own_again():
 
     assert "Reingest ready" in text
     assert "WHAT IS BLOCKING" not in text
-    assert "ships with no parent identified" in text.lower()
-    assert "upload as-is" in text.lower()
+    assert "no parent found" in text.lower()
+    assert "upload fine" in text.lower()
+    # The same missing Parent is not reported a second time as a missing field.
+    assert "parent missing" not in text.lower()
     # The workbook IS offered for upload: nothing here is HARD any more.
     upload_section = text.split("TO UPLOAD", 1)[1]
     assert "reingest_A.GEX.xlsx" in upload_section
@@ -213,7 +215,7 @@ _NEW_CODE_CASES = [
     (qa.LINEAGE_UNRESOLVED, qa.SOFT,
      dict(sample_type="A.GEX", row_index=0,
           detail={"reason": "no Parent key present (lineage could not be resolved)"}),
-     ["no parent identified", "attach the parent", "re-run"]),
+     ["no parent found", "attach the parents", "rebuild"]),
     (qa.PARENT_UID_NOT_FOUND, qa.HARD,
      dict(sample_type="D.SEQ", row_index=0, detail={"token": "D.SEQ-EXAMPLE-1"}),
      ["does not resolve", "register"]),
@@ -248,7 +250,7 @@ _NEW_CODE_CASES = [
      ["required and missing", "fill it in"]),
     (qa.CATALOG_REQUIRED_MISSING, qa.SOFT,
      dict(sample_type="A.GEX", attribute="Checksum_PrimaryData", row_index=0),
-     ["will accept", "curation expectation", "upload as-is"]),
+     ["no checksum", "accepts these rows", "upload as-is"]),
     (qa.PRIMARY_DATA_LINK_ONLY, qa.SOFT,
      dict(sample_type="A.GEX",
           attribute=qa.group_label(("File_PrimaryData", "Link_PrimaryData")),
@@ -388,7 +390,7 @@ def test_primary_data_link_only_soft_flags_when_only_a_secondary_is_present():
     assert "server will reject" not in lowered
     assert qa.PRIMARY_DATA_LINK_ONLY not in text
     # It renders under the advisory header, not the blocking one.
-    assert "ONE THING TO CHECK" in text
+    assert "CHECK BEFORE UPLOADING" in text
     assert "WHAT IS BLOCKING" not in text
 
 
@@ -423,9 +425,9 @@ def test_mixed_hard_and_soft_primary_data_findings_in_one_batch_both_render():
     text = report.render_qa_for_user({"A.GEX": built}, ARTIFACTS, RUN)
 
     assert "WHAT IS BLOCKING" in text
-    assert "THING" in text  # "N THINGS TO CHECK"
+    assert "CHECK BEFORE UPLOADING" in text
     blocking_at = text.index("WHAT IS BLOCKING")
-    checking_at = text.index("THING", blocking_at + len("WHAT IS BLOCKING"))
+    checking_at = text.index("CHECK BEFORE UPLOADING", blocking_at + len("WHAT IS BLOCKING"))
     hard_section = text[blocking_at:checking_at]
     soft_section = text[checking_at:]
 
@@ -507,3 +509,67 @@ def test_no_ambiguous_primary_data_omits_the_section():
     clean = qa.QaReport()._finalize()
     text = report.render_qa_for_user({"A.GEX": clean}, ARTIFACTS, RUN)
     assert "PRIMARY-FILE" not in text
+
+
+# --- One item per finding, across workbooks ---------------------------------
+# A finding shared by several workbooks is one item naming each of them, so the
+# reader sees at once which workbooks are affected; it used to be one numbered
+# item per workbook, and a missing Parent was reported twice (no parent
+# identified, and Parent missing) for the same rows.
+
+_TWO_WORKBOOKS = {"reingest_A_ALN": "/out/reingest_A.ALN.xlsx",
+                  "reingest_A_GEX": "/out/reingest_A.GEX.xlsx"}
+
+
+def _unparented(sample_type, n):
+    built = qa.QaReport()
+    for i in range(n):
+        built.add(qa.Finding(code=qa.LINEAGE_UNRESOLVED, severity=qa.SOFT,
+                             sample_type=sample_type, row_index=i,
+                             detail={"reason": "no Parent key present"}))
+        built.add(qa.Finding(code=qa.CATALOG_REQUIRED_MISSING, severity=qa.SOFT,
+                             sample_type=sample_type, attribute="Parent", row_index=i))
+        built.add(qa.Finding(code=qa.CATALOG_REQUIRED_MISSING, severity=qa.SOFT,
+                             sample_type=sample_type, attribute="Checksum_PrimaryData",
+                             row_index=i))
+    return built._finalize()
+
+
+def _two_workbook_text(**kwargs):
+    reports = {"A.ALN": _unparented("A.ALN", 15), "A.GEX": _unparented("A.GEX", 1)}
+    return report.render_qa_for_user(reports, _TWO_WORKBOOKS, RUN, **kwargs)
+
+
+def test_a_finding_shared_by_two_workbooks_is_one_item_naming_each():
+    text = _two_workbook_text()
+    parent_lines = [l for l in text.splitlines() if "No parent found" in l]
+    assert len(parent_lines) == 1
+    assert "reingest_A.ALN.xlsx (15 rows)" in parent_lines[0]
+    assert "reingest_A.GEX.xlsx (1 row)" in parent_lines[0]
+    checksum_lines = [l for l in text.splitlines() if "No checksum" in l]
+    assert len(checksum_lines) == 1
+
+
+def test_parent_missing_is_not_repeated_where_no_parent_was_found():
+    text = _two_workbook_text()
+    assert "Parent missing" not in text
+    # Two findings, two items: no parent, no checksum.
+    check = text.split("CHECK BEFORE UPLOADING", 1)[1].split("TO UPLOAD", 1)[0]
+    assert [l.split(".", 1)[0].strip() for l in check.splitlines()
+            if l.strip()[:2] in ("1.", "2.", "3.")] == ["1", "2"]
+
+
+def test_each_workbook_is_listed_with_its_row_count():
+    text = _two_workbook_text(row_counts={"A.ALN": 15, "A.GEX": 1})
+    head = text.split("CHECK BEFORE UPLOADING", 1)[0]
+    assert "reingest_A.ALN.xlsx — 15 rows" in head
+    assert "reingest_A.GEX.xlsx — 1 row" in head
+    assert "!" not in head
+
+
+def test_unmapped_metrics_are_one_line():
+    text = _two_workbook_text(unmapped_count=24)
+    lines = [l for l in text.splitlines() if "24 QC metrics" in l]
+    assert len(lines) == 1
+    assert "review" in lines[0]
+    assert "QC metrics" not in _two_workbook_text()
