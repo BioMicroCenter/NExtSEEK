@@ -96,12 +96,14 @@ def test_the_system_agent_passes_its_catalog_key(monkeypatch):
     config.MIN_API_ENDPOINTS = []
     config.CAPABILITIES_DOC = "caps"
     config.SYSTEM_AGENT_SYSTEM_PROMPT = "sys"
-    config.get_agent_model.side_effect = _model_lookup("system")
+    lookup = _model_lookup("system")
+    tool_client = MagicMock()  # the system agent needs a client with chat_with_tools
+    config.get_agent_model.side_effect = lambda label: (tool_client, *lookup(label)[1:])
 
     system_mod.system_agent(config, "what can you do", {}, ParserPlan(mode="system_question"))
 
     assert calls[0]["agent_label"] == "system", "the chain is looked up by the catalog key"
-    assert calls[0]["client"] is PRIMARY_CLIENT, "the primary client is unchanged"
+    assert calls[0]["client"] is tool_client, "the primary client is unchanged"
     assert calls[0]["model_name"] == PRIMARY_MODEL, "the primary model is unchanged"
 
 

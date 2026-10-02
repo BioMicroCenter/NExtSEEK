@@ -288,3 +288,57 @@ def test_the_default_profile_runs_the_system_agent_on_a_tool_capable_model_with_
                 for row in (rs if isinstance(rs, list) else [rs])]
         system_row = next(row for row in rows if "system" in row["agents"])
         assert system_row["provider"] == "anth", profile
+
+
+# --- review fixes (F9) ------------------------------------------------------------------------------------------------
+
+CANNED = "I encountered an issue answering your question."
+
+
+def test_an_empty_narrative_from_answer_is_a_failure_with_the_canned_output(monkeypatch, docs_dir):
+    script = _Script([_tool("answer", mode="get_capabilities", narrative="   ")])
+    out = _run(monkeypatch, _config(docs_dir), script)
+    assert out.narrative.startswith(CANNED) and out.notes.startswith("error:")
+
+
+def test_a_non_empty_narrative_from_answer_is_kept(monkeypatch, docs_dir):
+    """Control: the same call with text is not the canned output."""
+    script = _Script([_tool("answer", mode="get_capabilities", narrative="Press Verify.")])
+    assert _run(monkeypatch, _config(docs_dir), script).narrative == "Press Verify."
+
+
+def test_a_page_that_is_not_utf8_is_skipped_not_fatal(tmp_path):
+    (tmp_path / "README.md").write_text(README)
+    (tmp_path / "loading.md").write_bytes(b"# Loading\n\xff\xfe broken")
+    (tmp_path / "finding.md").write_text(PAGES["finding.md"])
+    assert list(system_tools.load_docs(str(tmp_path))) == ["finding"]
+
+
+def test_a_readme_that_is_not_utf8_gives_no_pages(tmp_path):
+    (tmp_path / "README.md").write_bytes(b"\xff\xfe")
+    assert system_tools.load_docs(str(tmp_path)) == {}
+
+
+def test_prose_without_the_answer_tool_loses_a_link_to_a_page_not_read(monkeypatch, docs_dir):
+    script = _Script(
+        [_tool("read_doc", slug="loading")],
+        [{"type": "text", "text": "Use [the loader](/docs/loading/) or [the export page](/docs/finding/#x)."}],
+    )
+    out = _run(monkeypatch, _config(docs_dir), script)
+    assert "[the loader](/docs/loading/)" in out.narrative
+    assert "/docs/finding/" not in out.narrative and "the export page" in out.narrative
+
+
+def test_prose_naming_a_page_never_read_loses_the_link_when_nothing_was_read(monkeypatch, docs_dir):
+    """Another prose answer of the same kind: no page read at all."""
+    script = _Script([{"type": "text", "text": "See [Counts](/docs/counts/) for totals."}])
+    out = _run(monkeypatch, _config(docs_dir), script)
+    assert out.narrative == "See Counts for totals."
+
+
+def test_a_client_with_no_tool_surface_gets_the_canned_failure_before_any_call(monkeypatch, docs_dir):
+    config = _config(docs_dir)
+    config.get_agent_model.return_value = (object(), "model", None)
+    script = _Script()
+    out = _run(monkeypatch, config, script)
+    assert out.narrative.startswith(CANNED) and script.calls == []
