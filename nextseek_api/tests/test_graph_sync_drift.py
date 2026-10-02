@@ -15,12 +15,23 @@ import pytest
 from django.db import connection
 from neo4j import RoutingControl
 
+from nextseek_api.graph_sync import assays as assay_rules
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import drift, run, sources, verify, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests import graph_sync_pages as pages
+from nextseek_graph import schema
 
 T0 = datetime(2026, 9, 15, 2, 30, tzinfo=dt_timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def no_assay_layer(monkeypatch):
+    """Every drift check reads the assay layer (graph schema 1.3); an empty one unless a test builds its own."""
+    empty = run.AssayState(assay_rules.build_catalog([], [], set()), {}, [], {}, {})
+    monkeypatch.setattr(run, "read_assays", lambda: empty)
+    monkeypatch.setattr(sources, "iter_assay_links", lambda: iter(()))
 
 
 class FakeDriver:
@@ -28,7 +39,7 @@ class FakeDriver:
 
     def __init__(self, responder):
         self.calls = []
-        self.responder = responder
+        self.responder = pages.paged(responder)   # the paged reads answered from the template's rows
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -92,7 +103,7 @@ def _hash(row):
 class DriftGraph:
     """The graph side: ``hashes`` (id to source_hash), ``uuids`` (id to uuid) and the GraphMeta node."""
 
-    def __init__(self, rows=(), schema_version="1.2", catalog=()):
+    def __init__(self, rows=(), schema_version=schema.SCHEMA_VERSION, catalog=()):
         self.hashes = {r["id"]: _hash(r) for r in rows}
         self.uuids = {r["id"]: r["uuid"] for r in rows}
         self.meta = [{"props": {"schema_version": schema_version, "catalog_hash": "c"}}] if schema_version else []
@@ -114,12 +125,20 @@ class DriftGraph:
             return self.meta
         if query == verify.GRAPH_CATALOG:
             return self.catalog
+        if query == drift.GRAPH_TYPE_PROPERTIES:
+            return [{"id": r["id"], "label": r["label"], "deprecated": r.get("deprecated")} for r in self.catalog]
+        if query == drift.GRAPH_DECLARED_ATTRIBUTES:
+            return []
+        if query == drift.TYPE_COUNTS_STALE:
+            return [{"n": 0, "examples": []}]
         if query == drift.ASSISTANT_INVESTIGATIONS:
             # Every name the assistant is told to use resolves in this world, so the check passes and
             # these cases stay about what they are named for. The real repository's capabilities.md is
             # what supplies the names; TestTheAssistantsInvestigationNamesMustResolve covers failure.
             return [{"title": title, "nodes": 1, "samples": self.investigation_samples}
                     for title in params["titles"]]
+        if query in (verify.ASSAY_IDS, drift.MEMBER_SEEK_PAIRS, drift.EDGE_ASSAY_LABELS):
+            return []
         raise AssertionError(f"unexpected statement: {query}")
 
 
@@ -279,6 +298,10 @@ def test_drift_check_is_ok_when_nothing_drifted(mysql_rows, gate, catalog):
     assert names == ["samples.missing_in_graph", "samples.not_in_mysql", "samples.source_hash_mismatch",
                      "samples.new_uuids",
                      "catalog.sample_types", "catalog.types_with_attribute_set_diff",
+                     "catalog.type_properties_differ", "catalog.attribute_properties_differ",
+                     "catalog.type_counts_stale",
+                     "catalog.assays", "assays.unmapped_seek_assays_with_members", "assays.members_without_role",
+                     "assays.labels_disagree_with_assay_titles",
                      "catalog.assistant_investigations",
                      "freshness.full", "freshness.reconcile", "freshness.outbox",
                      "4.samples.graph_count"]
@@ -360,6 +383,17 @@ def test_a_failing_gate_g_check_is_drift_under_its_own_name(mysql_rows, gate, ca
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("passed, status", [(True, "ok"), (False, "drift")])
+def test_drift_carries_family_12_and_follows_its_verdict(mysql_rows, gate, catalog, passed, status):
+    _fresh_runs()
+    gate.result = {"checks": [{"name": "12.studies.split_pairs", "expected": "any" if passed else 0, "actual": 2,
+                               "pass": passed}], "pass": passed, "stats": {}}
+    result, _ = _check_drift(DriftGraph())
+    assert _named(result, "12.studies.split_pairs")["actual"] == 2
+    assert result["status"] == status
+
+
+@pytest.mark.django_db
 def test_a_catalog_that_does_not_build_fails_the_detection_and_gate_g_still_runs(mysql_rows, gate, monkeypatch):
     def collide():
         raise ValueError("label collision: T_D_SEQ")
@@ -397,7 +431,7 @@ def test_drift_check_reads_only_and_records_nothing_without_a_trigger(mysql_rows
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("version, status", [("1.2", "drift"), ("1.1", "refused")])
+@pytest.mark.parametrize("version, status", [(schema.SCHEMA_VERSION, "drift"), ("1.1", "refused")])
 def test_drift_check_records_its_run_when_given_a_trigger(mysql_rows, gate, catalog, version, status):
     mysql_rows.append(_row(3, "TIS-220119FLY-3"))
     result, _ = _check_drift(DriftGraph(schema_version=version), trigger="command")
@@ -411,7 +445,7 @@ def test_drift_check_records_its_run_when_given_a_trigger(mysql_rows, gate, cata
 def test_drift_check_records_a_failed_run_and_raises_when_it_cannot_complete(mysql_rows, gate, catalog):
     def broken(query, params):
         if query == q.READ_GRAPHMETA:
-            return [{"props": {"schema_version": "1.2"}}]
+            return [{"props": {"schema_version": schema.SCHEMA_VERSION}}]
         raise OSError("Neo4j went away")
 
     with pytest.raises(OSError):
@@ -427,18 +461,25 @@ def _catalog(sample_types, attributes):
     return run.Catalog(sample_types=sample_types, attributes=attributes, type_titles=titles, value_types={})
 
 
-def _graph_catalog_reader(rows):
-    """A responder answering only verify.GRAPH_CATALOG, which is all _check_catalog reads."""
+def _graph_catalog_reader(rows, attributes=(), stale=0):
+    """A responder answering what _check_catalog reads: the type rows (``rows``, which may carry ``deprecated``),
+    the declared attributes' properties (``attributes``) and the stale-count read (``stale`` types)."""
     def respond(query, params):
         if query == verify.GRAPH_CATALOG:
             return rows
+        if query == drift.GRAPH_TYPE_PROPERTIES:
+            return [{"id": r["id"], "label": r["label"], "deprecated": r.get("deprecated")} for r in rows]
+        if query == drift.GRAPH_DECLARED_ATTRIBUTES:
+            return list(attributes)
+        if query == drift.TYPE_COUNTS_STALE:
+            return [{"n": stale, "examples": [r["title"] for r in rows][:stale]}]
         raise AssertionError(f"unexpected statement: {query}")
     return FakeDriver(respond)
 
 
-def _run_catalog_checks(cat, graph_rows):
+def _run_catalog_checks(cat, graph_rows, attributes=(), stale=0):
     checks, stats = [], {}
-    drift._check_catalog(_graph_catalog_reader(graph_rows), "neo4j", cat, checks, stats)
+    drift._check_catalog(_graph_catalog_reader(graph_rows, attributes, stale), "neo4j", cat, checks, stats)
     return {c["name"]: c for c in checks}, stats
 
 
@@ -490,6 +531,47 @@ class TestTheCatalogIsComparedAgainstMySQL:
         assert checks["catalog.types_with_attribute_set_diff"]["pass"]
 
 
+class TestTheCatalogPropertiesAreComparedById:
+    """What the catalog sync writes besides titles."""
+
+    TYPES = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False}]
+    ATTRS = [{"id": 1, "sample_type_id": 26, "title": "Organ", "value_type": "string", "required": False, "pos": 1}]
+    GRAPH_ATTRS = [{"id": 1, "value_type": "string", "required": False, "pos": 1}]
+
+    def test_a_matching_catalog_passes_all_three(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        checks, stats = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS)
+        for name in ("catalog.type_properties_differ", "catalog.attribute_properties_differ",
+                     "catalog.type_counts_stale"):
+            assert checks[name]["pass"], checks[name]
+        assert stats["catalog"]["types_with_stale_count"] == 0
+
+    def test_a_deprecated_flag_the_graph_does_not_carry_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": True, "titles": ["Organ"]}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS)
+        check = checks["catalog.type_properties_differ"]
+        assert (check["actual"], check["pass"]) == (1, False)
+        assert check["detail"] == [{"id": 26, "mysql": {"label": "T_TIS", "deprecated": False},
+                                    "graph": {"label": "T_TIS", "deprecated": True}}]
+
+    def test_an_attribute_value_type_the_graph_does_not_carry_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        graph_attrs = [{"id": 1, "value_type": "number", "required": False, "pos": 1}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, graph_attrs)
+        check = checks["catalog.attribute_properties_differ"]
+        assert (check["actual"], check["pass"]) == (1, False)
+        assert check["detail"][0]["graph"]["value_type"] == "number"
+
+    def test_a_stale_sample_count_fails(self):
+        rows = [{"id": 26, "title": "TIS", "label": "T_TIS", "deprecated": False, "titles": ["Organ"]}]
+        checks, _ = _run_catalog_checks(_catalog(self.TYPES, self.ATTRS), rows, self.GRAPH_ATTRS, stale=1)
+        check = checks["catalog.type_counts_stale"]
+        assert (check["actual"], check["pass"], check["detail"]) == (1, False, ["TIS"])
+
+    def test_the_stale_count_statement_counts_a_type_never_counted(self):
+        assert "coalesce(t.sample_count, -1) <> n" in drift.TYPE_COUNTS_STALE
+
+
 class TestContextCoverageIsReportedNotEnforced:
     def test_types_without_a_context_row_are_counted(self):
         cat = _catalog([{"id": 26, "title": "TIS", "label": "T_TIS", "has_context": True},
@@ -509,6 +591,77 @@ class TestContextCoverageIsReportedNotEnforced:
         checks, stats = _run_catalog_checks(cat, rows)
         assert stats["catalog"]["types_without_context"] == 1
         assert not any("context" in name for name in checks)
+
+
+class TestTheAssayLayerIsComparedAndReported:
+    @staticmethod
+    def _state():
+        internal = [{"id": 99, "title": "Patient Visit"}, {"id": 98, "title": "Sequencing run"}]
+        return run.AssayState(assay_rules.build_catalog(internal, [], set()), {5: (99,), 6: (98,)}, [], {},
+                              {5: 70, 6: 70})
+
+    def test_a_missing_assay_fails_and_the_curators_findings_are_only_reported(self, monkeypatch):
+        monkeypatch.setattr(run, "read_assays", self._state)
+        monkeypatch.setattr(sources, "iter_assay_links",
+                            lambda: iter([(10, 5), (11, 5), (12, 6), (13, 13), (14, 13)]))
+
+        def respond(query, params):
+            if query == verify.ASSAY_IDS:
+                return [{"id": 99}]
+            if query == drift.MEMBER_SEEK_PAIRS:
+                return [{"id": 10, "seek_assay_id": 5}, {"id": 11, "seek_assay_id": 5}]
+            if query == drift.EDGE_ASSAY_LABELS:
+                return [{"assay_id": 5, "internal_assay_id": 99, "internal_assay_title": "Patient visit (old)",
+                         "edges": 4},
+                        {"assay_id": 6, "internal_assay_id": 98, "internal_assay_title": "Sequencing run", "edges": 2},
+                        {"assay_id": 13, "internal_assay_id": 13, "internal_assay_title": "Unmapped run", "edges": 1}]
+            raise AssertionError(f"unexpected statement: {query}")
+
+        checks, stats = [], {}
+        drift._check_assays(FakeDriver(respond), "neo4j", checks, stats)
+        named = {c["name"]: c for c in checks}
+
+        assert named["catalog.assays"]["pass"] is False
+        assert named["catalog.assays"]["detail"] == {"only_in_mysql": [98], "only_in_graph": []}
+        unmapped = named["assays.unmapped_seek_assays_with_members"]
+        assert (unmapped["actual"], unmapped["detail"]["largest"]) == (1, [[13, 2]])
+        assert named["assays.members_without_role"]["actual"] == 1          # 12 in SEEK assay 6
+        assert named["assays.labels_disagree_with_assay_titles"]["actual"] == 4
+        assert all(c["pass"] for name, c in named.items() if name != "catalog.assays")
+        assert stats["assays"]["members_without_role"] == 1
+
+
+    def test_the_members_the_sample_edges_carry_are_read_a_page_of_samples_at_a_time(self, monkeypatch):
+        """No read streams every INPUT_TO and OUTPUT_OF; pages of four samples give the checks one page gives."""
+        import random
+
+        rng = random.Random(11)
+        monkeypatch.setattr(run, "read_assays", self._state)
+        links = [(s, rng.choice([5, 6, 13])) for s in range(1, 61) for _ in range(rng.randint(0, 3))]
+        monkeypatch.setattr(sources, "iter_assay_links", lambda: iter(links))
+        held = [{"id": s, "seek_assay_id": a} for s, a in sorted(set(links)) if a != 13 and rng.random() < 0.8]
+        held += [{"id": None, "seek_assay_id": 5}, {"id": "x-7", "seek_assay_id": 6}]
+
+        def respond(query, params):
+            if query == verify.ASSAY_IDS:
+                return [{"id": 99}, {"id": 98}]
+            if query == drift.MEMBER_SEEK_PAIRS:
+                return held
+            if query == drift.EDGE_ASSAY_LABELS:
+                return []
+            raise AssertionError(f"unexpected statement: {query}")
+
+        whole = ([], {})
+        drift._check_assays(FakeDriver(respond), "neo4j", *whole)
+        monkeypatch.setattr(writer, "ID_PAGE", 4)
+        driver = FakeDriver(pages.paged(respond, ids=range(1, 61), budget=20, on=(drift.MEMBER_SEEK_PAIRS,)))
+        paged = ([], {})
+        drift._check_assays(driver, "neo4j", *paged)
+
+        assert json.dumps(paged, sort_keys=True) == json.dumps(whole, sort_keys=True)
+        assert whole[1]["assays"]["members_without_role"] > 0 and len(held) > 20
+        page, rest = writer.page_forms(drift.MEMBER_SEEK_PAIRS)
+        assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 15 + [rest]
 
 
 # --- the assistant's investigation names (the POC's CI hook) --------------------------------------
@@ -707,3 +860,14 @@ def test_the_committed_block_lists_exactly_the_investigation_rows():
                       for r in rows if r["entity_type"] == "investigation")
     assert drift.assistant_investigation_entries(drift._capabilities_text()) == expected
     assert ("TCGA", False) in expected
+
+
+@pytest.mark.django_db
+def test_an_unreadable_capabilities_file_fails_the_check_it_would_feed(mysql_rows, gate, catalog, monkeypatch):
+    """The check used to be skipped, which read as a pass."""
+    monkeypatch.setattr(drift, "_capabilities_text", lambda repo_root=None: None)
+    _fresh_runs()
+    result, _ = _check_drift(DriftGraph())
+    check = _named(result, "catalog.assistant_investigations")
+    assert (check["actual"], check["pass"]) == ("unreadable", False)
+    assert result["status"] == "drift"

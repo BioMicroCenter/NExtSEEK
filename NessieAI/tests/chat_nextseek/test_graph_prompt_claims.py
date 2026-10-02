@@ -44,7 +44,12 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # rule gained the five live titles it lacked (Griffith, Impact, RMS-NGC, SRP, Shoulders; the local graph holds 15,
 # less one test record). Checked by replacing that one string in the old frozen JSON, which then equals the new one
 # exactly; no other rule or trigger changed (was 7273608d61fa...bb3673a).
-FROZEN_ROUTING_SHA256 = "0cf426479396fd1f3bec473eb0a4672146304cd712fb9fc97d94c19659e1251f"
+#
+# Re-pinned a fifth time, reviewed (operator, the studies release): DOI and PMID are sample attributes, so the
+# paper trigger reads s.DOI / s.PMID on the sample and st.DOI / st.PMID on a paper study, and the DOI rule says they
+# live on samples and on paper studies. Checked by replacing those two strings in the old frozen JSON, which then
+# equals the new one exactly; no other rule or trigger changed (was 0cf426479396...c19659e1251f).
+FROZEN_ROUTING_SHA256 = "1b36fed1561faece94488d85a8e80aba8e79a55ecaefb90ddec2551e0cd8f7b6"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 
@@ -155,3 +160,21 @@ def test_a_collection_date_question_reads_the_uid_date():
     assert "TYPE-YYMMDDLAB-n" in rule and "split(s.uuid, '-')[1]" in rule
     assert "only when the user names that attribute" in rule
     assert "s.CollectionDate STARTS WITH" not in PROMPT
+
+
+def test_a_file_type_is_matched_in_the_type_field_and_the_file_name_and_kept_apart():
+    assert ("- **A file type or format is recorded in two places**: a type or format field (`DataType`) and the "
+            "file name's extension (`File_PrimaryData`). Match both and keep them apart: "
+            "`WHERE toLower(toString(s.DataType)) CONTAINS $term OR any(e IN $exts WHERE "
+            "toLower(toString(s.File_PrimaryData)) ENDS WITH e) RETURN coalesce(toString(s.DataType), '(file name only)') AS value, count(*) AS n "
+            "ORDER BY n DESC`, so the reply can give the total with and without the records known only by "
+            "their file name.") in PROMPT
+
+
+def test_both_attributes_the_file_type_bullet_names_are_real_on_more_than_one_sample_type():
+    import json
+
+    rows = json.loads((PACKAGE / "context" / "sampletypes_db.json").read_text(encoding="utf-8"))
+    rows = rows if isinstance(rows, list) else next(iter(rows.values()))
+    for attribute in ("DataType", "File_PrimaryData"):
+        assert sum(attribute in json.dumps(r) for r in rows) > 1, attribute

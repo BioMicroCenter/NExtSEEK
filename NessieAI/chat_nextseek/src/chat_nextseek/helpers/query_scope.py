@@ -63,6 +63,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..graph_contract import schema
 from .lab_code import fold
 
 #: One English phrase per endpoint, for the single sentence the reply may say about
@@ -142,6 +143,7 @@ def _label(kind: str, value: str, name: str | None = None) -> str:
 
 def _asked_for(
     entity_result: dict, parser_plan: dict, user_query: str | None = None,
+    type_tags: dict[str, list[str]] | None = None,
 ) -> list[tuple[str, str, str, str | None]]:
     """Every constraint the turn asked for, as ``(kind, value, label, name)``.
 
@@ -168,6 +170,10 @@ def _asked_for(
     processed via X"): it asks for every sample, so a type read out of X is not counted
     unless the question writes that type's code, or names the type after the topic with a
     cue ("from mice", "mouse samples"; ``_EVERY_SAMPLE``, ``_type_cued``).
+
+    A type only the entity step resolved (the parser's ``sampletype_code`` is another) counts only when the
+    question writes its code, name, an everyday name or one of its tag phrases (``type_tags``, ``_type_is_written``):
+    the entity step reads catalog Tags, so a Tag the user did not write must not become a mandatory caveat.
     """
     filters = parser_plan.get("filters") or {}
     asked: list[tuple[str, str, str, str | None]] = []
@@ -211,7 +217,11 @@ def _asked_for(
         if code and name and name not in lab_names.setdefault(code, []):
             lab_names[code].append(name)
 
+    parser_code = str(filters.get("sampletype_code") or "").strip()
     for code, name in _codes_and_names(entity_result.get("sampletypes")):
+        if (user_query is not None and code != parser_code
+                and not _type_is_written(user_query, code, name, (type_tags or {}).get(code))):
+            continue
         _add("sample type", code, name)
     if filters.get("sampletype_code"):
         _add("sample type", str(filters["sampletype_code"]))
@@ -283,7 +293,7 @@ def _type_label(code: str) -> str:
     alone read ``MATCH (s:T_RNA)`` as not constraining RNA: 19 of the 30 Pilot A v2
     replies (2026-09-18) opened by saying the sample type was not applied.
     """
-    return "T_" + re.sub(r"[^A-Za-z0-9_]", "_", code)
+    return schema.type_label(code)
 
 
 def _type_is_applied(code: str, haystack: str) -> bool:
@@ -292,7 +302,7 @@ def _type_is_applied(code: str, haystack: str) -> bool:
 
 #: A graph label (``:T_D_SEQ``), removed before ``_name_is_applied`` splits on underscores, so
 #: a name never counts as applied because it is one segment of a sample type's label.
-_GRAPH_LABEL = re.compile(r":\s*`?T_[A-Za-z0-9_]+`?")
+_GRAPH_LABEL = re.compile(r":\s*`?" + schema.TYPE_LABEL_PATTERN + "`?")
 
 
 def _name_is_applied(value: str, haystack: str) -> bool:
@@ -320,10 +330,7 @@ def _keyword_is_applied(keyword: str, haystack: str) -> bool:
 
 #: Properties every Sample carries. A keyword said to be realised as one of these was matched as
 #: text (``search_text``) or not at all, so the declaration proves nothing about a field.
-_SYSTEM_PROPERTIES = frozenset({
-    "id", "uuid", "type", "title", "project_ids", "search_text", "synced_at", "source_hash",
-    "parent_titles", "parent_title_hashes",
-})
+_SYSTEM_PROPERTIES = schema.SAMPLE_SYSTEM_PROPERTIES_V11 | schema.SAMPLE_SYSTEM_PROPERTIES_V12
 
 
 def _declared_fields(keyword: str, graph_plan: dict | None) -> list[str]:
@@ -553,6 +560,32 @@ def _common_name_is_applied(keyword: str, haystack: str) -> bool:
     return bool(code) and _type_is_applied(code, haystack)
 
 
+def _phrase_written(question: str, phrase: str) -> bool:
+    """The question writes ``phrase`` as whole words, its last word singular or plural ("traces", "libraries" for
+    "library", "analyses" for "analysis"); "cc" is not inside "occurrence"."""
+    words = [w for w in re.split(r"[^a-z0-9]+", str(phrase or "").lower()) if w]
+    if not words:
+        return False
+    last = words[-1]
+    plurals = [re.escape(last) + r"(?:s|es)?"]
+    if len(last) > 3 and last.endswith("y"):
+        plurals.append(re.escape(last[:-1]) + "ies")
+    if len(last) > 3 and last.endswith("is"):
+        plurals.append(re.escape(last[:-2]) + "es")
+    form = r"[^a-z0-9]+".join([*(re.escape(w) for w in words[:-1]), "(?:" + "|".join(plurals) + ")"])
+    return re.search(r"(?<![a-z0-9])" + form + r"(?![a-z0-9])", (question or "").lower()) is not None
+
+
+def _type_is_written(question: str, code: str, name: str | None, tags: list[str] | None) -> bool:
+    """The question itself asks for this sample type: it writes its code, its catalog name, an everyday name for it
+    or one of its tag phrases. A type the entity step reached through a tag the user did not write ("sequencing
+    library" for "libraries") is a guess, not something asked for (N8)."""
+    if _code_written(question, code) or (name and _named_in(question, code, name)):
+        return True
+    names = [common for common, mapped in _COMMON_TYPE_NAMES.items() if mapped == code] + list(tags or ())
+    return any(_phrase_written(question, n) for n in names)
+
+
 def _type_cued(text: str, code: str, name: str | None) -> bool:
     """``text`` (the question after its "samples associated with" opening) names the type with a cue: "from" before
     its name, its plural or an everyday name for it ("from mice", "are from patients"), or "samples" after one
@@ -683,13 +716,14 @@ def _same_catalog_row(value: str, titles: list[str], aliases: list[set[str]] | N
 def _names_an_applied_type(keyword: str, haystack: str, type_names: dict[str, str] | None) -> bool:
     """The keyword is what a sample type the query constrained is called: "methylation" and ``:T_A_MET``
     (dev run 2026-09-29, task 1413). Every word of the keyword (three or more characters, generic last words
-    dropped) must be a word of that type's catalog NAME, never of its Tags: "CC" is a Tag of MUS (B13)."""
+    dropped) must EQUAL the words of that type's catalog NAME (its generic last words dropped too), not be part of them:
+    "spectroscopy" is not "X-Ray Spectroscopy Data". Never its Tags: "CC" is a Tag of MUS (B13)."""
     wanted = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", keyword) if len(w) >= 3} - _GENERIC_LAST_WORDS
     if not wanted:
         return False
     for code, name in (type_names or {}).items():
         words = {w.lower() for w in re.split(r"[^A-Za-z0-9]+", str(name or "")) if len(w) >= 3}
-        if wanted <= words and _type_is_applied(code, haystack):
+        if wanted == words - _GENERIC_LAST_WORDS and _type_is_applied(code, haystack):
             return True
     return False
 
@@ -727,6 +761,7 @@ def describe_query_scope(
     user_query: str | None = None,
     container_aliases: list[set[str]] | None = None,
     type_names: dict[str, str] | None = None,
+    type_tags: dict[str, list[str]] | None = None,
 ) -> QueryScope:
     """Split the turn's constraints into the ones the query carried and the rest.
 
@@ -753,7 +788,7 @@ def describe_query_scope(
         return scope
 
     scope.measurable = True
-    asked = _asked_for(entity_result, parser_plan, user_query)
+    asked = _asked_for(entity_result, parser_plan, user_query, type_tags)
     # A keyword the entity step also resolved to a sample type is constrained whenever that
     # type is: "mouse" is realised as the label T_MUS and appears nowhere as a word. Every
     # resolved type counts here, asked for or not: an every-sample question skips the type

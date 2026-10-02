@@ -18,6 +18,7 @@ import pytest
 from NessieAI import paths
 from chat_nextseek import graph_catalog as gc
 from chat_nextseek.config import ChatConfig
+from chat_nextseek.graph_contract import schema
 from chat_nextseek.graph_scope import GraphScope, with_scope
 
 CONTEXT = paths.CHAT_NEXTSEEK_DIR / "src" / "chat_nextseek" / "context"
@@ -27,7 +28,8 @@ URI_B = "bolt://graph-b:7687"
 # The statement constants the module promises (plan task T1, "Interfaces").
 STATEMENT_NAMES = (
     "META", "INDEX", "GUARD", "TYPES_ADMIN",
-    "VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_EDGES",
+    "VOCAB_INVESTIGATIONS", "VOCAB_PROJECTS", "VOCAB_STUDIES", "VOCAB_PUBLISHED", "VOCAB_PUBLISHED_SAMPLES",
+    "VOCAB_EDGES",
 )
 # What a caller limited to a set of projects reads instead of the VOCAB_* statements; the fake answers each with its
 # unscoped twin's rows.
@@ -100,6 +102,7 @@ class FakeGraph:
             "VOCAB_PROJECTS": [{"title": "Project B"}, {"title": "Project A"}],
             "VOCAB_STUDIES": [{"title": "Study 2"}, {"title": "Study 1"}, {"title": None}],
             "VOCAB_PUBLISHED": [{"title": "Study 1", "doi": "10.1000/example", "pmid": ""}],
+            "VOCAB_PUBLISHED_SAMPLES": [],
             "VOCAB_EDGES": [
                 {"assay": "Short Read Sequencing", "protocol": "RNA prep", "parent_type": "TIS", "child_type": "D.SEQ"},
                 {"assay": "Short Read Sequencing", "protocol": None, "parent_type": "CEL", "child_type": "D.SEQ"},
@@ -247,7 +250,7 @@ def harness(monkeypatch, clock):
 
 
 def test_interface_constants():
-    assert gc.SCHEMA_VERSION == "1.1"
+    assert gc.SCHEMA_VERSION is schema.READER_MIN_VERSION
     assert (gc.HASH_RECHECK_S, gc.DETAIL_TTL_S, gc.VOCAB_TTL_S, gc.FAILURE_MEMORY_S, gc.QUERY_TIMEOUT_S) == (
         60, 600, 3600, 60, 10)
     assert issubclass(gc.CatalogUnavailable, RuntimeError)
@@ -873,3 +876,82 @@ def test_config_snapshot_reports_the_catalog_without_a_call(built_config, harnes
     assert snapshot["graph_catalog"]["state"] == "live"
     assert snapshot["graph_catalog"]["catalog_hash"] == "h1"
     assert len(harness.graph.calls) == calls
+
+
+def test_the_published_list_is_the_union_of_study_nodes_and_most_samples(harness):
+    harness.graph.vocab["VOCAB_PUBLISHED"] = [{"title": "A paper", "doi": "10.9999/Paper", "pmid": "11"}]
+    harness.graph.vocab["VOCAB_PUBLISHED_SAMPLES"] = [
+        {"title": "A paper", "doi": "10.9999/paper", "pmid": "11"},        # the same paper, moved: listed once
+        {"title": "Birch Study", "doi": "10.9999/b", "pmid": ""},
+        {"title": "Cedar Unpublished\u00a0", "doi": "10.9999/c", "pmid": ""},   # a bucket: left out
+    ]
+    vocab = gc.get_vocabulary(cfg())
+    assert vocab.published_studies == ({"title": "A paper", "doi": "10.9999/Paper", "pmid": "11"},
+                                       {"title": "Birch Study", "doi": "10.9999/b", "pmid": ""})
+
+
+def test_the_sample_statement_counts_most_samples_off_paper_studies():
+    text = gc.VOCAB_PUBLISHED_SAMPLES
+    assert "st.seek_study_id IS NOT NULL" in text and "pair.n * 2 > total" in text
+    assert "p.seek_study_id IS NULL" in text and "ENDS WITH 'unpublished'" in text
+    assert "toString(s.PMID)" in text
+
+
+def test_the_sample_statement_counts_a_paper_once_per_sample():
+    """A DOI repeated inside one sample's list counts that sample once for the paper, never once per position; each
+    row carries the paper's sample count and the study's total for _published."""
+    text = gc.VOCAB_PUBLISHED_SAMPLES
+    assert "count(DISTINCT s) AS n" in text and "count(*) AS n" not in text
+    assert "pair.n AS n, total AS total" in text
+
+
+def test_each_paper_is_listed_once_for_the_study_holding_most_of_its_samples():
+    """One paper, one study: the study holding the most of the paper's samples; a tie on that count goes to the study
+    where the paper is on the larger share of its own samples (here against title order), then to the first title in
+    order."""
+    rows = [
+        {"title": "A shared Study", "doi": "10.9999/X", "pmid": "18", "n": 6, "total": 7},
+        {"title": "The paper's study", "doi": "10.9999/x", "pmid": "18", "n": 7, "total": 9},
+        {"title": "Birch Study", "doi": "10.9999/y", "pmid": "", "n": 2, "total": 3},
+        {"title": "Walnut Study", "doi": "10.9999/y", "pmid": "", "n": 2, "total": 2},
+        {"title": "Elm Study", "doi": "", "pmid": "77", "n": 4, "total": 5},
+        {"title": "Dogwood Study", "doi": "", "pmid": "77", "n": 4, "total": 5},
+    ]
+    assert gc._published([], rows) == (
+        {"title": "Dogwood Study", "doi": "", "pmid": "77"},
+        {"title": "The paper's study", "doi": "10.9999/x", "pmid": "18"},
+        {"title": "Walnut Study", "doi": "10.9999/y", "pmid": ""},
+    )
+
+
+def test_a_study_node_carrying_a_paper_keeps_it():
+    """A Study node with a DOI (else a PMID) is that paper's own study: no study chosen from the samples is listed for
+    the same paper, even one holding more of its samples; a paper no node carries is still chosen from the samples."""
+    nodes = [{"title": "A paper", "doi": "10.9999/Paper", "pmid": "11"},
+             {"title": "A PMID paper", "doi": "", "pmid": 12}]
+    rows = [
+        {"title": "A paper", "doi": "10.9999/paper", "pmid": "11", "n": 3, "total": 3},
+        {"title": "A shared Study", "doi": "10.9999/paper", "pmid": "11", "n": 9, "total": 10},
+        {"title": "Birch Study", "doi": "", "pmid": "12", "n": 5, "total": 5},
+        {"title": "Cedar Study", "doi": "10.9999/c", "pmid": "", "n": 2, "total": 2},
+    ]
+    assert gc._published(nodes, rows) == (
+        {"title": "A PMID paper", "doi": "", "pmid": 12},
+        {"title": "A paper", "doi": "10.9999/Paper", "pmid": "11"},
+        {"title": "Cedar Study", "doi": "10.9999/c", "pmid": ""},
+    )
+
+
+def test_the_sample_statement_counts_each_paper_of_a_sample_by_position():
+    """A sample in several papers holds '; '-joined DOIs with its PMIDs at the same positions: each position is one
+    paper, counted against the study's samples, never the joined string as one value."""
+    text = gc.VOCAB_PUBLISHED_SAMPLES
+    assert "split(coalesce(toString(s.DOI), ''), ';')" in text and "split(coalesce(toString(s.PMID), ''), ';')" in text
+    assert "trim(coalesce(dois[i], ''))" in text and "trim(coalesce(pmids[i], ''))" in text
+    assert gc.VOCAB_PUBLISHED_SAMPLES_SCOPED.endswith(text[text.index("WITH st, s, split("):])
+
+
+def test_the_admin_vocabulary_offers_only_containers_a_sample_reaches():
+    """Every SEEK study has a node now; an empty investigation or study is no scope to offer the model."""
+    assert "EXISTS { MATCH (i)<-[:IN_INVESTIGATION]-(:Study)<-[:IN_STUDY]-(:Sample) }" in gc.VOCAB_INVESTIGATIONS
+    assert "EXISTS { MATCH (s)<-[:IN_STUDY]-(:Sample) }" in gc.VOCAB_STUDIES

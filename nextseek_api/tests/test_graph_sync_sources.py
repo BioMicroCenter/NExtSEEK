@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -270,18 +271,6 @@ def test_investigations_rows(fake_db):
     assert sources.investigations() == [{"id": 1, "title": "Impact", "description": "desc"}]
 
 
-def test_seek_study_links_bind_the_asset_type(fake_db):
-    seek, _ = fake_db(seek_results=[[(100, 7, "Study A", 3), (101, 7, "Study A", 3)]])
-    links = sources.seek_study_links()
-    assert links == [
-        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-        {"sample_id": 101, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-    ]
-    sql, params = seek.executed[0]
-    assert "FROM assay_assets" in sql and "JOIN assays" in sql and "asset_type = %s" in sql
-    assert params == ["Sample"]
-
-
 # --- lineage -----------------------------------------------------------------------------------
 
 def test_uuid_to_ids_groups_duplicates_and_skips_blanks(fake_db):
@@ -426,13 +415,16 @@ def test_parent_identities_use_the_batch_upload_identity_rule(fake_db):
 
 
 def test_seek_study_links_for_restricts_to_the_ids(fake_db):
-    seek, _ = fake_db(seek_results=[[(100, 7, b"Study A", 3), (101, 8, "Study B", None)]])
+    seek, _ = fake_db(seek_results=[[(100, 7, b"Study A", "About A", 3), (101, 8, "Study B", None, None)]])
     assert sources.seek_study_links_for([101, 100]) == [
-        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "investigation_id": 3},
-        {"sample_id": 101, "study_id": 8, "study_title": "Study B", "investigation_id": None},
+        {"sample_id": 100, "study_id": 7, "study_title": "Study A", "study_description": "About A",
+         "investigation_id": 3},
+        {"sample_id": 101, "study_id": 8, "study_title": "Study B", "study_description": None,
+         "investigation_id": None},
     ]
     sql, params = seek.executed[0]
     assert "FROM assay_assets" in sql and "JOIN studies" in sql and "asset_type = %s" in sql
+    assert "s.description" in sql
     assert "aa.asset_id IN (%s, %s)" in sql
     assert params == ["Sample", 100, 101]
 
@@ -440,6 +432,31 @@ def test_seek_study_links_for_restricts_to_the_ids(fake_db):
 def test_seek_study_links_for_runs_no_query_for_no_ids(fake_db):
     seek, _ = fake_db()
     assert sources.seek_study_links_for([]) == []
+    assert seek.executed == []
+
+
+def test_iter_seek_study_links_streams_ordered_pairs_through_the_studies_join(fake_db):
+    seek, _ = fake_db(seek_results=[[(100, 7), (100, 9), (101, 7)]])
+    assert list(sources.iter_seek_study_links()) == [(100, 7), (100, 9), (101, 7)]
+    (sql, params), = seek.executed
+    assert "FROM assay_assets aa" in sql and "JOIN assays a ON a.id = aa.assay_id" in sql
+    assert "JOIN studies s ON s.id = a.study_id" in sql
+    assert "aa.asset_type = %s" in sql and "ORDER BY aa.asset_id, s.id" in sql
+    assert params == ["Sample"]
+
+
+def test_sample_ids_in_assays_reads_the_members_by_bound_parameters(fake_db, monkeypatch):
+    monkeypatch.setattr(sources, "IN_CHUNK", 2)
+    seek, _ = fake_db(seek_results=[[(12,), (10,)], [(10,), (14,)]])
+    assert sources.sample_ids_in_assays([5, 3, 9, 5]) == [10, 12, 14]
+    first, second = seek.executed
+    assert "SELECT DISTINCT asset_id FROM assay_assets" in first[0] and "assay_id IN (%s, %s)" in first[0]
+    assert first[1] == ["Sample", 3, 5] and second[1] == ["Sample", 9]
+
+
+def test_sample_ids_in_assays_runs_no_query_for_no_assay(fake_db):
+    seek, _ = fake_db()
+    assert sources.sample_ids_in_assays([]) == []
     assert seek.executed == []
 
 
@@ -607,19 +624,20 @@ def test_resolved_assay_map_falls_back_everywhere_without_the_dmac_tables(fake_d
     assert dmac.executed == []
 
 
+# The junction rows batch upload's resolver was given, and what it returned for SEEK assays 10, 20 and 30, frozen before
+# that resolver was deleted (fixtures/graph_sync_batch_upload_parity.json, "resolved_internal_assays").
+RESOLVER_JUNCTION = [(200, 10, "IA 200"), (50, 10, "IA 50"), (60, 20, "IA 60")]
+RESOLVER_ASSAY_IDS = (10, 20, 30)
+
+
 def test_resolved_assay_map_equals_batch_upload_resolution(fake_db, monkeypatch):
-    """The same rows through batch upload's resolver give the same (internal id, title)."""
-    from unittest.mock import MagicMock
-
-    from nextseek_api.batch_upload.neo4j_sync import _resolve_internal_assays
-
-    junction = [(200, 10, "IA 200"), (50, 10, "IA 50"), (60, 20, "IA 60")]
+    """The same rows through batch upload's resolver gave the same (internal id, title)."""
     fake_db(seek_results=[[(10, "Seek Ten"), (20, "Seek Twenty"), (30, "Seek Thirty")]],
-            dmac_tables=["assays_internal_assays", "internal_assays"], dmac_results=[junction])
+            dmac_tables=["assays_internal_assays", "internal_assays"], dmac_results=[RESOLVER_JUNCTION])
     ours = sources.resolved_assay_map()
-    conn = MagicMock()
-    conn.execute.return_value.fetchall.return_value = junction
-    theirs = _resolve_internal_assays({10, 20, 30}, conn)
+    frozen = json.loads((Path(__file__).resolve().parent / "fixtures"
+                         / "graph_sync_batch_upload_parity.json").read_text(encoding="utf-8"))
+    theirs = {int(k): tuple(v) for k, v in frozen["resolved_internal_assays"].items()}
     assert {a: ours[a] for a in theirs} == theirs
     assert ours[30] == (None, "Seek Thirty")
 
@@ -631,6 +649,69 @@ def test_sops_map_by_id(fake_db):
 
 
 def test_studies_rows(fake_db):
-    fake_db(seek_results=[[(7, "Study A", 3), (8, b"Study B", None)]])
-    assert sources.studies() == [{"id": 7, "title": "Study A", "investigation_id": 3},
-                                 {"id": 8, "title": "Study B", "investigation_id": None}]
+    seek, _ = fake_db(seek_results=[[(7, "Study A", "About A", 3), (8, b"Study B", None, None)]])
+    assert sources.studies() == [{"id": 7, "title": "Study A", "description": "About A", "investigation_id": 3},
+                                 {"id": 8, "title": "Study B", "description": None, "investigation_id": None}]
+    assert "SELECT id, title, description, investigation_id FROM studies" in seek.executed[0][0]
+
+
+# --- recent_sample_ids (gate G's recent stratum) -------------------------------------------------
+
+def test_recent_sample_ids_reads_created_or_updated_since_newest_first(fake_db):
+    seek, _ = fake_db(seek_results=[[(1007,), (1003,)]])
+    since = datetime(2026, 9, 23, 0, 0)
+
+    assert sources.recent_sample_ids(since, 5000) == [1007, 1003]
+    assert seek.executed == [("SELECT id FROM samples WHERE created_at >= %s OR updated_at >= %s "
+                              "ORDER BY id DESC LIMIT %s", [since, since, 5000])]
+
+
+# --- the assay layer (schema 1.3) ------------------------------------------------------------------
+
+ASSAY_TABLES = ("internal_assays", "assays_internal_assays", "assay_context")
+
+
+def test_internal_assays_reads_every_row_with_its_title_as_stored(fake_db):
+    _, dmac = fake_db(dmac_results=[[(99, "Patient Visit"), (120, b"RNA-seq "), (130, None)]],
+                      dmac_tables=ASSAY_TABLES)
+    assert sources.internal_assays() == [{"id": 99, "title": "Patient Visit"}, {"id": 120, "title": "RNA-seq "},
+                                         {"id": 130, "title": None}]
+    assert dmac.executed[0][0] == "SELECT id, internal_assay_title FROM internal_assays ORDER BY id"
+
+
+def test_assay_internal_pairs_keeps_a_row_with_no_internal_assay_for_the_report(fake_db):
+    _, dmac = fake_db(dmac_results=[[(5, None), (5, 99), (5, 120), (6, 98)]], dmac_tables=ASSAY_TABLES)
+    assert sources.assay_internal_pairs() == [(5, None), (5, 99), (5, 120), (6, 98)]
+    sql = dmac.executed[0][0]
+    assert "SELECT DISTINCT assay_id, internal_assay_id FROM assays_internal_assays" in sql
+    assert "WHERE assay_id IS NOT NULL" in sql
+
+
+@pytest.mark.parametrize("reader", ["internal_assays", "assay_internal_pairs", "assay_context_rows"])
+def test_an_absent_dmac_table_reads_as_empty(fake_db, reader):
+    _, dmac = fake_db(dmac_tables=())
+    assert getattr(sources, reader)() == []
+    assert dmac.executed == []
+
+
+def test_assay_studies_reads_every_seek_assay_and_its_study_joined_to_studies(fake_db):
+    # SEEK assay 7's study row is gone: the join reads it as having no study, so it gets no RUN_IN.
+    seek, _ = fake_db(seek_results=[[(5, 70), (6, None), (7, None)]])
+    assert sources.assay_studies() == [(5, 70), (6, None), (7, None)]
+    assert seek.executed[0][0] == ("SELECT a.id, s.id FROM assays a LEFT JOIN studies s ON s.id = a.study_id "
+                                   "ORDER BY a.id")
+
+
+def test_assay_context_rows_lowercases_the_columns_and_decodes_bytes(fake_db):
+    _, dmac = fake_db(dmac_results=[[(1, 99, b"Patient Visit", "TIS or CEL")]], dmac_tables=ASSAY_TABLES)
+    dmac.description = [("id",), ("internal_assay_id",), ("Assay_Name",), ("Required_Parent_Sample_Types",)]
+    assert sources.assay_context_rows() == [{"id": 1, "internal_assay_id": 99, "assay_name": "Patient Visit",
+                                             "required_parent_sample_types": "TIS or CEL"}]
+    assert dmac.executed[0][0] == "SELECT * FROM assay_context ORDER BY id"
+
+
+def test_iter_assay_links_streams_the_sample_rows_in_sample_order(fake_db):
+    seek, _ = fake_db(seek_results=[[(10, 5), (11, 5), (11, 6)]])
+    assert list(sources.iter_assay_links()) == [(10, 5), (11, 5), (11, 6)]
+    sql, params = seek.executed[0]
+    assert sql == " ".join(sources._ASSAY_LINK_STREAM_SQL.split()) and params == ["Sample"]

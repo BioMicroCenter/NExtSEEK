@@ -22,6 +22,8 @@ Rules:
   R8  literals that guard tests pin in the root docs
   R9  fenced commands in live docs use no retired form
   R10 no emails, personal home paths or tracked session notes
+  R11 every tracked folder at depth 1 to 3 has a README.md (INDEX.md for the index
+      folders) or matches R11_EXEMPT; an exempt pattern that matches no folder fails
 
 A rule whose subject does not exist yet (a DOCS-MAP block, the NessieAI tree) is
 skipped, except that once NessieAI/README.md is tracked the root CLAUDE.md must
@@ -51,20 +53,55 @@ EXCLUDED_PREFIXES = (
     "docs/archive/",
     "docs/superpowers/",
     "NessieAI/hibayes/fit/vendor/",
+    # Verbatim copies of nf-core's own README/usage/output pages, pinned as test
+    # fixtures. Their relative links point into the upstream repo (images/,
+    # CITATIONS.md) and must stay byte-identical to what the pipelines publish --
+    # "fixing" a link would corrupt the fixture the tests assert against.
+    "NessieAI/tests/chat_nextseek/fixtures/nfcore/",
     "NessieAI/docker/cc-runtime/docs/",
+    # The user docs served at /docs/. They link app pages by site path (/seek/templates/),
+    # which R4 would read as a missing repo file; seek/tests/test_docs_pages.py checks
+    # their links, images and emails instead.
+    "themes/NextSeek/docs/",
     "NessieAI/docker/cc-runtime/build_context/",
     "NessieAI/docker/cc-runtime/container/",
-    # The same trees at their locations before the NessieAI move.
-    "nextseek_api/eval/fit/vendor/",
-    "docker/cc-runtime/docs/",
-    "docker/cc-runtime/build_context/",
-    "docker/cc-runtime/container/",
-    "nextseek_api/cc_assistant/archive/",
-    "nextseek_api/cc_assistant/evidence/",
-    "nextseek_api/cc_assistant/acceptance_evidence/",
-    "nextseek_api/assistant/tests/acceptance_evidence/",
-    "evidence/",
     ".superpowers/",
+)
+
+# R11: every tracked folder at depth 1 to 3 has a README.md (or INDEX.md) unless one
+# of these patterns matches its whole path. `*` is one path segment; a trailing `/**`
+# is the folder and everything below it. A pattern that matches no tracked folder at
+# that depth fails, so the list cannot rot.
+R11_EXEMPT = (
+    ("NessieAI/history/**", "frozen; NessieAI/history/INDEX.md is the map"),
+    ("docs/archive/**", "frozen; docs/archive/INDEX.md is the map"),
+    ("docs/superpowers/**", "dated specs and plans; docs/INDEX.md maps them"),
+    (".claude/**", "skills carry SKILL.md (R2); .claude/skills/README.md covers them"),
+    (".github/**", "CI workflows and the issue form; ci/README.md describes them"),
+    ("*/migrations", "migrations"),
+    ("*/tests", "tests; the lane tables in ci/README.md and NessieAI/tests/README.md cover them"),
+    ("*/*/tests", "tests, as above"),
+    ("*/tests/*", "test subfolders and fixtures, as above"),
+    ("*/*/management", "management commands of a subpackage, named in nextseek_api/management/README.md"),
+    ("*/management/commands", "the commands folder, named by its parent README"),
+    ("static/**", "vendored, built and asset copies; static/README.md maps them"),
+    ("themes/NextSeek/**", "the theme; themes/README.md is its doc"),
+    ("startup/*", "startup/README.md describes each step folder"),
+    ("startup/seed/*", "startup/seed/README.md describes each"),
+    ("NessieAI/*/src", "src layouts; the parent README covers them section by section"),
+    ("NessieAI/dmac_assistant/*", "src, baml_src and build_context; the parent README covers them"),
+    ("NessieAI/build_tools/*", "one folder per tool; NessieAI/build_tools/README.md lists them"),
+    ("NessieAI/chat_frontend/*", "frontend source and e2e; the parent README covers them"),
+    ("NessieAI/chat_nextseek/scripts", "scripts the parent README covers"),
+    ("NessieAI/docker/eval", "a leaf NessieAI/docker/README.md describes"),
+    ("NessieAI/hibayes/fit", "a leaf NessieAI/hibayes/README.md describes"),
+    ("NessieAI/docs", "reference pages indexed by NessieAI/README.md"),
+    ("seek/*", "app packages seek/README.md describes (models, views, templates and the rest)"),
+    ("seek/*/*", "template and timeline subfolders; seek/README.md and seek/timeline/README.md cover them"),
+    ("ci/gate", "the gate tests; ci/README.md lists them"),
+    ("docker/*", "leaves docker/README.md describes"),
+    ("docker/scripts/*", "leaves docker/README.md describes"),
+    ("nextseek_api/cc_assistant", "a one-row leaf in nextseek_api/README.md"),
 )
 
 # Map files carry no line anchors at all: they are read first and edited most.
@@ -77,9 +114,7 @@ MAP_FILES = {
     "NessieAI/CLAUDE.md",
 }
 
-ROOT_MD_ALLOWED = {"README.md", "CLAUDE.md", "AGENTS.md", "DEPLOYMENT.md", "NExtSTEPS.md"}
-# Moves to NessieAI/docs/ with the NessieAI move; allowed at the root until then.
-ROOT_MD_ALLOWED_BEFORE_MOVE = {"architecture.md"}
+ROOT_MD_ALLOWED = {"README.md", "CLAUDE.md", "AGENTS.md", "ARCHITECTURE.md", "DEPLOYMENT.md", "NExtSTEPS.md"}
 
 # A CLAUDE.md with no README.md beside it. Everything else needs the pair.
 CLAUDE_WITHOUT_README = {"CLAUDE.md"}
@@ -115,12 +150,11 @@ PINNED = {
         "ISSUE-CONVENTIONS.md",
         "validate_issue.py",
         "/add-cc-op",
-        "nextseek-viewset",
+        "nextseek-create-endpoint",
         "validate_viewset_conventions.py",
     ),
     "DEPLOYMENT.md": ("./startup.sh install",),
 }
-DEPLOY_MD_BEFORE_MOVE = "nextseek_api/cc_assistant/DEPLOY.md"
 DEPLOY_MD_AFTER_MOVE = "NessieAI/cc/DEPLOY.md"
 MUST_EXIST = ("README.md",)
 
@@ -549,7 +583,7 @@ def check_indexes(checker: Checker) -> None:
                 for sub in sorted(tree.subdirs("NessieAI/history")):
                     if f"{sub}/" not in text:
                         checker.fail("R3", history, f"no row for {sub}/")
-    allowed = ROOT_MD_ALLOWED | (set() if moved(tree) else ROOT_MD_ALLOWED_BEFORE_MOVE)
+    allowed = ROOT_MD_ALLOWED
     for path in sorted(p for p in tree.files if "/" not in p and p.endswith(".md")):
         if path not in allowed:
             checker.fail("R3", path, "only " + ", ".join(sorted(ROOT_MD_ALLOWED)) + " live at the root; move it")
@@ -616,8 +650,7 @@ def check_pinned(checker: Checker) -> None:
         if path not in tree.files:
             checker.fail("R8", path, "must exist")
     pinned = dict(PINNED)
-    deploy = DEPLOY_MD_AFTER_MOVE if moved(tree) else DEPLOY_MD_BEFORE_MOVE
-    pinned["DEPLOYMENT.md"] = pinned["DEPLOYMENT.md"] + (deploy,)
+    pinned["DEPLOYMENT.md"] = pinned["DEPLOYMENT.md"] + (DEPLOY_MD_AFTER_MOVE,)
     for path, literals in pinned.items():
         text = tree.text(path)
         for literal in literals:
@@ -634,6 +667,27 @@ def check_repo_hygiene(checker: Checker) -> None:
         checker.fail("R10", path, "only .claude/skills/ is tracked; git rm --cached it")
     if not tree.ignored([".claude/CLAUDE.md"]):
         checker.fail("R10", ".gitignore", ".claude/CLAUDE.md must stay ignored")
+
+
+def _pattern_regex(pattern: str) -> re.Pattern[str]:
+    if pattern.endswith("/**"):
+        body = re.escape(pattern[:-3]).replace(r"\*", "[^/]+")
+        return re.compile(rf"{body}(/.*)?")
+    return re.compile(re.escape(pattern).replace(r"\*", "[^/]+"))
+
+
+def check_readmes(checker: Checker, exempt=R11_EXEMPT) -> None:
+    tree = checker.tree
+    folders = sorted(d for d in tree.dirs if d.count("/") < 3)
+    patterns = [(pat, _pattern_regex(pat)) for pat, _ in exempt]
+    for pat, rx in patterns:
+        if not any(rx.fullmatch(d) for d in folders):
+            checker.fail("R11", "ci/docs_map.py", f"exempt pattern {pat!r} matches no tracked folder; delete it")
+    for d in folders:
+        if f"{d}/README.md" in tree.files or f"{d}/INDEX.md" in tree.files:
+            continue
+        if not any(rx.fullmatch(d) for _, rx in patterns):
+            checker.fail("R11", d, "folder has no README.md; add one, or an R11_EXEMPT pattern with a reason")
 
 
 def run(root: Path) -> list[Failure]:
@@ -658,6 +712,7 @@ def run(root: Path) -> list[Failure]:
     check_master(checker, master_text)
     check_pinned(checker)
     check_repo_hygiene(checker)
+    check_readmes(checker)
     return sorted(set(checker.failures))
 
 

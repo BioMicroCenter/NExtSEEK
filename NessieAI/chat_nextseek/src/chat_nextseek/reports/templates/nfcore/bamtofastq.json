@@ -1,0 +1,148 @@
+{
+  "report_type": "NFCORE_BAMTOFASTQ_SAMPLESHEET",
+  "description": "nf-core/bamtofastq samplesheet context JSON template, aligned to the pinned 2.2.1 nextflow_schema.json and assets/schema_input.json. Converts aligned BAM/CRAM back to FASTQ. The FIRST catalogued pipeline whose inputs are A.* analysis records rather than D.SEQ raw data.",
+  "params": {
+    "chr":                   {"type": "string", "default": null, "steerable": true, "help": "Restrict extraction to one chromosome/region, named exactly as in the BAM header (e.g. 'chr1' vs '1' — they are not interchangeable). Leave unset to convert the whole file."},
+    "no_read_QC":            {"type": "bool", "default": false, "steerable": true, "help": "Skip FastQC on the extracted reads. Leave false: the QC is what tells you the conversion produced sane reads."},
+    "no_stats":              {"type": "bool", "default": false, "steerable": true, "help": "Skip all QC and stats, including samtools stats on the input. Only for a bulk conversion where nothing will be inspected."},
+    "reads_in_memory":       {"type": "number", "default": 100000, "steerable": true, "help": "Reads held in memory by samtools collate. Only consulted with samtools_collate_fast."},
+    "samtools_collate_fast": {"type": "bool", "default": false, "steerable": true, "help": "Fast collate mode. Faster but does NOT guarantee correct pairing for every read; leave false unless someone has accepted that trade-off for this cohort."},
+    "fasta":                 {"type": "string", "default": null, "steerable": true, "help": "Reference FASTA. REQUIRED for CRAM input (a CRAM stores no sequence of its own and cannot be decoded without the exact reference it was compressed against). Unused for BAM."},
+    "fasta_fai":             {"type": "string", "default": null, "steerable": true, "help": "Index for the reference FASTA. Optional; built on the fly when absent."},
+    "genome":                {"type": "string", "default": null, "steerable": true, "help": "iGenomes key, as an alternative to an explicit fasta. Only relevant for CRAM."},
+    "multiqc_title":         {"type": "string", "default": null, "steerable": true, "help": "MultiQC report title."}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/bamtofastq",
+    "repository": "https://github.com/nf-core/bamtofastq",
+    "documentation_url": "https://nf-co.re/bamtofastq/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample_id, mapped, index, file_type. sample_id, mapped and file_type are required; index is optional. NOTE the column is sample_id, not sample — this pipeline does not use the standard nf-core sample column.",
+    "required_columns": [
+      "sample_id",
+      "mapped",
+      "file_type"
+    ],
+    "optional_columns": [
+      "index"
+    ],
+    "reference_requirement": "NONE for BAM input. REQUIRED for CRAM: a CRAM is compressed against a reference and cannot be decoded without it, and it must be the same reference the CRAM was written with — not merely the same assembly name. Every A.ALN record currently in NExtSEEK is DataType BAM, so the common case needs no reference.",
+    "multi_run_behavior": "One row per alignment file. Rows are independent; there is no lane/run merging.",
+    "single_vs_paired_behavior": "Determined by the alignment itself. A BAM of paired reads yields _1/_2 FASTQs; a single-end BAM yields one. Nothing in the samplesheet declares this."
+  },
+  "samplesheet_template": [
+    {
+      "sample_id": null,
+      "mapped": null,
+      "index": null,
+      "file_type": null
+    }
+  ],
+  "examples": {
+    "bam_example": {
+      "sample_id": "A.ALN-230303ESS-1-PUB",
+      "mapped": "/net/bmc-pub10/data1/bmc/aln/8205.1.consensus.bam",
+      "index": "/net/bmc-pub10/data1/bmc/aln/8205.1.consensus.bam.bai",
+      "file_type": "bam"
+    },
+    "cram_example": {
+      "sample_id": "A.ALN-240101XYZ-3-PUB",
+      "mapped": "/net/bmc-pub10/data1/bmc/aln/sample3.cram",
+      "index": "",
+      "file_type": "cram"
+    }
+  },
+  "validation_rules": [
+    "The file consumed by the pipeline must be comma-separated (CSV).",
+    "The sample column is named sample_id, NOT sample.",
+    "mapped must end in .bam or .cram and must exist on the cluster at launch time — nf-schema declares exists:true and fails the run on a missing file.",
+    "file_type must be exactly 'bam' or 'cram' and must MATCH the extension of the mapped file. It is an enum; a mismatch is not silently corrected.",
+    "index, when populated, must end in .bai (for a bam) or .crai (for a cram). Leave it blank rather than guessing a path.",
+    "Do NOT pass --gtf: the 2.2.1 schema declares genome, fasta and fasta_fai but no gtf, and nf-schema aborts the run on an unrecognised param.",
+    "Do NOT set a reference for a BAM-only cohort — it is unused and only adds a way to be wrong.",
+    "For a CRAM cohort the reference is mandatory and must be the exact FASTA the CRAM was compressed against."
+  ],
+  "notes": "Inputs are A.ALN alignment records, not D.SEQ raw data. This is the first pipeline in the catalog whose cohort leaves are analysis outputs, which makes it the smallest working proof that registered NExtSEEK results can feed a new run — the same capability differentialabundance needs. Its own output (FASTQ) is a re-derivation rather than a new scientific result, so think carefully before registering it back as an A.* sample: the usual reason to run this is to feed another pipeline, not to archive the reads.",
+  "sources": [
+    {
+      "label": "nf-core/bamtofastq usage docs (latest)",
+      "url": "https://nf-co.re/bamtofastq/latest/docs/usage/",
+      "notes": "Samplesheet layout and CRAM reference requirement."
+    },
+    {
+      "label": "nf-core/bamtofastq nextflow_schema.json @ 2.2.1",
+      "url": "https://raw.githubusercontent.com/nf-core/bamtofastq/2.2.1/nextflow_schema.json",
+      "notes": "Authoritative params for the pinned revision: only input and outdir required; reference options are genome, fasta, fasta_fai — there is no gtf."
+    },
+    {
+      "label": "nf-core/bamtofastq assets/schema_input.json @ 2.2.1",
+      "url": "https://raw.githubusercontent.com/nf-core/bamtofastq/2.2.1/assets/schema_input.json",
+      "notes": "Authoritative columns: required sample_id, mapped, file_type; optional index. file_type is enum bam|cram; mapped is pattern-checked for .bam/.cram and index for .bai/.crai."
+    }
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/bamtofastq input samplesheet.",
+        "fields": {
+          "sample_id": {
+            "required": "required",
+            "position_rule": "Must be column 1",
+            "expected_value": "string",
+            "allowed_values": "",
+            "description": "Custom sample name; no spaces.",
+            "validation_hints": "Use the NExtSEEK A.ALN UID so the extracted reads map back to the alignment record they came from. Do not use the parent D.SEQ UID — that names the reads that produced this alignment, not the alignment.",
+            "example": "A.ALN-230303ESS-1-PUB"
+          },
+          "mapped": {
+            "required": "required",
+            "position_rule": "Must be column 2",
+            "expected_value": "path string",
+            "allowed_values": ".bam or .cram",
+            "description": "Path to the aligned reads.",
+            "validation_hints": "Absolute Luria path, taken from the A.ALN record's primary-data metadata. Many A.ALN records store only a bare filename plus an archive URL; that is NOT a usable path and the row will fail validation at launch. Get a real cluster path before running.",
+            "example": "/net/bmc-pub10/data1/bmc/aln/8205.1.consensus.bam"
+          },
+          "index": {
+            "required": "optional",
+            "position_rule": "Column 3",
+            "expected_value": "path string or blank",
+            "allowed_values": ".bai (bam) or .crai (cram), or blank",
+            "description": "Alignment index. Only needed when extracting a specific region with --chr.",
+            "validation_hints": "Leave blank unless the index genuinely exists at a known path. A guessed path fails the run; a blank one does not.",
+            "example": "/net/bmc-pub10/data1/bmc/aln/8205.1.consensus.bam.bai"
+          },
+          "file_type": {
+            "required": "required",
+            "position_rule": "Column 4",
+            "expected_value": "enum",
+            "allowed_values": "bam, cram",
+            "description": "Which of the two formats the mapped file is.",
+            "validation_hints": "Derive it from the extension of the mapped path — never from the record's DataType field, which is free text and may disagree.",
+            "example": "bam"
+          }
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Construct an nf-core/bamtofastq samplesheet from a resolved NExtSEEK A.ALN alignment cohort.",
+    "workflow_role": "Selected when the user wants FASTQ back out of alignments — to realign against a different genome, to re-run a modern pipeline on old data, or to submit reads to an archive.",
+    "output_expectation": "Emit a pipeline-ready CSV with header sample_id,mapped,index,file_type.",
+    "population_priority": [
+      "Resolve the cohort to A.ALN records. If the user named D.SEQ samples, the alignments are their CHILDREN — say so and resolve those instead.",
+      "One row per A.ALN leaf; sample_id = the A.ALN UID.",
+      "Map the alignment path from the record's primary-data metadata; set file_type from that path's extension.",
+      "Populate index only when a real .bai/.crai path is known.",
+      "Set no reference for a BAM cohort. For a CRAM cohort, establish which exact FASTA it was compressed against before launching."
+    ],
+    "final_checks": [
+      "Header is exactly: sample_id,mapped,index,file_type.",
+      "Every row has a non-empty sample_id, mapped and file_type.",
+      "file_type agrees with the extension of mapped on every row.",
+      "No --gtf.",
+      "If any mapped value is a bare filename or an archive URL rather than a cluster path, STOP and tell the user — the run will fail at file-existence validation, and it will fail after queueing, not before."
+    ]
+  }
+}

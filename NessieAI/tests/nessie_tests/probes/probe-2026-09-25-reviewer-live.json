@@ -1,6 +1,6 @@
 {
   "_name": "probe-2026-09-25-reviewer-live - the graph reviewer fires live on the shapes it was built for, and stays quiet on the rest",
-  "_why": "On the 2026-09-25 dev run the graph reviewer ran on 25 of 25 graph turns and fired on none: the live catalog read two uncached value lists per turn, so unapplied_value never reached T_A_ALN.DataType (fix/reviewer-live-values). This probe asserts the reviewer's own output on the debug payload: debug.graph_review.verdict, debug.graph_review.fired (a list of check names, added by that branch; absent before it, so every should-fire criterion is red on an older build, which is the point) and debug.suggestions (the chips; absent when there are none, so `eq null` means no chip). Five should-fire shapes on dev data (unapplied_value twice, one with the chip clicked as turn 2, negated_value and value_split as plain counts, premise_count) and four quiet controls (a grouped spellings count, a plain count, an applied equality, and the 'Only RNA-Seq' chip's own text, which must resolve to 10,517 and stay quiet). Every should-fire case depends on the graph agent writing the shape the reviewer checks: if it applies the filter itself (DataType = 'RNA-Seq', Ethnicity = 'hispanic or latino'), the reviewer is right to stay quiet and the case reads as drift, not a reviewer defect. For agent C: rev.unapplied_rnaseq_alignment repeats corpus case tcga.patients_with_rnaseq and rev.quiet_unc_spellings repeats tcga.unc_center_spellings; fold these criteria into those cases rather than asking twice, and pick one of the two unapplied_value cases if the seed must not near-repeat. rev.quiet_chip_text_resolves is the chip's click text; keep it only if a near-repeat of the RNA-Seq case is acceptable.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json --out /app/runs/reviewer-live-<date>\nPAID: 9 cases, 10 NS turns, no Container-CC. Needs the operator's approval for the run. Dev only: every case is TCGA data, which production does not hold.",
+  "_why": "On the 2026-09-25 dev run the graph reviewer ran on 25 of 25 graph turns and fired on none: the live catalog read two uncached value lists per turn, so unapplied_value never reached T_A_ALN.DataType (fix/reviewer-live-values). This probe asserts the reviewer's own output on the debug payload: debug.graph_review.verdict, debug.graph_review.fired (a list of check names, added by that branch; absent before it, so every should-fire criterion is red on an older build, which is the point) and debug.suggestions (the chips; absent when there are none, so `eq null` means no chip). Three should-fire shapes on dev data (unapplied_value with the chip clicked as turn 2, value_split as a plain count, premise_count) and six quiet controls (a narrowed WGS count, a narrowed Hispanic count, a grouped spellings count, a plain count, an applied equality, and the 'Only RNA-Seq' chip's own text, which must resolve to 10,517 and stay quiet). Every should-fire case depends on the graph agent writing the shape the reviewer checks: if it applies the filter itself (DataType = 'RNA-Seq', Ethnicity = 'hispanic or latino'), the reviewer is right to stay quiet and the case reads as drift, not a reviewer defect. For agent C: rev.unapplied_rnaseq_alignment repeats corpus case tcga.patients_with_rnaseq and rev.quiet_unc_spellings repeats tcga.unc_center_spellings; fold these criteria into those cases rather than asking twice, and pick one of the two unapplied_value cases if the seed must not near-repeat. rev.quiet_chip_text_resolves is the chip's click text; keep it only if a near-repeat of the RNA-Seq case is acceptable.\n  manage.py nessie --tier full --cases /app/NessieAI/tests/nessie_tests/probes/probe-2026-09-25-reviewer-live.json --out /app/runs/reviewer-live-<date>\nPAID: 9 cases, 10 NS turns, no Container-CC. Needs the operator's approval for the run. Dev only: every case is TCGA data, which production does not hold.",
   "_instance_warning": "EVERY NUMBER HERE WAS MEASURED ON fairdata-dev ON 2026-09-25 (read-only, admin; scoped to project 1 the TCGA numbers are the same). Re-pin before a run on another graph:\n  python NessieAI/tests/nessie_tests/scripts/pin_probe_truths.py --emit-cypher <this file>\n  python ... pin_probe_truths.py --pin <this file> --from measured.json",
   "_observability": "graph_review.fired, graph_review.verdict and suggestions are read from query_complete.debug by dotted path (NessieAI/tests/e2e/criteria.py resolve_field: dicts only, so the fired list, not the checks list). A `matches_re` on suggestions reads the chips' Python repr: 'Only RNA-Seq' and 'expected_count': 10517. graph_review.lookups (what the live catalog read, what the budget stopped) is informational: no criterion reads it, the triage does.",
   "_measure": {
@@ -177,6 +177,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])9,?447(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
                 }
               ]
             }
@@ -199,6 +209,11 @@
               "query": "How many TCGA patients are Hispanic?",
               "pass_criteria": [
                 {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
                   "field": "last_reply",
                   "op": "nonempty",
                   "value": null
@@ -207,6 +222,16 @@
                   "field": "last_reply",
                   "op": "matches_re",
                   "value": "(?<![\\w.,/-])401(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "graph_review.verdict",
+                  "op": "eq",
+                  "value": "ok"
+                },
+                {
+                  "field": "suggestions",
+                  "op": "eq",
+                  "value": null
                 }
               ]
             }

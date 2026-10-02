@@ -16,7 +16,7 @@ from NessieAI import paths
 from NessieAI.tests.nessie_tests import bayes_manifest, collect, export
 
 ROOT = paths.REPO_ROOT
-SKILL_DIR = pathlib.Path(__file__).resolve().parents[1] / "output-skill-bayesian"
+SKILL_DIR = pathlib.Path(__file__).resolve().parents[4] / ".claude" / "skills" / "nessie-bayes-report"
 SCRIPTS = SKILL_DIR / "scripts"
 
 
@@ -550,7 +550,7 @@ def test_every_module_command_in_the_runbook_has_an_entry_point():
 
 
 def test_every_script_command_in_the_runbook_exists_and_is_executable():
-    named = set(re.findall(r"python (NessieAI/tests/nessie_tests/[\w./-]+\.py)", _skill_text()))
+    named = set(re.findall(r"python ((?:NessieAI/tests/nessie_tests|\.claude/skills)/[\w./-]+\.py)", _skill_text()))
 
     assert named, "the runbook names no scripts at all"
     for rel in sorted(named):

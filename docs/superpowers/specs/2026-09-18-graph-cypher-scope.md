@@ -366,6 +366,8 @@ So every bound name is visible, which is why a reference needs no predicate and 
 | untyped, a type alternation, `OF_TYPE`, `HAS_ATTRIBUTE`, `USED_IN`, anything else | `relationship_type` |
 | variable length on any other type, or a path part that mixes a variable-length `DERIVED_FROM` with other types | `variable_length` |
 
+2026-10-01, graph schema 1.3 (`2026-09-25-graph-assay-nodes-design.md`): `INPUT_TO` and `OUTPUT_OF` run from a visible sample to an Assay, which every caller may read, under one rule, so the alternation `INPUT_TO|OUTPUT_OF` is accepted as one assay link. Every other alternation is still `relationship_type`.
+
 ### 5.5 Construct decisions
 
 | Construct | Decision |

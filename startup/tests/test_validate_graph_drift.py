@@ -230,6 +230,71 @@ def test_a_tree_with_no_compose_file_is_skipped_without_asking_docker(tmp_path, 
 
 
 # --------------------------------------------------------------------------- #
+# the small-tables write right before it, on local and dev
+# --------------------------------------------------------------------------- #
+
+WROTE = {"status": "ok", "projects_written": 21, "investigations_written": 40, "memberships_written": 300,
+         "seek_studies": 48, "seek_study_nodes_written": 48}
+
+
+def test_the_small_tables_write_asks_the_app_containers_own_manage_py(tmp_path, monkeypatch):
+    """The drift compares SEEK as it is now; the small tables are otherwise written by the nightly, so a SEEK edit
+    made since would read as drift. The startup CLI imports no app code: the app container writes them."""
+    repo = _repo_with_compose(tmp_path)
+    calls = _answer(monkeypatch, returncode=0, stdout=WROTE)
+
+    result = validate.refresh_graph_small_tables(repo, {"COMPOSE_PROJECT_NAME": "nextseek-v2"})
+
+    assert calls[0].cmd == [
+        "docker", "compose", "exec", "-T", "nextseek",
+        "uv", "run", "--no-sync", "python", "manage.py", "graph_sync", "--small-tables", "--json",
+        "--trigger", "startup", "--i-mean-the-live-graph",
+    ]
+    assert calls[0].kwargs["cwd"] == str(repo) and calls[0].kwargs["input"] == b""
+    assert calls[0].kwargs["env"]["COMPOSE_PROJECT_NAME"] == "nextseek-v2"
+    assert (result.name, result.ok, result.warn) == ("graph small tables", True, False)
+    assert "21 projects" in result.detail and "48 SEEK studies" in result.detail
+
+
+@pytest.mark.parametrize("returncode, stdout, stderr, said", [
+    (2, {"status": "lock_timeout"}, b"", "lock_timeout"),
+    (2, {"status": "not_at_version"}, b"", "not_at_version"),
+    (1, b"", b"Traceback\nneo4j.exceptions.ServiceUnavailable: refused\n", "ServiceUnavailable"),
+], ids=["lock busy", "older graph", "crashed"])
+def test_a_small_tables_write_that_did_not_happen_is_a_warning_never_red(tmp_path, monkeypatch, returncode, stdout,
+                                                                         stderr, said):
+    """The drift that follows judges the graph; this write only spares it a same-day SEEK edit."""
+    _answer(monkeypatch, returncode=returncode, stdout=stdout, stderr=stderr)
+
+    result = validate.refresh_graph_small_tables(_repo_with_compose(tmp_path), {})
+
+    assert (result.ok, result.warn) == (True, True)
+    assert said in result.detail
+
+
+def test_a_small_tables_write_that_hangs_is_a_warning(tmp_path, monkeypatch):
+    def timeout(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout", 1))
+
+    monkeypatch.setattr(validate.subprocess, "run", timeout)
+
+    result = validate.refresh_graph_small_tables(_repo_with_compose(tmp_path), {})
+
+    assert (result.ok, result.warn) == (True, True) and "timed out" in result.detail
+
+
+def test_a_tree_with_no_compose_file_gets_no_small_tables_write(tmp_path, monkeypatch):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no subprocess may start without a compose file")
+
+    monkeypatch.setattr(validate.subprocess, "run", forbidden)
+
+    result = validate.refresh_graph_small_tables(tmp_path, {})
+
+    assert (result.ok, result.warn) == (True, True) and result.detail.startswith("skipped: ")
+
+
+# --------------------------------------------------------------------------- #
 # the CI record
 # --------------------------------------------------------------------------- #
 
@@ -491,3 +556,54 @@ def test_ci_reports_the_drift_but_still_answers_what_the_suite_says(
     assert len(stack.drift) == 1
     assert "samples.not_in_mysql" in "".join(result.output.split())
     assert stack.report[0]["graph_drift"][1] is False
+
+
+# --------------------------------------------------------------------------- #
+# the small-tables write in the rebuild and ci wiring
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("command", ["rebuild", "ci"])
+def test_on_local_and_dev_the_small_tables_are_written_right_before_the_drift(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, stack: SimpleNamespace, command: str,
+) -> None:
+    _saved_state(repo, ci_profile="dev")
+    _stack_is_up(monkeypatch)
+    order: list[tuple] = []
+    monkeypatch.setattr(validate, "refresh_graph_small_tables",
+                        lambda repo_root, env: order.append(("small tables", repo_root, env["COMPOSE_PROJECT_NAME"]))
+                        or validate.HealthResult("graph small tables", True, "rewrote 21 projects"))
+    monkeypatch.setattr(validate, "check_graph_drift", lambda repo_root, env: order.append(("drift",)) or _CLEAN)
+
+    result = cli_runner_.invoke(cli.app, [command])
+
+    assert result.exit_code == 0, result.output
+    assert order == [("small tables", repo, "nextseek"), ("drift",)]
+    assert result.output.index("graph small tables") < result.output.index("graph drift")
+
+
+@pytest.mark.parametrize("profile", ["prod", ""])
+def test_a_prod_or_undeclared_box_gets_no_small_tables_write(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, stack: SimpleNamespace, profile: str,
+) -> None:
+    _saved_state(repo, ci_profile=profile)
+    _stack_is_up(monkeypatch)
+    monkeypatch.setattr(validate, "refresh_graph_small_tables",
+                        lambda repo_root, env: pytest.fail("production's rebuild is unchanged"))
+    _drift_answer(monkeypatch, stack, _CLEAN)
+
+    assert cli_runner_.invoke(cli.app, ["rebuild"]).exit_code == 0
+
+
+def test_a_small_tables_write_that_failed_leaves_the_verdict_to_the_drift(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, stack: SimpleNamespace,
+) -> None:
+    _saved_state(repo, ci_profile="local")
+    _stack_is_up(monkeypatch)
+    monkeypatch.setattr(validate, "refresh_graph_small_tables", lambda repo_root, env: validate.HealthResult(
+        "graph small tables", True, "could not rewrite them (exit 1): refused", warn=True))
+    _drift_answer(monkeypatch, stack, _CLEAN)
+
+    result = cli_runner_.invoke(cli.app, ["rebuild"])
+
+    assert result.exit_code == 0, result.output
+    assert "could not rewrite them" in result.output

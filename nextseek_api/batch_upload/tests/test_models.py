@@ -6,14 +6,10 @@ from pydantic import ValidationError
 from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.batch_upload.models import (
     BatchResult,
-    DerivedFromRelRow,
-    InStudyRelRow,
     InputRowModel,
     InsertableSample,
-    NodeRow,
     PermissionCreate,
     SampleMetadata,
-    SampleTypeNodeRow,
     StreamResult,
     _minify_json_string,
 )
@@ -286,39 +282,6 @@ class TestSampleMetadataCanonicalFields:
         assert "File_PrimartyData" not in dumped
 
 
-# ── NodeRow validators ────────────────────────────────────────────────────
-
-
-class TestNodeRow:
-    def test_valid(self):
-        n = NodeRow(sample_id=1, sample_uuid="abc-123", sample_type="Fly")
-        assert n.sample_id == 1
-
-    def test_invalid_id(self):
-        with pytest.raises(ValidationError):
-            NodeRow(sample_id=0, sample_uuid="abc", sample_type="Fly")
-
-    def test_empty_uuid(self):
-        with pytest.raises(ValidationError):
-            NodeRow(sample_id=1, sample_uuid="", sample_type="Fly")
-
-    def test_parent_title_hashes_defaults_to_empty_list(self):
-        """NodeRow exposes parent_title_hashes mirroring parent_titles."""
-        n = NodeRow(sample_id=1, sample_uuid="abc-123", sample_type="Fly")
-        assert n.parent_title_hashes == []
-
-    def test_parent_title_hashes_accepts_list_of_strings(self):
-        """parent_title_hashes accepts an explicit list of hex digests."""
-        digests = ["a" * 64, "b" * 64]
-        n = NodeRow(
-            sample_id=1,
-            sample_uuid="abc-123",
-            sample_type="Fly",
-            parent_title_hashes=digests,
-        )
-        assert n.parent_title_hashes == digests
-
-
 # ── PermissionCreate validators ───────────────────────────────────────────
 
 
@@ -335,33 +298,6 @@ class TestPermissionCreate:
     def test_uppercase_type(self):
         p = PermissionCreate(contributor_id=1, policy_id=10, contributor_type="project")
         assert p.contributor_type == "Project"
-
-
-# ── SampleTypeNodeRow ─────────────────────────────────────────────────────
-
-
-class TestSampleTypeNodeRow:
-    def test_empty_title_rejected(self):
-        with pytest.raises(ValidationError):
-            SampleTypeNodeRow(title="")
-
-
-# ── DerivedFromRelRow ─────────────────────────────────────────────────────
-
-
-class TestDerivedFromRelRow:
-    def test_valid(self):
-        r = DerivedFromRelRow(
-            child_id=1, child_uuid="c-uuid",
-            parent_id=2, parent_uuid="p-uuid",
-        )
-        assert r.child_id == 1
-
-    def test_zero_id_rejected(self):
-        with pytest.raises(ValidationError):
-            DerivedFromRelRow(
-                child_id=0, child_uuid="c", parent_id=2, parent_uuid="p"
-            )
 
 
 # ── SampleMetadata ────────────────────────────────────────────────────────
@@ -440,102 +376,6 @@ class TestErrorSystem:
         ec = ErrorCollector()
         ec.add(0, "UID-1", ErrorType.DUPLICATE, "dup")
         assert ec.has_critical() is False
-
-
-# ── InStudyRelRow ────────────────────────────────────────────────────────────
-
-
-class TestInStudyRelRow:
-    def test_valid(self):
-        r = InStudyRelRow(sample_uuid="UID-1", study_id=5)
-        assert r.sample_uuid == "UID-1"
-        assert r.study_id == 5
-
-    def test_strips_uuid(self):
-        r = InStudyRelRow(sample_uuid="  UID-1  ", study_id=5)
-        assert r.sample_uuid == "UID-1"
-
-    def test_rejects_zero_study_id(self):
-        with pytest.raises(ValidationError):
-            InStudyRelRow(sample_uuid="UID-1", study_id=0)
-
-    def test_rejects_negative_study_id(self):
-        with pytest.raises(ValidationError):
-            InStudyRelRow(sample_uuid="UID-1", study_id=-1)
-
-    def test_rejects_empty_uuid(self):
-        with pytest.raises(ValidationError):
-            InStudyRelRow(sample_uuid="", study_id=5)
-
-    def test_rejects_blank_uuid(self):
-        with pytest.raises(ValidationError):
-            InStudyRelRow(sample_uuid="   ", study_id=5)
-
-    def test_forbids_extra(self):
-        with pytest.raises(ValidationError):
-            InStudyRelRow(sample_uuid="UID-1", study_id=5, extra_field="bad")
-
-
-# ── StudyNodeRow ─────────────────────────────────────────────────────────
-
-
-class TestStudyNodeRow:
-    def test_valid_study_node(self):
-        from nextseek_api.batch_upload.models import StudyNodeRow
-        row = StudyNodeRow(id=1, title="Study A", description="desc")
-        assert row.id == 1
-        assert row.title == "Study A"
-
-    def test_empty_title_raises(self):
-        from nextseek_api.batch_upload.models import StudyNodeRow
-        with pytest.raises(Exception):
-            StudyNodeRow(id=1, title="", description="")
-
-    def test_whitespace_title_raises(self):
-        from nextseek_api.batch_upload.models import StudyNodeRow
-        with pytest.raises(Exception):
-            StudyNodeRow(id=1, title="   ", description="")
-
-    def test_default_description(self):
-        from nextseek_api.batch_upload.models import StudyNodeRow
-        row = StudyNodeRow(id=1, title="Study A")
-        assert row.description == ""
-
-
-# ── InvestigationNodeRow ─────────────────────────────────────────────────
-
-
-class TestInvestigationNodeRow:
-    def test_valid(self):
-        from nextseek_api.batch_upload.models import InvestigationNodeRow
-        row = InvestigationNodeRow(id=1, title="Inv A", description="desc")
-        assert row.id == 1
-
-    def test_empty_title_raises(self):
-        from nextseek_api.batch_upload.models import InvestigationNodeRow
-        with pytest.raises(Exception):
-            InvestigationNodeRow(id=1, title="")
-
-
-# ── InInvestigationRelRow ────────────────────────────────────────────────
-
-
-class TestInInvestigationRelRow:
-    def test_valid(self):
-        from nextseek_api.batch_upload.models import InInvestigationRelRow
-        row = InInvestigationRelRow(study_id=1, investigation_id=2)
-        assert row.study_id == 1
-        assert row.investigation_id == 2
-
-    def test_zero_study_id_raises(self):
-        from nextseek_api.batch_upload.models import InInvestigationRelRow
-        with pytest.raises(Exception):
-            InInvestigationRelRow(study_id=0, investigation_id=1)
-
-    def test_negative_investigation_id_raises(self):
-        from nextseek_api.batch_upload.models import InInvestigationRelRow
-        with pytest.raises(Exception):
-            InInvestigationRelRow(study_id=1, investigation_id=-1)
 
 
 # ── BatchResult.updated_count ────────────────────────────────────────────

@@ -280,6 +280,27 @@ def test_a_word_inside_a_read_property_name_counts_as_applied():
     assert _review("r6-1225").verdict == "suggest"
 
 
+def _plain(question, cypher, catalog, rows=None):
+    inp = ReviewInput(question=question, cypher=cypher, parameters={}, keyword_fields={}, rows=rows or [{"n": 5}],
+                      count=1, total=1, ok=True, error=None)
+    return review_tier1(inp, DictCatalog(catalog))
+
+
+def test_a_property_name_word_never_hides_the_attribute_that_stores_the_named_value():
+    """REVIEW-NS N3: reading DiseaseStage must not remove the attribute Disease from the search, nor OrganDetail
+    the attribute Organ."""
+    pat = {"T_PAT.*": [["Disease", 3], ["DiseaseStage", 3]], "T_PAT.@name": [["Patient", 100]],
+           "T_PAT.Disease": [["Tuberculosis", 40], ["Asthma", 12]], "T_PAT.DiseaseStage": [["Stage 1", 9]]}
+    rv = _plain("How many Tuberculosis patients have a disease stage recorded?",
+                "MATCH (p:T_PAT) WHERE p.DiseaseStage IS NOT NULL RETURN count(p) AS n", pat)
+    assert rv.verdict == "suggest" and "Tuberculosis" in rv.disclosure
+    tis = {"T_TIS.*": [["Organ", 3], ["OrganDetail", 3]], "T_TIS.@name": [["Tissue Sample", 100]],
+           "T_TIS.Organ": [["Lung", 40], ["Liver", 12]], "T_TIS.OrganDetail": [["lower lobe", 9]]}
+    rv = _plain("How many Lung tissues come from the lower lobe?",
+                "MATCH (s:T_TIS) WHERE toLower(s.OrganDetail) CONTAINS 'lower' RETURN count(s) AS n", tis)
+    assert rv.verdict == "suggest" and "Lung" in rv.disclosure
+
+
 def test_the_narrowed_search_names_no_type_when_the_catalog_has_none():
     r = _rec("r6-1225")
     block = {k: v for k, v in r["catalog"].items() if not k.endswith(".@name")}
@@ -629,3 +650,108 @@ def test_a_count_per_value_still_states_the_split():
                        [{"center": "UNC", "n": 28242}, {"center": "unc.edu", "n": 1049},
                         {"center": "UNC-LCCC", "n": 104}], CENTER)
     assert rv.verdict == "ok", [c for c in rv.checks if c.fired]
+
+
+# --- graph schema 1.3: a zero over Assay nodes is a catalog zero, not a sample zero ---------------------------------
+
+
+def _zero(cypher, params):
+    return ReviewInput(question="how many", cypher=cypher, parameters=params, keyword_fields={}, rows=[{"n": 0}],
+                       count=1, total=None, ok=True, error=None)
+
+
+@pytest.mark.parametrize("label", ["Attribute", "SampleType", "Assay"])
+def test_a_zero_over_catalog_nodes_is_not_a_sample_zero(label):
+    cypher = (f"MATCH (a:{label}) WHERE toLower(a.title) CONTAINS toLower($x) "
+              "AND toLower(a.description) CONTAINS toLower($y) RETURN count(a) AS n")
+    rv = review_tier1(_zero(cypher, {"x": "seq", "y": "rna"}), DictCatalog({}))
+    assert not _check(rv, "zero_unproven_base").fired
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:T_TIS)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay) WHERE toLower(s.search_text) CONTAINS toLower($x) "
+    "AND toLower(a.title) CONTAINS toLower($y) RETURN count(DISTINCT s) AS n",
+    # the taught "went through" form: the Assay by name, then the samples with an edge to it
+    "MATCH (a:Assay) WHERE toLower(a.title) = toLower($y) MATCH (s:Sample) "
+    "WHERE (EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }) "
+    "AND toLower(s.search_text) CONTAINS toLower($x) RETURN count(DISTINCT s) AS n",
+], ids=["type_label", "sample_label", "went_through"])
+def test_a_zero_over_samples_that_reach_an_assay_still_opens(cypher):
+    rv = review_tier1(_zero(cypher, {"x": "lung", "y": "rna"}), DictCatalog({}))
+    assert _check(rv, "zero_unproven_base").fired
+
+
+# ------------------------------------- short values and negations over a free-text search (round 2, D1 and D2) -------
+# Reviewer-only records, inline: the shared replay fixture must cover exactly the query-scope replay's turns. Types,
+# attributes and values are made up.
+def _free_text_turn(question, term, lab, attr, values):
+    cy = f"MATCH (s:{lab})\nWHERE toLower(s.search_text) CONTAINS '{term}'\nRETURN count(s) AS n"
+    inp = ReviewInput(question=question, cypher=cy, parameters={}, keyword_fields={}, rows=[{"n": 7}], count=1,
+                      total=1, ok=True, error=None, reply_draft=None)
+    cat = DictCatalog({f"{lab}.@name": [["Widget", 100]], f"{lab}.*": [[attr, len(values)]],
+                       f"{lab}.{attr}": [[v, 5] for v in values]})
+    return review_tier1(inp, cat)
+
+
+def test_d1_a_short_value_is_checked_with_a_whole_word_match():
+    rv = _free_text_turn("How many widgets carry the KO genotype?", "ko", "T_WID", "Genotype", ["KO", "Not KO"])
+    assert _check(rv, "unapplied_value").fired and "T_WID.Genotype='KO'" in _check(rv, "unapplied_value").detail
+
+
+def test_d1_a_longer_value_the_contains_search_also_counted_is_an_other():
+    rv = _free_text_turn("How many widgets carry the KO genotype?", "ko", "T_WID", "Genotype", ["KO", "Koala"])
+    assert _check(rv, "unapplied_value").fired
+
+
+def test_d1_a_two_character_term_never_counts_as_naming_a_longer_value():
+    rv = _free_text_turn("How many widgets carry the KO genotype?", "ko", "T_WID", "Genotype", ["Koala", "Koalas"])
+    assert not _check(rv, "unapplied_value").fired
+
+
+def test_d1_another_short_value_and_field():
+    rv = _free_text_turn("How many gadgets have the wt strain?", "wt", "T_GAD", "Strain", ["WT", "non-WT"])
+    assert _check(rv, "unapplied_value").fired
+    rv = _free_text_turn("How many gadgets have the wt strain?", "wt", "T_GAD", "Strain", ["WT", "WTX"])
+    assert _check(rv, "unapplied_value").fired
+
+
+def test_d2_added_words_that_are_a_negation_are_not_exempt():
+    rv = _free_text_turn("How many widgets are plain widget type?", "plain widget", "T_WID", "Ethnicity",
+                         ["Plain Widget", "Not Plain Widget"])
+    assert _check(rv, "unapplied_value").fired
+
+
+def test_d2_added_words_without_a_negation_stay_exempt():
+    rv = _free_text_turn("How many widgets are from the omero store?", "omero", "T_WID", "Repository",
+                         ["OMERO", "OMERO MIT"])
+    assert not _check(rv, "unapplied_value").fired
+
+
+def test_d2_another_field_and_its_negation():
+    rv = _free_text_turn("How many gadgets have a complete response?", "complete response", "T_GAD", "Outcome",
+                         ["Complete Response", "Non-Complete Response"])
+    assert _check(rv, "unapplied_value").fired
+
+
+def _equality_turn(question, cy, lab, attr, values):
+    inp = ReviewInput(question=question, cypher=cy, parameters={}, keyword_fields={}, rows=[{"n": 7}], count=1,
+                      total=1, ok=True, error=None, reply_draft=None)
+    cat = DictCatalog({f"{lab}.@name": [["Widget", 100]], f"{lab}.*": [[attr, len(values)]],
+                       f"{lab}.{attr}": [[v, 5] for v in values]})
+    return review_tier1(inp, cat)
+
+
+def test_a_short_stored_code_the_question_never_names_does_not_fire_the_unapplied_branch():
+    rv = _equality_turn("How many TB widgets are there?",
+                        "MATCH (s:T_WID)\nWHERE s.Diagnosis = 'tuberculosis'\nRETURN count(s) AS n",
+                        "T_WID", "Code", ["TB", "XY"])
+    assert not _check(rv, "unapplied_value").fired
+
+
+def test_a_short_stored_code_on_another_field_does_not_fire_either():
+    rv = _equality_turn("How many MS gadgets are there?",
+                        "MATCH (s:T_GAD)\nWHERE s.Condition = 'multiple sclerosis'\nRETURN count(s) AS n",
+                        "T_GAD", "Abbrev", ["MS", "CF"])
+    assert not _check(rv, "unapplied_value").fired

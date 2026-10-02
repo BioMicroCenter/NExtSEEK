@@ -118,19 +118,35 @@ def _assay_maps(client: BatchUploadClient, project_id: int) -> tuple[dict[str, l
     return title_map, project_ids, id_to_title
 
 
+def _sample_ids_by_uid(search_rows: list[dict[str, Any]] | None) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for uid, row in _index_search_rows(search_rows or []).items():
+        value = row.get("numeric_seek_id", row.get("id"))
+        try:
+            out[uid] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _resolve_additions(
     rows: list[dict[str, Any]],
     client: BatchUploadClient,
     title_map: dict[str, list[int]],
     project_ids: set[int],
+    *,
+    sample_ids: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
+    sample_ids = sample_ids or {}
     out: list[dict[str, Any]] = []
     for row in rows:
         copy = dict(row)
         ids = {int(item) for item in copy.get("assay_ids") or []}
+        sample_id = sample_ids.get(str(copy.get("UID") or "").strip()) if _is_update(copy) else None
         for title in copy.get("assay_titles") or []:
             try:
-                ids.add(client.resolve_assay_title(str(title), title_map, project_ids))
+                ids.add(client.resolve_assay_title(str(title), title_map, project_ids,
+                                                   sample_numeric_id=sample_id))
             except ValueError as exc:
                 raise GateError("assay_resolution", str(title)) from exc
         copy["assay_ids"] = sorted(ids)
@@ -461,8 +477,12 @@ def _cmd_build_validate(argv: list[str], *, transport=None) -> int:
         client = _client(transport)
         schema = _schema_for_rows(client, rows)
         title_map, project_ids, id_to_title = _assay_maps(client, args.project_id)
-        resolved_rows = _resolve_additions(rows, client, title_map, project_ids)
-        manifest = _resolve_manifest(resolved_rows, client, title_map, project_ids)
+        update_uids = sorted({str(row.get("UID")).strip() for row in rows if _is_update(row)})
+        search_rows = (client.search_samples_by_uid(update_uids, known_assay_titles=title_map.keys())
+                       if update_uids else None)
+        resolved_rows = _resolve_additions(rows, client, title_map, project_ids,
+                                           sample_ids=_sample_ids_by_uid(search_rows))
+        manifest = _resolve_manifest(resolved_rows, client, title_map, project_ids, prefetched=search_rows)
         with tempfile.TemporaryDirectory(prefix="nextseek-batch-") as tmp:
             staging = pathlib.Path(tmp)
             _write_manifest(staging / "assay_manifest.json", manifest)

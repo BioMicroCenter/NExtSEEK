@@ -73,6 +73,78 @@ class JsonApiErrorResponse(BaseModel):
     errors: List[JsonApiError]
 
 
+# -----------------------------
+# Sample shares (the studies tool's share mode, nextseek_api/studies/share.py)
+# -----------------------------
+
+class SampleShareRequest(BaseModel):
+    """A share's request: these samples of one project, linked into an existing study of another project."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # 10,000 is studies.share.MAX_SHARE_UIDS (a test pins the two equal; this module cannot import that one).
+    sample_uids: List[str] = Field(min_length=1, max_length=10_000)
+    source_project_id: int = Field(gt=0)
+    destination_project_id: int = Field(gt=0)
+    destination_study_id: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _clean_uids(self):
+        uids = [u.strip() for u in self.sample_uids]
+        if any(not u for u in uids):
+            raise ValueError("sample_uids holds a blank entry")
+        seen: set = set()
+        repeated: set = set()
+        for u in uids:
+            if u in seen:
+                repeated.add(u)
+            seen.add(u)
+        if repeated:
+            raise ValueError(f"sample_uids repeats {sorted(repeated)[:20]}")
+        self.sample_uids = uids
+        return self
+
+
+class SampleShareApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class SampleShareAccepted(BaseModel):
+    share_id: str
+    state: str
+    status_url: str
+
+
+class SampleShareStep(BaseModel):
+    share_id: str
+    state: str
+    clones_done: int
+    clones_remaining: int
+    retry_after_s: Optional[int] = None
+    code: Optional[str] = None        # clone_outcome_unknown on a 202 that asks to call again after retry_after_s
+    message: Optional[str] = None
+    status_url: str
+
+
+class SampleShareStatus(BaseModel):
+    share_id: str
+    state: str
+    created_at: str
+    actor_login: str
+    source_project_id: int
+    destination_project_id: int
+    destination_study_id: int
+    uid_count: int
+    run_dir: str
+    plan_sha256: Optional[str] = None
+    summary: Optional[Dict[str, Any]] = None
+    receipt: Optional[Dict[str, Any]] = None
+    error: Optional[Dict[str, Any]] = None
+    graph: Optional[Dict[str, Any]] = None
+
+
 class ItemReference(BaseModel):
     id: str
     type: str
@@ -2123,6 +2195,11 @@ class SampleRetrieveResponse(BaseModel):
         description="False when the sample graph could not supply the whole lineage; the requested samples are "
                     "still returned. Always true when include_tree is false.",
     )
+    resolved_as: Optional[Dict[str, str]] = Field(
+        None,
+        description="Only present when an identifier was answered by a sample stored under another spelling of its "
+                    "UID (with or without a -PUB or -PUB<n> suffix): {identifier as written: stored UID}.",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
@@ -2828,13 +2905,14 @@ class BatchDeleteResponse(BaseModel):
 class SampleTypeConnectionsRequest(BaseModel):
     """Selector for the sample-type assay-connection graph.
 
-    FOUR SCOPES, and at least one is required. Without a floor an empty
+    FIVE SCOPES, and at least one is required. Without a floor an empty
     querystring would dump every connection in the graph, which is the one
     result nobody asks for by accident.
 
       all_conns      the whole graph, explicitly
+      project        project_id
       investigation  graph_inv_id / seek_inv_id / investigation_name
-      study          study_id / study_name
+      study          graph_study_id / seek_study_id / study_id / study_name
       sample type    sample_type
 
     ``sample_type`` COMBINES with an investigation or a study, narrowing to the
@@ -2845,6 +2923,15 @@ class SampleTypeConnectionsRequest(BaseModel):
     empty result.
     """
 
+    # -- project ------------------------------------------------------------
+    project_id: Optional[int] = Field(
+        None,
+        description=(
+            "A SEEK project id: the samples linked to that project (IN_PROJECT), whatever "
+            "their study or investigation."
+        ),
+    )
+
     # -- investigation ------------------------------------------------------
     graph_inv_id: Optional[int] = Field(
         None, description="Investigation.id in the graph (the SEEK investigation id)."
@@ -2852,8 +2939,9 @@ class SampleTypeConnectionsRequest(BaseModel):
     seek_inv_id: Optional[int] = Field(
         None,
         description=(
-            "Investigation.project_id in the graph. NOTE this is a SEEK *project* id, "
-            "so it is the wider net: it reaches every investigation in that project."
+            "A SEEK *project* id: every investigation linked to that project (IN_PROJECT), "
+            "reached through its studies. For all of a project's samples, whatever their "
+            "study, use project_id."
         ),
     )
     investigation_name: Optional[str] = Field(
@@ -2865,20 +2953,26 @@ class SampleTypeConnectionsRequest(BaseModel):
     )
 
     # -- study --------------------------------------------------------------
-    study_id: Optional[int] = Field(
+    graph_study_id: Optional[int] = Field(
         None,
         description=(
-            "Study.id. The graph and SEEK agree on study ids, so there is one "
-            "parameter rather than a graph/seek pair. Note the graph holds 56 Study "
-            "nodes against SEEK's 48, so 8 ids resolve only here."
+            "Study.id in the graph. A graph-only paper study carries one, and so does a SEEK study's node that "
+            "was merged or rekeyed; it can differ from the SEEK study id, so use seek_study_id for a SEEK study."
         ),
+    )
+    seek_study_id: Optional[int] = Field(
+        None,
+        description="Study.seek_study_id: the SEEK study id. Every SEEK study's node carries it; a graph-only paper "
+                    "study does not.",
+    )
+    study_id: Optional[int] = Field(
+        None, description="Deprecated alias for graph_study_id, kept so existing callers keep working.",
     )
     study_name: Optional[str] = Field(
         None,
         description=(
-            "Study title, exact and case-insensitive. Tries the graph's title first, "
-            "then SEEK's, because the two disagree on 44 of 48 shared studies "
-            "(the graph says 'CSBC Unpublished' where SEEK says the full name)."
+            "Study title, exact and case-insensitive. Tries the graph's titles first, then SEEK's, whose ids "
+            "reach only the nodes carrying them as seek_study_id."
         ),
     )
 
@@ -2934,14 +3028,22 @@ class SampleTypeConnectionsRequest(BaseModel):
         """investigation_name, falling back to the deprecated `name`."""
         return self.investigation_name or self.name
 
+    @property
+    def graph_study_ids(self) -> set:
+        """graph_study_id and its deprecated alias study_id, together: two different values match nothing."""
+        return {v for v in (self.graph_study_id, self.study_id) if v is not None}
+
     @model_validator(mode="after")
     def _require_at_least_one_selector(self):
         if not any(
             [
+                self.project_id is not None,
                 self.graph_inv_id is not None,
                 self.seek_inv_id is not None,
                 bool(self.investigation_name),
                 bool(self.name),
+                self.graph_study_id is not None,
+                self.seek_study_id is not None,
                 self.study_id is not None,
                 bool(self.study_name),
                 bool(self.sample_type),
@@ -2949,9 +3051,9 @@ class SampleTypeConnectionsRequest(BaseModel):
             ]
         ):
             raise ValueError(
-                "Supply at least one of: all_conns, an investigation "
+                "Supply at least one of: all_conns, project_id, an investigation "
                 "(graph_inv_id / seek_inv_id / investigation_name), a study "
-                "(study_id / study_name), or sample_type."
+                "(graph_study_id / seek_study_id / study_id / study_name), or sample_type."
             )
         return self
 
@@ -2975,6 +3077,11 @@ class SampleTypeConnectionsResponse(BaseModel):
     total: int = Field(..., description="Number of unique connections returned")
     filters: Dict[str, Any] = Field(..., description="Selectors actually applied, echoed back")
     connections: List[SampleTypeConnection] = Field(..., description="The connections")
+    notes: List[str] = Field(
+        default_factory=list,
+        description="When a selector was given and nothing matched: what the graph holds for each selector, so an "
+                    "empty answer says why (an investigation with no Study node, say).",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
@@ -3029,10 +3136,13 @@ class GraphSyncOutboxFreshness(BaseModel):
 
 
 class GraphSyncFreshness(BaseModel):
-    """Freshness per job: the weekly full sync, the nightly reconcile and the outbox."""
+    """Freshness per job: the weekly full sync, the nightly reconcile, the nightly drift check and the outbox."""
 
     full: GraphSyncJobFreshness
     reconcile: GraphSyncJobFreshness
+    drift: GraphSyncJobFreshness = Field(
+        ..., description="The nightly drift check: its newest run that compared the graph, ending ok or drift"
+    )
     outbox: GraphSyncOutboxFreshness
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
@@ -3065,6 +3175,58 @@ class GraphSyncOutboxSummary(BaseModel):
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
 
+class GraphSyncFailingRow(BaseModel):
+    """An open outbox row that has failed since it last succeeded and that no worker is retrying right now."""
+
+    kind: str = Field(..., description="The outbox kind, which says what to do")
+    key: str = Field(..., description="What to do it to")
+    attempts: int = Field(
+        ..., description="Claims since the row was last enqueued. A re-enqueue or a deferral resets it, so it does "
+                         "not say how long the row has been failing; failing_since does"
+    )
+    dead: bool = Field(..., description="At the attempt limit: no worker claims it until a new write resets it")
+    failing_since: str = Field(..., description="ISO 8601; the first failure since the row last succeeded")
+    age_s: float = Field(..., description="Seconds since failing_since")
+    threshold_s: int = Field(..., description="The kind's back-off plus 30 minutes: past it, its retry failed too")
+    overdue: bool = Field(..., description="age_s is over threshold_s")
+    next_retry_at: Optional[str] = Field(None, description="ISO 8601; when a worker may claim it again; null when dead")
+    error: Optional[str] = Field(
+        None, description="The first line of last_error, URLs and IP addresses replaced, at most 240 characters"
+    )
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFailing(BaseModel):
+    """The failing outbox rows: a bounded list, oldest failure first, and counts over all of them."""
+
+    rows: List[GraphSyncFailingRow] = Field(..., description="At most `limit` rows, oldest failure first")
+    total: int = Field(..., description="Every failing row, listed or not")
+    overdue: int = Field(..., description="Every overdue failing row, listed or not")
+    limit: int = Field(..., description="The most rows the list holds")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
+class GraphSyncFailedRun(BaseModel):
+    """A full, reconcile, catalog or drift kind whose latest run ended failed or abandoned, or a full sync or
+    reconcile its data refused."""
+
+    id: int = Field(..., description="graph_sync_run row id")
+    kind: str = Field(..., description="full, reconcile, catalog or drift")
+    status: str = Field(
+        ..., description="failed or abandoned; refused for a full sync or reconcile that its data refused"
+    )
+    trigger: Optional[str] = Field(None, description="What started the run: the command, the loop")
+    finished_at: Optional[str] = Field(None, description="ISO 8601")
+    age_s: Optional[float] = Field(None, description="Seconds since the run ended (its start when it has no end)")
+    threshold_s: int = Field(..., description="The kind's back-off plus 30 minutes")
+    overdue: bool = Field(..., description="age_s is over threshold_s")
+    error: Optional[str] = Field(None, description="The run's recorded error as a bounded, redacted excerpt")
+
+    model_config = ConfigDict(extra='forbid', validate_default=True)
+
+
 class GraphSyncStatusResponse(BaseModel):
     """Response model for `GET /nextseek_api/admin/graph-sync/status/`."""
 
@@ -3076,6 +3238,14 @@ class GraphSyncStatusResponse(BaseModel):
     freshness: GraphSyncFreshness
     outbox: GraphSyncOutboxSummary
     drift: Optional[Dict[str, Any]] = Field(None, description="What the latest drift run recorded, if any")
+    failing: GraphSyncFailing = Field(
+        ..., description="Outbox rows that have failed and are not being retried right now; overdue past their retry"
+    )
+    failed_runs: List[GraphSyncFailedRun] = Field(
+        ...,
+        description="The full, reconcile, catalog and drift kinds whose latest run ended failed or abandoned, "
+        "and a full sync or reconcile its data refused",
+    )
 
     model_config = ConfigDict(extra='forbid', validate_default=True)
 
@@ -3086,3 +3256,6 @@ from nextseek_api.assay_registration.models_db import AssayRegistrationJob  # no
 
 # The graph_sync outbox and run record (nextseek_api/graph_sync/models_db.py); imported here so Django discovers them.
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun  # noqa: E402,F401
+
+# The studies tool's share jobs (nextseek_api/studies/models_db.py); imported here so Django discovers them.
+from nextseek_api.studies.models_db import SampleShare  # noqa: E402,F401

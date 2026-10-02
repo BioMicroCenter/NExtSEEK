@@ -239,6 +239,7 @@ docs/superpowers/specs/*
 !docs/superpowers/specs/2026-09-16-graph-behaviour-tests-design.md
 !docs/superpowers/specs/2026-09-16-ci-coverage-gaps-design.md
 !docs/superpowers/specs/2026-09-18-graph-cypher-scope.md
+!docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # Exception: the association-workbench design, cited by seek/views/admin.py and by the
 # workbench CSS block in themes/NextSeek/static/css/nextseek.css. Same public-repo review
 # applied: no environment concretes, no credentials, no unresolved-issue reproduction.
@@ -293,3 +294,13 @@ ci.env
 
 # CI write-lane run file (startup ci), never committed
 startup/.ci-write-run.xml
+
+# The checkout's log directory (LOG_DIR=./logs in docker-compose.yml): graph_sync's run directories, journals and
+# archives are written there.
+/logs/
+
+# nf-core selection evals: outputs built from production metadata and SOP text. Never commit them.
+NessieAI/chat_nextseek/evals/prod_digests*.json
+NessieAI/chat_nextseek/evals/demo-output-*/
+NessieAI/chat_nextseek/evals/team_questions.json
+NessieAI/tests/evals/seqtype_fix/snapshot-*.json

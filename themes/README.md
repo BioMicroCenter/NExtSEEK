@@ -1,25 +1,17 @@
-# themes/ and templates/ — the server-rendered surface
+# themes/ — the server-rendered surface
 
 ## What this is
 
-Every Django template NExtSEEK renders lives in one of these two directories.
-Together they hold 1,095 files, 391 of them HTML (both counted with `find` over
-`themes/` and `templates/` on 2026-09-03). That HTML count is misleading:
-310 of the 391 are vendored jquery-easyui demo and plugin pages under
-`themes/NextSeek/static/`, which no template loader ever sees. The
-loader-visible tree is 93 files — 12 under `themes/NextSeek/templates/` and 81
-under `templates/`.
+> Counts and line numbers below are from 2026-09-03. On 2026-10-01 the dead `content.embed.html` copies, the repo-root `templates/` scaffold, `dmac/templates/` and the EasyUI `demo*/` folders were deleted, so the file counts for those are now lower.
 
-Only one of those two directories is wired up. `themes/NextSeek/templates` is
-the single filesystem directory in the template search path
-(`dmac/settings.py:105-135`), and `themes.NextSeek` is additionally registered
-as an app (`dmac/settings.py:146`) so the app-directories loader finds the same
-tree a second time. The repo-root `templates/` tree is the untouched
-`mezzanine-project` scaffold: it is in no search path, and resolving all 81 of
-its filenames through the real loader on 2026-09-03 returned 0 hits in that
-directory (66 resolved to the theme or to the installed Mezzanine packages, 15
-did not resolve at all). It is kept here as the reference copy of the Mezzanine
-block convention this theme departs from — see the block table below.
+Every Django template NExtSEEK renders lives under `themes/NextSeek/templates/` or
+`seek/templates/`. `themes/NextSeek/templates` is the single filesystem directory in the
+template search path (`dmac/settings.py:105-135`), and `themes.NextSeek` is additionally
+registered as an app (`dmac/settings.py:146`) so the app-directories loader finds the same
+tree a second time. The repo-root `templates/` scaffold (an untouched `mezzanine-project`
+copy that was in no search path) was deleted on 2026-10-01 after every template name in it,
+in the theme and in `seek/templates/` (119 names) was resolved through the real loaders and
+none landed in it.
 
 This boundary is the server-rendered chrome only. The React chat panel is a
 separate boundary that enters through one `{% vite_assets %}` call in a `seek`
@@ -48,34 +40,33 @@ Three loaders run in sequence (`dmac/settings.py:128-132`):
    practice `seek/templates/` (65 HTML files), then `themes/NextSeek/templates`
    a second time, then the installed Mezzanine, admin and DRF packages.
 
-Six names exist in more than one of these directories, and the theme copy wins
-all six: `base.html`, `index.html`, `includes/user_panel.html`,
+Five theme names also exist in the installed Mezzanine package, and the theme copy wins
+all five: `base.html`, `index.html`, `includes/user_panel.html`,
 `accounts/includes/user_panel.html` and `pages/menus/tree.html` shadow the
-root scaffold, and `content.embed.html` shadows `seek/templates/`.
+Mezzanine package's copies. (`content.embed.html` was a sixth, shadowing `seek/templates/`; both copies are deleted.)
 
 `DIRS` is nearly redundant, and it is worth knowing which of the two
 registrations is load-bearing. Emptying `DIRS` and re-resolving the twelve
 theme names on 2026-09-03 moved exactly one: eleven still landed in the theme,
 because the app-directories loader reaches the same tree through
 `themes.NextSeek` (`dmac/settings.py:146`), and only `content.embed.html`
-flipped to `seek/templates/`, because `"seek"` is listed one line earlier
+(since deleted) flipped to `seek/templates/`, because `"seek"` is listed one line earlier
 (`dmac/settings.py:145`) and app order decides ties inside that loader.
 
 ### The 12 templates of `themes/NextSeek/templates/`
 
 | Role | File | Reached from |
 |---|---|---|
-| App chrome | `base.html` | 31 `seek` templates plus `index.html` and `help/getting_started.html` |
+| App chrome | `base.html` | 31 `seek` templates plus `index.html` and `themes/NextSeek/templates/docs/page.html` |
 | Auth chrome | `base_auth.html` | `themes/NextSeek/templates/login.html:1` |
 | Sidebar nav | `nav.embed.html` | `themes/NextSeek/templates/base.html:62` |
 | Footer | `page-footer.embed.html` | `themes/NextSeek/templates/base.html:95` |
 | User panel switch | `includes/user_panel.html` | `themes/NextSeek/templates/base.html:68` |
 | User panel body | `accounts/includes/user_panel.html` | `themes/NextSeek/templates/includes/user_panel.html:8` |
-| Home dashboard | `index.html` | `dmac/views.py:333` |
+| Home dashboard | `index.html` | `home` in `dmac/views.py` |
 | Sign-in page | `login.html` | `dmac/views.py:168` |
-| Help page | `help/getting_started.html` | `seek/views/pages.py:7` |
+| User docs page | `themes/NextSeek/templates/docs/page.html`, rendering the markdown in `themes/NextSeek/docs/` | `seek/views/pages.py` (`docs_page`) |
 | Swagger override | `nextseek/swagger_ui.html` | `nextseek_api/urls.py:75` |
-| Superseded home fragment | `content.embed.html` | nothing |
 | Mezzanine page menu | `pages/menus/tree.html` | nothing in the live chrome |
 
 The last two are unreachable in the request path, and `CLAUDE.md` in this
@@ -97,21 +88,12 @@ Across the 31 `seek` templates that extend `base.html`, the overrides counted on
 2026-09-03 were 31 `main`, 12 `title`, 10 `extra_head` and 3 `extra_js`.
 `left_panel` is overridden by none of them, so every signed-in page shows the
 same sidebar. Three further overrides — `meta_title`, `meta_keywords` and
-`meta_description`, all three in `seek/templates/pages/denied.html:4-16` — name
+`meta_description`, all three in `pages/denied.html:4-16` in `seek/templates/` (file since deleted) — name
 blocks this base does not have.
 
-### `templates/` — the 81-file scaffold
-
-Grouped by what it would have served, had it been on the path: the Mezzanine
-base and its home/search pages (`templates/base.html`, `templates/index.html`,
-`templates/search_results.html`), `accounts/` (8), `blog/` (3), `email/` (8
-HTML plus 12 `.txt` subject and body parts), `errors/` (2), `generic/` (7),
-`includes/` (10), `pages/` including `pages/menus/` (13), `mobile/` (14) and
-`twitter/` (1). The `mobile/` and `twitter/` files are the 15 that resolve to
-nothing at all: Mezzanine 6.0.0 ships no mobile template set and
-`mezzanine.twitter` is commented out of `INSTALLED_APPS` (`dmac/settings.py:165`).
-
 ### `themes/NextSeek/static/`
+
+The repo-root `static/` tree behind it is described in `static/README.md`.
 
 Not documented file by file — 992 files on 2026-09-03, of which 797 are the
 vendored `jquery-easyui-1.5.2/` tree. What the templates here actually reach
@@ -125,13 +107,6 @@ at `themes/NextSeek/templates/base.html:20-21` and
 distinct `{% static %}` arguments from the 12 templates on 2026-09-03 and
 testing each for existence under `themes/NextSeek/static/` and then `static/`
 reported no misses.
-
-`themes/media/` is a separate 8-file directory of original-resolution partner
-and BioMicro Center logos. Nothing loads them: grepping each of the eight
-filenames across every `.py`, `.html` and `.css` file in the worktree matches
-seven of them nowhere at all, and the eighth, `favicon.png`, only at
-`themes/NextSeek/templates/base.html:26`, which names a same-named but
-different file under the theme's `static/img/`.
 
 ## Running and testing
 
@@ -217,12 +192,12 @@ import, because nothing in this directory is importable beyond two empty
   yielded that one target and no other.
 - Five template names rendered from Python that resolve here, out of 30
   distinct rendered names swept across the tree on 2026-09-03:
-  `dmac/views.py:333`, `dmac/views.py:168`, `seek/views/pages.py:7`,
+  `home` and `login_seek` in `dmac/views.py`, `seek/views/pages.py:7`,
   `nextseek_api/urls.py:75`, and `seek/tests/test_admin_template_gating.py:114`.
 - Every Mezzanine-supplied page, indirectly: Mezzanine's own templates extend
   the bare name `base.html`, which resolves to this theme rather than to
   Mezzanine's copy, so a Mezzanine page's `{% block meta_title %}` never
-  reaches the `<title>` element it was written for (`templates/base.html:10`).
+  reaches the `<title>` element it was written for (the Mezzanine package's own `base.html`).
 - The four `seek/tests/` modules named under "Running and testing" above, two
   of which read theme files straight off disk by relative path
   (`seek/tests/test_catalog_crosslinks.py:17`), so moving this directory breaks
@@ -235,7 +210,7 @@ import, because nothing in this directory is importable beyond two empty
 
 - Hits inside `themes/NextSeek/static/jquery-easyui-1.5.2/` are vendored demo
   pages naming template filenames in prose
-  (`themes/NextSeek/static/jquery-easyui-1.5.2/demo/tree/basic.html:44`); they
+  (`demo/tree/basic.html:44`, folder since deleted); they
   are excluded, and `static/` at the repo root is a sibling boundary excluded
   entirely.
 - Two names rendered from `dmac/views.py` resolve to nothing at all

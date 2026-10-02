@@ -1,12 +1,12 @@
 """Create ``assistant_cc_turn`` with its chat column matched to ``assistant_chat_session.session_id``.
 
-Migration 0023's database half. The seeded boxes keep the parent ``session_id`` in latin1 while a new table takes
+Migration 0025's database half. The seeded boxes keep the parent ``session_id`` in latin1 while a new table takes
 the utf8mb4 database default, and InnoDB refuses a foreign key between columns whose charset or collation differ
 (errno 3780): the lesson of 0007 and 0010. So MySQL gets one CREATE TABLE with every column, index and foreign key
 inline, the chat column in the parent's charset and collation, and the two integer keys in their parents' exact
 column types (read, never assumed). MySQL 8 creates a table and its inline foreign keys atomically, so a failure
 leaves no table and a re-run starts clean; an existing table means a previous run succeeded. Every other backend
-(the SQLite test lane) creates the model from 0023's own state, frozen, so a later AddField never collides with it.
+(the SQLite test lane) creates the model from 0025's own state, frozen, so a later AddField never collides with it.
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ _COLUMN_TYPE_SQL = (
     "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s"
 )
 
-# Mirrors 0023's CreateModel field for field (BigAutoField pk, CharField(64) unique, two BinaryFields, four
+# Mirrors 0025's CreateModel field for field (BigAutoField pk, CharField(64) unique, two BinaryFields, four
 # DateTimeFields, three JSONFields, DecimalField(10, 6), PositiveSmallIntegerField, the three keys) and its
 # Meta.indexes. Django sets no database defaults; the ORM always writes the JSON columns.
 _CREATE_TABLE_SQL = """
@@ -102,13 +102,13 @@ def heal_mysql(cursor, *, user_table: str) -> list[str]:
     return ["create_table"]
 
 
-def _frozen_0023_model(apps):
-    """CCTurn rendered from 0023's own CreateModel, never the live class (see the module docstring)."""
+def _frozen_0025_model(apps):
+    """CCTurn rendered from 0025's own CreateModel, never the live class (see the module docstring)."""
     from importlib import import_module
 
     from django.db.migrations.state import ProjectState
 
-    migration = import_module("nextseek_api.migrations.0023_cc_turn").Migration
+    migration = import_module("nextseek_api.migrations.0025_cc_turn").Migration
     state = ProjectState.from_apps(apps)
     for operation in migration.operations[0].state_operations:
         operation.state_forwards("nextseek_api", state)
@@ -119,7 +119,7 @@ def heal(apps, schema_editor):
     connection = schema_editor.connection
     if connection.vendor != "mysql":
         if CHILD_TABLE not in connection.introspection.table_names():
-            schema_editor.create_model(_frozen_0023_model(apps))
+            schema_editor.create_model(_frozen_0025_model(apps))
         return
     from django.conf import settings
 
@@ -134,7 +134,7 @@ def unheal(apps, schema_editor):
     connection = schema_editor.connection
     if connection.vendor != "mysql":
         if CHILD_TABLE in connection.introspection.table_names():
-            schema_editor.delete_model(_frozen_0023_model(apps))
+            schema_editor.delete_model(_frozen_0025_model(apps))
         return
     with connection.cursor() as cursor:
         exists = _one(cursor, _TABLE_EXISTS_SQL, (CHILD_TABLE,))

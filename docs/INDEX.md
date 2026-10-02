@@ -3,6 +3,7 @@
 Cross-cutting documentation only: things that belong to no single folder.
 A folder's own docs live beside its code (`README.md`, plus `CLAUDE.md` when it has rules).
 A doc that tracked code cites must itself be tracked, or the citation points at a folder README.
+The user docs that the site serves at `/docs/` are not here: they live in `themes/NextSeek/docs/` (start at its `README.md`).
 
 ## Current
 
@@ -11,9 +12,14 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`ISSUE-CONVENTIONS.md`](ISSUE-CONVENTIONS.md) | convention | filing any GitHub issue; `scripts/validate_issue.py` enforces it | |
 | [`endpoint-authorization-register.md`](endpoint-authorization-register.md) | register | changing who may call an endpoint. Incomplete for routes added after 2026-08-11; `ci/routes.py` is the full route list. Its `is_staff` question was ruled by #74 and #75 (admin means `is_superuser`); its per-endpoint buckets are still open under #64 | #64 |
 | [`neo4j-programmatic-access.md`](neo4j-programmatic-access.md) | runbook | querying Neo4j over HTTP, Browser or bolt, or rotating its password | |
-| [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds and what graph_search's v1.1 builds | |
+| [`neo4j-schema.md`](neo4j-schema.md) | reference | reading or writing the sample graph: what v1.0 holds, what graph_search's v1.1 builds, what the sync adds in v1.2 and the assay nodes of v1.3 (with how to roll them back) | |
 | [`sample-download-workflow.md`](sample-download-workflow.md) | explanation | changing any "Download samples" control or the workbook | |
-| [`UI.md`](UI.md) | snapshot | finding a page's route, view and template. Dated 2026-09-03; check it against the tree | |
+| [`sample-sharing.md`](sample-sharing.md) | how-to | sharing samples of one project into another project's study, reading a share's dry run, or undoing a share | |
+| [`graph/README.md`](graph/README.md) | generated | seeing which files and folders depend on which: the file-level code graph, its picture and an interactive view; regenerate with `scripts/graph_files.py` | |
+| [`ui/README.md`](ui/README.md) | guide | changing anything a user sees: the shell, a page, styles, scripts, the project graphs, the Nessie chat page, help pages; every open UI problem is in [`ui/known-issues.md`](ui/known-issues.md) | |
+| [`nfcore-capability-expansion.md`](nfcore-capability-expansion.md) | explanation | answering "what analyses can Nessie run?" in plain English, for a non-engineer | |
+| [`2026-08-07-pipeline-param-inference-design.md`](2026-08-07-pipeline-param-inference-design.md) | design | inferring species and library facts from NExtSEEK metadata to fill nf-core params. Approved, not yet built: the modules and audit script it cites do not exist in the tree | |
+| [`2026-08-07-nfcore-launch-path-presentation-design.md`](2026-08-07-nfcore-launch-path-presentation-design.md) | design | the explainer page for how a chat message becomes a job on Luria. The page itself is a meeting artifact built outside this repo; this doc is the maintained record | |
 | [`superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md`](superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md) | live spec | extending CI coverage past tier T0 | #104 |
 | [`superpowers/specs/2026-09-11-nessie-ci-lane-design.md`](superpowers/specs/2026-09-11-nessie-ci-lane-design.md) | live spec | changing what the Nessie CI lane (`ci/smoke/test_nessie.py`) proves, its switches, or its budget; `ci/smoke/README.md` "Nessie lane" is the operator's view | |
 | [`superpowers/plans/2026-09-11-nessie-ci-lane.md`](superpowers/plans/2026-09-11-nessie-ci-lane.md) | plan | reading how the Nessie lane was built, task by task, and what changed on the way | |
@@ -28,6 +34,7 @@ A doc that tracked code cites must itself be tracked, or the citation points at 
 | [`superpowers/plans/2026-09-16-graph-behaviour-tests.md`](superpowers/plans/2026-09-16-graph-behaviour-tests.md) | plan | executing the transaction-bound fix and the behavioural write lane, task by task | |
 | [`superpowers/specs/2026-09-16-ci-coverage-gaps-design.md`](superpowers/specs/2026-09-16-ci-coverage-gaps-design.md) | draft spec | two checks the repository specified and never built: the migration check, and whether the context the assistant reads is accurate and current | |
 | [`superpowers/specs/2026-09-18-graph-cypher-scope.md`](superpowers/specs/2026-09-18-graph-cypher-scope.md) | draft spec | changing how a graph query is held to the caller's projects: the scope on the per-request config, the Cypher prover, the fallback to graph_search, the redacted catalog and the single-operator opt-in. Supersedes stage A1 of the 2026-09-15 Nessie spec | |
+| [`superpowers/specs/2026-09-25-graph-assay-nodes-design.md`](superpowers/specs/2026-09-25-graph-assay-nodes-design.md) | draft spec | changing the graph's assay layer (schema 1.3): the Assay node and its five relationships, the role rule and every write path that keeps them, what the graph agent is told, the assay_join guard and the scope of an Assay | |
 | [`superpowers/plans/2026-09-16-ci-coverage-gaps.md`](superpowers/plans/2026-09-16-ci-coverage-gaps.md) | plan | restoring the migration check and building the context validator gate and catalog drift checks, task by task | |
 
 `docs/superpowers/` is gitignored by default; only files named by a negation in `.gitignore` are tracked.

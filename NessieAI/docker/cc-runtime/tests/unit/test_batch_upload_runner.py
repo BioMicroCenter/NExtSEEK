@@ -65,7 +65,8 @@ class StubClient:
     def project_assays(self, project_id):
         return {351, 260, 9, 2, 400}
 
-    def resolve_assay_title(self, title, title_map, project_assay_ids):
+    def resolve_assay_title(self, title, title_map, project_assay_ids, *, sample_numeric_id=None):
+        self.calls.append(("resolve", title, sample_numeric_id))
         candidates = [item for item in title_map.get(title, []) if item in project_assay_ids]
         if len(candidates) != 1:
             raise ValueError("ambiguous")
@@ -790,3 +791,23 @@ def test_runner_error_includes_message_and_stderr_traceback(tmp_path, capsys, mo
     assert "RuntimeError" in gate["detail"]
     assert "distinct-failure-message" in gate["detail"]
     assert "Traceback" in captured.err
+
+
+def test_build_validate_searches_once_and_hands_the_sample_id_to_the_title_resolver(tmp_path):
+    client = StubClient(validate=_valid(1))
+    assert _run(tmp_path, client, [_update_row(assay_titles=["RNA-seq"])]) == 0
+    assert [call[0] for call in client.calls].count("search") == 1
+    assert ("resolve", "RNA-seq", 324503) in client.calls
+
+
+def test_a_create_row_resolves_its_title_with_no_sample_id(tmp_path):
+    client = StubClient(validate=_valid(1))
+    assert _run(tmp_path, client, [_create_row(assay_titles=["RNA-seq"])]) == 0
+    assert ("resolve", "RNA-seq", None) in client.calls
+    assert not any(call[0] == "search" for call in client.calls)
+
+
+def test_assay_resolve_names_no_sample(tmp_path, capsys):
+    client = StubClient()
+    assert runner.main(["assay-resolve", "--project-id", "1", "--title", "RNA-seq"], transport=client) == 0
+    assert ("resolve", "RNA-seq", None) in client.calls

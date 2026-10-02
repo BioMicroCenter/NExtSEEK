@@ -148,7 +148,7 @@ def seek(monkeypatch):
     """SEEK's tables, as much of them as the endpoint and resolve_scope read, shaped as in SEEK's MySQL."""
     conn = sqlite3.connect(":memory:")
     c = conn.cursor()
-    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT, json_metadata TEXT)")
+    c.execute("CREATE TABLE samples (id INTEGER PRIMARY KEY, sample_type_id INTEGER, uuid TEXT COLLATE NOCASE, json_metadata TEXT)")  # MySQL compares uuids case-insensitively
     c.execute("CREATE TABLE projects_samples (project_id INTEGER, sample_id INTEGER)")
     c.execute("CREATE TABLE users (login TEXT, person_id INTEGER)")
     c.execute("CREATE TABLE work_groups (id INTEGER, project_id INTEGER)")
@@ -271,18 +271,22 @@ def test_numeric_ids_are_seek_ids_and_unknown_ones_count_as_failed(seek, graph):
 
 
 def test_a_failed_numeric_lookup_counts_every_numeric_id_as_failed(seek, graph, monkeypatch):
-    real = sr._ids_to_uuids
-    calls = []
+    def flaky(real):
+        calls = []
 
-    def flaky(ids):
-        calls.append(ids)
-        if len(calls) == 1:
-            raise RuntimeError("db down")
-        return real(ids)
+        def wrapper(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise RuntimeError("db down")
+            return real(*args)
+        return wrapper
 
-    monkeypatch.setattr(sr, "_ids_to_uuids", flaky)
-    resp = _post({"identifiers": ["3", "TIS-2"], "include_tree": False})
-    assert _uuids(resp) == ["TIS-2"] and resp.json()["failed_uids"] == 1
+    real_ids, real_scoped = sr._ids_to_uuids, sr._scoped_ids_to_uuids
+    for login in (MEMBER, SUPER):
+        monkeypatch.setattr(sr, "_ids_to_uuids", flaky(real_ids))
+        monkeypatch.setattr(sr, "_scoped_ids_to_uuids", flaky(real_scoped))
+        resp = _post({"identifiers": ["3", "TIS-2"], "include_tree": False}, login=login)
+        assert _uuids(resp) == ["TIS-2"] and resp.json()["failed_uids"] == 1
 
 
 def test_duplicates_are_read_once(seek, graph):
@@ -367,6 +371,91 @@ def test_both_spellings_of_one_sample_count_as_one_answered_uid(seek, graph):
     _add(seek, 26, "TIS-4-PUB", 2)
     resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False})
     assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_returns_only_the_exact_spelling_and_counts_as_answered(seek, graph, login):
+    _add(seek, 22, "TIS-7", 2)
+    _add(seek, 23, "TIS-7-PUB", 2)
+    resp = _post({"identifiers": ["tis-7"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-7"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_a_request_in_another_case_still_finds_the_pub_sample_and_counts_as_answered(seek, graph, login):
+    _add(seek, 20, "TIS-9-PUB", 2)
+    resp = _post({"identifiers": ["tis-9"], "include_tree": False}, login=login)
+    assert _uuids(resp) == ["TIS-9-PUB"]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+@pytest.mark.parametrize("stored, asked", [("TIS-3-PUB1", "TIS-3"), ("TIS-3-PUB1", "TIS-3-PUB"), ("TIS-3", "TIS-3-PUB1"),
+                                           ("TIS-3-PUB2", "TIS-3-PUB1"), ("TIS-3-PUB", "TIS-3-pub2")])
+def test_a_numbered_pub_spelling_is_the_same_sample(seek, graph, login, stored, asked):
+    _add(seek, 40, stored, 2)
+    resp = _post({"identifiers": [asked], "include_tree": False}, login=login)
+    assert resp.status_code == 200 and _uuids(resp) == [stored]
+    assert resp.json()["failed_uids"] == 0 and resp.json()["total_children"] == 0
+
+
+def test_one_typed_uid_answers_with_one_stored_spelling(seek, graph):
+    _add(seek, 40, "TIS-3-PUB", 2)
+    _add(seek, 41, "TIS-3-PUB1", 2)
+    resp = _post({"identifiers": ["TIS-3"], "include_tree": False})
+    assert _uuids(resp) == ["TIS-3-PUB"] and resp.json()["failed_uids"] == 0
+
+
+@pytest.mark.parametrize("asked", ["TIS-6", "TIS-6-PUB1", "TIS-6-PUB"])
+def test_a_foreign_sample_in_any_pub_spelling_answers_as_an_unknown_one(seek, graph, monkeypatch, asked):
+    """Whatever spelling the caller types, a sample in a project they cannot see answers like an unknown UID."""
+    _add(seek, 25, "TIS-6-PUB1", 4)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    a, b = _post({"identifiers": [asked], "include_tree": False}), _post({"identifiers": ["TIS-NOPE-PUB1"], "include_tree": False})
+    assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+@pytest.mark.parametrize("stored, asked", [("TIS-3-PUB1", "TIS-3"), ("TIS-3", "TIS-3-PUB"), ("TIS-3-PUB2", "TIS-3-PUB1")])
+def test_the_body_names_the_stored_uid_that_answered_another_spelling(seek, graph, login, stored, asked):
+    _add(seek, 40, stored, 2)
+    body = _post({"identifiers": [asked], "include_tree": False}, login=login).json()
+    assert body["resolved_as"] == {asked: stored}
+    assert list(body)[-1] == "resolved_as"
+
+
+@pytest.mark.parametrize("login", [SUPER, MEMBER], ids=["superuser", "member"])
+def test_resolved_as_is_left_out_when_nothing_was_answered_under_another_spelling(seek, graph, login):
+    _add(seek, 40, "TIS-3-PUB", 2)
+    for ids in (["TIS-2"], ["TIS-3-PUB"], ["tis-3-pub"], ["1"], ["TIS-NOPE", "TIS-2"]):
+        assert "resolved_as" not in _post({"identifiers": ids, "include_tree": False}, login=login).json(), ids
+
+
+def test_resolved_as_never_names_a_foreign_sample(seek, graph):
+    _add(seek, 25, "TIS-6-PUB1", 4)
+    resp = _post({"identifiers": ["TIS-6", "TIS-2"], "include_tree": False})
+    assert "resolved_as" not in resp.json() and "TIS-6" not in resp.content.decode().replace('"failed_uids"', "")
+
+
+def test_a_superuser_retry_does_not_ask_a_dead_graph_again(seek, graph):
+    graph.down = True
+    resp = _post({"identifiers": ["TIS-NOPE"], "include_tree": False}, login=SUPER)
+    assert resp.status_code == 404
+    assert len([c for c in graph.calls if c[0] == "resolve"]) == 1
+
+
+def test_a_superuser_retry_skips_a_spelling_already_answered(seek, graph, monkeypatch):
+    _add(seek, 26, "TIS-4-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    resp = _post({"identifiers": ["TIS-4", "TIS-4-PUB"], "include_tree": False}, login=SUPER)
+    assert _uuids(resp) == ["TIS-4-PUB"] and resp.json()["failed_uids"] == 0
+    assert len(scans) == 1
 
 
 def test_a_foreign_pub_sample_still_answers_404_to_a_member(seek, graph, monkeypatch):
@@ -472,6 +561,60 @@ def test_a_foreign_identifier_answers_as_an_unknown_one(seek, graph, foreign, un
     a, b = _post({"identifiers": [foreign]}), _post({"identifiers": [unknown]})
     assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
     assert "TIS-FOR-1" not in graph.walked()
+
+
+def test_a_foreign_seek_id_with_a_visible_pub_twin_answers_as_an_unknown_one(seek, graph, monkeypatch):
+    """The -PUB retry is for UIDs the caller typed. A numeric id is exact: the uuid it resolves to must never be
+    retried in its other spelling, or a member learns that a foreign sample exists and gets its twin back (#74)."""
+    _add(seek, 30, "TIS-FOR-1-PUB", 2)
+    scans = []
+    real = sr._uuids_to_ids
+    monkeypatch.setattr(sr, "_uuids_to_ids", lambda uuids: scans.append(sorted(uuids)) or real(uuids))
+    a, b = _post({"identifiers": ["6"]}), _post({"identifiers": ["99"]})
+    assert (a.status_code, a.content) == (b.status_code, b.content) and a.status_code == 404
+    a, b = _post({"identifiers": ["TIS-2", "6"]}), _post({"identifiers": ["TIS-2", "99"]})
+    assert a.content == b.content and a.json()["failed_uids"] == 1 and "TIS-FOR-1-PUB" not in _uuids(a)
+    assert scans == [] and [c for c in graph.calls if c[0] == "resolve"] == []
+
+
+@pytest.mark.parametrize("foreign, unknown", [("6", "99"), ("30", "31")])
+def test_a_members_numeric_ids_cost_the_same_statements_whether_foreign_or_unknown(seek, graph, monkeypatch, foreign, unknown):
+    """A foreign id and an unknown id must be indistinguishable by cost: both go through one scoped statement."""
+    _add(seek, 30, "TIS-ELSE-1", 4)
+    statements = []
+    real = sr._cursor
+
+    class Spy:
+        def __init__(self):
+            self.c = real()
+
+        def __enter__(self):
+            self.c.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self.c.__exit__(*exc)
+
+        def execute(self, sql, params=()):
+            statements.append(sql)
+            return self.c.execute(sql, params)
+
+        def fetchall(self):
+            return self.c.fetchall()
+
+    monkeypatch.setattr(sr, "_cursor", Spy)
+    runs = []
+    for ident in (foreign, unknown):
+        statements.clear()
+        resp = _post({"identifiers": [ident], "include_tree": False})
+        assert resp.status_code == 404
+        runs.append(list(statements))
+    assert runs[0] == runs[1] and len(runs[0]) == 1 and "projects_samples" in runs[0][0]
+
+
+def test_a_members_own_numeric_id_still_resolves(seek, graph):
+    resp = _post({"identifiers": ["1"], "include_tree": False})
+    assert resp.status_code == 200 and "NHP-1" in _uuids(resp)
 
 
 def test_a_mixed_request_answers_as_if_the_foreign_uid_were_unknown(seek, graph):

@@ -21,22 +21,25 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 
 | Task | Skill | Read |
 |---|---|---|
+| Make any change (add, change, fix) | `add-to-nextseek` | `.claude/skills/add-to-nextseek/SKILL.md` |
 | Bring up a stack | | `README.md`, then `startup/README.md` |
+| See how the parts fit, or find the Neo4j graph code | | `ARCHITECTURE.md` "The Neo4j graph" |
 | Find out why the stack misbehaves | | `./startup.sh doctor`; `startup/README.md` "When bring-up misbehaves"; `docker logs nextseek`; `logs/django.log`; `outputs/<timestamp>_<user>/console.txt` per chat turn |
 | Deploy, roll back or verify | `deploy` | `DEPLOYMENT.md` §3, §5, §6; `NessieAI/cc/DEPLOY.md` for Container-CC |
 | Know which rebuild a change needs | `deploy` | `DEPLOYMENT.md` §3.2 |
 | Change config or a secret | | `DEPLOYMENT.md` §8; render source `startup/templates/nextseek.env.template`; `.env.example` |
 | Harden an instance before exposing it | | `NExtSTEPS.md` (rotating the demo passwords is the minimum) |
-| Add or change an endpoint | `nextseek-viewset` | `nextseek_api/CLAUDE.md`, `docs/endpoint-authorization-register.md`, `ci/README.md` |
+| Add or change an endpoint | `nextseek-create-endpoint` | `nextseek_api/CLAUDE.md`, `docs/endpoint-authorization-register.md`, `ci/README.md` |
 | Add a Django migration | | `nextseek_api/CLAUDE.md` (the chain forks; check heads first) |
-| Change a page, template or static file | | `themes/README.md`, `seek/README.md`, `docs/UI.md` |
+| Change a page, template or static file | | `docs/ui/README.md` (start here), `themes/README.md`, `seek/README.md` |
+| Edit the user docs (the site's `/docs/` pages) | | `themes/NextSeek/docs/README.md` (the page list), `docs/ui/docs-and-help.md` "Writing a docs page" |
 | Change settings, URLs or the SEEK login | | `dmac/README.md`, `dmac/CLAUDE.md` |
 | Work on ingest, attributes or assay registration | | `nextseek_api/README.md` (children table) |
 | Work on sample downloads | | `docs/sample-download-workflow.md`, `nextseek_api/services/README.md` |
 | Query Neo4j or rotate its password | | `docs/neo4j-programmatic-access.md` |
 | Add a Container-CC operation | `add-cc-op` | `.claude/skills/add-cc-op/SKILL.md` (`/add-cc-op`) |
 | Make any other AI change | | `NessieAI/README.md` "To change X, edit Y" |
-| Review or grade a Nessie run | `nessie-run-review`, `nessie-bayes-report` | Skills table below |
+| Review or grade a Nessie run, or build the run report | `nessie-run-review`, `nessie-bayes-report` (both auto-load) | Skills table below |
 | Run Django, startup or AI tests | | Build and test, below |
 | Know what CI blocks | | `ci/README.md` "What can fail a job, and what is only a report" |
 | File an issue | `nextseek-issues` | `docs/ISSUE-CONVENTIONS.md` |
@@ -48,13 +51,17 @@ driven by `./startup.sh`. It is the PUBLIC repo BioMicroCenter/NExtSEEK.
 <!-- BEGIN DOCS-MAP:skills -->
 | Skill | Use when | Path | Loads |
 |---|---|---|---|
+| `add-to-nextseek` | START HERE for any change (add, change or fix anything): recipes by kind of change, then the shared finish checklist | `.claude/skills/add-to-nextseek/SKILL.md` | auto |
 | `add-cc-op` | adding or wiring a `nextseek-*` op or CC tool; `ops.py` is the source of truth, never `plugin.json` or `discover_ops` | `.claude/skills/add-cc-op/SKILL.md` | auto (`/add-cc-op`) |
-| `deploy` | install, redeploy, rollback or post-deploy verification on any box | `.claude/skills/deploy/SKILL.md` | auto |
+| `deploy` | install, redeploy, rollback, post-deploy verification, or launching a box to a commit on origin/dev (needs a local `boxes.json`) | `.claude/skills/deploy/SKILL.md` | auto |
 | `nextseek-issues` | a deferred bug, plan residuals, or any request to file an issue | `.claude/skills/nextseek-issues/SKILL.md` | auto |
-| `nextseek-viewset` | adding or changing a `nextseek_api` ViewSet; finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-viewset/SKILL.md` | auto |
-| `nessie-run-review` | triaging a finished nessie_tests run into an HTML review | `NessieAI/tests/nessie_tests/output-skill/SKILL.md` | by path |
-| `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md` | by path |
+| `nextseek-create-endpoint` | adding or changing an API endpoint (a `nextseek_api` ViewSet); finish with `scripts/validate_viewset_conventions.py` | `.claude/skills/nextseek-create-endpoint/SKILL.md` | auto |
+| `share-samples` | sharing samples of one project into another project's existing study through the superuser-only sample-shares endpoint: dry run, plan, apply, verify | `.claude/skills/share-samples/SKILL.md` | auto |
+| `nessie-run-review` | the Nessie run report: triaging a nessie_tests run or real users' questions into an HTML review | `.claude/skills/nessie-run-review/SKILL.md` | auto |
+| `nessie-bayes-report` | grading a paired `--bayesian` run and merging it into HiBayes | `.claude/skills/nessie-bayes-report/SKILL.md` | auto |
 <!-- END DOCS-MAP:skills -->
+
+What each skill does and what it needs locally: [`.claude/skills/README.md`](.claude/skills/README.md).
 
 Personal and external tools (session handoff, the parallel fix lane, the dmac-curation plugin) live outside this repo. The handoff skill writes only into ignored paths of the checkout (a local session-index `CLAUDE.md` and `reports/`, both under `.claude/`); the fix-lane skills work in their own worktrees and branches.
 
@@ -66,18 +73,17 @@ Personal and external tools (session handoff, the parallel fix lane, the dmac-cu
 | `.claude/` | committed project skills only; everything else under it is local | Skills, above | by subject |
 | `.github/` | CI workflows (`ci-pytest.yml`, `ci-smoke.yml`) and the structured issue form | `ci/README.md` | `deployment` |
 | `NessieAI/` | all AI code: router, NS and CC engines, HiBayes, AI images, AI tests, AI docs and history | `NessieAI/README.md`, `NessieAI/CLAUDE.md` | `router`, `cc_assistant`, `chat_nextseek`, `schema-rag` |
-| `api_app/` | the original REST app: installed, imported, never mounted | `api_app/README.md` | `nextseek_api` |
 | `ci/` | route registry, blocking gates, baseline differ, post-deploy smoke suite, docs checker | `ci/README.md` | `deployment` |
 | `context/` | hand-owned source of truth for the catalog context Nessie reads: sample types, assays, assay mappings and projects. Feeds the `dmac.*_context` tables, which the JSON exports are generated FROM | `context/README.md` | `chat_nextseek` |
 | `dmac/` | Django project package: settings modules, root URLconf, ASGI/WSGI, SEEK login views | `dmac/README.md` | `nextseek_api` |
 | `docker/` | nginx config, app-container scripts, env docs; AI images are in `NessieAI/docker/` | `docker/README.md` | `deployment` |
 | `docs/` | cross-cutting docs only; folder docs live beside their code | `docs/INDEX.md` | by subject |
 | `nextseek_api/` | the Django app behind every `/nextseek_api/` URL, and the API half of the assistant | `nextseek_api/README.md` | `nextseek_api` |
+| `nextseek_graph/` | the graph contract: schema versions, labels, relationships, properties, constraint and index names, shared by the writer and every reader; standard library only | `nextseek_graph/README.md` | `graph-neo4j` |
 | `scripts/` | validators, the macOS/worktree test runner, one-off programs | `scripts/README.md`, `scripts/CLAUDE.md` | by subject |
 | `seek/` | Django app over SEEK's tables: table layer, search, the NExtSEEK pages | `seek/README.md` | `ui`, `sample-search` |
 | `startup/` | the `./startup.sh` Typer CLI (its own uv project) and the seed data | `startup/README.md` | `installer` |
 | `static/` | source static files (second entry of `STATICFILES_DIRS`, behind the theme) and the committed chat bundle `static/js/chat_assistant/` | `DEPLOYMENT.md` §3.2 (collectstatic); `themes/CLAUDE.md` for which twin wins | `ui` |
-| `templates/` | upstream Mezzanine template tree; inert, nothing resolves here | `themes/README.md` | `ui` |
 | `themes/` | the NextSeek theme: its templates and static win site-wide | `themes/README.md` | `ui` |
 <!-- END DOCS-MAP:folders -->
 
@@ -139,7 +145,7 @@ Live state comes from GitHub and git, never from spec headers or plan checkboxes
 | AI facts | `NessieAI/` |
 
 - Cite docs as `FILE §N` or `FILE "Heading"`, and code by symbol. No line numbers in map files. Write no dated counts or run results into a README or CLAUDE file (cite the command that produces them); older ones go when their section is next edited.
-- A new folder gets a `README.md` (plus a `CLAUDE.md` only if it has invariants) and one row in its parent map.
+- A new folder gets a `README.md` (plus a `CLAUDE.md` only if it has invariants) and one row in its parent map. R11 fails a folder down to depth 3 that has neither a README nor an `R11_EXEMPT` entry in `ci/docs_map.py`.
 - Retire a doc with `git mv` into `docs/archive/<yyyy-mm>/` and add its row to `docs/archive/INDEX.md`. A spec names `Tracking: #N`.
 - `NessieAI/history/**` and `docs/archive/**` are frozen.
 - Run `python3 ci/docs_map.py` before pushing; its failures print the row to add.

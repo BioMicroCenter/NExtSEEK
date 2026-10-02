@@ -11,10 +11,11 @@ import json
 import os
 from collections import Counter
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone as dt_timezone
 from importlib import import_module
 from inspect import isgenerator
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -24,10 +25,14 @@ from neo4j import RoutingControl
 from neo4j.time import Date as Neo4jDate
 
 from nextseek_api.graph_sync import (
-    catalog, drift, loop, reconcile, run, sources, state as sync_state, targeted, verify, writer,
+    catalog, drift, loop, reconcile, run, sources, state as sync_state, study_links, study_merge, targeted, verify,
+    writer,
 )
 from nextseek_api.graph_sync import cypher as q
+from nextseek_api.graph_sync.models_db import GraphSyncOutbox
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests import graph_sync_pages as pages
+from nextseek_graph import schema
 
 command = import_module("nextseek_api.management.commands.graph_sync")
 
@@ -37,7 +42,7 @@ class FakeDriver:
 
     def __init__(self, responder=None):
         self.calls = []
-        self.responder = responder or (lambda query, params: [])
+        self.responder = pages.paged(responder or (lambda query, params: []))  # paged reads from template rows
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -124,14 +129,18 @@ def world(monkeypatch):
         "iter_samples": iter_samples, "uuid_to_ids": uuid_to_ids,
         "iter_digest_rows": iter_digest_rows, "parent_identities": lambda uuids: {},
         "resolved_assay_map": lambda: {}, "sops_map": lambda: {}, "studies": lambda: [],
+        "internal_assays": lambda: [], "assay_internal_pairs": lambda: [], "assay_studies": lambda: [],
+        "assay_context_rows": lambda: [],
         "sample_projects": lambda: {k: sorted(set(v)) for k, v in PROJECT_LINKS.items()},
         "projects": lambda: [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}],
         "memberships": lambda: copy.deepcopy(MEMBERSHIPS),
         "investigations": lambda: [{"id": 3, "title": "TCGA", "description": None}],
         "investigation_projects": lambda: [{"investigation_id": 3, "project_id": 16}],
-        "seek_study_links": lambda: [{"sample_id": 11, "study_id": 7, "study_title": "S", "investigation_id": 3}],
+        "iter_seek_study_links": lambda: iter([(11, 7)]),
         # gate G check 9: no assay links in this world (the maps and parent identities are stubbed above)
         "sample_assay_ids_for": lambda ids: {},
+        # gate G's recent stratum: nothing created or updated lately in this world
+        "recent_sample_ids": lambda since, limit: [],
     }
     for name, fn in patches.items():
         monkeypatch.setattr(sources, name, fn)
@@ -150,6 +159,13 @@ class WriterRecorder:
         self.calls = []
         self.ghosts = ghosts if ghosts is not None else GHOSTS
         fakes = {
+            "write_assays": lambda d, db, rows: {"assays_written": len(rows)},
+            "sample_ids_with_assay_edges": lambda d, db: iter(()),
+            "replace_sample_assay_edges": lambda d, db, rows, chunk=5000: {"assay_edge_samples": len(list(rows))},
+            "replace_assay_catalog_edges": lambda d, db, accepted, generates: {
+                "accepted_by_written": len(accepted), "generates_written": len(generates)},
+            "replace_assay_runs": lambda d, db, rows, studies, tables=None: {"assay_runs_written": len(rows)},
+            "delete_gone_assays": lambda d, db, ids: {"assays_deleted": 0},
             "find_ghosts": lambda d, db, ids, uuids: copy.deepcopy(self.ghosts),
             "delete_ghosts": lambda d, db, element_ids: {"ghosts_deleted": len(element_ids)},
             "retire_samples": lambda d, db, ids, archive_path: {
@@ -159,30 +175,32 @@ class WriterRecorder:
             "archive_and_drop_child_of": lambda d, db, path, declared: {
                 "child_of_pairs": 0, "child_of_undeclared": 0, "child_of_deleted": 0, "archive_path": None},
             "ensure_constraints_v11": lambda d, db: {"schema_statements": 14},
-            "write_sample_types": lambda d, db, rows: {"sample_types_written": len(rows),
+            "write_sample_types": lambda d, db, rows, archive_path=None: {"sample_types_written": len(rows),
                                                        "graph_only_sample_types": []},
             "write_attributes": lambda d, db, rows: {"attributes_written": len(rows), "attributes_without_type": 0},
             "write_projects": lambda d, db, rows: {"projects_written": len(rows)},
             "write_people_and_memberships": lambda d, db, rows: {"memberships_written": len(rows),
                                                                  "memberships_dropped": 0},
-            "write_investigation_projects": lambda d, db, invs, links: {"investigations_written": len(invs)},
+            "write_investigation_projects": lambda d, db, invs, links, archive_path=None, seek_study_ids=None: {
+                "investigations_written": len(invs)},
             "write_samples": self._write_samples,
             "write_missing_lineage": lambda d, db, pairs, chunk=10_000: {
                 "lineage_pairs": len(pairs), "lineage_created": len(pairs), "lineage_dropped": 0},
             "archive_and_drop_undeclared_derived_from": lambda d, db, path, declared: {
                 "derived_from_between_samples": 2, "derived_from_undeclared": 1, "derived_from_deleted": 1,
                 "derived_from_archive_path": path},
-            "write_seek_studies": lambda d, db, links: {"in_study_written": len(links), "in_study_dropped": 0},
             "write_attribute_counts": lambda d, db, counts: {"attribute_counts_set": len(counts)},
             "write_sample_type_counts": lambda d, db: {"sample_type_counts_set": 2},
             "ensure_index_budget": lambda d, db, census, bench_keys=frozenset(): ["gs_T_TIS_0123456789"],
             "ensure_fulltext": lambda d, db: {"fulltext_index": "sample_search_text"},
             "await_indexes": lambda d, db: {"indexes_online": 20},
             "write_graphmeta": lambda d, db, catalog_hash, label_maps_hash=None: {
-                "schema_version": "1.2", "catalog_hash": catalog_hash},
+                "schema_version": schema.SCHEMA_VERSION, "catalog_hash": catalog_hash},
         }
         for name, fn in fakes.items():
             monkeypatch.setattr(writer, name, self._recording(name, fn))
+        monkeypatch.setattr(study_links, "rebuild_in_study", self._recording(
+            "rebuild_in_study", lambda d, db, **kw: {"status": "ok", "in_study_added": 1}))
 
     def _recording(self, name, fn):
         def call(*args, **kwargs):
@@ -246,9 +264,10 @@ def test_full_sync_writes_in_the_design_order(world, monkeypatch, tmp_path):
         "ensure_constraints_v11",
         "write_sample_types", "write_attributes", "write_projects", "write_people_and_memberships",
         "write_investigation_projects", "write_samples", "write_samples", "write_missing_lineage",
-        "archive_and_drop_undeclared_derived_from", "write_seek_studies", "write_attributes",
-        "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget", "ensure_fulltext",
-        "await_indexes", "write_graphmeta"]
+        "archive_and_drop_undeclared_derived_from", "rebuild_in_study", "write_assays",
+        "replace_assay_catalog_edges", "sample_ids_with_assay_edges", "replace_assay_runs", "delete_gone_assays",
+        "write_attributes", "write_attribute_counts", "write_sample_type_counts", "ensure_index_budget",
+        "ensure_fulltext", "await_indexes", "write_graphmeta"]
     assert [len(c.args[2]) for c in rec.of("write_samples")] == [2, 1]
     assert report["status"] == "ok"
     assert report["samples_projected"] == 3 and report["samples_written"] == 3
@@ -296,7 +315,8 @@ def test_full_sync_archives_and_deletes_undeclared_derived_from_with_the_real_wr
 
     report = run.full_sync(FakeDriver(graph), "neo4j", run_dir=str(tmp_path))
 
-    assert order == ["stream", ("delete", ["e-reversed", "e-stale"], True)]
+    # one read for the page of ids 10 to 12 and one for the ids no page holds, then the delete
+    assert order == ["stream", "stream", ("delete", ["e-reversed", "e-stale"], True)]
     rows = (tmp_path / run.DERIVED_FROM_ARCHIVE_FILE).read_text(encoding="utf-8").splitlines()
     assert rows[1:] == [f"12\t10\t{U_T2}\t{U_T1}\t" + '{"child_id": 12}', f"10\t11\t{U_T1}\t{U_D1}\t{{}}"]
     assert report["derived_from_undeclared"] == 2 and report["derived_from_deleted"] == 2
@@ -325,7 +345,7 @@ def test_full_sync_hands_the_preflight_findings_to_the_writer(world, monkeypatch
     assert df_path == str(tmp_path / run.DERIVED_FROM_ARCHIVE_FILE)
     assert (11, 10) in df_declared
     assert (10, 11) not in df_declared and (12, 10) not in df_declared and (11, 11) not in df_declared
-    assert rec.of("write_seek_studies")[0].args[2][0]["sample_id"] == 11
+    assert rec.of("rebuild_in_study")[0].kwargs["run_dir"] == str(tmp_path)
 
 
 def test_full_sync_adds_undeclared_attributes_and_the_census_after_the_sample_pass(world, monkeypatch, tmp_path):
@@ -349,7 +369,8 @@ def test_full_sync_adds_undeclared_attributes_and_the_census_after_the_sample_pa
     assert budget.kwargs["bench_keys"] == frozenset({("TIS", "Organ")})
 
     cat = run.build_catalog()
-    assert rec.of("write_graphmeta")[0].args[2] == catalog.catalog_hash(cat.sample_types, full.args[2])
+    with_values = [key for key, entry in census.items() if entry["sample_count"]]
+    assert rec.of("write_graphmeta")[0].args[2] == catalog.catalog_hash(cat.sample_types, full.args[2], with_values)
     assert report["undeclared_attribute_keys"] == ["33:Lane"]
     assert report["index_budget"] == 1
     assert "33:Lane" in json.loads((tmp_path / run.CENSUS_FILE).read_text())
@@ -386,12 +407,15 @@ def test_full_sync_refuses_when_a_sample_cannot_be_projected(world, monkeypatch,
 
 
 def test_full_sync_refuses_when_a_graph_sample_type_holds_a_title_under_another_id(world, monkeypatch, tmp_path):
+    """The graph-only sample is retired first and the titles are checked once more; the title is still held,
+    so the run refuses before any other write."""
     rec = WriterRecorder(monkeypatch)
     driver = FakeDriver(lambda query, params: [{"title": "TIS", "graph_id": 5, "mysql_id": 26}]
                         if query == q.SAMPLE_TYPE_TITLE_CONFLICTS else [])
     with pytest.raises(run.PreflightError, match="sample_type_title_conflicts"):
         run.full_sync(driver, "neo4j", run_dir=str(tmp_path))
-    assert rec.names() == ["find_ghosts"]
+    assert rec.names() == ["find_ghosts", "retire_samples"]
+    assert [c.query for c in driver.calls].count(q.SAMPLE_TYPE_TITLE_CONFLICTS) == 2
 
 
 def test_full_sync_refuses_on_a_label_collision(world, monkeypatch, tmp_path):
@@ -423,7 +447,7 @@ def test_full_sync_records_a_failure_part_way(world, monkeypatch, tmp_path):
     def boom(*args, **kwargs):
         raise RuntimeError("neo4j went away")
 
-    monkeypatch.setattr(writer, "write_seek_studies", boom)
+    monkeypatch.setattr(study_links, "rebuild_in_study", boom)
     with pytest.raises(RuntimeError):
         run.full_sync(FakeDriver(), "neo4j", run_dir=str(tmp_path))
     saved = json.loads((tmp_path / run.REPORT_FILE).read_text())
@@ -466,7 +490,8 @@ def test_catalog_sync_keeps_undeclared_attributes_and_counts(world, monkeypatch)
     report = run.catalog_sync(FakeDriver(_attribute_state), "neo4j")
 
     assert rec.names() == ["write_sample_types", "write_attributes", "write_attribute_counts",
-                           "write_sample_type_counts", "write_graphmeta"]
+                           "write_sample_type_counts", "write_assays", "replace_assay_catalog_edges",
+                           "delete_gone_assays", "write_graphmeta"]
     keys = [r["key"] for r in rec.of("write_attributes")[0].args[2]]
     assert keys == ["26:Organ", "26:CellCount", "26:Collected", "33:Parent", "33:Lane"]
     assert rec.of("write_attribute_counts")[0].args[2] == {
@@ -509,7 +534,7 @@ class GraphWorld:
         self.constraints = list(verify.EXPECTED_CONSTRAINTS)
         self.indexes = [{"name": n, "state": "ONLINE", "populationPercent": 100.0}
                         for n in verify.EXPECTED_INDEXES + verify.EXPECTED_CONSTRAINTS]
-        self.graphmeta = [{"schema_version": "1.2"}]
+        self.graphmeta = [{"schema_version": schema.SCHEMA_VERSION}]
 
     def __call__(self, query, params):
         nodes = self.nodes
@@ -536,6 +561,8 @@ class GraphWorld:
                     for i in params["ids"] if i in nodes]
         if query in (verify.SAMPLE_COUNT, verify.OF_TYPE_COUNT):
             return [{"n": len(nodes)}]
+        if query == verify.TYPE_TITLE_DIFFERS:
+            return [{"n": 0}]
         if query == verify.TYPE_LABEL_AUDIT:
             return [{"samples": len(nodes), "not_one_type_label": 0, "not_one_of_type": 0, "label_differs": 0,
                      "label_sets": [[label] for label in sorted({n["label"] for n in nodes.values()})]}]
@@ -550,6 +577,30 @@ class GraphWorld:
         if query == verify.GRAPHMETA:
             return self.graphmeta
         if query == verify.T_LABEL_WITHOUT_SAMPLE:
+            return [{"n": 0}]
+        if query == verify.LABELS_LISTED:
+            return [{"names": sorted(verify.EXPECTED_LABELS | {"T_TIS", "T_D_SEQ"})}]
+        if query == verify.RELATIONSHIP_TYPES_LISTED:
+            return [{"names": sorted(verify.EXPECTED_RELATIONSHIP_TYPES)}]
+        if query == q.IN_PROJECT_DEGREES:
+            degrees = Counter(p for n in self.nodes.values() for p in set(n["props"]["project_ids"]))
+            return [{"id": p, "n": degrees.get(p, 0)} for p in (2, 16)]
+        if query == q.IN_PROJECT_EXTRA:
+            return [{"n": 0}]
+        if query == q.GRAPH_PROJECTS:
+            return [{"id": 2, "title": "Local"}, {"id": 16, "title": "TCGA"}]
+        if query == q.GRAPH_INVESTIGATIONS:
+            return [{"id": 3, "title": "TCGA", "project_ids": [16], "held": False}]
+        if query == q.GRAPH_MEMBER_OF:
+            return [{"person_id": m["person_id"], "project_id": m["project_id"], "has_left": m["has_left"]}
+                    for m in MEMBERSHIPS]
+        if query in (q.STUDY_NODES, q.STUDY_SEEK_ID_DUPLICATES, q.SAMPLE_STUDIES_PAGE):
+            return []
+        if query == q.ORPHAN_IN_STUDY:
+            return [{"n": 0}]
+        if query in (verify.ASSAY_IDS, verify.RUN_IN_ROWS, verify.CATALOG_EDGE_ROWS, verify.SAMPLED_ASSAY_EDGES):
+            return []
+        if query == verify.SAMPLE_ASSAY_EDGE_COUNT:
             return [{"n": 0}]
         raise AssertionError(f"unexpected statement: {query}")
 
@@ -580,7 +631,7 @@ def test_gate_g_passes_on_the_graph_a_correct_sync_writes(world, mysql_scope):
     result = _gate(GraphWorld(_graph_nodes()))
     assert [c for c in result["checks"] if not c["pass"]] == []
     assert result["pass"] is True
-    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 12)}
+    assert {c["name"].split(".")[0] for c in result["checks"]} == {str(i) for i in range(1, 15)}
     assert all({"name", "expected", "actual", "pass"} <= set(c) for c in result["checks"])
     assert result["stats"]["seed"] == 7 and result["stats"]["sampled_ids"] == [10, 11, 12]
     assert result["stats"]["metadata_hash_mysql"] == result["stats"]["metadata_hash_graph"]
@@ -593,9 +644,10 @@ def test_gate_g_only_reads(world, mysql_scope):
 
 
 def test_gate_g_draws_a_reproducible_random_sample(world, mysql_scope):
-    first = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]["sampled_ids"]
-    again = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]["sampled_ids"]
-    assert first == again and len(first) == 2
+    """The per-type and per-project strata add every sample of this small world; the random draw is 2."""
+    first = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    again = _gate(GraphWorld(_graph_nodes()), sample_size=2, seed=3)["stats"]
+    assert first["sampled_ids"] == again["sampled_ids"] and first["sample_strata"]["random"] == 2
 
 
 def test_gate_g_fails_a_missing_declared_edge(world, mysql_scope):
@@ -825,7 +877,17 @@ def test_catalog_dry_run_calls_catalog_sync_dry(graphdb, monkeypatch):
     seen = {}
     monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
     call_command("graph_sync", "--catalog", "--dry-run", stdout=StringIO(), stderr=StringIO())
-    assert seen == {"dry_run": True, "record": True, "trigger": "command"}
+    assert seen == {"dry_run": True, "record": True, "trigger": "command", "run_dir": None}
+
+
+def test_catalog_archives_into_the_run_dir_it_saves_its_report_in(graphdb, monkeypatch, tmp_path):
+    """A hand ``--catalog --run-dir X``: the catalog sync's ``sample_types_deleted.tsv`` goes into X beside
+    ``catalog_sync.json``, not into a new catalog-<UTC time> directory."""
+    seen = {}
+    monkeypatch.setattr(run, "catalog_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    call_command("graph_sync", "--catalog", "--run-dir", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert seen["run_dir"] == str(tmp_path) and seen["dry_run"] is False
+    assert (tmp_path / "catalog_sync.json").exists()
 
 
 def test_verify_json_prints_the_gate_and_exits_1_when_it_fails(graphdb, monkeypatch):
@@ -1069,6 +1131,68 @@ def test_a_bad_sample_id_list_is_an_error_before_connecting(graphdb, bad):
     assert graphdb.uris == []
 
 
+# --- --small-tables: the small-tables write an isa row and the nightly run -------------------------------------------
+
+@pytest.mark.django_db
+def test_small_tables_runs_the_small_tables_write_and_records_the_run(graphdb, monkeypatch, tmp_path):
+    seen = {}
+
+    def fake(driver, db, **kwargs):
+        seen.update(kwargs, db=db)
+        return {"status": targeted.OK, "projects_written": 2, "memberships_written": 1}
+
+    monkeypatch.setattr(targeted, "sync_small_tables", fake)
+    out = StringIO()
+    call_command("graph_sync", "--small-tables", "--json", "--run-root", str(tmp_path), "--trigger", "startup",
+                 stdout=out, stderr=StringIO())
+    assert json.loads(out.getvalue())["projects_written"] == 2
+    assert seen["db"] == "neo4j" and seen["run_dir"].startswith(os.path.join(str(tmp_path), "small_tables-"))
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="small_tables")
+    assert (record.status, record.counts_json["trigger"], record.counts_json["projects_written"]) == (
+        "ok", "startup", 2)
+    assert "small_tables" not in sync_state.FAILED_RUN_KINDS        # the drift after it judges the graph, not it
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("status", [targeted.LOCK_TIMEOUT, targeted.NOT_AT_VERSION])
+def test_small_tables_that_wrote_nothing_exits_2(graphdb, monkeypatch, status):
+    monkeypatch.setattr(targeted, "sync_small_tables", lambda driver, db, **kw: {"status": status})
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2
+    (record,) = sync_state.GraphSyncRun.objects.filter(kind="small_tables")
+    assert record.status == "refused"
+
+
+def test_small_tables_has_no_dry_run_and_refuses_one_before_connecting(graphdb, monkeypatch):
+    monkeypatch.setattr(targeted, "sync_small_tables", lambda driver, db, **kw: pytest.fail("a dry run wrote"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "--dry-run" in str(exc.value)
+    assert graphdb.uris == []
+
+
+@pytest.mark.parametrize("argv", [["--samples", "7"], ["--once"], ["--loop"], ["--verify"], ["--drift"],
+                                  ["--investigation-counts", "--instance", "local"], ["--small-tables"]])
+def test_a_mode_that_would_ignore_dry_run_refuses_it_before_connecting(graphdb, monkeypatch, argv):
+    """--samples and a pass of the loop would write anyway, and the read-only modes have nothing to leave out: every
+    mode but those that honour --dry-run refuses it, exit 2, before any driver is opened."""
+    monkeypatch.setattr(targeted, "sync_samples", lambda *a, **kw: pytest.fail("a dry run synced samples"))
+    monkeypatch.setattr(loop, "run_pass", lambda *a, **kw: pytest.fail("a dry run drained the outbox"))
+    monkeypatch.setattr(loop, "run_forever", lambda *a, **kw: pytest.fail("a dry run started the loop"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *argv, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "--dry-run" in str(exc.value)
+    assert graphdb.uris == []
+
+
+def test_small_tables_needs_the_flag_on_the_live_graph(graphdb, settings):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--small-tables", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == []
+
+
 # --- --loop and --once ----------------------------------------------------------------------------
 
 def test_loop_runs_for_ever_with_its_interval_and_run_root(graphdb, modes, tmp_path):
@@ -1105,3 +1229,451 @@ def test_apply_label_changes_and_the_run_record_reach_the_full_sync(graphdb, mod
     call_command("graph_sync", "--full", "--apply-label-changes", "--no-record", "--trigger", "loop",
                  stdout=StringIO(), stderr=StringIO())
     assert modes["apply_label_changes"] is True and modes["record"] is False and modes["trigger"] == "loop"
+
+
+# --- --requeue-dead -------------------------------------------------------------------------------
+
+def _dead_row(kind="catalog", key="*", error="OperationalError: (2006, 'Server has gone away')"):
+    """A row at the attempt limit, its last failure long ago (the command reads the real clock)."""
+    long_ago = datetime(2026, 9, 1, 12, 0, tzinfo=dt_timezone.utc)
+    return GraphSyncOutbox.objects.create(kind=kind, key=key, attempts=sync_state.MAX_ATTEMPTS, last_error=error,
+                                          enqueued_at=long_ago, lease_expires_at=long_ago)
+
+
+@pytest.mark.django_db
+def test_requeue_dead_puts_dead_rows_back_and_says_how_many(graphdb):
+    _dead_row()
+    _dead_row("samples_of_type", "type:3")
+    out = StringIO()
+
+    call_command("graph_sync", "--requeue-dead", stdout=out, stderr=StringIO())
+
+    lines = out.getvalue().splitlines()
+    assert "catalog *: attempts 8: OperationalError: (2006, 'Server has gone away')" in lines
+    assert lines[-1] == "put back to pending: 2 dead rows"
+    assert sync_state.outbox_summary()["dead"] == {}
+
+
+@pytest.mark.django_db
+def test_requeue_dead_json_dry_run_and_kind(graphdb):
+    _dead_row()
+    _dead_row("samples_of_type", "type:3")
+    out = StringIO()
+
+    call_command("graph_sync", "--requeue-dead", "--kind", "catalog", "--dry-run", "--json",
+                 stdout=out, stderr=StringIO())
+
+    assert json.loads(out.getvalue()) == {
+        "dry_run": True, "kind": "catalog", "requeued": 1,
+        "rows": [{"kind": "catalog", "key": "*", "attempts": 8,
+                  "error": "OperationalError: (2006, 'Server has gone away')"}]}
+    assert sync_state.outbox_summary()["dead"] == {"catalog": 1, "samples_of_type": 1}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("config", [dict(LIVE), {}], ids=["live graph, no flag", "no Neo4j at all"])
+def test_requeue_dead_never_connects_to_neo4j(graphdb, settings, config):
+    """It writes the dmac outbox only, so neither the live-graph rule nor a missing URI applies to it."""
+    settings.NEO4J_DATABASE = config
+    _dead_row()
+
+    call_command("graph_sync", "--requeue-dead", stdout=StringIO(), stderr=StringIO())
+
+    assert graphdb.uris == []
+    assert sync_state.outbox_summary()["dead"] == {}
+
+
+@pytest.mark.django_db
+def test_requeue_dead_with_nothing_dead_says_so(graphdb):
+    out = StringIO()
+    call_command("graph_sync", "--requeue-dead", stdout=out, stderr=StringIO())
+    assert out.getvalue().splitlines() == ["put back to pending: 0 dead rows"]
+
+
+@pytest.mark.parametrize("args, code", [(("--requeue-dead", "--kind", "merge_studies"), 2),
+                                        (("--verify", "--kind", "catalog"), 1),
+                                        (("--requeue-dead", "--apply-label-changes"), 1)])
+def test_requeue_dead_refuses_a_bad_kind_and_kind_belongs_to_it(graphdb, args, code):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == code
+    assert graphdb.uris == []
+
+
+def test_requeue_dead_is_a_mode_of_its_own():
+    assert "requeue_dead" in command.MODES
+    assert "requeue_dead" not in command.LIVE_OK_MODES      # it never reaches a graph, live or not
+
+
+# --- --labels (the operator's RELABEL ruling) ------------------------------------------------------------------------
+
+@pytest.fixture
+def relabel(monkeypatch):
+    calls = []
+
+    def fake(driver, db, **kwargs):
+        calls.append(kwargs)
+        return {"mode": "labels", "status": "dry_run" if kwargs["dry_run"] else "ok", "labels_renamed": 3}
+
+    monkeypatch.setattr(run, "relabel_all", fake)
+    return calls
+
+
+@pytest.mark.parametrize("args, dry_run, approved", [(("--labels", "--dry-run"), True, False),
+                                                     (("--labels",), False, False),
+                                                     (("--labels", "--apply-label-changes"), False, True)])
+def test_labels_runs_the_label_step_alone(graphdb, relabel, args, dry_run, approved):
+    out = StringIO()
+    call_command("graph_sync", *args, "--json", stdout=out, stderr=StringIO())
+    (call,) = relabel
+    assert (call["dry_run"], call["apply_label_changes"]) == (dry_run, approved)
+    assert json.loads(out.getvalue())["labels_renamed"] == 3
+
+
+@pytest.mark.parametrize("args", [("--labels",), ("--labels", "--dry-run")])
+def test_labels_needs_the_live_flag_even_for_a_dry_run(graphdb, settings, relabel, args):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and relabel == []
+
+
+def test_labels_is_a_mode_that_takes_the_approval():
+    assert "labels" in command.MODES and "labels" in command.LABEL_CHANGE_MODES
+    assert "labels" not in command.LIVE_OK_MODES
+
+
+# --- the studies release: --merge-studies, --unmerge-studies, --studies -----------------------------------------
+
+@pytest.fixture
+def studies_cmd(monkeypatch):
+    """The three modes' workers replaced by recorders; ``calls`` holds them in order, ``runs`` the run kinds started."""
+    rec = SimpleNamespace(
+        calls=[], runs=[], refusal=None, duplicates=[], lock=True,
+        plan={"ids": [3, 4], "kinds": {3: "merge", 4: "already_merged"}, "counts": {}, "studies": [],
+              "approval_line": "3:merge"},
+        apply={"status": "ok", "merged": [{"study_id": 3, "kind": "merge"}], "already_merged": [4],
+               "stopped_at": None},
+        undo={"status": "ok", "studies": [], "refused": []},
+        rebuild={"status": "ok", "in_study_removed": 2})
+
+    def plan(driver, db, ids=None, **kwargs):
+        rec.calls.append(("plan", ids))
+        return copy.deepcopy(rec.plan)
+
+    def apply(driver, db, expected, *, run_dir, **kwargs):
+        rec.calls.append(("apply", dict(expected), run_dir))
+        return dict(copy.deepcopy(rec.apply), run_dir=run_dir)
+
+    def undo(driver, db, paths, *, dry_run=False, **kwargs):
+        rec.calls.append(("undo", list(paths), dry_run))
+        return copy.deepcopy(rec.undo)
+
+    def rebuild(driver, db, **kwargs):
+        rec.calls.append(("rebuild", kwargs))
+        return copy.deepcopy(rec.rebuild)
+
+    @contextmanager
+    def lock(timeout_s):
+        rec.calls.append(("lock", timeout_s))
+        yield rec.lock
+
+    def start_run(kind, *, trigger, now=None):
+        rec.runs.append(kind)
+        return sync_state.RunHandle(None, kind, trigger, now)
+
+    monkeypatch.setattr(study_merge, "plan", plan)
+    monkeypatch.setattr(study_merge, "apply", apply)
+    monkeypatch.setattr(study_merge, "undo", undo)
+    monkeypatch.setattr(study_links, "rebuild_in_study", rebuild)
+    monkeypatch.setattr(targeted, "_refusal", lambda driver, db: rec.refusal)
+    monkeypatch.setattr(writer, "seek_study_id_duplicates", lambda driver, db: list(rec.duplicates))
+    monkeypatch.setattr(sync_state, "graph_write_lock", lock)
+    monkeypatch.setattr(sync_state, "start_run", start_run)
+    monkeypatch.delenv("GS_RUN_DIR", raising=False)
+    return rec
+
+
+def _names_of(rec):
+    return [c[0] for c in rec.calls]
+
+
+def _journal_dir(tmp_path, name):
+    path = tmp_path / name
+    path.mkdir()
+    (path / study_merge.JOURNAL_FILE).write_text(study_merge.JOURNAL_HEADER, encoding="utf-8")
+    return str(path)
+
+
+@pytest.mark.parametrize("args", [("--merge-studies", "--dry-run"), ("--merge-studies", "all", "--dry-run")])
+def test_merge_studies_dry_run_plans_every_id_and_takes_no_lock(graphdb, studies_cmd, args):
+    out = StringIO()
+    call_command("graph_sync", *args, "--json", stdout=out, stderr=StringIO())
+    assert json.loads(out.getvalue())["status"] == "dry_run"
+    assert studies_cmd.calls == [("plan", None)] and studies_cmd.runs == []
+
+
+@pytest.mark.parametrize("ids", ["4,3,4", "4:merge,3:rekey_in_place"])
+def test_merge_studies_dry_run_of_ids_plans_those(graphdb, studies_cmd, ids):
+    call_command("graph_sync", "--merge-studies", ids, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls == [("plan", [4, 3])]
+
+
+@pytest.mark.parametrize("args", [("--merge-studies",), ("--merge-studies", "all")])
+def test_all_is_refused_without_dry_run_before_connecting(graphdb, studies_cmd, args):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_applies_the_approved_kinds_under_the_lock(graphdb, studies_cmd, tmp_path):
+    """apply gets the kinds the operator approved, not the ones read now: comparing them is apply's job, under the
+    lock, where a merge that a crash stopped after its last move is still finished."""
+    studies_cmd.plan["kinds"] = {3: "rekey_in_place", 4: "already_merged"}
+    out = StringIO()
+    call_command("graph_sync", "--merge-studies", "3:merge,4:already_merged", "--run-root", str(tmp_path), "--json",
+                 stdout=out, stderr=StringIO())
+    assert _names_of(studies_cmd) == ["plan", "lock", "apply"]
+    assert studies_cmd.calls[1] == ("lock", targeted.LOCK_WAIT_S)
+    _, expected, run_dir = studies_cmd.calls[2]
+    assert expected == {3: "merge", 4: "already_merged"}
+    assert run_dir.startswith(os.path.join(str(tmp_path), "merge_studies-"))
+    saved = json.loads((Path(run_dir) / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "ok" and saved["approved"] == {"3": "merge", "4": "already_merged"}
+    assert saved["plan"]["kinds"] == {"3": "rekey_in_place", "4": "already_merged"}
+    assert json.loads(out.getvalue())["status"] == "ok"
+    assert studies_cmd.runs == ["merge_studies"]
+
+
+@pytest.mark.parametrize("ids", ["3,4", "3:merge,4"])
+def test_a_merge_needs_each_ids_approved_kind(graphdb, studies_cmd, ids):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", ids, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "kind" in str(exc.value)
+    assert graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_refuses_an_approved_kind_the_merge_does_not_act_on(graphdb, studies_cmd):
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3:merge,8:id_collision", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "8" in str(exc.value)
+    assert graphdb.uris == [] and studies_cmd.calls == []
+
+
+def test_merge_studies_refuses_an_id_that_reads_a_kind_it_does_not_act_on_now(graphdb, studies_cmd):
+    studies_cmd.plan["kinds"] = {3: "merge", 8: "id_collision"}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3:merge,8:merge", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and _names_of(studies_cmd) == ["plan"] and studies_cmd.runs == []
+
+
+def test_merge_studies_refuses_a_graph_not_at_the_writers_version(graphdb, studies_cmd):
+    studies_cmd.refusal = {"status": "not_at_version", "schema_version": "1.1", "writer_version": "1.2"}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3:merge", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == []
+
+
+@pytest.mark.parametrize("field, value, code", [
+    ("apply", {"status": "failed", "stopped_at": 4, "problem": "study 4 reads paper now",
+               "merged": [{"study_id": 3, "kind": "merge"}], "already_merged": []}, 1),
+    ("apply", {"status": "refused", "stopped_at": 3, "problem": "study 3 reads merge now, not rekey_in_place",
+               "merged": [], "already_merged": []}, 2),
+    ("lock", False, 1)])
+def test_a_merge_exits_by_how_far_it_got(graphdb, studies_cmd, tmp_path, field, value, code):
+    """Stopped part way or a busy lock: 1. An id whose kind changed before anything was written in the run: 2."""
+    setattr(studies_cmd, field, value)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--merge-studies", "3:merge", "--run-root", str(tmp_path), stdout=StringIO(),
+                     stderr=StringIO())
+    assert exc.value.returncode == code
+    if field == "lock":
+        assert "apply" not in _names_of(studies_cmd)
+    else:
+        assert value["problem"] in str(exc.value)
+
+
+def test_studies_removes_whatever_the_switch_says(graphdb, studies_cmd, tmp_path, monkeypatch):
+    monkeypatch.delenv(study_links.SWITCH_ENV, raising=False)
+    call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert _names_of(studies_cmd) == ["lock", "rebuild"]
+    kwargs = studies_cmd.calls[1][1]
+    assert kwargs["remove"] is True and kwargs["lock"] is None and kwargs["path"] == "studies"
+    assert kwargs["run_dir"].startswith(os.path.join(str(tmp_path), "study_links-"))
+    assert json.loads((Path(kwargs["run_dir"]) / study_links.REPORT_FILE).read_text())["in_study_removed"] == 2
+    assert studies_cmd.runs == ["study_links"]
+
+
+def test_studies_dry_run_reads_and_takes_no_lock(graphdb, studies_cmd):
+    call_command("graph_sync", "--studies", "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert _names_of(studies_cmd) == ["rebuild"]
+    kwargs = studies_cmd.calls[0][1]
+    assert kwargs["dry_run"] is True and kwargs["remove"] is True and kwargs["run_dir"] is None
+    assert studies_cmd.runs == []
+
+
+@pytest.mark.parametrize("field, value", [
+    ("refusal", {"status": "not_at_version", "schema_version": "1.1", "writer_version": "1.2"}),
+    ("duplicates", [{"seek_study_id": 4, "nodes": 2}])])
+def test_studies_refuses_before_writing(graphdb, studies_cmd, field, value):
+    setattr(studies_cmd, field, value)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--studies", stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "rebuild" not in _names_of(studies_cmd)
+
+
+@pytest.mark.parametrize("status, code", [("lock_timeout", 1), ("refused", 2)])
+def test_studies_exits_by_the_rebuilds_status(graphdb, studies_cmd, tmp_path, status, code):
+    studies_cmd.rebuild = {"status": status}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == code
+
+
+def test_unmerge_studies_reads_every_path_and_writes_under_the_lock(graphdb, studies_cmd, tmp_path):
+    first, second = _journal_dir(tmp_path, "m1"), _journal_dir(tmp_path, "m2")
+    err = StringIO()
+    call_command("graph_sync", "--unmerge-studies", f"{first},{second}", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=err)
+    assert studies_cmd.calls == [("lock", targeted.LOCK_WAIT_S), ("undo", [first, second], False)]
+    assert studies_cmd.runs == ["unmerge_studies"]
+    run_dirs = sorted(tmp_path.glob("unmerge_studies-*"))
+    assert len(run_dirs) == 1 and f"run directory: {run_dirs[0]}" in err.getvalue()
+    saved = json.loads((run_dirs[0] / study_merge.REPORT_FILE).read_text())
+    assert (saved["status"], saved["mode"], saved["run_dir"]) == ("ok", "unmerge_studies", str(run_dirs[0]))
+    assert saved["paths"] == [first, second]
+
+
+def test_unmerge_studies_dry_run_takes_no_lock(graphdb, studies_cmd, tmp_path):
+    first = _journal_dir(tmp_path, "m1")
+    call_command("graph_sync", "--unmerge-studies", first, "--dry-run", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls == [("undo", [first], True)] and studies_cmd.runs == []
+    assert list(tmp_path.glob("unmerge_studies-*")) == []
+
+
+@pytest.mark.parametrize("name", ["m1", study_merge.JOURNAL_FILE])
+def test_unmerge_studies_never_writes_its_report_into_a_merges_run_directory(graphdb, studies_cmd, tmp_path, name):
+    first = _journal_dir(tmp_path, "m1")
+    target = first if name == "m1" else str(tmp_path / "elsewhere")
+    if name != "m1":
+        os.makedirs(target)
+        Path(target, study_merge.REPORT_FILE).write_text("{}", encoding="utf-8")
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", first, "--run-dir", target, "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == [] and studies_cmd.runs == []
+
+
+def test_unmerge_studies_refuses_a_path_with_no_journal(graphdb, studies_cmd, tmp_path):
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", str(tmp_path / "empty"), stdout=StringIO(),
+                     stderr=StringIO())
+    assert exc.value.returncode == 2 and studies_cmd.calls == []
+
+
+def test_unmerge_studies_takes_a_studies_run_directory_that_removed_no_link(graphdb, studies_cmd, tmp_path):
+    """``--studies`` writes its archive only when it removes a link, so its run directory can hold only its report."""
+    studies_cmd.rebuild = {"status": "ok", "in_study_removed": 0}
+    call_command("graph_sync", "--studies", "--run-root", str(tmp_path), stdout=StringIO(), stderr=StringIO())
+    (studies_dir,) = tmp_path.glob("study_links-*")
+    first = _journal_dir(tmp_path, "m1")
+    call_command("graph_sync", "--unmerge-studies", f"{first},{studies_dir}", "--run-root", str(tmp_path),
+                 stdout=StringIO(), stderr=StringIO())
+    assert studies_cmd.calls[-1] == ("undo", [first, str(studies_dir)], False)
+
+
+def test_unmerge_studies_refuses_before_writing_when_another_merge_journal_names_its_ids(graphdb, studies_cmd,
+                                                                                          tmp_path):
+    root = tmp_path / "root"
+    for name in ("merge_studies-a", "merge_studies-b"):
+        (root / name).mkdir(parents=True)
+        (root / name / study_merge.JOURNAL_FILE).write_text(
+            study_merge.JOURNAL_HEADER + '3\tplan\t{"kind": "merge"}\n', encoding="utf-8")
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", str(root / "merge_studies-b"), "--run-root", str(root),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "merge_studies-a" in str(exc.value)
+    assert studies_cmd.calls == [] and studies_cmd.runs == []
+
+
+def test_an_undo_that_refused_an_id_exits_1_and_keeps_its_report(graphdb, studies_cmd, tmp_path):
+    studies_cmd.undo = {"status": "partial", "studies": [], "refused": [{"study_id": 3, "reason": "changed"}],
+                        "investigation_not_restored": [{"study_id": 4, "node": "legacy",
+                                                        "investigation": {"id": 901, "title": "Alder"}}],
+                        "journals_not_closed": [{"journal": "/runs/m0/study_merge.tsv", "error": "disk full"}]}
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 1
+    assert "study 3 refused: changed" in str(exc.value) and "Investigation 901" in str(exc.value)
+    assert "/runs/m0/study_merge.tsv" in str(exc.value)
+    [run_dir] = tmp_path.glob("unmerge_studies-*")
+    saved = json.loads((run_dir / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "partial" and saved["refused"] == [{"study_id": 3, "reason": "changed"}]
+
+
+def test_an_undo_that_fails_part_way_keeps_its_report(graphdb, studies_cmd, tmp_path, monkeypatch):
+    def undo(driver, db, paths, **kwargs):
+        raise RuntimeError("the connection to Neo4j was lost")
+
+    monkeypatch.setattr(study_merge, "undo", undo)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--unmerge-studies", _journal_dir(tmp_path, "m1"), "--run-root", str(tmp_path),
+                     stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 1 and "connection to Neo4j was lost" in str(exc.value)
+    [run_dir] = tmp_path.glob("unmerge_studies-*")
+    saved = json.loads((run_dir / study_merge.REPORT_FILE).read_text())
+    assert saved["status"] == "failed" and "connection to Neo4j was lost" in saved["error"]
+
+
+@pytest.mark.parametrize("args", [("--merge-studies", "3", "--dry-run"), ("--studies", "--dry-run"),
+                                  ("--unmerge-studies", "somewhere", "--dry-run")])
+def test_the_studies_modes_need_the_live_flag_even_for_a_dry_run(graphdb, settings, studies_cmd, args):
+    settings.NEO4J_DATABASE = dict(LIVE)
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", *args, stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and graphdb.uris == []
+
+
+@pytest.mark.parametrize("ids", ["3,x", "3:mergee", "3:merge,3:rekey_in_place"])
+def test_a_bad_merge_id_is_an_error_before_connecting(graphdb, studies_cmd, ids):
+    with pytest.raises(CommandError):
+        call_command("graph_sync", "--merge-studies", ids, "--dry-run", stdout=StringIO(), stderr=StringIO())
+    assert graphdb.uris == []
+
+
+# --- a hand run's default run directory ------------------------------------------------------------------------------
+
+def test_a_hand_full_sync_makes_and_names_its_run_directory_under_the_run_root(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    err = StringIO()
+    call_command("graph_sync", "--full", "--run-root", str(tmp_path), stdout=StringIO(), stderr=err)
+    assert seen["run_dir"].startswith(os.path.join(str(tmp_path), "full-")) and os.path.isdir(seen["run_dir"])
+    assert f"run directory: {seen['run_dir']}" in err.getvalue()
+
+
+def test_an_explicit_run_dir_still_wins(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "ok"})
+    call_command("graph_sync", "--full", "--run-dir", str(tmp_path / "mine"), stdout=StringIO(), stderr=StringIO())
+    assert seen["run_dir"] == str(tmp_path / "mine")
+
+
+def test_a_run_root_that_cannot_be_written_refuses_before_anything_runs(graphdb, monkeypatch, tmp_path):
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x")
+    monkeypatch.setattr(run, "full_sync", lambda *a, **k: pytest.fail("the full sync ran"))
+    with pytest.raises(CommandError) as exc:
+        call_command("graph_sync", "--full", "--run-root", str(blocker), stdout=StringIO(), stderr=StringIO())
+    assert exc.value.returncode == 2 and "run directory" in str(exc.value)
+
+
+def test_a_full_dry_run_makes_no_directory(graphdb, monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(run, "full_sync", lambda driver, db, **kw: seen.update(kw) or {"status": "dry_run"})
+    call_command("graph_sync", "--full", "--dry-run", "--run-root", str(tmp_path), stdout=StringIO(),
+                 stderr=StringIO())
+    assert seen["run_dir"] is None and list(tmp_path.iterdir()) == []

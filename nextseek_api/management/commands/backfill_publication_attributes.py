@@ -26,6 +26,10 @@ wrote are queued for a graph sync in batches of 5,000 (kind 'samples', key
 'batch:backfill:<n>', the ids as the payload). The row goes in after the
 updates, never inside them, and it is only a note to the drain, which reads the
 samples back and writes the graph itself.
+
+The studies tool calls ``write_publication_attributes`` with one row per sample for its whole run and its own key
+prefix, journaling each batch's old and new text through ``on_batch`` before the batch is written, and rolls back
+through ``restore_publication_text``.
 """
 
 from __future__ import annotations
@@ -101,20 +105,120 @@ def updated_metadata(raw: str | None, doi: str, pmid: str) -> str:
     return json.dumps(data)
 
 
-def enqueue_graph_sync(ids: list[int], batch: int | None = None) -> int:
+def enqueue_graph_sync(ids: list[int], batch: int | None = None, *, prefix: str = "batch:backfill") -> int:
     """Queue the samples this run updated for a graph sync. Returns how many ids were queued.
 
     Called after the updates are committed, never inside them. hooks.enqueue never raises, so a batch that cannot be
-    queued costs the backfill nothing: those samples wait for the nightly targeted sync instead.
+    queued costs the backfill nothing: those samples wait for the nightly targeted sync instead. Keys are
+    ``<prefix>:<n>``, so two callers with their own prefixes never overwrite each other's ids before a drain.
     """
     size = batch or GRAPH_SYNC_BATCH
     ordered = sorted(ids)
     queued = 0
     for n, start in enumerate(range(0, len(ordered), size)):
         chunk = ordered[start:start + size]
-        if hooks.enqueue("samples", f"batch:backfill:{n}", chunk):
+        if hooks.enqueue("samples", f"{prefix}:{n}", chunk):
             queued += len(chunk)
     return queued
+
+
+def _metadata_object(raw: str | None) -> dict | None:
+    """The metadata as a dict, {} for none at all, or None when it is not a JSON object (never written over)."""
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def publication_pairs(doi, pmid) -> tuple[tuple[str, str], ...]:
+    """The (DOI, PMID) pairs a DOI and a PMID text hold: both split on ';' and stripped, PMIDs aligned with DOIs by
+    position (blank where a paper has none), a pair whose DOI is blank dropped. Values, not text: what two metadata
+    texts are compared by."""
+    dois = [part.strip() for part in str(doi or "").split(";")]
+    pmids = [part.strip() for part in str(pmid or "").split(";")]
+    pmids += [""] * max(0, len(dois) - len(pmids))
+    return tuple((d, p) for d, p in zip(dois, pmids) if d)
+
+
+def write_publication_attributes(pairs: dict[int, tuple[str, str]], *, apply: bool, batch: int = 500,
+                                 on_batch=None, enqueue_prefix: str = "batch:backfill", also_enqueue=()) -> dict:
+    """Set DOI and PMID on each sample of ``pairs`` (sample id to its full DOI and PMID text), in batches of ``batch``.
+
+    A sample is written only when its parsed values differ from the new ones (``publication_pairs``); a sample whose
+    ``json_metadata`` is not a JSON object is skipped and listed in ``unreadable``, never replaced. With ``apply``,
+    ``on_batch(rows)`` gets ``[(sample_id, old_text, new_text), ...]`` for one batch before any of its rows is
+    written, and after the last batch the updated ids (plus ``also_enqueue``) are queued for a graph sync under
+    ``<enqueue_prefix>:<n>``.
+    """
+    ids = sorted(pairs)
+    missing = changed = 0
+    updated: list[int] = []
+    unreadable: list[int] = []
+    with _cursor() as c:
+        for i in range(0, len(ids), batch):
+            chunk = ids[i:i + batch]
+            placeholders = ",".join(["%s"] * len(chunk))
+            c.execute(f"SELECT id, json_metadata FROM samples WHERE id IN ({placeholders})", chunk)
+            rows = c.fetchall()
+            missing += len(set(chunk) - {r[0] for r in rows})
+            writes: list[tuple[int, str, str]] = []
+            for sample_id, raw in rows:
+                data = _metadata_object(raw)
+                if data is None:
+                    unreadable.append(sample_id)
+                    continue
+                doi, pmid = pairs[sample_id]
+                if publication_pairs(data.get("DOI"), data.get("PMID")) == publication_pairs(doi, pmid):
+                    continue
+                changed += 1
+                data["DOI"] = doi
+                data["PMID"] = pmid
+                writes.append((sample_id, raw or "", json.dumps(data)))
+            if not apply or not writes:
+                continue
+            if on_batch is not None:
+                on_batch(list(writes))
+            for sample_id, _old, new in writes:
+                c.execute("UPDATE samples SET json_metadata = %s WHERE id = %s", [new, sample_id])
+                updated.append(sample_id)
+    to_queue = sorted(set(updated) | {int(i) for i in also_enqueue})
+    queued = enqueue_graph_sync(to_queue, prefix=enqueue_prefix) if (apply and to_queue) else 0
+    return {"pairs": len(ids), "missing": missing, "changed": changed, "updated": updated,
+            "unreadable": sorted(unreadable), "queued": queued, "to_queue": len(to_queue)}
+
+
+def restore_publication_text(rows, *, enqueue_prefix: str) -> dict:
+    """Rollback of ``write_publication_attributes``: for each ``(sample_id, old_text, new_text)``, write ``old_text``
+    back where the current text still equals ``new_text``. A row already at ``old_text`` is left; a row changed since
+    is reported, never overwritten; a sample gone is reported. The restored ids are queued under ``enqueue_prefix``."""
+    wanted = {int(sid): (old, new) for sid, old, new in rows}
+    ids = sorted(wanted)
+    restored: list[int] = []
+    already: list[int] = []
+    changed_since: list[int] = []
+    found: set[int] = set()
+    with _cursor() as c:
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            placeholders = ",".join(["%s"] * len(chunk))
+            c.execute(f"SELECT id, json_metadata FROM samples WHERE id IN ({placeholders})", chunk)
+            for sample_id, raw in c.fetchall():
+                found.add(sample_id)
+                old, new = wanted[sample_id]
+                current = raw or ""
+                if current == old:
+                    already.append(sample_id)
+                elif current == new:
+                    c.execute("UPDATE samples SET json_metadata = %s WHERE id = %s", [old, sample_id])
+                    restored.append(sample_id)
+                else:
+                    changed_since.append(sample_id)
+    queued = enqueue_graph_sync(restored, prefix=enqueue_prefix) if restored else 0
+    return {"restored": sorted(restored), "already_old": sorted(already), "changed_since": sorted(changed_since),
+            "missing": sorted(set(ids) - found), "queued": queued}
 
 
 class Command(BaseCommand):
@@ -141,41 +245,19 @@ class Command(BaseCommand):
             f"{len(pairs)} sample(s) to update; {multi} appear in more than one paper"
         )
 
-        ids = sorted(pairs)
-        missing = 0
-        changed = 0
-        updated: list[int] = []
-        with _cursor() as c:
-            for i in range(0, len(ids), options["batch"]):
-                chunk = ids[i:i + options["batch"]]
-                placeholders = ",".join(["%s"] * len(chunk))
-                c.execute(
-                    f"SELECT id, json_metadata FROM samples WHERE id IN ({placeholders})",
-                    chunk,
-                )
-                rows = c.fetchall()
-                found = {r[0] for r in rows}
-                missing += len(set(chunk) - found)
-                for sample_id, raw in rows:
-                    doi, pmid = pairs[sample_id]
-                    new = updated_metadata(raw, doi, pmid)
-                    if new == (raw or ""):
-                        continue
-                    changed += 1
-                    if options["apply"]:
-                        c.execute(
-                            "UPDATE samples SET json_metadata = %s WHERE id = %s",
-                            [new, sample_id],
-                        )
-                        updated.append(sample_id)
-
+        report = write_publication_attributes(pairs, apply=options["apply"], batch=options["batch"])
+        changed, updated = report["changed"], report["updated"]
         self.stdout.write(f"{changed} sample(s) would change" if not options["apply"]
                           else f"{changed} sample(s) updated")
-        if missing:
+        if report["missing"]:
             self.stdout.write(self.style.WARNING(
-                f"{missing} sample id(s) in the source do not exist here"))
+                f"{report['missing']} sample id(s) in the source do not exist here"))
+        if report["unreadable"]:
+            self.stdout.write(self.style.WARNING(
+                f"{len(report['unreadable'])} sample(s) skipped: json_metadata is not a JSON object "
+                f"(ids {report['unreadable'][:20]})"))
         if updated:
-            queued = enqueue_graph_sync(updated)
+            queued = report["queued"]
             self.stdout.write(f"{queued} sample(s) queued for a graph sync")
             if queued < len(updated):
                 self.stdout.write(self.style.WARNING(

@@ -1,0 +1,135 @@
+{
+  "guidance": {
+    "notes": [
+      "A data-driven param is set from the cohort's own metadata, never a static default. Derive it, corroborate it against independent evidence in the SAME record, and STOP to ask when they conflict or the evidence is absent. A wrong value here does not error, it produces a confident wrong result.",
+      "seq_type corroboration is on the DNA/RNA axis, which is orthogonal to the TCR-vs-GEX labelling that was wrong in study 241114SHA (both TCR and GEX are RNA). The check is not there to re-catch that bug; it is there for a sample whose SequencingType says RNA but whose filename says WES."
+    ]
+  },
+  "pipelines": {
+    "hlatyping": {
+      "params": {
+        "seq_type": {
+          "target": "row_column",
+          "scope": "sample",
+          "allowed": ["dna", "rna"],
+          "derive_from": {
+            "signal": "SequencingType",
+            "map": {
+              "rna": ["RNA", "TCR", "GEX", "TRANSCRIPTOM", "scRNA"],
+              "dna": ["WES", "WGS", "EXOME", "GENOMIC"]
+            }
+          },
+          "corroborate_with": [
+            {"signal": "Name",             "rna_markers": ["GEX", "TCR", "RNA", "cDNA"], "dna_markers": ["WES", "WGS", "EXOME"]},
+            {"signal": "File_PrimaryData", "rna_markers": ["GEX", "TCR", "RNA", "cDNA"], "dna_markers": ["WES", "WGS", "EXOME"]},
+            {"signal": "LibrarySource",    "rna_markers": ["TRANSCRIPTOMIC"],            "dna_markers": ["GENOMIC"]},
+            {"signal": "LibraryStrategy",  "rna_markers": ["RNA-Seq", "ncRNA-Seq", "miRNA-Seq"], "dna_markers": ["WGS", "WXS", "WES"]}
+          ],
+          "ask": {
+            "definition": "Whether each library is DNA (WES/WGS) or RNA; it changes OptiType's configuration.",
+            "on_conflict": "The sequencing-type label and the sample's own name/files disagree about DNA vs RNA. I won't guess, which is right?",
+            "on_absent": "Nothing in these samples' metadata says whether they are DNA or RNA libraries. Which are they?"
+          }
+        }
+      }
+    },
+    "rnaseq": {
+      "params": {
+        "extra_salmon_quant_args": {
+          "target": "run_param",
+          "scope": "sample",
+          "allowed": ["--noLengthCorrection", ""],
+          "on_absent": "use_default",
+          "default": "",
+          "derive_from": {
+            "signal": "__protocol_text__",
+            "map": {
+              "--noLengthCorrection": [
+                "quantseq", "quant-seq", "lexogen",
+                "brb-seq", "brbseq", "mars-seq", "marsseq", "tag-seq", "tagseq",
+                "3' dge", "3'dge", "3’ dge", "3’dge",
+                "digital gene expression",
+                "3' rna-seq", "3' rna seq", "3’ rna-seq", "3’ rna seq",
+                "3' mrna-seq", "3' mrna seq", "3’ mrna-seq", "3’ mrna seq"
+              ]
+            }
+          },
+          "corroborate_with": [
+            {
+              "signal": "ExpressionKit",
+              "--noLengthCorrection_markers": ["quantseq", "quant-seq", "lexogen", "brb-seq", "mars-seq"]
+            },
+            {
+              "signal": "LibrarySelection",
+              "--noLengthCorrection_markers": ["3' dge", "3’ dge", "quantseq", "tag-seq", "digital gene expression"]
+            },
+            {
+              "signal": "Name",
+              "--noLengthCorrection_markers": ["quantseq", "3pdge", "3dge", "tagseq"]
+            }
+          ],
+          "ask": {
+            "definition": "Whether salmon should skip transcript-length correction. A 3' DGE / tag-counting library (QuantSeq, BRB-seq, MARS-seq) sequences only the 3' end, so a transcript's length says nothing about how many reads it should get, and correcting for it biases every fold change. A standard full-length library needs the correction.",
+            "on_conflict": "The prep protocol and the kit/library fields disagree about whether this is a 3' tag-counting library or a standard full-length RNA library. Which was prepped?",
+            "on_absent": "not used — rnaseq assumes a standard full-length library and applies length correction"
+          }
+        }
+      }
+    },
+    "scrnaseq": {
+      "params": {
+        "protocol": {
+          "target": "run_param",
+          "scope": "sample",
+          "allowed": ["auto", "10XV2", "10XV3", "10XV4", "dropseq"],
+          "on_absent": "ask",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "10XV2": ["10xv2", "10x v2", "chromium v2", "3' v2", "single cell 3' v2"],
+              "10XV3": ["10xv3", "10x v3", "chromium v3", "3' v3", "single cell 3' v3", "next gem"],
+              "10XV4": ["10xv4", "10x v4", "gem-x"],
+              "dropseq": ["drop-seq", "dropseq", "seq-well", "seqwell"]
+            }
+          },
+          "corroborate_with": [
+            {"signal": "LibrarySelection",  "10XV2_markers": ["10x v2"], "10XV3_markers": ["10x v3"], "dropseq_markers": ["drop-seq", "seq-well"]},
+            {"signal": "Name",              "10XV2_markers": ["10xv2", "v2"], "10XV3_markers": ["10xv3", "v3"], "dropseq_markers": ["dropseq", "seqwell"]},
+            {"signal": "__protocol_text__", "10XV2_markers": ["chromium single cell 3' v2", "10x v2"], "10XV3_markers": ["chromium single cell 3' v3", "10x v3", "next gem"], "10XV4_markers": ["gem-x", "10x v4"], "dropseq_markers": ["drop-seq", "seq-well"]}
+          ],
+          "ask": {
+            "definition": "Single-cell chemistry (10x v2/v3/v4 or Drop-seq/Seq-Well). It changes how the aligner parses cell barcodes and UMIs.",
+            "on_conflict": "The kit fields, the sample name, and the protocol document disagree about the single-cell chemistry. Which was used?",
+            "on_absent": "I can't tell which single-cell chemistry was used (the exact version isn't recorded). Which chemistry: 10x v2, 10x v3, 10x v4, or Drop-seq?"
+          }
+        }
+      }
+    },
+    "smrnaseq": {
+      "params": {
+        "three_prime_adapter": {
+          "target": "run_param",
+          "scope": "sample",
+          "allowed": ["AGATCGGAAGAGCACACGTCTGAACTCCAGTCA", "AACTGTAGGCACCATCAAT"],
+          "on_absent": "use_default",
+          "default": "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA",
+          "derive_from": {
+            "signal": "ExpressionKit",
+            "map": {
+              "AACTGTAGGCACCATCAAT": ["qiaseq", "qia-seq"]
+            }
+          },
+          "corroborate_with": [
+            {"signal": "ReagentManufacturer", "AACTGTAGGCACCATCAAT_markers": ["qiaseq", "qiagen mirna"]},
+            {"signal": "__protocol_text__",   "AACTGTAGGCACCATCAAT_markers": ["qiaseq mirna"]}
+          ],
+          "ask": {
+            "definition": "The 3' adapter to trim off small-RNA reads. Determined by the library prep kit.",
+            "on_conflict": "The kit fields and the protocol document disagree about the small-RNA kit / 3' adapter. Which kit was used?",
+            "on_absent": "not used — smrnaseq falls back to the Illumina adapter"
+          }
+        }
+      }
+    }
+  }
+}

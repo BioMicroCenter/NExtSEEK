@@ -43,7 +43,8 @@ container:
 - the batch-upload Celery worker (`batch_upload` queue, the container-local default broker);
 - the attribute-mutation Celery worker (`attribute_mutations` queue, on its own durable SQLite broker) and its outbox dispatcher, `dispatch_attribute_outbox`;
 - the sync-job recovery loop, `recover_attribute_sync_jobs`;
-- the assay-registration drain loop, `run_assay_registration_jobs`.
+- the assay-registration drain loop, `run_assay_registration_jobs`;
+- the sample-share worker, `run_share_jobs` (the studies tool's share mode).
 
 It then waits on all of them, so any one exiting takes the container down for compose to restart.
 The attribute runtimes used to be separate compose services; the comment block in the script

@@ -6,6 +6,7 @@ written sample manifest and never selects more than six arms.
 """
 from __future__ import annotations
 
+import os
 import argparse
 import csv
 import hashlib
@@ -27,10 +28,10 @@ ABSOLUTE_MAX_ARMS = 6
 DEFAULT_MAX_ARMS = 4
 CALLS_PER_ARM = 3
 DEFAULT_ARCHIVE = Path(
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/testquestions.zip"
+    os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"), "testquestions.zip"
 )
 DEFAULT_DELIVERY_MANIFEST = Path(
-    "/home/taishajo/work/NExtSEEK-dev/testquestions-2026-08-07/MANIFEST.json"
+    os.environ.get("NESSIE_TESTQUESTIONS_DIR", "testquestions-2026-08-07"), "MANIFEST.json"
 )
 PINNED_ARCHIVE_SHA256 = "4e7c57a1c04015fbbe4696302d258038b72e71b1bedb17866810474ac74cb814"
 PINNED_MANIFEST_SHA256 = "d14cb4b153448e295110f3bfdbc5004f1e0455e0673ebcac15ecfe9d635227c2"

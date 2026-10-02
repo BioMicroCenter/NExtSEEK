@@ -95,9 +95,30 @@ def test_it_is_still_the_one_sample_search_page_with_its_four_tabs():
     # nextseek.css scopes its layout fix to #search_tab; without it the grids collapse.
     assert 'id="search_tab"' in body
     for button in ("simple_downloadSamples(", "simple_deleteSamples(", "simple_exportSamples(",
-                   "showTimeline(", "downloadSamples0(", "deleteSamples(", "publishSamples(",
+                   "showTimeline(", "downloadSamples0(", "advanced_deleteSamples(",
                    "sendSamples("):
         assert button in body, button
+
+
+def test_no_two_scripts_on_the_page_define_the_same_function():
+    """UI-060: the Advanced "Delete samples" was replaced by the Deletion tab's
+    function of the same name, loaded later, and never deleted anything."""
+    import collections, re
+    _, body = _render()
+    names = collections.Counter(re.findall(r"\bfunction\s+(\w+)\s*\(", body))
+    assert [n for n, c in names.items() if c > 1] == []
+
+
+def test_publish_buttons_are_gone_and_send_to_retrieval_fills_the_retrieval_box():
+    """UI-061: publishing pointed at a route that never existed. UI-062: the send
+    wrote to an element that is not on the page and called an undefined function."""
+    _, body = _render()
+    assert "Publish samples to FairdomHub" not in body
+    assert "publishlist" not in body
+    send = body[body.index("function sendSamples("):]
+    send = send[:send.index("\n}")]
+    assert "#retrieval_uids" in send
+    assert "input_searchUIDs" not in send and "retriveAdvanced" not in send
 
 
 def test_both_boxes_and_the_phone_form_search_through_graph_search():

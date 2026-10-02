@@ -52,11 +52,11 @@ from ci.smoke.test_reachability import _callable_routes
 # authority on what the right number is: it diffs the registry against the live
 # resolver. This constant only stops the registry drifting silently between gate
 # runs, which happen in a different environment.
-OWNED_ROUTE_COUNT = 176
+OWNED_ROUTE_COUNT = 180
 
 # URL paths CI requests that Django's resolver does not report: an nginx-served
-# static asset and the Django admin login page.
-NON_RESOLVER_COUNT = 2
+# static asset, the Django admin login page and the retired /seek/newsearch/ (404).
+NON_RESOLVER_COUNT = 3
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -73,7 +73,7 @@ def test_no_pattern_is_declared_twice():
 def test_exactly_one_route_may_send_a_non_get_under_prod():
     """Authenticating is a precondition of a read-only sweep. Nothing else qualifies."""
     allowed = [r for r in REGISTRY if r.prod_allows_non_get]
-    assert [r.pattern for r in allowed] == [r"^login"], (
+    assert [r.pattern for r in allowed] == [r"^login/?$"], (
         "prod_allows_non_get is the single hole in the read-only guarantee. "
         f"Found: {[r.pattern for r in allowed]}"
     )

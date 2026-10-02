@@ -274,7 +274,7 @@ class TestTheRePostRepairPath:
     def test_the_already_present_sample_ids_are_queued(self, superuser):
         response = self._repost(superuser)
         assert response.status_code == 200
-        assert _queued() == [("samples", "sample:100"), ("samples", "sample:200")], (
+        assert list(GraphSyncOutbox.objects.values_list("kind", "payload")) == [("samples", [100, 200])], (
             "the rows the caller asked about, not the rows this request "
             "happened to insert -- which was none of them"
         )

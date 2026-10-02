@@ -198,7 +198,7 @@ def test_the_api_agent_lets_it_through(monkeypatch):
 
 
 def test_the_system_agent_lets_it_through(monkeypatch):
-    monkeypatch.setattr(system_mod, "call_llm_structured", _raise_both_timed_out)
+    monkeypatch.setattr(system_mod, "call_tools", _raise_both_timed_out)
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *a, **k: None)
     monkeypatch.setattr(system_mod.graph_catalog, "committed_schema", lambda config: {})
     config = MagicMock()
@@ -207,7 +207,8 @@ def test_the_system_agent_lets_it_through(monkeypatch):
     config.MIN_API_ENDPOINTS = []
     config.CAPABILITIES_DOC = "caps"
     config.SYSTEM_AGENT_SYSTEM_PROMPT = "sys"
-    config.get_agent_model.side_effect = _lookup("system")
+    lookup = _lookup("system")
+    config.get_agent_model.side_effect = lambda label: (MagicMock(), *lookup(label)[1:])  # a tool-capable client
     with pytest.raises(LLMFatalError):
         system_mod.system_agent(config, "what can you do", {}, ParserPlan(mode="system_question"))
 

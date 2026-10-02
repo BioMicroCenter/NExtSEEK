@@ -105,7 +105,7 @@ def ns_turn(monkeypatch, tmp_path):
             m.setattr(orch, "accept", _accept, raising=False)
             m.setattr(orch.pipeline_agent, "is_active", lambda session: wizard_active)
             m.setattr(orch.pipeline_agent, "handle_turn",
-                      lambda session, config, user_text, log_dir=None: {"action": "ask", "reply": "Which genome?"})
+                      lambda session, config, user_text, log_dir=None, send_event=None: {"action": "ask", "reply": "Which genome?"})
             m.setattr(orch.pipeline_agent, "snapshot_for_chat_log", lambda session: {})
             m.setattr(orch, "_ensure_query_log_dir", lambda session, config: str(tmp_path))
             m.setattr(orch, "ArtifactStore",

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import pytest
 from NessieAI.tests.nessie_tests import manifest as M
@@ -328,7 +329,7 @@ def test_an_outaged_known_fail_is_not_rendered_as_xfail(tmp_path):
 # change still load.
 # --------------------------------------------------------------------------- #
 
-SEED6B = Path("/home/cdemu/nessie-run-seed6b/manifest.json")
+SEED6B = Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"), "manifest.json")
 
 
 def test_route_sources_defaults_to_empty_so_old_manifests_still_load(tmp_path):

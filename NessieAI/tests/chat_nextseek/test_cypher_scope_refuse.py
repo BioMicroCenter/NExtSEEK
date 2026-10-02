@@ -128,3 +128,17 @@ def test_empty_and_blank_statements_are_refused():
         out = scope_cypher(text, {}, CALLER)
         assert isinstance(out, Refused), text
         assert out.codes == ("syntax",)
+
+
+# --- graph schema 1.3: INPUT_TO and OUTPUT_OF join a sample to an Assay, and nothing else -------------------------
+
+
+@pytest.mark.parametrize("cypher", [
+    "MATCH (s:Sample)-[:IN_STUDY]->(st:Study)-[:INPUT_TO]->(a:Assay) RETURN a.title AS t",
+    "MATCH (c:Sample)-[:OUTPUT_OF]->(p:Sample) RETURN count(*) AS n",
+    "MATCH (a:Assay), (b:Assay) WITH a, b MATCH (a)-[:INPUT_TO]->(b) RETURN count(*) AS n",
+])
+def test_input_to_and_output_of_join_a_sample_to_an_assay_only(cypher):
+    out = scope_cypher(cypher, {}, CALLER)
+    assert isinstance(out, Refused) and out.codes == ("relationship_type",), out
+    assert any("may only join a sample to an Assay" in reason for reason in out.reasons), out.reasons

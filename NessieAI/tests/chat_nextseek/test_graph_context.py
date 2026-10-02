@@ -13,8 +13,6 @@ import pytest
 
 from chat_nextseek import graph_context as gc
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_DOC = REPO_ROOT / "docs" / "neo4j-schema.md"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -43,8 +41,10 @@ def detail(title, attributes=(), *, label=None, name=None, summary=None, clade=N
                            never_filled=never_filled)
 
 
-def snapshot(index=(), *, has_usage=True):
-    return SimpleNamespace(catalog_hash="h1", synced_at=None, has_usage=has_usage, index=tuple(index), guard={})
+def snapshot(index=(), *, has_usage=True, schema_version=None):
+    extra = {} if schema_version is None else {"schema_version": schema_version}
+    return SimpleNamespace(catalog_hash="h1", synced_at=None, has_usage=has_usage, index=tuple(index), guard={},
+                           **extra)
 
 
 def vocab(**overrides):
@@ -89,7 +89,8 @@ def test_constants():
 
 
 def test_module_is_pure():
-    """No Neo4j, no config, no Django: only the standard library."""
+    """No Neo4j, no config, no Django: only the standard library, and the graph contract (standard library only too,
+    nextseek_graph/schema.py), whose version rule decides which structure a graph gets."""
     tree = ast.parse(Path(gc.__file__).read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
@@ -97,7 +98,8 @@ def test_module_is_pure():
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             assert node.level == 0, "relative import in a pure module"
-            imported.add(node.module.split(".")[0])
+            if node.module != "chat_nextseek.graph_contract":
+                imported.add(node.module.split(".")[0])
     assert imported <= {"__future__", "json", "re", "pathlib", "typing", "collections"}, imported
 
 
@@ -460,71 +462,8 @@ def test_vocabulary_omits_empty_blocks():
 
 
 # ---------------------------------------------------------------------------------------------------------------
-# The structure file against docs/neo4j-schema.md v1.1
+# The structure file (its names against the graph contract: nextseek_api/tests/test_graph_sync_contract.py)
 # ---------------------------------------------------------------------------------------------------------------
-
-def _doc_section(title_prefix):
-    text = SCHEMA_DOC.read_text(encoding="utf-8")
-    start = text.index(f"\n## {title_prefix}")
-    end = text.find("\n## ", start + 1)
-    return text[start:end if end != -1 else len(text)]
-
-
-def _doc_node_table(section):
-    """label -> backticked property names, from a section's Nodes table."""
-    table, in_nodes, props_col = {}, False, None
-    for line in section.splitlines():
-        if line.startswith("### "):
-            in_nodes = line.strip() == "### Nodes"
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if in_nodes and line.startswith("| Label"):
-            props_col = cells.index("Properties")
-            continue
-        if not in_nodes or props_col is None or not line.startswith("| `"):
-            continue
-        labels = re.findall(r"`([^`]+)`", cells[0])
-        props = set(re.findall(r"`([^`]+)`", cells[props_col]))
-        for label in labels:
-            for single in label.split(","):
-                table.setdefault(single.strip(), set()).update(props)
-    return table
-
-
-def _doc_labels_and_relationships():
-    v11 = _doc_section("v1.1")
-    labels = set(_doc_node_table(v11))
-    relationships = set(re.findall(r"\[:([A-Z_]+)", v11))
-    return labels, relationships
-
-
-def _structure_labels(text):
-    labels = set()
-    for chain in re.findall(r"\(\s*[A-Za-z_]*\s*((?::[A-Za-z_][A-Za-z0-9_<>]*)+)", text):
-        labels.update(part for part in chain.split(":") if part)
-    labels.update(re.findall(r"(?<![A-Za-z0-9_`'\"\[(]):([A-Za-z_][A-Za-z0-9_<>]*)", text))
-    return labels
-
-
-def test_structure_names_only_v11_labels():
-    doc_labels, _ = _doc_labels_and_relationships()
-    assert {"Sample", "T_<code>", "SampleType", "Attribute", "Study", "Project"} <= doc_labels  # the parse works
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    labels = _structure_labels(text)
-    assert {"Sample", "SampleType", "Attribute", "Study", "Investigation", "Project", "Person"} <= labels
-    unknown = {lab for lab in labels if lab not in doc_labels and not lab.startswith("T_")}
-    assert not unknown, unknown
-
-
-def test_structure_names_only_v11_relationships():
-    _, doc_relationships = _doc_labels_and_relationships()
-    assert "CHILD_OF" not in doc_relationships and "DERIVED_FROM" in doc_relationships
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    used = set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
-    assert used == doc_relationships, used ^ doc_relationships
-    shouted = {tok for tok in re.findall(r"\b[A-Z]+(?:_[A-Z]+)+\b", text) if not tok.startswith("T_")}
-    assert shouted - {"CHILD_OF"} <= doc_relationships
-
 
 def test_structure_mentions_child_of_only_as_absent():
     text = " ".join(gc.STRUCTURE_PATH.read_text(encoding="utf-8").split())
@@ -532,29 +471,6 @@ def test_structure_mentions_child_of_only_as_absent():
     mentions = [s for s in sentences if "CHILD_OF" in s]
     assert mentions, "the structure should say CHILD_OF does not exist"
     assert all("does not exist" in s for s in mentions), mentions
-
-
-def test_structure_node_properties_are_in_the_doc():
-    doc = _doc_node_table(_doc_section("v1.0"))
-    for label, props in _doc_node_table(_doc_section("v1.1")).items():
-        doc.setdefault(label, set()).update(props)
-    doc["Study"].add("seek_study_id")  # the v1.1 row names it in prose, next to "as v1.0"
-    text = gc.STRUCTURE_PATH.read_text(encoding="utf-8")
-    for label, body in re.findall(r"\(:([A-Za-z]+) \{([^}]*)\}\)", " ".join(text.split())):
-        props = {p.split(":")[0].strip() for p in body.split(",") if p.strip()}
-        assert props <= doc[label], (label, props - doc[label])
-
-
-def test_structure_derived_from_properties_are_the_v12_labels():
-    # An edge several assays share names one in internal_assay_title and all in internal_assay_titles, so the
-    # plural has to be in the structure or the agent filters on the singular and misses the others.
-    labels = _doc_section("v1.2")
-    labels = labels[labels.index("### DERIVED_FROM labels"):labels.index("\nRules:")]
-    doc = {name for row in labels.splitlines() if row.startswith("| `") for name in re.findall(r"`([^`]+)`", row)}
-    text = " ".join(gc.STRUCTURE_PATH.read_text(encoding="utf-8").split())
-    (body,) = re.findall(r"\[:DERIVED_FROM \{([^}]*)\}\]", text)
-    props = {p.strip() for p in body.split(",")}
-    assert {"internal_assay_title", "internal_assay_titles", "protocol_title"} <= props <= doc, (props, doc)
 
 
 def test_structure_is_compact():
@@ -666,3 +582,138 @@ def test_a_left_out_section_is_reported():
     one_names_only = gc.render_graph_context(snap, details[:1], k=0, budget=10**9)
     fit = gc.fit_graph_context(snap, details, budget=len(one_names_only.encode("utf-8")) + 200)
     assert fit.omitted == ("D.SEQ", "A.VCF") and fit.k == 0 and fit.stepped_down
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# docs/neo4j-schema.md v1.3: Versioning and Rolling back (the graph assay-node spec, sections 4.6 and 10). The graph
+# contract's test reads the section's tables; these read its prose.
+# ---------------------------------------------------------------------------------------------------------------
+
+SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs" / "neo4j-schema.md"
+FENCE = "`" * 3  # a fenced block's marker, built so that this file holds none
+
+
+def _schema_doc_section(version):
+    """The text of the doc's ``## <version>`` section, up to the next ``## `` heading."""
+    doc = SCHEMA_DOC_PATH.read_text(encoding="utf-8")
+    return doc.split(f"\n## {version}", 1)[1].split("\n## ", 1)[0]
+
+
+def test_the_v13_section_carries_its_versioning_and_rollback():
+    v13 = _schema_doc_section("v1.3")
+    for heading in ("Versioning", "Rolling back"):
+        assert f"\n### {heading}\n" in v13, heading
+    assert '`GraphMeta.schema_version` reads `"1.3"`' in v13
+
+
+def test_the_rollback_block_removes_the_whole_assay_layer_then_resyncs_at_12():
+    rollback = _schema_doc_section("v1.3").split("\n### Rolling back\n", 1)[1]
+    (block,) = re.findall(FENCE + r"bash\n(.*?)" + FENCE, rollback, re.S)
+    assert "for rel in INPUT_TO OUTPUT_OF RUN_IN ACCEPTED_BY GENERATES; do" in block
+    assert "IN TRANSACTIONS OF 10000 ROWS" in block and "DETACH DELETE a } IN TRANSACTIONS OF 1000 ROWS" in block
+    assert "DROP CONSTRAINT assay_id_unique IF EXISTS" in block and "DROP INDEX assay_title IF EXISTS" in block
+    assert rollback.index("Deploy the last 1.2 image first") < rollback.index(FENCE + "bash")
+    assert "graph_sync --full --i-mean-the-live-graph" in rollback
+
+
+def test_the_intro_names_v13():
+    intro = SCHEMA_DOC_PATH.read_text(encoding="utf-8").split("\n## ", 1)[0]
+    assert "the assay nodes (v1.3)" in intro
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Graph schema 1.3: the Assay section, appended by version (spec 2026-09-25-graph-assay-nodes-design.md section 6.1)
+# ---------------------------------------------------------------------------------------------------------------
+
+# The operator reviewed this text word by word before it was committed; a change to it is a change to what every
+# graph turn on a 1.3 graph reads.
+ASSAY_STRUCTURE_TEXT = """\
+## Assays (schema 1.3)
+(:Assay {id, title, other_names, description, tags, input_types, optional_input_types, output_types,
+  parent_clade, child_clade})   one per assay kind, the same for every caller
+(:Sample)-[:INPUT_TO {seek_assay_ids}]->(:Assay)    the sample went into the assay
+(:Sample)-[:OUTPUT_OF {seek_assay_ids}]->(:Assay)   the sample came out of it
+11. Lineage is DERIVED_FROM only. Two samples on one Assay did not come from each other: never pair samples through
+   an Assay. "Went into / came out of / used in X" and "which assays": use the Assay, matching
+   toLower(a.title) = toLower($x) OR toLower($x) IN [n IN a.other_names | toLower(n)]. Went through X:
+   WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. Studies that ran X: the IN_STUDY of
+   those samples. "Underwent / processed via X" stays the DERIVED_FROM edge test of STEP 4.
+"""
+
+
+def test_the_assay_section_is_the_reviewed_text():
+    assert gc.ASSAY_STRUCTURE_PATH.name == "graph_schema_structure_assays.txt"
+    assert gc.ASSAY_STRUCTURE_PATH.parent == gc.STRUCTURE_PATH.parent
+    assert gc.ASSAY_STRUCTURE_PATH.read_text(encoding="utf-8") == ASSAY_STRUCTURE_TEXT
+    assert gc.load_assay_structure() == ASSAY_STRUCTURE_TEXT.strip()
+
+
+def test_the_assay_section_is_compact():
+    # It goes into every graph turn on a 1.3 graph, beside the main file's 5,400 bytes.
+    assert len(gc.ASSAY_STRUCTURE_PATH.read_bytes()) <= 1024
+
+
+def test_the_structure_file_names_the_version_it_describes_on_its_first_line():
+    assert gc.load_structure().splitlines()[0] == "# NExtSEEK graph schema v1.2, for writing read-only Cypher"
+    assert gc.STRUCTURE_SCHEMA_VERSION == (1, 2) and gc.ASSAY_SCHEMA_VERSION == "1.3"
+
+
+@pytest.mark.parametrize("version, named", [
+    (None, "1.2"), ("1.1", "1.2"), ("1.2", "1.2"), ("1.3", "1.3"), (" 1.3 ", "1.3"), ("1.10", "1.10"),
+    ("2.0", "2.0"), ("x", "1.2"), (3, "1.2"),
+])
+def test_the_version_a_structure_names(version, named):
+    assert gc.schema_version_named(version) == named
+
+
+@pytest.mark.parametrize("version", [None, "1.1", "1.2", "x"])
+def test_below_13_the_structure_is_the_file_alone(version):
+    text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=5)], schema_version=version), [])
+    assert text.startswith(gc.load_structure() + "\n\n")
+    assert "## Assays (schema 1.3)" not in text and "INPUT_TO" not in text
+
+
+@pytest.mark.parametrize("version", ["1.3", "1.4", "1.10"])
+def test_from_13_the_assay_section_follows_the_structure_and_the_first_line_names_the_version(version):
+    text = gc.render_graph_context(snapshot([index_row("TIS", sample_count=5)], schema_version=version),
+                                   [tis_detail()])
+    first = gc.load_structure().replace("# NExtSEEK graph schema v1.2,", f"# NExtSEEK graph schema v{version},", 1)
+    assert text.startswith(first + "\n\n" + gc.load_assay_structure() + "\n\n## ")
+    assert text.index("## Assays (schema 1.3)") < text.index("TIS :T_TIS") < text.index("### TIS :T_TIS")
+
+
+def test_a_variant_structure_gets_the_assay_section_on_a_13_graph_and_keeps_its_own_first_line():
+    variant = "V2 STRUCTURE TEXT"
+    on_13 = gc.render_graph_context(snapshot([], schema_version="1.3"), [], structure=variant)
+    assert on_13.startswith(variant + "\n\n" + gc.load_assay_structure() + "\n\n")
+    on_12 = gc.render_graph_context(snapshot([], schema_version="1.2"), [], structure=variant)
+    assert on_12.startswith(variant + "\n\n## ") and "## Assays" not in on_12
+
+
+def test_structure_for_is_what_the_renderer_sends():
+    assert gc.structure_for(None, "1.2") == gc.load_structure()
+    assert gc.structure_for(None, "1.3") == (gc.load_structure().replace(" v1.2,", " v1.3,", 1) + "\n\n"
+                                             + gc.load_assay_structure())
+
+
+def test_a_heavy_triple_still_renders_at_k_25_with_its_tail_counts_on_a_13_graph():
+    snap, details = heavy_triple()
+    snap.schema_version = "1.3"
+    fit = gc.fit_graph_context(snap, details)
+    assert "## Assays (schema 1.3)" in fit.text
+    assert (fit.k, fit.tail_counts, fit.omitted, fit.stepped_down) == (25, True, (), False)
+    assert fit.size <= gc.BUDGET_BYTES
+
+
+# What the file may name against the doc (labels, relationship types, properties of 1.3 or earlier) is the
+# contract test's structure group, which R9 extends by this file (below). What stays here is policy: which of the 1.3
+# relationships the text teaches.
+
+
+def test_the_13_structure_teaches_the_two_relationships_a_non_admin_may_walk_and_not_the_admin_only_three():
+    text = gc.structure_for(None, "1.3")
+    assert {"INPUT_TO", "OUTPUT_OF"} <= set(re.findall(r"\[\s*\w*\s*:([A-Z_]+)", text))
+    shouted = {tok for tok in re.findall(r"\b[A-Z]+(?:_[A-Z]+)+\b", text) if not tok.startswith("T_")}
+    assert not shouted & {"RUN_IN", "ACCEPTED_BY", "GENERATES"}, "the admin-only relationships are not taught"
+    assert dict(re.findall(r"\[:([A-Z_]+) \{([^}]*)\}\]", " ".join(gc.load_assay_structure().split()))) == {
+        "INPUT_TO": "seek_assay_ids", "OUTPUT_OF": "seek_assay_ids"}

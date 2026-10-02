@@ -47,7 +47,7 @@ largest module here and holds several concerns; read the part you need.
 | `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
 | `safe_fs.py` | every file operation Django makes in a folder an agent or the sidecar can write (`cc-state`, `scratch`, `_staging`): no link followed, no path trusted, and a root must be a registered mount root or a Django folder above one |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
-| `op_registry/` | the inventory of the plugin commands the agent may call (below) |
+| `op_registry/` | the inventory of the plugin commands the agent may call (`NessieAI/cc/op_registry/README.md`; below) |
 
 **Operation registry.** `NessieAI/cc/op_registry/ops.py` is the registration source of truth, and
 `NessieAI/cc/op_registry/export.py` renders it to the committed `ops.json`. The executable shims are

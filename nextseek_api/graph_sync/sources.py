@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Iterable, Iterator
 
 from django.conf import settings
@@ -31,6 +32,7 @@ from django.db import connections
 
 from nextseek_api.batch_upload.helpers import UID_RE, collect_parent_tokens
 from nextseek_api.batch_upload.identity import extract_identity
+from nextseek_api.services.context_catalog import _rows_from_cursor
 from nextseek_api.services.template_catalog import is_deprecated
 from seek.models import Sample_types_context
 
@@ -197,6 +199,13 @@ def samples_by_ids(ids: Iterable[int]) -> list[dict]:
     return rows
 
 
+def recent_sample_ids(since: datetime, limit: int) -> list[int]:
+    """The ids of the samples created or updated at or after ``since`` (naive UTC, as SEEK stores its times),
+    newest id first, at most ``limit``: the samples gate G compares whatever its random draw."""
+    sql = "SELECT id FROM samples WHERE created_at >= %s OR updated_at >= %s ORDER BY id DESC LIMIT %s"
+    return [int(sample_id) for (sample_id,) in _rows(_seek(), sql, [since, since, int(limit)])]
+
+
 def _links_for(sql_head: str, ids: Iterable[int], lead: list) -> dict[int, list[int]]:
     """Sample id to its sorted distinct linked ids, for `sql_head ... IN (ids)` in chunks."""
     pairs: dict[int, set[int]] = {}
@@ -253,7 +262,7 @@ def _metadata_object(raw) -> dict:
 def parent_identities(uuids: Iterable[str]) -> dict[str, str | None]:
     """Stored uuid to the identity a child's `parent_titles` names it by.
 
-    The external-UID lookup of `batch_upload/neo4j_sync.py::enrich_parent_titles`:
+    The external-UID lookup of batch upload's former `enrich_parent_titles`:
     `extract_identity(meta, uid=uuid)` over the row's metadata, unreadable or non-object
     metadata reading as empty (the identity is then None). Only stored uuids equal to a
     requested one byte for byte are kept. Rows are read in id order and a later row replaces an
@@ -344,6 +353,13 @@ _ASSAY_LINK_STREAM_SQL = (
     "SELECT asset_id, assay_id FROM assay_assets "
     "WHERE asset_type = %s AND asset_id IS NOT NULL AND assay_id IS NOT NULL ORDER BY asset_id"
 )
+_SEEK_STUDY_LINK_STREAM_SQL = (
+    "SELECT DISTINCT aa.asset_id, s.id FROM assay_assets aa "
+    "JOIN assays a ON a.id = aa.assay_id "
+    "JOIN studies s ON s.id = a.study_id "
+    "WHERE aa.asset_type = %s AND aa.asset_id IS NOT NULL "
+    "ORDER BY aa.asset_id, s.id"
+)
 
 
 class _LinkStream:
@@ -425,6 +441,15 @@ def iter_digest_rows(chunk: int = 5000) -> Iterator[list[dict]]:
     finally:
         projects.close()
         assays.close()
+
+
+def iter_assay_links() -> Iterator[tuple[int, int]]:
+    """Every Sample row of `assay_assets` as `(sample id, SEEK assay id)`, ordered by sample id, by one statement.
+
+    The stream `iter_digest_rows` merges, read on its own: the drift check sets each membership against the sample
+    edges the graph holds (graph schema 1.3)."""
+    for sample_id, assay_id in _rows(_seek(), _ASSAY_LINK_STREAM_SQL, ["Sample"]):
+        yield int(sample_id), int(assay_id)
 
 
 # --- the catalog -------------------------------------------------------------------------------
@@ -583,48 +608,52 @@ def investigations() -> list[dict]:
                 _seek(), "SELECT id, title, description FROM investigations ORDER BY id")]
 
 
-def seek_study_links() -> list[dict]:
-    """Distinct (sample, SEEK study) links through `assay_assets` (Sample assets) and `assays`."""
-    sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.investigation_id "
-           "FROM assay_assets aa "
-           "JOIN assays a ON a.id = aa.assay_id "
-           "JOIN studies s ON s.id = a.study_id "
-           "WHERE aa.asset_type = %s "
-           "ORDER BY aa.asset_id, s.id")
-    titles: dict[str, str] = {}  # one string object per study title across a million rows
-    links = []
-    for sample_id, study_id, title, inv_id in _rows(_seek(), sql, ["Sample"]):
-        title = _text(title)
-        if title is not None:
-            title = titles.setdefault(title, title)
-        links.append({"sample_id": int(sample_id), "study_id": int(study_id), "study_title": title,
-                      "investigation_id": int(inv_id) if inv_id is not None else None})
-    return links
-
-
 def seek_study_links_for(ids: Iterable[int]) -> list[dict]:
-    """`seek_study_links` for these sample ids only, ordered by sample id, then study id."""
+    """(sample, SEEK study) links for these sample ids only, through `assay_assets` (Sample assets), `assays` and
+    `studies`, ordered by sample id, then study id. An assay whose study row is gone gives no link."""
     links = []
     for chunk in _id_chunks(ids):
-        sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.investigation_id "
+        sql = ("SELECT DISTINCT aa.asset_id, s.id, s.title, s.description, s.investigation_id "
                "FROM assay_assets aa "
                "JOIN assays a ON a.id = aa.assay_id "
                "JOIN studies s ON s.id = a.study_id "
                f"WHERE aa.asset_type = %s AND aa.asset_id IN ({_placeholders(len(chunk))}) "
                "ORDER BY aa.asset_id, s.id")
-        for sample_id, study_id, title, inv_id in _rows(_seek(), sql, ["Sample", *chunk]):
+        for sample_id, study_id, title, description, inv_id in _rows(_seek(), sql, ["Sample", *chunk]):
             links.append({"sample_id": int(sample_id), "study_id": int(study_id),
-                          "study_title": _text(title),
+                          "study_title": _text(title), "study_description": _text(description),
                           "investigation_id": int(inv_id) if inv_id is not None else None})
     return links
 
 
+def iter_seek_study_links() -> Iterator[tuple[int, int]]:
+    """Every (sample id, SEEK study id) link, the join of `seek_study_links_for` over every sample, ordered by sample
+    id, then study id, from one statement.
+
+    `study_links.diff_in_study` merges this stream with the graph's keyset pages, so Python holds one fetch batch at a
+    time (mysqlclient's default cursor still buffers the statement's rows on the client, as `iter_digest_rows` notes).
+    """
+    for sample_id, study_id in _rows(_seek(), _SEEK_STUDY_LINK_STREAM_SQL, ["Sample"]):
+        yield int(sample_id), int(study_id)
+
+
+def sample_ids_in_assays(assay_ids: Iterable[int]) -> list[int]:
+    """The distinct Sample members (`assay_assets` Sample rows) of these SEEK assays, ascending, read by bound
+    parameters in chunks of `IN_CHUNK` assay ids. No assay id, no query."""
+    found: set[int] = set()
+    for chunk in _id_chunks(assay_ids):
+        sql = ("SELECT DISTINCT asset_id FROM assay_assets WHERE asset_type = %s AND asset_id IS NOT NULL "
+               f"AND assay_id IN ({_placeholders(len(chunk))})")
+        found.update(int(sample_id) for (sample_id,) in _rows(_seek(), sql, ["Sample", *chunk]))
+    return sorted(found)
+
+
 def studies() -> list[dict]:
-    """Every SEEK study: `id`, `title`, `investigation_id`."""
-    return [{"id": int(sid), "title": _text(title),
+    """Every SEEK study: `id`, `title`, `description`, `investigation_id`, ordered by id."""
+    return [{"id": int(sid), "title": _text(title), "description": _text(description),
              "investigation_id": int(inv_id) if inv_id is not None else None}
-            for sid, title, inv_id in _rows(
-                _seek(), "SELECT id, title, investigation_id FROM studies ORDER BY id")]
+            for sid, title, description, inv_id in _rows(
+                _seek(), "SELECT id, title, description, investigation_id FROM studies ORDER BY id")]
 
 
 # --- the label maps (spec 7.3) -----------------------------------------------------------------
@@ -633,7 +662,7 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
     """SEEK assay id to its internal assay `(id, title)`, the smallest internal id on 1:N.
 
     `dmac.assays_internal_assays` joined to `dmac.internal_assays`, the lookup of batch
-    upload's `neo4j_sync.py::_resolve_internal_assays`; the title is kept as stored, None
+    upload's former `_resolve_internal_assays`; the title is kept as stored, None
     included. Empty when either table is absent.
     """
     alias = settings.NEXTSEEK_DATABASE
@@ -656,7 +685,7 @@ def internal_assay_links() -> dict[int, tuple[int, str | None]]:
 def resolved_assay_map() -> dict[int, tuple[int | None, str | None]]:
     """SEEK assay id to `(internal assay id or None, title)`, the label rule's assay map.
 
-    Batch upload's resolution (`neo4j_sync.py::build_derived_from_payloads_from_db`, step 3):
+    Batch upload's former resolution (`build_derived_from_payloads_from_db`, step 3):
     a mapped assay resolves to `internal_assay_links`' pair; every other SEEK assay falls back
     to `(None, its own title or "")`, the label rule then using the SEEK assay id itself (R6).
     An assay id mapped in dmac but absent from SEEK's `assays` keeps its mapping, as there.
@@ -672,3 +701,50 @@ def sops_map() -> dict[int, str | None]:
     """SEEK SOP id to its title as stored: the protocol half of the label rule."""
     return {int(sop_id): _text(title)
             for sop_id, title in _rows(_seek(), "SELECT id, title FROM sops ORDER BY id")}
+
+
+# --- the assay layer (schema 1.3) --------------------------------------------------------------
+
+def internal_assays() -> list[dict]:
+    """Every internal assay: `id` and `title` (`internal_assay_title` as stored, None included). One Assay node each.
+
+    Empty when the table is absent, which gives a graph with no Assay node rather than a failure."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "internal_assays"):
+        logger.warning("internal_assays is absent; the graph gets no Assay node")
+        return []
+    return [{"id": int(ia_id), "title": _text(title)}
+            for ia_id, title in _rows(_dmac(), "SELECT id, internal_assay_title FROM internal_assays ORDER BY id")]
+
+
+def assay_internal_pairs() -> list[tuple[int, int | None]]:
+    """Every distinct `(SEEK assay id, internal assay id)` of `assays_internal_assays` with a SEEK assay.
+
+    All of them, where `internal_assay_links` keeps only the smallest internal id per SEEK assay for the label rule. A
+    row with no internal assay is kept (as None) so that `assays.build_catalog` can report it. Empty when the table
+    is absent."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "assays_internal_assays"):
+        return []
+    sql = ("SELECT DISTINCT assay_id, internal_assay_id FROM assays_internal_assays "
+           "WHERE assay_id IS NOT NULL ORDER BY assay_id, internal_assay_id")
+    return [(int(assay_id), int(ia_id) if ia_id is not None else None) for assay_id, ia_id in _rows(_dmac(), sql)]
+
+
+def assay_studies() -> list[tuple[int, int | None]]:
+    """Every SEEK assay and its study, by id. RUN_IN is built from it, and its ids are the SEEK assays that exist.
+
+    Joined to `studies`, the join `seek_study_links` makes: an assay whose study row is gone reads as having no study,
+    so it gets no RUN_IN, as its members get no IN_STUDY."""
+    sql = "SELECT a.id, s.id FROM assays a LEFT JOIN studies s ON s.id = a.study_id ORDER BY a.id"
+    return [(int(assay_id), int(study_id) if study_id is not None else None)
+            for assay_id, study_id in _rows(_seek(), sql)]
+
+
+def assay_context_rows() -> list[dict]:
+    """Every `assay_context` row, columns lowercased (production spells them in mixed case; the one rule is
+    `services/context_catalog._rows_from_cursor`), bytes decoded. Empty when the table is absent."""
+    if not table_exists(settings.NEXTSEEK_DATABASE, "assay_context"):
+        return []
+    with _dmac().cursor() as cursor:
+        cursor.execute("SELECT * FROM assay_context ORDER BY id")
+        rows = _rows_from_cursor(cursor)
+    return [{key: _text(value) for key, value in row.items()} for row in rows]

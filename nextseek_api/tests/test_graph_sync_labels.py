@@ -1,21 +1,20 @@
 """The DERIVED_FROM label rule (`graph_sync/labels.py`; sync design 7.3, R5, R14, R15).
 
 The first class is the parity proof: on one small MySQL world, where the upload sheet says nothing MySQL does not,
-`labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produces for the same edges.
-It calls that function, fed by a fake connection that answers its SQL from the same world.
+`labels.edge_labels` must equal what batch upload's `build_derived_from_payloads_from_db` produced for the same edges,
+frozen in `fixtures/graph_sync_batch_upload_parity.json` (`edge_labels`) while that function still existed.
 """
 import json
+from pathlib import Path
 
 import pytest
 from django.test import override_settings
 
 from nextseek_api.batch_upload import helpers
-from nextseek_api.batch_upload.models import InputRowModel, RowOutcome
-from nextseek_api.batch_upload.neo4j_sync import build_derived_from_payloads_from_db
 from nextseek_api.graph_sync import labels
 
-# The host settings the protocol rule reads to tell a local /sops/<id> URL from a foreign one (as
-# test_neo4j_sync.py's TestDerivedFromProtocolResolution pins them).
+# The host settings the protocol rule reads to tell a local /sops/<id> URL from a foreign one (as batch upload's
+# protocol tests pinned them).
 _LOCAL = dict(SEEK_PUBLIC_URL="http://localhost:3000", SEEK_URL="http://seek:3000", ALLOWED_HOSTS=["127.0.0.1"])
 
 
@@ -71,36 +70,6 @@ PARENTS = {                          # child uuid: parent uuids (C-1 is also a p
 ID_BY_UUID = {uuid: sid for sid, (uuid, _meta, _assays) in SAMPLES.items()}
 
 
-class _Result:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def fetchall(self):
-        return list(self._rows)
-
-
-class _FakeMySQL:
-    """Answers batch upload's label SQL from the world above, as MySQL would."""
-
-    def execute(self, sql, params):
-        text, wanted = str(sql), list(params.values())
-        if "FROM samples WHERE uuid IN" in text:
-            return _Result([(u, ID_BY_UUID[u]) for u in wanted if u in ID_BY_UUID])
-        if "SELECT id, json_metadata FROM samples" in text:
-            return _Result([(i, json.dumps(SAMPLES[i][1])) for i in wanted if i in SAMPLES])
-        if "FROM sops WHERE title IN" in text:
-            # MySQL's default collation compares case-insensitively.
-            keys = {str(t).strip().casefold() for t in wanted}
-            return _Result([(i, t) for i, t in SOPS.items() if t.strip().casefold() in keys])
-        if "FROM sops WHERE id IN" in text:
-            return _Result([(i, SOPS[i]) for i in wanted if i in SOPS])
-        if "assays_internal_assays" in text:
-            return _Result([(ia, a, INTERNAL[ia]) for a, ia in JUNCTION if a in wanted])
-        if "FROM assays WHERE id IN" in text:
-            return _Result([(a, ASSAYS[a]) for a in wanted if a in ASSAYS])
-        raise AssertionError(f"unexpected SQL: {text}")
-
-
 def _resolved_assay_map():
     """What sources.resolved_assay_map() returns for this world: SEEK assay id to (internal id or None, title).
 
@@ -113,21 +82,13 @@ def _resolved_assay_map():
     return out
 
 
-def _models(overrides=None):
-    overrides = overrides or {}
-    return [InputRowModel(UID=uuid, SampleType="Blood", json_metadata=json.dumps(SAMPLES[ID_BY_UUID[uuid]][1]),
-                          **overrides.get(uuid, {}))
-            for uuid in PARENTS]
+PARITY_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "graph_sync_batch_upload_parity.json"
 
 
-def _batch_upload_labels(models=None):
-    outcomes = {uuid: RowOutcome(status="success", sample_id=ID_BY_UUID[uuid]) for uuid in PARENTS}
-    assays_by_uid = {uuid: set(assays) for uuid, _meta, assays in SAMPLES.values()}
-    with override_settings(**_LOCAL):
-        rows = build_derived_from_payloads_from_db(
-            {c: set(p) for c, p in PARENTS.items()}, _FakeMySQL(), assays_by_uid, outcomes,
-            models if models is not None else _models())
-    return {(r.child_id, r.parent_id): {k: getattr(r, k) for k in labels.LABEL_KEYS} for r in rows}
+def _frozen_batch_upload_labels():
+    """batch upload's labels for the world above, as its former rule produced them (the frozen fixture)."""
+    rows = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))["edge_labels"]
+    return {(r["child_id"], r["parent_id"]): r["labels"] for r in rows}
 
 
 def _graph_sync_labels():
@@ -151,17 +112,11 @@ def _labels(assay_id=None, internal_id=None, title=None, ids=(), titles=(), prot
 
 class TestParityWithBatchUpload:
     def test_every_edge_equals_batch_upload(self):
-        ours, theirs = _graph_sync_labels(), _batch_upload_labels()
+        ours, theirs = _graph_sync_labels(), _frozen_batch_upload_labels()
         assert set(ours) == set(theirs)
         assert len(ours) == 14
         for pair in sorted(theirs):
             assert ours[pair] == theirs[pair], pair
-
-    def test_sheet_values_equal_to_mysql_change_nothing(self):
-        """A sheet sop_id and assay titles that equal MySQL's give batch upload the labels MySQL alone gives."""
-        sheet = {"C-11": {"sop_id": 5, "assay_ids": [100], "assay_titles": ["Internal Five"]},
-                 "C-3": {"sop_id": 7}}
-        assert _batch_upload_labels(_models(sheet)) == _graph_sync_labels()
 
     @pytest.mark.parametrize("pair, expected", [
         # one shared assay: the plural lists are [internal id], [title]
@@ -300,7 +255,8 @@ class TestClassify:
         return stored
 
     def test_the_class_names(self):
-        assert labels.CLASSES == ("new", "equal", "plural_missing", "changed", "cleared")
+        assert labels.CLASSES == ("new", "equal", "plural_missing", "renamed", "protocol_filled", "changed", "cleared")
+        assert labels.WRITABLE_WITHOUT_APPROVAL == ("new", "renamed", "protocol_filled")
 
     def test_equal(self):
         assert labels.classify(self._stored(), self.COMPUTED) == "equal"
@@ -332,7 +288,6 @@ class TestClassify:
         assert labels.classify(stored, computed) == "plural_missing"
 
     @pytest.mark.parametrize("changes", [
-        {"internal_assay_title": "Old Title"},                  # a rename left stale
         {"internal_assay_id": 49},
         {"assay_id": 11},
         {"internal_assay_ids": [10]},                            # a list in the SEEK id space
@@ -343,6 +298,61 @@ class TestClassify:
     ])
     def test_changed(self, changes):
         assert labels.classify(self._stored(**changes), self.COMPUTED) == "changed"
+
+    # An internal assay renamed under its id, and a protocol filled where none was stored, need no approval (the
+    # operator's RELABEL ruling); any change of which assay an edge carries still does.
+    NO_PROTOCOL = _labels(10, 50, "Internal Alpha", [50], ["Internal Alpha"])
+
+    @pytest.mark.parametrize("stored, computed, cls", [
+        ({"internal_assay_title": "Old"}, None, "renamed"),                              # the singular title only
+        ({"internal_assay_title": "Old", "internal_assay_titles": ["Old"]}, None, "renamed"),       # and the plural
+        ({"internal_assay_titles": ["Old"]}, None, "renamed"),                            # the plural title only
+        ({"internal_assay_title": "Old", "internal_assay_ids": _ABSENT, "internal_assay_titles": _ABSENT},
+         None, "renamed"),                                                                 # plural lists absent
+        ({"internal_assay_title": "Old", "protocol_id": None, "protocol_title": None}, None, "renamed"),  # + a fill
+        ({"protocol_id": None, "protocol_title": None}, None, "protocol_filled"),          # id and title filled
+        ({"protocol_title": None}, None, "protocol_filled"),                               # the title, under its id
+        ({"protocol_id": 6}, None, "changed"),                                             # a protocol replaced
+        ({}, "no protocol", "cleared"),                                                    # a protocol removed
+        ({"assay_id": 11}, None, "changed"),                    # another SEEK assay of the same internal assay
+        ({"internal_assay_id": 49}, None, "changed"),                                      # another internal assay
+        ({"internal_assay_title": "Old"}, "no title", "cleared"),                          # a title to null
+        ({"internal_assay_titles": ["Old"]}, "empty plural title", "changed"),             # a plural title to ""
+        ({"internal_assay_title": "Old", "internal_assay_ids": [49]}, None, "changed"),    # renamed, ids differ
+        ({"protocol_title": "SOP Five (old)"}, None, "changed"),                           # a SOP retitled
+        ({"assay_id": 12, "internal_assay_id": 60, "internal_assay_title": "IA 60", "internal_assay_ids": [60],
+          "internal_assay_titles": ["IA 60"]}, None, "changed"),                           # an assay not shared
+    ], ids=["singular", "singular and plural", "plural", "plural lists absent", "renamed and filled",
+            "protocol filled", "protocol title filled", "protocol replaced", "protocol removed", "seek assay moved",
+            "internal id moved", "title to null", "plural title to empty", "ids differ", "sop retitled",
+            "unshared assay"])
+    def test_renames_and_filled_protocols_and_what_still_needs_approval(self, stored, computed, cls):
+        wanted = {None: self.COMPUTED, "no protocol": self.NO_PROTOCOL,
+                  "no title": dict(self.COMPUTED, internal_assay_title=None),
+                  "empty plural title": dict(self.COMPUTED, internal_assay_titles=[""])}[computed]
+        assert labels.classify(self._stored(**stored), wanted) == cls
+
+    # An edge stored before the plural lists existed: a refresh writes the lists too, so it needs no approval only
+    # when the rule's list holds that edge's one internal assay; a second shared assay would be added unread.
+    TWO_ASSAYS = _labels(10, 50, "Internal Alpha", [50, 60], ["Internal Alpha", "IA 60"], 5, "SOP Five")
+    NO_LISTS = {"internal_assay_ids": _ABSENT, "internal_assay_titles": _ABSENT}
+
+    @pytest.mark.parametrize("stored, computed, cls", [
+        ({"internal_assay_title": "Old"}, "one", "renamed"),
+        ({"internal_assay_title": "Old"}, "two", "changed"),
+        ({"protocol_id": None, "protocol_title": None}, "one", "protocol_filled"),
+        ({"protocol_id": None, "protocol_title": None}, "two", "changed"),
+        ({"internal_assay_title": "Old", "protocol_id": None, "protocol_title": None}, "two", "changed"),
+        ({}, "two", "plural_missing"),
+        ({"internal_assay_title": "Old", "internal_assay_ids": [50], "internal_assay_titles": _ABSENT}, "two",
+         "changed"),
+    ], ids=["renamed, one assay", "renamed, a second assay", "protocol filled, one assay",
+            "protocol filled, a second assay", "renamed and filled, a second assay", "no other difference",
+            "ids stored, a second assay"])
+    def test_a_refresh_without_plural_lists_adds_no_assay(self, stored, computed, cls):
+        wanted = {"one": self.COMPUTED, "two": self.TWO_ASSAYS}[computed]
+        edge = self._stored(**dict(self.NO_LISTS, **stored))
+        assert labels.classify(edge, wanted) == cls
 
     def test_changed_when_a_list_holds_the_same_entries_in_another_order(self):
         computed = _labels(10, 5, "A", [5, 50], ["A", "B"])

@@ -37,12 +37,13 @@ Useful flags:
 against the instance's own port, and derives the profile from `ci_profile` in
 `startup/.instance.json`, so nobody has to remember which box they are on.
 
-Ten files need no stack, no credentials and no browser, because they test the
+Eleven files need no stack, no credentials and no browser, because they test the
 registry, the guard, the fixtures' own logic and the Nessie, write and deploy
 checks' pure helpers rather than a deployment: `test_registry_unit.py`,
 `test_registry_contents.py`, `test_guard_unit.py`, `test_profile_unit.py`,
 `test_assertions_unit.py`, `test_readiness_unit.py`, `test_terminal_unit.py`,
-`test_nessie_unit.py`, `test_attribute_jobs_unit.py`, `test_deploy_live_unit.py`.
+`test_nessie_unit.py`, `test_attribute_jobs_unit.py`, `test_deploy_live_unit.py`,
+`test_graph_sync_health_unit.py`.
 
 ```bash
 CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests \
@@ -50,7 +51,8 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests \
          ci/smoke/test_guard_unit.py ci/smoke/test_profile_unit.py \
          ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
          ci/smoke/test_terminal_unit.py ci/smoke/test_nessie_unit.py \
-         ci/smoke/test_attribute_jobs_unit.py ci/smoke/test_deploy_live_unit.py -q
+         ci/smoke/test_attribute_jobs_unit.py ci/smoke/test_deploy_live_unit.py \
+         ci/smoke/test_graph_sync_health_unit.py -q
 ```
 
 ## Tiers
@@ -64,11 +66,12 @@ the API root's exact viewset list, the OpenAPI document generating at all, an
 enrichment step that fails silently behind a 200, the five `/seek/` pages that
 must bounce a visitor with no credentials, the seven browser flows, a
 `samples/graph_search/` POST with its envelope checked (`test_graph_search.py`), the
-state of the graph sync itself (`test_graph_sync_status.py`, below), and two changes a
+state of the graph sync itself (`test_graph_sync_status.py`, below), and three changes a
 status code cannot tell from the build before them (`test_deploy_live.py`): the chat
-bundle nginx serves is the checkout's (collectstatic ran), and `/seek/search/` renders
+bundle nginx serves is the checkout's (collectstatic ran), `/seek/search/` renders
 its phone type dropdown once per type, under 5 s, adding no failed template lookup to
-`logs/django.log`. Per-route
+`logs/django.log`, and every user docs page in `themes/NextSeek/docs/README.md` answers
+with every image it shows served (a new docs image needs an app restart). Per-route
 body assertions are T1's job and are not in this increment.
 
 ## Nessie lane
@@ -228,6 +231,18 @@ and the last drift result; and **none of those jobs is stale**. A box whose sync
 stopped, or whose drain has left an outbox row waiting for more than an hour, must not
 report a green smoke run. A box that has never run a sync answers `never`, which stays
 green, so the tests assert the vocabulary rather than a particular value.
+
+It also fails when the sync is failing rather than late: an outbox row still failing past its
+retry (its back-off plus 30 minutes, 1 h 30 min, 6 h 30 min for a full sync, counted from its
+first failure since it last succeeded, so a key re-enqueued by every write cannot look young),
+a full, reconcile, catalog or drift kind whose latest run ended `failed` or `abandoned` past the
+same clock (or a full sync or reconcile its data refused), or a latest drift run that found drift. Each prints the error excerpt the endpoint
+publishes. A failure still inside its retry window is a warning, not a failure. The judging
+lives in `nextseek_api/graph_sync/health.py`, standard library only, and is unit-tested without
+a box (`test_graph_sync_health_unit.py`). A body without the `failing` and `failed_runs` parts
+fails with a rebuild message: the box runs an older image.
+Production gets the same judgement from the startup health line
+(`startup/README.md` "Graph sync health on every box").
 
 It also carries the parity-lite check: when the status reports a successful full sync at the
 writer's schema version, the same small body sent to `samples/advanced_search/` and to

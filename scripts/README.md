@@ -34,7 +34,7 @@ directory. That is why the container lanes can run these files at all.
 
 ## Surface
 
-The surface is not a set of entry points behind a package boundary. It is ten purpose
+The surface is not a set of entry points behind a package boundary. It is eleven purpose
 groups, each defined by what it reads and what it writes.
 
 | Group | Files | Reads | Writes |
@@ -46,9 +46,12 @@ groups, each defined by what it reads and what it writes.
 | E. Live batch-upload E2E | `test_batch_upload_e2e.py` | the SEEK database, a deployed host | Neo4j, the upload API |
 | F. NessieAI codemod | `nessieai_codemod.py` | every tracked `*.py` outside `NessieAI/history/` | those files, in place |
 | G. graph_search lane | `graph_search/` (see [its README](graph_search/README.md)) | the scratch MySQL, a throwaway Neo4j, seeds outside the repository | throwaway `gs-*` containers, reports outside the repository |
-| H. APOC schema prototype | `graph_schema_from_apoc.py` | a live Neo4j with APOC (read only), the committed graph schema files | one JSON file you name |
-| I. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
-| J. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
+| H. Download API parity | `sample_retrieve_parity.py` | a live stack's MySQL and Neo4j, read only | stdout, and one JSON-lines file you name |
+| I. Graph fallback files | `graph_schema_fallback.py` | a live Neo4j at schema 1.1 or later, read only | the three committed fallback files the graph agent reads when the live catalog fails |
+| J. File-level code graph | `graph_files.py` | `graphify-out/graph.json` (local, from graphify) | `docs/graph/graph-files.json`, `graph.html`, `architecture.svg` ([docs/graph/README.md](../docs/graph/README.md)) |
+| K. Citation converter | `line_cites.py` | a markdown doc, its git blame and the cited `.py` files at those commits | nothing by default (`--report`); the doc in place with `--apply` |
+
+**K. `line_cites.py`.** Use it once, when the operator says the graph program's branch has landed, to turn `path.py:N` citations in a doc into `path.py` plus the enclosing symbol, so edits stop breaking them. `python3 scripts/line_cites.py --report DOC.md` counts what would change; `--apply` rewrites; `--self-check` runs its built-in check. It leaves unresolvable citations as they are and lists them.
 
 **A. Repo-convention validators.** `scripts/validate_issue.py:4-6` and
 `scripts/validate_viewset_conventions.py:4-6` each declare themselves the single source of
@@ -206,15 +209,7 @@ a read-only mount of this checkout, with secrets and memory caps read from a wor
 directory outside the repository. The folder's other scripts (the TCGA merge, graph
 load and dump, parity, the benchmark) run through it. Its README is the reference.
 
-**H. APOC schema prototype.** `scripts/graph_schema_from_apoc.py` is a prototype, not
-wired into the product: it builds the graph's structural schema from `apoc.meta.stats`,
-`apoc.meta.schema` and `apoc.meta.nodeTypeProperties` (`--full` scans every node), reads
-the catalog graph_sync writes, and compares both with `graph_schema_structure.txt`,
-`min_graph_schema.json` and the guard's property sets in `agents/graph.py`. Every
-statement is a READ transaction with a timeout, and it calls no path procedure. Its
-docstring has the `docker run` line.
-
-**J. Graph fallback files.** `scripts/graph_schema_fallback.py` regenerates
+**I. Graph fallback files.** `scripts/graph_schema_fallback.py` regenerates
 `neo4j_schema.json`, `neo4j_protocol_schema.json` and `neo4j_assay-sample-conn.json` in
 `NessieAI/chat_nextseek/src/chat_nextseek/context/`, the files the graph agent falls back to
 when the live catalog cannot be read. Nothing else refreshes them. Every statement is a READ
@@ -296,7 +291,7 @@ Depended on by:
   through the dotted namespace-package spelling
   (`nextseek_api/tests/test_attribute_api_db_lane.py:43`).
 - The committed ViewSet skill, which tells an author to run the conventions validator
-  before finishing (`.claude/skills/nextseek-viewset/SKILL.md:18`), and
+  before finishing (`.claude/skills/nextseek-create-endpoint/SKILL.md:18`), and
   `docs/ISSUE-CONVENTIONS.md`, which names the issue validator and the label seeder as the
   taxonomy's source and its downstream (`docs/ISSUE-CONVENTIONS.md:8-12`).
 - Group B, reached only by prose: `nextseek_api/README.md` "Running and testing" and the

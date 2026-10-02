@@ -161,7 +161,7 @@ class GraphReview:
 
 # The ship set, in the order their facts are disclosed. The last two are recorded, never fired.
 SHIP = ("breakage", "negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "premise_count")
+        "all_question_narrowed", "zero_unproven_base", "unapplied_value", "free_text_beside_field", "premise_count")
 INFO_ONLY = ("title_contains_multi", "count_only")
 
 NEGATION = re.compile(r"\b(non|not|no|un|anti|never)[\s\-_]*$")
@@ -459,6 +459,15 @@ def _negated(value: str, term: str) -> bool:
     return i > 0 and bool(NEGATION.search(low[:i]))
 
 
+def _holds(value: str, term: str) -> bool:
+    """The value is one the user's term NAMES; a term under 3 characters only as a whole word, never inside a longer
+    one. (Which other values the search counted is a plain substring test, as ``CONTAINS`` is.)"""
+    low = value.lower()
+    if len(term) >= 3:
+        return term in low
+    return bool(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", low))
+
+
 # ---------------------------------------------------------------- the turn, read once --------------------------------
 @dataclass
 class _Turn:
@@ -657,14 +666,17 @@ def _all_question_narrowed(t: _Turn) -> _Finding | None:
 def _zero_unproven_base(t: _Turn) -> _Finding | None:
     """A zero behind a fuzzy anchor and another filter, whose starting set was never counted.
 
-    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes, an exact
-    value missing from a complete stored list, and a reply that already offers dropping the filter.
+    Explained zeros stay quiet: an exact UID that is absent ("not found"), a count over the catalog nodes (SampleType,
+    Attribute and, at graph schema 1.3, Assay) with no sample in the query, an exact value missing from a complete
+    stored list, and a reply that already offers dropping the filter. A zero over samples that reach an Assay is a
+    sample zero like any other.
     """
     if t.result_n() != 0:
         return None
     if re.search(r"uuid\s*[:=]\s*\$\w+", t.cy):
         return None
-    if re.search(r"\(\w+:(Attribute|SampleType)\b", t.cy) and not t.vl:
+    if (re.search(r"\(\w+:(Attribute|SampleType|Assay)\b", t.cy) and not t.vl
+            and not re.search(r"\(\w*:(?:Sample|T_\w+)\b", t.cy)):
         return None
     for var, attr, term in t.eq:
         stored = t.vals(t.vl.get(var), attr)
@@ -698,7 +710,7 @@ def value_spellings(question: str, *, blob: set[str], type_words: set[str]) -> l
     """The spellings under which a stored value would be one the question names, for one queried type.
 
     Each run of 1 to ``PHRASE_MAX_WORDS`` question words that neither starts nor ends on a ``FUNCTION_WORDS`` word, and
-    that ``_unapplied_value`` would accept as a named value (three characters or more, not all digits, not a
+    that ``_unapplied_value`` would accept as a named value (two characters or more, not all digits, not a
     ``STOP_VALUES`` word, not only the type's own words, not only words the query already uses), is spelled every way
     a stored value plausibly writes it: the separators as typed or all ``SPELLING_SEPARATORS[i]``; the case as typed,
     lower, upper or capitalized, per word for a phrase of up to two words ("RNA-Seq" for "rna-seq"), for the whole
@@ -714,7 +726,7 @@ def value_spellings(question: str, *, blob: set[str], type_words: set[str]) -> l
             if low[0] in FUNCTION_WORDS or low[-1] in FUNCTION_WORDS:
                 continue
             phrase, tokens = " ".join(low), set(low)
-            if (len(phrase) < 3 or phrase.isdigit() or phrase in STOP_VALUES or tokens <= type_words
+            if (len(phrase) < 2 or phrase.isdigit() or phrase in STOP_VALUES or tokens <= type_words
                     or tokens <= blob):
                 continue
             raw = [m.group(0) for m in span]
@@ -749,6 +761,14 @@ NARROW_QUERY_NO_TYPE = "{question} Count only records whose {attribute} is {valu
 #: The fact for a named value the query matched only as free text, when that text also matches other stored values.
 TEXT_MATCH_FACT = "The search matched '{value}' as text, which also matches {others}."
 
+#: The fact for a term the query compares in a structured field and also matches anywhere in a sample's text.
+#: ``where`` is "sample" or "related sample" (a match inside another variable, as an EXISTS arm).
+FIELD_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} field and also anywhere in a {where}'s text, so it "
+                       "can include records whose {fields} does not say {term}.")
+#: The same fact for two or more fields (operator, 2026-10-02).
+FIELDS_AND_TEXT_FACT = ("The count matches '{term}' in the {fields} fields and also anywhere in a {where}'s text, so "
+                        "it can include records whose {fields} fields do not say {term}.")
+
 
 def _narrow_suggestion(t: _Turn, lab: str, attr: str, value: str, fact: str) -> dict:
     """"Only <value>": the question with the named value's filter spelled out. Tier 2 adds its ``expected_count``;
@@ -778,7 +798,6 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
     in and offers the narrowed search (2026-09-25)."""
     qn = " " + re.sub(r"[^a-z0-9]+", " ", t.q.lower()) + " "
     blob = _tokens(re.sub(r"\bT_\w+", " ", t.cy) + " " + json.dumps(t.params, default=str))
-    blob |= _name_words(t.cy)   # Treatment1Route -> treatment, 1, route
     by_spelling = t.catalog.holds_by_spelling()
     free = _free_text_terms(t.cy, t.params)
     cy_strict, params_strict = t.cy, dict(t.params)
@@ -788,9 +807,13 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
         else:
             cy_strict = cy_strict.replace(tok, "''")
     strict = _tokens(re.sub(r"\bT_\w+", " ", cy_strict) + " " + json.dumps(params_strict, default=str))
-    strict |= _name_words(cy_strict)
+    # the words inside the property names the query reads (Treatment1Route -> treatment, 1, route) only tell that a
+    # stored VALUE is already applied; they never drop an attribute from the search or from the spelling list
+    named = blob | _name_words(t.cy)
+    strict_named = strict | _name_words(cy_strict)
     for var, lab in t.vl.items():
-        terms = [term for v, _tok, term in free if v == var]
+        excl = [x for v2, _a, x in t.neg if v2 == var]      # what the query itself leaves out on this variable
+        terms = [term for v, _tok, term in free if v == var and term not in excl]
         type_words = _tokens(str(t.catalog.type_name(lab) or ""))
         attrs = [a for a in (t.catalog.attributes(lab) or []) if a.lower() not in blob]
         if by_spelling and attrs:
@@ -804,25 +827,57 @@ def _unapplied_value(t: _Turn) -> _Finding | None:
             stored = t.vals(lab, attr)
             for v, _c in stored:
                 vn = re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
-                if len(vn) < 3 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
+                if len(vn) < 2 or vn.isdigit() or vn in STOP_VALUES or _tokens(vn) <= type_words:
                     continue
                 if f" {vn} " not in qn or _named_alias_applied(t.q, vn.split(), blob):
                     continue
-                if not _tokens(vn) <= blob:
+                if not _tokens(vn) <= named:
+                    if len(vn) < 3:         # a short code is no proof the question named it (TB for tuberculosis)
+                        continue
                     fact = f"The question names '{v}', but the search did not filter on it."
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher never applies it", fact,
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
-                if _tokens(vn) <= strict:
+                if _tokens(vn) <= strict_named:
                     continue                # a filter of its own applies it
-                hit = [term for term in terms if term in str(v).lower()]
+                hit = [term for term in terms if _holds(str(v), term)]
                 # another stored value the text matches inside a longer word (miRNA-Seq for rna-seq); a value that
-                # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended
+                # only adds words to the named one (OMERO MIT for OMERO) is the same name, extended, unless the
+                # added words negate it (Not Plain Widget for Plain Widget)
                 others = [str(w) for w, _n in stored
-                          if any(term in str(w).lower() for term in hit) and not _tokens(vn) <= _tokens(str(w))]
+                          if any(term in str(w).lower() for term in hit)
+                          and (not _tokens(vn) <= _tokens(str(w)) or any(_negated(str(w), term) for term in hit))
+                          and not any(x in str(w).lower() for x in excl)]
                 if others:                  # applied only as free text, and that text matches another stored value too
                     fact = TEXT_MATCH_FACT.format(value=v, others=_quoted(others[:3]))
                     return _Finding(f"question names {lab}.{attr}='{v}', Cypher applies it only as free text", fact,
                                     _narrow_suggestion(t, lab, attr, str(v), fact))
+    return None
+
+
+def _free_text_beside_field(t: _Turn) -> _Finding | None:
+    """A term the plan matched in structured fields (``keyword_fields``) that the query also matches as free text.
+
+    "How many Arcadia rats ..." counted ``m.Strain =~ $p OR toLower(m.search_text) CONTAINS $k``: the OR takes in every
+    record whose text says Arcadia, whatever its Strain (R3 A5). The same term through an EXISTS arm over a related
+    sample's text widens it again (A6). Fires when a free-text term equals a ``keyword_fields`` key and one of that
+    key's fields is also read by the query."""
+    # The field must be read by the matching, not only returned to group by: look before the final RETURN.
+    returns = [m.start() for m in re.finditer(r"\bRETURN\b", t.cy, re.IGNORECASE)]
+    cy = t.cy[:returns[-1]] if returns else t.cy
+    for var, _tok, term in _free_text_terms(t.cy, t.params):
+        for key, fields in (t.inp.keyword_fields or {}).items():
+            if str(key).strip().lower() != term:
+                continue
+            fields = [fields] if isinstance(fields, str) else [f for f in fields or [] if isinstance(f, str)]
+            used = [f for f in fields if f != "search_text" and re.search(rf"\b\w+\.{re.escape(f)}\b", cy)]
+            if not used:
+                continue
+            holders = {m.group(1) for f in used for m in re.finditer(rf"\b(\w+)\.{re.escape(f)}\b", cy)}
+            where = "sample" if var in holders else "related sample"
+            names = used[0] if len(used) == 1 else ", ".join(used[:-1]) + " and " + used[-1]
+            template = FIELD_AND_TEXT_FACT if len(used) == 1 else FIELDS_AND_TEXT_FACT
+            fact = template.format(term=key, fields=names, where=where)
+            return _Finding(f"'{key}' compared in {names} and matched as free text on {var}", fact)
     return None
 
 
@@ -896,6 +951,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
         run("all_question_narrowed", lambda: _all_question_narrowed(turn))
         run("zero_unproven_base", lambda: _zero_unproven_base(turn))
         run("unapplied_value", lambda: _unapplied_value(turn))
+        run("free_text_beside_field", lambda: _free_text_beside_field(turn))
         run("premise_count", lambda: _premise_count(turn))
 
     # recorded, never fired: the title gate belongs to Tier 2; count_only is information only
@@ -925,7 +981,7 @@ def review_tier1(inp: ReviewInput, catalog: CatalogProvider, *, skip: dict[str, 
                 facts.append(f.fact)
         disclosure = " ".join(facts) or None
         for name in ("negated_value", "value_split_rows", "value_split_catalog", "stem_miss",
-                     "all_question_narrowed", "unapplied_value"):
+                     "all_question_narrowed", "unapplied_value", "free_text_beside_field"):
             f = findings.get(name)
             if f and f.suggestion:
                 suggestion = f.suggestion
@@ -960,7 +1016,9 @@ FOLLOWUP_TIER1_SKIP = {"premise_count": "skipped: a follow-up's result is part o
 #: A loop query bound to the earlier result's UIDs ($uids) holds every filter that result had: "How many of the
 #: 1,641 NDMA-treated mice are female?" rightly filters on sex alone, so unapplied_value would call NDMA dropped.
 FOLLOWUP_SEEDED_SKIP = {"unapplied_value": "skipped: the query is scoped to the earlier result's UIDs, "
-                                            "which carry that result's filters"}
+                                            "which carry that result's filters",
+                        "free_text_beside_field": "skipped: the query is scoped to the earlier result's UIDs, "
+                                                  "which carry that result's filters"}
 
 #: A number the user states as the size of the earlier set: "these 1,206 mouse sample records", "all the 4,095
 #: Sequencing Data (D.SEQ) files". It must follow a word that points at a set (``SET_ANCHOR``, which premise_count's

@@ -33,7 +33,8 @@ from ci.smoke.assertions import check_gateway, describe_shape
 def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
     """A changed router registration is a real regression and this is the cheapest
     way to see it. Measured: exactly 15 keys; samples/graph_search (2026-09-14)
-    makes 16, samples/retrieve (the download API's new path, 2026-09-24) 17."""
+    makes 16, samples/retrieve (the download API's new path, 2026-09-24) 17, sample-shares (the studies tool's
+    share mode, 2026-10-01) 18."""
     r = api.get(f"{base_url}/nextseek_api/", timeout=30)
     check_gateway(r)
     assert r.status_code == 200
@@ -41,7 +42,7 @@ def test_api_root_advertises_exactly_the_expected_viewsets(api, base_url):
         "assay-registrations", "assays", "attributes", "batch-upload",
         "data_files", "investigations", "people", "projects", "sample_types",
         "sample_types/connections", "samples", "samples/advanced_search",
-        "samples/graph_search", "samples/retrieve", "sops", "studies", "users",
+        "samples/graph_search", "samples/retrieve", "sample-shares", "sops", "studies", "users",
     }
     got = set(r.json())
     assert got == expected, (
@@ -211,18 +212,17 @@ def test_seek_page_bounces_an_anonymous_visitor(anon, base_url, path):
     )
 
 
-def test_assistant_denies_anonymous_visitors_at_status_200(anon, base_url):
-    """Pins a known wart rather than pretending it is not there.
+def test_assistant_redirects_anonymous_visitors_to_login(anon, base_url):
+    """An anonymous visitor is sent to the login page and never gets the assistant.
 
-    smartSearch checks request.user.is_authenticated and renders an error
-    template with HTTP 200 instead of redirecting. Nothing sensitive is served,
-    but it means a status-code sweep cannot tell allowed from denied here. If
-    this ever starts returning 302 the assertion should be tightened, not
-    deleted.
+    Until the 1 Oct 2026 UI fixes, smartSearch rendered an error template with
+    HTTP 200 instead of redirecting, and this test pinned that wart. It now
+    redirects, so the assertion is tightened as the old docstring asked.
     """
     r = anon.get(f"{base_url}/seek/assistant/", timeout=60, allow_redirects=False)
     check_gateway(r)
-    assert r.status_code == 200
+    assert r.status_code == 302, f"expected a redirect to the login page, got {r.status_code}"
+    assert "login" in r.headers.get("Location", ""), r.headers.get("Location")
     body = r.text.lower()
     assert "chat-assistant-root" not in body, (
         "the assistant mount point was served to an anonymous visitor"

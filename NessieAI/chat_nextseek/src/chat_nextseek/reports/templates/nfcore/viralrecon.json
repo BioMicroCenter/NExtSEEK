@@ -1,0 +1,96 @@
+{
+  "report_type": "NFCORE_VIRALRECON_SAMPLESHEET",
+  "description": "nf-core/viralrecon samplesheet context, aligned to the pinned 3.0.0 nextflow_schema.json and assets/schema_input.json. Viral genome assembly and intrahost variant calling.",
+  "params": {
+    "platform":           {"type": "enum", "allowed": ["illumina", "nanopore"], "default": null, "steerable": true, "help": "REQUIRED in practice. Selects an entirely different sub-workflow. No default — it must come from the user."},
+    "protocol":           {"type": "enum", "allowed": ["metagenomic", "amplicon"], "default": null, "steerable": true, "help": "REQUIRED in practice. Amplicon runs primer trimming that metagenomic does not; getting it wrong silently distorts variant calls."},
+    "genome":             {"type": "string", "default": null, "steerable": true, "help": "Viral reference key (e.g. 'MN908947.3' for SARS-CoV-2). NOT a host genome."},
+    "fasta":              {"type": "string", "default": null, "steerable": true, "help": "Explicit viral reference FASTA; preferred on Luria."},
+    "primer_set":         {"type": "string", "default": null, "steerable": true, "help": "Only for protocol=amplicon, e.g. 'artic'."},
+    "primer_set_version": {"type": "string", "default": null, "steerable": true, "help": "Only for protocol=amplicon, e.g. 3."},
+    "skip_assembly":      {"type": "bool", "default": false, "steerable": true},
+    "skip_kraken2":       {"type": "bool", "default": true, "steerable": true, "help": "TRUE by curated default. The host-removal Kraken2 step defaults to an S3 database; skipping avoids an unnecessary download on a cluster with no S3 credentials configured."},
+    "assemblers":         {"type": "string", "default": "spades", "steerable": true},
+    "multiqc_title":      {"type": "string", "default": null, "steerable": true}
+  },
+  "required_user_params": [
+    {
+      "name": "platform",
+      "scope": "run",
+      "definition": "Which sequencing platform produced this cohort. viralrecon runs a completely different sub-workflow for each, and the schema gives it no default.",
+      "example": "illumina",
+      "allowed": ["illumina", "nanopore"]
+    },
+    {
+      "name": "protocol",
+      "scope": "run",
+      "definition": "How the viral library was prepared. 'amplicon' means tiled PCR primers across the genome (e.g. ARTIC) and triggers primer trimming; 'metagenomic' means untargeted shotgun. Choosing wrongly does not error — it leaves primer sequence in the reads, which distorts variant frequencies.",
+      "example": "amplicon",
+      "allowed": ["metagenomic", "amplicon"]
+    },
+    {
+      "name": "primer_set",
+      "scope": "run",
+      "definition": "Which tiled primer scheme was used, so the right primer coordinates can be trimmed. Only asked for amplicon libraries.",
+      "example": "artic",
+      "required_when": {"protocol": "amplicon"}
+    }
+  ],
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/viralrecon",
+    "repository": "https://github.com/nf-core/viralrecon",
+    "documentation_url": "https://nf-co.re/viralrecon/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, fastq_1, fastq_2, barcode. Only `sample` is schema-required, because the nanopore route identifies reads by barcode rather than by FASTQ path. For an Illumina cohort, fastq_1 is required in practice.",
+    "required_columns": ["sample", "fastq_1", "fastq_2"],
+    "optional_columns": ["barcode"],
+    "reference_requirement": "A VIRAL reference, via --genome or --fasta. The 3.0.0 schema declares genome and fasta but NO gtf. Note this is the virus, not the host — do not let the cohort's host species drive it."
+  },
+  "samplesheet_template": [{"sample": null, "fastq_1": null, "fastq_2": null, "barcode": null}],
+  "examples": {
+    "illumina_amplicon": {"sample": "D.SEQ-260711ENG-12-PUB", "fastq_1": "/net/bmc-pub10/data1/bmc/fastq/v_R1.fastq.gz", "fastq_2": "/net/bmc-pub10/data1/bmc/fastq/v_R2.fastq.gz", "barcode": ""}
+  },
+  "validation_rules": [
+    "platform and protocol must be answered by the user. Neither has a default and both change the analysis.",
+    "The reference is the VIRUS, not the host. Do not resolve it from the sample's organism metadata — that names the host.",
+    "Do NOT pass --gtf: the 3.0.0 schema has no gtf parameter.",
+    "primer_set / primer_set_version apply only when protocol=amplicon; leave them unset for metagenomic.",
+    "barcode is for the nanopore route only. NExtSEEK holds no nanopore data, so leave it blank."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: only 19 of 51,359 samples mention SARS / COVID / influenza / virus / viral, and none is a registered viral sequencing cohort. Catalogued so the capability exists if viral work is registered later. viralrecon is one of the most-used nf-core pipelines in the world, so this is a cheap bet.",
+  "sources": [
+    {"label": "nf-core/viralrecon usage docs", "url": "https://nf-co.re/viralrecon/latest/docs/usage/", "notes": "Platform/protocol split and primer schemes."},
+    {"label": "nf-core/viralrecon nextflow_schema.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/viralrecon/3.0.0/nextflow_schema.json", "notes": "Authoritative: platform and protocol are enums with no default; genome and fasta declared, no gtf."},
+    {"label": "nf-core/viralrecon assets/schema_input.json @ 3.0.0", "url": "https://raw.githubusercontent.com/nf-core/viralrecon/3.0.0/assets/schema_input.json", "notes": "Authoritative columns: only `sample` required; fastq_1/fastq_2/barcode optional."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/viralrecon input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "fastq_1": {"required": "required for illumina", "position_rule": "Column 2", "expected_value": "path", "allowed_values": ".fastq.gz", "description": "Read 1.", "validation_hints": "Absolute Luria path.", "example": "/net/bmc-pub10/data1/bmc/fastq/v_R1.fastq.gz"},
+          "fastq_2": {"required": "header required", "position_rule": "Column 3", "expected_value": "path or blank", "allowed_values": ".fastq.gz or blank", "description": "Read 2.", "validation_hints": "Blank for single-end.", "example": "/net/bmc-pub10/data1/bmc/fastq/v_R2.fastq.gz"},
+          "barcode": {"required": "nanopore only", "position_rule": "Column 4", "expected_value": "integer or blank", "allowed_values": "", "description": "Nanopore barcode number.", "validation_hints": "Leave blank — no nanopore data exists here.", "example": ""}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/viralrecon sheet from a resolved D.SEQ cohort of viral libraries.",
+    "workflow_role": "Selected for viral genome reconstruction and intrahost variant calling.",
+    "output_expectation": "CSV with header sample,fastq_1,fastq_2,barcode.",
+    "population_priority": [
+      "Ask the user for platform and protocol before anything else; configure_run will refuse without them.",
+      "Establish which VIRUS the reference should be. The sample's organism metadata names the host and is the wrong answer.",
+      "One row per D.SEQ leaf; barcode blank."
+    ],
+    "final_checks": [
+      "platform and protocol were answered.",
+      "The reference is a viral genome, not a host genome.",
+      "No --gtf.",
+      "primer_set is set if and only if protocol=amplicon."
+    ]
+  }
+}

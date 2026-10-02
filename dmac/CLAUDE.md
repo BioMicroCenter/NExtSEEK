@@ -93,33 +93,13 @@ not fail locally; it fails somewhere else.
   `python -c 'import dmac.views'` from that same mount does not. Both measured 2026-09-03;
   the second raised `OSError: [Errno 30] Read-only file system: '/src/dmac.logs'`, and
   from a writable directory it left a `dmac.logs` behind.
-- **`GET /logout` raises `NameError` on every request.** `dmac/views.py:174` calls
-  `reverse`, and a grep for that name over `dmac/views.py` matches only that line: it is
-  never imported. Confirmed 2026-09-03 by calling `logout_seek` with a stub session in the
-  application image: `NameError: name 'reverse' is not defined`. There is also no URL named
-  `index` to reverse: grepping every `*.py` in the worktree for `name="index"` and
-  `name='index'` returns nothing. The route is live at `dmac/urls.py:23`, so the 500 is
-  reachable; today's navbar link goes to Mezzanine's logout instead
-  (`themes/NextSeek/templates/accounts/includes/user_panel.html:38`), which is why nobody
-  has hit it.
-- **The failing line runs *after* a shell-out.** `dmac/views.py:172` executes
-  `rm -r <username>` relative to the server's working directory whenever the session
-  carries a username, and only then reaches the crash. Anything that reintroduces a
-  `/logout` link deletes a directory before returning a 500.
-- **`{% url "login_seek" %}` produces a URL this package does not serve.**
-  `dmac/urls.py:56` registers that name last, so reversing it wins there, but the pattern
-  sits after the catch-all and never resolves. Measured 2026-09-03: the name reverses to
-  `/accounts/login/`, which resolves to `mezzanine.accounts.views.login`, while the working
-  view is at `/login`. Latent for now: a grep over every `*.html` and `*.py` in the
-  worktree finds no template reversing `login_seek`, and only
-  `themes/NextSeek/templates/login.html:328` reverses `signup_seek`, which was fixed by
-  registering it at `dmac/urls.py:54`.
-- **`dmac/templates/pages/` is dead and cannot be loaded.** This package is not in
-  `INSTALLED_APPS` (`dmac/settings.py:144-180`), so the app-directories loader at
-  `dmac/settings.py:131` never sees it, and the only filesystem directory configured is
-  the theme's (`dmac/settings.py:108-110`). Measured 2026-09-03: `get_template` raises
-  `TemplateDoesNotExist` for all three names, and grepping every `*.py` and `*.html` in the
-  worktree for those filenames returns nothing. Editing them changes no page.
+- **Every project route must sit above the Mezzanine include in `dmac/urls.py`**: it is a
+  `^` catch-all, so a pattern after it never resolves. Mezzanine's public pages (blog,
+  site search, account forms, local password reset) are shadowed above it by a 404 route
+  rather than removed from the include, because Mezzanine's admin templates reverse their
+  names; drop the include and those admin pages raise `NoReverseMatch`.
+- **`dmac/` has no loadable templates folder.** This package is not in `INSTALLED_APPS`, so a
+  `dmac/templates/` folder would never be seen (the dead one was deleted 2026-10-01).
 - **What you read in `INSTALLED_APPS` and `MIDDLEWARE` is not what runs.** Mezzanine's
   `set_dynamic_settings` (`dmac/settings.py:265-270`) rewrites both. Measured 2026-09-03
   inside the image: 33 declared apps become 36, gaining `filebrowser_safe`,
@@ -135,9 +115,8 @@ not fail locally; it fails somewhere else.
   returns nothing, and grepping every `*.py` for that name matches only that import line.
   Setting `ATTRIBUTE_WORKER_TELEMETRY_RESULTS` under that settings module therefore fails
   during settings import, before Django starts.
-- **The home page hides its own failures.** `dmac/views.py:306-331` wraps each model
-  lookup in `except Exception: pass` over a context pre-seeded with zeros at
-  `dmac/views.py:294-302`. A broken database renders a clean dashboard reading zero
+- **The home page hides its own failures.** `home` in `dmac/views.py` wraps each model
+  lookup in `except Exception: pass` over a context pre-seeded with zeros. A broken database renders a clean dashboard reading zero
   samples, zero projects and zero files rather than an error, so "the counts are wrong"
   is the only symptom you will get.
 - **`dmac/dbconn_mysql.py` is 285 lines of unreachable code.** Its sole reference is the
@@ -146,8 +125,7 @@ not fail locally; it fails somewhere else.
   `"MYSQL"` or `'MYSQL'` returns two lines: that branch, and an unrelated assertion at
   `NessieAI/tests/chat_nextseek/test_e2e_playwright_trio.py:38`. No call site passes it. Its module scope
   still reads settings at `dmac/dbconn_mysql.py:10-11`, so it costs an import without ever
-  serving a query. `api_app/dbconn_mysql.py:13` is a different class in a different
-  package; do not treat the two as one.
+  serving a query.
 - **The SEEK password is written into the Django session.** `dmac/views.py:128` stores it
   alongside the username. Sessions are database-backed (`django.contrib.sessions` is
   installed at `dmac/settings.py:152` and no `SESSION_ENGINE` overrides the default) and

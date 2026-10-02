@@ -1,9 +1,6 @@
 """No template Django actually renders may still post to a legacy download endpoint.
 
-Orphans are excluded deliberately: nothing includes searchAdvanced_rtable or
-searchAdvanced_tree, sampleSearch.html's render is commented out at
-seek/views.py:412 and the view redirects instead, sampleDeletion.html has no
-view, and .bk is a backup. See docs/sample-download-workflow.md.
+Only the LIVE templates below are checked. See docs/sample-download-workflow.md.
 """
 
 from pathlib import Path
@@ -14,28 +11,16 @@ TEMPLATES = Path(__file__).resolve().parents[2] / "seek" / "templates"
 
 LEGACY = ("/seek/samples/download/", "/seek/admin/retrieve/")
 
-ORPHANS = [
-    "pages/searchAdvanced_rtable.embed.html",
-    "pages/searchAdvanced_tree.embed.html",
-    "sampleSearch.html",
-    "sampleDeletion.html",
-    "pages/samples_stable.embed.html.bk",
-]
-
 LIVE = [
     "pages/samples.embed.html",
     "searchAdvanced.html",
     "pages/searchAdvanced_stable.embed.html",
     "pages/samples_stable.embed.html",
-    "pages/searchAdvanced_newretrieval.embed.html",
-    "newSearch.html",
-    "pages/samples_new_stable.embed.html",
-    "pages/searchAdvanced_new_stable.embed.html",
 ]
 
 # Where the helper script tag must appear. samples.embed.html carries its own
 # because samples.html only wraps it; the other two are the rendered pages.
-LOADERS = ["pages/samples.embed.html", "searchAdvanced.html", "newSearch.html"]
+LOADERS = ["pages/samples.embed.html", "searchAdvanced.html"]
 
 
 @pytest.mark.parametrize("name", LIVE)
@@ -49,12 +34,6 @@ def test_live_template_has_no_legacy_download_endpoint(name):
 def test_the_helper_script_is_loaded_where_downloads_happen(name):
     text = (TEMPLATES / name).read_text(encoding="utf-8", errors="replace")
     assert "ns_sample_download.js" in text, f"{name} does not load the helper"
-
-
-@pytest.mark.parametrize("name", ORPHANS)
-def test_orphan_list_still_matches_reality(name):
-    """If someone wires an orphan back up, this test should be revisited."""
-    assert (TEMPLATES / name).exists(), f"{name} vanished; update this test"
 
 
 # Wrappers that exist only to call the helper. Included fragments reference these

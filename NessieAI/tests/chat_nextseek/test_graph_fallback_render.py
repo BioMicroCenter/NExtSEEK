@@ -431,3 +431,43 @@ def test_the_live_message_is_the_rendered_catalog_under_the_same_heading(monkeyp
     plan, llm = _turn(monkeypatch, _config())
     assert plan.context_mode == "catalog"
     assert llm.schema_message() == LIVE_HEADING + gctx.render_graph_context(snapshot, [])
+
+
+# --- graph schema 1.3: the heading names the version the structure names --------------------------------------------
+
+HEADING_13 = LIVE_HEADING.replace("(v1.2 ", "(v1.3 ")
+
+
+def test_a_live_13_graph_sends_the_assay_section_under_a_13_heading(monkeypatch):
+    snapshot = gcat.CatalogSnapshot(catalog_hash="h1", synced_at=None, has_usage=False, index=(), guard={},
+                                    schema_version="1.3")
+    monkeypatch.setattr(gcat, "get_snapshot", lambda config: snapshot)
+    monkeypatch.setattr(gcat, "get_type_details", lambda config, titles: [])
+    monkeypatch.setattr(gcat, "get_vocabulary", lambda config: gcat.Vocabulary((), (), (), (), (), (), ()))
+    plan, llm = _turn(monkeypatch, _config())
+    assert plan.context_mode == "catalog"
+    assert llm.schema_message() == HEADING_13 + gctx.render_graph_context(snapshot, [])
+    assert gctx.load_assay_structure() in llm.schema_message()
+
+
+def test_a_13_capture_sends_the_assay_section_under_a_13_heading(monkeypatch, down):
+    config = _config(committed=dict(COMMITTED, schema_version="1.3"))
+    _, llm = _turn(monkeypatch, config)
+    message = llm.schema_message()
+    assert message.startswith(HEADING_13 + gctx.structure_for(None, "1.3") + "\n\n" + gctx.render_type_index(()))
+    assert message.startswith(HEADING_13 + "# NExtSEEK graph schema v1.3, for writing read-only Cypher\n")
+    assert "\n\n" + gctx.load_assay_structure() + "\n\n" in message
+
+
+def test_a_variant_structure_on_a_13_capture_gets_the_assay_section(monkeypatch, down):
+    config = _config(committed=dict(COMMITTED, schema_version="1.3"))
+    config.GRAPH_SCHEMA_STRUCTURE = "V2 STRUCTURE TEXT"
+    _, llm = _turn(monkeypatch, config)
+    assert llm.schema_message().startswith(HEADING_13 + "V2 STRUCTURE TEXT\n\n" + gctx.load_assay_structure() + "\n\n")
+
+
+def test_a_12_capture_sends_no_assay_section(monkeypatch, down):
+    _, llm = _turn(monkeypatch, _config())
+    message = llm.schema_message()
+    assert message.startswith(LIVE_HEADING + gctx.load_structure() + "\n\n")
+    assert "## Assays (schema 1.3)" not in message and "INPUT_TO" not in message

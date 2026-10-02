@@ -72,17 +72,18 @@ def _lookup_sample_id(uid: str) -> Optional[str]:
         return None
 
 
-def resolve_sample_uid(uid_or_id: str) -> tuple[Optional[str], Optional[str]]:
+def resolve_sample_uid(uid_or_id: str, *, as_written_only: bool = False) -> tuple[Optional[str], Optional[str]]:
     """``(seek_id, the spelling that resolved)``. F14/D2: a UID resolves with or without -PUB."""
     text = str(uid_or_id)
     if text.isdigit():
         return text, text
-    return resolve_uid_with_suffix(text, _lookup_sample_id)
+    return resolve_uid_with_suffix(text, _lookup_sample_id, as_written_only=as_written_only)
 
 
-def _resolve_uid_to_seek_id(uid_or_id: str) -> Optional[str]:
-    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID."""
-    return resolve_sample_uid(uid_or_id)[0]
+def _resolve_uid_to_seek_id(uid_or_id: str, *, as_written_only: bool = False) -> Optional[str]:
+    """Resolve a path segment to a SEEK sample id, trying each spelling of the UID. A write passes
+    ``as_written_only=True``: it touches only the UID exactly as written."""
+    return resolve_sample_uid(uid_or_id, as_written_only=as_written_only)[0]
 
 
 def _graph_sync_sample_id(data, fallback: Optional[str] = None) -> Optional[str]:
@@ -316,7 +317,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
             if body_id and str(body_id).isdigit():
                 seek_id = str(body_id)
             elif path_id:
-                resolved = _resolve_uid_to_seek_id(path_id)
+                resolved = _resolve_uid_to_seek_id(path_id, as_written_only=True)
                 if resolved:
                     seek_id = resolved
                     if body_id is not None and str(body_id) != str(seek_id):
@@ -326,7 +327,16 @@ class SampleProxyViewSet(viewsets.ViewSet):
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
 
-        body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
+        try:
+            body, code, headers, resp = self.client.update_sample(request, str(seek_id), payload)
+        except requests.RequestException:
+            # SEEK may have committed the write it did not answer: its rows go in, held back.
+            hooks.enqueue("samples", f"sample:{seek_id}", delay_s=hooks.UNCONFIRMED_DELAY_S)
+            raise
+        delay = hooks.write_delay(code)
+        if delay is not None:
+            # A 2xx at once, whatever its body says; a 5xx held back, since SEEK may have committed it.
+            hooks.enqueue("samples", f"sample:{seek_id}", delay_s=delay)
         if code == 401:
             return HttpResponse(b'{"detail":"Authentication required"}', status=401, content_type='application/json')
 
@@ -359,12 +369,6 @@ class SampleProxyViewSet(viewsets.ViewSet):
             log.warning("samples_proxy.validation_exception action=partial_update error=%s", str(e))
             return HttpResponse(b'{"errors":[{"title":"Invalid upstream response"}]}', status=502, content_type='application/json')
 
-        if 200 <= code < 300:
-            # Rails committed the update: the graph follows it through one outbox row (spec 5 E1, E2).
-            sample_id = _graph_sync_sample_id(data, seek_id)
-            if sample_id is not None:
-                hooks.enqueue("samples", f"sample:{sample_id}")
-
         ct = headers.get('Content-Type', 'application/json')
         return HttpResponse(body, status=code, content_type=ct)
 
@@ -387,7 +391,7 @@ class SampleProxyViewSet(viewsets.ViewSet):
     )
     def destroy(self, request, uid=None, pk=None):
         uid = uid or pk
-        seek_id = _resolve_uid_to_seek_id(uid)
+        seek_id = _resolve_uid_to_seek_id(uid, as_written_only=True)
         if seek_id is None:
             return HttpResponse(b'{"errors":[{"title":"Sample not found"}]}', status=404, content_type='application/json')
 

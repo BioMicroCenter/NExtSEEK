@@ -5,7 +5,7 @@ import logging
 from dmac.dbtable_clades import DBtable_clades
 from ..dbtable_projects import DBtable_projects
 from dmac.dbtable_sampletypesclades import DBtable_sample_types_clades as DBtable_stc
-from django.http import HttpResponse, HttpResponseForbidden, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseForbidden
 from ..models import Projects, Projects_samples
 from ..seekdb import SeekDB
 from itertools import groupby
@@ -15,7 +15,7 @@ from django.shortcuts import render
 from django.conf import settings
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 
-from ..decorators import requires_seek_login_redirect
+from ..decorators import login_redirect, requires_seek_login_redirect
 from ..decorators import verifySuperUser
 
 from nextseek_api.services.context_catalog import (
@@ -30,7 +30,7 @@ from .shared import PUBLISH_STATS_FILE
 
 logger = logging.getLogger(__name__)
 
-@requires_seek_login_redirect('/seek/projects/')
+@requires_seek_login_redirect()
 def projects(request):
     seekdb = request.seekdb
 
@@ -91,8 +91,7 @@ def project_page(request, project_id):
     user_seek = seekdb.getSeekLogin(request, False)
 
     if not user_seek['status']:
-        url_redirect = f"/login/?next=/seek/projects/{project_id}"
-        return HttpResponseRedirect(url_redirect) 
+        return login_redirect(request)
     else:
         if verifySuperUser(request) == 1:
             admin = True

@@ -372,9 +372,6 @@ class SampleUploadMixin:
                 nright += 1
                 if samplename not in uids_predefined:
                     uids_predefined[samplename] = uid
-                #with ThreadPoolExecutor() as executor:
-                #    sample_id = self.getSampleID(uid)
-                #    executor.submit(updateTrees, sample_id)
             else:
                 statusTest = False
                 msg0 += msgi +  '<br/>'

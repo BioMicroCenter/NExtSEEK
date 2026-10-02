@@ -11,8 +11,8 @@ graph change after a write, and test_write_lane.py's one mention of the graph as
 SKIPPED in a dry run.
 
 Read the two gates below before adding a case here. Everything in this module is meaningless on a graph
-below schema 1.2, because the writer refuses to touch one, and most of it is meaningless without the sync
-loop, because only batch upload syncs inline.
+that is not at the writer's schema version, because the writer refuses to touch one, and most of it is
+meaningless without the sync loop, because only batch upload syncs inline.
 """
 import json as _json
 import os
@@ -79,19 +79,21 @@ def a_sample_type(wapi, base_url) -> str:
     return title
 
 
-def test_the_graph_is_at_schema_1_2(wapi, base_url):
-    """The first gate. Every assertion below is meaningless on a 1.1 graph.
+def test_the_graph_is_at_the_writer_schema(wapi, base_url):
+    """The first gate. Every assertion below is meaningless on a graph the writer does not write.
 
-    graph_sync's writer refuses a graph that is not at its own schema version, so on 1.1 every write path
-    enqueues and nothing drains, and each case below would fail for a reason that has nothing to do with
-    the behaviour it is named for.
+    graph_sync's writer refuses a graph that is not at its own schema version, so on any other version every
+    write path enqueues and nothing drains, and each case below would fail for a reason that has nothing to do
+    with the behaviour it is named for. The version the graph must be at is this box's own writer version, as
+    the status endpoint reports it, so this gate needs no edit when a schema version moves.
     """
     meta = graph_meta(wapi, base_url)
     version = meta.get("schema_version")
-    assert version == "1.2", (
-        f"the graph reads schema {version!r}. Run `graph_sync --full --i-mean-the-live-graph` once on this "
-        "box first. Until then the writer refuses every write, uploads report `graph: pending`, and the "
-        "cases in this module fail for the wrong reason."
+    writer_version = status(wapi, base_url)["schema_version"]
+    assert version == writer_version, (
+        f"the graph reads schema {version!r} and this box's writer writes {writer_version!r}. Run "
+        "`graph_sync --full --i-mean-the-live-graph` once on this box first. Until then the writer refuses every "
+        "write, uploads report `graph: pending`, and the cases in this module fail for the wrong reason."
     )
 
 

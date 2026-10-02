@@ -18,6 +18,7 @@ result shapes.
 2026-08-03 adds a fourth: the floor must not mandate an ENGINE either. See the
 ``outcome_observed`` section below.
 """
+import os
 import ast
 import json
 import pathlib
@@ -711,7 +712,7 @@ def test_a_graph_query_case_answered_by_rest_satisfies_its_floor():
 # case rewritten. Collapsing them into one "all green" claim would lose the fact
 # that the floor change on its own was not enough.
 
-_EVIDENCE = pathlib.Path("/home/cdemu/nessie-run-seed6b")
+_EVIDENCE = pathlib.Path(os.environ.get("NESSIE_SEED6B_DIR", "nessie-run-seed6b"))
 _MANIFEST = _EVIDENCE / "manifest.json"
 _TURNS = _EVIDENCE / "turns.json"
 
@@ -944,7 +945,7 @@ def test_the_two_overrides_replace_in_place_and_do_not_grow_the_corpus():
     # 280 -> 283 on 2026-08-03: the create/update/delete refusal coverage came
     # back (one reinstated, two authored). This is the ONLY hardcoded corpus size
     # in the suite, so it is the one place that has to move.
-    assert len(merged) == 416  # 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
+    assert len(merged) == 418  # 416 -> 418: 2026-09-30: +2 overlay variants for nf-core pipeline selection, route.ns_pipeline_by_question (route_gate, route inline on its one turn) and pipeline.selection_verdict_recorded (three turns, route injected). 415 -> 416: 2026-09-24: fix 9 retired route.turn_1_find_the_ndma_treated_mic (two turns pasted into one message) for route.ndma_mice_then_female_two_turns, and both left the atlas set; the new case is curated. 365 -> 415: 2026-09-23: +50 variants for the 53 production researcher questions. 308 -> 365: 2026-08-06 question set: 58 authored, 6 retired, 76 deselected, 4 promoted out of the atlas set.
     ids = [v.id for v in merged]
     base_ids_all = {v.id for v in corpus.load_base()}
     defs = {v.id: v for v in corpus.load_all_definitions(CORPUS)}

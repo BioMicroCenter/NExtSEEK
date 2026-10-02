@@ -82,7 +82,7 @@ Stated plainly: **the graph-vs-REST split** (the `graph_query` /
 report shows in its engine column) **is a full-tier observation.** Verifying a
 routing change at the ns/cc/unrelated level is route-tier work; verifying WHICH
 NS engine answered needs the paid full tier via `manage.py nessie`. And note
-that today's three `route_gate` variants assert `route` only, so the route gate
+that today's four `route_gate` variants assert `route` only, so the route gate
 as it stands exercises the top-level split and nothing deeper.
 
 ## Surface
@@ -118,14 +118,14 @@ overlay files and their generator were deleted outright. `FAMILIES.json` declare
 for the production researcher questions)
 (`NessieAI/tests/nessie_tests/FAMILIES.json:4-5`, `NessieAI/tests/nessie_tests/scripts/remap_families.py:2`). `NessieAI/tests/nessie_tests/probes/` holds three
 hand-authored case files replayed by `NessieAI/tests/nessie_tests/tests/test_probe_files.py:1`.
-Measured 2026-09-24 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 474
-variants over 538 turns; `curated`, which drops the unreviewed atlas set
-(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 416; `bayesian_ids` selects 153; one
-consistency group is defined; and 3 variants carry the `route_gate` tag.
+Measured 2026-09-30 against `NessieAI/tests/nessie_tests/corpus.json`: `merged` resolves 476
+variants over 542 turns; `curated`, which drops the unreviewed atlas set
+(`NessieAI/tests/nessie_tests/corpus.py:110-130`), leaves 418; `bayesian_ids` selects 153; one
+consistency group is defined; and 4 variants carry the `route_gate` tag.
 
 **As two packaged skills.** Each carries its own SKILL.md and is not restated
-here. See `NessieAI/tests/nessie_tests/output-skill/SKILL.md:2-3` for turning a finished run
-into a triage report, and `NessieAI/tests/nessie_tests/output-skill-bayesian/SKILL.md:2-3` for
+here. See `.claude/skills/nessie-run-review/SKILL.md:2-3` for turning a finished run
+into a triage report, and `.claude/skills/nessie-bayes-report/SKILL.md:2-3` for
 the paired run's blind-grading report. A hyphen is not a Python identifier, so
 the testable logic for each lives in the underscore-named package beside it and the
 skill's scripts are thin entry points
@@ -383,7 +383,7 @@ print(len(m), "resolved (what --scope all runs);",
 EOF
 ```
 
-(2026-09-24: 474 resolved / 416 curated. If that line and the pinned test ever
+(2026-09-30: 476 resolved / 418 curated. If that line and the pinned test ever
 disagree, this line is the stale one.)
 
 `--no-project` and the explicit `--with` list are load-bearing, not decoration.
@@ -415,18 +415,14 @@ All three ways of getting them wrong fail in a way that does not name the cause:
   commits later. The string does not move. Do not chase the silent ones as real
   regressions.
 
-### Known-failing everywhere but one laptop: `test_v4_2_set3_replay.py`
+### Needs the delivery directory: `test_v4_2_set3_replay.py`
 
-Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` open a
-delivery zip through an absolute path into another developer's home directory:
-`v4_2_verifier.py:20` pins `V13A_DELIVERY` to a `testquestions-2026-08-07` directory
-under that developer's home directory.
-On any machine that is not that one they die
-`FileNotFoundError: ... testquestions.zip`: the same five, on every run, with
-everything else green. That is the machine, not a regression; do not chase it.
-(The sixth test in the file drives a synthetic producer and passes anywhere.)
-The right fix is a `pytest.mark.skipif` on the delivery path's existence:
-noted here, not yet applied.
+Five of the six tests in `NessieAI/tests/nessie_tests/tests/test_v4_2_set3_replay.py` read the
+`testquestions-2026-08-07` delivery zip. Set `NESSIE_TESTQUESTIONS_DIR` to the directory that holds
+it; when the zip is missing those five tests skip with that reason. (The sixth test drives a
+synthetic producer and runs anywhere.) The same variable locates the delivery for the HiBayes and
+paired-evidence tests that read it. The stored seed6b run evidence the other replay tests read is
+located the same way, with `NESSIE_SEED6B_DIR`.
 
 ### DB/contract tests: in-container lane
 
@@ -532,9 +528,9 @@ NS turn the same four fields are real assertions and still fail.
 case in a floored family goes red, not all of them. Simulate every case in the
 curated corpus (the resolved corpus minus the atlas set: the frame every
 figure in this section uses, because the tests that pin them use it) routing CC
-and **414 of 416 are still red**, with all seven floored families at 100%. Four
+and **416 of 418 are still red**, with all seven floored families at 100%. Four
 criteria account for nearly all of it, and none of them is skipped: `route`
-fails on **328** variants, `parser_plan.mode` on **212**, `api_ok` on **20**
+fails on **329** variants, `parser_plan.mode` on **212**, `api_ok` on **21**
 and `api_plan.endpoint` on **19** (the last two fell from 128 and 104 on
 2026-09-23, when the graph-answerable families stopped requiring the REST path). Those cases stay red until the corpus
 itself is settled.
@@ -560,8 +556,8 @@ scored, not because it started holding.
 
 **Every figure above is RECOMPUTED, not remembered**, in
 `tests/test_write_refusal_coverage.py`: the headline by
-`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (416 total /
-2 green / 414 red), the four per-criterion counts by
+`test_the_cc_routing_simulation_quoted_in_the_docs_is_reproducible` (418 total /
+2 green / 416 red), the four per-criterion counts by
 `test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too`, and the
 two-frames claim by `test_the_cc_skip_turns_nothing_green_under_the_all_cc_simulation`.
 All three drive the curated corpus through `evaluate.evaluate_turn` with the real

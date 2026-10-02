@@ -41,7 +41,7 @@ mechanically rather than recalled:
 | `ci/gate/test_route_registry.py` | the two blocking completeness tests, and the skeleton a missing route is reported with |
 | `ci/gate/test_route_effects.py` | what each route writes, checked against `ci/writers.py` in both directions, plus the report-only tripwire |
 | `ci/gate/test_live_routes_unit.py` | pure-string tests for `suggest_path` |
-| `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R10 |
+| `ci/docs_map.py` | the docs map check: `run()`, `main()`, rules R1 to R11 |
 | `ci/gate/test_docs_map.py` | runs the docs map check in the blocking gate step |
 | `ci/blocking_lanes.py` | `BLOCKING_GLOBS`, `expand()`, `unmatched()`, `main()`: the unit tests whose failure fails `ci-pytest.yml` |
 | `ci/gate/test_blocking_lanes.py` | every blocking glob matches a file, and the expansion is never empty |
@@ -76,7 +76,7 @@ surface at all. The vocabulary and the reasoning behind the default are at
 The `REGISTRY` list begins at `ci/routes.py:271`. What it holds today -- how many
 entries, how many excluded, how many pinned `xfail`, how many per profile -- is an
 import away rather than a number worth keeping here; the one entry that sets
-`prod_allows_non_get` is the `^login` route at `ci/routes.py:289-294`, and the
+`prod_allows_non_get` is the `^login/?$` route in `ci/routes.py`, and the
 placeholder vocabulary its paths draw on is `PLACEHOLDERS` at
 `ci/routes.py:229-247`.
 
@@ -91,8 +91,8 @@ unreachable second entry (`ci/routes.py:882-899`, `ci/routes.py:924`).
 ### The gate
 
 `live_patterns()` walks Django's resolver and returns the patterns CI owns:
-everything under `nextseek_api/` or `seek/`, plus seven project-level patterns
-listed at `ci/gate/live_routes.py:47-55`. The Django admin and every DRF
+everything under `nextseek_api/` or `seek/`, plus eight project-level patterns
+listed at `ci/gate/live_routes.py:47-56`. The Django admin and every DRF
 format-suffix twin are dropped from the denominator entirely rather than declared
 (`ci/gate/live_routes.py:36-42`, `ci/gate/live_routes.py:62-68`). A `path()`
 route using converter syntax raises `NotImplementedError` instead of being
@@ -117,16 +117,22 @@ python3 and git: every folder and skill has its row in the maps, every index
 lists its folder, every relative link and backticked repo path resolves, every
 `FILE` §N names a real heading, no README or CLAUDE.md is orphaned, the root
 `CLAUDE.md` stays under its line cap, the literals guard tests pin are present,
-no fenced command uses a retired form, and no doc carries an email or a
-personal home path. Each failure prints the row or fix to apply. Its module
+no fenced command uses a retired form, no doc carries an email or a
+personal home path, and every folder down to depth 3 has a README.md or sits on
+the `R11_EXEMPT` list in the script (each pattern there has a reason, and one
+that matches no folder fails). Each failure prints the row or fix to apply. Its module
 docstring lists the rules and what each skips.
 
 ### The blocking lanes
 
 `ci/blocking_lanes.py` names, as globs in `BLOCKING_GLOBS`, the unit tests
 whose failure fails `ci-pytest.yml`: the graph_sync and graph_search tests
-under `nextseek_api/tests/`, and the Sample Search page's view and JavaScript
-tests under `seek/tests/`, whose two search boxes call graph_search. It needs only the standard library. It prints the
+under `nextseek_api/tests/`, the Sample Search page's view and JavaScript
+tests under `seek/tests/`, whose two search boxes call graph_search, the user docs
+tests (`seek/tests/test_docs_*.py`: every `/docs/` page renders and its links,
+anchors and images resolve) and the check that Nessie's docs snapshot matches those
+pages (`NessieAI/tests/build_tools/integration/test_docs_snapshot_*.py`, so a docs edit
+lands with a fresh snapshot). It needs only the standard library. It prints the
 matched test paths, one per line, and exits 1 with nothing on stdout when a glob
 matches no file, because pytest given no path walks the whole tree;
 `ci/gate/test_blocking_lanes.py` holds the same rule in the gate. A new module
@@ -252,7 +258,7 @@ names something that is declared but not yet built, it says so.
 |---|---|
 | **tier** | How deep a check goes. Six are declared, T0 to T5 (`docs/superpowers/specs/2026-09-01-nextseek-ci-comprehensive-coverage-design.md:244-255`): T0 and T1 are parametrised from the registry and grow with it, T2 upward are hand-written because a browser interaction is not a table row. Only T0 is built; `ci/smoke/README.md:62-63` records that per-route body assertions are T1's job "and are not in this increment" |
 | **T0 / reachability** | `ci/smoke/test_reachability.py`: one test per registry route, parametrised at collection, asserting a status, a live gateway and no silent bounce to `/login/` (`ci/smoke/test_reachability.py:1-10`). Deliberately shallow, which is why the hand-written tests exist beside it |
-| **flows** | `ci/smoke/test_flows.py`: the browser lane, marked `flow` (`ci/smoke/test_flows.py:19`), which drives the real UI through Playwright and with `--strict-console` fails on uncaught console errors. Nothing in it writes to the database (`ci/smoke/test_flows.py:1-9`) |
+| **flows** | `ci/smoke/test_flows.py`: the browser lane, marked `flow` (`ci/smoke/test_flows.py:19`), which drives the real UI through Playwright and with `--strict-console` fails on uncaught console errors. Nothing in it writes to the database (`ci/smoke/test_flows.py:1-9`). `ci/smoke/test_ui_shell.py` adds the shell at phone (390x844, iPhone Safari) and desktop sizes, plus HTTP checks of where a visitor is sent to sign in |
 | **route registry** | The `REGISTRY` list in `ci/routes.py`. Every application URL declared exactly once; an undeclared route is refused before the request is built (`ci/routes.py:10-13`) |
 | **completeness gate** | `ci/gate/`: the two tests that diff Django's live resolver against `REGISTRY` in both directions and fail with a paste-ready skeleton (`ci/gate/test_route_registry.py`) |
 | **effect** | What a request to a route writes: `reads`, `writes` (with the `ci/writers.py` ids that do it), `external` (a write the graph does not read) or `n/a` (not this application's surface). Declared per entry, enforced at `ci/routes.py:126-152`, checked against the writer registry by `ci/gate/test_route_effects.py` |
@@ -320,13 +326,13 @@ CI_BOX_PROFILE=local uv run --no-project --with pytest --with requests pytest \
   ci/smoke/test_guard_unit.py ci/smoke/test_profile_unit.py \
   ci/smoke/test_assertions_unit.py ci/smoke/test_readiness_unit.py \
   ci/smoke/test_terminal_unit.py ci/smoke/test_attribute_jobs_unit.py \
-  ci/smoke/test_deploy_live_unit.py -q
+  ci/smoke/test_deploy_live_unit.py ci/smoke/test_graph_sync_health_unit.py -q
 ```
 
 It runs on a host with no Django installed.
 
 **The rest of the smoke suite** (`test_reachability.py`, `test_health.py`,
-`test_flows.py`, `test_write_lane.py`) needs a deployed stack reachable through
+`test_flows.py`, `test_ui_shell.py`, `test_write_lane.py`) needs a deployed stack reachable through
 its nginx front door, and both CI accounts named in `~/.config/nextseek/ci.env`
 having logged in through `/login/` on that box at least once. `./startup.sh ci`
 is the operator entry point for it (`startup/README.md:38`).
@@ -387,10 +393,10 @@ grepping every `.py` file in the tree for `ci.routes`, `ci.gate`, `ci.smoke`,
 - Not a consumer: `startup/cli.py:40-44` restates `("local", "dev", "prod")` as
   its own constant and says in the comment above it that `startup/` never imports
   `ci/`. It is a deliberate duplicate, not an edge.
-- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`,
-  `CLAUDE.md` and `CITATIONS.txt` in a sibling boundary that cites a path here.
+- Excluded from this list: `ci/smoke/`'s own modules, and every `README.md`
+  and `CLAUDE.md` in a sibling boundary that cites a path here.
   The registry names its two consuming environments and the application is
   neither of them (`ci/routes.py:5-6`); no module under `dmac/`, `seek/`,
-  `nextseek_api/`, `NessieAI/` or `api_app/` appears at all, because the
+  `nextseek_api/` or `NessieAI/` appears at all, because the
   grep above returns six `.py` files outside `ci/` and all six are
   `scripts/dump_routes.py` or under `startup/`.

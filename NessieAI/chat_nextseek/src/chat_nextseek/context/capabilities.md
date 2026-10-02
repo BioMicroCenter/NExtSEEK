@@ -60,15 +60,17 @@ The knowledge graph captures organizational structure and biological relationshi
 - **Sample**: an individual registered sample record, with its sample type code (e.g. `NHP`, `TIS`, `D.SEQ`) and every metadata attribute it holds.
 - **SampleType** and **Attribute**: the catalog of sample types and the attributes each one carries.
 - **Study**: a named study grouping related samples. Samples belong to studies via the `IN_STUDY` relationship.
-  A paper-level study carries the paper's `DOI` and `PMID` (uppercase; empty string when unset), so a sample
-  inherits the paper of every study it belongs to. You can ask which paper a sample appears in, or which samples
-  a paper used, by title, DOI or PMID. Most studies are unpublished; that is expected, not a gap.
+  The samples of a published study carry the paper's `DOI` and `PMID` (uppercase; absent on a sample with no paper).
+  A paper study that is not yet a SEEK study carries them too, and on some instances so does a SEEK study that was a
+  paper study, so you can ask which paper a sample appears in, which samples are in a paper's study, or which samples
+  carry its DOI or PMID in any study. Most studies are unpublished; that is expected, not a gap.
 - **Investigation**: a grouping of studies within a project (e.g., "Impactb Investigation", "MIT_SRP", "GBM_BTC"). Studies belong to investigations via the `IN_INVESTIGATION` relationship.
 - **Project**: a SEEK project. Samples and investigations belong to it via the `IN_PROJECT` relationship.
+- **Assay** (graph schema 1.3 and later): one node per kind of assay in the internal assay catalog, with its title, other names, description, and the sample types it takes and makes. A sample points at it with `INPUT_TO` (the sample went into a run of that assay) or `OUTPUT_OF` (it came out of one), and each link lists the SEEK assay runs. Two samples on one Assay did not come from each other: lineage stays on `DERIVED_FROM`.
 
 Derivation (lineage) between samples is encoded on the `DERIVED_FROM` relationship, which also carries the assays and the protocol used.
 
-Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, or filtering by which assay or protocol produced a sample.
+Use graph queries when your question involves named studies or investigations, cross-study aggregation, derivation chains, filtering by which assay or protocol produced a sample, or which samples went into or came out of an assay and what an assay takes and makes.
 
 **Example queries:**
 - "What samples are in the GBM study?"
@@ -77,6 +79,7 @@ Use graph queries when your question involves named studies or investigations, c
 - "Show me all NHP samples in the MIT_SRP investigation."
 - "What projects have mouse samples?"
 - "Find all samples that underwent single cell sequencing."
+- "Which samples went into Short Read Sequencing, and which sample types does it make?"
 - "How many studies are in the CSBC project?"
 - "Show me the derivation lineage for sample NHP-220630FLY-5-PUB."
 - "Find tissues associated with flow cytometry protocols."

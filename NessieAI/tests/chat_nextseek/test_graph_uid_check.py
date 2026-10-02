@@ -213,3 +213,88 @@ def test_a_turn_without_a_uid_runs_no_check(monkeypatch, tmp_path):
     assert calls["neo4j"] == 1
     assert calls["agent_contexts"] == [None]
     assert "uid_checks" not in debug
+
+
+def test_a_numbered_pub_uid_matches_any_other_publication_of_the_same_sample():
+    """-PUB and -PUB<n> name the same sample as the bare UID: asked as -PUB1, stored as -PUB2 only."""
+    seen = {}
+
+    def run(config, cypher, params):
+        seen.update(params)
+        return _rows({"uid": "TIS-230830ENG-5-PUB1", "exact": False, "base_uuid": None,
+                      "suffixed": ["TIS-230830ENG-5-PUB2"]})
+
+    checks = uid_check.check_uids(MagicMock(), ["TIS-230830ENG-5-PUB1"], run=run)
+
+    assert seen["checks"] == [{"uid": "TIS-230830ENG-5-PUB1", "base": "TIS-230830ENG-5"}]
+    assert checks == [uid_check.UidCheck(asked="TIS-230830ENG-5-PUB1", stored="TIS-230830ENG-5-PUB2")]
+
+
+def test_a_lower_case_uid_is_looked_up_in_upper_case():
+    """The check compares exactly and UIDs are stored upper-case, so a UID passed in any case must be asked for in
+    upper-case or the graph side says "not found" where REST finds it."""
+    for typed, upper in (("tis-230830eng-1", "TIS-230830ENG-1"), ("nhp-220830fly-42-pub1", "NHP-220830FLY-42-PUB1")):
+        seen = {}
+
+        def run(config, cypher, params, upper=upper):
+            seen.update(params)
+            return _rows({"uid": upper, "exact": True, "base_uuid": upper, "suffixed": []})
+
+        checks = uid_check.check_uids(MagicMock(), [typed], run=run)
+
+        assert seen["checks"][0]["uid"] == upper
+        assert checks == [uid_check.UidCheck(asked=upper, stored=upper)]
+
+
+# --------------------------------------------------------------------------
+# A run's samples named by their common prefix, <TYPE>-<YYMMDD><LAB>.
+# --------------------------------------------------------------------------
+
+def test_a_prefix_is_told_from_a_full_uid():
+    assert uid_check.is_uid_prefix("D.SEQ-250101ABC")
+    assert uid_check.is_uid_prefix("mus-240202xyz")
+    assert not uid_check.is_uid_prefix("D.SEQ-250101ABC-1")
+    assert not uid_check.is_uid_prefix("D.SEQ-250101ABC-1-PUB")
+    assert not uid_check.is_uid_prefix("MUS-1-PUB")
+
+
+def test_the_prefix_query_is_scoped_provable_and_seekable():
+    out = scope_cypher(uid_check.PREFIX_CYPHER, {"prefixes": ["D.SEQ-250101ABC"], "cap": 76},
+                       GraphScope.for_projects([2, 13], source="test"))
+
+    assert isinstance(out, Scoped) and out.decision == "proven"
+    assert "CASE WHEN" not in out.cypher
+
+
+def test_expand_prefixes_groups_matches_by_prefix_and_upper_cases_the_ask():
+    seen = {}
+
+    def run(config, cypher, params):
+        seen["params"] = params
+        return _rows({"prefix": "MUS-240202XYZ-", "uuid": "MUS-240202XYZ-1"},
+                     {"prefix": "MUS-240202XYZ-", "uuid": "MUS-240202XYZ-2"})
+
+    out = uid_check.expand_uid_prefixes(MagicMock(), ["mus-240202xyz", "TIS-230101ABC"], run=run, cap=75)
+
+    assert seen["params"]["prefixes"] == ["MUS-240202XYZ", "TIS-230101ABC"]
+    assert out == {"MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"], "TIS-230101ABC": []}
+
+
+def test_expand_prefixes_drops_a_published_copy_whose_base_is_in_the_result():
+    run = lambda c, q, p: _rows(*({"prefix": "MUS-240202XYZ-", "uuid": u} for u in
+                                  ["MUS-240202XYZ-1", "MUS-240202XYZ-1-PUB", "MUS-240202XYZ-1-PUB2", "MUS-240202XYZ-2"]))
+
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["MUS-240202XYZ"], run=run, cap=75) == {
+        "MUS-240202XYZ": ["MUS-240202XYZ-1", "MUS-240202XYZ-2"]}
+
+
+def test_expand_prefixes_keeps_a_published_copy_whose_base_is_absent():
+    """Another entity of the same kind: only the -PUB copy is stored, so it is the sample."""
+    run = lambda c, q, p: _rows({"prefix": "TIS-230101ABC-", "uuid": "TIS-230101ABC-7-PUB"})
+
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["TIS-230101ABC"], run=run, cap=75) == {
+        "TIS-230101ABC": ["TIS-230101ABC-7-PUB"]}
+
+
+def test_a_failed_prefix_read_is_none():
+    assert uid_check.expand_uid_prefixes(MagicMock(), ["MUS-240202XYZ"], run=lambda c, q, p: {"ok": False}, cap=75) is None

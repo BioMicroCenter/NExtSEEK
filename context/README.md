@@ -20,8 +20,8 @@ install step reads until the content is signed off (`scripts/README.md` group C)
 `NessieAI/chat_nextseek/src/chat_nextseek/context/`. Those have two readers and only one of
 them sees a database: `_fetch_context_files_from_db` rewrites them from these tables once
 per UTC day inside the **app**, so editing one by hand changes nothing that survives a day,
-but the **cc-agent** image bakes three of them out of the checkout at build time
-(`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`) and has no refresh path, so the committed
+but the **cc-agent** image bakes three of them (and three hand-owned files, six in all) out of
+the checkout at build time (`startup/lib/layout.py::CANONICAL_CONTEXT_FILES`) and has no refresh path, so the committed
 bytes are what Container-CC reads for the life of the image. Run `--emit exports` in the same
 change as `--emit update`, or the database and the image disagree and nothing reports it: the
 stack-health check `cc-agent context` compares the checkout with the image, so two stale
@@ -29,6 +29,34 @@ copies of one file read as green. `--emit capabilities` writes the investigation
 `NessieAI/chat_nextseek/src/chat_nextseek/context/capabilities.md` from the investigation
 rows of `projects.json`. `scripts/README.md` group C is the generator's
 reference and `NessieAI/tests/api/test_context_gen.py` is its test lane.
+
+## The runtime pack, and why it stays a separate folder
+
+`NessieAI/chat_nextseek/src/chat_nextseek/context/` is the pack Nessie reads at runtime. This
+folder is not a second copy of it. The two stay apart for three reasons:
+
+- The pack is one directory behind one variable (`CONTEXT_DIR`), and the same directory takes the
+  daily database rewrite, `labs_db.json`, the refresh marker and the embedding caches.
+- The cc-agent build context is `./NessieAI/chat_nextseek`, so it cannot see this folder.
+- This folder has a contract (what is here is what the database holds, behind the xlsx review
+  gate). Hand-owned catalogs that feed no table do not belong under it.
+
+"Baked" means copied into the cc-agent image; "app" means read from the checkout by the app.
+
+| file in the pack | origin | read by | ships in |
+|---|---|---|---|
+| `sampletypes_db.json`, `assays_db.json` | generated from `sample_types.json`, `assays.json`; rewritten daily in the app | `ChatConfig` full catalogs, the MCP server | app |
+| `min_sampletypes_db.json`, `min_assays_db.json` | generated, same two paths | entity agent | app, cc-agent (baked) |
+| `projects_db.json` | generated from `projects.json`, same two paths | `ChatConfig` project and investigation maps | app, cc-agent (baked) |
+| `capabilities.md` | hand-written, one generated investigation block (`--emit capabilities`) | system agent, CC agent | app, cc-agent (baked) |
+| `min_api_endpoints_enriched.json` | hand-owned | parser, API agent, endpoint index | app, cc-agent (baked) |
+| `min_api_endpoints.json` | hand-owned | CC agent only | cc-agent (baked), app |
+| `scope_fallback_endpoints.json` | hand-owned | API agent scope fallback | app |
+| `min_graph_schema.json` | hand-owned prose | parser routing | app |
+| `neo4j_schema.json`, `neo4j_protocol_schema.json`, `neo4j_assay-sample-conn.json` | generated from a live graph by `scripts/graph_schema_fallback.py` | graph agent fallback and property guard | app |
+
+`NessieAI/tests/cc/test_cc_context_drift_guard.py` pins the whole pack: every file is either baked
+or listed there as source-only.
 
 **Review gate:** nothing from these files is written to any database (local, fairdata-dev or
 production) until the user has reviewed them as an xlsx workbook and signed off.

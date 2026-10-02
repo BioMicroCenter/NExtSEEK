@@ -1,0 +1,72 @@
+{
+  "report_type": "NFCORE_GENOMEASSEMBLER_SAMPLESHEET",
+  "description": "nf-core/genomeassembler samplesheet context, aligned to the pinned 1.1.0 nextflow_schema.json and assets/schema_input.json. Assembly and scaffolding of haploid / unphased genomes from long reads.",
+  "params": {
+    "flye":         {"type": "bool", "default": true, "steerable": true, "help": "Flye is the default assembler and handles both ONT and HiFi input."},
+    "hifiasm":      {"type": "bool", "default": false, "steerable": true, "help": "PacBio HiFi only. Turn on for a HiFi cohort; meaningless for Nanopore."},
+    "polish_medaka": {"type": "bool", "default": false, "steerable": true, "help": "Nanopore polishing. Not applicable to HiFi, which needs no polishing."},
+    "polish_pilon": {"type": "bool", "default": false, "steerable": true, "help": "Short-read polishing; needs shortread_F/shortread_R populated."},
+    "busco":        {"type": "bool", "default": false, "steerable": true, "help": "Completeness scoring; downloads a lineage dataset on demand."},
+    "scaffold_ragtag": {"type": "bool", "default": false, "steerable": true, "help": "Reference-guided scaffolding; needs ref_fasta on the row."},
+    "multiqc_title": {"type": "string", "default": null, "steerable": true}
+  },
+  "reference_resources": [],
+  "pipeline": {
+    "name": "nf-core/genomeassembler",
+    "repository": "https://github.com/nf-core/genomeassembler",
+    "documentation_url": "https://nf-co.re/genomeassembler/latest/docs/usage/",
+    "input_file_type": "csv",
+    "core_rule": "Columns are sample, ontreads, hifireads, ref_fasta, ref_gff, shortread_F, shortread_R, paired. Only `sample` is schema-required — because WHICH read column to fill depends on the sequencing platform. Nessie fills it per row from the platform recorded in the sample's own metadata: ontreads for Nanopore, hifireads for PacBio.",
+    "required_columns": ["sample"],
+    "optional_columns": ["ontreads", "hifireads", "ref_fasta", "ref_gff", "shortread_F", "shortread_R", "paired"],
+    "reference_requirement": "NONE for assembly — the 1.1.0 schema declares no genome/fasta/gtf. A per-row ref_fasta/ref_gff pair exists only for optional RagTag scaffolding against a related genome."
+  },
+  "samplesheet_template": [{"sample": null, "ontreads": null, "hifireads": null, "shortread_F": null, "shortread_R": null}],
+  "examples": {
+    "nanopore": {"sample": "D.SEQ-260711ENG-12-PUB", "ontreads": "/net/bmc-pub10/data1/bmc/fastq/ont_pass.fastq.gz", "hifireads": ""},
+    "pacbio_hifi": {"sample": "D.SEQ-260711ENG-13-PUB", "ontreads": "", "hifireads": "/net/bmc-pub10/data1/bmc/fastq/hifi.fastq.gz"}
+  },
+  "validation_rules": [
+    "The read column is chosen by PLATFORM, not by read number. Nanopore reads go in ontreads; PacBio HiFi reads go in hifireads. Nessie derives this per row from the sample's metadata rather than asking, because the metadata is available earlier and is more reliable than a remembered answer.",
+    "A SHORT-READ-ONLY cohort is not a valid input. This is a long-read assembler; shortread_F/shortread_R exist only to polish a long-read assembly. If the platform resolves to Illumina the reads land in no recognised column and the row will be visibly empty — that is deliberate, not a bug. Stop and tell the user.",
+    "If the platform cannot be determined from metadata, every read column stays blank. Do not guess: ONT and HiFi have opposite error profiles and assembling one as the other silently degrades the result.",
+    "Do NOT pass --genome, --fasta or --gtf: the 1.1.0 schema declares none of them.",
+    "hifiasm is HiFi-only and polish_medaka is Nanopore-only. Setting either for the wrong platform wastes cluster time at best.",
+    "This assembles HAPLOID / unphased genomes. A diploid organism needs a phasing-aware assembler instead."
+  ],
+  "notes": "NO MATCHING DATA IN NExtSEEK as of 2026-08-05: zero of 2,057 D.SEQ records are long-read on any platform. Catalogued so the capability exists when long-read data is registered. This pipeline is the reason the emitter grew PIPELINE_PLATFORM_COLUMNS: it was initially rejected because a platform-dependent column name could not be produced by the static alias map, and elicitation happens in configure_run, which runs AFTER write_samplesheet. Deriving the platform from the sample's own metadata solves it earlier and better.",
+  "sources": [
+    {"label": "nf-core/genomeassembler usage docs", "url": "https://nf-co.re/genomeassembler/latest/docs/usage/", "notes": "Samplesheet layout and assembler/polisher matrix."},
+    {"label": "nf-core/genomeassembler nextflow_schema.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/genomeassembler/1.1.0/nextflow_schema.json", "notes": "Authoritative: no required params beyond input/outdir; no genome/fasta/gtf."},
+    {"label": "nf-core/genomeassembler assets/schema_input.json @ 1.1.0", "url": "https://raw.githubusercontent.com/nf-core/genomeassembler/1.1.0/assets/schema_input.json", "notes": "Authoritative: only `sample` required; ontreads/hifireads/shortread_F/shortread_R/ref_fasta/ref_gff/paired optional."}
+  ],
+  "schema": {
+    "sections": {
+      "samplesheet_columns": {
+        "description": "Column-level field dictionary for the nf-core/genomeassembler input sheet.",
+        "fields": {
+          "sample": {"required": "required", "position_rule": "Column 1", "expected_value": "string", "allowed_values": "", "description": "Sample identifier.", "validation_hints": "Use the NExtSEEK D.SEQ UID.", "example": "D.SEQ-260711ENG-12-PUB"},
+          "ontreads": {"required": "platform-dependent", "position_rule": "later", "expected_value": "path or blank", "allowed_values": ".fastq.gz", "description": "Oxford Nanopore reads.", "validation_hints": "Filled automatically when the sample's metadata says Nanopore.", "example": "/net/bmc-pub10/data1/bmc/fastq/ont_pass.fastq.gz"},
+          "hifireads": {"required": "platform-dependent", "position_rule": "later", "expected_value": "path or blank", "allowed_values": ".fastq.gz", "description": "PacBio HiFi reads.", "validation_hints": "Filled automatically when the sample's metadata says PacBio.", "example": "/net/bmc-pub10/data1/bmc/fastq/hifi.fastq.gz"},
+          "shortread_F": {"required": "optional", "position_rule": "later", "expected_value": "path or blank", "allowed_values": ".fastq.gz", "description": "Short reads for Pilon polishing only.", "validation_hints": "Never the primary input.", "example": ""},
+          "ref_fasta": {"required": "optional", "position_rule": "later", "expected_value": "path or blank", "allowed_values": ".fa/.fna/.fasta", "description": "Related genome for RagTag scaffolding.", "validation_hints": "Only when scaffold_ragtag is on.", "example": ""}
+        }
+      }
+    }
+  },
+  "report_writer_guidance": {
+    "purpose": "Build an nf-core/genomeassembler sheet from a resolved D.SEQ cohort of long-read libraries.",
+    "workflow_role": "Selected when the user wants to assemble a genome de novo from ONT or PacBio reads.",
+    "output_expectation": "CSV with header sample plus whichever platform read column applies.",
+    "population_priority": [
+      "Check the platform in each sample's metadata FIRST. NExtSEEK holds no long-read data today, so expect to have to ask whether the cohort is really ONT or HiFi.",
+      "One row per D.SEQ leaf; let the emitter place the read in ontreads or hifireads.",
+      "Match the assembler and polisher to the platform: hifiasm for HiFi, medaka polishing for ONT."
+    ],
+    "final_checks": [
+      "Every row has a populated read column. A row with all read columns blank means the platform was not recognised — stop and report it rather than launching.",
+      "No short-read-only rows.",
+      "No reference flags were emitted."
+    ]
+  }
+}

@@ -5,13 +5,12 @@ from django import forms
 from django.db.models import Q
 from django.contrib.auth import authenticate, login
 from django.conf import settings
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import simplejson
 import datetime
 import json
 import os
-from subprocess import call
-from subprocess import check_call
 
 import logging
 logging.basicConfig(
@@ -107,6 +106,18 @@ def userSynchronization(user_seek):
 
     return status, msg
 
+def _safe_next(request):
+    """The ``next`` page to return to after signing in: a path on this site, else home.
+
+    Relative paths only (no allowed hosts): behind nginx every request's Host is
+    the upstream name, so an absolute URL naming it would leave the site.
+    """
+    next_url = request.GET.get('next', '')
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts=set()):
+        return next_url
+    return '/'
+
+
 def login_seek(request):
     seekdb = SeekDB(None, None, None)
     user_seek = seekdb.getSeekLogin(request, fromLoginForm=True)  # body credentials, once SEEK accepts them
@@ -155,13 +166,7 @@ def login_seek(request):
                     request.session.flush()
                     return render(request, 'login.html', {'error': msg})
             
-            httpurl = request.get_full_path()
-            urls = httpurl.split('?next=')
-            if len(urls)>1:
-                url_redirect = urls[1]
-            else:
-                url_redirect = "/"
-            return HttpResponseRedirect(url_redirect)
+            return HttpResponseRedirect(_safe_next(request))
         else:
             logger.debug("SEEK authentication failed, re-login")
             request.session.flush()
@@ -172,103 +177,6 @@ def login_seek(request):
         
     return render(request, 'login.html')
 
-def logout_seek(request):
-    if request.session.get('username') is not None:
-        call(["rm", "-r", request.session.get('username')])
-        request.session.flush()
-    return HttpResponseRedirect(reverse('index'))
-    
-def login_full(request):
-    if request.method == 'POST':
-        err = []
-        if request.POST.get('server')[-1] == '/':
-            server = request.POST.get('server')
-        else:
-            server = request.POST.get('server') + '/'
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        server = settings.SEEK_URL
-        storage = settings.SEEK_URL
-        storagetype = request.POST.get("storagetype")
-        noexpire = request.POST.get('no-expire')
-        if storage != "":
-            request.session['storage_type'] = storagetype
-            request.session['storage'] = storage
-        else:
-            request.session.flush()
-        
-        if server != "":
-            request.session['server'] = server
-        else:
-            err.append("No server selected")
-            request.session.flush()
-            return render(request, 'login.html', context={
-                'error': err})
-            
-        if username != "" and password != "":
-            request.session['username'] = username
-            request.session['password'] = password
-        else:
-            err.append("No valid username or password")
-            request.session.flush()
-            return render(request, 'login.html', context={'error': err})
-        if noexpire == "yes":
-            request.session.set_expiry(0)
-        else:
-            request.session.set_expiry(43200)
-        return render(request, 'home.html', context={'error': err})
-        
-    return render(request, 'login.html')
-    
-def index(request):
-    if (request.method == 'POST' and
-        request.session.get('username') is None
-    ):
-        login(request)
-    else:
-        pass
-    
-    
-    if (
-        request.session.get('username') is None or
-        request.session.get('username') == ""
-    ):
-        err = ""
-        return render(request, 'login.html', context={'error': err})
-    else:
-        if not os.path.isdir(request.session.get('username')):
-            call(["mkdir", request.session.get('username')])
-        if request.POST.get('inv') is not None:
-            investigation = request.POST.get('inv')
-        else:
-            investigation = ""
-            
-        username = request.session.get('username')
-        password = request.session.get('password')
-        storage = settings.SEEK_URL
-        virtuoso = settings.VIRTUOSO_JS_URL
-        server = request.session.get('server')
-        seekdb = SeekDB(storage, username, password)
-        user_seek = seekdb.getSeekLogin(request)
-        if user_seek['status']:
-            userinfo_seek = user_seek['userdata']
-        else:
-            userinfo_seek = None
-        
-        investigations,folders = seekdb.get_investigations_folders(investigation)
-        return render(
-            request, 'seek_login.html',
-            context={'user': username, 'username': username,
-                     'password': password, 'server': server,
-                     'storage': storage,
-                     'storagetype': request.session.get('storage_type'),
-                     'virtuoso_url': virtuoso,
-                     'investigations': investigations,
-                     'studies': folders,
-                     'inv': investigation
-            }
-        )    
-    
 def signup_seek(request):
     """Hand account creation off to SEEK, which owns the user records.
 

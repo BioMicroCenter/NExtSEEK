@@ -330,7 +330,7 @@ class TestBulkUpdateSamples:
 
         The literal-key check missed AntibodyParent (12,367 live references) and
         CompensationFCSParent (66,529), leaving stale DERIVED_FROM edges behind
-        on re-upload because neo4j_sync only deletes edges for parent_changed rows.
+        on re-upload because the graph writer of the time deleted edges only for parent_changed rows.
         """
         from nextseek_api.batch_upload.update import bulk_update_samples
 
@@ -738,3 +738,36 @@ class TestRowOutcomeParentChanged:
         restored = RowOutcome(**data)
         assert restored.parent_changed is True
         assert restored.sample_id == 42
+
+
+class TestDeleteAssayLinks:
+    """The link delete batch upload's update path and the studies tool share. It lives in update.py, never in
+    associations.py: the registration executor's only write module must hold no DELETE (test_executor.py's
+    TestNoDeletePath)."""
+
+    def test_no_pairs_sends_nothing(self):
+        from nextseek_api.batch_upload.update import delete_assay_links
+
+        conn = MagicMock()
+        assert delete_assay_links([], conn) == 0
+        conn.execute.assert_not_called()
+
+    def test_one_statement_per_thousand_pairs_sample_rows_only(self):
+        from nextseek_api.batch_upload.update import delete_assay_links
+
+        conn = MagicMock()
+        pairs = [(100, i) for i in range(1, 1502)]
+        assert delete_assay_links(pairs, conn) == 1501
+        assert conn.execute.call_count == 2
+        first_sql = str(conn.execute.call_args_list[0].args[0])
+        assert "asset_type = 'Sample'" in first_sql
+        assert "(assay_id = :aid_0 AND asset_id = :sid_0)" in first_sql
+        params = conn.execute.call_args_list[1].args[1]
+        assert params == {**{f"aid_{i}": 100 for i in range(501)}, **{f"sid_{i}": 1001 + i for i in range(501)}}
+
+    def test_the_delete_is_public_in_update_and_absent_from_associations(self):
+        from nextseek_api.batch_upload import associations, update
+
+        assert callable(update.delete_assay_links)
+        assert not hasattr(update, "_bulk_delete_assay_links")
+        assert not hasattr(associations, "delete_assay_links")

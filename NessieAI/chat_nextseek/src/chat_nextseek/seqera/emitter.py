@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -26,7 +27,104 @@ from .tower_datasets import upload_samplesheet_as_dataset
 # matches the pipeline's expected schema.
 PIPELINE_COLUMN_ALIASES: dict[str, dict[str, str]] = {
     "ampliseq": {"sample": "sampleID", "fastq_1": "forwardReads", "fastq_2": "reverseReads"},
+    # mag names the short-read columns short_reads_1/2 and additionally requires a
+    # `group` column (co-assembly grouping), which the row builder supplies.
+    "mag": {"fastq_1": "short_reads_1", "fastq_2": "short_reads_2"},
+    # bamtofastq consumes alignments, so it has no fastq columns at all: sample_id,
+    # mapped, index, file_type. Only the sample rename is an alias — mapped/index/
+    # file_type are synthesised by the bam branch below, already correctly named.
+    "bamtofastq": {"sample": "sample_id"},
+    # bacass predates the sample/fastq_1/fastq_2 convention entirely.
+    "bacass": {"sample": "ID", "fastq_1": "R1", "fastq_2": "R2"},
+    # pacvar is bam-input like bamtofastq, but names the columns bam/pbi. The bam
+    # branch's `file_type` rides along as an extra column, which pacvar's
+    # schema_input.json permits (it sets no additionalProperties: false).
+    "pacvar": {"mapped": "bam", "index": "pbi"},
+    "detaxizer": {"fastq_1": "short_reads_fastq_1", "fastq_2": "short_reads_fastq_2"},
+    "pathogensurveillance": {"sample": "sample_id", "fastq_1": "path", "fastq_2": "path_2"},
 }
+
+
+# --- platform-dependent columns ------------------------------------------------
+#
+# A few pipelines name the read column after the SEQUENCING PLATFORM rather than
+# after the read number: genomeassembler wants `ontreads` for Nanopore and
+# `hifireads` for PacBio, because a long-read assembler has to know which error
+# profile it is dealing with.
+#
+# That cannot be an entry in PIPELINE_COLUMN_ALIASES, which is static per pipeline,
+# and it cannot be an elicited value either: write_samplesheet runs BEFORE
+# configure_run, so nothing the user answers is available yet. It can, however, be
+# read off the sample's own metadata — the same value-driven approach the FASTQ and
+# alignment resolvers use — which is both earlier and more reliable than asking.
+_PLATFORM_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Order matters: check the specific instrument families before the vendor words.
+    ("pacbio", ("pacbio", "hifi", "revio", "sequel")),
+    ("nanopore", ("nanopore", "minion", "promethion", "gridion", "\bont\b")),
+    ("illumina", ("illumina", "novaseq", "miseq", "nextseq", "hiseq", "iseq", "singular")),
+)
+
+# pipeline -> platform -> {standard column: the column that platform actually uses}
+PIPELINE_PLATFORM_COLUMNS: dict[str, dict[str, dict[str, str]]] = {
+    "genomeassembler": {
+        "nanopore": {"fastq_1": "ontreads"},
+        "hifi": {"fastq_1": "hifireads"},
+        "pacbio": {"fastq_1": "hifireads"},
+        # Deliberately absent: illumina. genomeassembler assembles LONG reads; short
+        # reads only polish. Leaving Illumina unmapped means the read lands in no
+        # recognised column and the gap is visible in the sheet, rather than a
+        # short-read cohort being quietly fed to a long-read assembler.
+    },
+}
+
+# pipeline -> the column whose VALUE is the detected platform name.
+PIPELINE_PLATFORM_VALUE_COLUMN: dict[str, str] = {
+    # pathogensurveillance enumerates illumina|nanopore|pacbio|bgiseq and uses it to
+    # pick per-sample tooling. It is in the metadata, so it should never be asked for.
+    "pathogensurveillance": "sequence_type",
+}
+
+
+def _platform_from_meta(meta: Mapping[str, Any]) -> str:
+    """Best-effort sequencing platform from a sample's metadata, or ''.
+
+    Scans values rather than trusting a field name, because the platform shows up
+    under Sequencer, Platform, Instrument and SequencingType depending on who
+    curated the row.
+    """
+    blob = " ".join(str(v) for v in (meta or {}).values() if v).lower()
+    for platform, hints in _PLATFORM_HINTS:
+        if any(re.search(h, blob) if h.startswith("\\b") else h in blob for h in hints):
+            return platform
+    return ""
+
+
+def _apply_platform_columns(row: dict[str, Any], pipeline: str, meta: Mapping[str, Any]) -> dict[str, Any]:
+    """Rename read columns and/or stamp a platform column, per this row's metadata."""
+    value_col = PIPELINE_PLATFORM_VALUE_COLUMN.get(pipeline)
+    table = PIPELINE_PLATFORM_COLUMNS.get(pipeline)
+    if not value_col and not table:
+        return row
+    platform = _platform_from_meta(meta)
+    if value_col:
+        # Never overwrite a value the agent set deliberately.
+        row.setdefault(value_col, platform)
+        if not row.get(value_col):
+            row[value_col] = platform
+    if table:
+        for standard, actual in (table.get(platform) or {}).items():
+            if standard in row:
+                row[actual] = row.pop(standard)
+        # Whatever standard read column is left over does not belong to this pipeline:
+        # either the platform is unmapped (genomeassembler + an Illumina cohort) or the
+        # mapping covers only some of them (ONT is single-file, so fastq_2 is spurious).
+        # Drop them. Leaving a path sitting in a column the pipeline ignores looks like
+        # a populated row to a human reading the sheet, when the truth is that the
+        # pipeline will see no reads at all — and every one of these schemas tolerates
+        # extra columns, so nothing would flag it.
+        for leftover in ("fastq_1", "fastq_2"):
+            row.pop(leftover, None)
+    return row
 
 
 def _upload_to_tower_dataset(
@@ -97,14 +195,71 @@ def _upload_to_tower_dataset(
         return fallback
 
 
+# --- sample-id sanitising ------------------------------------------------------
+#
+# We use the NExtSEEK UID as the sample name, which is the right default: it makes
+# every result traceable to a record. Most nf-core pipelines allow it — their id
+# pattern is `^\S+$`. ampliseq does not: it demands `^[a-zA-Z][a-zA-Z0-9_]+$`, and a
+# UID like `D.SEQ-230512FOR-287-PUB` fails on both the dot and the hyphens. That
+# aborts the run at samplesheet validation, AFTER the reads have been downloaded.
+#
+# Checked across every catalogued pipeline at its pinned revision on 2026-08-05:
+# ampliseq is the only one. Keep this map minimal rather than sanitising globally —
+# a mangled id that did not need mangling is a traceability loss for no gain.
+PIPELINE_SAMPLE_ID_RULES: dict[str, dict[str, str]] = {
+    "ampliseq": {"column": "sampleID", "pattern": r"^[a-zA-Z][a-zA-Z0-9_]+$"},
+}
+# Column carrying the untouched UID whenever the id had to be rewritten, so a result
+# can still be traced back. Every affected schema tolerates extra columns.
+SAMPLE_ID_PROVENANCE_COLUMN = "nextseek_uid"
+
+
+def sanitize_sample_id(value: str, pattern: str) -> str:
+    """Rewrite a sample id so it satisfies `pattern`, changing as little as possible.
+
+    Non-conforming characters become '_', and a leading character that the pattern
+    disallows gets an 's' prefix rather than being dropped — losing it could collide
+    two ids that differ only in their first character.
+    """
+    text = str(value or "")
+    if not text or re.fullmatch(pattern, text):
+        return text
+    # The rules we support are character-class patterns; derive the allowed set from
+    # the pattern itself so this cannot drift from what the pipeline declares.
+    body = re.search(r"\[([^\]]+)\]\+?\$?$", pattern)
+    allowed = body.group(1) if body else r"A-Za-z0-9_"
+    cleaned = re.sub(rf"[^{allowed}]", "_", text)
+    head = re.match(r"\^\[([^\]]+)\]", pattern)
+    if head and cleaned and not re.match(rf"[{head.group(1)}]", cleaned):
+        cleaned = "s" + cleaned
+    return cleaned
+
+
+def _apply_sample_id_rule(row: dict[str, Any], pipeline: str) -> dict[str, Any]:
+    """Sanitise the id column for pipelines that constrain it; keep the original."""
+    rule = PIPELINE_SAMPLE_ID_RULES.get(pipeline)
+    if not rule:
+        return row
+    col = rule["column"]
+    original = str(row.get(col) or "")
+    if not original:
+        return row
+    safe = sanitize_sample_id(original, rule["pattern"])
+    if safe != original:
+        row[col] = safe
+        row.setdefault(SAMPLE_ID_PROVENANCE_COLUMN, original)
+    return row
+
+
 def _remap_row_for_pipeline(row: Mapping[str, Any], pipeline: str) -> dict[str, Any]:
     aliases = PIPELINE_COLUMN_ALIASES.get(pipeline)
-    if not aliases:
-        return dict(row)
-    out: dict[str, Any] = {}
-    for k, v in row.items():
-        out[aliases.get(k, k)] = v
-    return out
+    out: dict[str, Any] = dict(row)
+    if aliases:
+        out = {}
+        for k, v in row.items():
+            out[aliases.get(k, k)] = v
+    # After the rename, so the rule can name the column the pipeline actually reads.
+    return _apply_sample_id_rule(out, pipeline)
 
 
 @dataclass
@@ -252,6 +407,50 @@ def _fastq_from_meta(meta: Mapping[str, Any], read_hint: str) -> str:
     pool = by_name or by_file            # trust the field name first, else the filename marker
     local = [c for c in pool if c.startswith("/")]
     return (local or pool or [""])[0]
+
+
+_ALIGNMENT_EXTS = (".bam", ".cram")
+# Checksum fields pack the same basename as the data field, so a field-name check is
+# not enough on its own; these are the names that are never a usable file path.
+_NON_PATH_NAME_HINTS = ("checksum", "md5", "sha")
+
+
+def _paths_with_ext(meta: Mapping[str, Any], exts: tuple[str, ...]) -> list[str]:
+    """Every value in the metadata that looks like a path to a file with one of `exts`.
+
+    Same value-driven approach as ``_fastq_from_meta``: scan every field for a VALUE
+    that is a path (has a '/') ending in a wanted extension, rather than trusting a
+    field name. Skips checksum-ish fields, which carry the same basename. Local
+    absolute paths sort ahead of remote URLs — the run happens on Luria.
+    """
+    found: list[str] = []
+    for key, val in (meta or {}).items():
+        if any(h in str(key).lower() for h in _NON_PATH_NAME_HINTS):
+            continue
+        for part in str(val or "").split(";"):
+            p = part.strip()
+            if "/" in p and p.lower().endswith(exts):
+                found.append(p)
+    return sorted(found, key=lambda p: 0 if p.startswith("/") else 1)
+
+
+def _alignment_from_meta(meta: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Return (mapped_path, file_type, index_path) for an alignment sample.
+
+    `file_type` is derived from the extension of the path we found, never guessed —
+    bamtofastq's schema enums it to bam|cram and mis-declaring it fails the run. All
+    three are '' when the metadata carries no usable alignment path, which is the
+    common case for archive-hosted records whose File_PrimaryData is a bare basename
+    (e.g. '8205.1.consensus.bam'); the row is still emitted so the gap is visible in
+    the samplesheet rather than silently dropped.
+    """
+    mapped = next(iter(_paths_with_ext(meta, _ALIGNMENT_EXTS)), "")
+    if not mapped:
+        return "", "", ""
+    file_type = "cram" if mapped.lower().endswith(".cram") else "bam"
+    wanted_index = (".crai",) if file_type == "cram" else (".bai",)
+    index = next(iter(_paths_with_ext(meta, wanted_index)), "")
+    return mapped, file_type, index
 
 
 def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]], columns: Sequence[str]) -> None:
@@ -577,6 +776,10 @@ def emit_nfcore_artifacts(
     entry = get_pipeline_entry(pipeline)
     required = entry.get("required_columns") or []
     enrichment = list(enrichment_fields or [])
+    # "bam" pipelines (bamtofastq) take alignments, not reads: different columns,
+    # a different resolver, and no ENA/fetchngs fallback — you cannot download a
+    # FASTQ to stand in for the BAM you were asked to convert.
+    is_alignment_input = entry.get("samplesheet_input_kind") == "bam"
 
     # Build a deterministic accession → ENA URL map. Run accessions are 1:1.
     # For experiment/study/biosample/biosample-prefixed accessions that resolve
@@ -605,6 +808,24 @@ def emit_nfcore_artifacts(
         # Curated local fastq metadata: keyed by leaf UID (path-only samples) or accession.
         sample_meta = (accession_metadata.get(uid)
                        or (accession_metadata.get(acc_str) if acc_str else None) or {})
+        if is_alignment_input:
+            # No ENA fan-out and no fetch fallback: the input IS the alignment. An
+            # accession here identifies the archived run, not a substitute for the BAM.
+            rewritten = dict(row)
+            rewritten.pop("fastq_1", None)
+            rewritten.pop("fastq_2", None)
+            mapped, file_type, index = _alignment_from_meta(sample_meta)
+            # Never overwrite a path the agent supplied explicitly (e.g. a Luria path
+            # the user gave for a BAM that predates registration) with a resolver miss.
+            rewritten["mapped"] = str(rewritten.get("mapped") or "") or mapped
+            rewritten["file_type"] = str(rewritten.get("file_type") or "") or file_type
+            if index or rewritten.get("index"):
+                rewritten["index"] = str(rewritten.get("index") or "") or index
+            for field in enrichment:
+                value = sample_meta.get(field)
+                rewritten[field] = "" if value is None else value
+            keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
+            continue
         runs = acc_to_runs.get(acc_str) if acc_str else None
         if runs:
             # Legacy ENA fan-out — dormant on the Luria path (resolutions=[] -> acc_to_runs empty),
@@ -635,6 +856,9 @@ def emit_nfcore_artifacts(
         for field in enrichment:
             value = sample_meta.get(field)
             rewritten[field] = "" if value is None else value
+        # Platform-dependent columns come BEFORE the static alias map: the alias map
+        # is keyed on the standard names, and this may have renamed them away.
+        rewritten = _apply_platform_columns(rewritten, pipeline, sample_meta)
         keep_rows.append(_remap_row_for_pipeline(rewritten, pipeline))
 
     columns = _ensure_columns(keep_rows, required, enrichment)

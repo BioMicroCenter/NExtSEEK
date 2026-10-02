@@ -435,7 +435,7 @@ def _ledger_entry(
             entry["retry_attempts"] = meta.get("retry_attempts")
             entry["bedrock_latency_ms"] = meta.get("bedrock_latency_ms")
             entry["request_id"] = meta.get("request_id")
-            entry["stop_reason"] = meta.get("stop_reason")
+            entry["stop_reason"] = meta.get("stop_reason") or meta.get("finish_reason")
             entry["structured_via"] = _structured_via(resp, client, response_format, thinking_budget)
             entry["repair_turn"] = bool(repair_turn)
             entry["reasoning_present"] = _reasoning_present(resp)
@@ -515,12 +515,32 @@ MAX_PROVIDER_SWITCHES = 1
 # record it: a timeout, an empty body, a 5xx, a 429 that survived the SDK's own retries,
 # a connection error, and a model the provider refused (``LLMModelUnusableError``: an
 # unknown, retired or not-enabled model id, or no access to it).
-FALLBACK_REASONS = ("timeout", "empty", "unavailable", "rate_limited", "connection", "model_unusable")
+FALLBACK_REASONS = ("timeout", "empty", "declined", "unavailable", "rate_limited", "connection", "model_unusable")
 
 
 class _EmptyCompletion(LLMServiceUnavailableError):
     """An empty body, raised inside the ladder so it takes the 5xx path, and recorded as
     ``empty`` rather than ``unavailable`` when the call moves on it."""
+
+
+class _DeclinedCompletion(_EmptyCompletion):
+    """The model declined: the provider stopped the completion for content or safety, with or without
+    some text. Moves like an empty body, recorded as ``declined``."""
+
+
+# Converse stop reasons (Claude, Bedrock guardrails) and Gemini finish reasons that mean the provider
+# stopped the answer for what it was asked or what it was writing. None of them is a truncation.
+_DECLINE_STOPS = frozenset({
+    "content_filtered", "guardrail_intervened", "refusal",
+    "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII",
+})
+
+
+def declined_stop(metadata) -> str | None:
+    """The stop reason in a response's metadata when it is a decline, else None."""
+    meta = metadata if isinstance(metadata, dict) else {}
+    stop = meta.get("stop_reason") or meta.get("finish_reason")
+    return stop if stop in _DECLINE_STOPS else None
 
 
 def _text_is_empty(resp) -> bool:
@@ -530,6 +550,8 @@ def _text_is_empty(resp) -> bool:
 
 def _unavailable_kind(sue: LLMServiceUnavailableError) -> tuple[str, str, str]:
     """``(ledger outcome, fallback reason, log wording)`` for a 5xx-class failure."""
+    if isinstance(sue, _DeclinedCompletion):
+        return "service_unavailable", "declined", "model declined"
     if isinstance(sue, _EmptyCompletion):
         return "service_unavailable", "empty", "empty body"
     if isinstance(sue, LLMModelUnusableError):
@@ -545,6 +567,7 @@ def _unavailable_kind(sue: LLMServiceUnavailableError) -> tuple[str, str, str]:
 # ``LLMError`` such as a 400, a raw ``ClientError``, bad output) never moves and marks nothing.
 FAILURE_CLASSES: tuple[tuple[type[BaseException], str, bool], ...] = (
     (LLMModelUnusableError, "model_unusable", True),
+    (_DeclinedCompletion, "declined", False),
     (_EmptyCompletion, "empty", False),
     (LLMServiceUnavailableError, "unavailable", True),
     (LLMRateLimitError, "rate_limited", True),
@@ -908,8 +931,19 @@ def _call_with_recovery(
             # all three attempts and the user was told their question could not be
             # planned. Re-raising as 503 hands it to the provider chain below, which is
             # what the run needed: a different model.
+            _meta = getattr(resp, "metadata", None) or {}
+            _declined = declined_stop(_meta)
+            if _declined:
+                _log(
+                    "empty_completion", _t0, resp=resp, response_format=response_format,
+                    repair_turn=attempt_messages is not base_messages,
+                )
+                raise _DeclinedCompletion(
+                    f"model declined from provider='{getattr(fo.client, 'provider', None)}' "
+                    f"model='{fo.model}' stop_reason={_declined!r}"
+                )
             if empty(resp):
-                _stop = (getattr(resp, "metadata", None) or {}).get("stop_reason")
+                _stop = _meta.get("stop_reason")
                 _log(
                     "empty_completion", _t0, resp=resp, response_format=response_format,
                     repair_turn=attempt_messages is not base_messages,

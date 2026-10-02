@@ -16,14 +16,16 @@ Two things about the Cypher are deliberate:
 * the whole predicate short-circuits when no investigation selector is given,
   so a ``sample_type``-only query genuinely spans everything.
 
-``seek_inv_id`` maps to ``Investigation.project_id``, which is a SEEK *project*
-id: one such id covers every investigation in that project. The parameter name
-is the caller-facing vocabulary, not a claim about the underlying column.
+``seek_inv_id`` is a SEEK *project* id: it reaches every investigation linked
+to that project (IN_PROJECT), through the samples' studies. ``project_id`` is
+the project's own scope: every sample linked to the project, whatever its study.
+The parameter names are the caller-facing vocabulary.
 """
 
 from __future__ import annotations
 
 import csv
+import difflib
 import io
 import json
 import logging
@@ -64,23 +66,28 @@ UNASSIGNED_COLOR = "#D9D9D9"
 
 _CYPHER_TEMPLATE = """
 MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
-WHERE r.internal_assay_title IS NOT NULL
+WHERE (r.internal_assay_title IS NOT NULL
+       OR any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> ''))
 %(sample_type_predicate)s
+  // Project scope: the sample's own project membership, whatever its study.
+  AND ($project_id IS NULL
+       OR EXISTS { MATCH (child)-[:IN_PROJECT]->(:Project {id: $project_id}) })
   AND ($graph_inv_id IS NULL AND $seek_inv_id IS NULL AND $name IS NULL
        OR EXISTS {
             MATCH (child)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation)
-            WHERE ($graph_inv_id IS NULL OR i.id         = $graph_inv_id)
-              AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
+            WHERE ($graph_inv_id IS NULL OR i.id = $graph_inv_id)
+              AND ($seek_inv_id  IS NULL OR EXISTS { (i)-[:IN_PROJECT]->(:Project {id: $seek_inv_id}) })
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
           })
   // Study scope. One hop shorter than the investigation path above, and a
   // separate short-circuited predicate so the two AND together naturally when
-  // both are given. study_name is resolved to ids in Python before it gets here
-  // (graph titles first, then SEEK's), so this only ever filters on ids.
-  AND ($study_ids IS NULL
+  // both are given. The selectors are resolved to nodes in Python first; each
+  // node is matched by the key it has: its graph id, else its SEEK study id.
+  AND ($graph_study_ids IS NULL AND $seek_study_ids IS NULL
        OR EXISTS {
             MATCH (child)-[:IN_STUDY]->(st:Study)
-            WHERE st.id IN $study_ids
+            WHERE st.id IN coalesce($graph_study_ids, [])
+               OR st.seek_study_id IN coalesce($seek_study_ids, [])
           })
 WITH parent, child, r,
      // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
@@ -126,23 +133,28 @@ MATCH (root:Sample) WHERE root.type = $sample_type
 MATCH (descendant:Sample)-[:DERIVED_FROM*0..]->(root)
 WITH collect(DISTINCT elementId(descendant)) AS subtree
 MATCH (child:Sample)-[r:DERIVED_FROM]->(parent:Sample)
-WHERE r.internal_assay_title IS NOT NULL
+WHERE (r.internal_assay_title IS NOT NULL
+       OR any(t IN coalesce(r.internal_assay_titles, []) WHERE t <> ''))
   AND elementId(parent) IN subtree
+  // Project scope: the sample's own project membership, whatever its study.
+  AND ($project_id IS NULL
+       OR EXISTS { MATCH (child)-[:IN_PROJECT]->(:Project {id: $project_id}) })
   AND ($graph_inv_id IS NULL AND $seek_inv_id IS NULL AND $name IS NULL
        OR EXISTS {
             MATCH (child)-[:IN_STUDY]->(:Study)-[:IN_INVESTIGATION]->(i:Investigation)
-            WHERE ($graph_inv_id IS NULL OR i.id         = $graph_inv_id)
-              AND ($seek_inv_id  IS NULL OR i.project_id = $seek_inv_id)
+            WHERE ($graph_inv_id IS NULL OR i.id = $graph_inv_id)
+              AND ($seek_inv_id  IS NULL OR EXISTS { (i)-[:IN_PROJECT]->(:Project {id: $seek_inv_id}) })
               AND ($name         IS NULL OR toLower(i.title) = toLower($name))
           })
   // Study scope. One hop shorter than the investigation path above, and a
   // separate short-circuited predicate so the two AND together naturally when
-  // both are given. study_name is resolved to ids in Python before it gets here
-  // (graph titles first, then SEEK's), so this only ever filters on ids.
-  AND ($study_ids IS NULL
+  // both are given. The selectors are resolved to nodes in Python first; each
+  // node is matched by the key it has: its graph id, else its SEEK study id.
+  AND ($graph_study_ids IS NULL AND $seek_study_ids IS NULL
        OR EXISTS {
             MATCH (child)-[:IN_STUDY]->(st:Study)
-            WHERE st.id IN $study_ids
+            WHERE st.id IN coalesce($graph_study_ids, [])
+               OR st.seek_study_id IN coalesce($seek_study_ids, [])
           })
 WITH parent, child, r,
      // #118: the edge kept only the lowest-id shared assay and dropped the rest, so
@@ -205,35 +217,38 @@ def fetch_clade_map() -> Dict[str, Tuple[str, str]]:
         return {}
 
 
-def resolve_study_ids(driver, db_name, selector) -> Optional[List[int]]:
-    """Study ids for the selector, or None when no study filter was asked for.
+STUDY_KEYS_CYPHER = "MATCH (st:Study) RETURN st.id AS id, st.seek_study_id AS seek_study_id, st.title AS title"
 
-    study_name is matched against the GRAPH's title first and SEEK's second,
-    because the two disagree on 44 of 48 shared studies -- the graph carries
-    "CSBC Unpublished" where SEEK carries the full 90-character name -- and a
-    caller may reasonably have read either. Returning [] rather than None on a
-    miss matters: it means "a study was asked for and nothing matched", which
-    filters everything out, instead of "no study filter", which would silently
-    widen the query to the whole graph.
+
+def resolve_study_ids(driver, db_name, selector) -> Optional[Dict[str, List[int]]]:
+    """The study filter as two lists, or None when no study selector was given.
+
+    Each selector matches Study nodes: graph_study_id (and its alias study_id) by ``Study.id``, seek_study_id by
+    ``Study.seek_study_id``, study_name by the graph's title first and, when no graph title matches, by SEEK's title,
+    whose ids reach only nodes carrying them as seek_study_id. Several selectors intersect over the nodes. A matched
+    node goes into ``graph_study_ids`` when it has an id, else into ``seek_study_ids``. Two empty lists (a selector
+    that matched nothing) filter everything out; None would widen the query to the whole graph.
     """
-    if selector.study_id is None and not selector.study_name:
+    graph_ids = selector.graph_study_ids
+    if not graph_ids and selector.seek_study_id is None and not selector.study_name:
         return None
-
-    ids: Optional[set] = None
+    records, _s, _k = driver.execute_query(STUDY_KEYS_CYPHER, database_=db_name)
+    nodes = [(r["id"], r["seek_study_id"], r["title"]) for r in records]
+    matched = set(range(len(nodes)))
+    for graph_id in graph_ids:
+        matched &= {i for i, n in enumerate(nodes) if n[0] == graph_id}
+    if selector.seek_study_id is not None:
+        matched &= {i for i, n in enumerate(nodes) if n[1] == selector.seek_study_id}
     if selector.study_name:
         wanted = selector.study_name.strip().lower()
-        records, _s, _k = driver.execute_query(
-            "MATCH (st:Study) WHERE toLower(st.title) = $t RETURN st.id AS id",
-            t=wanted, database_=db_name,
-        )
-        ids = {int(r["id"]) for r in records if r["id"] is not None}
-        if not ids:
-            ids = _seek_study_ids_by_title(wanted)
-
-    if selector.study_id is not None:
-        ids = {selector.study_id} if ids is None else (ids & {selector.study_id})
-
-    return sorted(ids or [])
+        by_title = {i for i, n in enumerate(nodes) if (n[2] or "").lower() == wanted}
+        if not by_title:
+            seek_ids = _seek_study_ids_by_title(wanted)
+            by_title = {i for i, n in enumerate(nodes) if n[1] is not None and n[1] in seek_ids}
+        matched &= by_title
+    return {"graph_study_ids": sorted({nodes[i][0] for i in matched if nodes[i][0] is not None}),
+            "seek_study_ids": sorted({nodes[i][1] for i in matched
+                                      if nodes[i][0] is None and nodes[i][1] is not None})}
 
 
 def _seek_study_ids_by_title(title_lower: str) -> set:
@@ -265,12 +280,15 @@ def run_connections_query(selector: SampleTypeConnectionsRequest) -> List[Dict[s
     use_subtree = bool(selector.sample_type) and not selector.direct_connections
     cypher = CONNECTIONS_SUBTREE_CYPHER if use_subtree else CONNECTIONS_CYPHER
     with GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]) as driver:
+        studies = resolve_study_ids(driver, neo["NAME"], selector)
         params = {
             "sample_type": selector.sample_type or None,
+            "project_id": selector.project_id,
             "graph_inv_id": selector.graph_inv_id,
             "seek_inv_id": selector.seek_inv_id,
             "name": selector.effective_investigation_name,
-            "study_ids": resolve_study_ids(driver, neo["NAME"], selector),
+            "graph_study_ids": None if studies is None else studies["graph_study_ids"],
+            "seek_study_ids": None if studies is None else studies["seek_study_ids"],
         }
         records, _summary, _keys = driver.execute_query(
             cypher, **params, database_=neo["NAME"]
@@ -293,6 +311,87 @@ def run_connections_query(selector: SampleTypeConnectionsRequest) -> List[Dict[s
     return rows
 
 
+SAMPLE_TYPE_TITLES_CYPHER = "MATCH (t:SampleType) RETURN t.title AS title"
+
+INVESTIGATION_NOTES_CYPHER = """
+MATCH (i:Investigation)
+WHERE ($graph_inv_id IS NULL OR i.id = $graph_inv_id)
+  AND ($seek_inv_id IS NULL OR EXISTS { (i)-[:IN_PROJECT]->(:Project {id: $seek_inv_id}) })
+  AND ($name IS NULL OR toLower(i.title) = toLower($name))
+RETURN count(i) AS investigations,
+       count(CASE WHEN EXISTS { (i)<-[:IN_INVESTIGATION]-(:Study) } THEN 1 END) AS with_studies
+"""
+
+PROJECT_NOTES_CYPHER = """
+OPTIONAL MATCH (p:Project {id: $project_id})
+RETURN count(p) AS projects,
+       COUNT { MATCH (:Sample)-[:IN_PROJECT]->(q:Project) WHERE q.id = $project_id } AS samples
+"""
+
+CLOSEST_SAMPLE_TYPES = 5          # how many close codes a refused sample_type names
+
+
+def closest_sample_types(code: str) -> Optional[List[str]]:
+    """None when ``code`` is a SampleType title in the graph, else the closest titles, best first.
+
+    None too when the catalog cannot be read or holds nothing: a lookup that failed is no reason to refuse a query,
+    and the query itself then answers or fails on its own."""
+    neo = settings.NEO4J_DATABASE
+    try:
+        with GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]) as driver:
+            records, _s, _k = driver.execute_query(SAMPLE_TYPE_TITLES_CYPHER, database_=neo["NAME"])
+    except Exception:
+        logger.exception("sample type catalog read failed; the query runs unchecked")
+        return None
+    titles = sorted({str(r["title"]) for r in records if r["title"]})
+    if not titles or code in titles:
+        return None
+    by_case = {t.lower(): t for t in titles}
+    close = difflib.get_close_matches(code.lower(), list(by_case), n=CLOSEST_SAMPLE_TYPES, cutoff=0.5)
+    return [by_case[c] for c in close]
+
+
+def empty_result_notes(selector) -> List[str]:
+    """Why a selector matched nothing: per selector, whether what it names exists in the graph, and whether the
+    investigations it names have any Study node. Never raises: a failed read yields a note saying so."""
+    neo = settings.NEO4J_DATABASE
+    notes: List[str] = []
+    name = selector.effective_investigation_name
+    try:
+        with GraphDatabase.driver(neo["URI"], auth=neo["AUTH"]) as driver:
+            if selector.project_id is not None:
+                records, _s, _k = driver.execute_query(PROJECT_NOTES_CYPHER, project_id=selector.project_id,
+                                                       database_=neo["NAME"])
+                found = records[0] if records else {"projects": 0, "samples": 0}
+                if not found["projects"]:
+                    notes.append(f"No Project node has id {selector.project_id}.")
+                elif not found["samples"]:
+                    notes.append(f"No sample is linked to project {selector.project_id} (IN_PROJECT).")
+            if selector.graph_inv_id is not None or selector.seek_inv_id is not None or name:
+                records, _s, _k = driver.execute_query(
+                    INVESTIGATION_NOTES_CYPHER, graph_inv_id=selector.graph_inv_id,
+                    seek_inv_id=selector.seek_inv_id, name=name, database_=neo["NAME"])
+                found = records[0] if records else {"investigations": 0, "with_studies": 0}
+                if not found["investigations"]:
+                    notes.append("No Investigation node matches the investigation selectors.")
+                elif not found["with_studies"]:
+                    notes.append(f"The {found['investigations']} matching investigation(s) have no Study node, so no "
+                                 "sample reaches them through IN_STUDY; project_id reaches a project's samples "
+                                 "whatever their study.")
+            studies = resolve_study_ids(driver, neo["NAME"], selector)
+            if studies is not None and not studies["graph_study_ids"] and not studies["seek_study_ids"]:
+                notes.append("No Study node matches the study selectors.")
+    except Exception:
+        logger.exception("the notes of an empty connections answer could not be read")
+        return ["The graph could not be read to say why nothing matched."]
+    if selector.sample_type:
+        notes.append(f"No lineage edge of sample type {selector.sample_type} lies inside the selectors given.")
+    if not notes:
+        notes.append("Every selector matches nodes in the graph, but no lineage edge with an assay title joins "
+                     "samples inside them.")
+    return notes
+
+
 def download_name(selector, extension: str) -> str:
     """Filename for a downloaded connection map, tagged with the selector used.
 
@@ -301,6 +400,8 @@ def download_name(selector, extension: str) -> str:
     The selector suffix keeps successive downloads from all colliding on one name.
     """
     parts = []
+    if selector.project_id is not None:
+        parts.append(f"project{selector.project_id}")
     if selector.graph_inv_id is not None:
         parts.append(f"inv{selector.graph_inv_id}")
     if selector.seek_inv_id is not None:
@@ -308,6 +409,10 @@ def download_name(selector, extension: str) -> str:
     inv_name = selector.effective_investigation_name
     if inv_name:
         parts.append(re.sub(r"[^A-Za-z0-9]+", "-", inv_name).strip("-").lower())
+    if selector.graph_study_id is not None:
+        parts.append(f"gstudy{selector.graph_study_id}")
+    if selector.seek_study_id is not None:
+        parts.append(f"sstudy{selector.seek_study_id}")
     if selector.study_id is not None:
         parts.append(f"study{selector.study_id}")
     if selector.study_name:
@@ -728,6 +833,16 @@ CLADE_STYLES = {
     "Analyzed":  ("#1565C0", "hexagon"),
 }
 _CYTO_CDN = "https://unpkg.com"
+#: Exact versions with their integrity hashes: a floating "@3" could change under
+#: the page, and a changed file without a matching hash is refused by the browser.
+_CYTO_SCRIPTS = (
+    ("cytoscape@3.34.3/dist/cytoscape.min.js",
+     "sha384-qPKQxl9uMXOw7vSTUDAnpUilhLuulovw6P5Z4db4bqxW5VhumS7przEmHX0iM0Oc"),
+    ("dagre@0.8.5/dist/dagre.min.js",
+     "sha384-2IH3T69EIKYC4c+RXZifZRvaH5SRUdacJW7j6HtE5rQbvLhKKdawxq6vpIzJ7j9M"),
+    ("cytoscape-dagre@2.5.0/cytoscape-dagre.js",
+     "sha384-u69h9ebXeSjlg6q/rb1zKTRAGu/h8deCl0409xpS/QJctMKnc4M9Fzkm01VOQdeF"),
+)
 
 
 def rows_to_html(rows, clade_map, title="SampleType connections") -> str:
@@ -758,21 +873,28 @@ def rows_to_html(rows, clade_map, title="SampleType connections") -> str:
         for k, (c, _shape) in CLADE_STYLES.items()
         if any(n["clade"] == k for n in nodes)
     )
+    scripts = "".join(
+        f'<script src="{_CYTO_CDN}/{path}" integrity="{sri}" crossorigin="anonymous"></script>\n'
+        for path, sri in _CYTO_SCRIPTS
+    )
     return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_esc(title)}</title>
-<script src="{_CYTO_CDN}/cytoscape@3/dist/cytoscape.min.js"></script>
-<script src="{_CYTO_CDN}/dagre@0.8/dist/dagre.min.js"></script>
-<script src="{_CYTO_CDN}/cytoscape-dagre@2/cytoscape-dagre.js"></script>
-<style>
-html,body{{margin:0;height:100%;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1F2328}}
-header{{padding:10px 18px;border-bottom:1px solid #E1E4E8;background:#fff;display:flex;
-gap:16px;align-items:center;flex-wrap:wrap}}
+{scripts}<style>
+/* A flex column: the header takes what it needs (it wraps on narrow frames) and
+   the canvas fills the rest. Nothing may overflow the frame: one stray pixel
+   would show a scrollbar, narrow the canvas, hide the scrollbar, and repeat. */
+html,body{{margin:0;height:100%;overflow:hidden}}
+body{{display:flex;flex-direction:column;font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1F2328}}
+header{{flex:none;padding:10px 18px;border-bottom:1px solid #E1E4E8;background:#fff;display:flex;
+gap:4px 16px;align-items:center;flex-wrap:wrap}}
 h1{{margin:0;font-size:15px;font-weight:700}}
 .sub{{color:#57606A;font-size:12px}}
 .lg{{font-size:12px;color:#444;display:inline-flex;align-items:center;gap:5px;margin-right:10px}}
 .lg i{{width:11px;height:11px;border-radius:3px;display:inline-block}}
-#cy{{position:absolute;top:52px;bottom:0;left:0;right:0;background:#FCFCFD}}
-#dp{{position:absolute;right:14px;top:66px;width:250px;background:#fff;border:1px solid #D0D7DE;
+main{{flex:1;min-height:0;position:relative}}
+#cy{{position:absolute;inset:0;background:#FCFCFD}}
+#dp{{position:absolute;right:14px;top:14px;width:250px;max-width:calc(100% - 28px);box-sizing:border-box;background:#fff;border:1px solid #D0D7DE;
 border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px rgba(0,0,0,.09);display:none;font-size:12.5px}}
 #dp b{{display:block;font-size:14px;margin-bottom:4px}}
 #dp ul{{margin:6px 0 0;padding-left:18px}}
@@ -780,7 +902,7 @@ border-radius:8px;padding:12px 14px;box-shadow:0 4px 14px rgba(0,0,0,.09);displa
 <header><h1>{_esc(title)}</h1>
 <span class="sub">{len(nodes)} sample types &middot; {len(edges)} connections</span>{legend}
 <span class="sub">click a node or edge for detail</span></header>
-<div id="cy"></div><div id="dp"></div>
+<main><div id="cy"></div><div id="dp"></div></main>
 <script>
 var D={payload};
 var els=D.nodes.map(function(n){{return {{group:'nodes',data:{{
@@ -793,17 +915,18 @@ var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
   {{selector:'node',style:{{'background-color':'data(bg)','shape':'data(shape)','label':'data(label)',
     'text-valign':'center','text-halign':'center','color':'#fff','font-size':'11px','font-weight':'bold',
     'width':'96px','height':'62px','border-width':1,'border-color':'data(bg)',
-    'text-outline-color':'data(bg)','text-outline-width':'1px'}}}},
+    'text-outline-color':'data(bg)','text-outline-width':'1px','z-index-compare':'manual','z-index':1}}}},
   {{selector:'edge',style:{{'width':1.5,'line-color':'#999','target-arrow-color':'#999',
     'target-arrow-shape':'triangle','arrow-scale':0.9,'curve-style':'bezier','label':'data(label)',
-    'font-size':'10px','color':'#333','text-rotation':'autorotate','text-background-color':'#fff',
+    'font-size':'10px','color':'#333','text-rotation':'none','text-wrap':'wrap','text-max-width':'100px',
+    'z-index-compare':'manual','z-index':2,'text-background-color':'#fff',
     'text-background-opacity':0.9,'text-background-padding':'3px','text-margin-y':'-9px'}}}},
   {{selector:'edge:loop',style:{{'curve-style':'bezier','loop-direction':'-90deg','loop-sweep':'-45deg',
     'control-point-step-size':'110px','text-rotation':'none'}}}},
   {{selector:':selected',style:{{'border-color':'#A31F34','border-width':4,
     'line-color':'#A31F34','target-arrow-color':'#A31F34'}}}}
  ],
- layout:{{name:'dagre',rankDir:'TB',rankSep:85,nodeSep:45,edgeSep:18,padding:30,animate:false}},
+ layout:{{name:'dagre',rankDir:'TB',rankSep:100,nodeSep:70,edgeSep:18,padding:30,animate:false}},
  minZoom:0.2,maxZoom:3,wheelSensitivity:0.3,
  // Cytoscape draws to a <canvas>, so the diagram is a RASTER however vector the
  // data is. pixelRatio is read once at construction and defaults to the
@@ -812,20 +935,23 @@ var cy=cytoscape({{container:document.getElementById('cy'),elements:els,
  // costs a little memory on a graph this size and nothing else.
  pixelRatio:2}});
 var dp=document.getElementById('dp');
-// Browser zoom (ctrl +) changes devicePixelRatio, and Cytoscape does not watch
-// for it -- the existing canvas is simply magnified, which is the blur. There is
-// no devicePixelRatio event, so the idiom is a matchMedia query on the CURRENT
-// ratio: it stops matching the instant the ratio changes, fires once, and has to
-// be re-armed at the new value. cy.resize() re-rasterises at that new ratio.
+// One debounced resize for every cause: the canvas box changing size (window,
+// iframe or header wrap, seen by a ResizeObserver) and browser zoom, which
+// changes devicePixelRatio without an event of its own. The idiom for that is a
+// matchMedia query on the CURRENT ratio: it fires once when the ratio changes
+// and is re-armed at the new value. cy.resize() re-rasterises at that ratio.
 (function(){{
+  var timer=null;
+  function resize(){{ clearTimeout(timer); timer=setTimeout(function(){{ cy.resize(); }},100); }}
   function watchRatio(){{
     var mq=window.matchMedia('(resolution: '+window.devicePixelRatio+'dppx)');
-    function onChange(){{ cy.resize(); watchRatio(); }}
+    function onChange(){{ resize(); watchRatio(); }}
     if(mq.addEventListener){{ mq.addEventListener('change',onChange,{{once:true}}); }}
     else if(mq.addListener){{ mq.addListener(onChange); }}
   }}
   try{{ watchRatio(); }}catch(e){{ /* no matchMedia: the diagram still works */ }}
-  window.addEventListener('resize',function(){{ cy.resize(); }});
+  if(window.ResizeObserver){{ new ResizeObserver(resize).observe(document.getElementById('cy')); }}
+  else{{ window.addEventListener('resize',resize); }}
 }})();
 function esc(s){{return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}}
 cy.on('tap','node',function(e){{var d=e.target.data();
@@ -850,9 +976,12 @@ def choose_layout(selector) -> str:
     if getattr(selector, "layout", None):
         return selector.layout
     scoped = (
-        selector.graph_inv_id is not None
+        selector.project_id is not None
+        or selector.graph_inv_id is not None
         or selector.seek_inv_id is not None
         or bool(selector.effective_investigation_name)
+        or selector.graph_study_id is not None
+        or selector.seek_study_id is not None
         or selector.study_id is not None
         or bool(selector.study_name)
     )
@@ -868,27 +997,36 @@ def rows_to_svg(rows, clade_map, layout: str = "radial") -> str:
 
 
 _QUERY_PARAMS = [
+    # --- scope: project ---
+    OpenApiParameter("project_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+                     description="PROJECT SCOPE. A SEEK project id: the samples linked to that project "
+                                 "(IN_PROJECT), whatever their study or investigation."),
     # --- scope: investigation ---
     OpenApiParameter("graph_inv_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
                      description="INVESTIGATION SCOPE. Investigation.id in the graph."),
     OpenApiParameter("seek_inv_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
-                     description="INVESTIGATION SCOPE. Investigation.project_id -- a SEEK "
-                                 "PROJECT id, so it reaches every investigation in that project."),
+                     description="INVESTIGATION SCOPE. A SEEK PROJECT id: every investigation linked to "
+                                 "that project, reached through the samples' studies."),
     OpenApiParameter("investigation_name", OpenApiTypes.STR, OpenApiParameter.QUERY,
                      description="INVESTIGATION SCOPE. Investigation.title, exact and "
                                  "case-insensitive."),
     # --- scope: study ---
-    OpenApiParameter("study_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
-                     description="STUDY SCOPE. Study.id. The graph and SEEK agree on study "
-                                 "ids, so there is no graph/seek pair here."),
+    OpenApiParameter("graph_study_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+                     description="STUDY SCOPE. Study.id in the graph: a graph-only paper study's id, or the id a "
+                                 "merged or rekeyed SEEK study's node kept. It can differ from the SEEK study id."),
+    OpenApiParameter("seek_study_id", OpenApiTypes.INT, OpenApiParameter.QUERY,
+                     description="STUDY SCOPE. Study.seek_study_id: the SEEK study id, which every SEEK study's "
+                                 "node carries."),
+    OpenApiParameter("study_id", OpenApiTypes.INT, OpenApiParameter.QUERY, deprecated=True,
+                     description="Deprecated alias for graph_study_id."),
     OpenApiParameter("study_name", OpenApiTypes.STR, OpenApiParameter.QUERY,
-                     description="STUDY SCOPE. Study title, exact and case-insensitive. Tries "
-                                 "the graph's title first, then SEEK's -- they disagree on 44 "
-                                 "of 48 shared studies."),
+                     description="STUDY SCOPE. Study title, exact and case-insensitive. Tries the graph's titles "
+                                 "first, then SEEK's, whose ids reach only nodes carrying them as seek_study_id."),
     # --- scope: sample type ---
     OpenApiParameter("sample_type", OpenApiTypes.STR, OpenApiParameter.QUERY,
-                     description="SAMPLE TYPE SCOPE. A sample type code. Combines with an "
-                                 "investigation or a study."),
+                     description="SAMPLE TYPE SCOPE. A sample type code. Combines with a "
+                                 "project, an investigation or a study. A code the graph's "
+                                 "catalog does not hold answers 422 with the closest codes."),
     OpenApiParameter("direct_connections", OpenApiTypes.BOOL, OpenApiParameter.QUERY,
                      description="Modifies sample_type. Default FALSE: walks the whole tree "
                                  "rooted at it (NHP -> PAV -> TIS -> DNA ...). Set true for "
@@ -987,10 +1125,13 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         """
         params = request.query_params
         raw = {
+            "project_id": params.get("project_id") or None,
             "graph_inv_id": params.get("graph_inv_id") or None,
             "seek_inv_id": params.get("seek_inv_id") or None,
             "investigation_name": params.get("investigation_name") or None,
             "name": params.get("name") or None,
+            "graph_study_id": params.get("graph_study_id") or None,
+            "seek_study_id": params.get("seek_study_id") or None,
             "study_id": params.get("study_id") or None,
             "study_name": params.get("study_name") or None,
             "sample_type": params.get("sample_type") or None,
@@ -1013,6 +1154,16 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
                 {"errors": [{"title": "Invalid request", "detail": json.loads(exc.json())}]},
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+
+        if selector.sample_type:
+            closest = closest_sample_types(selector.sample_type)
+            if closest is not None:
+                return Response(
+                    {"errors": [{"title": "Unknown sample type",
+                                 "detail": f"{selector.sample_type!r} is not a sample type code in the graph.",
+                                 "closest": closest}]},
+                    status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                )
 
         try:
             rows = run_connections_query(selector)
@@ -1072,6 +1223,7 @@ class SampleTypeConnectionsViewSet(viewsets.GenericViewSet):
         payload = SampleTypeConnectionsResponse(
             total=len(rows),
             filters=applied,
+            notes=[] if rows or selector.all_conns else empty_result_notes(selector),
             connections=[
                 SampleTypeConnection(
                     **row,

@@ -336,8 +336,12 @@ class TestResolveOrphansTask:
 
             mock_discover.assert_called_once()
             mock_resolve.assert_called_once_with(orphans=mock_discover.return_value, sql_conn=mock_conn)
-            mock_enqueue.assert_called_once_with("samples", "sample:1")
-            assert result["resolved"] == 1
+            # One samples row per chunk of resolved ids, keyed batch:orphans:<time_ns>:<n>, the ids its payload.
+            (call,) = mock_enqueue.call_args_list
+            kind, key, ids = call.args
+            assert (kind, ids) == ("samples", [1])
+            assert key.startswith("batch:orphans:") and key.endswith(":0")
+            assert result["resolved"] == 1 and result["queued"] == 1
 
     def test_empty_identity_map_returns_zero(self):
         from nextseek_api.batch_upload.tasks import resolve_orphans_task

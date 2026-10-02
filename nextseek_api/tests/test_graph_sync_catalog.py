@@ -285,6 +285,15 @@ def test_catalog_hash_changes_when_one_value_type_changes():
     assert c.catalog_hash(types, changed) != before
 
 
+def test_catalog_hash_changes_when_an_attribute_starts_or_stops_holding_values():
+    types, attrs = _catalog()
+    key = attrs[0]["key"]
+    none, one = c.catalog_hash(types, attrs), c.catalog_hash(types, attrs, [key])
+    assert none != one
+    assert c.catalog_hash(types, attrs, [key]) == c.catalog_hash(types, attrs, (key,))    # the order and the type
+    assert c.catalog_hash(types, attrs, []) == none
+
+
 def test_catalog_hash_changes_when_declared_or_a_label_changes():
     types, attrs = _catalog()
     before = c.catalog_hash(types, attrs)
