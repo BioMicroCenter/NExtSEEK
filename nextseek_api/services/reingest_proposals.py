@@ -27,6 +27,13 @@ reached to check.
 from __future__ import annotations
 
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import serializers, viewsets
 from rest_framework.authentication import BasicAuthentication
 from rest_framework.decorators import action
@@ -35,7 +42,14 @@ from rest_framework.response import Response
 
 from nextseek_api.assistant.models_db import ReingestAttributeProposal
 from nextseek_api.authentication import CsrfExemptSessionAuthentication
+from nextseek_api.endpoint_descriptions import (
+    REINGEST_PROPOSAL_APPROVE_DESC,
+    REINGEST_PROPOSAL_LIST_DESC,
+    REINGEST_PROPOSAL_REJECT_DESC,
+    REINGEST_PROPOSAL_RETRIEVE_DESC,
+)
 from nextseek_api.helpers import StandardResultsSetPagination
+from nextseek_api.models import JsonApiErrorResponse
 from nextseek_api.permissions import IsSuperUser
 from NessieAI.ns.reingest.proposals import attribute_exists
 
@@ -68,6 +82,75 @@ class ReingestAttributeProposalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+_TAGS = ["reingest-proposals"]
+
+_PENDING_PROPOSAL = {
+    "id": 17,
+    "pipeline": "nf-core/rnaseq",
+    "raw_key": "percent_duplication",
+    "proposed_target": "D.SEQ-EXAMPLE-1",
+    "proposed_attribute": "DuplicationPercent",
+    "datatype": "float",
+    "example_value": "12.4",
+    "source_file": "multiqc/multiqc_data/multiqc_general_stats.txt",
+    "rationale": "The MultiQC general stats column reports the share of duplicate reads.",
+    "status": "pending",
+    "times_proposed": 3,
+    "first_seen_run": "run-example-001",
+    "last_seen_run": "run-example-003",
+    "manifest_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "proposed_by": "example_user",
+    "reviewed_by": None,
+    "reviewed_at": None,
+    "created_at": "2026-09-01T14:05:00Z",
+}
+_REVIEWED = {"reviewed_by": "example_admin", "reviewed_at": "2026-09-02T09:30:00Z"}
+_APPROVED_PROPOSAL = {**_PENDING_PROPOSAL, "status": "approved", **_REVIEWED}
+_REJECTED_PROPOSAL = {**_PENDING_PROPOSAL, "status": "rejected", **_REVIEWED}
+
+
+@extend_schema_view(
+    list=extend_schema(
+        operation_id="Reingest Proposals: List",
+        description=REINGEST_PROPOSAL_LIST_DESC,
+        tags=_TAGS,
+        parameters=[
+            OpenApiParameter(
+                "status", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                enum=["pending", "needs_definition", "approved", "rejected"],
+                description="Only rows in this review status. Omitted means every status.",
+            ),
+            OpenApiParameter(
+                "pipeline", OpenApiTypes.STR, OpenApiParameter.QUERY,
+                description="Only rows for this pipeline, matched exactly, for example `nf-core/rnaseq`.",
+            ),
+        ],
+        examples=[
+            OpenApiExample(
+                name="Pending proposals for nf-core/rnaseq",
+                value={
+                    "count": 1,
+                    "next": None,
+                    "previous": None,
+                    "results": [_PENDING_PROPOSAL],
+                },
+                response_only=True,
+            ),
+        ],
+    ),
+    retrieve=extend_schema(
+        operation_id="Reingest Proposals: Get",
+        description=REINGEST_PROPOSAL_RETRIEVE_DESC,
+        tags=_TAGS,
+        examples=[
+            OpenApiExample(
+                name="One pending proposal",
+                value=_PENDING_PROPOSAL,
+                response_only=True,
+            ),
+        ],
+    ),
+)
 class ReingestProposalViewSet(viewsets.ReadOnlyModelViewSet):
     """List the queue; approve or reject one row.
 
@@ -102,6 +185,57 @@ class ReingestProposalViewSet(viewsets.ReadOnlyModelViewSet):
         row.save(update_fields=["status", "reviewed_by", "reviewed_at"])
         return Response(self.get_serializer(row).data)
 
+    @extend_schema(
+        operation_id="Reingest Proposals: Approve",
+        description=REINGEST_PROPOSAL_APPROVE_DESC,
+        tags=_TAGS,
+        request=None,
+        responses={
+            200: ReingestAttributeProposalSerializer,
+            409: JsonApiErrorResponse,
+            503: JsonApiErrorResponse,
+        },
+        examples=[
+            OpenApiExample(
+                name="Approved",
+                value=_APPROVED_PROPOSAL,
+                response_only=True,
+                status_codes=["200"],
+            ),
+            OpenApiExample(
+                name="Attribute not defined",
+                value={
+                    "errors": [{
+                        "title": "Attribute not defined",
+                        "detail": (
+                            "'DuplicationPercent' is not defined on sample type "
+                            "'D.SEQ-EXAMPLE-1'. Define the attribute first (native "
+                            "Attribute API), then approve this proposal -- reingest "
+                            "never invents a sample attribute."
+                        ),
+                    }],
+                },
+                response_only=True,
+                status_codes=["409"],
+            ),
+            OpenApiExample(
+                name="Sample type catalog unreachable",
+                value={
+                    "errors": [{
+                        "title": "Sample type catalog unreachable",
+                        "detail": (
+                            "Could not verify whether 'DuplicationPercent' is defined "
+                            "on 'D.SEQ-EXAMPLE-1': connection refused. Try again once "
+                            "the catalog is reachable; this proposal's ruling was not "
+                            "changed."
+                        ),
+                    }],
+                },
+                response_only=True,
+                status_codes=["503"],
+            ),
+        ],
+    )
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         row = self.get_object()
@@ -133,6 +267,20 @@ class ReingestProposalViewSet(viewsets.ReadOnlyModelViewSet):
             )
         return self._rule(request, ReingestAttributeProposal.STATUS_APPROVED, row)
 
+    @extend_schema(
+        operation_id="Reingest Proposals: Reject",
+        description=REINGEST_PROPOSAL_REJECT_DESC,
+        tags=_TAGS,
+        request=None,
+        responses={200: ReingestAttributeProposalSerializer},
+        examples=[
+            OpenApiExample(
+                name="Rejected",
+                value=_REJECTED_PROPOSAL,
+                response_only=True,
+            ),
+        ],
+    )
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         # No existence check: rejecting an attribute that does not exist is

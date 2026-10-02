@@ -1407,3 +1407,87 @@ GRAPH_SYNC_STATUS_DESC = (
     "- 'When did the last full graph sync finish, and did it succeed?'\n"
     "- 'How many samples are waiting to be written to the graph?'\n"
 )
+
+
+# =============================================================================
+# ReingestProposalViewSet (4 endpoints)
+# =============================================================================
+
+REINGEST_PROPOSAL_LIST_DESC = (
+    "**SUMMARY:** List the reingest attribute proposal queue: each row is a raw key an nf-core pipeline run produced "
+    "that the reingest agent proposed mapping onto a sample attribute, with its review status.\n\n"
+    "**USE WHEN:** A superuser is working through the review queue, auditing past rulings, or checking which "
+    "proposals a pipeline has outstanding before approving any.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser; the caller wants to define a missing sample "
+    "attribute, which is the Attribute API; the caller wants project data, since this queue is a global operator "
+    "worklist and is not project-scoped.\n\n"
+    "**ACCEPTS:** Query parameters `status` (`pending`, `needs_definition`, `approved` or `rejected`; omitted means "
+    "every status), `pipeline` (exact match, for example `nf-core/rnaseq`), `page` and `page_size` (default 100, "
+    "maximum 1000).\n\n"
+    "**RETURNS:** `200` with a paginated body: `count`, `next`, `previous` and `results`. Each result carries `id`, "
+    "`pipeline`, `raw_key`, `proposed_target` (sample type), `proposed_attribute`, `datatype`, `example_value`, "
+    "`source_file`, `rationale`, `status`, `times_proposed`, `first_seen_run`, `last_seen_run`, `manifest_digest`, "
+    "`proposed_by` and `reviewed_by` (usernames, or null), `reviewed_at` and `created_at`. Ordered by "
+    "`times_proposed` descending, then newest first.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for an authenticated caller who is not a Django superuser, "
+    "including a user with `is_staff` set, which every SEEK login sets.\n\n"
+    "**TRIGGER PHRASES:** reingest proposals, reingest review queue, pending attribute mappings, which proposals "
+    "need definition, proposals for a pipeline\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show the pending reingest proposals for nf-core/rnaseq'\n"
+    "- 'Which reingest proposals still need an attribute defined?'\n"
+    "- 'List everything a reviewer has approved'\n"
+)
+
+REINGEST_PROPOSAL_RETRIEVE_DESC = (
+    "**SUMMARY:** Fetch one reingest attribute proposal by its numeric id.\n\n"
+    "**USE WHEN:** A superuser needs the full record behind a queue row before ruling on it, including the "
+    "rationale, the example value and who last reviewed it.\n\n"
+    "**DO NOT USE WHEN:** The caller is not a Django superuser; the caller wants to scan the queue, which is the "
+    "list endpoint.\n\n"
+    "**ACCEPTS:** The proposal id in the path.\n\n"
+    "**RETURNS:** `200` with one proposal, in the shape of a list result.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for a caller who is not a Django superuser; `404` when no "
+    "proposal has that id.\n\n"
+    "**TRIGGER PHRASES:** reingest proposal detail, show proposal, why was this key proposed\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Show reingest proposal 17'\n"
+    "- 'What rationale was given for proposal 17?'\n"
+)
+
+REINGEST_PROPOSAL_APPROVE_DESC = (
+    "**SUMMARY:** Approve one reingest attribute proposal, which makes it a mapping rule the reingest mapper reads "
+    "from then on.\n\n"
+    "**USE WHEN:** A superuser has confirmed that the raw pipeline key belongs in the proposed attribute and that "
+    "attribute is already defined on the proposed sample type.\n\n"
+    "**DO NOT USE WHEN:** The attribute is not defined yet; define it first with the Attribute API, then approve. "
+    "Reingest never invents a sample attribute.\n\n"
+    "**ACCEPTS:** The proposal id in the path and no request body. The reviewer is the authenticated caller.\n\n"
+    "**RETURNS:** `200` with the updated proposal: `status` is `approved`, `reviewed_by` is the caller's username "
+    "and `reviewed_at` is set.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for a caller who is not a Django superuser; `404` when no "
+    "proposal has that id; `409` when the proposed attribute is not defined on the proposed sample type; `503` when "
+    "the sample type catalog could not be reached to check, in which case the ruling is left unchanged and the "
+    "request can be retried.\n\n"
+    "**TRIGGER PHRASES:** approve reingest proposal, accept attribute mapping, approve mapping rule\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Approve reingest proposal 17'\n"
+    "- 'Accept the proposed mapping for the contamination key'\n"
+)
+
+REINGEST_PROPOSAL_REJECT_DESC = (
+    "**SUMMARY:** Reject one reingest attribute proposal. A rejection is final: a later automated sighting of the "
+    "same key does not reopen it.\n\n"
+    "**USE WHEN:** A superuser has decided the raw pipeline key should not be mapped onto the proposed attribute, "
+    "whether or not that attribute exists.\n\n"
+    "**DO NOT USE WHEN:** The caller only wants to defer the decision; leave the row as it is.\n\n"
+    "**ACCEPTS:** The proposal id in the path and no request body. The reviewer is the authenticated caller.\n\n"
+    "**RETURNS:** `200` with the updated proposal: `status` is `rejected`, `reviewed_by` is the caller's username "
+    "and `reviewed_at` is set.\n\n"
+    "**ERROR CODES:** `401` when unauthenticated; `403` for a caller who is not a Django superuser; `404` when no "
+    "proposal has that id.\n\n"
+    "**TRIGGER PHRASES:** reject reingest proposal, decline attribute mapping, dismiss proposal\n\n"
+    "**EXAMPLES:**\n"
+    "- 'Reject reingest proposal 17'\n"
+    "- 'Decline the proposed mapping for that raw key'\n"
+)

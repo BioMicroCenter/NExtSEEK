@@ -417,6 +417,7 @@ API_TAG_ORDER = [
     "admin",
     "Users (admin)",
     "Nessie",
+    "reingest-proposals",
     "Attributes",
     "batch-upload",
     "DataFiles",
