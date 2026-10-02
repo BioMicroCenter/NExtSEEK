@@ -72,6 +72,16 @@ def drop_index(name: str) -> str:
     return DROP_INDEX.format(name=name)
 
 
+# --- paged whole-graph reads (writer.read_sample_pages) ------------------------------------------
+
+# How many Samples the next keyset page after $after holds (at most $limit) and its last id, over the Sample.id index.
+# Only numeric ids compare with $after.
+SAMPLE_ID_PAGE_END = """
+MATCH (c:Sample) WHERE c.id > $after
+WITH c.id AS id ORDER BY id LIMIT $limit
+RETURN count(id) AS n, max(id) AS last
+"""
+
 # --- ghosts and orphans --------------------------------------------------------------------------
 
 SAMPLE_IDS = "MATCH (s:Sample) RETURN s.id AS id"

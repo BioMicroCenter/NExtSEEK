@@ -186,6 +186,55 @@ def _append_rows(path: str, header: str, lines: list[str]) -> None:
         os.fsync(fh.fileno())
 
 
+# --- paged whole-graph reads --------------------------------------------------------------------
+
+# Sample nodes per page of a whole-graph read that works on each record (read_sample_pages). A read whose records go to
+# a transformer keeps its transaction open for as long as the transformer's loop runs, and Neo4j ends any transaction
+# older than db.transaction.timeout (120 s on dev and production): a page keeps each read far under it.
+ID_PAGE = 20_000
+_PAGE = "c.id > $after AND c.id <= $last"
+_REST = "NOT coalesce(c.id > $after, false)"
+
+
+def page_forms(template: str) -> tuple[str, str]:
+    """A paged read's two statements: ``template`` with its ``{page}`` (a WHERE on its Sample ``c``) as one page of
+    ids, and as the Samples no page holds (an id that is null, not a number, or NaN)."""
+    return template.replace("{page}", _PAGE), template.replace("{page}", _REST)
+
+
+def read_sample_pages(driver, db, template: str, transformer, params=None, *, name: str = "paged read") -> Iterator:
+    """Run ``template`` once per keyset page of ``ID_PAGE`` Sample ids, ascending, then once for the Samples no page
+    holds, each in its own read transaction, and yield ``transformer``'s result for each as it returns.
+
+    A page is ``$after < c.id <= $last``, its bounds read first (``q.SAMPLE_ID_PAGE_END``); the pages and the rest
+    partition the Sample nodes by id, so a record keyed on its ``c`` comes in exactly one read. The transformer builds
+    its result inside the transaction (a retried read starts clean) and the caller merges it only once it is yielded.
+    Logs how many reads ran and the longest."""
+    page_query, rest_query = page_forms(template)
+    params = params or {}
+    reads, longest = 0, 0.0
+
+    def read(query, bounds):
+        nonlocal reads, longest
+        started = time.monotonic()
+        out = _run(driver, db, query, {**params, **bounds}, read=True, transformer=transformer)
+        reads += 1
+        longest = max(longest, time.monotonic() - started)
+        return out
+
+    after = _INT64_MIN
+    while True:
+        page = _first(_run(driver, db, q.SAMPLE_ID_PAGE_END, {"after": after, "limit": ID_PAGE}, read=True))
+        if not page.get("n"):
+            break
+        yield read(page_query, {"after": after, "last": page["last"]})
+        if page["n"] < ID_PAGE:
+            break
+        after = page["last"]
+    yield read(rest_query, {"after": _INT64_MIN})
+    log.info("%s: %d reads of at most %d samples each, the longest %.1f s", name, reads, ID_PAGE, longest)
+
+
 # --- ghosts, orphans and CHILD_OF ----------------------------------------------------------------
 
 def find_ghosts(driver, db, mysql_ids: set[int], mysql_uuids: set[str]) -> dict:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import inspect
 import json
+import random
 from contextlib import contextmanager
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ from nextseek_api.batch_upload.identity import extract_identity, hash_identity
 from nextseek_api.graph_sync import labels, projection, run, sources, state, study_links, writer
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
+from nextseek_api.tests import graph_sync_pages as pages
 from nextseek_graph import schema
 
 pytestmark = pytest.mark.django_db
@@ -134,12 +136,18 @@ class Graph:
         self.attribute_state: list[dict] = []
         self.study_duplicates: list[dict] = []
         self.samples_with_assay_edges: list[int] = []
+        self.page_ids = pages.ONE_PAGE                     # the Sample ids the paged reads' bounds see
+        self.read_budget = None                            # records one read may stream (pages.budgeted)
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
         self.calls.append(SimpleNamespace(query=query, params=params, kwargs=kwargs))
-        records, counters = self.answer(query, params)
+        paged = pages.page_answer(query, params, {run.LABEL_EDGES: "child_id"},
+                                  lambda template: self.answer(template, params)[0], self.page_ids)
+        records, counters = (paged, {}) if paged is not None else self.answer(query, params)
         if result_transformer_ is not None:
+            if self.read_budget is not None:
+                result_transformer_ = pages.budgeted(result_transformer_, self.read_budget)
             return result_transformer_(iter(records))
         return SimpleNamespace(records=records, summary=SimpleNamespace(counters=SimpleNamespace(**counters)))
 
@@ -160,7 +168,7 @@ class Graph:
                         self.edges[(child, parent)] = {"child_id": child, "parent_id": parent}
                         created += 1
             return [{"matched": matched}], {"relationships_created": created}
-        if query == run.LABEL_EDGES:
+        if query in (run.LABEL_EDGES, LABEL_EDGES_AT_C6089B4A):
             self.events.append("label_stream")
             return [{"child_id": c, "parent_id": p, "stored": self.stored((c, p))} for c, p in self.edges], {}
         if query == run.LABELS_FOR_PAIRS:
@@ -596,6 +604,227 @@ def test_relabel_all_refuses_a_graph_not_at_the_writers_version(world, monkeypat
     with pytest.raises(run.PreflightError, match="schema"):
         run.relabel_all(graph, "neo4j", record=False)
     assert lock.timeouts == []
+
+
+# --- the label step reads in pages (Neo4j's 120 s transaction limit) ----------------------------
+
+# The label step as it was at c6089b4a, frozen: one read transaction over every DERIVED_FROM between two Sample nodes.
+# The paged step must give the same report, role codes and writes on any graph.
+LABEL_EDGES_AT_C6089B4A = """
+MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
+RETURN c.id AS child_id, p.id AS parent_id, {stored} AS stored
+""".replace("{stored}", run._STORED_LABELS)
+
+
+def _label_edges_at_c6089b4a(driver, db, label_sources, *, apply_label_changes=False, dry_run=False,
+                             internal_by_seek=None, role_sink=None):
+    from array import array
+    from collections import Counter
+
+    def classify_all(result):
+        classes: Counter = Counter()
+        by_property = {cls: Counter() for cls in run._REPORTED_CLASSES}
+        examples = {cls: [] for cls in run._REPORTED_CLASSES}
+        targets, refresh_targets = array("q"), array("q")
+        roles = run.RoleCodes(internal_by_seek) if internal_by_seek is not None else None
+        edges = legacy = 0
+        for record in result:
+            edges += 1
+            child, parent = record["child_id"], record["parent_id"]
+            if not (run._is_packable(child) and run._is_packable(parent)):
+                legacy += 1
+                continue
+            if roles is not None:
+                roles.add_edge(child, parent, label_sources.assays.get(child), label_sources.assays.get(parent))
+            stored = record["stored"] or {}
+            computed = label_sources.edge(child, parent)
+            cls = labels.classify(stored, computed)
+            classes[cls] += 1
+            if cls in by_property:
+                diff = labels.differences(stored, computed)
+                by_property[cls].update(diff)
+                if len(examples[cls]) < run.EXAMPLES:
+                    examples[cls].append({"child_id": child, "parent_id": parent,
+                                          "stored": {k: stored.get(k) for k in diff},
+                                          "computed": {k: computed[k] for k in diff}})
+            if cls == labels.NEW or (apply_label_changes and cls != labels.EQUAL):
+                targets.append(run.encode_pair(child, parent))
+            elif cls in labels.REFRESH_CLASSES:
+                refresh_targets.append(run.encode_pair(child, parent))
+        return edges, legacy, classes, by_property, examples, targets, refresh_targets, roles
+
+    edges, legacy, classes, by_property, examples, targets, refresh_targets, roles = writer._run(
+        driver, db, LABEL_EDGES_AT_C6089B4A, read=True, transformer=classify_all)
+    role_codes = len(roles) if roles is not None else 0
+    if roles is not None and role_sink is not None:
+        role_sink(roles)
+    if dry_run:
+        targets, refresh_targets = array("q"), array("q")
+    written: Counter = Counter()
+    for batch in run._sorted_unique_batches(targets, writer.REL_CHUNK):
+        pairs = [run.decode_pair(code) for code in batch]
+        if apply_label_changes:
+            rows = run._approved_rows(driver, db, pairs, label_sources)
+        else:
+            rows = [{"child_id": c, "parent_id": p, "labels": label_sources.edge(c, p)} for c, p in pairs]
+        if rows:
+            out = writer.write_edge_labels(driver, db, rows, apply_label_changes=apply_label_changes)
+            written.update({key: out.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    for batch in run._sorted_unique_batches(refresh_targets, writer.REL_CHUNK):
+        rows = [row for row in run._approved_rows(driver, db, [run.decode_pair(code) for code in batch],
+                                                  label_sources)
+                if labels.classify(row["stored"], row["labels"]) in labels.REFRESH_CLASSES]
+        if rows:
+            out = writer.write_edge_label_refreshes(driver, db, rows)
+            written.update({key: out.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    report = {"labels_edges": edges, "labels_legacy_id_edges": legacy, "labels_apply_changes": apply_label_changes}
+    report.update({f"labels_{cls}": classes.get(cls, 0) for cls in labels.CLASSES})
+    report.update({key: written.get(key, 0) for key in run._LABEL_COUNT_KEYS})
+    report["labels_by_property"] = {cls: dict(sorted(c.items())) for cls, c in by_property.items()}
+    report["labels_examples"] = examples
+    report["assay_role_codes"] = role_codes
+    report["assay_role_codes_unpackable"] = roles.unpackable if roles is not None else 0
+    return report
+
+
+NAN = float("nan")
+LEGACY_EDGES = [(None, 5), ("x-7", 5), (2 ** 31, 5), (-1, 5), (5.5, 5), (NAN, 5), (9, "y"), (9, 2 ** 31), (9, None)]
+INTERNAL_BY_SEEK = {500: (99,), 501: (96, 98), 503: (97,)}
+
+
+def _label_world(shuffled: bool, seed: int = 5):
+    """A graph of 300 samples and 1,500 random DERIVED_FROM (self-loops included) whose stored labels fall in every
+    class, plus edges with legacy ends; and the label rule's inputs. Stored in child-id order unless ``shuffled``."""
+    rng = random.Random(seed)
+    sops = {7: "Extraction", 8: "RNA prep"}
+    label_sources = run.LabelSources({500: (99, "Patient Visit"), 501: (98, "Seq run"), 502: (None, "Other"),
+                                      503: (97, "Prep")}, sops, labels.sop_title_index(sops))
+    ids = list(range(1, 301))
+    for i in ids:
+        label_sources.assays.add(i, rng.sample([500, 501, 502, 503], rng.randint(0, 3)))
+        if rng.random() < 0.6:
+            label_sources.protocols.add(i, (rng.choice([7, 8]),))
+    pairs = set()
+    while len(pairs) < 1500:
+        pairs.add((rng.choice(ids), rng.choice(ids)))
+    rows = []
+    for child, parent in sorted(pairs):
+        computed = label_sources.edge(child, parent)
+        roll = rng.random()
+        if roll < 0.25:
+            stored = dict(computed)
+        elif roll < 0.4:
+            stored = {}
+        elif roll < 0.5:
+            stored = {k: v for k, v in computed.items() if k not in ("internal_assay_ids", "internal_assay_titles")}
+        elif roll < 0.6:
+            stored = dict(computed, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+        elif roll < 0.7:
+            stored = dict(computed, internal_assay_id=95, internal_assay_ids=[95])
+        elif roll < 0.8:
+            stored = dict(computed, protocol_id=None, protocol_title=None)
+        else:
+            stored = dict(computed, assay_id=502, internal_assay_id=502, internal_assay_title="Other",
+                          internal_assay_ids=[502], internal_assay_titles=["Other"])
+        rows.append(((child, parent), {k: v for k, v in stored.items() if v is not None}))
+    for i, pair in enumerate(LEGACY_EDGES):
+        rows.insert(rng.randrange(len(rows) + 1) if shuffled else 151 * i, (pair, {}))
+    if shuffled:
+        rng.shuffle(rows)
+    graph = Graph()
+    graph.samples.update(ids)
+    for pair, props in rows:
+        graph.edges[pair] = props
+    graph.page_ids = tuple(ids) + (2 ** 31, -1, 5.5, NAN, None, "x-7")
+    return graph, label_sources
+
+
+def _label_runs(monkeypatch, shuffled: bool, page: int, **kwargs):
+    """The frozen single read and the paged step on two copies of one graph: (report, roles, edges) for each."""
+    monkeypatch.setattr(writer, "ID_PAGE", page)
+    out = []
+    for fn in (_label_edges_at_c6089b4a, run.label_edges):
+        graph, label_sources = _label_world(shuffled)
+        sink: list = []
+        report = fn(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK, role_sink=sink.append,
+                    **kwargs)
+        (roles,) = sink
+        out.append((report, roles.unpackable, list(roles.by_sample()), graph.edges, graph))
+    return out
+
+
+@pytest.mark.parametrize("mode", [{}, {"apply_label_changes": True}, {"dry_run": True}])
+def test_the_paged_label_step_equals_the_single_read_byte_for_byte(monkeypatch, mode):
+    (old, old_unpackable, old_roles, old_edges, _), (new, new_unpackable, new_roles, new_edges, graph) = \
+        _label_runs(monkeypatch, shuffled=False, page=7, **mode)
+
+    assert json.dumps(new, sort_keys=True, default=repr) == json.dumps(old, sort_keys=True, default=repr)
+    assert (new_unpackable, new_roles) == (old_unpackable, old_roles)
+    assert repr(sorted(new_edges.items(), key=repr)) == repr(sorted(old_edges.items(), key=repr))
+    # Every class the step reports was met, more than EXAMPLES times for the cap to merge across pages.
+    assert all(new[f"labels_{cls}"] > run.EXAMPLES for cls in run._REPORTED_CLASSES), new
+    assert new["labels_legacy_id_edges"] == len(LEGACY_EDGES) and new["assay_role_codes"] > 0
+    # One read transaction per page of 7 ids and one for the ids no page holds; each page read after its bounds.
+    page_query, rest_query = writer.page_forms(run.LABEL_EDGES)
+    reads = [c for c in graph.calls if c.query in (page_query, rest_query)]
+    numeric = sum(1 for v in graph.page_ids if pages._number(v))
+    assert [c.query for c in reads] == [page_query] * -(-numeric // 7) + [rest_query]
+    assert all(c.kwargs.get("routing_") is not None for c in reads)
+    assert LABEL_EDGES_AT_C6089B4A not in [c.query for c in graph.calls]
+
+
+def test_the_paged_label_step_equals_the_single_read_in_any_stream_order(monkeypatch):
+    """Stored out of id order, the counts, role codes and writes are still equal; the examples are the first
+    EXAMPLES in stream order, so with the cap lifted they are the same set."""
+    monkeypatch.setattr(run, "EXAMPLES", 10 ** 6)
+    (old, _, old_roles, old_edges, _), (new, _, new_roles, new_edges, _) = _label_runs(
+        monkeypatch, shuffled=True, page=11, apply_label_changes=True)
+
+    examples = (old.pop("labels_examples"), new.pop("labels_examples"))
+    assert new == old and new_roles == old_roles
+    assert repr(sorted(new_edges.items(), key=repr)) == repr(sorted(old_edges.items(), key=repr))
+    assert {cls: sorted(map(repr, rows)) for cls, rows in examples[1].items()} == \
+        {cls: sorted(map(repr, rows)) for cls, rows in examples[0].items()}
+
+
+def test_no_label_read_streams_more_than_a_page_of_edges(monkeypatch):
+    """Dev's failure in miniature: a read that streams every edge outlives the transaction timeout (here a budget of
+    records per read); the paged step keeps each read to a page of child ids."""
+    graph, label_sources = _label_world(False)
+    graph.read_budget = 300                     # a page of 20,000 ids, scaled to 7: about 40 edges; the graph has 1,509
+    monkeypatch.setattr(writer, "ID_PAGE", 7)
+    report = run.label_edges(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK)
+    assert report["labels_edges"] == 1500 + len(LEGACY_EDGES)
+
+
+def test_a_retried_label_page_is_counted_once(monkeypatch):
+    from neo4j.exceptions import TransientError
+
+    monkeypatch.setattr(writer.time, "sleep", lambda s: None)
+    (old, _, old_roles, _, _), _ = _label_runs(monkeypatch, shuffled=False, page=7)
+    graph, label_sources = _label_world(False)
+    page_query, _ = writer.page_forms(run.LABEL_EDGES)
+    real, failed = graph.execute_query, []
+
+    def flaky(query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
+        if query == page_query and parameters_["after"] > 40 and not failed:
+            failed.append(parameters_["after"])
+
+            def broken(records):
+                def stream():
+                    for i, record in enumerate(records):
+                        if i == 3:
+                            raise TransientError("connection lost mid-page")
+                        yield record
+                return result_transformer_(stream())
+            return real(query, parameters_, database_, broken, **kwargs)
+        return real(query, parameters_, database_, result_transformer_, **kwargs)
+
+    graph.execute_query = flaky
+    sink: list = []
+    new = run.label_edges(graph, "neo4j", label_sources, internal_by_seek=INTERNAL_BY_SEEK, role_sink=sink.append)
+    assert failed and json.dumps(new, sort_keys=True, default=repr) == json.dumps(old, sort_keys=True, default=repr)
+    assert list(sink[0].by_sample()) == old_roles
 
 
 def test_graphmeta_gets_the_label_maps_hash(world, monkeypatch, tmp_path, lock):

@@ -124,10 +124,11 @@ RETURN a.key AS key, a.declared AS declared, a.sample_type_id AS sample_type_id,
 
 # The seven label properties of a DERIVED_FROM edge (null when absent), as `stored`.
 _STORED_LABELS = "e {" + ", ".join("." + key for key in q.EDGE_LABEL_KEYS) + "}"
-# Every DERIVED_FROM between two Sample nodes with its stored labels: the label step's one pass over the edges. An
-# edge touching an OrphanSample is not read.
+# Every DERIVED_FROM between two Sample nodes with its stored labels, read a page of child ids at a time
+# (writer.read_sample_pages): the label step's one pass over the edges. An edge touching an OrphanSample is not read.
 LABEL_EDGES = """
-MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
+MATCH (c:Sample) WHERE {page}
+MATCH (c)-[e:DERIVED_FROM]->(p:Sample)
 RETURN c.id AS child_id, p.id AS parent_id, {stored} AS stored
 """.replace("{stored}", _STORED_LABELS)
 # The stored labels of these (child id, parent id) pairs, read again just before an approved write compares them.
@@ -322,6 +323,11 @@ class RoleCodes:
 
     def __len__(self) -> int:
         return len(self._codes)
+
+    def merge(self, other: "RoleCodes") -> None:
+        """Take ``other``'s codes (one page of the label step's read) and its ``unpackable`` count."""
+        self._codes.extend(other._codes)
+        self.unpackable += other.unpackable
 
     def add_edge(self, child, parent, child_assays, parent_assays) -> None:
         """The roles of one edge: OUTPUT_OF for the child and INPUT_TO for the parent, per SEEK assay both hold that
@@ -682,6 +688,32 @@ def _approved_rows(driver, db, pairs: list[tuple[int, int]], label_sources: Labe
     return rows
 
 
+@dataclass
+class _LabelPass:
+    """What the label step found over the edges read so far: one page's (built inside its read), or the sum."""
+    roles: RoleCodes | None
+    edges: int = 0
+    legacy: int = 0
+    classes: Counter = field(default_factory=Counter)
+    by_property: dict = field(default_factory=lambda: {cls: Counter() for cls in _REPORTED_CLASSES})
+    examples: dict = field(default_factory=lambda: {cls: [] for cls in _REPORTED_CLASSES})
+    targets: array = field(default_factory=lambda: array("q"))
+    refresh_targets: array = field(default_factory=lambda: array("q"))
+
+    def add(self, page: "_LabelPass") -> None:
+        """Merge a page's part: the counts summed, the examples kept in read order up to ``EXAMPLES``."""
+        self.edges += page.edges
+        self.legacy += page.legacy
+        self.classes.update(page.classes)
+        for cls in _REPORTED_CLASSES:
+            self.by_property[cls].update(page.by_property[cls])
+            self.examples[cls].extend(page.examples[cls][:EXAMPLES - len(self.examples[cls])])
+        self.targets.extend(page.targets)
+        self.refresh_targets.extend(page.refresh_targets)
+        if self.roles is not None:
+            self.roles.merge(page.roles)
+
+
 def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes: bool = False,
                 dry_run: bool = False, internal_by_seek: dict | None = None, role_sink=None) -> dict:
     """Classify every DERIVED_FROM between two Sample nodes against the label rule, then write what may be written.
@@ -690,48 +722,52 @@ def label_edges(driver, db, label_sources: LabelSources, *, apply_label_changes:
     statement, and ``renamed`` and ``protocol_filled`` edges (``labels.REFRESH_CLASSES``), read again just before the
     write and written only where their stored labels still equal it and their class is still one of those; the
     other classes (``changed``, ``cleared``, ``plural_missing``) are counted per property (``labels_by_property``) with
-    capped examples (``labels_examples``), the refresh classes too, and left as they are. With it every edge that
-    differs is written where its stored labels still equal the ones read just before the write. ``dry_run`` classifies
-    and reports and writes nothing. An edge whose end has no int id (a legacy node) is counted and left alone.
+    capped examples (``labels_examples``, the first in read order), the refresh classes too, and left as they are.
+    With it every edge that differs is written where its stored labels still equal the ones read just before the
+    write. ``dry_run`` classifies and reports and writes nothing. An edge whose end has no int id (a legacy node) is
+    counted and left alone.
 
-    With ``internal_by_seek`` the same pass collects the assay layer's roles (``RoleCodes``), handed to
-    ``role_sink`` once the read has finished.
+    The edges are read a page of child ids at a time (``writer.read_sample_pages``), each page its own read
+    transaction, so none outlives Neo4j's transaction timeout however large the graph; each page's part is merged once
+    its read has returned. With ``internal_by_seek`` the same pass collects the assay layer's roles (``RoleCodes``),
+    handed to ``role_sink`` once every page is read.
     """
-    def classify_all(result):
-        # Built here, so a retried read starts clean.
-        classes: Counter = Counter()
-        by_property = {cls: Counter() for cls in _REPORTED_CLASSES}
-        examples = {cls: [] for cls in _REPORTED_CLASSES}
-        targets, refresh_targets = array("q"), array("q")
-        roles = RoleCodes(internal_by_seek) if internal_by_seek is not None else None
-        edges = legacy = 0
+    def new_pass() -> _LabelPass:
+        return _LabelPass(RoleCodes(internal_by_seek) if internal_by_seek is not None else None)
+
+    def classify_page(result):
+        part = new_pass()   # built here, so a retried page starts clean
         for record in result:
-            edges += 1
+            part.edges += 1
             child, parent = record["child_id"], record["parent_id"]
             if not (_is_packable(child) and _is_packable(parent)):
-                legacy += 1
+                part.legacy += 1
                 continue
-            if roles is not None:
-                roles.add_edge(child, parent, label_sources.assays.get(child), label_sources.assays.get(parent))
+            if part.roles is not None:
+                part.roles.add_edge(child, parent, label_sources.assays.get(child), label_sources.assays.get(parent))
             stored = record["stored"] or {}
             computed = label_sources.edge(child, parent)
             cls = labels.classify(stored, computed)
-            classes[cls] += 1
-            if cls in by_property:
+            part.classes[cls] += 1
+            if cls in part.by_property:
                 diff = labels.differences(stored, computed)
-                by_property[cls].update(diff)
-                if len(examples[cls]) < EXAMPLES:
-                    examples[cls].append({"child_id": child, "parent_id": parent,
-                                          "stored": {k: stored.get(k) for k in diff},
-                                          "computed": {k: computed[k] for k in diff}})
+                part.by_property[cls].update(diff)
+                if len(part.examples[cls]) < EXAMPLES:
+                    part.examples[cls].append({"child_id": child, "parent_id": parent,
+                                               "stored": {k: stored.get(k) for k in diff},
+                                               "computed": {k: computed[k] for k in diff}})
             if cls == labels.NEW or (apply_label_changes and cls != labels.EQUAL):
-                targets.append(encode_pair(child, parent))
+                part.targets.append(encode_pair(child, parent))
             elif cls in labels.REFRESH_CLASSES:
-                refresh_targets.append(encode_pair(child, parent))
-        return edges, legacy, classes, by_property, examples, targets, refresh_targets, roles
+                part.refresh_targets.append(encode_pair(child, parent))
+        return part
 
-    edges, legacy, classes, by_property, examples, targets, refresh_targets, roles = _run(
-        driver, db, LABEL_EDGES, read=True, transformer=classify_all)
+    found = new_pass()
+    for part in writer.read_sample_pages(driver, db, LABEL_EDGES, classify_page, name="graph_sync: labels read"):
+        found.add(part)
+    edges, legacy, classes, by_property, examples = (found.edges, found.legacy, found.classes, found.by_property,
+                                                     found.examples)
+    targets, refresh_targets, roles = found.targets, found.refresh_targets, found.roles
     role_codes = len(roles) if roles is not None else 0
     if roles is not None and role_sink is not None:
         role_sink(roles)

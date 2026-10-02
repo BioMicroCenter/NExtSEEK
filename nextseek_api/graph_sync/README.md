@@ -178,6 +178,15 @@ MySQL scan and its graph read. A full sync holds it from its preflight to its la
 most 60 seconds and otherwise returns `lock_timeout` without writing, which leaves its outbox row pending for the
 next pass. On SQLite (the unit-test lane) the lock is a no-op behind the same function.
 
+## Reads over the whole graph
+
+Neo4j ends any transaction older than `db.transaction.timeout` (120 s on dev and production), and a read whose records
+go to a Python loop stays open for as long as the loop runs. So a read over every edge or every sample that works on
+each record runs a page of Sample ids at a time (`writer.read_sample_pages`: `ID_PAGE` samples a page over the
+`Sample.id` index, each page its own read transaction, then one read for the samples whose id is not a number): the
+label step's read of every DERIVED_FROM. Each page's result is built inside its read and merged only once the read
+has returned, so a retried page counts once. Each paged read logs how many reads it ran and the longest.
+
 ## The schema version, and what the graph must be before anything is written
 
 Every write unit reads `GraphMeta.schema_version` first and refuses, writing nothing, unless it equals
