@@ -249,7 +249,7 @@ def find_ghosts(driver, db, mysql_ids: set[int], mysql_uuids: set[str]) -> dict:
     - ``idless_element_ids``: Sample nodes with no ``id``, which no MERGE can reach.
     """
     def scan(result):
-        total, missing = 0, set()
+        total, missing = 0, set()   # one page's, built here so a retried read starts clean
         for record in result:
             total += 1
             sample_id = record["id"]
@@ -257,7 +257,10 @@ def find_ghosts(driver, db, mysql_ids: set[int], mysql_uuids: set[str]) -> dict:
                 missing.add(sample_id)
         return total, missing
 
-    total, not_in_mysql = _run(driver, db, q.SAMPLE_IDS, read=True, transformer=scan)
+    total, not_in_mysql = 0, set()
+    for page_total, missing in read_sample_pages(driver, db, q.SAMPLE_IDS, scan, name="graph_sync: find_ghosts read"):
+        total += page_total
+        not_in_mysql |= missing
     duplicate_ids = [r["id"] for r in _records(_run(driver, db, q.DUPLICATE_SAMPLE_IDS, read=True))]
     ghosts, unresolved = [], []
     if duplicate_ids:
@@ -728,12 +731,13 @@ def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared
 
     ``declared_pairs`` answers ``(child id, parent id) in declared_pairs`` for the pairs MySQL's parent tokens
     declare (``run.DeclaredIdPairs``, or a set of tuples). Every DERIVED_FROM between two Sample nodes is streamed
-    once; an undeclared edge (a pair a later Parent edit left stale, a self-loop, a token that no longer resolves)
-    becomes one row: ``child_id``, ``parent_id``, ``child_uuid``, ``parent_uuid`` and ``props``, the edge's
+    once, a page of child ids at a time (``read_sample_pages``); an undeclared edge (a pair a later Parent edit left
+    stale, a self-loop, a token that no longer resolves) becomes one row: ``child_id``, ``parent_id``, ``child_uuid``, ``parent_uuid`` and ``props``, the edge's
     properties as JSON (uuids escaped by ``_tsv_field``). A second (or later) edge of a declared pair is archived
-    and deleted the same way, counted apart in ``derived_from_doubled``: the first edge the stream gives is kept. The
-    file is written to a ``.partial`` path and renamed into place before the first delete, so a failed write deletes
-    nothing. The edges are then deleted by element id in batches, each delete matching only an edge between two
+    and deleted the same way, counted apart in ``derived_from_doubled``: the first edge the stream gives is kept (a
+    pair's edges share their child, so they come in one page). Each page's rows are written once its read has
+    returned, so a retried page writes them once. The file is written to a ``.partial`` path and renamed into place
+    before the first delete, so a failed write deletes nothing. The edges are then deleted by element id in batches, each delete matching only an edge between two
     Sample nodes, so an edge touching an OrphanSample is never deleted. With nothing to delete no file is written (an
     earlier archive is kept).
     """
@@ -741,23 +745,29 @@ def archive_and_drop_undeclared_derived_from(driver, db, out_path: str, declared
     partial = out_path + ".partial"
 
     def archive(result):
-        edges, doubled, dropped, again = 0, 0, [], _seen_pairs()  # built here, so a retried read starts clean
+        edges, doubled, lines, dropped, again = 0, 0, [], [], _seen_pairs()  # one page's: a retry starts clean
+        for record in result:
+            edges += 1
+            child, parent = record["child_id"], record["parent_id"]
+            if _is_declared(declared_pairs, child, parent):
+                if not again(child, parent):
+                    continue
+                doubled += 1
+            lines.append(_archive_line(record))
+            dropped.append(record["element_id"])
+        return edges, doubled, lines, dropped
+
+    edges = doubled = 0
+    element_ids: list = []
+    try:
         with open(partial, "w", encoding="utf-8", newline="") as fh:
             fh.write(DERIVED_FROM_ARCHIVE_HEADER)
-            for record in result:
-                edges += 1
-                child, parent = record["child_id"], record["parent_id"]
-                if _is_declared(declared_pairs, child, parent):
-                    if not again(child, parent):
-                        continue
-                    doubled += 1
-                fh.write(_archive_line(record))
-                dropped.append(record["element_id"])
-        return edges, doubled, dropped
-
-    try:
-        edges, doubled, element_ids = _run(driver, db, q.DERIVED_FROM_BETWEEN_SAMPLES, read=True,
-                                           transformer=archive)
+            for page_edges, page_doubled, lines, dropped in read_sample_pages(
+                    driver, db, q.DERIVED_FROM_BETWEEN_SAMPLES, archive, name="graph_sync: lineage_undeclared read"):
+                edges += page_edges
+                doubled += page_doubled
+                fh.writelines(lines)
+                element_ids.extend(dropped)
     except BaseException:
         if os.path.exists(partial):
             os.remove(partial)

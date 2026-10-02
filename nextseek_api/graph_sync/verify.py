@@ -63,8 +63,9 @@ input read returns nothing while MySQL holds rows fails rather than comparing no
 
 Sized for about 1.08M samples: every full-graph read returns a few rows (the two scope checks share one scan of
 ``project_ids`` grouped by value), the key aggregate runs one type label per transaction, and the lineage check
-streams the edges against a set of encoded MySQL pairs. Check 9 streams them once more with their seven label
-properties and classifies each as it arrives; it holds one assay-id tuple per lineage endpoint (equal tuples shared)
+streams the edges, a page of child ids per read transaction (``writer.read_sample_pages``), against a set of encoded
+MySQL pairs. Check 9 streams them once more, paged the same way, with their seven label properties and classifies
+each as it arrives; it holds one assay-id tuple per lineage endpoint (equal tuples shared)
 and one resolved protocol per child that names one. The sampled checks read the random samples plus the
 strata (the constants above): at most about 6,600 samples on a graph of 110 types, 15 projects and a busy week.
 Check 12 reads every Study node once and streams every Sample's IN_STUDY in keyset pages against SEEK's ordered links.
@@ -126,10 +127,13 @@ _PROTOCOL_KEY_TAIL = 'rotocol"'
 
 # --- statements ----------------------------------------------------------------------------------
 
-LINEAGE_PAIRS = "MATCH (c:Sample)-[:DERIVED_FROM]->(p:Sample) RETURN c.id AS child, p.id AS parent"
+# Every DERIVED_FROM between two Sample nodes, read a page of child ids at a time (writer.read_sample_pages).
+LINEAGE_PAIRS = ("MATCH (c:Sample) WHERE {page}\n"
+                 "MATCH (c)-[:DERIVED_FROM]->(p:Sample) RETURN c.id AS child, p.id AS parent")
 LINEAGE_ON_ORPHANS = "MATCH (:OrphanSample)-[e:DERIVED_FROM]-() RETURN count(DISTINCT e) AS n"
 # The same edges with their seven label properties, null when absent.
-LINEAGE_LABELS = ("MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)\n"
+LINEAGE_LABELS = ("MATCH (c:Sample) WHERE {page}\n"
+                  "MATCH (c)-[e:DERIVED_FROM]->(p:Sample)\n"
                   "RETURN c.id AS child, p.id AS parent, e {"
                   + ", ".join("." + key for key in q.EDGE_LABEL_KEYS) + "} AS stored")
 PROJECT_ID_GROUPS = "MATCH (s:Sample) RETURN s.project_ids AS project_ids, count(*) AS n"
@@ -465,9 +469,10 @@ def _check_lineage(driver, db, mysql: _MySQLSide, checks: list, stats: dict) -> 
     declared = mysql.lineage
 
     def compare(result):
-        remaining = set(declared)  # built here, so a retried read starts clean
+        # One page's, built here so a retried read starts clean. A pair's edges share their child, so a second edge
+        # of a declared pair comes in the page of its first.
         edges = extra = doubled = 0
-        examples, doubled_examples = [], []
+        examples, doubled_examples, found = [], [], set()
         for record in result:
             edges += 1
             child, parent = record["child"], record["parent"]
@@ -478,8 +483,8 @@ def _check_lineage(driver, db, mysql: _MySQLSide, checks: list, stats: dict) -> 
                 except ValueError:
                     code = None
             if code is not None and code in declared:
-                if code in remaining:
-                    remaining.discard(code)
+                if code not in found:
+                    found.add(code)
                 else:   # a second edge for a declared pair
                     doubled += 1
                     if len(doubled_examples) < EXAMPLES:
@@ -488,10 +493,19 @@ def _check_lineage(driver, db, mysql: _MySQLSide, checks: list, stats: dict) -> 
                 extra += 1
                 if len(examples) < EXAMPLES:
                     examples.append([child, parent])
-        return edges, extra, examples, remaining, doubled, doubled_examples
+        return edges, extra, examples, found, doubled, doubled_examples
 
-    edges, extra, extra_examples, remaining, doubled, doubled_examples = _read(driver, db, LINEAGE_PAIRS,
-                                                                               transformer=compare)
+    remaining = set(declared)
+    edges = extra = doubled = 0
+    extra_examples, doubled_examples = [], []
+    for page_edges, page_extra, examples, found, page_doubled, page_doubled_examples in writer.read_sample_pages(
+            driver, db, LINEAGE_PAIRS, compare, name="gate G: lineage read"):
+        edges += page_edges
+        extra += page_extra
+        doubled += page_doubled
+        remaining -= found
+        extra_examples.extend(examples[:EXAMPLES - len(extra_examples)])
+        doubled_examples.extend(page_doubled_examples[:EXAMPLES - len(doubled_examples)])
     on_orphans = _one(_read(driver, db, LINEAGE_ON_ORPHANS), "n")
     stats.update(lineage_declared_pairs=len(declared), lineage_edges_between_samples=edges,
                  lineage_edges_touching_orphans=on_orphans)
@@ -725,12 +739,24 @@ class _LabelTally:
     differ_examples: list = field(default_factory=list)
     refresh_examples: list = field(default_factory=list)    # renamed and protocol_filled: the next sync writes them
 
+    def add(self, page: "_LabelTally") -> None:
+        """Merge one page's tally: the counts summed, the examples kept in read order up to ``EXAMPLES``."""
+        self.edges += page.edges
+        self.classes.update(page.classes)
+        self.by_property.update(page.by_property)
+        self.unlabelled += page.unlabelled
+        self.new_without_assay += page.new_without_assay
+        for name in ("unlabelled_examples", "differ_examples", "refresh_examples"):
+            kept = getattr(self, name)
+            kept.extend(getattr(page, name)[:EXAMPLES - len(kept)])
+
 
 def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, checks: list, stats: dict) -> None:
     declared, protocols = mysql.lineage, mysql.protocols
+    rules: dict = {}   # the rule's labels per input, kept across pages: a cache, it counts nothing
 
     def classify(result):
-        tally, rules = _LabelTally(), {}  # built here, so a retried read starts clean
+        tally = _LabelTally()  # one page's, built here so a retried read starts clean
         for record in result:
             child, parent = record["child"], record["parent"]
             if not (_is_id(child) and _is_id(parent)):
@@ -773,7 +799,9 @@ def _check_labels(driver, db, mysql: _MySQLSide, assays: dict, assay_map: dict, 
                                                "rule": {k: rule[k] for k in keys}})
         return tally
 
-    tally = _read(driver, db, LINEAGE_LABELS, transformer=classify)
+    tally = _LabelTally()
+    for page in writer.read_sample_pages(driver, db, LINEAGE_LABELS, classify, name="gate G: lineage labels read"):
+        tally.add(page)
     by_property = dict(sorted(tally.by_property.items()))
     changed, cleared = tally.classes[labels.CHANGED], tally.classes[labels.CLEARED]
     stats["lineage_labels"] = {"edges_compared": tally.edges,

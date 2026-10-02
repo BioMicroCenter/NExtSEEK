@@ -142,8 +142,7 @@ class Graph:
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
         self.calls.append(SimpleNamespace(query=query, params=params, kwargs=kwargs))
-        paged = pages.page_answer(query, params, {run.LABEL_EDGES: "child_id"},
-                                  lambda template: self.answer(template, params)[0], self.page_ids)
+        paged = pages.page_answer(query, params, lambda template: self.answer(template, params)[0], self.page_ids)
         records, counters = (paged, {}) if paged is not None else self.answer(query, params)
         if result_transformer_ is not None:
             if self.read_budget is not None:

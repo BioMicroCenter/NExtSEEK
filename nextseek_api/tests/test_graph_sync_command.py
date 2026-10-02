@@ -31,6 +31,7 @@ from nextseek_api.graph_sync import (
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests import graph_sync_pages as pages
 from nextseek_graph import schema
 
 command = import_module("nextseek_api.management.commands.graph_sync")
@@ -41,7 +42,7 @@ class FakeDriver:
 
     def __init__(self, responder=None):
         self.calls = []
-        self.responder = responder or (lambda query, params: [])
+        self.responder = pages.paged(responder or (lambda query, params: []))  # paged reads from template rows
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -314,7 +315,8 @@ def test_full_sync_archives_and_deletes_undeclared_derived_from_with_the_real_wr
 
     report = run.full_sync(FakeDriver(graph), "neo4j", run_dir=str(tmp_path))
 
-    assert order == ["stream", ("delete", ["e-reversed", "e-stale"], True)]
+    # one read for the page of ids 10 to 12 and one for the ids no page holds, then the delete
+    assert order == ["stream", "stream", ("delete", ["e-reversed", "e-stale"], True)]
     rows = (tmp_path / run.DERIVED_FROM_ARCHIVE_FILE).read_text(encoding="utf-8").splitlines()
     assert rows[1:] == [f"12\t10\t{U_T2}\t{U_T1}\t" + '{"child_id": 12}', f"10\t11\t{U_T1}\t{U_D1}\t{{}}"]
     assert report["derived_from_undeclared"] == 2 and report["derived_from_deleted"] == 2

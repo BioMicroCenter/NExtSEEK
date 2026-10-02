@@ -87,9 +87,10 @@ RETURN DISTINCT s.uuid AS uuid
 # The assay layer (graph schema 1.3): every (sample, SEEK assay) a sample edge carries, and the singular labels of
 # the DERIVED_FROM edges with the edges holding each.
 MEMBER_SEEK_PAIRS = """
-MATCH (s:Sample)-[r:INPUT_TO|OUTPUT_OF]->(:Assay)
+MATCH (c:Sample) WHERE {page}
+MATCH (c)-[r:INPUT_TO|OUTPUT_OF]->(:Assay)
 UNWIND r.seek_assay_ids AS seek_assay_id
-RETURN s.id AS id, seek_assay_id
+RETURN c.id AS id, seek_assay_id
 """
 EDGE_ASSAY_LABELS = """
 MATCH (:Sample)-[e:DERIVED_FROM]->(:Sample)
@@ -510,14 +511,17 @@ def _check_assays(driver, db, checks: list, stats: dict) -> None:
            detail={"only_in_mysql": only_mysql[:EXAMPLES], "only_in_graph": only_graph[:EXAMPLES]})
 
     def pack(result):
-        codes = array("q")   # built here, so a retried read starts clean
+        codes = array("q")   # one page's, built here so a retried read starts clean
         for record in result:
             sample_id, seek_id = record["id"], record["seek_assay_id"]
             if run._is_packable(sample_id) and run._is_packable(seek_id):
                 codes.append(run.encode_pair(sample_id, seek_id))
-        return array("q", sorted(codes))
+        return codes
 
-    held = _run(driver, db, MEMBER_SEEK_PAIRS, read=True, transformer=pack)
+    held = array("q")
+    for codes in writer.read_sample_pages(driver, db, MEMBER_SEEK_PAIRS, pack, name="drift: assay members read"):
+        held.extend(codes)
+    held = array("q", sorted(held))
     unmapped: Counter = Counter()
     without_role: Counter = Counter()
     for sample_id, seek_id in sources.iter_assay_links():

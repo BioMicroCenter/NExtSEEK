@@ -84,7 +84,8 @@ RETURN count(id) AS n, max(id) AS last
 
 # --- ghosts and orphans --------------------------------------------------------------------------
 
-SAMPLE_IDS = "MATCH (s:Sample) RETURN s.id AS id"
+# Every Sample id, read a page at a time (writer.read_sample_pages).
+SAMPLE_IDS = "MATCH (c:Sample) WHERE {page} RETURN c.id AS id"
 DUPLICATE_SAMPLE_IDS = """
 MATCH (s:Sample) WHERE s.id IS NOT NULL
 WITH s.id AS id, count(*) AS nodes
@@ -356,10 +357,12 @@ ON CREATE SET e.child_id = CASE WHEN $by_uuid THEN c.uuid ELSE c.id END,
               e.parent_id = CASE WHEN $by_uuid THEN p.uuid ELSE p.id END
 RETURN count(e) AS matched
 """
-# Every DERIVED_FROM between two Sample nodes (gate G check 1 reads the same pattern). An OrphanSample no longer
-# carries Sample, so an edge touching one is neither read nor deleted here.
+# Every DERIVED_FROM between two Sample nodes, read a page of child ids at a time (writer.read_sample_pages; gate G
+# check 1 reads the same pattern). An OrphanSample no longer carries Sample, so an edge touching one is neither read
+# nor deleted here.
 DERIVED_FROM_BETWEEN_SAMPLES = """
-MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)
+MATCH (c:Sample) WHERE {page}
+MATCH (c)-[e:DERIVED_FROM]->(p:Sample)
 RETURN c.id AS child_id, p.id AS parent_id, c.uuid AS child_uuid, p.uuid AS parent_uuid,
        properties(e) AS props, elementId(e) AS element_id
 """

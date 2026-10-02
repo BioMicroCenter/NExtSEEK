@@ -16,6 +16,7 @@ import pytest
 from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import writer as w
 from nextseek_api.graph_sync.projection import SampleProjection
+from nextseek_api.tests import graph_sync_pages as pages
 from nextseek_graph import schema
 
 
@@ -24,12 +25,13 @@ class FakeDriver:
 
     ``responder(query, params)`` returns the records (dicts) for a call, or raises. A call with a
     ``result_transformer_`` gets the records as an iterable, as the real driver's Result is.
-    ``counters`` gives the summary counters of every call.
+    ``counters`` gives the summary counters of every call. The paged reads' statements are answered from the
+    responder's rows for their template (``pages.paged``).
     """
 
     def __init__(self, responder=None, counters=None):
         self.calls = []
-        self.responder = responder or (lambda query, params: [])
+        self.responder = pages.paged(responder or (lambda query, params: []))
         self.counters = counters or {}
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
@@ -390,7 +392,7 @@ DECLARED = {(11, 10), (12, 11)}
 
 
 def test_undeclared_derived_from_statements_touch_only_edges_between_samples():
-    assert "MATCH (c:Sample)-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_BETWEEN_SAMPLES
+    assert "MATCH (c:Sample) WHERE {page}\nMATCH (c)-[e:DERIVED_FROM]->(p:Sample)" in q.DERIVED_FROM_BETWEEN_SAMPLES
     for key in ("child_id", "parent_id", "child_uuid", "parent_uuid", "props", "element_id"):
         assert f" AS {key}" in q.DERIVED_FROM_BETWEEN_SAMPLES
     assert "properties(e) AS props" in q.DERIVED_FROM_BETWEEN_SAMPLES
@@ -412,7 +414,8 @@ def test_undeclared_derived_from_archive_is_written_before_any_delete(tmp_path):
     w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), DECLARED)
 
     queries = driver.queries()
-    assert queries.index(q.DERIVED_FROM_BETWEEN_SAMPLES) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)
+    _page, rest = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    assert queries.index(rest) < queries.index(q.DELETE_UNDECLARED_DERIVED_FROM)   # every read before any delete
     assert seen_at_delete == [(4, False)]  # header plus three rows, renamed into place before the first delete
 
 
@@ -505,8 +508,8 @@ def test_undeclared_derived_from_reads_as_a_read_and_deletes_as_a_write(tmp_path
 
     driver = FakeDriver(LineageGraph())
     w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(tmp_path / "a.tsv"), DECLARED)
-    (stream,) = driver.calls_of(q.DERIVED_FROM_BETWEEN_SAMPLES)
-    assert stream.kwargs.get("routing_") == RoutingControl.READ
+    streams = [c for c in driver.calls if c.query in w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)]
+    assert len(streams) == 2 and all(c.kwargs.get("routing_") == RoutingControl.READ for c in streams)
     assert all("routing_" not in c.kwargs for c in driver.calls_of(q.DELETE_UNDECLARED_DERIVED_FROM))
     assert all(c.database == "neo4j" for c in driver.calls)
 
@@ -552,6 +555,62 @@ def test_a_second_edge_of_a_declared_pair_is_archived_and_deleted_and_gate_g_che
     assert [name for name, check in gate.items() if not check["pass"]] == []
 
 
+SAMPLE_NODE_IDS = (10, 11, 12, 13, 70)    # LineageGraph's Sample ids; 99 is an OrphanSample
+
+
+def test_the_undeclared_archive_reads_a_page_of_children_at_a_time(tmp_path, monkeypatch):
+    """Dev's lineage_undeclared read took 88 s of a 120 s limit: no read may stream every edge. A page of one child
+    gives the counts, the deletes and the rows one page gives; a pair's doubled edge shares its first's page."""
+    one = tmp_path / "one.tsv"
+    whole = w.archive_and_drop_undeclared_derived_from(FakeDriver(_doubled_graph(LineageGraph)), "neo4j", str(one),
+                                                       DECLARED)
+    monkeypatch.setattr(w, "ID_PAGE", 1)
+    graph = _doubled_graph(LineageGraph)
+    driver = FakeDriver(pages.paged(graph, ids=SAMPLE_NODE_IDS, budget=3, on=(q.DERIVED_FROM_BETWEEN_SAMPLES,)))
+    out = tmp_path / "paged.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(driver, "neo4j", str(out), DECLARED)
+
+    assert counts == dict(whole, derived_from_archive_path=str(out)) and counts["derived_from_doubled"] == 1
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]
+    paged_rows, whole_rows = out.read_text().splitlines(), one.read_text().splitlines()
+    assert paged_rows[0] == whole_rows[0] and sorted(paged_rows[1:]) == sorted(whole_rows[1:])
+    page, rest = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 5 + [rest]
+
+
+def test_a_retried_page_of_the_undeclared_archive_is_archived_once(tmp_path, monkeypatch):
+    from neo4j.exceptions import TransientError
+
+    monkeypatch.setattr(w.time, "sleep", lambda s: None)
+    monkeypatch.setattr(w, "ID_PAGE", 1)
+    page, _ = w.page_forms(q.DERIVED_FROM_BETWEEN_SAMPLES)
+    failed = []
+
+    class Flaky(FakeDriver):
+        def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
+            if query == page and parameters_["last"] == 11 and not failed:   # child 11: e1, e6, e8
+                failed.append(query)
+                inner = result_transformer_
+
+                def result_transformer_(records):
+                    def stream():
+                        for i, record in enumerate(records):
+                            if i == 2:
+                                raise TransientError("connection lost mid-page")
+                            yield record
+                    return inner(stream())
+            return super().execute_query(query, parameters_, database_, result_transformer_, **kwargs)
+
+    graph = _doubled_graph(LineageGraph)
+    out = tmp_path / "a.tsv"
+    counts = w.archive_and_drop_undeclared_derived_from(Flaky(pages.paged(graph, ids=SAMPLE_NODE_IDS)), "neo4j",
+                                                        str(out), DECLARED)
+    assert failed and (counts["derived_from_undeclared"], counts["derived_from_doubled"]) == (3, 1)
+    assert [line.split("\t")[:2] for line in out.read_text().splitlines()[1:]] == [
+        ["11", "13"], ["11", "10"], ["12", "10"], ["70", "70"]]
+    assert sorted(graph.deleted) == ["e2", "e3", "e6", "e8"]
+
+
 def test_a_by_id_sync_deletes_a_second_edge_of_a_declared_pair_of_its_children(tmp_path):
     graph = _doubled_graph(ChildLineageGraph)
     out = tmp_path / "a.tsv"
@@ -566,12 +625,41 @@ def test_a_by_id_sync_deletes_a_second_edge_of_a_declared_pair_of_its_children(t
 
 # --- ghosts and orphans --------------------------------------------------------------------------
 
-def test_find_ghosts_splits_ghosts_orphans_and_unresolved():
-    sample_ids = [{"id": i} for i in (1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900)] + [{"id": None}]
+GHOST_SAMPLE_IDS = [{"id": i} for i in (1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900)] + [{"id": None}]
 
+
+def _ghost_graph(query, params):
+    """Sample ids, duplicates and nodes for find_ghosts: 3 and 5 have a ghost beside them, 4 is unresolved."""
+    if query == q.SAMPLE_IDS:
+        return GHOST_SAMPLE_IDS
+    if query == q.DUPLICATE_SAMPLE_IDS:
+        return [{"id": 3}, {"id": 4}, {"id": 5}, {"id": 900}]
+    if query == q.NODES_FOR_IDS:
+        return [{"id": 3, "element_id": "e3a", "uuid": "live-3"}, {"id": 3, "element_id": "e3b", "uuid": "ghost-3"},
+                {"id": 4, "element_id": "e4a", "uuid": "live-4"}, {"id": 4, "element_id": "e4b", "uuid": "live-x"},
+                {"id": 5, "element_id": "e5a", "uuid": "g-5a"}, {"id": 5, "element_id": "e5b", "uuid": "g-5b"},
+                {"id": 900, "element_id": "e9a", "uuid": "o-a"}, {"id": 900, "element_id": "e9b", "uuid": "o-b"}]
+    if query == q.SAMPLES_WITHOUT_ID:
+        return [{"element_id": "enull"}]
+    return []
+
+
+def test_find_ghosts_reads_a_page_of_sample_ids_at_a_time(monkeypatch):
+    """No read streams every Sample id (dev's labels read timed out that way); pages of two ids give the same
+    answer, a duplicated id's nodes always in one page."""
+    whole = w.find_ghosts(FakeDriver(_ghost_graph), "neo4j", {1, 2, 3, 4, 5, 6}, {"live-3", "live-4", "live-x"})
+    monkeypatch.setattr(w, "ID_PAGE", 2)
+    driver = FakeDriver(pages.paged(_ghost_graph, ids=(1, 2, 3, 3, 4, 4, 5, 5, 9, 900, 900), budget=4,
+                                    on=(q.SAMPLE_IDS,)))
+    assert w.find_ghosts(driver, "neo4j", {1, 2, 3, 4, 5, 6}, {"live-3", "live-4", "live-x"}) == whole
+    page, rest = w.page_forms(q.SAMPLE_IDS)
+    assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 5 + [rest]
+
+
+def test_find_ghosts_splits_ghosts_orphans_and_unresolved():
     def responder(query, params):
         if query == q.SAMPLE_IDS:
-            return sample_ids
+            return GHOST_SAMPLE_IDS
         if query == q.DUPLICATE_SAMPLE_IDS:
             return [{"id": 3}, {"id": 4}, {"id": 5}, {"id": 900}]
         if query == q.NODES_FOR_IDS:

@@ -183,9 +183,14 @@ next pass. On SQLite (the unit-test lane) the lock is a no-op behind the same fu
 Neo4j ends any transaction older than `db.transaction.timeout` (120 s on dev and production), and a read whose records
 go to a Python loop stays open for as long as the loop runs. So a read over every edge or every sample that works on
 each record runs a page of Sample ids at a time (`writer.read_sample_pages`: `ID_PAGE` samples a page over the
-`Sample.id` index, each page its own read transaction, then one read for the samples whose id is not a number): the
-label step's read of every DERIVED_FROM. Each page's result is built inside its read and merged only once the read
-has returned, so a retried page counts once. Each paged read logs how many reads it ran and the longest.
+`Sample.id` index, each page its own read transaction, then one read for the samples whose id is not a number). Six
+reads do: the full sync's ghost scan of every Sample id (`writer.find_ghosts`), its undeclared-lineage archive and its
+label step over every DERIVED_FROM, gate G's checks 1 and 9 over every DERIVED_FROM, and the drift check's read of
+every INPUT_TO and OUTPUT_OF. An edge is paged by its child, so a pair's doubled edges share a page. Each page's result
+is built inside its read and merged only once the read has returned, so a retried page counts once; a capped example
+list keeps the first in read order. Each paged read logs how many reads it ran and the longest. The other reads over
+the whole graph either return one aggregate the server computes or already page by id (the source hashes, IN_STUDY,
+the Samples holding assay edges).
 
 ## The schema version, and what the graph must be before anything is written
 

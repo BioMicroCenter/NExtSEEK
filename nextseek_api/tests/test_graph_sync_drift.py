@@ -20,6 +20,7 @@ from nextseek_api.graph_sync import cypher as q
 from nextseek_api.graph_sync import drift, run, sources, verify, writer
 from nextseek_api.graph_sync.models_db import GraphSyncOutbox, GraphSyncRun
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests import graph_sync_pages as pages
 from nextseek_graph import schema
 
 T0 = datetime(2026, 9, 15, 2, 30, tzinfo=dt_timezone.utc)
@@ -38,7 +39,7 @@ class FakeDriver:
 
     def __init__(self, responder):
         self.calls = []
-        self.responder = responder
+        self.responder = pages.paged(responder)   # the paged reads answered from the template's rows
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -628,6 +629,39 @@ class TestTheAssayLayerIsComparedAndReported:
         assert named["assays.labels_disagree_with_assay_titles"]["actual"] == 4
         assert all(c["pass"] for name, c in named.items() if name != "catalog.assays")
         assert stats["assays"]["members_without_role"] == 1
+
+
+    def test_the_members_the_sample_edges_carry_are_read_a_page_of_samples_at_a_time(self, monkeypatch):
+        """No read streams every INPUT_TO and OUTPUT_OF; pages of four samples give the checks one page gives."""
+        import random
+
+        rng = random.Random(11)
+        monkeypatch.setattr(run, "read_assays", self._state)
+        links = [(s, rng.choice([5, 6, 13])) for s in range(1, 61) for _ in range(rng.randint(0, 3))]
+        monkeypatch.setattr(sources, "iter_assay_links", lambda: iter(links))
+        held = [{"id": s, "seek_assay_id": a} for s, a in sorted(set(links)) if a != 13 and rng.random() < 0.8]
+        held += [{"id": None, "seek_assay_id": 5}, {"id": "x-7", "seek_assay_id": 6}]
+
+        def respond(query, params):
+            if query == verify.ASSAY_IDS:
+                return [{"id": 99}, {"id": 98}]
+            if query == drift.MEMBER_SEEK_PAIRS:
+                return held
+            if query == drift.EDGE_ASSAY_LABELS:
+                return []
+            raise AssertionError(f"unexpected statement: {query}")
+
+        whole = ([], {})
+        drift._check_assays(FakeDriver(respond), "neo4j", *whole)
+        monkeypatch.setattr(writer, "ID_PAGE", 4)
+        driver = FakeDriver(pages.paged(respond, ids=range(1, 61), budget=20, on=(drift.MEMBER_SEEK_PAIRS,)))
+        paged = ([], {})
+        drift._check_assays(driver, "neo4j", *paged)
+
+        assert json.dumps(paged, sort_keys=True) == json.dumps(whole, sort_keys=True)
+        assert whole[1]["assays"]["members_without_role"] > 0 and len(held) > 20
+        page, rest = writer.page_forms(drift.MEMBER_SEEK_PAIRS)
+        assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 15 + [rest]
 
 
 # --- the assistant's investigation names (the POC's CI hook) --------------------------------------

@@ -18,8 +18,9 @@ from neo4j import RoutingControl
 
 from nextseek_api.batch_upload.identity import hash_identity
 from nextseek_api.graph_sync import cypher as q
-from nextseek_api.graph_sync import run, sources, study_links, verify
+from nextseek_api.graph_sync import labels, run, sources, study_links, verify, writer
 from nextseek_api.graph_sync.projection import project_sample
+from nextseek_api.tests import graph_sync_pages as pages
 from nextseek_api.tests.graph_sync_study_fakes import StudyGraph
 from nextseek_graph import schema
 
@@ -29,7 +30,7 @@ class FakeDriver:
 
     def __init__(self, responder):
         self.calls = []
-        self.responder = responder
+        self.responder = pages.paged(responder)   # the paged reads answered from the template's rows
 
     def execute_query(self, query, parameters_=None, database_=None, result_transformer_=None, **kwargs):
         params = parameters_ or {}
@@ -560,6 +561,83 @@ def test_check_1_fails_a_doubled_declared_edge(world):
     check = _named(result, "1.lineage.duplicate_edges")
     assert (check["actual"], check["pass"], check["detail"]) == (1, False, [[11, 10]])
     assert _named(result, "1.lineage.undeclared_pairs_between_samples")["pass"] is True
+
+
+# --- checks 1 and 9 read a page of child ids at a time (Neo4j's 120 s transaction limit) -------
+
+LEGACY_LINEAGE = [(None, 5), ("x-7", 5), (5, "y"), (2 ** 31, 5)]
+
+
+def _lineage_world(seed=3):
+    """80 samples and 300 random DERIVED_FROM (self-loops, undeclared pairs and doubled edges among them) whose
+    stored labels fall in every class, plus edges with legacy ends; and the MySQL side checks 1 and 9 compare."""
+    rng = random.Random(seed)
+    assay_map = {7: (99, "Patient Visit"), 8: (None, "RNA-seq run"), 9: (98, "Other")}
+    ids = list(range(1, 81))
+    assays = {i: tuple(sorted(rng.sample([7, 8, 9], rng.randint(0, 2)))) for i in ids}
+    protocols = {i: (5, "Dissection SOP") for i in ids if rng.random() < 0.5}
+    pairs = set()
+    while len(pairs) < 300:
+        pairs.add((rng.choice(ids), rng.choice(ids)))
+    declared = {run.encode_pair(c, p) for c, p in pairs if rng.random() < 0.8}
+    rows = []
+    for child, parent in sorted(pairs) + sorted(rng.sample(sorted(pairs), 15)):    # 15 pairs carried twice
+        rule = labels.edge_labels(assays[child], assays[parent], assay_map, protocols.get(child))
+        roll = rng.random()
+        if roll < 0.3:
+            stored = dict(rule)
+        elif roll < 0.5:
+            stored = {}
+        elif roll < 0.6:
+            stored = dict(rule, internal_assay_title="Old title", internal_assay_titles=["Old title"])
+        elif roll < 0.8:
+            stored = dict(rule, internal_assay_id=97, internal_assay_ids=[97])
+        else:
+            stored = dict(rule, protocol_id=None, protocol_title=None)
+        rows.append({"child": child, "parent": parent, "stored": {k: stored.get(k) for k in q.EDGE_LABEL_KEYS}})
+    legacy = [{"child": c, "parent": p, "stored": {k: None for k in q.EDGE_LABEL_KEYS}} for c, p in LEGACY_LINEAGE]
+    # stored in child-id order, as pages read them, so even the capped examples match; null and text ids last
+    rows = sorted(rows + [r for r in legacy if isinstance(r["child"], int)], key=lambda r: r["child"])
+    rows += [r for r in legacy if not isinstance(r["child"], int)]
+
+    def respond(query, params):
+        if query == verify.LINEAGE_PAIRS:
+            return [{"child": r["child"], "parent": r["parent"]} for r in rows]
+        if query == verify.LINEAGE_LABELS:
+            return rows
+        if query == verify.LINEAGE_ON_ORPHANS:
+            return [{"n": 0}]
+        raise AssertionError(f"unexpected statement: {query}")
+
+    mysql = SimpleNamespace(lineage=declared, protocols=protocols)
+    return respond, mysql, assays, assay_map, tuple(ids) + (2 ** 31,), len(rows)
+
+
+def _checks_1_and_9(driver, mysql, assays, assay_map):
+    checks, stats = [], {}
+    verify._check_lineage(driver, "neo4j", mysql, checks, stats)
+    verify._check_labels(driver, "neo4j", mysql, assays, assay_map, checks, stats)
+    return checks, stats
+
+
+def test_checks_1_and_9_read_a_page_of_child_ids_at_a_time(monkeypatch):
+    """On dev check 9's one read took most of the 120 s limit; pages of three child ids give the checks and stats
+    one page gives, a doubled pair's edges always in one page."""
+    respond, mysql, assays, assay_map, ids, edges = _lineage_world()
+    whole = _checks_1_and_9(FakeDriver(respond), mysql, assays, assay_map)
+    monkeypatch.setattr(writer, "ID_PAGE", 3)
+    driver = FakeDriver(pages.paged(respond, ids=ids, budget=60, on=(verify.LINEAGE_PAIRS, verify.LINEAGE_LABELS)))
+    paged = _checks_1_and_9(driver, mysql, assays, assay_map)
+
+    assert json.dumps(paged, sort_keys=True) == json.dumps(whole, sort_keys=True)
+    named = {c["name"]: c for c in paged[0]}
+    assert named["1.lineage.duplicate_edges"]["actual"]
+    assert named["1.lineage.undeclared_pairs_between_samples"]["actual"]
+    assert sum(1 for n in paged[1]["lineage_labels"]["classes"].values() if n) >= 5   # new, equal, changed, ...
+    assert edges > 60
+    for template in (verify.LINEAGE_PAIRS, verify.LINEAGE_LABELS):
+        page, rest = writer.page_forms(template)
+        assert [c.query for c in driver.calls if c.query in (page, rest)] == [page] * 27 + [rest]
 
 
 # --- the census: no label or relationship type the contract does not name -----------------
