@@ -179,3 +179,12 @@ def test_nothing_in_the_container_reads_a_password_except_the_sidecar_frame():
                 continue
             offenders.append(f"{rel}:{number}: {stripped}")
     assert offenders == []
+
+
+def test_the_docs_the_agent_reads_name_the_pass_and_no_password():
+    docs = [CC_RUNTIME / "container" / "CLAUDE.md",
+            CC_RUNTIME / "build_context" / "plugins" / "nextseek" / "skills" / "nextseek" / "SKILL.md"]
+    for doc in docs:
+        text = doc.read_text()
+        assert [name for name in PASSWORD_NAMES if name in text] == [], doc.name
+        assert "NEXTSEEK_TURN_PASS" in text, doc.name

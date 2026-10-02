@@ -19,8 +19,10 @@ Pick the op(s) a task needs, run them, and compose the answer from what they ret
 entire file before taking any action.
 
 Every op runs **server-side** (via the sidecar or the NExtSEEK viewset) and returns JSON on
-stdout. The agent container holds only the user's NExtSEEK login (`API_USER`/`API_PASS`) — never
-database or provider credentials, and no `chat_nextseek` source. Do not attempt to reach those.
+stdout. The agent container holds only a one-turn pass for the user's NExtSEEK account
+(`NEXTSEEK_TURN_PASS`), which the server accepts only on the routes these ops use and only until this
+turn ends: never the user's password, database or provider credentials, and no `chat_nextseek` source.
+Do not attempt to reach those.
 
 ## Context files — read the manifest first
 
@@ -312,7 +314,7 @@ layers guard a path that ends in a refusal.
 
 > "About to execute a WRITE-classified operation. Method: POST. Endpoint: /samples/<...>/. Body: {...}. **Confirm?**"
 
-Then wait for the user's next message. If the user responds "yes" / "go ahead" / similar, invoke `nextseek-api-write` with `--confirmed-write`. If anything else, abort and acknowledge.
+Then wait for the user's next message. Even if the user responds "yes" / "go ahead" / similar, the turn pass is refused by `nextseek-api-write` (see the table and the start of this section): tell the user the change is made in NExtSEEK itself. If anything else, abort and acknowledge.
 
 ## Stop-after-2 rule (load-bearing)
 
@@ -342,7 +344,7 @@ The only legitimate chaining is the documented recipe above (`nextseek-parse` �
 
 The runner emits a one-line JSON error to stderr with a code (exit code in parens):
 
-- `CONFIG_MISSING` (2): `API_USER`/`API_PASS` not set. Tell the user; do not retry.
+- `CONFIG_MISSING` (2): `NEXTSEEK_TURN_PASS` not set (for `nextseek-query`, `nextseek-plan`, `nextseek-pipeline` and `nextseek-recall`, also `NEXTSEEK_CHAT_SESSION_ID`). Tell the user; do not retry.
 - `IMPORT_FAILED` (2): a required module is unavailable server-side. Surface a deploy-side message.
 - `VALIDATION` (3): bad CLI args. Fix the call.
 - `AGENT_FAILED` (4): LLM/network failure. Retry once with the same call; if still failing,

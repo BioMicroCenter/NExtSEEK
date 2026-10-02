@@ -46,7 +46,7 @@ def test_plugins_section_uses_canonical_paths():
         "/app/plugins/nextseek/bin/",
         "/app/plugins/nextseek/context/",
         "read the SKILL.md first",
-        "translated to `API_USER` / `API_PASS` by the container entrypoint",
+        "authenticate with the turn pass in `NEXTSEEK_TURN_PASS` themselves",
     ]
     missing = [s for s in expected_strings if s not in text]
     assert not missing, (
