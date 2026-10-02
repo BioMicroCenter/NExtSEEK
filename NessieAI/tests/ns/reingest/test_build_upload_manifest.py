@@ -143,6 +143,21 @@ def _patch_seek_required(monkeypatch):
                    if st in ("A.ALN", "A.GEX") else {})
 
 
+
+def _patch_seek_assays(monkeypatch):
+    """No parent belongs to a SEEK assay here, so no ASSAY rows.
+
+    The lookup joins SEEK's tables by schema name, and this module's sqlite
+    lane has no SEEK schema: the real query raises, and the build stops on
+    it as an outage, by design. Until the lookup was pointed at SEEK it ran
+    against the empty `samples` table on `default` and returned [] quietly,
+    which is what these tests had been seeing. They are about the mapped
+    cells, not the Assay sheet; return that same [] on purpose.
+    """
+    monkeypatch.setattr(
+        "nextseek_api.services.reingest_lookups.assay_ids_for_parents_strict",
+        lambda parent_uids, internal_assay_title: [])
+
 # Default per-sample output inventory a real `run-harvest` would have found
 # for a `star_salmon`-aligned run -- matching rnaseq.outputs.json's own
 # globs -- so a caller that does not care about outputs still gets an
@@ -200,6 +215,7 @@ def _save_manifest(tmp_path, monkeypatch, *, metrics=None, outputs=None, checksu
     from NessieAI.ns.reingest import build_records
     monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     _patch_seek_required(monkeypatch)
+    _patch_seek_assays(monkeypatch)
     run_manifest = manifest_mod.RunManifest(
         run_dir="/net/cluster/runs/r1",
         pipeline=manifest_mod.PipelineInfo(
@@ -232,6 +248,7 @@ def _save_manifest_multi(tmp_path, monkeypatch, *, n=3, metrics=None, outputs=No
     from NessieAI.ns.reingest import build_records
     monkeypatch.setattr(build_records, "_ROOT", str(tmp_path / "builds"))
     _patch_seek_required(monkeypatch)
+    _patch_seek_assays(monkeypatch)
     sample_names = [f"SAMPLE_{i}" for i in range(1, n + 1)]
     samples = [
         _sample_record(name, f"D.SEQ-EXAMPLE-{i}", metrics=metrics)

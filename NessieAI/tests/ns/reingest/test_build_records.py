@@ -54,7 +54,9 @@ def test_project_lookup_returns_distinct_ids_and_raises_on_outage():
     cursor.fetchall.return_value = [(14,)]
     conn = MagicMock()
     conn.cursor.return_value.__enter__.return_value = cursor
-    with patch("django.db.connection", conn):
+    # Every table the project lookup reads is SEEK's, so it goes through the
+    # SEEK alias; a stand-in for `connections` answers only that alias.
+    with patch("django.db.connections", {"seek": conn}):
         assert lk.project_ids_for_uids_strict(["D.SEQ-EXAMPLE-1"]) == [14]
         assert lk.project_ids_for_uids_strict([]) == []
         conn.cursor.side_effect = Exception("down")

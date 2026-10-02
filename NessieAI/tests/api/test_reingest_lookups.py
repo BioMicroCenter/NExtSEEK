@@ -382,3 +382,76 @@ class TestAttributeValuesForUidsStrict:
 
     def test_of_an_empty_list_is_empty(self):
         assert reingest_lookups.attribute_values_for_uids_strict([], "FooRate") == {}
+
+
+# --- Which database each raw-SQL lookup reads --------------------------------
+# SEEK's tables (samples, assay_assets, assays, projects_samples) live in the
+# SEEK schema, behind the `seek` alias. The `default` (dmac) schema holds an
+# empty `samples` table of the same name, created by migration 0001 because the
+# mirror models are managed, so an unqualified query there finds nothing and
+# says so quietly: no Assay rows, and every upload refused as project-less.
+# internal_assays and assays_internal_assays, on the other hand, are
+# NExtSEEK's, on `default` -- so the assay lookup is one cross-schema query on
+# `default`, SEEK's tables qualified by name, the way
+# dmac/dbtable_assaysinternalassays.py already joins them.
+
+class _Recorder:
+    """Stands in for django.db.connections: records the alias and SQL."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls = []
+
+    def __getitem__(self, alias):
+        recorder = self
+
+        class _Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql, params=None):
+                recorder.calls.append((alias, sql, list(params or [])))
+
+            def fetchall(self):
+                return recorder.rows
+
+        conn = MagicMock()
+        conn.cursor.return_value = _Cursor()
+        return conn
+
+
+def _seek_settings(settings):
+    settings.SEEK_DATABASE = "seek"
+    settings.DATABASES = {**settings.DATABASES,
+                          "seek": {**settings.DATABASES["default"], "NAME": "seek_production"}}
+
+
+def test_assay_ids_read_seeks_tables_by_schema_and_ours_from_default(settings):
+    _seek_settings(settings)
+    recorder = _Recorder(rows=[(7,), (9,)])
+    with patch("django.db.connections", recorder):
+        got = reingest_lookups.assay_ids_for_parents_strict(["D.SEQ-1"], "Genome Alignment")
+
+    assert got == [7, 9]
+    [(alias, sql, params)] = recorder.calls
+    assert alias == "default"
+    for seek_table in ("samples", "assay_assets", "assays"):
+        assert f"`seek_production`.{seek_table} AS" in sql, seek_table
+    assert "JOIN assays_internal_assays AS j" in sql
+    assert "JOIN internal_assays AS ia" in sql
+    assert params == ["D.SEQ-1", "Genome Alignment"]
+
+
+def test_project_ids_are_read_from_the_seek_connection(settings):
+    _seek_settings(settings)
+    recorder = _Recorder(rows=[(14,)])
+    with patch("django.db.connections", recorder):
+        got = reingest_lookups.project_ids_for_uids_strict(["D.SEQ-1"])
+
+    assert got == [14]
+    [(alias, _sql, params)] = recorder.calls
+    assert alias == "seek"
+    assert params == ["D.SEQ-1"]

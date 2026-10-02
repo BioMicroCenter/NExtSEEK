@@ -370,6 +370,21 @@ def attribute_values_for_uids_strict(uids: list[str], attribute: str) -> dict[st
     return out
 
 
+def _seek_schema() -> str:
+    """SEEK's schema name, backquoted, for qualifying its tables in raw SQL.
+
+    SEEK's tables are reached through the ``seek`` alias. The ``default``
+    (dmac) schema holds an empty ``samples`` table of the same name, made by
+    migration 0001 because the mirror models are managed, so an unqualified
+    query on ``default`` finds nothing and fails quietly. The name comes from
+    settings, never from a caller.
+    """
+    from django.conf import settings
+
+    name = settings.DATABASES[settings.SEEK_DATABASE]["NAME"]
+    return f"`{name}`"
+
+
 def assay_ids_for_parents_strict(
     parent_uids: list[str], internal_assay_title: str
 ) -> list[int]:
@@ -398,21 +413,25 @@ def assay_ids_for_parents_strict(
     """
     if not parent_uids or not internal_assay_title:
         return []
-    from django.db import connection
+    from django.db import connections
 
     uids = sorted({str(u).strip() for u in parent_uids if str(u or "").strip()})
     if not uids:
         return []
 
+    # One query across both schemas, on `default`: the internal-assay tables
+    # are NExtSEEK's, the rest are SEEK's and are named by schema. See
+    # _seek_schema for why an unqualified `samples` must never reach `default`.
+    seek = _seek_schema()
     uid_ph = ", ".join(["%s"] * len(uids))
     sql = f"""
         SELECT DISTINCT target.id
-          FROM samples AS s
-          JOIN assay_assets AS aa
+          FROM {seek}.samples AS s
+          JOIN {seek}.assay_assets AS aa
             ON aa.asset_id = s.id AND aa.asset_type = 'Sample'
-          JOIN assays AS parent_assay
+          JOIN {seek}.assays AS parent_assay
             ON parent_assay.id = aa.assay_id
-          JOIN assays AS target
+          JOIN {seek}.assays AS target
             ON target.study_id = parent_assay.study_id
           JOIN assays_internal_assays AS j
             ON j.assay_id = target.id
@@ -424,7 +443,7 @@ def assay_ids_for_parents_strict(
          ORDER BY target.id
     """
     try:
-        with connection.cursor() as cur:
+        with connections["default"].cursor() as cur:
             cur.execute(sql, [*uids, internal_assay_title])
             return [int(r[0]) for r in cur.fetchall()]
     except Exception as exc:
@@ -444,7 +463,8 @@ def project_ids_for_uids_strict(uids: list[str]) -> list[int]:
     clean = sorted({str(u).strip() for u in uids if str(u or "").strip()})
     if not clean:
         return []
-    from django.db import connection
+    from django.conf import settings
+    from django.db import connections
 
     placeholders = ", ".join(["%s"] * len(clean))
     sql = f"""
@@ -455,7 +475,8 @@ def project_ids_for_uids_strict(uids: list[str]) -> list[int]:
          ORDER BY ps.project_id
     """
     try:
-        with connection.cursor() as cur:
+        # Every table here is SEEK's: read them through the SEEK alias.
+        with connections[settings.SEEK_DATABASE].cursor() as cur:
             cur.execute(sql, clean)
             return [int(r[0]) for r in cur.fetchall()]
     except Exception as exc:
