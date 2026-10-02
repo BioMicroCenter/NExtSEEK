@@ -511,6 +511,11 @@ class ChatConfig:
         env_config_map["OUTPUTS_DIR"] = os.path.expanduser(os.getenv("NEXTSEEK_OUTPUTS_DIR", env_config_map["XDG_STATE_HOME"] + "/chat_nextseek/outputs/"))
         env_config_map["PROMPTS_DIR"] = os.getenv("PROMPTS_DIR", str(env_config_map["BASE_DIR"]) + "/prompts")
         env_config_map["CONTEXT_DIR"] = os.getenv("CONTEXT_DIR", str(env_config_map["BASE_DIR"]) + "/context")
+        # The user docs the site serves at /docs/ (themes/NextSeek/docs; chat_nextseek is an editable install,
+        # so the repository root is two folders above REPO_ROOT, NessieAI/chat_nextseek). The system agent's read_doc reads them.
+        env_config_map["DOCS_DIR"] = os.getenv(
+            "NESSIE_DOCS_DIR", str(env_config_map["REPO_ROOT"].parent.parent / "themes" / "NextSeek" / "docs")
+        )
         env_config_map["SEQ_TEMPLATE_PATH"] = os.getenv("SEQ_TEMPLATE_PATH", str(env_config_map["BASE_DIR"]) + "/reports/templates/GEO_template.xlsx")
         env_config_map["CATALOG_FILE"] = os.getenv(
             "CATALOG_FILE", str(env_config_map["REPO_ROOT"]) + "/agent_model_catalog.json"

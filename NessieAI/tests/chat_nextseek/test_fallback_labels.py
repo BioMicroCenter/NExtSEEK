@@ -31,7 +31,6 @@ from chat_nextseek.schemas import (
     GraphAgentPlan,
     ParserPlan,
     PlanEvaluatorOutput,
-    SystemAgentOutput,
 )
 from chat_nextseek.schemas.schema_helper import call_llm_structured
 
@@ -83,8 +82,12 @@ def test_the_api_agent_passes_its_catalog_key(monkeypatch):
 
 
 def test_the_system_agent_passes_its_catalog_key(monkeypatch):
-    capture = _Capture(SystemAgentOutput(mode="get_capabilities", narrative="ok"))
-    monkeypatch.setattr(system_mod, "call_llm_structured", capture)
+    """A tool loop (tool_loop.call_tools) since 2026-10-02: its ledger entry carries the catalog key itself."""
+    answer = {"type": "tool_use", "id": "t1", "name": "answer",
+              "input": {"mode": "get_capabilities", "narrative": "ok"}}
+    calls: list[dict] = []
+    monkeypatch.setattr(system_mod, "call_tools",
+                        lambda config, **kwargs: calls.append(kwargs) or {"content": [answer]})
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *a, **k: None)
     monkeypatch.setattr(system_mod.graph_catalog, "committed_schema", lambda config: {})
     config = MagicMock()
@@ -97,7 +100,9 @@ def test_the_system_agent_passes_its_catalog_key(monkeypatch):
 
     system_mod.system_agent(config, "what can you do", {}, ParserPlan(mode="system_question"))
 
-    _assert_labelled(capture.calls[0], key="system", log_label="system_agent")
+    assert calls[0]["agent_label"] == "system", "the chain is looked up by the catalog key"
+    assert calls[0]["client"] is PRIMARY_CLIENT, "the primary client is unchanged"
+    assert calls[0]["model_name"] == PRIMARY_MODEL, "the primary model is unchanged"
 
 
 def test_the_plan_evaluator_passes_its_catalog_key(monkeypatch):

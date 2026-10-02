@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .. import graph_catalog
+from .. import graph_catalog, system_tools
 from ..config import ChatConfig
 from ..context_rows import is_investigation_row, is_project_row
-from ..schemas.schema_helper import call_llm_structured
+from ..llm_clients import without_reasoning_blocks
+from ..tool_loop import call_tools
 from ..schemas import (
     EntityAgentOutput,
     ParserPlan,
@@ -69,33 +70,29 @@ def _lab_details(config, entity_dict: dict, projects_map: dict) -> dict:
     return details
 
 
-def system_agent(
-    config: ChatConfig,
-    user_query: str,
-    entity_result: EntityAgentOutput | dict,
-    parser_plan: ParserPlan | dict,
-) -> SystemAgentOutput:
-    """
-    Answer meta questions about the system: capabilities, catalog entity details, and search options.
-    Determines its own sub-mode (get_capabilities, get_entities, get_searches) from context.
-    Returns a SystemAgentOutput with a narrative answer ready for direct display.
-    Falls back to a canned capabilities answer on failure.
-    """
-    print("\n[DEBUG][SYSTEM] User query:", user_query)
+#: Lookups before the answer. A system question needs a docs page or a catalog row or two; one that cannot
+#: answer in four calls has misread the question rather than run short.
+MAX_ITER = 4
 
-    entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
-    plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
+SYSTEM_AGENT_KEY = "system"
 
+
+def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_dict: dict,
+                   pages: dict | None = None) -> list[dict]:
+    """The system agent's context. The ``system`` blocks are the same for every question (the cached head:
+    prompt, capabilities, endpoints, the catalog and docs indexes); the ``user`` blocks are this question's."""
     # Build full entity details for any resolved catalog codes using pre-built maps from config
     entity_details: dict = {}
+    sampletypes_map = _as_map(getattr(config, "FULL_SAMPLETYPES_MAP", None))
+    assays_map = _as_map(getattr(config, "FULL_ASSAYS_MAP", None))
     for st in entity_dict.get("sampletypes", []):
         code = st.get("code")
-        if code and code in config.FULL_SAMPLETYPES_MAP:
-            entity_details[code] = config.FULL_SAMPLETYPES_MAP[code]
+        if code and code in sampletypes_map:
+            entity_details[code] = sampletypes_map[code]
     for assay in entity_dict.get("assays", []):
         code = assay.get("code")
-        if code and code in config.FULL_ASSAYS_MAP:
-            entity_details[code] = config.FULL_ASSAYS_MAP[code]
+        if code and code in assays_map:
+            entity_details[code] = assays_map[code]
     # A project and an investigation may share a name (the real CSBC and MetNet do), so
     # they live in two maps and both are sent, the investigation under its own label.
     # Each row is sent as what chat_nextseek.context_rows says it is, whichever map it is in:
@@ -116,15 +113,8 @@ def system_agent(
 
     entity_details.update(_lab_details(config, entity_dict, projects_map))
 
-    # The full catalogs, not just the codes the entity agent happened to resolve.
-    # Without these the only enumerable list in context is the representative
-    # table in capabilities.md (25 sample types, 15 assays), and the agent
-    # answers "how many D.* types exist" with that table's row count instead of
-    # the catalog's. Every other catalog-answering agent already passes these;
-    # see agents/entity.py:38-40.
-    sampletypes_json = json.dumps(config.MIN_SAMPLETYPES, indent=2)
-    assays_json = json.dumps(config.MIN_ASSAYS, indent=2)
-
+    if pages is None:
+        pages = system_tools.load_docs(getattr(config, "DOCS_DIR", None))
     caps_doc = config.CAPABILITIES_DOC or "(No capabilities document loaded — describe general NExtSEEK capabilities.)"
     endpoints_json = json.dumps(config.MIN_API_ENDPOINTS, indent=2)
     # The graph agent's own rendering when the v1.1 catalog is live (structure, type index, the resolved types and
@@ -138,40 +128,124 @@ def system_agent(
         schema_json = json.dumps(committed, indent=2) if committed else "{}"
     entity_details_json = json.dumps(entity_details, indent=2) if entity_details else "{}"
 
-    messages = [
+    # The catalogs are an index here, not every row in full: get_catalog_entry and list_catalog read the rows.
+    return [
         {"role": "system", "content": config.SYSTEM_AGENT_SYSTEM_PROMPT},
         {"role": "system", "content": f"CAPABILITIES_DOCUMENT:\n{caps_doc}"},
         {"role": "system", "content": f"ENDPOINT_CATALOG:\n{endpoints_json}"},
-        {"role": "system", "content":
-            "SAMPLETYPE_CATALOG (COMPLETE — this is the authoritative list; "
-            "count and enumerate from here, never from the representative table "
-            f"in the capabilities document):\n{sampletypes_json}"},
-        {"role": "system", "content":
-            "ASSAY_CATALOG (COMPLETE — authoritative, same rule as the sampletype "
-            f"catalog):\n{assays_json}"},
-        {"role": "system", "content": f"GRAPH_SCHEMA:\n{schema_json}"},
-        {"role": "system", "content": f"ENTITY_RESULT (from entity agent):\n{json.dumps(entity_dict, indent=2)}"},
-        {"role": "system", "content": f"ENTITY_DETAILS (full catalog data for resolved entities):\n{entity_details_json}"},
-        {"role": "system", "content": f"PARSER_INTENT:\n{json.dumps(plan_dict, indent=2)}"},
-        {"role": "user", "content": user_query},
+        {"role": "system", "content": f"CATALOG_INDEX:\n{system_tools.catalog_index(config)}"},
+        {"role": "system", "content": f"DOCS_INDEX:\n{system_tools.docs_index(pages)}"},
+        {"role": "user", "content": f"GRAPH_SCHEMA:\n{schema_json}"},
+        {"role": "user", "content": f"ENTITY_RESULT (from entity agent):\n{json.dumps(entity_dict, indent=2)}"},
+        {"role": "user", "content": f"ENTITY_DETAILS (full catalog data for resolved entities):\n{entity_details_json}"},
+        {"role": "user", "content": f"PARSER_INTENT:\n{json.dumps(plan_dict, indent=2)}"},
+        {"role": "user", "content": f"QUESTION:\n{user_query}"},
     ]
 
-    sys_client, sys_model, sys_budget = config.get_agent_model("system")
+
+def _run_tool(config, pages: dict, name: str, args: dict, read: set) -> dict:
+    """One lookup. A page ``read_doc`` returned is added to ``read``: only those can be cited."""
+    if name == "read_doc":
+        out = system_tools.read_doc(pages, args.get("slug"), args.get("heading"))
+        if out.get("ok"):
+            read.add(out["slug"])
+        return out
+    if name == "get_catalog_entry":
+        return system_tools.get_catalog_entry(config, args.get("kind"), args.get("key"))
+    if name == "list_catalog":
+        return system_tools.list_catalog(config, args.get("kind"), args.get("clade"), args.get("contains"))
+    return {"ok": False, "error": f"unknown tool {name!r}"}
+
+
+def _finish(args: dict, pages: dict, read: set) -> SystemAgentOutput:
+    """The answer, with a link under it for every cited page that was read this turn (and no other)."""
+    narrative = str(args.get("narrative") or "").strip()
+    footer, kept, dropped = system_tools.docs_footer(pages, args.get("docs_cited") or [], read, narrative)
+    if footer:
+        narrative = f"{narrative}\n\n{footer}"
+    notes = str(args.get("notes") or "")
+    if dropped:
+        notes = (notes + "; " if notes else "") + f"dropped docs_cited not read this turn: {', '.join(dropped)}"
+    mode = args.get("mode")
+    if mode not in ("get_capabilities", "get_entities", "get_searches"):
+        mode = "get_capabilities"
+    consulted = [str(e) for e in args.get("entities_consulted") or [] if e]
+    return SystemAgentOutput(mode=mode, narrative=narrative, entities_consulted=consulted,
+                             docs_cited=kept, notes=notes)
+
+
+def system_agent(
+    config: ChatConfig,
+    user_query: str,
+    entity_result: EntityAgentOutput | dict,
+    parser_plan: ParserPlan | dict,
+) -> SystemAgentOutput:
+    """
+    Answer meta questions about the system: capabilities, catalog entity details, search options, and how to
+    do things on the site (from the user docs). Looks the docs and the catalogs up with tools
+    (``system_tools``), at most ``MAX_ITER`` times, then answers through the ``answer`` tool.
+    Returns a SystemAgentOutput with a narrative answer ready for direct display.
+    Falls back to a canned answer on failure; a model and fallback that both failed (LLMFatalError) end the turn.
+    """
+    print("\n[DEBUG][SYSTEM] User query:", user_query)
+
+    entity_dict = entity_result.model_dump() if hasattr(entity_result, "model_dump") else entity_result
+    plan_dict = parser_plan.model_dump() if hasattr(parser_plan, "model_dump") else (parser_plan or {})
+
+    pages = system_tools.load_docs(getattr(config, "DOCS_DIR", None))
+    blocks = build_messages(config, user_query, entity_dict, plan_dict, pages)
+    system = "\n\n".join(b["content"] for b in blocks if b["role"] == "system")
+    messages: list[dict] = [
+        {"role": "user", "content": "\n\n".join(b["content"] for b in blocks if b["role"] == "user")}
+    ]
+    read: set[str] = set()
+
+    sys_client, sys_model, sys_budget = config.get_agent_model(SYSTEM_AGENT_KEY)
     try:
-        result = call_llm_structured(
-            config=config,
-            prompt=user_query,
-            model=SystemAgentOutput,
-            messages=messages,
-            model_name=sys_model,
-            temperature=0,
-            agent_label="system",
-            log_label="system_agent",
-            thinking_budget=sys_budget,
-            client=sys_client,
-        )
-        print(f"[DEBUG][SYSTEM] mode={result.mode}, entities={result.entities_consulted}")
-        return result
+        for iteration in range(MAX_ITER + 1):
+            terminal = iteration == MAX_ITER
+            if terminal:
+                messages.append({"role": "user", "content": (
+                    "This is your final turn and only `answer` is available. Answer now from what you "
+                    "have read. Nothing else can run."
+                )})
+            resp = call_tools(
+                config,
+                # The last pass offers only `answer`; an always-thinking model would read the earlier
+                # reasoning, written under other tools, as an edited history (followup.run_followup).
+                messages=without_reasoning_blocks(messages) if terminal else messages,
+                tools=system_tools.tool_schemas(final=terminal),
+                system=system,
+                model_name=sys_model,
+                client=sys_client,
+                agent_label=SYSTEM_AGENT_KEY,
+                thinking_budget=sys_budget,
+            )
+            content = resp.get("content") or []
+            tool_uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"]
+            if not tool_uses:
+                # Prose without the answer tool: take it rather than spend another call.
+                text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+                if text.strip():
+                    return _finish({"narrative": text, "notes": "answered without the answer tool"}, pages, read)
+                break
+            messages.append({"role": "assistant", "content": content})
+            results = []
+            for block in tool_uses:
+                name, args = block.get("name"), block.get("input") or {}
+                if name == "answer":
+                    result = _finish(args, pages, read)
+                    print(f"[DEBUG][SYSTEM] mode={result.mode}, entities={result.entities_consulted}, "
+                          f"docs={result.docs_cited}")
+                    return result
+                if terminal:
+                    payload = {"ok": False, "error": f"`{name}` was not available on this turn and did not run."}
+                else:
+                    payload = _run_tool(config, pages, name, args, read)
+                results.append({"type": "tool_result", "tool_use_id": block.get("id"),
+                                "content": json.dumps(payload, default=str)})
+            messages.append({"role": "user", "content": results})
+        raise RuntimeError(f"no answer after {MAX_ITER} lookups")
     except Exception as e:
         print(f"[DEBUG][SYSTEM] system_agent failed: {e!r}")
         return SystemAgentOutput(
@@ -183,4 +257,3 @@ def system_agent(
             entities_consulted=[],
             notes=f"error: {e}",
         )
-

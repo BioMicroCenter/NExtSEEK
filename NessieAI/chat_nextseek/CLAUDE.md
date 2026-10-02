@@ -187,9 +187,14 @@ without an error at the point of the change.
   (`NessieAI/chat_nextseek/src/chat_nextseek/config.py:1324`).
 - **A missing capabilities document also degrades silently.**
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py:442-448` prints a note and returns an
-  empty string, and `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py:56`
+  empty string, and `build_messages` in `NessieAI/chat_nextseek/src/chat_nextseek/agents/system.py`
   substitutes placeholder prose, so the system agent answers catalog questions
   from nothing instead of failing loudly.
+- **The system agent's user docs come from the repository, not a snapshot.** Its `read_doc`
+  tool (`system_tools.py`) reads `themes/NextSeek/docs/` (`ChatConfig.DOCS_DIR`, env
+  `NESSIE_DOCS_DIR`), the pages the site serves at `/docs/`. A missing folder gives an empty
+  docs index and a how-to answer with no page to cite; nothing raises. Container-CC keeps its
+  own generated snapshot (`NessieAI/docker/cc-runtime/docs/nextseek/`).
 - **An in-source comment contradicts the code about the launch default.**
   `NessieAI/chat_nextseek/src/chat_nextseek/config.py:330-333` claims the mode defaults to
   Tower; the function it describes defaults to Luria

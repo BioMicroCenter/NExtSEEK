@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from chat_nextseek.agents import system as system_mod
-from chat_nextseek.schemas import ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import ParserPlan
 
 PROJECT = {"name": "Zephyr", "entity_type": "project", "project_id": 4, "research_focus": "A project."}
 INVESTIGATION = {"name": "Zephyr", "entity_type": "investigation", "project_id": 4,
@@ -40,17 +40,10 @@ def _config(projects=_UNSET, investigations=_UNSET):
 
 
 def _entity_details(monkeypatch, config, projects) -> dict:
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_entities", narrative="ok")
-
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *args, **kwargs: None)
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(config, "tell me about it", {"projects": projects},
-                            ParserPlan(mode="system_question"))
-    block = next(m["content"] for m in seen["messages"] if m["content"].startswith("ENTITY_DETAILS"))
+    messages = system_mod.build_messages(config, "tell me about it", {"projects": projects},
+                                         ParserPlan(mode="system_question").model_dump())
+    block = next(m["content"] for m in messages if m["content"].startswith("ENTITY_DETAILS"))
     return json.loads(block.split("\n", 1)[1])
 
 
@@ -145,16 +138,10 @@ OTHER_LAB = {"code": "ALD", "name": "Alderman", "affiliation": "BWH", "title": "
 
 
 def _details_for(monkeypatch, config, entity) -> dict:
-    seen = {}
-
-    def fake(**kwargs):
-        seen["messages"] = kwargs["messages"]
-        return SystemAgentOutput(mode="get_entities", narrative="ok")
-
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *args, **kwargs: None)
-    monkeypatch.setattr(system_mod, "call_llm_structured", fake)
-    system_mod.system_agent(config, "Who is Zephyrson?", entity, ParserPlan(mode="system_question"))
-    block = next(m["content"] for m in seen["messages"] if m["content"].startswith("ENTITY_DETAILS"))
+    messages = system_mod.build_messages(config, "Who is Zephyrson?", entity,
+                                         ParserPlan(mode="system_question").model_dump())
+    block = next(m["content"] for m in messages if m["content"].startswith("ENTITY_DETAILS"))
     return json.loads(block.split("\n", 1)[1])
 
 

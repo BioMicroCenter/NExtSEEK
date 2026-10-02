@@ -26,7 +26,7 @@ from chat_nextseek.agents import graph as graph_mod
 from chat_nextseek.agents import system as system_mod
 from chat_nextseek.graph_scope import GraphScope
 from chat_nextseek.llm_clients import pydantic_to_tool_schema
-from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan, SystemAgentOutput
+from chat_nextseek.schemas import EntityAgentOutput, GraphAgentPlan, ParserPlan
 
 GRAPH_LOGGER = "chat_nextseek.agents.graph"
 FETCHED_AT = "2026-08-21T00:00:00Z"
@@ -165,12 +165,14 @@ def test_the_graph_schema_op_logs_its_fallback(monkeypatch, caplog):
 
 def test_the_system_agent_logs_its_fallback(monkeypatch, caplog):
     _catalog_fails(monkeypatch, gcat.CatalogUnavailable("graph down"))
-    monkeypatch.setattr(system_mod, "call_llm_structured",
-                        lambda **kwargs: SystemAgentOutput(mode="get_capabilities", narrative="ok"))
+    answer = {"type": "tool_use", "id": "t1", "name": "answer",
+              "input": {"mode": "get_capabilities", "narrative": "ok"}}
+    monkeypatch.setattr(system_mod, "call_tools", lambda config, **kwargs: {"content": [answer]})
     config = _config()
     config.FULL_SAMPLETYPES_MAP, config.FULL_ASSAYS_MAP, config.FULL_PROJECTS_MAP = {}, {}, {}
     config.MIN_SAMPLETYPES, config.MIN_ASSAYS, config.MIN_API_ENDPOINTS = [], [], []
     config.CAPABILITIES_DOC = "caps"
+    config.SYSTEM_AGENT_SYSTEM_PROMPT = "system prompt"
     with caplog.at_level(logging.WARNING, logger=GRAPH_LOGGER):
         system_mod.system_agent(config, "what is a tissue sample", {}, ParserPlan(mode="system_question"))
     warnings = _warnings(caplog)

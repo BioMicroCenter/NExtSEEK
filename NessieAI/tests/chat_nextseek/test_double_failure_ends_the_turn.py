@@ -198,7 +198,7 @@ def test_the_api_agent_lets_it_through(monkeypatch):
 
 
 def test_the_system_agent_lets_it_through(monkeypatch):
-    monkeypatch.setattr(system_mod, "call_llm_structured", _raise_both_timed_out)
+    monkeypatch.setattr(system_mod, "call_tools", _raise_both_timed_out)
     monkeypatch.setattr(system_mod, "live_catalog_context", lambda *a, **k: None)
     monkeypatch.setattr(system_mod.graph_catalog, "committed_schema", lambda config: {})
     config = MagicMock()
