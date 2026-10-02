@@ -117,9 +117,11 @@ def test_the_container_gets_the_pass_and_the_row_holds_the_callers_own_login(cc,
     _assert_revoked(task)
     row = repr(QueryTask.objects.get(pk=task.pk).__dict__)
     for secret in (seen["turn_pass"], PASSWORD):
-        assert secret not in caplog.text
-        assert secret not in repr(events)
-        assert secret not in row
+        # repr() escapes the password's backslash, so look for the secret as repr() writes it too.
+        for needle in (secret, repr(secret)[1:-1]):
+            assert needle not in caplog.text
+            assert needle not in repr(events)
+            assert needle not in row
 
 
 @pytest.mark.parametrize("way_out", ["runner_down", "no_project", "project_changed", "engine_raises"])
