@@ -105,6 +105,12 @@ class CCTurn(models.Model):
     strikes = models.JSONField(default=list)
     ops_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, default=0)
     ops_in_flight = models.PositiveSmallIntegerField(default=0)
+    #: True once an op's model calls were not all priced or seen, or an op's spend or strikes could not be written
+    #: (NessieAI/ns/turn_memory.add_spend / mark_cost_partial): the turn's cost is then a floor (piece 3, plan 04).
+    ops_cost_partial = models.BooleanField(default=False)
+    #: How many times an op resolved the turn's vocabulary itself (NessieAI/ns/turn_memory.count_vocabulary_resolution):
+    #: with the pre-run, what the turn's "vocabulary_prerun" event reports as duplicate entity calls (plan 04).
+    vocabulary_resolutions = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         db_table = "assistant_cc_turn"
