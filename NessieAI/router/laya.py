@@ -208,8 +208,9 @@ class Job:
     def result(self) -> dict:
         """The record, waiting at most what is left of the deadline; a late reply is a timeout."""
         self.thread.join(max(0.0, DEADLINE_S - (time.monotonic() - self.t0)))
+        alive = self.thread.is_alive()  # before the copy: a finish in between must not leave gate None
         out = {k: self.rec[k] for k in RECORD_KEYS}
-        if self.thread.is_alive():
+        if alive:
             out.update(gate="timeout", latency_ms=int(DEADLINE_S * 1000))
         return out
 

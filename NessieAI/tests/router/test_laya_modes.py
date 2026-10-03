@@ -216,3 +216,22 @@ def test_the_sidecar_call_never_goes_through_a_proxy(monkeypatch):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_a_finish_between_the_join_and_the_check_is_never_a_partial_record(tmp_path, monkeypatch):
+    laya = setup(tmp_path, monkeypatch, live=REV)
+    fake_post(monkeypatch, reply())
+    job = laya.start("q", [], "live")
+    job.thread.join()
+    done = dict(job.rec)
+    job.rec["gate"] = None  # the helper thread has not written its gate yet ...
+
+    class _FinishesAtTheCheck:
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            job.rec.update(done)  # ... and writes it right here, after the join
+            return False
+    job.thread = _FinishesAtTheCheck()
+    assert job.result()["gate"] == "pass"
