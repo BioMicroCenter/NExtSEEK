@@ -54,7 +54,9 @@ only the counts and the query are kept. `--raw` keeps everything.
 
 Money and models, per turn: `cost` is the engine's `total_cost_usd` and `router_cost`
 the router's `router_cost_usd` off the `route_decided` event, with their partial flags,
-`models_used`, `model_fallback`, `router_model` and `router_fallback`. `turn_cost` and
+`models_used`, `model_fallback`, `router_model` and `router_fallback`. A Container-CC turn also
+carries `ops_cost` (`ops_cost_usd`) and `server_turn_cost` (`turn_cost_usd`, the whole turn as the server
+summed it; it replaces the engine + router sum). `turn_cost` and
 `turn_cost_partial` are those summed by the harness's own rule (`turn_cost.py`, found
 beside this script or in its checkout), and `fell_back` says whether any model of the
 turn fell back. When the manifest is on the instance, `case_costs.json` sums each case
@@ -181,6 +183,8 @@ q -e "SELECT JSON_OBJECT(
                      JSON_UNQUOTE(JSON_EXTRACT(result,'\$.reply'))),
         'cost',    JSON_EXTRACT(result,'\$.total_cost_usd'),
         'cost_partial',   JSON_EXTRACT(result,'\$.cost_partial'),
+        'ops_cost',         JSON_EXTRACT(result,'\$.ops_cost_usd'),
+        'server_turn_cost', JSON_EXTRACT(result,'\$.turn_cost_usd'),
         'models_used',    JSON_EXTRACT(result,'\$.models_used'),
         'model_fallback', JSON_EXTRACT(result,'\$.model_fallback'),
         'router_cost',         JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_usd'),'\$[0]'),
@@ -372,7 +376,8 @@ def price_turns(turns: list[dict]) -> list[dict]:
             router_cost=turn_cost.usd(t.get("router_cost")),
             route=t.get("route"), source=t.get("src"),
             cost_partial=t.get("cost_partial") is True,
-            router_cost_partial=t.get("router_cost_partial") is True)
+            router_cost_partial=t.get("router_cost_partial") is True,
+            server_turn_cost=turn_cost.usd(t.get("server_turn_cost")))
         t["fell_back"] = turn_cost.fell_back(t)
     return turns
 

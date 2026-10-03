@@ -833,3 +833,10 @@ def test_a_pull_that_joins_no_case_says_so(tmp_path, monkeypatch, capsys):
 
 def test_a_pull_loads_the_summing_rule_from_the_harness_not_a_copy():
     assert fetch_run.turn_cost.__file__.endswith("nessie_tests/turn_cost.py")
+
+
+def test_price_turns_prefers_the_servers_whole_turn_cost():
+    turns = [{"cost": 0.3, "router_cost": 0.004, "route": "container_cc", "src": "baml", "cost_partial": False,
+              "router_cost_partial": False, "server_turn_cost": 0.454, "ops_cost": 0.15}]
+    (t,) = fetch_run.price_turns(turns)
+    assert t["turn_cost"] == 0.454 and t["turn_cost_partial"] is False

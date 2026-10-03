@@ -14,6 +14,9 @@ The turn record every engine and the router write (the turn-record contract):
   back). `cost_partial` is read off either engine: NS sets it when a call's usage was
   unseen or its model unpriced, CC when the turn ran an op whose NS agents bill outside
   Claude Code's cost (`NS_AGENT_OPS` in `NessieAI/cc/translate.py`).
+- `ops_cost_usd`, `turn_cost_usd` on a Container-CC turn's terminal event (plan 04): the ops' spend and the
+  whole turn (Claude Code + ops + vocabulary pre-run + router + nested NS turns), summed by the server; when
+  present it is the turn's cost, and the router is not added again.
 
 A turn bills in two parts, the router's model call and the engine's turn. A turn's cost
 is the sum of the parts that were observed. A part that did not run is not a part:
@@ -100,6 +103,10 @@ def read_turn(payload: dict) -> dict:
         "router_fallback": router_fallback if isinstance(router_fallback, dict) else None,
         "engine_cost": usd(end.get("total_cost_usd")),
         "cost_partial": end.get("cost_partial") is True,
+        # Plan 04: a Container-CC turn sums itself (ops, pre-run, router, nested NS turns); absent on NS turns and
+        # on older servers.
+        "ops_cost": usd(end.get("ops_cost_usd")),
+        "server_turn_cost": usd(end.get("turn_cost_usd")),
         "models_used": [m for m in _list(end.get("models_used")) if isinstance(m, str)],
         "model_fallback": [f for f in _list(end.get("model_fallback")) if isinstance(f, dict)],
         # Whether this turn said, for every part that ran, whether it fell back. A
@@ -112,12 +119,16 @@ def read_turn(payload: dict) -> dict:
 
 
 def turn_total(*, engine_cost, router_cost, route=None, source=None,
-               cost_partial=False, router_cost_partial=False) -> tuple[float | None, bool]:
+               cost_partial=False, router_cost_partial=False,
+               server_turn_cost=None) -> tuple[float | None, bool]:
     """(cost, partial) for one turn: the observed parts summed.
 
     `partial` is True when a part that ran was not observed, or a part says its own
     figure is a floor. A turn that observed no part returns (None, True): unmeasured.
     """
+    if server_turn_cost is not None:
+        # The server summed the whole turn itself, the router included.
+        return round(server_turn_cost, 6), bool(cost_partial or router_cost_partial)
     parts: list[float] = []
     missing = False
     if source != SOURCE_FORCED:
