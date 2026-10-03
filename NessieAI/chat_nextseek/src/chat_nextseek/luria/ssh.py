@@ -23,6 +23,10 @@ def _target(luria_env: dict) -> str:
     return f'{luria_env["user"]}@{luria_env["host"]}'
 
 
+class SshTimeout(RuntimeError):
+    """``ssh_run`` gave up after its timeout (not a nonzero exit): callers tell the two apart by type."""
+
+
 def prepare_key(key_path: str) -> str:
     """Copy the private key to a fresh 600 temp file; caller removes it when done."""
     fd, tmp = tempfile.mkstemp(prefix="luria_key_")
@@ -38,7 +42,7 @@ def ssh_run(luria_env: dict, remote_cmd: str, *, key_path: str, timeout: float |
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise RuntimeError(f"ssh timed out after {timeout:.0f} s") from None
+        raise SshTimeout(f"ssh timed out after {timeout:.0f} s") from None
     if proc.returncode != 0:
         raise RuntimeError(f"ssh failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout

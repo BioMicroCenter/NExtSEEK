@@ -96,7 +96,10 @@ def failure_reason(exc: BaseException) -> str:
 
     from chat_nextseek.llm_clients import LLMError, LLMFatalError
     from chat_nextseek.schemas.schema_helper import StructuredOutputError
+    from NessieAI.ns.granular import OpDeadlineError
 
+    if isinstance(exc, OpDeadlineError):
+        return "deadline"
     if isinstance(exc, LLMFatalError):
         if getattr(exc, "reason", None) == "deadline":
             return "deadline"

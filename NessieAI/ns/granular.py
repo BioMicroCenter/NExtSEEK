@@ -20,17 +20,23 @@ Error taxonomy (nextseek_api/assistant/op_errors.py):
 * :class:`OpValidationError` -> VALIDATION, naming the field
 * :class:`~NessieAI.ns.write_gate.WriteBlockedError` -> WRITE_BLOCKED
 * :class:`OpBusyError` -> BUSY
+* :class:`OpDeadlineError` -> AGENT_FAILED, reason ``deadline``
 Any other exception raised by an agent maps to AGENT_FAILED at the viewset layer, with a closed reason.
 """
 from __future__ import annotations
 
+import contextvars
 import json
+import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
+
+logger = logging.getLogger(__name__)
 
 
 class OpValidationError(ValueError):
@@ -51,6 +57,33 @@ class OpValidationError(ValueError):
 
 class OpBusyError(RuntimeError):
     """The turn already has ``turn_memory.MAX_OPS_IN_FLIGHT`` ops running. Maps to the BUSY error code."""
+
+
+class OpDeadlineError(RuntimeError):
+    """The op ran out of its time (before a call could start, or while it ran). AGENT_FAILED, reason ``deadline``."""
+
+
+@dataclass(frozen=True)
+class LatePart:
+    """Work an op started that was still running when the op answered (an aggregate part, or its vocabulary step),
+    with the cost collector it records into (its own, never the op's)."""
+    future: Any
+    spend: Any
+
+
+#: The late parts of the op running in this context: run_op sets a fresh list around its handler.
+_LATE_PARTS: contextvars.ContextVar[list | None] = contextvars.ContextVar("nextseek_op_late_parts", default=None)
+
+
+def hand_over_late(future: Any, spend: Any) -> bool:
+    """Called by a handler, in the op's own thread, for work still running when it answers. True when run_op takes it
+    over: under a turn it settles the part's spend and failed models into the turn when the part finishes, exactly
+    once, and keeps the op's slot until the last such part is in. False outside run_op (nothing settles it)."""
+    late = _LATE_PARTS.get()
+    if late is None:
+        return False
+    late.append(LatePart(future, spend))
+    return True
 
 
 def _dump(obj: Any) -> Any:
@@ -86,11 +119,18 @@ def run_op(
     op is cut to fit the limit (operator rulings 2026-09-28). ``turn`` is the request's ``CCTurn`` under a turn pass,
     else None; the handlers get both. Under a turn pass the op takes one of the turn's two slots first
     (turn_memory.py) and gives it back in a finally; with both taken it raises OpBusyError and the handler never runs.
+
+    Plan 04: the op runs in its own cost collector (turn_spend). Under a turn the scope starts with the turn's failed
+    models, the op's new ones and its spend are put back into the turn (_settle_turn) before the slot is given back,
+    and the vocabulary and parser plans are the turn's (_vocabulary_of, _turn_plan). Work the handler hands over as
+    still running (hand_over_late) settles into the turn as each piece finishes, and the last one gives the slot
+    back (_settle_late); with nothing late the slot is given back here, as before. A late part's wait is inside the
+    op's call scope, so it ends by the op's limit; a wait outside the scope (none known) would hold the slot longer.
     """
     handler = _HANDLERS.get(op)
     if handler is None:
         raise OpValidationError(f"not a sidecar op: {op!r}", field="op", error_type="unknown_op")
-    from chat_nextseek import call_scope
+    from chat_nextseek import call_scope, turn_spend
     from NessieAI.ns.op_limits import op_limit_s
     limit = op_limit_s(op, None, time.time()) if limit_s is None else float(limit_s)
     slot = False
@@ -99,24 +139,150 @@ def run_op(
         if not take_op_slot(turn):
             raise OpBusyError("this turn already has two ops running")
         slot = True
+    late: list[LatePart] = []
+    late_token = _LATE_PARTS.set(late)
     try:
-        with call_scope.scope(deadline_s=limit):
-            return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
+        with turn_spend.collecting() as spend, call_scope.scope(deadline_s=limit) as scope:
+            if turn is not None:
+                from NessieAI.ns import turn_memory
+                scope.seed(turn_memory.load_strikes(turn))
+            try:
+                return handler(args, config, session, write_gate, neo4j_exec, outputs_dir, limit_s=limit, turn=turn)
+            finally:
+                if turn is not None:
+                    _settle_turn(turn, scope, spend)
+                    # Parts the op answered without are still running (aggregate at its deadline): the slot stays
+                    # taken until the last of them has settled its own spend and failed models.
+                    if late and _settle_late(turn, scope, late):
+                        slot = False
     finally:
+        _LATE_PARTS.reset(late_token)
         if slot:
             from NessieAI.ns.turn_memory import release_op_slot
             release_op_slot(turn)
 
 
+def _settle_turn(turn: Any, scope: Any, spend: Any) -> None:
+    """Put what this op (or one late part of it) learned into its turn: the models that failed, and what its model
+    calls cost. Two independent writes: one failing never stops the other, and either failing marks the turn's cost
+    partial, so a lost write never leaves a confident complete cost. Never raises: the op's answer goes back either
+    way."""
+    from NessieAI.ns import turn_memory
+    lost = False
+    try:
+        turn_memory.merge_strikes(turn, scope.strikes())
+    except Exception:  # noqa: BLE001
+        lost = True
+        logger.warning("could not record an op's failed models in its turn", exc_info=True)
+    try:
+        record = spend.summary()
+        total = record.get("total_cost_usd")
+        turn_memory.add_spend(turn, float(total or 0.0),
+                              partial=lost or bool(record.get("cost_partial")) or total is None)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not record an op's spend in its turn; marking its cost partial", exc_info=True)
+        try:
+            turn_memory.mark_cost_partial(turn)
+        except Exception:  # noqa: BLE001
+            logger.error("could not mark the turn's cost partial after a lost write", exc_info=True)
+
+
+class _LateSettlement:
+    """An op's late parts: each settles its own spend and the op scope's failed models into the turn when it finishes
+    (a merge is a union, so the scope's other strikes change nothing), and the last one gives the op's slot back."""
+
+    def __init__(self, turn: Any, scope: Any, count: int) -> None:
+        self._turn, self._scope = turn, scope
+        self._left = count
+        self._lock = threading.Lock()
+        self._owner = threading.get_ident()
+
+    def part_done(self, part: LatePart) -> None:
+        from django.db import connection
+        from NessieAI.ns.turn_memory import release_op_slot
+        try:
+            _settle_turn(self._turn, self._scope, part.spend)
+        finally:
+            with self._lock:
+                self._left -= 1
+                last = self._left == 0
+            if last:
+                release_op_slot(self._turn)
+            if threading.get_ident() != self._owner:
+                connection.close()  # the part's pool thread opened a connection of its own for these writes
+
+
+def _settle_late(turn: Any, scope: Any, late: list[LatePart]) -> bool:
+    """Settle each late part when it finishes (a done-callback, called exactly once per future; at once, in this
+    thread, for one that finished meanwhile). True: the slot is now given back by the last part, not by run_op."""
+    settlement = _LateSettlement(turn, scope, len(late))
+    for part in late:
+        part.future.add_done_callback(lambda _future, part=part: settlement.part_done(part))
+    return True
+
+
+def _plan_json(plan: Any) -> Any:
+    return plan.model_dump(mode="json") if hasattr(plan, "model_dump") else plan
+
+
+def _store_turn_vocabulary(turn: Any, out: Any) -> Any:
+    """Store ``out`` as the turn's vocabulary when it has none; when another op stored one first, use that one, so
+    every op of the turn reads the same terms."""
+    from chat_nextseek.schemas import EntityAgentOutput
+    from NessieAI.ns import turn_memory
+    if turn_memory.store_vocabulary(turn, out.model_dump(mode="json")):
+        return out
+    stored = turn_memory.get_vocabulary(turn)
+    return EntityAgentOutput.model_validate(stored) if stored is not None else out
+
+
+def _vocabulary_of(turn: Any, config: Any) -> Any:
+    """The turn's vocabulary: the stored one, else resolved now on the user's own question and stored."""
+    from chat_nextseek.schemas import EntityAgentOutput
+    from chat_nextseek.vocabulary import resolve_vocabulary
+    from NessieAI.ns import turn_memory
+    stored = turn_memory.get_vocabulary(turn)
+    if stored is not None:
+        return EntityAgentOutput.model_validate(stored)
+    turn_memory.count_vocabulary_resolution(turn)  # the turn's end reports resolutions after the first as duplicates
+    return _store_turn_vocabulary(turn, resolve_vocabulary(None, config, turn_memory.user_question(turn)))
+
+
+def _turn_plan(turn: Any, question: str, make: Callable[[], Any]) -> Any:
+    """The parser plan for ``question`` in this turn: one an earlier op stored, else ``make()``'s, stored for the
+    next op. A reused plan runs through the same write gate and scope as a new one."""
+    from chat_nextseek.schemas import ParserPlan
+    from NessieAI.ns import turn_memory
+    stored = turn_memory.get_plan(turn, question)
+    if stored is not None:
+        try:
+            return ParserPlan.model_validate(stored)
+        except Exception:  # noqa: BLE001 - make it again
+            logger.warning("a stored parser plan did not load; parsing again", exc_info=True)
+    plan = make()
+    dumped = _plan_json(plan)
+    if isinstance(dumped, dict):
+        turn_memory.store_plan(turn, question, dumped)
+    return plan
+
+
 def _entity(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek.portable import entity_agent
+    if turn is not None:
+        from NessieAI.ns import turn_memory
+        if turn_memory.normalize_question(args["query"]) == turn_memory.normalize_question(
+                turn_memory.user_question(turn)):
+            return _dump(_vocabulary_of(turn, config))
     return _dump(entity_agent(config, args["query"]))
 
 
 def _parse(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     from chat_nextseek.portable import entity_agent, parser_agent
-    entity_out = entity_agent(config, args["query"])
-    return _dump(parser_agent(session, config, args["query"], entity_out))
+    if turn is None:
+        entity_out = entity_agent(config, args["query"])
+        return _dump(parser_agent(session, config, args["query"], entity_out))
+    entity_out = _vocabulary_of(turn, config)
+    return _dump(_turn_plan(turn, args["query"], lambda: parser_agent(session, config, args["query"], entity_out)))
 
 
 #: The project-scoped sample search a refused graph question is answered through.
@@ -269,6 +435,8 @@ def run_graph_question(
     started: float | None = None,
     clock: Callable[[], float] | None = None,
     fallback_budget_s: float | None = None,
+    parser_plan: Any = None,
+    turn: Any = None,
 ) -> GraphAnswer:
     """The graph op's chain: parser, graph agent, the Neo4j tool, and graph_search on a scope refusal.
 
@@ -282,18 +450,25 @@ def run_graph_question(
     ``config`` it was handed: nothing here builds or changes a scope. A retry is kept only when it answered and,
     after a first query that matched nothing, found something. Whatever answers last and was refused for its scope
     goes to ``_graph_search_fallback``.
+
+    ``turn`` (a Container-CC turn) supplies the vocabulary and the plan cache; ``parser_plan`` is a plan already made
+    for ``query`` (the aggregate op reads the turn's before it starts its parts).
     """
     from chat_nextseek.portable import entity_agent, graph_agent, parser_agent
     now = clock or _monotonic
     if started is None:
         started = now()
     if entity_out is None:
-        entity_out = entity_agent(config, query)
+        entity_out = _vocabulary_of(turn, config) if turn is not None else entity_agent(config, query)
     # Run the parser and pass its plan to graph_agent, mirroring the NS
     # orchestrator (orchestrator.py:869 graph_agent(config, query, entity, plan)).
     # Without the parser_plan the graph agent gets no PARSER PLAN block and emits
     # unbounded, pathological Cypher that overruns the 60s proxy timeout (#20).
-    parser_plan = parser_agent(session, config, query, entity_out)
+    if parser_plan is None:
+        if turn is not None:
+            parser_plan = _turn_plan(turn, query, lambda: parser_agent(session, config, query, entity_out))
+        else:
+            parser_plan = parser_agent(session, config, query, entity_out)
     brief = {"refine_context": refine_context} if refine_context else {}
     plan = graph_agent(config, query, entity_out, parser_plan, **brief)
     exec_fn = neo4j_exec
@@ -326,17 +501,19 @@ def run_graph_question(
 
 def _graph(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     answer = run_graph_question(args["query"], config=config, session=session, write_gate=write_gate,
-                                neo4j_exec=neo4j_exec, fallback_budget_s=fallback_start_budget_s(limit_s))
+                                neo4j_exec=neo4j_exec, fallback_budget_s=fallback_start_budget_s(limit_s), turn=turn)
+    # parser_plan: the plan this answer ran, as JSON, so nextseek-api-read can ask the same question of the REST API.
+    out = {"plan": answer.plan, "result": answer.result, "parser_plan": _plan_json(answer.parser_plan)}
     if answer.fallback is not None:
-        return {"plan": answer.plan, "result": answer.result, "fallback": answer.fallback}
-    return {"plan": answer.plan, "result": answer.result}
+        out["fallback"] = answer.fallback
+    return out
 
 
 def _aggregate(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
     """Counts and breakdowns in one call, one to four parts run in parallel on the server (``aggregate.py``)."""
     from NessieAI.ns.aggregate import run_aggregate
     return run_aggregate(args, config=config, session=session, write_gate=write_gate, neo4j_exec=neo4j_exec,
-                         limit_s=limit_s)
+                         limit_s=limit_s, turn=turn)
 
 
 def _graph_schema(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit_s=None, turn=None):
@@ -466,13 +643,16 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
         raise OpValidationError(f"run_dir must be under {runs_root}", field="run_dir", error_type="outside_the_runs_root")
     from chat_nextseek import call_scope
-    from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    from chat_nextseek.luria.ssh import SshTimeout, prepare_key, ssh_run
     from NessieAI.ns.op_limits import OP_LIMITS_S
     left = call_scope.time_left_for(OP_LIMITS_S["run-ls"] if limit_s is None else float(limit_s))
     if left is None:
-        raise RuntimeError("the op ran out of time before the Luria listing could start")
+        raise OpDeadlineError("the op ran out of time before the Luria listing could start")
     key_path = prepare_key(luria_env["key"])
-    out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path, timeout=left)
+    try:
+        out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path, timeout=left)
+    except SshTimeout as exc:
+        raise OpDeadlineError(str(exc)) from exc
     return {"run_dir": run_dir, "truncated": len(out) > _RUN_LS_CAP, "tree": out[:_RUN_LS_CAP]}
 
 

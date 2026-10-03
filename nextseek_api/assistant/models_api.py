@@ -460,6 +460,7 @@ class GraphPlanModel(BaseModel):
 class GraphResult(BaseModel):
     plan: GraphPlanModel
     result: Dict[str, Any] = Field(default_factory=dict)
+    parser_plan: Optional[Dict[str, Any]] = None  # the plan the answer ran (plan 04): pass it to api-read
     model_config = ConfigDict(extra="allow")
 
 

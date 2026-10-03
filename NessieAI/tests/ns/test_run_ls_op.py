@@ -87,3 +87,34 @@ def test_with_no_time_left_nothing_is_sent(monkeypatch):
     with call_scope.scope(deadline_s=1), pytest.raises(RuntimeError):
         g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
     assert calls == []
+
+
+def test_out_of_time_before_the_listing_is_a_deadline_failure(monkeypatch):
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+    with call_scope.scope(deadline_s=1), pytest.raises(g.OpDeadlineError) as exc:
+        g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
+    assert failure_reason(exc.value) == "deadline"
+
+
+def test_an_ssh_timeout_is_a_deadline_failure_and_other_ssh_errors_are_not(monkeypatch):
+    import subprocess
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
+
+    def run(returncode=None):
+        def fake_run(cmd, **kw):
+            if returncode is None:
+                raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+            return subprocess.CompletedProcess(cmd, returncode, "", "boom")
+        monkeypatch.setattr(ssh.subprocess, "run", fake_run)
+        with pytest.raises(RuntimeError) as exc:
+            g._run_ls({"run_dir": RUN}, _Cfg(), None, None, None, None, limit_s=60)
+        return exc.value
+
+    timed_out = run()
+    assert isinstance(timed_out.__cause__, ssh.SshTimeout) and failure_reason(timed_out) == "deadline"
+    failed = run(255)
+    assert not isinstance(failed, g.OpDeadlineError) and failure_reason(failed) == "internal"

@@ -236,6 +236,18 @@ def collecting() -> Iterator[TurnSpend]:
         _CURRENT.reset(token)
 
 
+@contextlib.contextmanager
+def recording_into(spend: TurnSpend) -> Iterator[TurnSpend]:
+    """Collect this context's calls into ``spend`` even inside another turn's collector (``collecting`` would add to
+    that one): an aggregate op's part or vocabulary step, which the op counts once, whenever it finishes
+    (NessieAI/ns/aggregate._in_own_collector)."""
+    token = _CURRENT.set(spend)
+    try:
+        yield spend
+    finally:
+        _CURRENT.reset(token)
+
+
 def collects_turn(fn: _F) -> _F:
     """Decorate an NS turn entry point so its model calls are collected, and its failed models remembered.
 
