@@ -28,11 +28,13 @@ CONTAINER_CC_ROUTE = RouteSpec(
     ),
     best_for=(
         "Open-ended reasoning, file I/O, code, multi-tool workflows, and "
-        "building/validating NExtSEEK batch-upload create/update sheets. Also a "
+        "building or validating a NExtSEEK batch-upload create/update sheet that the "
+        "user supplies or asks to have made. Also a "
         "question that must JOIN two sources the NS route reads separately -- "
         "comparing a REST catalog against sample metadata in the graph, such as "
         "the registered people against the scientists named on samples -- and any "
-        "question whose answer is a FILE the user takes away. And the follow-ups the "
+        "request for a FILE the user takes away; a question about how to get a file "
+        "from the site is the NS route's. And the follow-ups the "
         "follow-up rule sends here: this route is handed the earlier turns' queries, their "
         "search details and their result files, so it can export, plot, compare or analyse "
         "an earlier result, and in a chat that reached it, a later message that refers back "
@@ -43,8 +45,11 @@ CONTAINER_CC_ROUTE = RouteSpec(
     ),
     not_for=(
         "Pure deterministic NExtSEEK lookups that the NS route handles without "
-        "container tools; caller identity, session, or access-scope questions "
-        "the NS route already resolves; catalog bookkeeping the NS route answers "
+        "container tools; how-to questions about the site (uploading, validating a "
+        "workbook, downloading or exporting, templates, the API), which the NS route "
+        "answers from the user docs; caller identity, project membership and "
+        "access-scope questions, which the NS route answers from the signed-in "
+        "session; catalog bookkeeping the NS route answers "
         "without shell access; and nf-core pipeline build/launch work that belongs "
         "on the NS route. Having a shell is not a reason to route here when "
         "NExtSEEK already holds the answer. The dividing line: a question "

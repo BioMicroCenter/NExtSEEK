@@ -35,7 +35,8 @@ def _rel(kind):
 
 def test_protocols_samples_used_are_graph_query_and_the_graph_holds_no_sop_records():
     assert "Questions about the protocols (SOPs) that samples used are sample metadata" in CORE
-    assert "The graph holds no SOP" in CORE
+    # R4, ruling 9: listing, counting or searching SOPs is the graph's too; REST only downloads one named SOP.
+    assert "The\n  SOP records and files themselves are not on the graph" in CORE
 
 
 def test_the_reporter_keeps_only_sops_registered_to_a_project():
@@ -56,11 +57,10 @@ def test_the_reporter_exclusions_and_step_six_send_protocol_usage_to_the_graph()
     assert '("protocol summary for SRP" is graph_query; go on to step 6)' in CORE
 
 
-def test_the_catalog_record_line_is_unchanged():
-    """Edit B was dropped by the operator: the SOP list stays a catalog record in the original words."""
-    assert ("- The user wants catalog records themselves (assays, sample types, SOPs, projects or\n"
-            "  investigations as records), registered user accounts, or files; use new_search with that\n"
-            "  endpoint.") in CORE
+def test_the_catalog_record_line_is_gone_and_rest_is_three_things():
+    """Ruling 9 (round 4): the SOP list is no longer a catalog record; REST downloads one SOP by id."""
+    assert "The user wants catalog records themselves" not in CORE
+    assert "- The user wants the file of one SOP named by its id or its exact title, or the registered user accounts" in CORE
 
 
 @pytest.mark.parametrize("question, fires", [
@@ -84,7 +84,8 @@ def test_f1_studies_are_paper_level_or_seek_studies():
     assert "IS a published paper" not in study
     assert "IS NOT NULL" in study and "coalesce(s.DOI,'') <> ''" in study
     assert "a graph-only paper study (no 'seek_study_id') carries 'DOI' and 'PMID'" in study
-    assert "the samples of a published study carry its paper's 'DOI' and 'PMID'" in study
+    assert "the samples of a published study may carry its paper's 'DOI' and 'PMID'" in study
+    assert "match the sample or its study" in study
     assert "it is true for every study" not in study
 
 

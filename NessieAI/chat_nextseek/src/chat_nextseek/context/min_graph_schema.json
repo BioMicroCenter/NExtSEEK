@@ -11,7 +11,7 @@
     },
     {
       "label": "Study",
-      "description": "A research study grouping samples. A SEEK study, found by 'seek_study_id', carries no DOI or PMID of its own, except one that was a paper study; a graph-only paper study (no 'seek_study_id') carries 'DOI' and 'PMID'. The publication facts are on the samples: the samples of a published study carry its paper's 'DOI' and 'PMID' (UPPERCASE; several papers joined by '; '). A value is published when it is a non-empty string; the unset value is an empty string or absent, so never test IS NOT NULL: use coalesce(s.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
+      "description": "A research study grouping samples. A SEEK study, found by 'seek_study_id', carries no DOI or PMID of its own, except one that was a paper study; a graph-only paper study (no 'seek_study_id') carries 'DOI' and 'PMID'. The publication facts may be on the samples too: the samples of a published study may carry its paper's 'DOI' and 'PMID' (UPPERCASE; several papers joined by '; '), and which of the two holds them differs by instance, so match the sample or its study. A value is published when it is a non-empty string; the unset value is an empty string or absent, so never test IS NOT NULL: use coalesce(s.DOI,'') <> '' instead. Most studies are unpublished, which is expected rather than missing data. Linked to an Investigation via IN_INVESTIGATION."
     },
     {
       "label": "Investigation",
@@ -20,6 +20,10 @@
     {
       "label": "Project",
       "description": "A SEEK project. Property 'title'. Samples link to it via IN_PROJECT, investigations via IN_PROJECT."
+    },
+    {
+      "label": "Assay",
+      "description": "One node per internal assay kind, a catalog node the same for every user: title, other_names, input_types, optional_input_types, output_types. Samples reach it by INPUT_TO (went into a run of it) and OUTPUT_OF (came out of one); seek_assay_ids on those edges names the runs. Which assay kinds have samples or none is an EXISTS on those edges."
     }
   ],
   "relationships": [
@@ -42,6 +46,21 @@
       "type": "IN_PROJECT",
       "direction": "(sample)-[:IN_PROJECT]->(project)",
       "note": "Links a sample (and an investigation) to its SEEK project."
+    },
+    {
+      "type": "INPUT_TO",
+      "direction": "(sample)-[:INPUT_TO]->(assay)",
+      "note": "The sample went into a run of that assay kind; seek_assay_ids on the edge names the runs. Every user. OUTPUT_OF is the same edge for a sample that came out of a run."
+    },
+    {
+      "type": "OUTPUT_OF",
+      "direction": "(sample)-[:OUTPUT_OF]->(assay)",
+      "note": "The sample came out of a run of that assay kind; seek_assay_ids on the edge names the runs. Every user."
+    },
+    {
+      "type": "RUN_IN",
+      "direction": "(assay)-[:RUN_IN]->(study)",
+      "note": "The assay kind was run in that study. Admins only."
     }
   ],
   "graph_query_triggers": [
@@ -53,7 +72,7 @@
     "Query mixes Sample results with Study or Investigation membership in the same output",
     "Query asks about ancestry, parentage or derivation by a lineage property rather than a UID ('samples whose AntibodyParent is set', 'what is the parent of X', 'trace the lineage of', 'samples with a Treatment1Parent') \u2014 the Parent-family properties live on the Sample node and only the graph can filter or traverse them",
     "Query asks which samples have any parent of a given kind, or counts samples by lineage property ('how many samples have a BacteriaParent', 'which CEL samples have ParentF set')",
-    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') \u2014 read s.DOI / s.PMID on the sample, and st.DOI / st.PMID on a paper study it is IN_STUDY to",
+    "Query asks which paper or publication a sample appears in ('what paper is this sample from', 'is UID X published', 'which publication used these samples') \u2014 read s.DOI / s.PMID on the sample if it has them, and st.DOI / st.PMID on a paper study it is IN_STUDY to; match the sample or its study",
     "Query names a paper by title, DOI, or PMID and asks for its samples ('what samples were used in the SureQuant paper', 'samples for 10.1101/2021.09.30.462577', 'samples in PMID 34981053')",
     "Query finds, lists or counts samples by sample type, keyword or attribute value, with or without a study scope ('find tissue samples mentioning X', 'how many slides are stained with H&E', 'samples whose Vendor is X') \u2014 every metadata attribute is a property on the Sample node and 'search_text' holds every value",
     "Query compares a number or a date ('greater than', 'at least', 'between', 'before 2021') \u2014 numeric and date attributes are stored typed on the graph",
@@ -63,24 +82,25 @@
     "Query asks for all samples in the database, or a count across every type"
   ],
   "api_preferred_triggers": [
-    "Catalog records themselves (assays, sample types, SOPs, projects, investigations as records) \u2192 the matching catalog endpoint",
-    "The full metadata record, an export or a download of samples named by UID \u2192 samples/retrieve; an explicit request to see or visualise the lineage tree of one UID \u2192 sample-tree",
-    "PATCH/update on a specific sample UID",
-    "Any non-metadata intent that maps cleanly to a known API endpoint in the catalog"
+    "The full metadata record, an export or a download of samples named by UID \u2192 samples/retrieve",
+    "The file of one SOP named by its id or its exact title \u2192 sops",
+    "The registered user accounts, with no other condition \u2192 people"
   ],
   "disambiguation_rules": [
     "If the query mentions a study or investigation by name \u2192 graph_query, even if a sampletype is also present",
     "If the query says 'how many X in study Y' or 'across all studies' \u2192 graph_query",
     "If the query says 'how many X' with no study/investigation scope and no time span \u2192 graph_query, a count of samples (not reporter)",
     "If the query has entity-resolved sampletype + assay codes AND no study/investigation scope AND the assay is used as a keyword attribute filter (not a named assay/protocol traversal) \u2192 graph_query, matching the term as text on the samples of that type",
-    "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol \u2192 graph_query (assay metadata lives on DERIVED_FROM relationships, not on sample records; REST endpoints cannot filter on it)",
+    "If the query asks for samples 'associated with', 'that underwent', or 'processed via' a named assay or protocol \u2192 graph_query ('underwent X' is the DERIVED_FROM edge test; 'went into or came out of X' and 'which assay kinds have samples' read the Assay node; no REST endpoint answers either)",
     "If the query asks for parent samples that have children of multiple types \u2192 graph_query (lineage: the graph checks a descendant of every required type)",
     "If the query involves project-level upload counts or statistics over time \u2192 reporter (not graph_query)",
     "If the query filters or reports on a descriptive sample attribute (Scientist, Notes, Name, storage, treatment, concentration, dates, shipping, imaging fields) \u2192 graph_query. The attribute is a property of the Sample node; advanced_search matches text anywhere in a record and cannot restrict it to one attribute, compare numbers, AND two terms or aggregate.",
     "If the query concerns lineage structure (parents, children, ancestry, derivation chains, any 'Parent' property) \u2192 graph_query, even when a specific UID is present.",
     "Investigation titles to recognize (case-insensitive): BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Griffith, Impact, Impactb Investigation, MIT_SRP, MetNet, RMS-NGC, SRP, Shoulders, TCGA (TCGA is not on every instance)",
-    "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on samples, and on paper studies, and no REST endpoint filters samples by them)",
+    "If the query mentions a DOI, a PMID, a paper, or a publication \u2192 graph_query (DOI/PMID live on paper studies and may be on samples, and no REST endpoint filters samples by them)",
     "If the query is a plain keyword or attribute search with no scope at all ('find X samples', 'samples mentioning Y') \u2192 graph_query; REST sample searches serve only refinements of a result that came from REST",
-    "If the query names a person: a lab or PI (ENTITY_RESULT.labs / lab_codes) \u2192 graph_query on the lab code inside UIDs; anyone else \u2192 graph_query on the Scientist attribute. Never /people/, which lists registered user accounts"
+    "If the query names a person: a lab or PI (ENTITY_RESULT.labs / lab_codes) \u2192 graph_query on the lab code inside UIDs; anyone else \u2192 graph_query on the Scientist attribute. Never /people/, which lists registered user accounts",
+    "If the query asks how many sample types or assays are defined, how many in a clade, or what one is \u2192 system_question (the catalog), never a REST list",
+    "If the query asks who the user is or which projects they belong to \u2192 system_question"
   ]
 }

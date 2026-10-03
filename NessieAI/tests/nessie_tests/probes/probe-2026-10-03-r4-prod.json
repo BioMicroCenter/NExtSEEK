@@ -1,0 +1,1373 @@
+{
+  "_name": "probe-2026-10-03-r4-prod - the comprehensive production smoke after round 4",
+  "_why": "Every fix in the round and its siblings: DOI and PMID on samples (and a number no Study carries), distinct counts, same-assay (anchored and unanchored), lab names that are projects, investigations or aliases (and a lab that is none), membership on the non-admin login, holding-study notes with a control, the routing set (three kept REST uses, SOP on the graph, catalog and graph counts, how-to first turns, a follow-up that stays NS, CC work and Excel export), and the A4 aliases on the non-admin login. Read-only: no writing family. PAID: needs the operator's go; run it only after the dev routing smoke is green.",
+  "_instance_warning": "Production keys are computed on the day. The one pinned number is the Griffith project's distinct sample count (3,401, the graph 7 IN project_ids, measured read-only on production 2026-10-03); re-pin it with pin_probe_truths.py before the run.",
+  "_run": "Run the file twice on the same box, once per login (cli --user/--password): cases tagged login:both on each login, login:member only on the NON-ADMIN login. Judge a case only on the login its tag names. Fill the FILL markers first (each is listed in _fill; replace every occurrence in a COPY with sed), keep the filled copy out of git: it holds real ids.",
+  "_fill": {
+    "DOI": "a DOI that some Study carries, same query on st.DOI",
+    "LAB_ONLY": "a lab name from the lab catalog that is none of: a project, an investigation, or an alias of either on this box",
+    "OTHER_UNPUBLISHED_STUDY": "a second study whose title ends in Unpublished: MATCH (st:Study) WHERE toLower(st.title) ENDS WITH 'unpublished' RETURN st.title",
+    "PAPER_STUDY": "a study that is a paper: MATCH (st:Study) WHERE NOT toLower(st.title) ENDS WITH 'unpublished' RETURN st.title LIMIT 1",
+    "PMID": "a PMID that some Study carries: MATCH (st:Study) WHERE st.PMID IS NOT NULL RETURN st.PMID LIMIT 1 (check the property name against docs/neo4j-schema.md)",
+    "PMID_NO_STUDY": "digits that no Study carries: pick a PMID-shaped number and confirm MATCH (st:Study) WHERE st.PMID = '<n>' RETURN count(st) is 0",
+    "SOP_TITLE": "any SOP title the login can see: the protocol_title of a DERIVED_FROM edge, or SELECT title FROM seek_production.sops LIMIT 1 for an admin",
+    "UID_IN_LOGIN_PROJECT": "a sample UID inside one of the LOGIN's projects (run once per login): MATCH (s:Sample) WHERE <login project id> IN s.project_ids RETURN s.uuid LIMIT 1",
+    "UID_LINEAGE": "a UID with direct children: MATCH (c:Sample)-[:DERIVED_FROM]->(p:Sample) RETURN p.uuid, count(c) AS n ORDER BY n DESC SKIP 5 LIMIT 1 (a mid-size parent); keep the count n for the check",
+    "UID_WITH_ASSAY": "a UID that went through an assay run: MATCH (s:Sample)-[:INPUT_TO|OUTPUT_OF]->(a:Assay) RETURN s.uuid LIMIT 1"
+  },
+  "_by_box": "Numbers not pinned in a criterion are checked per box and login on the day from the same source the case's _why names (a REST row count, the box's context json, a scoped Cypher). Never copy a number from another box.",
+  "_measure": {
+    "r4p.griffith_distinct_count": {
+      "locals": [
+        3401
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (s:Sample) WHERE 7 IN s.project_ids RETURN count(DISTINCT s) AS n"
+      ]
+    }
+  },
+  "families": {
+    "retrieval_path_selection": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "retrieval_path_selection",
+          "id": "r4p.sops_list",
+          "name": "SOP list or search goes to the graph (ruling 9)",
+          "_why": "An SOP is the protocol recorded in sample metadata, so listing or searching them is a graph question; the sops endpoint is for downloading. Per box: the distinct protocol titles the login can see.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What SOPs are on file?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)protocol"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(\\bfirst \\d+\\b))"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "^(?!/nextseek_api/sops/)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "retrieval_path_selection",
+          "id": "r4p.sop_download",
+          "name": "Downloading a named SOP is the kept REST use",
+          "_why": "REST is for finding people, downloading SOPs and retrieving samples by UID. The title is filled per box.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Give me the file for the SOP titled __FILL:SOP_TITLE__",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "/nextseek_api/sops/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sample_retrieve": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "sample_retrieve",
+          "id": "r4p.retrieve_by_uid",
+          "name": "Retrieval by a named UID is the kept REST use",
+          "_why": "The UID is a sample inside the login's own projects, chosen per box (see _fill). total_samples from the endpoint is the per-box truth.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Pull up the full record for __FILL:UID_IN_LOGIN_PROJECT__",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "eq",
+                  "value": "/nextseek_api/samples/retrieve/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "mentions",
+                  "value": "__FILL:UID_IN_LOGIN_PROJECT__"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "person_lab_resolution": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "person_lab_resolution",
+          "id": "r4p.people_list",
+          "name": "People list stays on REST; no email-like text",
+          "_why": "Ruling 8. A non-admin sees only people in their own projects. Per box: the row count of people/ for that login.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who are the researchers registered in NExtSEEK?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "eq",
+                  "value": "/nextseek_api/people/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*([\\w.+-]+@[\\w-]+\\.[\\w.]+))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "system_capability_question": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "system_capability_question",
+          "id": "r4p.catalog_raw_count",
+          "name": "A catalog count names what it counts",
+          "_why": "Per box: the Raw sample types in that box's runtime context/sampletypes_db.json (a catalog count, not a sample count).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many Raw sample types are there?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "catalog|defined"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(\\bsamples? (have|has)\\b))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4p.howto_validate_first",
+          "name": "How-to question stays on NExtSEEK (ruling 6)",
+          "_why": "A 'how do I' turn with nothing supplied and no work asked for does not go to Container-CC.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How do I check my workbook before uploading it?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/docs/uploading/"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|howto)$"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4p.howto_download_spreadsheet",
+          "name": "Second how-to sibling: downloading found samples",
+          "_why": "Must not invent a prior result ('earlier results').",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Where can I download the samples I found as a spreadsheet?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/docs/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(earlier results))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4p.caller_projects",
+          "name": "Membership comes from the caller block, never /projects/",
+          "_why": "Ruling 2: caller identity is supplied by code from the session. Per box: the login's MySQL memberships.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:member"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which projects am I a member of?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "^(?!/nextseek_api/projects/)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "graph_traversal": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "graph_traversal",
+          "id": "r4p.assay_kinds_split",
+          "name": "Assay kinds with samples and with none come from the Assay EXISTS",
+          "_why": "A how-many over a catalog kind with a has/lacks predicate goes to the graph, never a REST list preview.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many assay kinds have samples, and how many have none?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "Assay"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.same_assay_anchored",
+          "name": "Same-assay question is answered when one sample is named (ruling 1)",
+          "_why": "Per box: a UID with an assay run (_fill). The reply lists the others that went through the same assay, with no refusal.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which samples went through the same assay as __FILL:UID_WITH_ASSAY__?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.same_assay_unanchored",
+          "name": "An unanchored pairing refuses with the real reason",
+          "_why": "Ruling 1. The reply asks for one sample's UID instead of 'I couldn't build a search for that question'.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which pairs of samples went through the same assay?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "UID|name one|one sample"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.holding_study_note",
+          "name": "A holding (Unpublished) study count carries the paper-samples note (ruling 4)",
+          "_why": "Samples of a paper are counted under that paper, so the count can differ from SEEK's list for the holding study.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the MetNet Unpublished study?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "counted under|belong to a paper|differ"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.holding_study_sibling",
+          "name": "Another holding study carries the same note",
+          "_why": "Sibling: __FILL:OTHER_UNPUBLISHED_STUDY__ is any other study whose title ends in Unpublished on the box.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the __FILL:OTHER_UNPUBLISHED_STUDY__ study?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "counted under|belong to a paper|differ"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.paper_study_no_note",
+          "name": "A paper study carries no holding-study note (negative control)",
+          "_why": "A study that is a paper, not a holding bucket.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the __FILL:PAPER_STUDY__ study?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(counted under|belong to a paper))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.griffith_distinct_count",
+          "name": "Griffith project count is distinct samples",
+          "_why": "T3: 3,499 project-sample rows were 3,401 distinct samples on prod. The count is the graph 7 IN project_ids, measured on prod 2026-10-03.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in the Griffith project?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])3,?401(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(3,?499))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.a4_srp_alias_member",
+          "name": "A4: investigation alias on the NON-ADMIN login",
+          "_why": "The 10-02 dev run asked this as admin and proved nothing. Judge the scope decision in the stored attempt (not admin) and the caveat.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:member"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in MIT SRP?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.a4_superfund_alias_member",
+          "name": "A4 sibling: project alias on the NON-ADMIN login",
+          "_why": "Sibling with a different alias of the same investigation.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:member"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples are in Superfund?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "graph_traversal",
+          "id": "r4p.investigations_both_logins",
+          "name": "Investigations the login can see, with sample counts",
+          "_why": "Per login: scoped Cypher per investigation. A non-admin sees only its own projects' investigations (ruling 8).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which investigations can I see, and how many samples does each hold?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "lineage_tree": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "lineage_tree",
+          "id": "r4p.lineage_children",
+          "name": "Direct children of a UID come from the graph, not sample-tree",
+          "_why": "Per box: count of DERIVED_FROM children of the UID (_fill). The UID is linked in the reply.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many samples derived directly from __FILL:UID_LINEAGE__?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "mentions",
+                  "value": "__FILL:UID_LINEAGE__"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "followup_over_results": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "followup_over_results",
+          "id": "r4p.followup_stays_ns",
+          "name": "A follow-up count over found samples stays on NExtSEEK",
+          "_why": "Seed a search, then ask a count about it. Per box: the Cypher count over the seed set.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find mice treated with NDMA.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "How many of those are female?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "artifact_delivery": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "artifact_delivery",
+          "id": "r4p.cc_work_request",
+          "name": "A work request stays with Container-CC",
+          "_why": "Ruling 6/8: files and exports are Container-CC work.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Make me a CSV of the NDMA mice with UID and sex",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "artifact_delivery",
+          "id": "r4p.excel_of_earlier_results_stays_cc",
+          "name": "An Excel export of earlier results stays with Container-CC (ruling 8)",
+          "_why": "Seed a search, then ask for the export.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Show me mouse samples treated with N-nitrosodimethylamine.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "Download those as an Excel file",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "catalog_browse": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "catalog_browse",
+          "id": "r4p.member_types_with_samples",
+          "name": "Non-admin: sample types with samples, no sample-search fallback",
+          "_why": "Ruling 7: catalog plus the login's own projects; never the sample-search fallback ('Rows returned').",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:member"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which sample types have samples?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(rows returned|couldn't build a search))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "publication_lookup": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "publication_lookup",
+          "id": "r4p.doi_on_samples",
+          "name": "Samples of a paper by DOI",
+          "_why": "T1: the answer comes through the paper's Study, count(DISTINCT sample), and 'may carry' wording. The DOI is a paper that has samples on the box (_fill).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Find samples used in https://doi.org/__FILL:DOI__",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(no matches))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "publication_lookup",
+          "id": "r4p.pmid_on_samples",
+          "name": "Samples of a paper by PMID (sibling of the DOI case)",
+          "_why": "T1: an identifier the Sample node lacks resolves through its Study for DOI and PMID alike; never a substring in free text.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which samples carry PMID __FILL:PMID__?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(no matches))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "publication_lookup",
+          "id": "r4p.pmid_not_substring",
+          "name": "A PMID nobody holds is not matched inside free text",
+          "_why": "T1: g13.n12 hit search_text CONTAINS. __FILL:PMID_NO_STUDY__ is a number that is a real-looking id but no Study carries.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which samples carry PMID __FILL:PMID_NO_STUDY__?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(\\b[1-9]\\d* samples? (carry|carries)))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "project_summary_report": {
+      "description": "R4 smoke (prod)",
+      "variants": [
+        {
+          "family": "project_summary_report",
+          "id": "r4p.report_griffith_group",
+          "name": "Progress report for the Griffith group scopes to the project",
+          "_why": "U4.1/U4.3: Griffith is a lab and a project on prod. Distinct samples; the footer says both.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Progress report for the Griffith group in 2025",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "reporter_result.lab_project.kind",
+                  "op": "eq",
+                  "value": "project"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "both a lab and the project"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(all [\\d,]+ (samples )?originate))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "project_summary_report",
+          "id": "r4p.report_kamm_group",
+          "name": "Progress report for the Kamm group scopes to its alias entity",
+          "_why": "U4.1: Kamm is an alias of the MetNet entity. Sibling of the Griffith case with an alias instead of a name.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Progress report for the Kamm group in 2025",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "reporter_result.lab_project.kind",
+                  "op": "matches_re",
+                  "value": "^(project|investigation)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "both a lab and the"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(all [\\d,]+ (samples )?originate))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "project_summary_report",
+          "id": "r4p.report_lab_only",
+          "name": "A lab that is no project, investigation or alias stays a lab scope with the honest footer",
+          "_why": "U4.2: the negative claim is printed only after the lookup ran. __FILL:LAB_ONLY__ is a lab name on the box that is none of those (_fill).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Progress report for the __FILL:LAB_ONLY__ group in 2025",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "reporter_result.scope.kind",
+                  "op": "eq",
+                  "value": "lab"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "is a lab here"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

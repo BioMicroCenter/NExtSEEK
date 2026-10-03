@@ -134,7 +134,7 @@ def test_the_zero_ladder_keeps_a_named_technique_s_zero_and_reads_the_uid_check(
 
 
 def test_the_tool_total_is_named_as_a_row_count():
-    assert "The tool's total counts rows, not samples." in prompt("graph_agent.txt")
+    assert "otherwise it counts rows." in prompt("graph_agent.txt")
 
 
 def test_the_prompt_ends_open_so_a_variant_can_append_a_section():
@@ -194,7 +194,7 @@ def test_the_parser_wrapper_carries_the_lab_fields_and_the_core_placeholder():
 def test_f9_the_total_is_named_as_a_row_count_and_distinct_is_required():
     """A list reached through a relationship counted one sample per edge (105,899 against 105,859)."""
     agent = prompt("graph_agent.txt")
-    assert "The tool's total counts rows, not samples." in agent
+    assert "otherwise it counts rows." in agent
     assert "RETURN DISTINCT" in agent and "EXISTS { }" in agent
 
 

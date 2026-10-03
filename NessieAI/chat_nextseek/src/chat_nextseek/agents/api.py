@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
+import urllib.parse
 from typing import Any
+
+from pydantic import Field
 
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
@@ -21,6 +25,54 @@ def _requires_request_body(method: str | None, schema: dict | None, enriched_ent
     return bool(isinstance(req_schema, dict) and req_schema.get("required"))
 
 
+class KeptRequestPlan(APIRequestPlan):
+    """A request built in code. ``match_terms`` are the names a people request looks for, matched against the whole
+    list in code (``helpers.results._rest_list_flags``, review F8); never sent to the API, and not in the API
+    agent's output schema."""
+
+    match_terms: list[str] = Field(default_factory=list)
+
+
+_RETRIEVE_PATHS = ("/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/")
+_PEOPLE_PATH = "/nextseek_api/people/"
+_SOPS_PATH = "/nextseek_api/sops/"
+
+
+def _build_kept_request(endpoint: str, plan_dict: dict) -> APIRequestPlan | None:
+    """The REST requests that are fixed in shape are built here, with no model call (R4, U3b): retrieve is a POST of
+    the named UIDs, the people list is an empty GET, an SOP download reads the one SOP record by its id or exact
+    title. None for any other endpoint (graph_search, the scope fallback), which the model still builds, and for a
+    retrieve with no UIDs."""
+    filters = plan_dict.get("filters") or {}
+    if endpoint in _RETRIEVE_PATHS:
+        uids = [u for u in filters.get("uids") or [] if isinstance(u, str) and u.strip()]
+        if not uids:
+            return None
+        return APIRequestPlan(endpoint=endpoint, method="POST", requestBody={"identifiers": uids},
+                              queryParameters={}, notes="Built in code: the named UIDs.")
+    if endpoint == _PEOPLE_PATH:
+        from .parser import _PEOPLE_NOUNS
+
+        words = (re.findall(r"\w+", str(k).lower()) for k in filters.get("keywords") or [])
+        terms = [" ".join(rest) for rest in ([w for w in ws if w not in _PEOPLE_NOUNS] for ws in words) if rest]
+        return KeptRequestPlan(endpoint=endpoint, method="GET", requestBody={}, queryParameters={},
+                               notes="Built in code: the whole list.", match_terms=terms)
+    if endpoint == _SOPS_PATH:
+        from .parser import sop_id_in
+
+        # The parser puts the SOP it kept (an id or an exact title) first in keywords (review F5, F6).
+        keywords = [str(k) for k in filters.get("keywords") or [] if str(k).strip()]
+        words = " ".join([str(plan_dict.get("intent_summary") or ""), *keywords])
+        ref = (keywords or [None])[0] or sop_id_in(words)
+        if not ref:
+            return APIRequestPlan(endpoint=None, method="GET", requestBody={}, queryParameters={},
+                                  notes="SOPs are downloaded one at a time by id or exact title, and none was named.")
+        return APIRequestPlan(endpoint=f"{_SOPS_PATH}{urllib.parse.quote(ref.strip(), safe='')}/", method="GET",
+                              requestBody={}, queryParameters={},
+                              notes="Built in code: the one SOP record (by id or exact title), which carries its file.")
+    return None
+
+
 def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIRequestPlan:
     """
     Use the API agent to convert a parser plan into a concrete APIRequestPlan with method, endpoint, and payloads.
@@ -37,6 +89,11 @@ def api_agent_build_request(config: ChatConfig, plan: ParserPlan | dict) -> APIR
             queryParameters={},
             notes="No endpoint specified in parser plan.",
         )
+
+    built = _build_kept_request(endpoint, plan_dict)
+    if built is not None:
+        print("[DEBUG][API_AGENT] Request built in code for", endpoint)
+        return built
 
     schema = config.get_schema_for_endpoint(endpoint)
     methods = (schema or {}).get("methods") or []

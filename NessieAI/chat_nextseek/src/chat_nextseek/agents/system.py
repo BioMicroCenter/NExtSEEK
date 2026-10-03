@@ -77,10 +77,22 @@ MAX_ITER = 4
 SYSTEM_AGENT_KEY = "system"
 
 
+def _caller_text(config) -> str:
+    """The CALLER block: the signed-in user's own session, set on the per-request config by the server
+    (``nextseek_api.graph_search.scope.caller_block``) and read from nothing else. Not a dict, or empty: absent."""
+    caller = getattr(config, "CALLER", None)
+    if not isinstance(caller, dict) or not caller:
+        return "(not available: the session could not be read)"
+    if "projects" in caller and caller["projects"] is None:  # a failed read is said, never `null` (review N5)
+        caller = {**caller, "projects": "(could not be read)", "project_count": "(could not be read)"}
+    return json.dumps(caller, indent=2, default=str)
+
+
 def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_dict: dict,
                    pages: dict | None = None) -> list[dict]:
     """The system agent's context. The ``system`` blocks are the same for every question (the cached head:
-    prompt, capabilities, endpoints, the catalog and docs indexes); the ``user`` blocks are this question's."""
+    prompt, capabilities, endpoints, the catalog and docs indexes); the ``user`` blocks are this question's,
+    CALLER among them: it differs per user, so it never goes in the cached head."""
     # Build full entity details for any resolved catalog codes using pre-built maps from config
     entity_details: dict = {}
     sampletypes_map = _as_map(getattr(config, "FULL_SAMPLETYPES_MAP", None))
@@ -138,6 +150,7 @@ def build_messages(config: ChatConfig, user_query: str, entity_dict: dict, plan_
         {"role": "user", "content": f"GRAPH_SCHEMA:\n{schema_json}"},
         {"role": "user", "content": f"ENTITY_RESULT (from entity agent):\n{json.dumps(entity_dict, indent=2)}"},
         {"role": "user", "content": f"ENTITY_DETAILS (full catalog data for resolved entities):\n{entity_details_json}"},
+        {"role": "user", "content": f"CALLER:\n{_caller_text(config)}"},
         {"role": "user", "content": f"PARSER_INTENT:\n{json.dumps(plan_dict, indent=2)}"},
         {"role": "user", "content": f"QUESTION:\n{user_query}"},
     ]
@@ -157,17 +170,26 @@ def _run_tool(config, pages: dict, name: str, args: dict, read: set) -> dict:
     return {"ok": False, "error": f"unknown tool {name!r}"}
 
 
-def _finish(args: dict, pages: dict, read: set) -> SystemAgentOutput:
-    """The answer, with a link under it for every cited page that was read this turn (and no other)."""
+def _finish(args: dict, pages: dict, read: set, evidence: str | None = None) -> SystemAgentOutput:
+    """The answer, with a link under it for every cited page that was read this turn (and no other).
+
+    ``evidence`` (the turn's tool results, the question and CALLER) turns the number check on: a number found
+    nowhere in it is removed and a short note added (U5.2). The loop has already given the model one retry."""
     narrative = str(args.get("narrative") or "").strip()
     if not narrative:
         raise RuntimeError("the answer tool gave an empty narrative")
+    removed: list[str] = []
+    if evidence is not None:
+        removed = system_tools.unsupported_numbers(narrative, evidence)
+        narrative = system_tools.drop_numbers(narrative, removed)
     footer, kept, dropped = system_tools.docs_footer(pages, args.get("docs_cited") or [], read, narrative)
     if footer:
         narrative = f"{narrative}\n\n{footer}"
     notes = str(args.get("notes") or "")
     if dropped:
         notes = (notes + "; " if notes else "") + f"dropped docs_cited not read this turn: {', '.join(dropped)}"
+    if removed:
+        notes = (notes + "; " if notes else "") + f"removed numbers no tool returned this turn: {', '.join(removed)}"
     mode = args.get("mode")
     if mode not in ("get_capabilities", "get_entities", "get_searches"):
         mode = "get_capabilities"
@@ -214,6 +236,12 @@ def system_agent(
         {"role": "user", "content": "\n\n".join(b["content"] for b in blocks if b["role"] == "user")}
     ]
     read: set[str] = set()
+    # What a number in the answer may come from: the tool results, the question, CALLER (U5.2) and ENTITY_DETAILS,
+    # the catalog rows get_catalog_entry returns (review F7). The indexes and the schema are not evidence.
+    caller_text = _caller_text(config)
+    evidence: list[str] = [user_query, caller_text]
+    evidence += [b["content"] for b in blocks if b["role"] == "user" and b["content"].startswith("ENTITY_DETAILS")]
+    retried = False
 
     sys_client, sys_model, sys_budget = config.get_agent_model(SYSTEM_AGENT_KEY)
     if not callable(getattr(sys_client, "chat_with_tools", None)):
@@ -246,14 +274,25 @@ def system_agent(
                 text = "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
                 if text.strip():
                     text = system_tools.strip_unread_doc_links(text, read)
-                    return _finish({"narrative": text, "notes": "answered without the answer tool"}, pages, read)
+                    return _finish({"narrative": text, "notes": "answered without the answer tool"}, pages, read,
+                                   "\n".join(evidence))
                 break
             messages.append({"role": "assistant", "content": content})
             results = []
             for block in tool_uses:
                 name, args = block.get("name"), block.get("input") or {}
                 if name == "answer":
-                    result = _finish(args, pages, read)
+                    bad = system_tools.unsupported_numbers(str(args.get("narrative") or ""), "\n".join(evidence))
+                    if bad and not retried and not terminal:
+                        # One retry: the answer holds numbers no tool returned this turn.
+                        retried = True
+                        results.append({"type": "tool_result", "tool_use_id": block.get("id"),
+                                        "content": json.dumps({"ok": False, "error": (
+                                            f"The answer was not given. These numbers came from no tool result this turn: "
+                                            f"{', '.join(bad)}. Call the tool that returns them (list_catalog for a count), "
+                                            f"or leave them out, then call answer again.")})})
+                        continue
+                    result = _finish(args, pages, read, "\n".join(evidence))
                     print(f"[DEBUG][SYSTEM] mode={result.mode}, entities={result.entities_consulted}, "
                           f"docs={result.docs_cited}")
                     return result
@@ -261,6 +300,7 @@ def system_agent(
                     payload = {"ok": False, "error": f"`{name}` was not available on this turn and did not run."}
                 else:
                     payload = _run_tool(config, pages, name, args, read)
+                    evidence.append(json.dumps(payload, default=str))
                 results.append({"type": "tool_result", "tool_use_id": block.get("id"),
                                 "content": json.dumps(payload, default=str)})
             messages.append({"role": "user", "content": results})

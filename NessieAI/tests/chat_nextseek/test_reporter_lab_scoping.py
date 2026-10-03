@@ -358,7 +358,7 @@ def test_footer_says_a_lab_scope_is_not_a_project():
     joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, {}, "samples"))
 
     assert "lab KAM, not a project" in joined
-    assert "KAM is a lab here and is not the name of a project or investigation." in joined
+    assert "not the name of a project" not in joined       # no lookup ran for this request
 
 
 def test_footer_stays_quiet_when_the_scope_is_a_real_project():
@@ -436,7 +436,7 @@ def test_a_lab_named_like_a_project_scopes_the_report_to_the_project(monkeypatch
     assert asked == ["NORTHFIELD"]
     assert result.get("scope", {}).get("kind") != "lab"
     assert summary["project"] == "NORTHFIELD"
-    assert "Northfield is both a lab and the project NORTHFIELD; this report covers the project." in footer
+    assert "Northfield is both a lab and the project NORTHFIELD; this report covers that project." in footer
     assert "Ask for the lab by its code NFD" in footer
     assert "not a project" not in footer
 
@@ -457,6 +457,7 @@ def test_a_lab_with_no_matching_project_stays_a_lab_scope(monkeypatch, tmp_path)
 
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
+    assert result["lab_names"] == ["Quillon"]
     assert "this report covers lab QLN, not a project. Quillon is a lab here and is not the name of a project or investigation." in footer
 
 
@@ -477,6 +478,22 @@ def test_a_member_without_the_project_keeps_the_lab_scope(monkeypatch, tmp_path)
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
     assert "both a lab and the project" not in footer
+    # Review F9: the lookup found the project, so the footer never says the name is not one.
+    assert "lab_names" not in result
+    assert "this report covers lab NFD, not a project." in footer and "is not the name of a project" not in footer
+
+
+@pytest.mark.parametrize("projects,labs,names", [
+    ({"ZETA": 41, "QUILL": 42}, ["ZETA", "QUILL"], ["Zeta", "Quill"]),   # two labs naming two projects
+    ({"ZETA": 41}, ["ZETA", "QUILL"], ["Zeta", "Quillon"]),                # one names a project, one names nothing
+])
+def test_labs_the_lookup_matched_get_no_negative_footer(monkeypatch, tmp_path, projects, labs, names):
+    asked, result, _summary, footer = _project_run(monkeypatch, tmp_path, projects, labs, names)
+
+    assert asked == [None] and result["scope"]["kind"] == "lab"
+    assert "lab_names" not in result
+    assert f"this report covers lab {', '.join(sorted(labs))}, not a project." in footer
+    assert "is not the name of a project" not in footer
 
 
 def test_a_member_with_the_project_is_redirected_to_it(monkeypatch, tmp_path):
@@ -512,3 +529,161 @@ def test_a_code_only_request_keeps_the_lab_scope(monkeypatch, tmp_path):
 
     assert asked == [None]
     assert result["scope"]["kind"] == "lab"
+
+
+# --------------------------------------------------------------------------- #
+# R4 unit D: a lab named like an investigation or an alias; footer; distinct counts
+# --------------------------------------------------------------------------- #
+
+def _inv_run(monkeypatch, tmp_path, *, projects=None, investigations=None, rows=None, lab_codes=("ZQL",),
+             lab_names=("Zeta",), plan_project=None, scope=None):
+    """Run the summary with both runners stubbed; return (what each was asked for, result, summary, footer)."""
+    import chat_nextseek.reports.runners as runners
+
+    asked = {"project": [], "inv": []}
+
+    def fake_project(config, project, **kw):
+        # the real runner takes the investigation path when the scope resolves to one
+        kind, found = runners._resolve_report_scope(config, project)
+        if kind == "investigation":
+            asked["inv"].append(found)
+            return {"ok": True, "scope": "investigation", "investigation_id": found[0], "rows_returned": 5,
+                    "uuids": list(UIDS), "uuids_saved": 5}
+        asked["project"].append(project)
+        return {"ok": True, "rows_returned": 1, "uuids": list(UIDS), "uuids_saved": 5, "project_id": project}
+
+    monkeypatch.setattr(runners, "run_project_sample_report", fake_project)
+    config = types.SimpleNamespace(
+        PROJECT_NAME_TO_ID=projects or {}, INVESTIGATION_NAME_TO_ID=investigations or {},
+        FULL_PROJECTS=rows or [], GRAPH_SCOPE=scope or GraphScope.admin("test"))
+    plan = types.SimpleNamespace(project=plan_project, years=[], month_range=None, day_range=None,
+                                 summary_mode="samples", reporter_context=None)
+    result, _saved, summary = run_reporter_summary(config, plan, tmp_path, lab_codes=list(lab_codes),
+                                                   lab_names=list(lab_names))
+    footer = "\n".join(reporter_reply_footer(config, result, {}, "samples"))
+    return asked, result, summary, footer
+
+
+def _inv_row(name, project_id, alts=()):
+    return {"name": name, "entity_type": "investigation", "parent_project": "Owner", "project_id": project_id,
+            "alternative_names": list(alts)}
+
+
+def test_a_lab_named_like_an_investigation_scopes_the_report_to_it(monkeypatch, tmp_path):
+    """Counter-example shape: no project of that name, an investigation whose title is the lab name."""
+    asked, result, summary, footer = _inv_run(
+        monkeypatch, tmp_path, investigations={"ZETA STUDY": 41}, rows=[_inv_row("Zeta Study", 3)],
+        lab_names=("Zeta Study",))
+
+    assert asked["inv"] == [(41, "ZETA STUDY")] and asked["project"] == []
+    assert result.get("scope") != {"kind": "lab"} and "lab_project" in result
+    assert "Zeta Study is both a lab and the investigation ZETA STUDY; this report covers that investigation." in footer
+    assert "is not the name of a project" not in footer
+
+
+def test_a_lab_named_like_an_investigation_alias(monkeypatch, tmp_path):
+    """Another entity: the lab name is an alias in an investigation row (the row name is the SEEK title)."""
+    asked, result, _s, footer = _inv_run(
+        monkeypatch, tmp_path, investigations={"QUILL TRIAL": 52}, rows=[_inv_row("Quill Trial", 8, ["Quill"])],
+        lab_codes=("QLL",), lab_names=("quill",))
+
+    assert asked["inv"] == [(52, "QUILL TRIAL")]
+    assert "both a lab and the investigation" in footer and "code QLL" in footer
+
+
+def test_a_project_wins_over_an_investigation_of_the_same_name(monkeypatch, tmp_path):
+    asked, _r, _s, footer = _inv_run(
+        monkeypatch, tmp_path, projects={"ZETA": 9}, investigations={"ZETA": 41}, rows=[_inv_row("Zeta", 9)],
+        lab_names=("Zeta",))
+
+    assert asked["project"] == ["ZETA"] and asked["inv"] == []
+    assert "the project" in footer
+
+
+def test_an_investigation_outside_the_callers_projects_stays_a_lab_scope(monkeypatch, tmp_path):
+    member = GraphScope.for_projects((3,), "test")
+    asked, result, _s, footer = _inv_run(
+        monkeypatch, tmp_path, investigations={"ZETA STUDY": 41}, rows=[_inv_row("Zeta Study", 99)],
+        lab_names=("Zeta Study",), scope=member)
+
+    assert asked["inv"] == [] and result["scope"]["kind"] == "lab"
+
+
+def test_the_plan_may_carry_the_lab_name_as_its_project(monkeypatch, tmp_path):
+    """Reporter prompt item U4-01: the model now writes the lab's name as the project. A name that is only a lab
+    must not become an error or a fuzzy project: it is a lab scope with the honest footer."""
+    asked, result, _s, footer = _inv_run(
+        monkeypatch, tmp_path, projects={"OTHER": 1}, plan_project="Quillon", lab_codes=("QLN",),
+        lab_names=("Quillon",))
+
+    assert asked["project"] == [None]
+    assert result["scope"]["kind"] == "lab"
+    assert "Quillon is a lab here and is not the name of a project or investigation." in footer
+
+
+def test_the_plan_carrying_an_investigation_alias_resolves_it(monkeypatch, tmp_path):
+    asked, _r, _s, _f = _inv_run(
+        monkeypatch, tmp_path, investigations={"ZETA STUDY": 41}, rows=[_inv_row("Zeta Study", 3, ["Zed"])],
+        plan_project="Zed", lab_codes=("ZED",), lab_names=("Zed",))
+
+    assert asked["inv"] == [(41, "ZETA STUDY")]
+
+
+def test_the_negative_footer_needs_the_lookup_to_have_run():
+    """A request by lab code never looked a name up, so it cannot claim the name is not a project."""
+    result = {"ok": True, "rows_returned": 3, "scope": {"kind": "lab", "lab_codes": ["ZQL"]}}
+
+    joined = "\n".join(reporter_reply_footer(_FooterCfg(), result, {}, "samples"))
+
+    assert "this report covers lab ZQL" in joined
+    assert "not the name of a project" not in joined
+
+
+def test_report_counts_are_distinct_samples(tmp_path):
+    """SEEK holds the same sample linked to a project twice: two rows, one sample."""
+    rows = [{"project_id": 1, "sample_id": 1, "uuid": "ZZZ-990101ABC-1-PUB"},
+            {"project_id": 1, "sample_id": 1, "uuid": "ZZZ-990101ABC-1-PUB"},
+            {"project_id": 1, "sample_id": 2, "uuid": "ZZZ-990101ABC-2-PUB"}]
+
+    result = run_project_sample_report(_admin_config(rows), None, outputs_root=tmp_path)
+
+    assert result["rows_returned"] == 2 and result["uuids_saved"] == 2
+    assert result["labs_table"] == {"ABC": 2}
+
+
+def _summary_for_labs_table(monkeypatch, tmp_path, labs_table):
+    import chat_nextseek.reports.runners as runners
+
+    monkeypatch.setattr(runners, "run_project_sample_report", lambda config, project, **kw: {
+        "ok": True, "rows_returned": 4, "uuids": [], "project_id": 9, "labs_table": labs_table})
+    config = types.SimpleNamespace(PROJECT_NAME_TO_ID={"ZETA": 9}, INVESTIGATION_NAME_TO_ID={},
+                                   GRAPH_SCOPE=GraphScope.admin("test"))
+    plan = types.SimpleNamespace(project="Zeta", years=[], month_range=None, day_range=None,
+                                 summary_mode="samples", reporter_context=None)
+    return run_reporter_summary(config, plan, tmp_path, lab_codes=[], lab_names=[])[2]
+
+
+def test_a_single_lab_table_is_not_offered_as_a_breakdown(monkeypatch, tmp_path):
+    """U4.4: under a project scope one lab code is no breakdown, so 'all N originate from lab X' has no source."""
+    summary = _summary_for_labs_table(monkeypatch, tmp_path, {"ABC": 4})
+
+    assert not summary.get("top_labs")
+
+
+def test_a_real_lab_breakdown_is_still_offered(monkeypatch, tmp_path):
+    summary = _summary_for_labs_table(monkeypatch, tmp_path, {"ABC": 3, "DEF": 1})
+
+    assert summary["top_labs"]
+
+
+def test_reporter_prompt_hands_a_lab_name_to_the_runner():
+    """U4-01..03 ship with the runner code that reads the lab's name; they never ship alone."""
+    from pathlib import Path
+    import chat_nextseek
+
+    text = (Path(chat_nextseek.__file__).parent / "prompts" / "reporter_agent.txt").read_text()
+
+    assert "leave project null" not in text and "A lab is not a project" not in text
+    assert "the runner decides" in text
+    assert "or the user named a lab (see Project above)" in text
+    assert '"project": "Zeta"' in text

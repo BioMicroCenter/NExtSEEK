@@ -38,3 +38,8 @@ class GraphAgentPlan(BaseModel):
             "matched by its stored title."
         ),
     )
+    # Code-set on a refusal only (an empty cypher), out of the model's schema: what the guards refused, and the Cypher
+    # the model wrote before and after its one repair, so the turn can say why and keep both for the debug panel.
+    refusal_kinds: SkipJsonSchema[list[str]] = Field(default_factory=list)
+    attempted_cypher: SkipJsonSchema[str | None] = None
+    repaired_cypher: SkipJsonSchema[str | None] = None

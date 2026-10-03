@@ -532,7 +532,7 @@ def _route_query(query: str, history: list[HistoryTurn] | None = None) -> RouteD
             user_query=query,
             routes=caps,
             history=_history_to_baml(history, Route),
-            followup_rule=followup.followup_rule_text(),
+            followup_rule=(followup.followup_rule_text() if followup.has_answered_engine_turn(history) else None),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("CC router: RouteQuery failed (%s)", type(exc).__name__)

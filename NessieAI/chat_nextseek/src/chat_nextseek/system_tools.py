@@ -177,7 +177,11 @@ def list_catalog(config, kind: Any, clade: Any = None, contains: Any = None) -> 
     filters = {k: v for k, v in (("clade", clade), ("contains", contains)) if v}
     if kind == "assay" and clade:
         filters["note"] = "clade filters sample types only; it was ignored for assays."
-    return {"ok": True, "kind": kind, "filters": filters, "count": len(out), "rows": out}
+    # The noun the count counts (U5.3): a reply that says "44 assays" without it has mixed three different counts.
+    noun = f"{clade + ' ' if kind == 'sample_type' and clade else ''}{'sample types' if kind == 'sample_type' else 'assay definitions'}"
+    where = "in the catalog" + (f" matching {contains!r}" if contains else "")
+    return {"ok": True, "kind": kind, "filters": filters, "count": len(out), "counts": f"{len(out)} {noun} {where}",
+            "rows": out}
 
 
 def catalog_index(config) -> str:
@@ -217,6 +221,45 @@ def strip_unread_doc_links(narrative: str, read: set[str]) -> str:
     """``narrative`` with each markdown link to ``/docs/<slug>/`` whose slug ``read_doc`` did not return this turn
     reduced to its link text."""
     return _DOC_LINK.sub(lambda m: m[0] if m[2].lower() in read else m[1], narrative)
+
+
+# A number the model wrote: not part of a code, slug or UID ("ZZZ-990101ABC-1", "/docs/step-2/"), not a list marker.
+_ANSWER_NUMBER = re.compile(r"(?<![\w.\-/#])\d[\d,]*(?:\.\d+)?(?![\w\-/]|\.\d)")
+_LIST_MARKER = re.compile(r"^(\s*)\d+[.)]\s", re.MULTILINE)
+_ANY_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+NUMBER_REMOVED = "[number removed]"
+
+
+def _norm_number(token: str) -> str:
+    return token.replace(",", "").rstrip(".,")
+
+
+def _answer_numbers(narrative: str):
+    """(match, normalized) for each number in the answer's prose, list markers left out."""
+    marks = {m.end(1) for m in _LIST_MARKER.finditer(narrative)}
+    return [(m, _norm_number(m.group(0))) for m in _ANSWER_NUMBER.finditer(narrative) if m.start() not in marks]
+
+
+def unsupported_numbers(narrative: str, evidence: str) -> list[str]:
+    """The numbers in ``narrative`` that appear nowhere in ``evidence`` (the turn's tool results, the question and
+    the CALLER block), in order and without repeats."""
+    seen = {_norm_number(t) for t in _ANY_NUMBER.findall(evidence)}
+    out: list[str] = []
+    for _, num in _answer_numbers(narrative):
+        if num not in seen and num not in out:
+            out.append(num)
+    return out
+
+
+def drop_numbers(narrative: str, bad: list[str]) -> str:
+    """``narrative`` with each number in ``bad`` replaced by a marker, and one short note under it."""
+    if not bad:
+        return narrative
+    for m, num in reversed(_answer_numbers(narrative)):
+        if num in bad:
+            narrative = narrative[:m.start()] + NUMBER_REMOVED + narrative[m.end():]
+    return (f"{narrative}\n\nNote: I removed {len(bad)} number{'s' if len(bad) > 1 else ''} I could not confirm "
+            f"from a lookup in this answer. Ask me to look {'them' if len(bad) > 1 else 'it'} up, or to run a search.")
 
 
 def tool_schemas(*, final: bool = False) -> list[dict]:

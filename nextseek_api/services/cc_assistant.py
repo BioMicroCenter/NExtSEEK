@@ -48,7 +48,7 @@ from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 from nextseek_api.assistant.pipeline_adapter import make_db_event_callback
 from nextseek_api.helpers import resolve_seek_auth
-from nextseek_api.graph_search.scope import plain_scope
+from nextseek_api.graph_search.scope import caller_block, plain_scope
 
 # Reuse the existing assistant's helpers (do NOT redefine its behavior).
 from nextseek_api.services.assistant import (
@@ -148,6 +148,7 @@ class CCAssistantViewSet(viewsets.ViewSet):
             api_user=api_user, api_pass=api_pass,
             resolved_session_id=resolved_session_id,
             graph_scope=plain_scope(request.user),
+            caller=caller_block(request.user),
         )
 
         return Response(

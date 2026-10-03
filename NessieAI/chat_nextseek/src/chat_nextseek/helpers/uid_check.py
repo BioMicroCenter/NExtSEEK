@@ -163,3 +163,16 @@ def uid_notes(checks: list[UidCheck] | None) -> tuple[str | None, list[str]]:
     if not agent:
         return None, []
     return "UID CHECK (run before your query):\n" + "\n".join(f"- {line}" for line in agent), reply
+
+
+def plan_with_stored_uids(plan: Any, checks: list[UidCheck] | None) -> Any:
+    """The plan with ``filters.uids`` written as the graph stores each UID (``-PUB`` and all), for a UID the check
+    resolved. The graph agent then reads one spelling, the stored one, in the UID CHECK note and in the filters,
+    instead of a typed spelling that matches nothing. Anything unresolved, and a plan without UIDs, is returned
+    as the same object."""
+    stored = {c.asked: c.stored for c in checks or [] if c.stored}
+    uids = list(getattr(getattr(plan, "filters", None), "uids", None) or [])
+    fixed = [stored.get(str(u).strip().upper(), u) for u in uids]
+    if not uids or fixed == uids:
+        return plan
+    return plan.model_copy(update={"filters": plan.filters.model_copy(update={"uids": fixed})})

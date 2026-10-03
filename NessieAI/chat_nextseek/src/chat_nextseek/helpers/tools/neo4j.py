@@ -31,6 +31,7 @@ from typing import Any
 from ...config import ChatConfig
 from ...cypher_scope import Refused, scope_cypher, strip_hidden
 from ...cypher_text import write_clause
+from ...graph_review import sample_ids
 from ...graph_scope import GraphScope, scope_of
 
 # Server-side transaction timeout, seconds, for the query and for its total probe.
@@ -360,6 +361,11 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
             # that ran, so it carries the same scope.
             body, effective_limit = split_trailing_limit(ran, params)
             total: int | None = len(records)
+            # Rows that carry a sample id count samples, not rows (U2.4): a to-many column beside the sample
+            # (a study, a parent) repeats it. A statement cut at its LIMIT keeps the probe's count of rows.
+            ids = sample_ids(records)
+            if ids is not None:
+                total = len(set(ids))
             truncated = False
             if effective_limit is not None and len(records) >= effective_limit:
                 truncated = True

@@ -290,6 +290,29 @@ def _graph_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     }]
 
 
+PEOPLE_PATH = "/nextseek_api/people/"
+
+
+def _people_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """One table of EVERY account the people list returned (id, name), uncapped: the list is short, the reply says
+    the full list is in the table, and a cap would make that false."""
+    from chat_nextseek.artifacts import load_api_result_full
+
+    data = (load_api_result_full(bundle) or {}).get("data")
+    rows = data.get("data") if isinstance(data, dict) else data
+    rows = [r for r in rows or [] if isinstance(r, dict)]
+    if not rows:
+        return []
+    return [{
+        "type": "table",
+        "title": "Registered user accounts",
+        "columns": ["id", "name"],
+        "rows": [[r.get("id"), (r.get("attributes") or {}).get("title")] for r in rows],
+        "total_rows": len(rows),
+        "footer": f"{len(rows)} rows",
+    }]
+
+
 def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     """Build the artifacts list from a bundle dict.
 
@@ -305,6 +328,10 @@ def extract_table_artifacts(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     # nothing else, showed a researcher none of the hundreds of rows their query returned.
     if mode == "graph_query":
         return _graph_table_artifacts(bundle)
+
+    # R4 (U3b): the people list is returned whole, so it is shown whole.
+    if mode == "new_search" and str(bundle.get("endpoint") or "").rstrip("/") + "/" == PEOPLE_PATH:
+        return _people_table_artifacts(bundle)
 
     if mode not in ("reporter", "report_generation", "sql_report"):
         return []

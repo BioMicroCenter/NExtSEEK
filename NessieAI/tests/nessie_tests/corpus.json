@@ -2320,14 +2320,14 @@
               "query": "Find mice treated with NDMA.",
               "pass_criteria": [
                 {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
                   "field": "route",
                   "op": "eq",
                   "value": "nextseek_query"
-                },
-                {
-                  "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "new_search"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -2335,14 +2335,14 @@
                   "value": "MUS"
                 },
                 {
-                  "field": "api_ok",
-                  "op": "true",
+                  "field": "graph_cypher",
+                  "op": "nonempty",
                   "value": null
                 },
                 {
-                  "field": "api_result_meta.row_count",
-                  "op": "gte",
-                  "value": 1
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
                 }
               ]
             }
@@ -2355,7 +2355,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed. 'Find mice treated with NDMA.' is a spelling variant of advanced.basic_ndma, which is kept."
+          "_deselected_2026_08_06_qset": "duplicate seed. 'Find mice treated with NDMA.' is a spelling variant of advanced.basic_ndma, which is kept.",
+          "_why_r4": "R4 (2026-10-03): REST sample searches are retired (ruling 9), so the seed turn is a graph search; it asserted parser_plan.mode new_search plus api_ok / api_result_meta.row_count, stale since 09-24."
         },
         {
           "id": "advanced.give_me_the_full_records_for_eve",
@@ -4841,7 +4842,7 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "matches_re",
-                  "value": "(system_question|new_search)"
+                  "value": "^(system_question|graph_query)$"
                 },
                 {
                   "field": "last_reply",
@@ -4849,14 +4850,9 @@
                   "value": "(assay|Assay)"
                 },
                 {
-                  "field": "api_result_meta.row_count",
-                  "op": "gte",
-                  "value": 300
-                },
-                {
                   "field": "last_reply",
-                  "op": "mentions",
-                  "value": "473"
+                  "op": "nonempty",
+                  "value": null
                 }
               ]
             }
@@ -4868,7 +4864,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why_r4": "R4 (2026-10-03): dropped the REST-era row_count gte 300 and the fixed 473 (a per-instance number; the catalog count is checked per box in probes/probe-2026-10-03-r4-*.json). Either system_question or graph_query is acceptable; the reply must be about assays."
         },
         {
           "id": "sys.list_all_available_assay_types",
@@ -4916,8 +4913,8 @@
               "pass_criteria": [
                 {
                   "field": "parser_plan.mode",
-                  "op": "eq",
-                  "value": "system_question"
+                  "op": "matches_re",
+                  "value": "^(system_question|graph_query)$"
                 },
                 {
                   "field": "last_reply",
@@ -4934,7 +4931,8 @@
           "expected_behavior": null,
           "artifact_expected": null,
           "artifact_kind": null,
-          "retirement": null
+          "retirement": null,
+          "_why_r4": "R4 (2026-10-03): investigations the caller can see may be answered by the graph (per-investigation counts) as well as the system agent."
         },
         {
           "id": "sys.who_are_the_researchers_register",
@@ -16431,14 +16429,34 @@
               "query": "What SOPs are on file?",
               "pass_criteria": [
                 {
-                  "field": "api_plan.endpoint",
+                  "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "/nextseek_api/sops/"
+                  "value": "graph_query"
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)protocol"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
                 },
                 {
                   "field": "last_reply",
                   "op": "matches_re",
-                  "value": "\\b593\\b"
+                  "value": "(?is)\\A(?!.*\\bfirst \\d+\\b)"
                 }
               ]
             }
@@ -16457,7 +16475,8 @@
           },
           "_promoted_2026_08_06": "Reviewed and grounded. 175 SOPs exist (143 distinct titles). The generated criterion pinned the endpoint /nextseek_api/sops/, which is the right NS path but invisible on a forced CC arm; the count is added so both engines are measured on the answer.",
           "_edited_2026_08_06_qset": "CRITERIA ONLY -- question text unchanged, so the existing human grade stays a valid reference for this id. 175 SOP rows (34 of them TEST_SOP artifacts). || VERIFIED: seek_production MySQL, verified 2026-08-06: COUNT(sops)=175.",
-          "_why": "Re-keyed 2026-09-23 against production (fairdata): 593 SOP rows (seek_production MySQL, read-only: COUNT(sops)); was 175."
+          "_why": "Re-keyed 2026-09-23 against production (fairdata): 593 SOP rows (seek_production MySQL, read-only: COUNT(sops)); was 175.",
+          "_why_r4": "R4 (2026-10-03), ruling 9: an SOP or protocol list or search goes to the graph (SOP = the protocol recorded in sample metadata); the sops endpoint is for downloading only. Asserts the graph route and a protocol Cypher; the fixed 593 was a per-instance key (the SOP count is checked per box in the R4 probes); the reply must not say 'first N'."
         },
         {
           "id": "path.i_don_t_trust_that_impact_number",
@@ -20053,7 +20072,7 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "new_search"
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -20061,7 +20080,12 @@
                   "value": "MUS"
                 },
                 {
-                  "field": "api_ok",
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "neo4j_ok",
                   "op": "true",
                   "value": null
                 }
@@ -20092,7 +20116,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and turn-for-turn a prefix of pipeline.end_to_end_emit."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA) and turn-for-turn a prefix of pipeline.end_to_end_emit.",
+          "_why_r4": "R4 (2026-10-03): the setup turn asserted a REST sample search (new_search, api_ok); REST sample searches are retired, so it asserts the graph search that now answers it."
         },
         {
           "id": "pipeline.end_to_end_emit",
@@ -20112,7 +20137,7 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "new_search"
+                  "value": "graph_query"
                 },
                 {
                   "field": "entity_sampletype_codes",
@@ -20120,7 +20145,12 @@
                   "value": "MUS"
                 },
                 {
-                  "field": "api_ok",
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "neo4j_ok",
                   "op": "true",
                   "value": null
                 }
@@ -20182,7 +20212,8 @@
           "artifact_expected": null,
           "artifact_kind": null,
           "retirement": null,
-          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); also carries a live `submit` turn against a stack with a working LURIAKEY. Both arms correctly refused it in 2026-08-06 because all 195 mice fall in one Treatment1 group, so the case can never reach what it was built to test."
+          "_deselected_2026_08_06_qset": "duplicate seed (NDMA); also carries a live `submit` turn against a stack with a working LURIAKEY. Both arms correctly refused it in 2026-08-06 because all 195 mice fall in one Treatment1 group, so the case can never reach what it was built to test.",
+          "_why_r4": "R4 (2026-10-03): the setup turn asserted a REST sample search (new_search, api_ok); REST sample searches are retired, so it asserts the graph search that now answers it."
         },
         {
           "id": "pipeline.happy_path_nhp_rnaseq",
@@ -21621,10 +21652,15 @@
                 {
                   "field": "parser_plan.mode",
                   "op": "eq",
-                  "value": "new_search"
+                  "value": "graph_query"
                 },
                 {
-                  "field": "api_ok",
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "neo4j_ok",
                   "op": "true",
                   "value": null
                 }
@@ -21667,7 +21703,8 @@
           "artifact_kind": null,
           "retirement": null,
           "_why": "Full tier only: the verdict is read from the pipeline_agent snapshot on query_complete.debug (snapshot_for_chat_log carries `selection`). || TESTS: a question-shaped ask records a selection verdict; naming rnaseq pins the pipeline.",
-          "_added_2026_09_30_selection": "Added with the nf-core selection integration: select_pipeline runs only inside the pipeline agent, so an ask phrased as a scientific question must still reach nextseek_query."
+          "_added_2026_09_30_selection": "Added with the nf-core selection integration: select_pipeline runs only inside the pipeline agent, so an ask phrased as a scientific question must still reach nextseek_query.",
+          "_why_r4": "R4 (2026-10-03): the setup turn asserted a REST sample search (new_search, api_ok); REST sample searches are retired, so it asserts the graph search that now answers it."
         }
       ]
     },

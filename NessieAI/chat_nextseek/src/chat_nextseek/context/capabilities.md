@@ -60,7 +60,7 @@ The knowledge graph captures organizational structure and biological relationshi
 - **Sample**: an individual registered sample record, with its sample type code (e.g. `NHP`, `TIS`, `D.SEQ`) and every metadata attribute it holds.
 - **SampleType** and **Attribute**: the catalog of sample types and the attributes each one carries.
 - **Study**: a named study grouping related samples. Samples belong to studies via the `IN_STUDY` relationship.
-  The samples of a published study carry the paper's `DOI` and `PMID` (uppercase; absent on a sample with no paper).
+  The samples of a published study may carry the paper's `DOI` and `PMID` (uppercase; absent on a sample with no paper); which of the sample or its study holds them differs by instance, so a question matches the sample or its study.
   A paper study that is not yet a SEEK study carries them too, and on some instances so does a SEEK study that was a
   paper study, so you can ask which paper a sample appears in, which samples are in a paper's study, or which samples
   carry its DOI or PMID in any study. Most studies are unpublished; that is expected, not a gap.

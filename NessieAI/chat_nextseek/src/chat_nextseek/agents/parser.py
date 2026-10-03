@@ -413,7 +413,7 @@ def _canonical_multi_parse(
         )
         normalized_candidates = [_fill_candidate_defaults(c) for c in result.candidates]
         result = result.model_copy(update={"candidates": normalized_candidates})
-        result = _apply_multi_parser_guardrails(user_query, result)
+        result = _apply_multi_parser_guardrails(user_query, result, config)
         print(f"[DEBUG][MULTI_PARSER] intent={result.intent_summary!r}, candidates={len(result.candidates)}")
         for c in result.candidates:
             print(f"[DEBUG][MULTI_PARSER]   candidate: mode={c.mode}, endpoint={c.target_endpoint}, confidence={c.confidence}")
@@ -719,37 +719,156 @@ def _route_retired_sample_search(
     return plan
 
 
-#: The sample type list endpoint is found by its catalog category, never by its path.
-SAMPLETYPE_LIST_CATEGORY = "sampletype_list"
 #: A question SHAPE, not a wording: it asks WHICH (or WHAT) attributes, fields or columns of the sample types have
-#: some property, a verb of having or marking followed by at least one more word. That is the Attribute catalog on
-#: the graph; the list endpoint only lists the types ("What fields does X have?" names no property).
+#: some property, a verb of having or marking followed by at least one more word. That is the Attribute catalog:
+#: the graph's for an admin (it refuses the label to anyone else), the system agent's catalog row for a non-admin
+#: ("What fields does X have?" names no property).
 _WHICH_ATTRIBUTES_RE = re.compile(
     r"\b(which|what)\b[^?.]*\b(attributes?|fields?|columns?)\b[^?.]*"
     r"\b(use|uses|carry|carries|hold|holds|are|is|have|has|need|needs|take|takes|marked|required)\s+\w",
     re.IGNORECASE)
 _SAMPLE_WORD_RE = re.compile(r"\bsamples?\b", re.IGNORECASE)
-ATTRIBUTE_CATALOG_NOTE = "sent to graph_query: which attributes of the sample types have a property is the graph's Attribute catalog"
+ATTRIBUTE_CATALOG_NOTE = "which attributes of the sample types have a property is the Attribute catalog"
+
+#: R4 routing (ruling 9): REST answers three things only. The retrieve alias stays readable so saved chats replay;
+#: graph_search is set after the guards by the scope fallback, never chosen. sops/ is for DOWNLOADING one named SOP,
+#: never for listing or searching them; people/ is the list of registered accounts.
+RETRIEVE_PATHS = frozenset({"/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/"})
+SOPS_PATH = "/nextseek_api/sops/"
+PEOPLE_PATH = "/nextseek_api/people/"
+KEPT_REST = RETRIEVE_PATHS | {SOPS_PATH, PEOPLE_PATH}
+_PEOPLE_NOUNS = {"people", "person", "researcher", "researchers", "user", "users", "account", "accounts", "registered"}
+#: Where a plan naming any other endpoint goes, by prefix so an old chat's sample-tree/<uid>/tree/ matches.
+#: "catalog" is system_question, or graph_query when the question has a sample word.
+REROUTE = (("/nextseek_api/sample-tree/", "graph_query"), ("/nextseek_api/investigations/", "graph_query"),
+           ("/nextseek_api/projects/", "graph_query"), ("/nextseek_api/assays/", "catalog"),
+           ("/nextseek_api/sample_types/", "catalog"))
+_SAMPLE_WORD = re.compile(r"\bsamples\b|\bsample\b(?!\s+types?\b)|\b(?:data|used|unused|empty)\b", re.I)
+#: A catalog count needs a definitional tail ("are there", "does the catalog define"); a "what ... exist" question
+#: ends on it, so "What assays exist for the Zeta tissue?" stays a graph question (review F2).
+_CATALOG_COUNT = re.compile(
+    r"\bhow\s+many\b[^?.]{0,40}\b(?:sample\s+types?|assay\s+(?:types?|kinds?)|assays?|clades?)\b[^?.]{0,30}"
+    r"\b(?:are\s+there|exist|are\s+defined|in\s+the\s+catalog|does\s+nextseek\s+(?:have|define|support)"
+    r"|the\s+catalog\s+define)\b"
+    r"|\bwhat\s+(?:sample\s+types|assays|assay\s+types)\b[^?.]{0,30}\b(?:are\s+there|exist|are\s+defined)\b"
+    r"(?:\s+in\s+(?:the\s+catalog|nextseek))?\s*[?.!]*\s*$", re.I)
+#: "Am I a member of Zeta?" names a project by its nature, so it holds even when the plan resolved one.
+_MEMBER_OF = re.compile(r"\bam\s+i\s+(?:a\s+)?member\s+of\b", re.I)
+#: A question about the signed-in user. "my projects" counts only as the whole request ("What are my projects?",
+#: "List my projects"); "How many mice are in my projects?" is a graph question (review F2).
+_CALLER = re.compile(
+    r"\bwho\s+am\s+i\b|\b(?:signed|logged)\s+in\s+as\b|\bam\s+i\s+(?:an?\s+)?(?:admin|superuser)\b"
+    r"|\bwho\s+is\s+logged\s+in\b|" + _MEMBER_OF.pattern +
+    r"|\b(?:projects?|groups?)\b[^?.]{0,30}\b(?:am\s+i|i\s*(?:'m|am))\s+(?:in|a\s+member|part)\b"
+    r"|\b(?:projects?|groups?)\b[^?.]{0,30}\bi\s+(?:belong|can\s+see|have\s+access)\b"
+    r"|\bmy\s+(?:account|login|username|role|permissions)\b"
+    r"|^\W*(?:(?:what|which)\s+are|list|show(?:\s+me)?|give\s+me|tell\s+me)\s+(?:all\s+)?my\s+"
+    r"(?:projects|memberships?)\s*[?.!]*\s*$", re.I)
+#: The SOP an SOP download names: "SOP 142", "SOP id 142", "sops/142".
+_SOP_ID = re.compile(r"\bsops?\s*(?:id\s*)?[#/]?\s*(\d+)\b", re.I)
+_WELL_FORMED_ANY_UID = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b", re.I)
 
 
-@functools.lru_cache(maxsize=1)
-def _sampletype_list_paths() -> frozenset[str]:
-    """Paths of the catalog entries whose category is the sample type list."""
-    rows = json.loads((Path(__file__).resolve().parent.parent / "context" / "min_api_endpoints_enriched.json").read_text(encoding="utf-8"))
-    return frozenset(r["path"] for r in rows if r.get("category") == SAMPLETYPE_LIST_CATEGORY)
+#: A quoted SOP title ("..." or '...', 3+ characters; an apostrophe inside a word opens nothing), and the words after
+#: "titled", "called" or "named".
+_SOP_QUOTED = re.compile(r"[\"\u201c\u201d]([^\"\u201c\u201d]{3,})[\"\u201c\u201d]|(?<!\w)'([^']{3,})'(?!\w)")
+_SOP_NAMED = re.compile(r"\b(?:titled|called|named)\s+([^?.]+)", re.I)
+_SOP_FILE_WORD = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment)\b", re.I)
 
 
-def _route_attribute_question(user_query: str, plan: ParserPlan) -> ParserPlan:
-    """A new_search on the sample type list that asks which attributes have a property becomes graph_query."""
-    if (
-        plan.mode == "new_search"
-        and plan.target_endpoint in _sampletype_list_paths()
-        and _WHICH_ATTRIBUTES_RE.search(user_query)
-        and _SAMPLE_WORD_RE.search(user_query)
-    ):
-        print(f"[DEBUG][PARSER] {ATTRIBUTE_CATALOG_NOTE} (endpoint={plan.target_endpoint!r})")
-        note = ((plan.notes + " | ") if plan.notes else "") + ATTRIBUTE_CATALOG_NOTE
-        return plan.model_copy(update={"mode": "graph_query", "target_endpoint": None, "notes": note})
+def sop_id_in(text: str) -> str | None:
+    """The SEEK id of the SOP a question names ("Download SOP 142"), else None."""
+    m = _SOP_ID.search(text or "")
+    return m.group(1) if m else None
+
+
+def sop_ref_in(text: str) -> str | None:
+    """The SOP a question names: its id, else a quoted title, else the words after "titled", "called" or "named"
+    (at most 120 characters). The API resolves an exact title itself (review F5)."""
+    sop_id = sop_id_in(text)
+    if sop_id:
+        return sop_id
+    m = _SOP_QUOTED.search(text or "") or _SOP_NAMED.search(text or "")
+    ref = next((g for g in m.groups() if g), "").strip()[:120].strip() if m else ""
+    return ref or None
+
+
+def _to(plan, mode: str, note: str, **extra):
+    print(f"[DEBUG][PARSER] route by kind: {note} (endpoint={plan.target_endpoint!r})")
+    field = "notes" if hasattr(plan, "notes") else "rationale"  # a ParserCandidate keeps its note in rationale
+    old = getattr(plan, field) or ""
+    return plan.model_copy(update={"mode": mode, "target_endpoint": None, field: (old + " | " if old else "") + note, **extra})
+
+
+def _route_by_kind(user_query: str, plan, config=None, resolved=None):
+    """Hold each question to the engine that answers its KIND, whatever endpoint the model picked.
+
+    Works on a ParserPlan or a ParserCandidate (``resolved`` is the plan's, for a candidate). REST is limited to
+    samples/retrieve, an SOP download by id, and the people list; any other new_search goes to the catalog (system
+    agent) or the graph, and a guard that fails sends a new_search to the graph. Steps, in order:
+    1 a caller question -> system_question; 2 a catalog count -> system_question (1 and 2 are skipped when the plan
+    names UIDs, labs or projects, except that "am I a member of <project>" keeps 1); 3 the which-attributes shape ->
+    system_question for a caller who cannot see all projects, graph_query for one who can; 4 an endpoint not kept ->
+    by prefix; 5 sops/ with no named SOP and people/ with a condition other than a name -> graph (reporter for a
+    project's SOPs).
+    """
+    try:
+        return _route_by_kind_steps(user_query, plan, config, resolved if resolved is not None else getattr(plan, "resolved", None))
+    except Exception as e:  # fail safe: never let the guard take the turn down, and never leave a bad REST call
+        print(f"[DEBUG][PARSER] route-by-kind guard failed: {e!r}")
+        if plan.mode == "new_search" and plan.target_endpoint not in KEPT_REST:
+            return _to(plan, "graph_query", "sent to graph_query: the routing check failed")
+        return plan
+
+
+def _route_by_kind_steps(user_query, plan, config, resolved):
+    from ..graph_scope import sees_all
+
+    q = user_query or ""
+    has_sample = bool(_SAMPLE_WORD.search(q))
+    filters = plan.filters
+    projects = list(getattr(resolved, "projects", None) or [])
+    # A plan that names UIDs, labs or projects is about them, not about the caller or the catalog (review F2).
+    named = bool(filters.uids or filters.lab_codes)
+    if (plan.mode in ("new_search", "graph_query", "system_question") and _CALLER.search(q) and not has_sample
+            and not named and (not projects or _MEMBER_OF.search(q))):
+        if plan.mode == "system_question":
+            return plan
+        return _to(plan, "system_question", "sent to system_question: a question about the signed-in user is answered from the session")
+    if (plan.mode in ("new_search", "graph_query") and not has_sample and not named and not projects
+            and _CATALOG_COUNT.search(q)):
+        return _to(plan, "system_question", "sent to system_question: what the catalog defines, and how many, is the catalog's")
+    if plan.mode in ("new_search", "graph_query") and _WHICH_ATTRIBUTES_RE.search(q) and _SAMPLE_WORD_RE.search(q):
+        if not sees_all(config):
+            return _to(plan, "system_question", ATTRIBUTE_CATALOG_NOTE + " (the system agent answers from the catalog for this caller)")
+        if plan.mode == "new_search":
+            return _to(plan, "graph_query", "sent to graph_query: " + ATTRIBUTE_CATALOG_NOTE)
+    if plan.mode == "new_search":
+        ep = plan.target_endpoint
+        if ep not in KEPT_REST:
+            kind = next((k for prefix, k in REROUTE if (ep or "").startswith(prefix)), "graph_query")
+            if kind == "catalog":
+                kind = "graph_query" if has_sample else "system_question"
+            extra = {}
+            if not filters.uids and _WELL_FORMED_ANY_UID.search(q):
+                extra["filters"] = filters.model_copy(update={"uids": list(dict.fromkeys(_WELL_FORMED_ANY_UID.findall(q)))})
+            return _to(plan, kind, f"sent to {kind}: no REST list answers this", **extra)
+        if ep == SOPS_PATH:
+            # A named SOP (an id, or a title with a file word) wins over a project and every other filter; the
+            # request builder reads it from filters.keywords (review F5, F6).
+            ref = sop_ref_in(q)
+            if ref and (ref.isdigit() or _SOP_FILE_WORD.search(q)):
+                print(f"[DEBUG][PARSER] route by kind: one SOP's file, named {ref!r}")
+                return plan.model_copy(update={"filters": filters.model_copy(update={"keywords": [ref]})})
+            if projects:
+                return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
+            return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
+        elif ep == PEOPLE_PATH:
+            # Keywords alone are names to find on the list, matched in code (review F8); anything else is a
+            # condition the list cannot hold.
+            if (filters.uids or filters.lab_codes or filters.sampletype_code or filters.assay_codes or projects
+                    or has_sample):
+                return _to(plan, "graph_query", "sent to graph_query: the people list cannot apply a condition")
     return plan
 
 
@@ -778,6 +897,7 @@ def _apply_parser_guardrails(
     plan: ParserPlan,
     session: "SessionState | SessionStateProxy | None" = None,
     force_mode: str | None = None,
+    config: Any = None,
     trace: list[str] | None = None,
 ) -> ParserPlan:
     """Apply narrow deterministic safety checks after LLM routing.
@@ -818,14 +938,18 @@ def _apply_parser_guardrails(
         )
     plan = _seen("unscoped_bulk_export", before_bulk, plan)
     plan = _seen("retired_sample_search", plan, _route_retired_sample_search(session, plan))
-    plan = _seen("attribute_question", plan, _route_attribute_question(user_query, plan))
+    plan = _seen("route_by_kind", plan, _route_by_kind(user_query, plan, config))
     return _seen("force_mode", plan, _force_parser_mode(plan, force_mode))
 
 
-def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan) -> MultiParserPlan:
+def _apply_multi_parser_guardrails(user_query: str, plan: MultiParserPlan, config: Any = None) -> MultiParserPlan:
     """Apply narrow deterministic safety checks to parser candidates."""
     if not plan.candidates:
         return plan
+    # Every candidate is held to the REST scope (_route_by_kind); an unchanged candidate is kept as the same object.
+    routed = [_route_by_kind(user_query, c, config, plan.resolved) for c in plan.candidates]
+    if any(r is not c for r, c in zip(routed, plan.candidates)):
+        plan = plan.model_copy(update={"candidates": routed})
     top = _fill_candidate_defaults(plan.candidates[0])
     if not _is_unscoped_bulk_export_request(user_query, top.mode, top.filters):
         return plan
@@ -964,7 +1088,7 @@ def parser_agent(session: SessionState | SessionStateProxy, config: ChatConfig, 
     _changed: list[str] = []
     plan_model = _apply_parser_guardrails(
         user_query, plan_model, session=session,
-        force_mode=getattr(config, "FORCE_PARSER_MODE", None),
+        force_mode=getattr(config, "FORCE_PARSER_MODE", None), config=config,
         trace=_changed,
     )
     if decision is not None:
