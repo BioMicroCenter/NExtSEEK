@@ -29,6 +29,15 @@ def test_route_decided_fields_carry_laya_only_when_present():
     assert cc_router.router_cost_fields(_d(laya={"mode": "shadow"}, **base))["laya"] == {"mode": "shadow"}
 
 
+def test_route_decided_fields_carry_the_attempted_route():
+    """A follow-up or sticky turn's teacher is the router's own answer, which only attempted_route holds."""
+    base = {"router_usage": {}, "router_cost_usd": 0.0}
+    assert cc_router.router_cost_fields(_d(attempted_route="nextseek_query", **base))["attempted_route"] \
+        == "nextseek_query"
+    assert cc_router.router_cost_fields(_d(**base))["attempted_route"] is None
+    assert cc_router.router_cost_fields(_d(attempted_route="nextseek_query")) == {}  # a forced turn: no fields
+
+
 def test_route_decided_event_still_has_one_spread():
     src = inspect.getsource(turn)
     event = src[src.index('send_event("route_decided"'):].split("_record_ledger_row")[0]

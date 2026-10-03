@@ -189,6 +189,7 @@ q -e "SELECT JSON_OBJECT(
         'router_model',        JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_model'),'\$[0]'),
         'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]'),
         'router_elapsed_s',    JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_elapsed_s'),'\$[0]'),
+        'attempted_route',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.attempted_route'),'\$[0]'),
         'laya',                JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.laya'),'\$[0]')
       ) FROM assistant_query_task t WHERE {where} ORDER BY t.id;"
 """

@@ -118,6 +118,9 @@ def router_cost_fields(decision) -> dict:
         "router_cost_usd": getattr(decision, "router_cost_usd", None),
         "router_cost_partial": bool(getattr(decision, "router_cost_partial", False)),
         "router_usage": usage,
+        # The router's own answer on a turn the policy moved (follow-up, sticky, cc_unavailable): the
+        # laya training view's teacher for those turns (JevLevROUTING SPEC s8). None when nothing moved it.
+        "attempted_route": getattr(decision, "attempted_route", None),
         # laya's record (JevLevROUTING SPEC s7), absent when laya was off for the turn. It rides
         # this one spread because every routed decision has usage and test_router_cost pins one spread.
         **({"laya": decision.laya} if getattr(decision, "laya", None) else {}),

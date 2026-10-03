@@ -20,7 +20,7 @@ def _load():
 
 def test_the_turn_query_reads_laya_and_router_elapsed_by_key_not_by_position():
     remote = _load().REMOTE
-    for key in ("laya", "router_elapsed_s"):
+    for key in ("laya", "router_elapsed_s", "attempted_route"):
         line = next(l for l in remote.splitlines() if f"'{key}'," in l or f"'{key}'" in l and l.rstrip().endswith(","))
         assert f"progress,'\\$[*].data.{key}'" in line, line
         assert "\\$[0].data." + key not in line
