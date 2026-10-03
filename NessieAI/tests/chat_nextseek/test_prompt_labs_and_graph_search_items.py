@@ -221,8 +221,9 @@ def test_the_protocol_endpoint_is_not_offered_for_a_filtered_question(name):
     entry = _entry(CATALOGS[name], "/nextseek_api/sops/")
     assert entry is not None
     hint = entry["llm_hint"]
-    assert "DO NOT USE WHEN" in hint
-    for cue in ("filters, counts or analyses protocols", "cannot filter", "graph_query", "protocol_title"):
+    # R4 (ruling 9): the endpoint is for downloading one named SOP only.
+    assert "ONLY when the user names one SOP by its id" in hint
+    for cue in ("listing SOPs", "counting them", "graph_query", "protocol_title", "reporter"):
         assert cue in hint, cue
 
 

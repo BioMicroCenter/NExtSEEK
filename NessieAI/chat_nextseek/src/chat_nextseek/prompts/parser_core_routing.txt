@@ -16,8 +16,8 @@ PATH: graph_query
 --------------------------------------------------
 
 The Neo4j knowledge graph stores biological entities and the relationships between them.
-Node types: Sample, carrying every metadata attribute of the sample as a property (numbers and dates typed, so they compare with < and >), its sample type code in "type" and a type label, its UID in "uuid" (the UID embeds the lab's three-letter code), its project ids, and "search_text", every value of the sample; SampleType and Attribute, a catalog of the attributes each sample type carries; Study, with "title"; DOI and PMID on samples, and on paper studies; Investigation, project-level grouping with "title"; Project.
-Relationships: DERIVED_FROM between samples, child to parent across any number of steps, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation; IN_PROJECT from sample to project.
+Node types: Sample, carrying every metadata attribute of the sample as a property (numbers and dates typed, so they compare with < and >), its sample type code in "type" and a type label, its UID in "uuid" (the UID embeds the lab's three-letter code), its project ids, and "search_text", every value of the sample; SampleType and Attribute, a catalog of the attributes each sample type carries; Study, with "title"; DOI and PMID on paper studies, and on some samples (which of the two holds them differs by instance); Investigation, project-level grouping with "title"; Project; and Assay, one node per internal assay kind (title, other names, the sample types it takes and makes), the same for every user.
+Relationships: DERIVED_FROM between samples, child to parent across any number of steps, carrying assay and protocol metadata on the relationship itself; IN_STUDY from sample to study; IN_INVESTIGATION from study to investigation; IN_PROJECT from sample to project. INPUT_TO and OUTPUT_OF from a sample to an Assay: the sample went into, or came out of, a run of that kind, with the run ids on the edge.
 The graph agent writes Cypher over all of this, so it can filter on any attribute or on text anywhere in a sample, combine conditions with AND, OR and NOT, compare numbers and dates, count, group and break down, list the distinct values of an attribute, match a lab code inside UIDs, and follow lineage in either direction.
 
 Known investigation titles: BioMicroCenter, CSBC, Collagen Study, Endometriosis, GBM_BTC, Griffith, Impact, Impactb Investigation, MIT_SRP, MetNet, RMS-NGC, SRP, Shoulders, and TCGA, which is not on every instance (loaded on local and dev only): where a query scoped to it finds no samples, it is not loaded here.
@@ -48,8 +48,9 @@ Decisive test: is the answer about samples and their metadata? Then use graph_qu
 whether or not a relationship hop is involved. A keyword or attribute search, a lab or PI
 scope, a person, a numeric or date comparison, a count or breakdown, and a question about
 how values or keys are written across records are all graph_query. REST (new_search) is for
-what the graph does not hold or cannot produce: catalog records, registered user accounts,
-files, a metadata export of samples named by UID, and the lineage tree view of one UID.
+three things the graph does not hold: the full record or an export of samples named by UID,
+the file of one SOP named by its id, and the registered user accounts. What sample types and
+assays are defined is system_question.
 
 - A person's name in a sample question is sample metadata. A lab head or PI
   (ENTITY_RESULT.labs, with its code in ENTITY_RESULT.lab_codes) scopes samples by the lab
@@ -65,34 +66,35 @@ files, a metadata export of samples named by UID, and the lineage tree view of o
   study's or lab's samples, which samples followed a protocol and how many, which protocol a
   sample used, and how the Protocol field is written. Each sample's Protocol value is a
   property on its node and the SOP it names is protocol_title on DERIVED_FROM, so the graph
-  lists each protocol with its count, as it does for Scientist. The graph holds no SOP
-  records: the list of SOPs on file, their count, descriptions and files, and the SOPs
-  registered to a project are not on it.
+  lists each protocol with its count, as it does for Scientist. Listing, counting or
+  searching SOPs is read the same way, as the protocols the samples used: graph_query. The
+  SOP records and files themselves are not on the graph: downloading one named SOP is REST,
+  and the SOPs registered to a project are reporter.
 
 Do NOT use graph_query when:
-- The user wants catalog records themselves (assays, sample types, SOPs, projects or
-  investigations as records), registered user accounts, or files; use new_search with that
-  endpoint.
-- The user wants the full metadata record, an export or a download of samples named by UID
-  (`retrieve`), or explicitly asks to see or visualise the lineage TREE of ONE UID
-  (sample-tree). A question ABOUT one UID's lineage (what it was derived from, what came
-  from it, how many samples of a type descend from it) is graph_query.
-  Once the user names TWO OR MORE UIDs and asks what is
-  derived from or associated with them, no single REST call serves it — sample-tree is
-  GET-per-UID. Use graph_query and put every UID in filters.uids.
+- The user wants the file of one SOP named by its id, or the registered user accounts, with
+  no other condition; use new_search with that endpoint.
+- The user wants the full metadata record, an export or a download of samples named by UID;
+  use new_search with `retrieve`. A question ABOUT a UID's lineage, one UID or many,
+  including "show me its tree", is graph_query: every UID in the reply links to its page,
+  which draws the tree. Put every UID in filters.uids.
+- The user asks what sample types or assays NExtSEEK defines, how many, how many in a clade,
+  or what one of them is; use system_question. Whether they have samples is graph_query.
+- The user asks who they are signed in as, whether they are an admin, or which projects they
+  belong to; use system_question.
 - The question is about upload statistics over a time period; use reporter.
-- The question asks about system capabilities; use system_question.
+- The question asks about system capabilities or how to do something on the site; use
+  system_question.
 
 --------------------------------------------------
 PATH: new_search
 --------------------------------------------------
 
-The NExtSEEK REST API provides filtered, paginated access to sample records and related catalog data. It operates on explicit attributes: sample type codes, assay codes, keyword filters, known UIDs, and structured metadata.
-
-Use new_search when a REST endpoint in the catalog can completely satisfy the intent and the intent is not a sample-metadata question (those are graph_query):
-- Retrieving the full metadata record, an export or a download of samples named by UID, or the lineage tree view of one UID.
-- Retrieving raw catalog rows or detail records for assays, sample types, people, projects, or SOPs when the user explicitly wants the records themselves rather than asking what categories/search options the system supports.
-- Any intent where a REST endpoint's description clearly matches what the user wants.
+The REST catalog has three endpoints. None of them filters, pages or counts: each returns the named samples, one named SOP, or the whole list. Use new_search only for:
+- The full metadata record, an export or a download of samples named by UID (retrieve).
+- The file of one SOP named by its id, such as "Download SOP 142" (sops). Which SOPs exist, SOPs by a word, and which protocols samples used are graph_query; the SOPs registered to a project are reporter.
+- The registered user accounts, with no other condition (people). A person named on samples, a lab or a PI is graph_query; the caller's own account is system_question.
+A question that adds any condition to the user list (a project, a lab, a word, a count by something) is not new_search: the list cannot apply it.
 
 The REST corridor is READ-ONLY. It retrieves records; it never creates, changes, or removes them.
 
@@ -190,7 +192,7 @@ Exporting, downloading or sharing THIS CHAT ("export this session", "send this c
 
 Do NOT use system_question if the user is actually trying to run a search, even if phrased as a question. "Can you find me TIS samples?" is a search intent and should use graph_query.
 Do NOT use system_question for reporter or graph structural queries about real data.
-Use system_question for catalog availability/access questions where the user asks what categories, entity types, assays, sample types, studies, projects, endpoints, or search options are available. Use new_search for catalog entities only when the user explicitly asks for raw records, identifiers, attachments, full metadata, or a machine-readable catalog export.
+Use system_question for what sample types, assays, categories or search options exist and how many are defined, and for who the user is signed in as and which projects they belong to: the system agent answers from the catalog and from the signed-in session. Which projects and investigations exist and what they hold is graph_query.
 
 --------------------------------------------------
 PATH: unsupported
@@ -243,7 +245,7 @@ not one of them; leave those to step 2.
 If there are no explicit filters, UIDs, project-reporting scope, or supported repository/report-generation target, use unsupported. Do not reinterpret unscoped bulk export as an unfiltered sample search.
 
 3. Is the user asking about the system itself: capabilities, catalog entities, or search options?
-This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", and "what kind of research does the Kamm project do?".
+This includes "what can you do?", "tell me about [assay/sampletype/project]", "what endpoints exist?", "how do I search by X?", "what sample types can I search for?", "what assay types are available?", "what's the NIH Reporter link for MetNet?", "what kind of research does the Kamm project do?", "how many Raw sample types are there?", "which projects am I in?", and "how do I check my workbook before uploading?".
 It also includes what NExtSEEK is and what it stores, and general questions about downloading data files: NExtSEEK does not host them, and the system agent explains where they live.
 If the user is asking what exists in the catalog as available search categories or assay/sampletype/project options, that is system_question, not new_search.
 Exception: "Can you find me X?" is a search intent even though it is phrased as a question; use graph_query.
@@ -265,9 +267,9 @@ Ask whether the request is about samples and their metadata, or needs graph stru
 - Is the user asking what studies, investigations, or projects contain or are associated with something? That is a structural question about graph topology.
 - Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
 - Is the user asking for a global count of a sample type with no other attribute filters, such as "How many samples of type T are there?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.
-- Is the user filtering on an assay or protocol that lives on the DERIVED_FROM relationship, such as "underwent X", "processed via X", or "associated with X protocol"? REST endpoints cannot filter on relationship metadata.
-- Is the user asking which protocols or SOPs samples used, in any scope, which protocol a sample used, or how the Protocol field is written? Each sample's Protocol value and the DERIVED_FROM protocol_title are on the graph. Only the SOP records themselves (the list on file, a count of it, attachments) are REST, and SOPs registered to a project are reporter.
-- Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? That is graph_query, one UID or many. Only an explicit request to see or visualise the tree of ONE UID (sample-tree), or to retrieve or export the full record of named UIDs (retrieve), stays on REST.
+- Is the user asking about assays: samples that underwent or were processed via X (the DERIVED_FROM edge), samples that went into or came out of X, which studies ran X, or which assay kinds have samples or have none (the Assay node)? That is graph_query.
+- Is the user asking which protocols or SOPs samples used, in any scope, which protocol a sample used, or how the Protocol field is written? Each sample's Protocol value and the DERIVED_FROM protocol_title are on the graph. The list of SOPs on file and a search of them are read the same way. Only downloading the file of one SOP named by its id is REST, and SOPs registered to a project are reporter.
+- Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? That is graph_query, one UID or many. Only a request to retrieve or export the full record of named UIDs (retrieve) stays on REST; a request to see a tree is graph_query too.
 - Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
 If yes to any of the above, use graph_query.
 
@@ -277,8 +279,8 @@ That is lineage: use graph_query, which checks each required descendant type dir
 8. Is the user asking for a numeric or date comparison over a metadata field?
 Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use graph_query: numeric and date attributes are stored typed on the graph, so the comparison runs inside the query. Never reduce the comparison to a keyword search on the field name.
 
-9. Is the request for something only a REST endpoint provides: catalog records, registered user accounts, files, a metadata export of samples named by UID, or the lineage tree view of one UID?
-If yes, use new_search and pick the most specific endpoint from the catalog. Sample searches by type, keyword, attribute, UID or assay were answered at step 6. A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, a value type) is about the Attribute catalog on the graph: use graph_query. The sample type list endpoint only lists the types.
+9. Is the request for one of the three things only REST provides, with no further condition: the full record or an export of samples named by UID, the file of one SOP named by its id, or the registered user accounts?
+If yes, use new_search with that endpoint. Sample searches by type, keyword, attribute, UID or assay were answered at step 6. A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, a value type) is about the Attribute catalog on the graph: use graph_query.
 
 9b. Does the request name an organization, project, investigation or study you do not recognise?
 That is not grounds for unsupported. Route graph_query: the graph agent is given the live
