@@ -45,6 +45,27 @@ def test_an_sop_download_reads_the_one_record(intent, filters, sop_id):
     assert (plan.endpoint, plan.method) == (f"{SOPS}{sop_id}/", "GET")
 
 
+@pytest.mark.parametrize("intent,ref,path", [
+    ("the SOP titled Zeta Fixation Protocol", "Zeta Fixation Protocol", "Zeta%20Fixation%20Protocol"),
+    ("the Quill SOP", "Quill Staining Protocol", "Quill%20Staining%20Protocol"),
+    ("Get me the file for SOP #142", "142", "142"),
+])
+def test_an_sop_download_reads_the_record_the_parser_named_by_id_or_title(intent, ref, path):
+    plan = build(SOPS, intent, keywords=[ref])
+    assert (plan.endpoint, plan.method) == (f"{SOPS}{path}/", "GET")
+
+
+def test_the_sop_id_the_parser_found_reaches_the_request():
+    """Review F6: the parser found "SOP #142" in the question while the intent said "SOP with ID 142"."""
+    from chat_nextseek.agents.parser import _apply_parser_guardrails
+    from chat_nextseek.schemas import EntityAgentOutput
+
+    parsed = ParserPlan(mode="new_search", target_endpoint=SOPS, intent_summary="SOP with ID 142",
+                        filters=ParserFilters(), resolved=EntityAgentOutput())
+    routed = _apply_parser_guardrails("Get me the file for SOP #142", parsed)
+    assert api_mod.api_agent_build_request(_NoLLM(), routed).endpoint == f"{SOPS}142/"
+
+
 def test_an_sop_with_no_id_is_not_a_request():
     assert build(SOPS, "what SOPs exist").endpoint is None
 
@@ -70,7 +91,15 @@ def test_a_sample_result_is_not_flagged_and_an_sop_record_lists_its_file():
     record = {"ok": True, "data": {"data": {"id": "142", "attributes": {"content_blobs": [
         {"original_filename": "zeta_protocol.pdf", "link": "http://x/sops/142/content_blobs/9"}]}}}}
     slim = slim_api_result_for_llm(record, api_plan={"endpoint": f"{SOPS}142/"})
-    assert slim["download_links"] == [{"file": "zeta_protocol.pdf", "link": "http://x/sops/142/content_blobs/9"}]
+    assert slim["download_links"] == [{"file": "zeta_protocol.pdf", "link": "http://x/sops/142/content_blobs/9/download"}]
+
+
+def test_a_link_that_is_not_a_content_blob_is_passed_through():
+    """Review N8: SEEK serves the file at <blob link>/download; any other link is left as the record states it."""
+    record = {"ok": True, "data": {"data": {"id": "9001", "attributes": {"content_blobs": [
+        {"original_filename": "quill.pdf", "link": "http://x/files/a.pdf"}]}}}}
+    slim = slim_api_result_for_llm(record, api_plan={"endpoint": f"{SOPS}9001/"})
+    assert slim["download_links"] == [{"file": "quill.pdf", "link": "http://x/files/a.pdf"}]
 
 
 def test_the_people_table_holds_every_row_even_past_the_inline_cap():

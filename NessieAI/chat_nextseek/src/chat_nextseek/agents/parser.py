@@ -768,10 +768,28 @@ _SOP_ID = re.compile(r"\bsops?\s*(?:id\s*)?[#/]?\s*(\d+)\b", re.I)
 _WELL_FORMED_ANY_UID = re.compile(r"\b[A-Z][A-Z.]{1,6}-\d{6}[A-Z]{3}-\d+(?:-PUB\d*)?\b", re.I)
 
 
+#: A quoted SOP title ("..." or '...', 3+ characters; an apostrophe inside a word opens nothing), and the words after
+#: "titled", "called" or "named".
+_SOP_QUOTED = re.compile(r"[\"\u201c\u201d]([^\"\u201c\u201d]{3,})[\"\u201c\u201d]|(?<!\w)'([^']{3,})'(?!\w)")
+_SOP_NAMED = re.compile(r"\b(?:titled|called|named)\s+([^?.]+)", re.I)
+_SOP_FILE_WORD = re.compile(r"\b(?:download|file|pdf|docx?|document|attachment)\b", re.I)
+
+
 def sop_id_in(text: str) -> str | None:
     """The SEEK id of the SOP a question names ("Download SOP 142"), else None."""
     m = _SOP_ID.search(text or "")
     return m.group(1) if m else None
+
+
+def sop_ref_in(text: str) -> str | None:
+    """The SOP a question names: its id, else a quoted title, else the words after "titled", "called" or "named"
+    (at most 120 characters). The API resolves an exact title itself (review F5)."""
+    sop_id = sop_id_in(text)
+    if sop_id:
+        return sop_id
+    m = _SOP_QUOTED.search(text or "") or _SOP_NAMED.search(text or "")
+    ref = next((g for g in m.groups() if g), "").strip()[:120].strip() if m else ""
+    return ref or None
 
 
 def _to(plan, mode: str, note: str, **extra):
@@ -834,12 +852,15 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
                 extra["filters"] = filters.model_copy(update={"uids": list(dict.fromkeys(_WELL_FORMED_ANY_UID.findall(q)))})
             return _to(plan, kind, f"sent to {kind}: no REST list answers this", **extra)
         if ep == SOPS_PATH:
-            sop_id = sop_id_in(q)
-            other = filters.lab_codes or filters.sampletype_code or filters.assay_codes
-            if projects and not sop_id:
+            # A named SOP (an id, or a title with a file word) wins over a project and every other filter; the
+            # request builder reads it from filters.keywords (review F5, F6).
+            ref = sop_ref_in(q)
+            if ref and (ref.isdigit() or _SOP_FILE_WORD.search(q)):
+                print(f"[DEBUG][PARSER] route by kind: one SOP's file, named {ref!r}")
+                return plan.model_copy(update={"filters": filters.model_copy(update={"keywords": [ref]})})
+            if projects:
                 return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
-            if not sop_id or other or projects:
-                return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
+            return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
         elif ep == PEOPLE_PATH:
             extra_kw = [k for k in filters.keywords if set(re.findall(r"\w+", k.lower())) - _PEOPLE_NOUNS]
             if filters.uids or filters.lab_codes or filters.sampletype_code or filters.assay_codes or extra_kw or projects:

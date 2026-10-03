@@ -60,7 +60,7 @@ def test_the_reporter_exclusions_and_step_six_send_protocol_usage_to_the_graph()
 def test_the_catalog_record_line_is_gone_and_rest_is_three_things():
     """Ruling 9 (round 4): the SOP list is no longer a catalog record; REST downloads one SOP by id."""
     assert "The user wants catalog records themselves" not in CORE
-    assert "- The user wants the file of one SOP named by its id, or the registered user accounts" in CORE
+    assert "- The user wants the file of one SOP named by its id or its exact title, or the registered user accounts" in CORE
 
 
 @pytest.mark.parametrize("question, fires", [

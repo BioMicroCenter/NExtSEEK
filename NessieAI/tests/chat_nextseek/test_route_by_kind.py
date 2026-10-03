@@ -127,11 +127,29 @@ def test_sops_of_a_project_are_the_project_report():
     assert out.mode == "reporter" and out.report_mode == "summary"
 
 
+def _kept_sop(out, ref):
+    assert (out.mode, out.target_endpoint, out.filters.keywords) == ("new_search", SOPS, [ref])
+
+
 def test_downloading_one_named_sop_stays_on_rest():
-    p = plan(endpoint=SOPS)
-    assert route("Download SOP 142", p) is p
-    q = plan(endpoint=SOPS, keywords=["SOP 9001"])
-    assert route("Get the file of SOP 9001", q) is q
+    _kept_sop(route("Download SOP 142", plan(endpoint=SOPS)), "142")
+    _kept_sop(route("Get the file of SOP 9001", plan(endpoint=SOPS, keywords=["SOP 9001"])), "9001")
+
+
+@pytest.mark.parametrize("q,ref", [("Give me the file for the SOP titled Zeta Fixation Protocol", "Zeta Fixation Protocol"),
+                                   ('Download "Quill Staining Protocol"', "Quill Staining Protocol"),
+                                   ("Download Quill's SOP 'Zeta Fixation Protocol'", "Zeta Fixation Protocol")])
+def test_downloading_one_sop_named_by_its_title_stays_on_rest(q, ref):
+    """Review F5: the API resolves an exact title itself, so a title download is a REST download too."""
+    _kept_sop(route(q, plan(endpoint=SOPS)), ref)
+
+
+def test_a_named_sop_wins_over_a_project():
+    _kept_sop(route("Download SOP 142 from project Zeta", plan(endpoint=SOPS, projects=["Zeta"])), "142")
+
+
+def test_a_title_with_no_file_word_is_not_a_download():
+    assert route("Which SOP is called for in the Quill staining step?", plan(endpoint=SOPS)).mode == "graph_query"
 
 
 def test_people_list_stays_but_a_condition_moves_it():

@@ -49,7 +49,7 @@ whether or not a relationship hop is involved. A keyword or attribute search, a 
 scope, a person, a numeric or date comparison, a count or breakdown, and a question about
 how values or keys are written across records are all graph_query. REST (new_search) is for
 three things the graph does not hold: the full record or an export of samples named by UID,
-the file of one SOP named by its id, and the registered user accounts. What sample types and
+the file of one SOP named by its id or its exact title, and the registered user accounts. What sample types and
 assays are defined is system_question.
 
 - A person's name in a sample question is sample metadata. A lab head or PI
@@ -72,7 +72,7 @@ assays are defined is system_question.
   and the SOPs registered to a project are reporter.
 
 Do NOT use graph_query when:
-- The user wants the file of one SOP named by its id, or the registered user accounts, with
+- The user wants the file of one SOP named by its id or its exact title, or the registered user accounts, with
   no other condition; use new_search with that endpoint.
 - The user wants the full metadata record, an export or a download of samples named by UID;
   use new_search with `retrieve`. A question ABOUT a UID's lineage, one UID or many,
@@ -92,7 +92,7 @@ PATH: new_search
 
 The REST catalog has three endpoints. None of them filters, pages or counts: each returns the named samples, one named SOP, or the whole list. Use new_search only for:
 - The full metadata record, an export or a download of samples named by UID (retrieve).
-- The file of one SOP named by its id, such as "Download SOP 142" (sops). Which SOPs exist, SOPs by a word, and which protocols samples used are graph_query; the SOPs registered to a project are reporter.
+- The file of one SOP named by its id or its exact title, such as "Download SOP 142" (sops). Which SOPs exist, SOPs by a word, and which protocols samples used are graph_query; the SOPs registered to a project are reporter.
 - The registered user accounts, with no other condition (people). A person named on samples, a lab or a PI is graph_query; the caller's own account is system_question.
 A question that adds any condition to the user list (a project, a lab, a word, a count by something) is not new_search: the list cannot apply it.
 
@@ -268,7 +268,7 @@ Ask whether the request is about samples and their metadata, or needs graph stru
 - Is the user asking for a count or aggregation that is organized by graph structure, such as "across all studies", "per study", or "how many X in study Y"?
 - Is the user asking for a global count of a sample type with no other attribute filters, such as "How many samples of type T are there?" There is no filtering happening, only counting. This is a graph COUNT query, not a search.
 - Is the user asking about assays: samples that underwent or were processed via X (the DERIVED_FROM edge), samples that went into or came out of X, which studies ran X, or which assay kinds have samples or have none (the Assay node)? That is graph_query.
-- Is the user asking which protocols or SOPs samples used, in any scope, which protocol a sample used, or how the Protocol field is written? Each sample's Protocol value and the DERIVED_FROM protocol_title are on the graph. The list of SOPs on file and a search of them are read the same way. Only downloading the file of one SOP named by its id is REST, and SOPs registered to a project are reporter.
+- Is the user asking which protocols or SOPs samples used, in any scope, which protocol a sample used, or how the Protocol field is written? Each sample's Protocol value and the DERIVED_FROM protocol_title are on the graph. The list of SOPs on file and a search of them are read the same way. Only downloading the file of one SOP named by its id or its exact title is REST, and SOPs registered to a project are reporter.
 - Is the user asking about derivation chains, lineage, or ancestor/descendant relationships between samples? That is graph_query, one UID or many. Only a request to retrieve or export the full record of named UIDs (retrieve) stays on REST; a request to see a tree is graph_query too.
 - Is the requested output a child/data sample constrained by an associated parent sample type? That is a relationship constraint, not a keyword filter, unless a direct child-by-parent REST endpoint exists.
 If yes to any of the above, use graph_query.
@@ -279,7 +279,7 @@ That is lineage: use graph_query, which checks each required descendant type dir
 8. Is the user asking for a numeric or date comparison over a metadata field?
 Comparisons include greater than, less than, at least, at most, above, below, before, after, equal to, or between a value. Use graph_query: numeric and date attributes are stored typed on the graph, so the comparison runs inside the query. Never reduce the comparison to a keyword search on the field name.
 
-9. Is the request for one of the three things only REST provides, with no further condition: the full record or an export of samples named by UID, the file of one SOP named by its id, or the registered user accounts?
+9. Is the request for one of the three things only REST provides, with no further condition: the full record or an export of samples named by UID, the file of one SOP named by its id or its exact title, or the registered user accounts?
 If yes, use new_search with that endpoint. Sample searches by type, keyword, attribute, UID or assay were answered at step 6. A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, a value type) is about the Attribute catalog on the graph: use graph_query.
 
 9b. Does the request name an organization, project, investigation or study you do not recognise?

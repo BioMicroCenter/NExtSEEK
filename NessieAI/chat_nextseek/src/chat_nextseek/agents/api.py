@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 from typing import Any
 
 from ..config import ChatConfig
@@ -28,9 +29,9 @@ _SOPS_PATH = "/nextseek_api/sops/"
 
 def _build_kept_request(endpoint: str, plan_dict: dict) -> APIRequestPlan | None:
     """The REST requests that are fixed in shape are built here, with no model call (R4, U3b): retrieve is a POST of
-    the named UIDs, the people list is an empty GET, an SOP download reads the one SOP record by its id. None for
-    any other endpoint (graph_search, the scope fallback), which the model still builds, and for a retrieve with
-    no UIDs."""
+    the named UIDs, the people list is an empty GET, an SOP download reads the one SOP record by its id or exact
+    title. None for any other endpoint (graph_search, the scope fallback), which the model still builds, and for a
+    retrieve with no UIDs."""
     filters = plan_dict.get("filters") or {}
     if endpoint in _RETRIEVE_PATHS:
         uids = [u for u in filters.get("uids") or [] if isinstance(u, str) and u.strip()]
@@ -44,13 +45,16 @@ def _build_kept_request(endpoint: str, plan_dict: dict) -> APIRequestPlan | None
     if endpoint == _SOPS_PATH:
         from .parser import sop_id_in
 
-        words = " ".join([str(plan_dict.get("intent_summary") or ""), *map(str, filters.get("keywords") or [])])
-        sop_id = sop_id_in(words) or next((k for k in map(str, filters.get("keywords") or []) if k.strip().isdigit()), None)
-        if not sop_id:
+        # The parser puts the SOP it kept (an id or an exact title) first in keywords (review F5, F6).
+        keywords = [str(k) for k in filters.get("keywords") or [] if str(k).strip()]
+        words = " ".join([str(plan_dict.get("intent_summary") or ""), *keywords])
+        ref = (keywords or [None])[0] or sop_id_in(words)
+        if not ref:
             return APIRequestPlan(endpoint=None, method="GET", requestBody={}, queryParameters={},
-                                  notes="SOPs are downloaded one at a time by id, and no SOP id was named.")
-        return APIRequestPlan(endpoint=f"{_SOPS_PATH}{sop_id.strip()}/", method="GET", requestBody={},
-                              queryParameters={}, notes="Built in code: the one SOP record, which carries its file.")
+                                  notes="SOPs are downloaded one at a time by id or exact title, and none was named.")
+        return APIRequestPlan(endpoint=f"{_SOPS_PATH}{urllib.parse.quote(ref.strip(), safe='')}/", method="GET",
+                              requestBody={}, queryParameters={},
+                              notes="Built in code: the one SOP record (by id or exact title), which carries its file.")
     return None
 
 

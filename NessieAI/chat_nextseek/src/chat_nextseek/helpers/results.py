@@ -379,6 +379,8 @@ def _download_links(record: dict) -> list[dict]:
             continue
         link = blob.get("link") or (blob.get("links") or {}).get("download") or (blob.get("links") or {}).get("self")
         if link:
+            # SEEK serves the blob resource at the link and the file at <link>/download (content_blobs.py, review N8).
+            link = re.sub(r"(/content_blobs/\d+)/?$", r"\1/download", str(link))
             out.append({"file": blob.get("original_filename") or blob.get("title"), "link": link})
     return out
 

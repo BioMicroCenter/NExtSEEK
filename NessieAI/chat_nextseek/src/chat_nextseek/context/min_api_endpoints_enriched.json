@@ -51,7 +51,7 @@
   {
     "path": "/nextseek_api/sops/",
     "method": "GET",
-    "description": "Download one named SOP: fetch the SOP record by its SEEK id (sops/{id}/), which carries the file attached to it. It is not a search or a list: the whole-list call returns ids and titles only and cannot filter, page or count.",
+    "description": "Download one named SOP: fetch the SOP record by its SEEK id or its exact title (sops/{id}/), which carries the file attached to it. It is not a search or a list: the whole-list call returns ids and titles only and cannot filter, page or count.",
     "category": "sop_list",
     "requires_uids": false,
     "supports_free_text": false,
@@ -63,7 +63,7 @@
       "SOP file",
       "protocol document"
     ],
-    "llm_hint": "Use ONLY when the user names one SOP by its id and wants its file (\"Download SOP 142\"). Every other SOP or protocol question is graph_query: listing SOPs, searching them by word, lab or project data, counting them, which samples used a protocol (the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes). SOPs registered to a project are reporter.",
+    "llm_hint": "Use ONLY when the user names one SOP by its id, or by its exact title in quotes, and wants its file (\"Download SOP 142\"). Every other SOP or protocol question is graph_query: listing SOPs, searching them by word, lab or project data, counting them, which samples used a protocol (the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes). SOPs registered to a project are reporter.",
     "example_intents": [
       "Download SOP 142",
       "Get the file attached to SOP 9001"
