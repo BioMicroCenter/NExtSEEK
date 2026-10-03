@@ -1,0 +1,23 @@
+{
+  "question_id": "route",
+  "prompt": "Which engine should answer the current message?",
+  "options": [
+    {
+      "key": "nextseek_query",
+      "text": "The NExtSEEK Chat Assistant lets you query the NExtSEEK biological sample repository using plain English."
+    },
+    {
+      "key": "container_cc",
+      "text": "Container Claude Code: full agentic environment with file I/O, code execution, and arbitrary plugins / skills (including the nextseek-batch-upload skill)."
+    },
+    {
+      "key": "unrelated",
+      "text": "If the query has no connection to NExtSEEK, the BioMicro Center lab, or the user's research data — for example general world trivia, celebrity or pop-culture gossip, current events, or chit-chat unrelated to the lab's samples, studies, code, or files — select `unrelated`. A question is NOT `unrelated` merely because its subject sounds like general biology or ordinary laboratory vocabulary."
+    }
+  ],
+  "source_hashes": {
+    "NessieAI/dmac_assistant/build_context/route_capabilities.json": "573f590ed90c0ff6f1cd9361792ca4acadca1c75f31d1af258babcbb51d48e5a",
+    "NessieAI/dmac_assistant/baml_src/router.baml": "29ae094d00cd2ac777244d300ada5183c96a4f07a4db3fce98177c771f3210d5"
+  },
+  "options_hash": "261dac7df06d4d635f249a2c0aa5e8eebc8fe4f0b51a7c09744f5d4c1abfec04"
+}
