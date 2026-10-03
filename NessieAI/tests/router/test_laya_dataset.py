@@ -115,6 +115,16 @@ def test_manifest_hash_removed_and_calib_split_by_chat():
     assert r["calibrated q"]["slice"] == "calib" and r["train q"]["slice"] == "train"
 
 
+def test_a_training_view_drops_every_heldout_row_but_never_a_synthetic_one():
+    """Rows added after the freeze (shadow rows, new runs) from a held-out entity or family never train."""
+    turns = [T(1, "s1", "a superfund srp question", "nextseek_query"), T(2, "s2", "plain kept question", "nextseek_query")]
+    extra = [{"query": "srp synthetic counter-case", "route": "unrelated"}]
+    view = rows_by_q(build(turns, manifest={"a frozen hash"}, extra=extra))
+    assert set(view) == {"plain kept question", "srp synthetic counter-case"}
+    pool = rows_by_q(build(turns, extra=extra))  # the /dev/null pool keeps them: draft_heldout drafts from it
+    assert "a superfund srp question" in pool
+
+
 def test_history_goes_through_build_history_and_condense_and_is_per_session():
     turns = [T(1, "s1", "first", "nextseek_query"), T(2, "s1", "second", "container_cc"),
              T(3, "s1", "third", "nextseek_query", status="error"), T(4, "s2", "other chat", "nextseek_query")]

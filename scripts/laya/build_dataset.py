@@ -7,7 +7,8 @@ Inputs (all read-only, none checked in):
   --corpus PATH     corpus.json at origin/dev: case-level route assertions are the truth.
   --caps PATH       route_capabilities.json: its example queries are the prompt-seen slice.
   --manifest PATH   held-out manifest (freeze_heldout.py's jsonl, one row with "hash" per line): its hashes are
-                    removed. /dev/null gives the full pool that draft_heldout.py drafts from.
+                    removed, and so is every other row of a held-out family or entity (synthetic rows stay).
+                    /dev/null gives the full pool that draft_heldout.py drafts from.
   --extra PATH      jsonl of {query, route, history?} written by the training agent (unrelated and counter-cases).
   --evidence PATH   optional route_example_evidence.json: single-engine paired evidence, truth only where no
                     assertion exists.
@@ -142,6 +143,8 @@ def build_rows(turns: list[dict], corpus: dict, caps: dict, manifest: set[str], 
         tr = truth.get(h)
         fam = (tr or {}).get("family") or fam_of.get(h) or seen.get(h) or ("synthetic" if c.get("synthetic") else "unlabelled")
         ent = entity_of(c["query"])
+        if manifest and not c.get("synthetic") and split.heldout_bucket(fam, ent):
+            continue  # a training view: a held-out family or entity never trains, rows added after the freeze too
         truth_route = tr["route"] if tr else ev.get(h)
         either = bool(tr and tr["either"])
         votes = c["votes"]
