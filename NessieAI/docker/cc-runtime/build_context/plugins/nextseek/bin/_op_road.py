@@ -188,8 +188,8 @@ def fetch_artifacts(download: dict, client) -> dict[str, str]:
         if not isinstance(key, str) or not _KEY_RE.fullmatch(key):
             raise OpCallError("STAGING_ERROR", "The op's download list named an unusable artifact key.")
         try:
-            staged[key] = str(client.download_artifact_to(session_id, bundle_id, key, dest_dir,
-                                                          timeout_s=ARTIFACT_TIMEOUT_S))
+            timeout_s = min(ARTIFACT_TIMEOUT_S, wait_s(_wallclock(), fallback_s=ARTIFACT_TIMEOUT_S))
+            staged[key] = str(client.download_artifact_to(session_id, bundle_id, key, dest_dir, timeout_s=timeout_s))
         except httpx.HTTPStatusError as exc:
             raise OpCallError("STAGING_ERROR", f"The file {key} could not be downloaded "
                                                f"(HTTP {exc.response.status_code}).") from exc

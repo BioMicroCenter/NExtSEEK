@@ -233,6 +233,19 @@ def test_a_reports_files_land_in_scratch_and_the_result_names_them(env, monkeypa
     assert [path.name for path in (env / "nextseek-artifacts").iterdir()] == ["summary.xlsx"]  # no .part left
 
 
+@pytest.mark.parametrize("left, expected", [(None, 30.0), (60.0, 15.0)])
+def test_a_download_waits_no_longer_than_the_turn_leaves(env, monkeypatch, left, expected):
+    if left is not None:
+        monkeypatch.setenv(TURN_DEADLINE_ENV, str(int(NOW + left)))
+    download = {"session_id": CHAT, "bundle_id": 3, "artifacts": [{"key": "summary_xlsx", "url": "unused"}]}
+    server = _serve(monkeypatch, _NExtSEEK({
+        f"{PREFIX}/report/": _ok("report", {"saved_files": {}}, download),
+        f"{PREFIX}/sessions/{CHAT}/bundles/3/artifacts/summary_xlsx/": _artifact(b"xlsx-bytes"),
+    }))
+    runner._dispatch_report(SimpleNamespace(mode="samples", project="p"))
+    assert server.requests[1].extensions["timeout"]["read"] == expected
+
+
 def test_a_submissions_files_are_named_under_staged_files(env, monkeypatch):
     download = {"session_id": CHAT, "bundle_id": 4, "artifacts": [
         {"key": "geo_seq_workbooks", "url": "unused"}, {"key": "all_tables", "url": "unused"}]}
