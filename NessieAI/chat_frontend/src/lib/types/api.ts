@@ -15,6 +15,7 @@ export interface ProgressEvent {
     | QueryCompleteData
     | QueryErrorData
     | RouteDecidedData
+    | PreludeStepData
     | CcTurnMetaData
     | Record<string, unknown>;
 }
@@ -25,6 +26,15 @@ export interface RouteDecidedData {
   model_class?: string;
   source?: string;
   reasoning?: string;
+  router_elapsed_s?: number;
+  vocabulary_elapsed_s?: number | null;
+}
+
+/** A routing step reported before the engine runs (Reading your question, Choosing an engine, Vocabulary ready). */
+export interface PreludeStepData {
+  label: string;
+  /** Seconds the vocabulary took, on "Vocabulary ready". */
+  elapsed_s?: number | null;
 }
 
 /** Container-CC turn parameters, emitted just before the CC turn starts. */

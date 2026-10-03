@@ -4,6 +4,7 @@ import type {
   SearchStartedData,
   SearchCompleteData,
   RouteDecidedData,
+  PreludeStepData,
   SelectionStartedData,
   SelectionEvidenceData,
   SelectionDoneData,
@@ -78,7 +79,32 @@ function ccStepLabel(source: string): string {
   return source === "thinking" ? "Thinking" : source;
 }
 
+// The routing steps a turn reports before its engine runs (the backend's prelude_step labels). They sit above the
+// NS steps and above the Container-CC trace.
+const PRELUDE_AGENT = "prelude";
+const PRELUDE_READING = "Reading your question";
+const PRELUDE_CHOOSING = "Choosing an engine";
+const PRELUDE_READY = "Vocabulary ready";
+
+function reindex(steps: Step[]): Step[] {
+  return steps.map((s, i) => (s.index === i ? s : { ...s, index: i }));
+}
+
+function preludeSteps(steps: Step[]): Step[] {
+  return steps.filter((s) => s.agentName === PRELUDE_AGENT);
+}
+
+/** Complete the routing steps still spinning: those named in `labels`, or all of them. */
+function completePrelude(steps: Step[], labels?: string[]): Step[] {
+  return steps.map((s) =>
+    s.agentName === PRELUDE_AGENT && s.status === "active" && (!labels || labels.includes(s.label))
+      ? { ...s, status: "complete" as const }
+      : s,
+  );
+}
+
 interface UseProcessingStateReturn {
+  handlePreludeStep: (data: PreludeStepData) => void;
   processingState: ProcessingState;
   handleRouteDecided: (data: RouteDecidedData) => void;
   handleAgentStarted: (agent: string, mode: string) => void;
@@ -211,24 +237,56 @@ export function useProcessingState(): UseProcessingStateReturn {
     mode: null,
   });
 
-  // Router decision — starts the CC trace with a "Router → container_cc" step
-  // carrying the reasoning. For NS/unrelated the stepper is unchanged (the NS
-  // pipeline speaks for itself; the reasoning is in the Debug panel).
+  // A routing step: inserted after the routing steps already shown, so one that arrives once the engine's own steps
+  // exist still sits above them. "Vocabulary ready" also completes "Reading your question".
+  const handlePreludeStep = useCallback((data: PreludeStepData) => {
+    const label = typeof data.label === "string" ? data.label.trim() : "";
+    if (!label) return;
+    setState((prev) => {
+      if (prev.steps.some((s) => s.agentName === PRELUDE_AGENT && s.label === label)) return prev;
+      const steps = label === PRELUDE_READY ? completePrelude(prev.steps, [PRELUDE_READING]) : prev.steps;
+      let at = 0;
+      steps.forEach((s, i) => {
+        if (s.agentName === PRELUDE_AGENT) at = i + 1;
+      });
+      const step: Step = {
+        index: at,
+        label,
+        agentName: PRELUDE_AGENT,
+        status: label === PRELUDE_READY ? "complete" : "active",
+      };
+      const onlyPrelude = steps.every((s) => s.agentName === PRELUDE_AGENT);
+      return {
+        ...prev,
+        isProcessing: true,
+        steps: reindex([...steps.slice(0, at), step, ...steps.slice(at)]),
+        currentStepIndex: onlyPrelude ? at : prev.currentStepIndex >= at ? prev.currentStepIndex + 1 : prev.currentStepIndex,
+      };
+    });
+  }, []);
+
+  // Router decision. Either way the engine is chosen, so "Choosing an engine" completes. A Container-CC route starts
+  // the trace below the routing steps with a "Router → container_cc" step carrying the reasoning; for NS/unrelated
+  // the NS steps follow on their own (the reasoning is in the Debug panel).
   const handleRouteDecided = useCallback((data: RouteDecidedData) => {
-    if (String(data.route) !== CC_MODE) return;
+    if (String(data.route) !== CC_MODE) {
+      setState((prev) => ({ ...prev, steps: completePrelude(prev.steps, [PRELUDE_CHOOSING]) }));
+      return;
+    }
     const reasoning = typeof data.reasoning === "string" ? data.reasoning.trim() : "";
-    setState(() => ({
-      isProcessing: true,
-      steps: [{
-        index: 0,
-        label: "Router → container_cc",
-        agentName: "router",
-        status: "complete" as const,
-        detail: reasoning || undefined,
-      }],
-      currentStepIndex: 0,
-      mode: CC_MODE,
-    }));
+    setState((prev) => {
+      const steps = reindex([
+        ...completePrelude(preludeSteps(prev.steps), [PRELUDE_CHOOSING]),
+        {
+          index: 0,
+          label: "Router → container_cc",
+          agentName: "router",
+          status: "complete" as const,
+          detail: reasoning || undefined,
+        },
+      ]);
+      return { isProcessing: true, steps, currentStepIndex: steps.length - 1, mode: CC_MODE };
+    });
   }, []);
 
   const handleAgentStarted = useCallback((agent: string, mode: string) => {
@@ -242,15 +300,15 @@ export function useProcessingState(): UseProcessingStateReturn {
       let steps = prev.steps;
       let expandedMode = prev.mode;
 
-      // First agent_started: initialize with default steps
-      if (steps.length === 0) {
-        steps = buildSteps(DEFAULT_STEPS);
+      // First agent_started: the default steps, below any routing steps.
+      if (steps.every((s) => s.agentName === PRELUDE_AGENT)) {
+        steps = reindex([...steps, ...buildSteps(DEFAULT_STEPS)]);
       }
 
       // When we receive a non-empty mode and haven't expanded yet, expand to full config
       if (mode && !expandedMode && STEP_CONFIGS[mode]) {
         const fullConfig = STEP_CONFIGS[mode];
-        steps = buildSteps(fullConfig);
+        steps = reindex([...preludeSteps(steps), ...buildSteps(fullConfig)]);
         expandedMode = mode;
         // Mark entity and parser as complete (they've already run)
         steps = steps.map((s) =>
@@ -286,13 +344,15 @@ export function useProcessingState(): UseProcessingStateReturn {
         );
         return { ...prev, steps };
       }
-      // Mark the agent's step complete AND clear its `detail` — the side-effect
-      // it was reporting has finished alongside the agent itself.
-      const steps = prev.steps.map((s) =>
-        s.agentName === agent
-          ? { ...s, status: "complete" as const, detail: undefined }
-          : s,
-      );
+      // Mark the agent's step complete AND clear its `detail`. The entity step's end is also the vocabulary's: a
+      // routing step still spinning (the pre-run failed and the turn resolved it itself) is done too.
+      const steps = prev.steps.map((s) => {
+        if (s.agentName === agent) return { ...s, status: "complete" as const, detail: undefined };
+        if (agent === "entity" && s.agentName === PRELUDE_AGENT && s.status === "active") {
+          return { ...s, status: "complete" as const };
+        }
+        return s;
+      });
       return { ...prev, steps };
     });
   }, []);
@@ -426,6 +486,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 
   return {
     processingState: state,
+    handlePreludeStep,
     handleRouteDecided,
     handleAgentStarted,
     handleAgentComplete,
