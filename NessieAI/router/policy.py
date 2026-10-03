@@ -18,7 +18,9 @@ this module adds no ORM edge of its own (the ledger write goes through
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
+import re
 
 from chat_nextseek.pipeline import agent as pipeline_agent
 
@@ -103,6 +105,36 @@ def _record_ledger_row(chat_session: ChatSession, decision: cc_router.RouteDecis
         )
 
 
+# How-to rule (round 4, ruling 6): the user docs answer "how do I ..." questions, so a how-to opener the
+# router sent to Container-CC moves to NExtSEEK unless the message supplies content to work on or asks for
+# the work. Recoverable: the user asks for the work in the next turn.
+_HOWTO_OPENER = re.compile(
+    r"^\s*(?:how\s+(?:do|can|should)\s+(?:i|we)\b|how\s+to\b|where\s+(?:do|can)\s+(?:i|we)\b|"
+    r"what(?:'|\u2019)?s\s+the\s+(?:best\s+)?way\s+to\b|is\s+there\s+a\s+way\s+to\b)",
+    re.IGNORECASE,
+)
+_SUPPLIED_CONTENT = re.compile(
+    r"\t|```|(?:^|\s)(?:/|~/|[A-Za-z]:\\)[\w.\-]+[/\\]|"
+    r"\b[\w\-]+\.(?:xlsx?|csv|tsv|txt|json|docx?|pdf|py|zip|gz|fastq|fq|bam|h5|ya?ml)\b",
+    re.IGNORECASE,
+)
+_WORK_REQUEST = re.compile(
+    r"\b(?:(?:could|can|would|will)\s+you|please)\b.*\b(?:make|build|write|validate|check|run|export|create|"
+    r"generate|fix)\b|\bdo\s+it\s+for\s+me\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_site_howto(query: str | None) -> bool:
+    """True for a how-to question that supplies nothing to work on and asks for no work."""
+    q = query or ""
+    if not _HOWTO_OPENER.search(q):
+        return False
+    if _SUPPLIED_CONTENT.search(q) or len([ln for ln in q.splitlines() if ln.strip()]) > 2:
+        return False
+    return not _WORK_REQUEST.search(q)
+
+
 def _decide_route(user, req, *, force_cc: bool, session=None,
                   history: list[router_context.HistoryTurn] | None = None,
                   chat_log: list[dict] | None = None) -> cc_router.RouteDecision:
@@ -147,6 +179,12 @@ def _decide_route(user, req, *, force_cc: bool, session=None,
             model_id=None, reasoning="forced", source="forced",
         )
     decision = cc_router.decide(req.query, history=history)
+    if decision.route == cc_router.ROUTE_CC and _is_site_howto(req.query):
+        decision = dataclasses.replace(
+            decision, route=cc_router.ROUTE_NS, model_class=None, model_id=None,
+            reasoning=f"howto; router said container_cc ({decision.reasoning})",
+            source="howto",
+        )
     if (
         session is not None
         and pipeline_agent.is_active(session)

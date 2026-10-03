@@ -169,7 +169,7 @@ def followup_mode() -> str:
 _CC_SHAPE = re.compile(
     r"\b(?:download\w*|export\w*|save|saved|files?|csv|excel|xlsx|spreadsheets?|workbooks?|"
     r"plot\w*|charts?|figures?|visuali[sz]\w*|code|scripts?|python|"
-    r"compare|comparing|comparison|summari[sz]\w*|summary|report|analy[sz]\w*|send|write)\b",
+    r"compare|comparing|comparison|summari[sz]\w*|summary|report|analy[sz]e\b|analy[sz]ing\b|analysis\s+of\b|(?:run|do|perform)\s+(?:an?\s+)?(?:\w+\s+)?analysis\b|send|write)\b",
     re.IGNORECASE,
 )
 

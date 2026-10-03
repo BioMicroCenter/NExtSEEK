@@ -384,7 +384,7 @@ def _eval_config(chat_config, user, req):
 
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
-               resolved_session_id: str, graph_scope=None) -> None:
+               resolved_session_id: str, graph_scope=None, caller=None) -> None:
     """Run one routed chat turn on a daemon thread; return at once.
 
     The body of ``CCAssistantViewSet._start_task``, which keeps every HTTP
@@ -415,6 +415,11 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     if prod_config is not None and chat_config is prod_config:
         if chat_config.API_USER and chat_config.API_PASS:
             api_user, api_pass = chat_config.API_USER, chat_config.API_PASS
+    if caller:
+        # The system agent's CALLER block (round 4): this user's own session, on a per-request copy so the
+        # shared config never carries one user's details. Resolved by the ViewSet, as graph_scope is.
+        chat_config = copy.copy(chat_config)
+        chat_config.CALLER = caller
 
     mode = getattr(req, "mode", "standard")
     # Capture identity for the CC route (scoped Dropbox mounts + output).

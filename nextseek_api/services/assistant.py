@@ -125,7 +125,7 @@ from nextseek_api.authentication import (  # noqa: F401
 )
 
 from nextseek_api.helpers import resolve_seek_auth, SeekAPIClient
-from nextseek_api.graph_search.scope import plain_scope
+from nextseek_api.graph_search.scope import caller_block, plain_scope
 
 # No module-scope chat_nextseek import: the orchestrator entry points are called from
 # NessieAI/ns/turn.py, so patch them there. Importing them here again would let a
@@ -231,6 +231,13 @@ def _op_error_response(code: str, detail: str, http_status: int) -> Response:
         {"code": code, "errors": [{"title": code, "detail": detail}]},
         status=http_status,
     )
+
+
+def _with_caller(chat_config, user):
+    """A per-request copy of ``chat_config`` carrying the CALLER block (``scope.caller_block``) for the system agent."""
+    cfg = copy.copy(chat_config)
+    cfg.CALLER = caller_block(user)
+    return cfg
 
 
 def _granular_chat_config(request, req) -> ChatConfig:
@@ -613,6 +620,9 @@ class AssistantViewSet(viewsets.ViewSet):
         # The caller's project scope for graph queries, resolved here in the request
         # thread and handed down as plain data (None refuses every graph query).
         graph_scope = plain_scope(request.user)
+        # The system agent's CALLER block (round 4): this user's own session, on a per-request copy
+        # so the shared config never carries one user's details.
+        chat_config = _with_caller(chat_config, request.user)
 
         # The pipeline body runs in NessieAI/ns/turn.py (run_sse_pipeline); the
         # thread and the SSE stream stay here.
@@ -737,6 +747,9 @@ class AssistantViewSet(viewsets.ViewSet):
         # The caller's project scope for graph queries, resolved here in the request
         # thread and handed down as plain data (None refuses every graph query).
         graph_scope = plain_scope(request.user)
+        # The system agent's CALLER block (round 4): this user's own session, on a per-request copy
+        # so the shared config never carries one user's details.
+        chat_config = _with_caller(chat_config, request.user)
 
         # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
         # the thread start stays here.
