@@ -53,15 +53,22 @@ def test_truncation_flag(monkeypatch):
     assert len(result["tree"]) == g._RUN_LS_CAP
 
 
-def test_unconfigured_luria_rejected(monkeypatch):
-    monkeypatch.setattr(ssh, "prepare_key", lambda k: "/tmp/key")
-    monkeypatch.setattr(ssh, "ssh_run", lambda *a, **k: "")
+def test_unconfigured_luria_is_an_internal_failure_not_a_validation(monkeypatch):
+    # F-LURIA (operator ruling 2026-10-02): a box without LURIA_ENV is NExtSEEK's fault, AGENT_FAILED internal.
+    from nextseek_api.assistant.op_errors import failure_reason
+
+    calls = []
+    monkeypatch.setattr(ssh, "prepare_key", lambda k: calls.append("key") or "/tmp/key")
+    monkeypatch.setattr(ssh, "ssh_run", lambda *a, **k: calls.append("ssh") or "")
 
     class _NoLuria:
         LURIA_ENV = {"working_path": "", "key": ""}
 
-    with pytest.raises(g.OpValidationError):
+    with pytest.raises(Exception) as exc:
         g._run_ls({"run_dir": "/whatever"}, _NoLuria(), None, None, None, None)
+    assert not isinstance(exc.value, g.OpValidationError)
+    assert failure_reason(exc.value) == "internal"
+    assert calls == []
 
 
 RUN = "/net/bmc-pub10/data1/bmc/pipeline_cd/runs/r1"

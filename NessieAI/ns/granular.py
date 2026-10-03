@@ -459,7 +459,8 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit
     luria_env = getattr(config, "LURIA_ENV", None) or {}
     working_path = str(luria_env.get("working_path") or "").rstrip("/")
     if not working_path or not luria_env.get("key"):
-        raise OpValidationError("Luria is not configured (LURIA_ENV incomplete)", field="run_dir", error_type="luria_not_configured")
+        # NExtSEEK's own configuration, not the caller's argument: AGENT_FAILED internal (operator ruling 2026-10-02).
+        raise RuntimeError("Luria is not configured (LURIA_ENV incomplete)")
     runs_root = working_path + "/runs"
     run_dir = os.path.normpath(str(args["run_dir"]))
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):

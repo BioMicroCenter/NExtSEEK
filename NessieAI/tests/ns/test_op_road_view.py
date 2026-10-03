@@ -141,6 +141,14 @@ class PassTests(TestCase):
         self.assertEqual((resp.status_code, resp.json()["code"]), (429, "BUSY"))
         self.assertFalse(os.path.isdir(self.outputs))
 
+    def test_run_ls_on_a_box_without_luria_is_agent_failed_internal(self):
+        # F-LURIA: the common patch's chat config carries no LURIA_ENV.
+        resp = self._post("run-ls", {"run_dir": "/runs/r"})
+        self.assertEqual(resp.status_code, 502)
+        body = resp.json()
+        self.assertEqual((body["code"], body["reason"], body["message"]),
+                         ("AGENT_FAILED", "internal", "The op failed inside NExtSEEK."))
+
     def test_a_refused_artifact_op_leaves_no_folder(self):
         handler = MagicMock(side_effect=granular.OpValidationError("x", field="mode", error_type="invalid"))
         with patch.dict(granular._HANDLERS, {"report": handler}):
