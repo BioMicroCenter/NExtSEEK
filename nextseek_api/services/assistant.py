@@ -21,6 +21,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from typing import TYPE_CHECKING, Any
 
 import orjson
@@ -92,6 +93,8 @@ from nextseek_api.assistant.models_api import (
     SubmissionResponse,
 )
 from NessieAI.ns.granular import OpBusyError, OpValidationError, run_op
+from NessieAI.ns.op_limits import MIN_USABLE_S, SIDECAR_ROAD_CAP_S, op_limit_s
+from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.assistant.op_errors import HTTP_STATUS, failure_reason, op_error, validation_fields
 from nextseek_api.permissions import is_turn_pass, may_read_any
@@ -302,6 +305,27 @@ _ARTIFACT_CONTENT_TYPES = {
     ".png": "image/png",
     ".xml": "application/xml",
 }
+
+
+#: The ops that answer on a throwaway parser session. Under a turn pass they take no session id: the chat's history
+#: would reach the parser and change answers.
+_THROWAWAY_SESSION_OPS = frozenset({"entity", "parse", "graph", "aggregate"})
+#: The ops whose outputs are files, registered as a bundle in the asking chat and downloaded by the tool.
+_ARTIFACT_OPS = frozenset({"report", "generate-submission", "build-upload-xlsx"})
+
+
+def _refuse_for_pass(op: str, req, turn) -> Response | None:
+    """A turn-pass request's body rules, checked here as well as in plan 02's allow table: a throwaway-session op
+    names no session, and an artifact op names only the turn's own chat. None when the request may go on."""
+    if turn is None:
+        return None
+    session_id = getattr(req, "session_id", None)
+    if op in _THROWAWAY_SESSION_OPS and session_id is not None:
+        return op_error("VALIDATION", fields=[{"field": "session_id", "type": "not_accepted_with_turn_pass"}],
+                        status=HTTP_STATUS["VALIDATION"])
+    if op in _ARTIFACT_OPS and session_id is not None and str(session_id) != str(turn.chat_id):
+        return op_error("PASS_NOT_ALLOWED", status=HTTP_STATUS["PASS_NOT_ALLOWED"])
+    return None
 
 
 def _artifact_content_type(path) -> str:
@@ -1202,17 +1226,34 @@ class AssistantViewSet(viewsets.ViewSet):
         except ValidationError as e:
             return op_error("VALIDATION", fields=validation_fields(e), status=HTTP_STATUS["VALIDATION"])
 
+        # Under a turn pass (plan 02) request.auth is the turn's CCTurn row.
+        turn = request.auth if is_turn_pass(request) else None
+        refused = _refuse_for_pass(op, req, turn)
+        if refused is not None:
+            return refused
+
+        # The op's limit (approach 1, piece 2): the table's value, capped by the turn's deadline once piece 4 passes
+        # it, and on the sidecar road by the sidecar's wait. With too little of it usable the op is refused before
+        # any model is called.
+        limit_s = op_limit_s(op, None, time.time())
+        if ops_road() == SIDECAR:
+            limit_s = min(limit_s, SIDECAR_ROAD_CAP_S)
+        if limit_s < MIN_USABLE_S:
+            return op_error("TIME_UP", status=HTTP_STATUS["TIME_UP"])
+
+        if turn is not None and not all(_request_login(request)):
+            # The login held for the turn is gone: never run the op as the service login (plan 02's own guard).
+            return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
         # parse, graph and aggregate all run parser_agent, which reads results_history
-        # off the session — build a (transient) session for them, else parser_agent
+        # off the session: build a (transient) session for them, else parser_agent
         # crashes on None. Other ops don't touch the session.
         session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
         gate = build_gate(load_allowlist())
         args = _granular_args(op, req)
-        # report + generate-submission both persist real artifacts to disk (the
-        # reporter summary / the submission-emitter workbooks), so both need a
-        # writable run-root under an allowed artifact root.
-        outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission", "build-upload-xlsx") else None
+        # The artifact ops persist real files, so they need a writable run-root under an
+        # allowed artifact root.
+        outputs_dir = _granular_outputs_dir() if op in _ARTIFACT_OPS else None
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).
         from chat_nextseek.llm_clients import LLMFatalError
@@ -1220,7 +1261,7 @@ class AssistantViewSet(viewsets.ViewSet):
         try:
             result = run_op(
                 op, args, config=chat_config, session=session,
-                write_gate=gate, outputs_dir=outputs_dir,
+                write_gate=gate, outputs_dir=outputs_dir, limit_s=limit_s, turn=turn,
             )
         except OpBusyError:
             return op_error("BUSY", status=HTTP_STATUS["BUSY"])
@@ -1238,9 +1279,9 @@ class AssistantViewSet(viewsets.ViewSet):
             return op_error("AGENT_FAILED", reason=failure_reason(e), status=HTTP_STATUS["AGENT_FAILED"])
 
         resp_body = {"op": op, "result": result}
-        # report/generate-submission produce artifacts; register a bundle so they
-        # are fetchable over HTTP via download_artifact, and hand back the URLs.
-        if op in ("report", "generate-submission", "build-upload-xlsx"):
+        # The artifact ops register a bundle so their files are fetchable over HTTP via
+        # download_artifact, and hand back the URLs.
+        if op in _ARTIFACT_OPS:
             resp_body["download"] = self._register_artifact_bundle(request, req, op, result)
         return Response(resp_body, status=status.HTTP_200_OK)
 
