@@ -478,9 +478,12 @@ PREFLIGHT_CHECK_IDS: set[str] = set()
 # =====================================================================================
 # 2. Preflight: the rendered read-only script, and the table it is read against
 # =====================================================================================
-# JevLevROUTING: on every instance (dev is where the posterior flag stuck). Values are stripped of quotes.
-LAYA_KV = ('s=$(grep -E "^NESSIE_LAYA_SHADOW=" docker/nextseek.env | cut -d= -f2 | tr -d \'"\'); '
-           'l=$(grep -E "^NESSIE_LAYA_LIVE=" docker/nextseek.env | cut -d= -f2 | tr -d \'"\'); '
+# JevLevROUTING: on every instance (dev is where the posterior flag stuck). Values lose an inline comment, outer
+# spaces and quotes, as compose's env_file parser does, so the row judges the value the app runs with.
+_KV_VALUE = (' | cut -d= -f2 | sed -E \'s/[[:space:]]+#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//\''
+             ' | tr -d \'"\'')
+LAYA_KV = ('s=$(grep -E "^NESSIE_LAYA_SHADOW=" docker/nextseek.env' + _KV_VALUE + '); '
+           'l=$(grep -E "^NESSIE_LAYA_LIVE=" docker/nextseek.env' + _KV_VALUE + '); '
            'echo "KV laya_mode=shadow=${s:-unset} live=${l}"')
 PREFLIGHT_EXTRA = {
     "dev": LAYA_KV + '\n' + 'if [ -f /tmp/labs_db.json ]; then echo "KV labs_source=present"; else echo "KV labs_source=missing"; fi',
@@ -642,10 +645,10 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
     laya = kv.get("laya_mode", "unknown")
     m = re.match(r"^shadow=(\S*) live=(\S*)$", laya)
     shadow, live = (m.group(1), m.group(2)) if m else ("unset", "")  # absent reads as off
-    laya_ok = (shadow in ("0", "1", "unset") and live == "") or (
-        live != "" and live == brief.laya_live_revision)
+    laya_ok = (m is not None or laya == "unknown") and (
+        (shadow in ("0", "1", "unset") and live == "") or (live != "" and live == brief.laya_live_revision))
     row("laya_mode", laya, laya_ok, "laya shadow is 0, 1 or absent and live is empty; a live value passes only "
-        "when the brief's laya_live_revision names that revision")
+        "when the brief's laya_live_revision names that revision; a value the rule cannot read stops")
     if inst.name == "prod":
         row("seed_touched", "; ".join(p["seed_touched"]) or "none", not p["seed_touched"],
             "the range does not touch the dirty production dumps")

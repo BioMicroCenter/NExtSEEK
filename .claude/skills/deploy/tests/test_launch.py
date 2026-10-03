@@ -872,3 +872,20 @@ def test_laya_live_passes_when_the_brief_names_the_revision(tmp_path, capsys):
     code, out, d = preflight(tmp_path / "other", capsys, good_preflight(laya_mode=mode),
                              laya_live_revision="20261004-000000000000")
     assert code == 5 and "- laya_mode:" in out.err
+
+
+@pytest.mark.parametrize("live_line", ['NESSIE_LAYA_LIVE="20261003-abcdef012345" # go',
+                                       "NESSIE_LAYA_LIVE= 20261003-abcdef012345 "])
+def test_the_laya_kv_drops_an_inline_comment_and_spaces_as_compose_does(tmp_path, capsys, live_line):
+    box = tmp_path / "box"
+    (box / "docker").mkdir(parents=True)
+    (box / "docker" / "nextseek.env").write_text('NESSIE_LAYA_SHADOW="1"\n' + live_line + "\n")
+    kv = subprocess.run(["bash", "-c", L.LAYA_KV], cwd=box, capture_output=True, text=True).stdout.strip()
+    assert kv == "KV laya_mode=shadow=1 live=20261003-abcdef012345"
+    code, out, d = preflight(tmp_path / "brief", capsys, good_preflight(laya_mode=kv[len("KV laya_mode="):]))
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+def test_a_laya_mode_value_the_rule_cannot_read_is_a_stop(tmp_path, capsys):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode="shadow=1 live=x # go"))
+    assert code == 5 and "- laya_mode:" in out.err
