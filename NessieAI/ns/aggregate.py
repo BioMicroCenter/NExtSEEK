@@ -88,20 +88,20 @@ def parse_parts(raw: Any, question: str) -> list[str]:
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return [question]
     if not isinstance(raw, str):
-        raise OpValidationError("parts must be a JSON array of strings, sent as text")
+        raise OpValidationError("parts must be a JSON array of strings, sent as text", field="parts", error_type="must_be_json_text")
     try:
         parts = json.loads(raw)
     except ValueError as exc:
-        raise OpValidationError(f"parts is not valid JSON: {exc}") from exc
+        raise OpValidationError(f"parts is not valid JSON: {exc}", field="parts", error_type="invalid_json") from exc
     if not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
-        raise OpValidationError("parts must be a JSON array of strings")
+        raise OpValidationError("parts must be a JSON array of strings", field="parts", error_type="must_be_a_json_array_of_strings")
     parts = [part.strip() for part in parts]
     if not 1 <= len(parts) <= MAX_PARTS:
-        raise OpValidationError(f"parts must hold 1 to {MAX_PARTS} sub-questions, not {len(parts)}")
+        raise OpValidationError(f"parts must hold 1 to {MAX_PARTS} sub-questions, not {len(parts)}", field="parts", error_type="must_hold_1_to_4_parts")
     if not all(parts):
-        raise OpValidationError("every part must be a non-empty sub-question")
+        raise OpValidationError("every part must be a non-empty sub-question", field="parts", error_type="empty_part")
     if any(len(part) > MAX_PART_CHARS for part in parts):
-        raise OpValidationError(f"a part may be at most {MAX_PART_CHARS} characters")
+        raise OpValidationError(f"a part may be at most {MAX_PART_CHARS} characters", field="parts", error_type="part_over_2000_characters")
     return parts
 
 
@@ -359,7 +359,7 @@ def run_aggregate(args: dict, *, config: Any, session: Any, write_gate: Callable
     """``{question, complete, elapsed_s, deadline_s, parts, notes}``; see the module docstring."""
     question = str(args.get("query") or "").strip()
     if not question:
-        raise OpValidationError("query is required")
+        raise OpValidationError("query is required", field="query", error_type="missing")
     parts = parse_parts(args.get("parts"), question)
     multi = len(parts) > 1
     exec_fn = neo4j_exec

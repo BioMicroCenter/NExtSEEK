@@ -618,12 +618,14 @@ class SubmissionResponse(BaseModel):
 
 
 class OpErrorResponse(BaseModel):
-    """Error envelope for a granular op.
+    """Error envelope for a granular op (approach 1, piece 2; nextseek_api/assistant/op_errors.py).
 
-    Carries the NExtSEEK ``errors`` list AND the canonical dmac error ``code``
-    (CONFIG_MISSING / VALIDATION / AGENT_FAILED / WRITE_BLOCKED / CONFIG_ERROR /
-    AUTH_FAILED) so the dmac thin client can map it to its CLI exit taxonomy.
+    ``code`` is closed; ``reason`` only with AGENT_FAILED; ``message`` a fixed sentence per code and reason, never an
+    exception's text; ``errors`` for VALIDATION lists each refused field and its error type (never the value), and for
+    any other code one ``{title, detail}`` item that repeats the message (kept for the sidecar, one release).
     """
-    code: str
+    code: Literal["VALIDATION", "WRITE_BLOCKED", "AUTH_FAILED", "PASS_NOT_ALLOWED", "BUSY", "TIME_UP", "AGENT_FAILED"]
+    reason: Optional[Literal["model_unavailable", "deadline", "bad_output", "internal"]] = None
+    message: str
     errors: List[Dict[str, Any]]
     model_config = ConfigDict(extra="forbid")

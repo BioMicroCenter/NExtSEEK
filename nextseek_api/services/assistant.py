@@ -91,8 +91,9 @@ from nextseek_api.assistant.models_api import (
     SubmissionRequest,
     SubmissionResponse,
 )
-from NessieAI.ns.granular import OpValidationError, run_op
+from NessieAI.ns.granular import OpBusyError, OpValidationError, run_op
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
+from nextseek_api.assistant.op_errors import HTTP_STATUS, failure_reason, op_error, validation_fields
 from nextseek_api.permissions import is_turn_pass, may_read_any
 from nextseek_api.assistant.models_db import ChatSession, QueryTask
 from NessieAI.ns.bundle_download import bundle_metadata
@@ -248,15 +249,6 @@ _GRANULAR_REQUEST_MODELS = {
     "run-ls": RunLsRequest,
     "build-upload-xlsx": BuildUploadXlsxRequest,
 }
-
-
-def _op_error_response(code: str, detail: str, http_status: int) -> Response:
-    """Granular-op error envelope: the NExtSEEK ``errors`` list plus the canonical
-    dmac error ``code`` so the dmac thin client can map it to its CLI exit."""
-    return Response(
-        {"code": code, "errors": [{"title": code, "detail": detail}]},
-        status=http_status,
-    )
 
 
 def _granular_chat_config(request, req) -> ChatConfig:
@@ -1208,7 +1200,7 @@ class AssistantViewSet(viewsets.ViewSet):
         try:
             req = model.model_validate(request.data)
         except ValidationError as e:
-            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
+            return op_error("VALIDATION", fields=validation_fields(e), status=HTTP_STATUS["VALIDATION"])
 
         chat_config = _granular_chat_config(request, req)
         # parse, graph and aggregate all run parser_agent, which reads results_history
@@ -1223,7 +1215,6 @@ class AssistantViewSet(viewsets.ViewSet):
         outputs_dir = _granular_outputs_dir() if op in ("report", "generate-submission", "build-upload-xlsx") else None
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).
-        from chat_nextseek.failure_replies import MODEL_UNAVAILABLE_REASON
         from chat_nextseek.llm_clients import LLMFatalError
 
         try:
@@ -1231,22 +1222,20 @@ class AssistantViewSet(viewsets.ViewSet):
                 op, args, config=chat_config, session=session,
                 write_gate=gate, outputs_dir=outputs_dir,
             )
+        except OpBusyError:
+            return op_error("BUSY", status=HTTP_STATUS["BUSY"])
         except OpValidationError as e:
-            return _op_error_response("VALIDATION", str(e), status.HTTP_422_UNPROCESSABLE_ENTITY)
-        except WriteBlockedError as e:
-            return _op_error_response("WRITE_BLOCKED", str(e), status.HTTP_403_FORBIDDEN)
+            # The value the caller sent may be in the message: it goes to the log, never the reply.
+            logger.info("granular op %s refused its arguments: %s", op, e)
+            return op_error("VALIDATION", fields=[e.field_error()], status=HTTP_STATUS["VALIDATION"])
+        except WriteBlockedError:
+            return op_error("WRITE_BLOCKED", status=HTTP_STATUS["WRITE_BLOCKED"])
         except LLMFatalError as fatal:
-            # A model failure that ended the op, a double 503 say. The envelope and the
-            # sidecar contract stay as they are: when the models were unavailable the
-            # reason leads the error's detail, and the raw message follows it.
             logger.exception("granular op %s failed", op)
-            detail = str(fatal)
-            if getattr(fatal, "unavailable", False):
-                detail = f"{MODEL_UNAVAILABLE_REASON}: {detail}"
-            return _op_error_response("AGENT_FAILED", detail, status.HTTP_502_BAD_GATEWAY)
-        except Exception as e:  # noqa: BLE001 — any agent failure maps to AGENT_FAILED
+            return op_error("AGENT_FAILED", reason=failure_reason(fatal), status=HTTP_STATUS["AGENT_FAILED"])
+        except Exception as e:  # noqa: BLE001 - any agent failure maps to AGENT_FAILED
             logger.exception("granular op %s failed", op)
-            return _op_error_response("AGENT_FAILED", str(e), status.HTTP_502_BAD_GATEWAY)
+            return op_error("AGENT_FAILED", reason=failure_reason(e), status=HTTP_STATUS["AGENT_FAILED"])
 
         resp_body = {"op": op, "result": result}
         # report/generate-submission produce artifacts; register a bundle so they

@@ -23,17 +23,13 @@ from django.utils import timezone
 from rest_framework import exceptions
 from rest_framework.authentication import BaseAuthentication, get_authorization_header
 
-# Fixed sentences per code (spec piece 2): never exception text, never a value from the request. Plan 03's
-# nextseek_api/assistant/op_errors.py becomes the single home of these; until then they live here.
-_MESSAGES = {
-    "AUTH_FAILED": "The turn pass was not accepted.",
-    "PASS_NOT_ALLOWED": "This request is not allowed with a turn pass.",
-    "VALIDATION": "The request is not valid.",
-}
+from nextseek_api.assistant.op_errors import error_body
 
 
 def _envelope(code: str, errors: list[dict] | None = None) -> dict:
-    return {"code": code, "reason": None, "message": _MESSAGES[code], "errors": list(errors or [])}
+    """A refusal body from the one home of op errors (op_errors.py): the same code, message and ``errors`` shape the
+    op view sends, ``{field, type}`` items for VALIDATION and ``{title, detail}`` otherwise."""
+    return error_body(code, fields=errors)
 
 
 class TurnPassAuthFailed(exceptions.AuthenticationFailed):

@@ -17,10 +17,13 @@ All endpoints are **additive** to the existing `AssistantViewSet`; existing endp
   injected into a per-request `ChatConfig` copy and used for the outbound call,
   exactly as `query`/`query_async` do.
 - **Success envelope:** `200` with `{"op": "<op>", "result": { … }}`.
-- **Error envelope:** `{"code": "<CODE>", "errors": [{"title": "<CODE>", "detail": "…"}]}`
-  with the canonical code, so the thin client maps it to its CLI exit:
-  `VALIDATION` (422), `WRITE_BLOCKED` (403), `AGENT_FAILED` (502),
-  `CONFIG_ERROR`/`CONFIG_MISSING` (500). Unauthenticated → `401`; not in a
+- **Error envelope:** `{"code", "reason", "message", "errors"}`, built only in `nextseek_api/assistant/op_errors.py`.
+  `code` is closed: `VALIDATION` (422), `WRITE_BLOCKED` (403), `AUTH_FAILED` (401), `PASS_NOT_ALLOWED` (403),
+  `BUSY` (429), `TIME_UP` (408), `AGENT_FAILED` (502). `reason` is set only with `AGENT_FAILED`
+  (`model_unavailable`, `deadline`, `bad_output`, `internal`), else `null`. `message` is a fixed sentence per code
+  and reason, never an exception's text or a value the caller sent. `errors` is `[{"field", "type"}, ...]` for
+  `VALIDATION` (the refused field and what was wrong, never its value) and `[{"title": "<CODE>", "detail":
+  "<message>"}]` for any other code (kept for the sidecar, one release). Unauthenticated → `401`; not in a
   participating project → `403`.
 - **Models:** `nextseek_api/assistant/models_api.py`. Request models mirror the sidecar's
   `_ws_contract` arg schemas; response models are a typed `{op, result}` envelope over a lenient
@@ -44,7 +47,7 @@ surface is in one place.
 | **entity** | POST `/assistant/entity/` | `EntityOpRequest{query}` | `EntityOpResponse` | `entity_agent(config, query)` → `EntityAgentOutput` |
 | **parse** | POST `/assistant/parse/` | `ParseOpRequest{query}` | `ParseOpResponse` | `parser_agent(session, config, query, entity_agent(config, query))` → `ParserPlan` |
 | **graph** | POST `/assistant/graph/` | `GraphOpRequest{query}` | `GraphOpResponse` | `graph_agent(config, query, entity_agent(config, query))` → `GraphAgentPlan`, **then** `tool_neo4j_query(config, plan.cypher, plan.parameters)`. Result = `{plan, result}`. **Note:** a superset of the sidecar's original op, which returned the plan only |
-| **aggregate** | POST `/assistant/aggregate/` | `AggregateOpRequest{query, parts?}` | `AggregateOpResponse` | `run_aggregate`: `parts` is a JSON array of 1 to 4 plain-language sub-questions (empty: the question is the one part); `entity_agent` runs **once** over the question and the parts, then each part runs the graph op's chain (`run_graph_question` in `granular.py`: `parser_agent`, `graph_agent` with the aggregate brief as `refine_context`, `tool_neo4j_query` on the statement with `LIMIT 1001` appended when it has none, at most one retry, graph_search on a scope refusal) on a pool of up to 4 threads. Answers at 50 s with what finished; the other parts are `timed_out`. Result = `{question, complete, elapsed_s, deadline_s, parts: [{part, question, status, kind, columns, groups, group_count, sum_of_group_counts, groups_may_overlap, null_group, truncated, cypher, scope, attempts, fallback, error?}], notes}`. `sum_of_group_counts` adds the groups' counts, so a sample in several groups (project, assay, study, a list value) counts once in each: `groups_may_overlap` is true for every breakdown of two or more groups, and then the sum is not a number of samples. No sample records and no Cypher or scope from the caller. |
+| **aggregate** | POST `/assistant/aggregate/` | `AggregateOpRequest{query, parts?}` | `AggregateOpResponse` | `run_aggregate`: `parts` is a JSON array of 1 to 4 plain-language sub-questions (empty: the question is the one part); `entity_agent` runs **once** over the question and the parts, then each part runs the graph op's chain (`run_graph_question` in `granular.py`: `parser_agent`, `graph_agent` with the aggregate brief as `refine_context`, `tool_neo4j_query` on the statement with `LIMIT 1001` appended when it has none, at most one retry, graph_search on a scope refusal) on a pool of up to 4 threads. Answers 5 s inside the op's time limit (50 s of the default 55 s; less when the turn has less left) with what finished; the other parts are `timed_out`. Result = `{question, complete, elapsed_s, deadline_s, parts: [{part, question, status, kind, columns, groups, group_count, sum_of_group_counts, groups_may_overlap, null_group, truncated, cypher, scope, attempts, fallback, error?}], notes}`. `sum_of_group_counts` adds the groups' counts, so a sample in several groups (project, assay, study, a list value) counts once in each: `groups_may_overlap` is true for every breakdown of two or more groups, and then the sum is not a number of samples. No sample records and no Cypher or scope from the caller. |
 | **graph-schema** | POST `/assistant/graph-schema/` | `GraphSchemaOpRequest{types?, query?}` | `GraphSchemaOpResponse` | no agent and **no LLM**: `graph_schema_snapshot(config, types=[...], question=query)` reads the live v1.1/1.2 catalog through `graph_catalog` and renders it with `graph_context`. Result = `{source, schema_version, catalog_hash, synced_at, sample_types, resolved_types, unknown_types, schema, vocabulary, unavailable_reason, fallback_fetched_at}`. `source` is `catalog` or `fallback` (the committed `NessieAI/chat_nextseek/src/chat_nextseek/context/neo4j_schema.json`, with the reason). Read-only: the caller sends no Cypher. |
 | **api-read** | POST `/assistant/api-read/` | `ApiReadRequest{parser_plan}` | `ApiReadResponse` | `api_agent_build_request(config, json.loads(parser_plan))` → gate `(endpoint, METHOD)` against `read_safe_endpoints.json` → `tool_nextseek_api_request(config, endpoint, method, requestBody, queryParameters)`. Result = `{endpoint, method, api_plan, response}` |
 | **api-write** | POST `/assistant/api-write/` | `ApiWriteRequest{parser_plan, confirmed_write=false, query?}` | `ApiWriteResponse` | gate: **executes only when `confirmed_write is True`** (strict bool) else `WRITE_BLOCKED`; then `api_agent_build_request` → `tool_nextseek_api_request`. Result = `{endpoint, method, api_plan, response}` |
@@ -99,9 +102,9 @@ structured output is in `result`), the bundle carries `report_writer_output`, an
 `download.artifacts` includes an `all_tables` URL that serves the submission as a combined `.xlsx`.
 `report` and `build-upload-xlsx` take the other branch: `saved_files` is served directly and
 `report_writer_output` is left empty, the only difference between them being the bundle's `mode`,
-`"reingest"` for `build-upload-xlsx` and `"reporter"` for `report`. Pass an optional `session_id`
-in the request to attach the bundle to an existing session of the caller's; otherwise a new one is
-created. Response models: `DownloadRef` / `ArtifactRef`. The `download` field is declared on
+`"reingest"` for `build-upload-xlsx` and `"reporter"` for `report`. Under a turn pass the bundle always lands in the pass's own chat (a `session_id` is not accepted). Otherwise an
+optional `session_id` in the request attaches the bundle to an existing session of the caller's, and without one a
+new session is created. Bundle ids are allocated per chat under a row lock. Response models: `DownloadRef` / `ArtifactRef`. The `download` field is declared on
 `ReportOpResponse` and `SubmissionResponse` only, so a `build-upload-xlsx` caller reads it off the
 raw envelope.
 

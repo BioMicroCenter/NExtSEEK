@@ -16,10 +16,11 @@ project-scoped sample search, exactly as the NS orchestrator falls back
 by the API agent, gated as a read and run, returned under ``fallback``. That chain is
 ``run_graph_question``, which the ``aggregate`` op (``aggregate.py``) runs once per part.
 
-Error taxonomy (mirrors dmac _ws_contract.ERROR_EXIT):
-* :class:`OpValidationError` -> VALIDATION
+Error taxonomy (nextseek_api/assistant/op_errors.py):
+* :class:`OpValidationError` -> VALIDATION, naming the field
 * :class:`~NessieAI.ns.write_gate.WriteBlockedError` -> WRITE_BLOCKED
-Any other exception raised by an agent maps to AGENT_FAILED at the viewset layer.
+* :class:`OpBusyError` -> BUSY
+Any other exception raised by an agent maps to AGENT_FAILED at the viewset layer, with a closed reason.
 """
 from __future__ import annotations
 
@@ -33,7 +34,19 @@ from NessieAI.ns.write_gate import WriteBlockedError  # noqa: F401 (re-exported)
 
 
 class OpValidationError(ValueError):
-    """Bad/missing op arguments. Maps to the canonical VALIDATION error code."""
+    """Bad or missing op arguments. Maps to the VALIDATION error code.
+
+    ``field`` and ``error_type`` are what the reply says (nextseek_api/assistant/op_errors.py): the field's name and
+    what was wrong with it, never the value. The message may quote the value; it goes to the server log only.
+    """
+
+    def __init__(self, message: str, *, field: str = "args", error_type: str = "invalid") -> None:
+        super().__init__(message)
+        self.field = field
+        self.error_type = error_type
+
+    def field_error(self) -> dict:
+        return {"field": self.field, "type": self.error_type}
 
 
 class OpBusyError(RuntimeError):
@@ -50,7 +63,7 @@ def _load_parser_plan(args: dict) -> Any:
     try:
         return json.loads(args["parser_plan"])
     except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
-        raise OpValidationError(f"parser_plan is not valid JSON: {exc}") from exc
+        raise OpValidationError(f"parser_plan is not valid JSON: {exc}", field="parser_plan", error_type="invalid_json") from exc
 
 
 def run_op(
@@ -76,7 +89,7 @@ def run_op(
     """
     handler = _HANDLERS.get(op)
     if handler is None:
-        raise OpValidationError(f"not a sidecar op: {op!r}")
+        raise OpValidationError(f"not a sidecar op: {op!r}", field="op", error_type="unknown_op")
     from chat_nextseek import call_scope
     from NessieAI.ns.op_limits import op_limit_s
     limit = op_limit_s(op, None, time.time()) if limit_s is None else float(limit_s)
@@ -446,11 +459,11 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit
     luria_env = getattr(config, "LURIA_ENV", None) or {}
     working_path = str(luria_env.get("working_path") or "").rstrip("/")
     if not working_path or not luria_env.get("key"):
-        raise OpValidationError("Luria is not configured (LURIA_ENV incomplete)")
+        raise OpValidationError("Luria is not configured (LURIA_ENV incomplete)", field="run_dir", error_type="luria_not_configured")
     runs_root = working_path + "/runs"
     run_dir = os.path.normpath(str(args["run_dir"]))
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
-        raise OpValidationError(f"run_dir must be under {runs_root}")
+        raise OpValidationError(f"run_dir must be under {runs_root}", field="run_dir", error_type="outside_the_runs_root")
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
     key_path = prepare_key(luria_env["key"])
     out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path)
@@ -471,9 +484,9 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
     try:
         rows = json.loads(args["rows"])
     except ValueError as exc:
-        raise OpValidationError(f"rows is not valid JSON: {exc}") from exc
+        raise OpValidationError(f"rows is not valid JSON: {exc}", field="rows", error_type="invalid_json") from exc
     if not isinstance(rows, list) or not rows:
-        raise OpValidationError("rows must be a non-empty JSON array")
+        raise OpValidationError("rows must be a non-empty JSON array", field="rows", error_type="must_be_a_non_empty_json_array")
 
     existing = {u.strip() for u in str(args.get("existing_parent_uids") or "").split(",") if u.strip()}
 
@@ -481,7 +494,7 @@ def _build_upload_xlsx(args, config, session, write_gate, neo4j_exec, outputs_di
     for row in rows:
         st = str((row or {}).get("SampleType") or "").strip()
         if not st:
-            raise OpValidationError("every row needs a SampleType")
+            raise OpValidationError("every row needs a SampleType", field="rows", error_type="row_without_sampletype")
         by_type.setdefault(st, []).append(row)
 
     out_root = outputs_dir or os.environ.get("NEXTSEEK_OUTPUTS_DIR") or "outputs"
