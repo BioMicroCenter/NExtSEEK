@@ -19,9 +19,11 @@ from zipfile import ZipFile
 
 import requests
 
+from .. import call_scope
 from ..artifacts import ArtifactStore
 from ..config import ChatConfig
 from ..helpers.json_io import estimate_tokens_from_text
+from ..helpers.tools.nextseek_api import OUT_OF_TIME_NOT_SENT
 
 
 def extract_protocol_refs_from_metadata(metadata: dict) -> list[dict[str, str]]:
@@ -91,6 +93,18 @@ def _request_protocol_record(config: ChatConfig, base_url: str, protocol_ref: st
         url = f"{base_url.rstrip('/')}/sops/{quote(protocol_ref, safe='')}/"
     else:
         url = f"{base_url.rstrip('/')}/nextseek_api/sops/{quote(protocol_ref, safe='')}/"
+    # Inside an op the request waits at most what is left of it (approach 1, piece 2); an NS turn keeps its 90 s.
+    capped = call_scope.time_left_for(90.0)
+    if capped is None:
+        print(f"[DEBUG][API] {OUT_OF_TIME_NOT_SENT}")
+        return {
+            "ok": False,
+            "error": OUT_OF_TIME_NOT_SENT,
+            "url": url,
+            "method": "GET",
+            "source_base_url": base_url.rstrip("/"),
+            "protocol_ref": protocol_ref,
+        }
     auth = None
     headers: dict[str, str] = {}
     auth_mode = "None"
@@ -111,10 +125,10 @@ def _request_protocol_record(config: ChatConfig, base_url: str, protocol_ref: st
     print("  PARAMS: {'page_size': 1000}")
     print("  BODY:   {}")
     print(f"  AUTH:   {auth_mode}")
-    print("  TIMEOUT:90s")
+    print(f"  TIMEOUT:{capped:.0f}s")
 
     try:
-        resp = requests.get(url, auth=auth, headers=headers or None, params={"page_size": 1000}, timeout=90)
+        resp = requests.get(url, auth=auth, headers=headers or None, params={"page_size": 1000}, timeout=capped)
         print("[DEBUG][API] Response:")
         print(f"  STATUS: {resp.status_code}")
         preview = resp.text[:300].replace("\n", " ")
