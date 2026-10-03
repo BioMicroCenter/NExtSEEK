@@ -270,7 +270,9 @@ services:
     build:
       context: ./docker/laya
     image: nextseek-laya-router:latest
-    container_name: ${INSTANCE_PREFIX:-}laya-router
+    # No container_name: compose names it per project (like nextseek_nginx), and
+    # the INSTANCE_PREFIX names are a pinned set (cc lane, merge-survival S7).
+    # The app reaches it by the service name, which needs no container_name.
     profiles: ["laya"]
     restart: unless-stopped
     deploy:
