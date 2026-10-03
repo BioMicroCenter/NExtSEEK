@@ -2,7 +2,7 @@
 every git repo (the script refuses an output path inside this repo).
 
 Inputs (all read-only, none checked in):
-  --turns PATH      a run's turns.json (list of {id, session, created, q, route, src, status, attempted_route?});
+  --turns PATH      a run's turns.json (list of {id, session, created, q, reply, route, src, status, attempted_route});
                     repeat the flag. Only runs whose box ran today's router prompt belong here (SPEC s8 Teacher).
   --corpus PATH     corpus.json at origin/dev: case-level route assertions are the truth.
   --caps PATH       route_capabilities.json: its example queries are the prompt-seen slice.
@@ -103,12 +103,14 @@ def example_queries(caps: dict) -> dict[str, str]:
 
 def _history(prior: list[dict]) -> list[dict]:
     """chat_log entries of the earlier turns of one session, the way a live turn stores them."""
-    return [{"turn_id": i, "user_query": t["q"], "router_choice": t.get("route"),
+    return [{"turn_id": i, "user_query": t["q"], "assistant_reply": t.get("reply"), "router_choice": t.get("route"),
              "status": "error" if t.get("status") == "error" else "completed"} for i, t in enumerate(prior, 1)]
 
 
 def _view(hist) -> list[dict]:
-    return [{"user_message": h.user_message, "router_choice": h.router_choice, "status": h.status} for h in hist]
+    """The chat as BAML sees it, replies included, for the label page (SPEC s8); condense ignores the reply."""
+    return [{"user_message": h.user_message, "assistant_reply": h.assistant_reply, "router_choice": h.router_choice,
+             "status": h.status} for h in hist]
 
 
 def build_rows(turns: list[dict], corpus: dict, caps: dict, manifest: set[str], extra: list[dict] = (),

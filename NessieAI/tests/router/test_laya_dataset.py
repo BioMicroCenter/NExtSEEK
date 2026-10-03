@@ -133,11 +133,19 @@ def test_history_goes_through_build_history_and_condense_and_is_per_session():
     assert r["other chat"]["history"] == []
     h = r["third"]["history"]
     assert [x["router_choice"] for x in h] == ["nextseek_query", "container_cc"]
-    assert set(h[0]) == {"user_message", "router_choice", "status"}
+    assert set(h[0]) == {"user_message", "assistant_reply", "router_choice", "status"}
     # the same call a live turn makes gives the model text; no reply text can be in it
     from NessieAI.router.router_context import HistoryTurn
     hist = [HistoryTurn(position=i, **x) for i, x in enumerate(h, 1)]
     assert condense("third", hist).startswith("Current message: third\nPrevious message (container_cc, completed): second")
+
+
+def test_the_history_view_carries_the_reply_for_the_label_page_but_the_model_text_does_not():
+    turns = [T(1, "s1", "first", "nextseek_query", reply="REPLY-ONE"), T(2, "s1", "second", "nextseek_query")]
+    h = rows_by_q(build(turns))["second"]["history"]
+    assert h[0]["assistant_reply"] == "REPLY-ONE"
+    from NessieAI.router.router_context import HistoryTurn
+    assert "REPLY-ONE" not in condense("second", [HistoryTurn(position=i, **x) for i, x in enumerate(h, 1)])
 
 
 def test_history_window_is_five_turns():
