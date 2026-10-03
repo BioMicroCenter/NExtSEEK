@@ -13,6 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import OperationalError
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -106,6 +107,15 @@ class OneAllocatorTests(_Base):
         self.assertIsNone(adapter.allocate_bundle_id())
         self.assertEqual(_next_bundle_id(adapter), 1)
         self.assertFalse(ChatSession.objects.filter(pk=adapter._session.pk).exists())
+
+    def test_a_failed_allocation_numbers_in_memory_and_never_ends_the_turn(self):
+        """W1-9: the allocator's DB write can fail mid-turn (a dropped connection); the NS turn keeps going."""
+        adapter = DictSessionAdapter(ChatSession.objects.get(pk=self.chat.pk))
+        with patch("nextseek_api.assistant.bundle_ids.allocate_bundle_id",
+                   side_effect=OperationalError(2006, "Server has gone away")), \
+             self.assertLogs("nextseek_api.assistant.session_adapter", level="WARNING"):
+            self.assertIsNone(adapter.allocate_bundle_id())
+            self.assertGreater(_next_bundle_id(adapter), 0)
 
     def test_without_a_session_id_a_browser_caller_gets_a_new_chat(self):
         download = self._report(self.client)

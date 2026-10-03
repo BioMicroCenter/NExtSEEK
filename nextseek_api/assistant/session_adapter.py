@@ -74,12 +74,17 @@ class DictSessionAdapter:
     def allocate_bundle_id(self) -> int | None:
         """The chat's next bundle id from its one allocator (bundle_ids.py), under a row lock shared with the
         Container-CC artifact ops. None for a session that was never saved (the ops' throwaway parser session),
-        which then numbers in memory as before."""
+        which then numbers in memory as before. None too when the allocator's write fails: a turn never ends on it."""
         if self._session._state.adding:
             return None
         from .bundle_ids import BUNDLE_SEQ_KEY, allocate_bundle_id
 
-        nxt = allocate_bundle_id(self._session.pk)
+        try:
+            nxt = allocate_bundle_id(self._session.pk)
+        except Exception:
+            logger.warning("session %s: bundle id allocation failed, numbering in memory", self._session.pk,
+                           exc_info=True)
+            return None
         self._cache[BUNDLE_SEQ_KEY] = nxt
         return nxt
 
