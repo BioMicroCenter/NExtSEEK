@@ -904,8 +904,11 @@ def test_the_four_criteria_the_docs_blame_for_the_red_are_recomputed_too():
     # -> [328, 212, 20, 19] on 2026-09-24, follow-up split: fix 9's new two-turn case asserts
     # nextseek_query (+1 route). The 28 follow-ups moved to nextseek_query change no count:
     # each of those cases already failed `route` on its seed.
+    # -> [329, 213, 17, 18] on 2026-10-03, round 4: green.mus_ndma and the three pipeline seed turns assert the graph
+    # search, not api_ok (-4 api_ok); the SOP case asserts the graph route, not the sops endpoint (+1 mode, -1
+    # endpoint).
     assert [counts.get(f) for f in ("route", "parser_plan.mode", "api_ok",
-                                    "api_plan.endpoint")] == [329, 212, 21, 19], (
+                                    "api_plan.endpoint")] == [329, 213, 17, 18], (
         f"{counts} — update the four counts in nessie_tests/README.md and in "
         f"tests/test_evaluate.py's 'Fix round 1' comment")
 

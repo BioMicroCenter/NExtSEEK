@@ -17,7 +17,7 @@ from typing import Any
 from .. import graph_scope
 from ..artifacts import ArtifactStore
 from ..config import live_db_conn
-from ..context_rows import is_project_row
+from ..context_rows import is_investigation_row, is_project_row
 from ..helpers.dates import (
     _normalize_project_id,
     _normalize_years,
@@ -105,6 +105,8 @@ def _resolve_report_scope(config, project) -> "tuple[str, Any]":
     """
     if project is None or (isinstance(project, str) and not project.strip()):
         return ("all", None)
+    if getattr(project, "inv", None):                    # already resolved by id (a lab named like an investigation)
+        return ("investigation", project.inv)
     try:
         project_id = _normalize_project_id(config, project)
     except ValueError:
@@ -343,7 +345,8 @@ def run_project_sample_report(
         print("[REPORTER][SQL] Running project sample report query", {"query": query, "params": params})
         cursor.execute(query, params)
         rows = cursor.fetchall() or []
-        uuids = [r["uuid"] for r in rows if r.get("uuid")]
+        # SEEK can hold the same sample linked to a project twice; the report counts samples, not link rows.
+        uuids = list(dict.fromkeys(r["uuid"] for r in rows if r.get("uuid")))
 
         # --- Build summary tables from UID parsing ---
         # Format assumed: <SAMPLETYPE>-<YYMMDD><LAB>-<INCREMENT>
@@ -396,7 +399,7 @@ def run_project_sample_report(
                 "month_range": month_range,
                 "day_range": day_range,
             },
-            "rows_returned": len(rows),
+            "rows_returned": len(uuids),
             "uuids": uuids,
             "sampletypes_table": sampletypes_table,
             "labs_table": labs_table,
@@ -449,7 +452,7 @@ def run_project_sample_report(
         return {
             "ok": True,
             "project_id": project_id,
-            "rows_returned": len(rows),
+            "rows_returned": len(uuids),
             "uuids_saved": len(uuids),
             # See _run_investigation_sample_report: required by _scope_report_to_labs,
             # dropped again by run_reporter_summary before the result is serialised.
@@ -1132,18 +1135,20 @@ def reporter_reply_footer(
              or {})
     via_lab = reporter_result.get("lab_project")
     if isinstance(via_lab, dict):
+        kind = via_lab.get("kind", "project")
         lines.append(
-            f"- **Scope:** {via_lab['name']} is both a lab and the project {via_lab['project']}; "
-            "this report covers the project. Ask for the lab by its code "
+            f"- **Scope:** {via_lab['name']} is both a lab and the {kind} {via_lab['project']}; "
+            f"this report covers that {kind}. Ask for the lab by its code "
             f"{', '.join(via_lab['lab_codes'])} if you meant the lab's samples across projects."
         )
     elif isinstance(scope, dict) and scope.get("kind") == "lab":
         codes = ", ".join(scope.get("lab_codes") or [])
-        name = ", ".join(reporter_result.get("lab_names") or []) or codes
-        lines.append(
-            f"- **Scope:** this report covers lab {codes}, not a project. "
-            f"{name} is a lab here and is not the name of a project or investigation."
-        )
+        text = f"- **Scope:** this report covers lab {codes}, not a project."
+        # Only after the lookup ran (it keeps the names it looked up) and found nothing.
+        if reporter_result.get("lab_names"):
+            text += (f" {', '.join(reporter_result['lab_names'])} is a lab here and is not the name of a project "
+                     "or investigation.")
+        lines.append(text)
 
     return lines
 
@@ -1190,28 +1195,82 @@ def lab_names_by_name(entity_result) -> "list[str]":
     return names
 
 
-def _project_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
-    """The one project every lab name the user gave also names, or None.
+class _InvestigationName(str):
+    """An investigation title that already carries its id, so a report scopes by ``inv.id`` and no project's fuzzy
+    name match can take it first. It is a plain string everywhere else (filters, summary)."""
 
-    A name counts when it equals, case-folded, a key of ``PROJECT_NAME_TO_ID`` (a project name or alias, read from
-    the catalog). Any lab without a match, labs matching different projects, or a project outside the caller's scope
-    (graph_scope; no scope counts as outside) leave the lab scope in place.
+    inv: "tuple[int, str]"
+
+
+def _investigation_named(config, key: str) -> "tuple[int, str, dict | None] | None":
+    """``(id, TITLE, row)`` of the investigation ``key`` (upper) is the title or an alias of, or None.
+
+    Titles come from ``INVESTIGATION_NAME_TO_ID``; aliases from the investigation rows of projects_db.json
+    (``alternative_names``), whose ``name`` is the title.
+    """
+    inv_map = getattr(config, "INVESTIGATION_NAME_TO_ID", None) or {}
+    rows = [r for r in getattr(config, "FULL_PROJECTS", None) or [] if is_investigation_row(r)]
+    title = key if key in inv_map else None
+    if title is None:
+        for r in rows:
+            aliases = {a.strip().upper() for a in r.get("alternative_names") or [] if isinstance(a, str)}
+            if key in aliases and str(r.get("name", "")).strip().upper() in inv_map:
+                title = str(r["name"]).strip().upper()
+                break
+    if title is None:
+        return None
+    row = next((r for r in rows if str(r.get("name", "")).strip().upper() == title), None)
+    return inv_map[title], title, row
+
+
+def _entity_named_by_labs(config, lab_names: "list[str] | None") -> "dict | None":
+    """The one project, else the one investigation, every lab name the user gave also names; or None.
+
+    A name counts when it equals, case-folded, a project name or alias (``PROJECT_NAME_TO_ID``, which carries the
+    catalog's aliases), else an investigation title or alias. Projects first. Any lab without a match, labs naming
+    different entities, or an entity outside the caller's scope (graph_scope; no scope counts as outside; an
+    investigation counts as inside when its owner project is, or for an admin) leave the lab scope in place.
     """
     names = [n.strip() for n in (lab_names or []) if isinstance(n, str) and n.strip()]
-    table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
-    if not names or any(n.upper() not in table for n in names):
-        return None
-    ids = {table[n.upper()] for n in names}
-    if len(ids) != 1:
+    if not names:
         return None
     scope = graph_scope.scope_of(config)
-    if scope is None or not (scope.is_admin or next(iter(ids)) in scope.project_ids):
+    if scope is None:
         return None
-    key = names[0].upper()
-    pid = ids.pop()
-    canonical = next((p["name"] for p in getattr(config, "FULL_PROJECTS", None) or []
-                      if is_project_row(p) and p.get("project_id") == pid and p.get("name")), key)
-    return {"name": ", ".join(names), "project": canonical, "key": key}
+    table = getattr(config, "PROJECT_NAME_TO_ID", None) or {}
+    found = set()
+    for n in names:
+        key = n.upper()
+        if key in table:
+            found.add(("project", table[key], key))
+            continue
+        inv = _investigation_named(config, key)
+        if inv is None:
+            return None
+        inv_id, title, row = inv
+        owner = (row or {}).get("project_id")
+        if not (scope.is_admin or (owner is not None and owner in scope.project_ids)):
+            return None
+        found.add(("investigation", inv_id, title))
+    if len({(k, i) for k, i, _ in found}) != 1:
+        return None
+    kind, ident, key = sorted(found)[0]
+    label = ", ".join(names)
+    if kind == "project":
+        if not (scope.is_admin or ident in scope.project_ids):
+            return None
+        canonical = next((p["name"] for p in getattr(config, "FULL_PROJECTS", None) or []
+                          if is_project_row(p) and p.get("project_id") == ident and p.get("name")), key)
+        return {"name": label, "project": canonical, "kind": "project", "key": key}
+    scoped = _InvestigationName(key)
+    scoped.inv = (ident, key)
+    return {"name": label, "project": key, "kind": "investigation", "key": scoped}
+
+
+def _top_labs(table) -> list:
+    """The top lab codes of a labs table, only when more than one lab could have appeared. One code is the scope
+    itself, and offering it as a breakdown is how a reply came to say 'all N originate from lab X'."""
+    return top_items(table, 5) if isinstance(table, dict) and len(table) > 1 else []
 
 
 def run_reporter_summary(
@@ -1254,9 +1313,15 @@ def run_reporter_summary(
         if lab_codes:
             print(f"[DEBUG][REPORTER] lab_codes not passed; taking {lab_codes} "
                   "from reporter_plan.reporter_context")
-    lab_project = _project_named_by_labs(config, lab_names) if project is None and lab_codes else None
+    # The reporter prompt now gives a lab's name as the project when only a lab was named. A plan project that is
+    # one of the lab names is a lab to look up here, never a fuzzy project match or an unknown-project error.
+    lab_name_set = {n.strip().upper() for n in lab_names or [] if isinstance(n, str)}
+    if lab_codes and isinstance(project, str) and project.strip().upper() in lab_name_set:
+        project = None
+    lab_project = _entity_named_by_labs(config, lab_names) if project is None and lab_codes else None
     if lab_project:
-        # The user's lab name is also a project's name or alias: the report is that project's, and the footer says so.
+        # The user's lab name is also a project's or investigation's name or alias: the report is that entity's,
+        # and the footer says so.
         project = lab_project.pop("key")
         lab_project = {**lab_project, "lab_codes": list(lab_codes)}
     fallback_labs = list(lab_codes or []) if project is None else []
@@ -1362,7 +1427,7 @@ def run_reporter_summary(
         return {
             "rows_returned": r.get("rows_returned"),
             "top_sampletypes": top_items(r.get("sampletypes_table"), 5),
-            "top_labs": top_items(r.get("labs_table"), 5),
+            "top_labs": _top_labs(r.get("labs_table")),
             "years": top_items(r.get("years_table"), 10),
             "top_months": top_items(r.get("months_table"), 12),
             "db_diagnostic": r.get("db_diagnostic") or {},
@@ -1390,7 +1455,7 @@ def run_reporter_summary(
         reporter_summary["samples"] = _sub_summary(reporter_result.get("samples") or {})
         reporter_summary["protocols"] = {
             "rows_returned": (reporter_result.get("protocols") or {}).get("rows_returned"),
-            "top_labs": top_items((reporter_result.get("protocols") or {}).get("labs_table"), 5),
+            "top_labs": _top_labs((reporter_result.get("protocols") or {}).get("labs_table")),
             "years": top_items((reporter_result.get("protocols") or {}).get("years_table"), 10),
             "scope": (reporter_result.get("protocols") or {}).get("scope"),
         }
@@ -1403,7 +1468,7 @@ def run_reporter_summary(
     elif summary_mode == "protocols":
         reporter_summary.update({
             "rows_returned": reporter_result.get("rows_returned"),
-            "top_labs": top_items(reporter_result.get("labs_table"), 5),
+            "top_labs": _top_labs(reporter_result.get("labs_table")),
             "years": top_items(reporter_result.get("years_table"), 10),
             "top_months": top_items(reporter_result.get("months_table"), 12),
         })
@@ -1415,7 +1480,7 @@ def run_reporter_summary(
             "study_count": pub_samples.get("study_count"),
             "studies": pub_samples.get("studies"),
             "protocols_count": pub_protocols.get("rows_returned"),
-            "top_protocol_labs": top_items(pub_protocols.get("labs_table"), 5),
+            "top_protocol_labs": _top_labs(pub_protocols.get("labs_table")),
         })
     else:
         reporter_summary.update(_sub_summary(reporter_result))
