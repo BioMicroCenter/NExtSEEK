@@ -89,6 +89,7 @@ from .helpers.uid_check import check_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
+from .vocabulary import resolve_vocabulary
 from .tee import Tee
 from . import turn_spend
 from .uid_links import link_sample_uids
@@ -1914,6 +1915,28 @@ def unsupported_reply(plan) -> str:
     return UNSUPPORTED_REPLY
 
 
+def _turn_vocabulary(config: ChatConfig, user_text: str, send_event: SendEvent, *, mode: str,
+                     note_agent: Callable[[str], None] | None = None) -> tuple[EntityAgentOutput, dict[str, Any]]:
+    """The turn's vocabulary and its shortlist diagnostics (``vocabulary.resolve_vocabulary``).
+
+    The catalog and entity events go out in the order the stepper and the debug panel read them. This module's
+    ``entity_agent`` and ``shortlist_catalog`` are handed in, so the tests that patch them here still reach them.
+    """
+    send_event("agent_started", {"agent": "catalog", "mode": mode})
+    diagnostics: dict[str, Any] = {}
+
+    def _shortlisted() -> None:
+        send_event("agent_complete", {"agent": "catalog", "summary": None})
+        if note_agent is not None:
+            note_agent("entity")
+        send_event("agent_started", {"agent": "entity", "mode": mode})
+
+    entity_result = resolve_vocabulary(None, config, user_text, diagnostics=diagnostics, on_shortlisted=_shortlisted,
+                                       entity=entity_agent, shortlist=shortlist_catalog)
+    send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+    return entity_result, diagnostics
+
+
 @turn_spend.collects_turn
 def run_query(
     session: SessionState | SessionStateProxy,
@@ -1993,31 +2016,8 @@ def run_query(
             if clicked is not None:
                 return clicked
 
-        send_event("agent_started", {"agent": "catalog", "mode": ""})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        if not sampletypes_short:
-            sampletypes_short = config.MIN_SAMPLETYPES or []
-        if not assays_short:
-            assays_short = config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        current_agent = "entity"
-        send_event("agent_started", {"agent": "entity", "mode": ""})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag = _turn_vocabulary(config, user_text, send_event, mode="",
+                                                         note_agent=_note_agent)
 
         current_agent = "parser"
         send_event("agent_started", {"agent": "parser", "mode": ""})
@@ -2900,28 +2900,7 @@ def run_query_plan(
             _raw_send_event(event_name, payload)
 
     try:
-        send_event("agent_started", {"agent": "catalog", "mode": "plan"})
-        sampletypes_short, assays_short, shortlist_diag = shortlist_catalog(
-            user_text,
-            config.MIN_SAMPLETYPES or [],
-            config.MIN_ASSAYS or [],
-            k_st=50,
-            k_a=75,
-            sampletype_index=getattr(config, "SAMPLETYPE_INDEX", None),
-            assay_index=getattr(config, "ASSAY_INDEX", None),
-            ratio=getattr(config, "SEMANTIC_RATIO", 0.7),
-            min_k=getattr(config, "SEMANTIC_MIN_K", 10),
-            max_k=getattr(config, "SEMANTIC_MAX_K", 80),
-        )
-        sampletypes_short = sampletypes_short or config.MIN_SAMPLETYPES or []
-        assays_short = assays_short or config.MIN_ASSAYS or []
-        send_event("agent_complete", {"agent": "catalog", "summary": None})
-
-        send_event("agent_started", {"agent": "entity", "mode": "plan"})
-        _t0 = time.perf_counter()
-        entity_result = entity_agent(config, user_text, sampletypes_short, assays_short)
-        print(f"[TIMING][ENTITY] {time.perf_counter() - _t0:.2f}s")
-        send_event("agent_complete", {"agent": "entity", "summary": entity_result.model_dump()})
+        entity_result, shortlist_diag = _turn_vocabulary(config, user_text, send_event, mode="plan")
 
         send_event("agent_started", {"agent": "parser", "mode": "plan"})
         _t0 = time.perf_counter()
