@@ -234,8 +234,6 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
     unhandled error into a ``query_error`` event, saves the turn, and always
     ends the stream with the ``None`` sentinel on ``event_queue``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
-    ``parent_cc_turn``: the Container-CC turn whose pass started this child turn (query_async took one of its two
-    slots for it), or None. The slot is given back in the finally, after the save, however the child ended.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
     scope_kw = _scope_kwargs(graph_scope)
@@ -272,6 +270,8 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
+    ``parent_cc_turn``: the Container-CC turn whose pass started this child turn (query_async took one of its two
+    slots for it), or None. The slot is given back in the finally, after the save, however the child ended.
     ``deadline_epoch``: a nested turn's Unix deadline (NessieAI/ns/op_limits.nested_deadline), or None.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)

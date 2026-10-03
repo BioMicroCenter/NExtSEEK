@@ -1,4 +1,4 @@
-"""How a granular op says no (approach 1, piece 2; SANDBOX-CHECK.md section 3, item 2).
+"""How a granular op says no (approach 1, piece 2: ops answer with closed codes).
 
 Every refusal is ``{"code", "reason", "message", "errors"}``: ``code`` from ``CODES``; ``reason`` from ``REASONS``,
 only with AGENT_FAILED; ``message`` a fixed sentence per code and reason, never an exception's text; ``errors`` for

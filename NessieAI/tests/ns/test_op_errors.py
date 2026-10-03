@@ -1,5 +1,5 @@
-"""The op error contract (approach 1, piece 2): a closed code, a closed reason, a fixed message, and never the text of
-an exception or a value the caller sent (SANDBOX-CHECK section 3, item 2)."""
+"""The op error contract (approach 1, piece 2: ops answer with closed codes): a closed code, a closed reason, a fixed
+message, and never the text of an exception or a value the caller sent."""
 from __future__ import annotations
 
 import ast
