@@ -178,6 +178,15 @@ Note that a cross-project export path already exists and is correctly gated:
 58 routed read endpoints. `permission_classes` values are the declared class list; several
 endpoints add a second inline auth gate inside the handler, which is noted where it matters.
 
+The Container-CC turn pass is a fourth way to authenticate, beside session, token and Basic:
+`Authorization: NextseekTurn <pass>`, checked by `TurnPassAuthentication`. It is accepted only for
+the rows of the allow table (`nextseek_api/assistant/turn_pass_allow.py`, checked before any view
+runs): the reads (GET) of projects, assays, one study, sample types and the turn's own chat, plus
+the POSTs of the granular ops except `api-write`, `assistant/query/async/` for a nested turn, the
+advanced search and the validate-only batch upload. Every other route refuses a pass. Under a pass
+the caller acts as the turn's user, and an admin's read-any of other users' chats, tasks, bundles
+and artifacts is off (`may_read_any` in `nextseek_api/permissions.py`).
+
 | Path | Viewset / action | permission_classes | Project predicate applied? (file:line) | Proposed bucket |
 |---|---|---|---|---|
 | `GET /nextseek_api/schema/` | `SpectacularAPIView` | `IsAuthenticated` at the route (`nextseek_api/urls.py:61`, #77). Was AllowAny: drf-spectacular sets `permission_classes` from `SERVE_PERMISSIONS` in its own class body, shadowing the project default | n/a, no data | public-to-authenticated |
