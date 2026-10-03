@@ -34,9 +34,8 @@ const DATA = JSON.parse(document.getElementById('data').textContent), KEY = 'jev
 const OPTS = [['NS','NS (NextSEEK query)'],['CC','CC (container Claude Code)'],['either','Either is fine'],['unrelated','Unrelated']];
 const label = {}; const $ = id => document.getElementById(id);
 try { Object.assign(label, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
-function relay() { /* ponytail: a later publish step fills this to copy getState() into a db doc; no-op offline */ }
 const getState = () => ({labels: label, exported_at: new Date().toISOString()});
-function save() { try { localStorage.setItem(KEY, JSON.stringify(label)); } catch (e) {} relay(); prog(); }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(label)); } catch (e) {} prog(); }
 function prog() { const n = Object.keys(label).length; $('prog').textContent = n + ' / ' + DATA.length + ' labelled'; }
 function el(t, c, x) { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
 DATA.forEach((r, i) => {

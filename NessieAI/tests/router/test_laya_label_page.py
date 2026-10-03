@@ -31,6 +31,7 @@ def test_page_is_one_offline_file_with_full_chat_and_no_hints(tmp_path):
     for hint in ("FAMSECRET", "ENTSECRET", "container_cc", "truth_kind"):  # blind labelling
         assert hint not in html
     assert "</script> samples" not in html                           # data cannot close the script tag
+    assert "relay" not in html                                        # no publish hook until a publish step exists
     data = json.loads(re.search(r'<script id="data" type="application/json">(.*?)</script>', html, re.S).group(1))
     assert [r["hash"] for r in data] == sorted(r["hash"] for r in data)
 
