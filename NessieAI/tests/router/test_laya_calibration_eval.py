@@ -90,3 +90,73 @@ def test_calibration_fails_when_no_threshold_reaches_the_target():
     rows = [row(0.9, 0.05, CC)] * 4
     with pytest.raises(SystemExit, match="no shadow go"):
         fc.calibration_doc(rows, "r", {"options": []}, "p")
+
+
+# ---- evaluate.py ----------------------------------------------------------------------------------
+ev = _load("evaluate")
+CAL = {"revision": "r", "temperature": 1.0, "threshold": 0.8}
+
+
+def srow(p_ns, p_cc, teacher, truth=None, either=False, **kw):
+    r = row(p_ns, p_cc, teacher, truth, either)
+    r.update({"slice": "heldout", "family": "f1", "entity": "SEQ"})
+    r.update(kw)
+    return r
+
+
+def test_wilson_hand_values():
+    w = ev.wilson(8, 10)
+    assert (w["k"], w["n"], w["rate"]) == (8, 10, 0.8)
+    assert w["lo"] == pytest.approx(0.4902, abs=1e-3) and w["hi"] == pytest.approx(0.9433, abs=1e-3)
+    assert ev.wilson(0, 0)["rate"] is None
+    assert ev.wilson(10, 10)["hi"] == 1.0
+
+
+def test_percentiles():
+    assert ev.pct([10, 20, 30, 40], 0.5) == 25
+    assert ev.pct([None], 0.5) is None
+
+
+def test_metrics_gate_agreement_accuracy_and_slices():
+    rows = [srow(0.95, 0.03, NS, truth=NS, latency_ms=100, baml_s=2),     # passes, agrees, right
+            srow(0.90, 0.05, CC, truth=CC, latency_ms=200, baml_s=3),     # passes, laya wrong vs baml (cc), truth cc: cascade wrong
+            srow(0.50, 0.40, NS, truth=NS),                               # below threshold -> BAML
+            srow(0.02, 0.01, UN, truth=UN),                               # unrelated top -> BAML
+            srow(0.95, 0.03, NS, either=True, followup_cc=True),          # follow-up guard -> BAML
+            srow(0.97, 0.01, NS, truth=CC, slice="prompt_seen")]          # reported, never counted
+    rep = ev.build_report(rows, CAL)["finetune"]
+    o = rep["overall"]
+    assert o["n"] == 5
+    assert (o["fast_path"]["k"], o["fast_path"]["n"]) == (2, 5)
+    assert (o["agreement"]["k"], o["agreement"]["n"]) == (1, 2)
+    assert o["agreement_by_baml_route"][NS]["k"] == 1 and o["agreement_by_baml_route"][CC]["n"] == 1
+    assert o["accuracy"]["scored"] == 5
+    assert (o["accuracy"]["cascade"]["k"], o["accuracy"]["baml"]["k"]) == (4, 5)   # laya's CC-vs-NS miss costs one
+    assert o["latency_ms"]["p50"] == 150 and o["baml_s"]["p95"] == pytest.approx(2.95)
+    assert o["cost_saved_per_turn_usd"] == pytest.approx(0.017 * 0.4 * 0.95)
+    assert rep["prompt_seen_not_counted"]["n"] == 1
+    assert rep["slices"]["family"]["f1"]["n"] == 5 and rep["slices"]["followups"] == {}
+    assert rep["bars"] == {"agreement_97": False, "cascade_not_worse_than_baml": False, "fast_path_60": False, "all": False}
+
+
+def test_bars_pass_on_a_clean_set_and_zeroshot_sits_beside_finetune():
+    good = [srow(0.95, 0.03, NS, truth=NS, history=[{"x": 1}], baml_routes=[NS, NS, CC])] * 4
+    rep = ev.build_report(good, CAL, zero_rows=[srow(0.4, 0.4, NS, truth=NS)])
+    assert rep["finetune"]["bars"]["all"] is True
+    assert rep["zeroshot"]["overall"]["fast_path"]["k"] == 0
+    assert rep["finetune"]["slices"]["followups"]["yes"]["n"] == 4
+    assert rep["finetune"]["overall"]["baml_self_agreement"]["k"] == 4        # 1 of 3 pairs agree, x4 rows
+    assert rep["finetune"]["overall"]["baml_self_agreement"]["n"] == 12
+
+
+def test_report_files_and_repo_guard(tmp_path):
+    f = tmp_path / "f.jsonl"
+    f.write_text(json.dumps(srow(0.95, 0.03, NS, truth=NS)) + "\n")
+    c = tmp_path / "c.json"
+    c.write_text(json.dumps(CAL))
+    out = tmp_path / "out"
+    assert ev.main(["--finetune", str(f), "--calibration", str(c), "--out-dir", str(out)]) in (0,)
+    assert json.loads((out / "report.json").read_text())["finetune"]["overall"]["n"] == 1
+    assert "<h2>finetune</h2>" in (out / "report.html").read_text()
+    with pytest.raises(SystemExit, match="public repo"):
+        ev.main(["--finetune", str(f), "--calibration", str(c), "--out-dir", str(REPO / "x")])
