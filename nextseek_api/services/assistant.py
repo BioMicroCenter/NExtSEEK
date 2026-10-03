@@ -93,6 +93,7 @@ from nextseek_api.assistant.models_api import (
     SubmissionResponse,
 )
 from NessieAI.ns.granular import OpBusyError, OpValidationError, run_op
+from NessieAI.ns.turn_memory import release_op_slot, take_op_slot
 from NessieAI.ns.op_limits import MIN_USABLE_S, SIDECAR_ROAD_CAP_S, op_limit_s
 from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
@@ -732,6 +733,9 @@ class AssistantViewSet(viewsets.ViewSet):
                 status.HTTP_401_UNAUTHORIZED,
             )
 
+        # The Container-CC turn behind a turn pass, or None for a browser or Basic caller.
+        pass_turn = request.auth if is_turn_pass(request) else None
+
         # Resolve session (same logic as /query/)
         if req.session_id:
             try:
@@ -753,56 +757,70 @@ class AssistantViewSet(viewsets.ViewSet):
             if chat_session is None:
                 chat_session = ChatSession.objects.create(user=request.user)
 
-        # Create task record
-        query_task = QueryTask.objects.create(
-            session=chat_session,
-            user=request.user,
-            query=req.query,
-            status="running",
-            parent_cc_turn=request.auth if is_turn_pass(request) else None,
-        )
+        # A child turn a Container-CC pass starts (nextseek-query, nextseek-plan, nextseek-pipeline) is one of that
+        # turn's two slots, the same two its ops share (operator ruling 2026-09-30). Taken before anything is made;
+        # given back by the child's runner (NessieAI/ns/turn.py run_async_pipeline) when the child ends, or here when
+        # the child never started.
+        if pass_turn is not None and not take_op_slot(pass_turn):
+            return op_error("BUSY", status=HTTP_STATUS["BUSY"])
+        try:
+            # Create task record. A nested turn a Container-CC pass starts names that turn (set once, here): the
+            # pass's progress check and the turn's cost read it.
+            query_task = QueryTask.objects.create(
+                session=chat_session,
+                user=request.user,
+                query=req.query,
+                status="running",
+                parent_cc_turn=pass_turn,
+            )
 
-        resolved_session_id = str(chat_session.session_id)
-        task_id_str = str(query_task.task_id)
+            resolved_session_id = str(chat_session.session_id)
+            task_id_str = str(query_task.task_id)
 
-        # Build DB-backed event callback
-        send_event = make_db_event_callback(task_id_str, resolved_session_id)
-        adapter = DictSessionAdapter(chat_session)
+            # Build DB-backed event callback
+            send_event = make_db_event_callback(task_id_str, resolved_session_id)
+            adapter = DictSessionAdapter(chat_session)
 
-        # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
-        api_user, api_pass = _request_login(request)
+            # Resolve credentials: a Basic header, else the session; under a turn pass, the login its turn holds.
+            api_user, api_pass = _request_login(request)
 
-        chat_config = _chat_config_for(request, req)
+            chat_config = _chat_config_for(request, req)
 
-        # When the request routed to the prod ChatConfig, swap the
-        # session-derived credentials for the prod config's baked-in
-        # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
-        # prod NExtSEEK with prod credentials — the local session user (e.g.
-        # "demo") doesn't exist on prod and would otherwise produce a 401.
-        prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
-        if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
-            if chat_config.API_USER and chat_config.API_PASS:
-                api_user = chat_config.API_USER
-                api_pass = chat_config.API_PASS
+            # When the request routed to the prod ChatConfig, swap the
+            # session-derived credentials for the prod config's baked-in
+            # API_USER/API_PASS. The pipeline's outbound Basic-auth calls must hit
+            # prod NExtSEEK with prod credentials — the local session user (e.g.
+            # "demo") doesn't exist on prod and would otherwise produce a 401.
+            prod_config = getattr(settings, "NEXTSEEK_CHAT_CONFIG_PROD", None)
+            if not is_turn_pass(request) and prod_config is not None and chat_config is prod_config:
+                if chat_config.API_USER and chat_config.API_PASS:
+                    api_user = chat_config.API_USER
+                    api_pass = chat_config.API_PASS
 
-        # The caller's project scope for graph queries, resolved here in the request
-        # thread and handed down as plain data (None refuses every graph query).
-        graph_scope = plain_scope(request.user)
+            # The caller's project scope for graph queries, resolved here in the request
+            # thread and handed down as plain data (None refuses every graph query).
+            graph_scope = plain_scope(request.user)
 
-        # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
-        # the thread start stays here.
-        thread = threading.Thread(
-            target=run_async_pipeline,
-            kwargs=dict(
-                adapter=adapter, chat_config=chat_config, req=req,
-                send_event=send_event, api_user=api_user, api_pass=api_pass,
-                chat_session=chat_session,
-                resolved_session_id=resolved_session_id,
-                graph_scope=graph_scope,
-            ),
-            daemon=True,
-        )
-        thread.start()
+            # The pipeline body runs in NessieAI/ns/turn.py (run_async_pipeline);
+            # the thread start stays here.
+            thread = threading.Thread(
+                target=run_async_pipeline,
+                kwargs=dict(
+                    adapter=adapter, chat_config=chat_config, req=req,
+                    send_event=send_event, api_user=api_user, api_pass=api_pass,
+                    chat_session=chat_session,
+                    resolved_session_id=resolved_session_id,
+                    graph_scope=graph_scope,
+                    parent_cc_turn=pass_turn,
+                ),
+                daemon=True,
+            )
+            thread.start()
+        except BaseException:
+            # Nothing will run the child's finally: give the slot back here.
+            if pass_turn is not None:
+                release_op_slot(pass_turn)
+            raise
 
         return Response(
             AsyncQueryResponse(

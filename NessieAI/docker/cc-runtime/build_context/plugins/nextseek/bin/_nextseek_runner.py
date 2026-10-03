@@ -92,6 +92,21 @@ def _dispatch_entity(args):
     return _call_op("entity", {"query": args.query})
 
 
+def _exit_on_op_code(resp) -> None:
+    """A refusal from the assistant viewset that carries an op error code (BUSY when two ops or NS queries of this turn
+    are already running, TIME_UP, PASS_NOT_ALLOWED) exits with that code, as the 11 op tools do; anything else returns
+    and the caller keeps its own mapping."""
+    import _op_errors
+    import _op_road
+    try:
+        body = resp.json()
+    except ValueError:
+        return
+    if isinstance(body, dict) and body.get("code") in _op_errors.EXIT:
+        e = _op_road.error_from_response(resp)
+        _err(e.code, e.message, e.exit_code, reason=e.reason, errors=e.errors)
+
+
 def _dispatch_parse(args):
     if _dry_run():  # pragma: no branch
         return {"mode": "new_search", "target_endpoint": None}  # pragma: no cover
@@ -175,6 +190,7 @@ def _run_viewset(query: str, mode: str, *, session_id: str | None = None) -> dic
     try:  # pragma: no cover
         terminal, _ = client.run_query(query, mode=mode, session_id=session_id)  # pragma: no cover
     except httpx.HTTPStatusError as e:  # pragma: no cover
+        _exit_on_op_code(e.response)  # pragma: no cover
         if e.response.status_code == 401:  # pragma: no cover
             _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)  # pragma: no cover
         _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)  # pragma: no cover
@@ -315,6 +331,7 @@ def _dispatch_query(args):
     except Exception as e:
         import httpx  # pragma: no cover
         if isinstance(e, httpx.HTTPStatusError):
+            _exit_on_op_code(e.response)
             if e.response.status_code == 401:
                 _err("AUTH_FAILED", "authentication failed (check NS credentials)", 8)
             _err("AGENT_FAILED", f"HTTP {e.response.status_code}", 4)

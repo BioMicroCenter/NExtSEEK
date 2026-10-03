@@ -39,6 +39,7 @@ from chat_nextseek.failure_replies import fatal_query_error
 from chat_nextseek.llm_clients import LLMFatalError
 from chat_nextseek.orchestrator import run_query, run_query_plan, run_pipeline_launch
 from chat_nextseek import turn_spend
+from NessieAI.ns.turn_memory import release_op_slot
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,8 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
     unhandled error into a ``query_error`` event, saves the turn, and always
     ends the stream with the ``None`` sentinel on ``event_queue``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
+    ``parent_cc_turn``: the Container-CC turn whose pass started this child turn (query_async took one of its two
+    slots for it), or None. The slot is given back in the finally, after the save, however the child ended.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
     scope_kw = _scope_kwargs(graph_scope)
@@ -261,7 +264,7 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id, graph_scope=None) -> None:
+                       chat_session, resolved_session_id, graph_scope=None, parent_cc_turn=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
@@ -292,5 +295,11 @@ def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_p
                 "session_id": resolved_session_id,
             })
     finally:
-        _save_session_or_report(
-            adapter, chat_session, send_event, resolved_session_id)
+        try:
+            _save_session_or_report(
+                adapter, chat_session, send_event, resolved_session_id)
+        finally:
+            if parent_cc_turn is not None:
+                # A child turn a Container-CC pass started holds one of that turn's two slots (operator ruling
+                # 2026-09-30); it gives it back here, done, failed or interrupted. Never raises.
+                release_op_slot(parent_cc_turn)
