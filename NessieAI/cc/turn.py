@@ -476,6 +476,23 @@ def _early_plan_fits_ops(chat_session, chat_config, user, req) -> bool:
             and _eval_config(chat_config, user, req) is chat_config)
 
 
+def _costed_terminal(send_event, state: dict):
+    """Wrap ``send_event`` so a Container-CC turn's ``query_complete`` or ``query_error`` carries the whole turn's
+    cost (``turn_memory.terminal_cost``), once the Container-CC branch has its ``CCTurn`` (``state["turn"]``); every
+    other event, and every NS or unrelated turn, passes through unchanged. Never raises."""
+    from NessieAI.ns import turn_memory
+
+    def wrapped(event, data):
+        if event in ("query_complete", "query_error") and state.get("turn") is not None and isinstance(data, dict):
+            try:
+                data = turn_memory.terminal_cost(state["turn"], data, router_fields=state.get("router") or {},
+                                                 prerun_settled=state.get("prerun_settled"))
+            except Exception:  # noqa: BLE001 - the event goes out as it was
+                logger.warning("cc: could not add the turn's cost to its %s", event, exc_info=True)
+        return send_event(event, data)
+    return wrapped
+
+
 def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                send_event, adapter, api_user, api_pass,
                resolved_session_id: str, graph_scope=None) -> None:
@@ -504,6 +521,7 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
     cost_state: dict = {"turn": None, "router": None, "prerun_settled": None}  # Task 10 reads it
     prerun_state: dict = {"prerun": None, "cc_turn": None, "reported": False}
     send_event = _with_prerun_outcome(send_event, prerun_state)
+    send_event = _costed_terminal(send_event, cost_state)
     user_api_user, user_api_pass = api_user, api_pass
     chat_config = _select_chat_config(request, req)
 

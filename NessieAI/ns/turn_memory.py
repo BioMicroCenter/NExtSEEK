@@ -174,3 +174,71 @@ def count_vocabulary_resolution(turn) -> None:
 def vocabulary_resolutions(turn) -> int:
     """How many times the turn's ops resolved its vocabulary themselves."""
     return int(_rows(turn).values_list("vocabulary_resolutions", flat=True).first() or 0)
+
+
+def _usd(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return None
+    return float(value)
+
+
+def nested_turn_costs(turn) -> tuple[float, list[str]]:
+    """What the NS turns this Container-CC turn started (``QueryTask.parent_cc_turn``) cost, and what was not counted."""
+    from nextseek_api.assistant.models_db import QueryTask
+    total, missing = 0.0, []
+    for status, result in QueryTask.objects.filter(parent_cc_turn=turn).values_list("status", "result"):
+        if status not in ("completed", "error"):
+            missing.append("a nested NExtSEEK turn was still running")
+            continue
+        cost = _usd(result.get("total_cost_usd")) if isinstance(result, dict) else None
+        if cost is None:
+            missing.append("a nested NExtSEEK turn reported no cost")
+            continue
+        total += cost
+        if result.get("cost_partial") is True:
+            missing.append("a nested NExtSEEK turn's cost was partial")
+    return round(total, 6), missing
+
+
+def terminal_cost(turn, data: dict, *, router_fields: dict, prerun_settled: Any) -> dict:
+    """``data`` for a Container-CC turn's ``query_complete`` or ``query_error`` with the whole turn's cost.
+
+    ``ops_cost_usd``: the ops' and the pre-run's spend plus the nested NS turns'. ``turn_cost_usd``: Claude Code's
+    own cost on the repo's price table (``cost_by_price_table_usd``, else ``total_cost_usd``; both kept unchanged in
+    ``data``) plus that plus the router's (``router_fields``, empty on a
+    forced turn). ``cost_partial`` is false only when every part was counted; ``cost_partial_reason`` says what was
+    not. ``prerun_settled`` is the pre-run hand-off's event, or None when there was no pre-run."""
+    row = _rows(turn).values("ops_cost_usd", "ops_cost_partial", "ops_in_flight").first() or {}
+    nested, reasons = nested_turn_costs(turn)
+    if row.get("ops_cost_partial"):
+        reasons.append("an op's model calls were not all priced or seen")
+    if (row.get("ops_in_flight") or 0) > 0:
+        reasons.append("an op or NS query of this turn was still running when the turn ended")
+    if prerun_settled is not None and not prerun_settled.is_set():
+        reasons.append("the vocabulary pre-run had not finished")
+    # One price table for the whole turn: Claude Code's number on the repo's table (translate.py), the same table the
+    # ops, the pre-run, the router and the nested NS turns are priced on; its list-price total only as a fallback.
+    cc = _usd(data.get("cost_by_price_table_usd"))
+    if cc is None:
+        cc = _usd(data.get("total_cost_usd"))
+    if cc is None:
+        reasons.append("Claude Code's own cost was not reported")
+    router = 0.0
+    if router_fields:
+        router_usd = _usd(router_fields.get("router_cost_usd"))
+        if router_usd is None:
+            reasons.append("the router's cost was not reported")
+        else:
+            router = router_usd
+        if router_fields.get("router_cost_partial"):
+            reasons.append("the router's cost was partial")
+    ops = round((_usd(row.get("ops_cost_usd")) or 0.0) + nested, 6)
+    out = dict(data)
+    out["ops_cost_usd"] = ops
+    out["turn_cost_usd"] = round((cc or 0.0) + ops + router, 6)
+    out["cost_partial"] = bool(reasons)
+    if reasons:
+        out["cost_partial_reason"] = "; ".join(dict.fromkeys(reasons))
+    else:
+        out.pop("cost_partial_reason", None)
+    return out
