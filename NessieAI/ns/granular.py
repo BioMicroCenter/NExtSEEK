@@ -464,9 +464,14 @@ def _run_ls(args, config, session, write_gate, neo4j_exec, outputs_dir, *, limit
     run_dir = os.path.normpath(str(args["run_dir"]))
     if run_dir != runs_root and not run_dir.startswith(runs_root + "/"):
         raise OpValidationError(f"run_dir must be under {runs_root}", field="run_dir", error_type="outside_the_runs_root")
+    from chat_nextseek import call_scope
     from chat_nextseek.luria.ssh import prepare_key, ssh_run
+    from NessieAI.ns.op_limits import OP_LIMITS_S
+    left = call_scope.time_left_for(OP_LIMITS_S["run-ls"] if limit_s is None else float(limit_s))
+    if left is None:
+        raise RuntimeError("the op ran out of time before the Luria listing could start")
     key_path = prepare_key(luria_env["key"])
-    out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path)
+    out = ssh_run(luria_env, f"ls -laR {shlex.quote(run_dir)}", key_path=key_path, timeout=left)
     return {"run_dir": run_dir, "truncated": len(out) > _RUN_LS_CAP, "tree": out[:_RUN_LS_CAP]}
 
 
