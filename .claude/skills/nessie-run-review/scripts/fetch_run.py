@@ -154,6 +154,13 @@ docker exec {app} cat {manifest} 2>/dev/null || echo "MISSING"
 echo "@@@TZ@@@"
 docker exec {app} date +%z 2>/dev/null || echo "UNKNOWN"
 
+# parent_cc_turn_id arrives with migration 0025; an instance without it reads NULL (q hides mysql's errors, so a
+# missing column would empty the pull).
+PARENT=$(q -e "SELECT IF(COUNT(*), 't.parent_cc_turn_id', 'NULL') FROM information_schema.columns
+               WHERE table_schema = DATABASE() AND table_name = 'assistant_query_task'
+                 AND column_name = 'parent_cc_turn_id';")
+[ -n "$PARENT" ] || PARENT=NULL
+
 echo "@@@TURNS@@@"
 q -e "SELECT JSON_OBJECT(
         'id',      t.id,
@@ -164,6 +171,7 @@ q -e "SELECT JSON_OBJECT(
         'user',    (SELECT u.username FROM auth_user u WHERE u.id = t.user_id),
         'session', t.session_id,
         'task_uuid', t.task_id,
+        'parent',  $PARENT,
         'run_root', JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.run_root'),'\$[0]')),
         'error',   COALESCE(
                      JSON_UNQUOTE(JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.error'),'\$[0]')),
@@ -382,6 +390,14 @@ def price_turns(turns: list[dict]) -> list[dict]:
     return turns
 
 
+def window_total(turns: list[dict]) -> tuple[float, int, int, int]:
+    """(total, priced, partial, nested): a nested NS turn (one with a parent) is already inside its parent's
+    turn_cost_usd, so it is counted once, through the parent."""
+    own = [t for t in turns if t["turn_cost"] is not None and not t.get("parent")]
+    return (sum(t["turn_cost"] for t in own), len(own), sum(1 for t in own if t["turn_cost_partial"]),
+            sum(1 for t in turns if t.get("parent")))
+
+
 def _norm_id(task_id) -> str:
     """A task id in one form: SQL gives 32 hex with no hyphens, the manifest gives them hyphenated."""
     return str(task_id).replace("-", "").lower()
@@ -503,10 +519,10 @@ def main() -> None:
     if turn_cost is None:
         print("  cost    not priced: turn_cost.py was not found, see the warning above")
     else:
-        priced = [t for t in turns if t["turn_cost"] is not None]
-        print(f"  cost    ${sum(t['turn_cost'] for t in priced):.4f} on {len(priced)} of "
-              f"{len(turns)} turns, {sum(1 for t in priced if t['turn_cost_partial'])} of "
-              f"them partial; fell back {sum(1 for t in turns if t['fell_back'])}")
+        total, priced, partial, nested = window_total(turns)
+        print(f"  cost    ${total:.4f} on {priced} of {len(turns)} turns, {partial} of "
+              f"them partial; fell back {sum(1 for t in turns if t['fell_back'])}, "
+              f"{nested} nested turns inside their parent's cost")
     if manifest is not None and turn_cost is not None:
         cases = case_costs(manifest, turns)
         (out / "case_costs.json").write_text(json.dumps(cases, indent=1), encoding="utf-8")
