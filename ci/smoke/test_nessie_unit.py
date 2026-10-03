@@ -749,3 +749,53 @@ def test_the_cc_cost_cap_is_a_rate_per_minute_with_a_one_minute_floor():
     assert cc_turn_cap_usd(120.0) == 1.00
     assert 0.5400435 <= cc_turn_cap_usd(119.7)   # run 6's turn now passes
     assert not 0.51 <= cc_turn_cap_usd(30.0)     # a 30 s turn over $0.50 still fails
+
+
+# --------------------------------------------------------------------------- laya (JevLevROUTING, SPEC 6.2, 6.3)
+def _decided(laya=None, router_model="gemini-x", **extra):
+    data = {"route": "nextseek_query", "source": "baml", "router_model": router_model, **extra}
+    if laya is not None:
+        data["laya"] = laya
+    return [{"event": "route_decided", "data": data}]
+
+
+def _recs(*progress):
+    return [TurnRecord(key=f"q{i}", text="t", expected_route="nextseek_query", progress=p)
+            for i, p in enumerate(progress)]
+
+
+def test_laya_audit_with_no_laya_block_anywhere_is_clean_and_reads_none():
+    from ci.smoke.test_nessie import laya_audit
+    assert laya_audit(_recs(_decided(), _decided())) == ("none", [])
+
+
+def test_laya_audit_shadow_on_every_turn_is_clean_and_reads_shadow():
+    from ci.smoke.test_nessie import laya_audit
+    shadow = {"mode": "shadow", "gate": "pass"}
+    assert laya_audit(_recs(_decided(shadow), _decided(dict(shadow, gate="timeout")))) == ("shadow", [])
+
+
+def test_laya_audit_a_mix_of_blocks_and_none_is_a_broken_shadow():
+    from ci.smoke.test_nessie import laya_audit
+    mode, problems = laya_audit(_recs(_decided({"mode": "shadow"}), _decided()))
+    assert mode == "mixed" and any("some turns" in p for p in problems)
+
+
+@pytest.mark.parametrize("mode", ["live", "audit"])
+def test_laya_audit_refuses_a_live_or_audit_block(mode):
+    from ci.smoke.test_nessie import laya_audit
+    _, problems = laya_audit(_recs(_decided({"mode": mode})))
+    assert any(mode in p for p in problems)
+
+
+def test_laya_audit_refuses_a_laya_router_model_even_with_no_block():
+    """A guard or fallback rebuild keeps router_model=laya:<rev> and the ledger shows no laya."""
+    from ci.smoke.test_nessie import laya_audit
+    _, problems = laya_audit(_recs(_decided(router_model="laya:20261003-abcdef012345")))
+    assert any("laya:" in p for p in problems)
+
+
+def test_the_lane_has_a_laya_check_that_runs_after_the_turns():
+    import ci.smoke.test_nessie as nessie
+    fn = nessie.test_laya_stayed_off_or_shadow
+    assert any(m.name == "nessie_turn" for m in fn.pytestmark)
