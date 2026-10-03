@@ -216,8 +216,8 @@ Checks that decide most verdicts:
   Grade the question `notrun` for the change under test, and list the 503 count under
   Anomalies: Container-CC has no provider fallback yet, so users saw it too. The proxy's 404s
   and 403s are Claude Code's model discovery and harmless.
-- **CC follow-ups on dev** failing with `VALIDATION: bad request` on `aggregate`: the sidecar is
-  stale (dev.md gotchas), not the product.
+- **CC follow-ups on dev** failing with `VALIDATION: bad request` on `aggregate` on the sidecar road:
+  the sidecar is stale (dev.md gotchas), not the product.
 - **Files served** by a turn are in its task row's `artifacts` / `files`, not in the harness
   report, which hides the download buttons.
 - **Exact text:** `fetch_run.py` garbles non-ASCII. Quote from the manifest, or say the quote is

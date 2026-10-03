@@ -637,8 +637,8 @@ definition:
 1. **Zero shared credentials in the agent env, and no user password.** The agent gets only:
    Bedrock-via-proxy pointers, the user's NExtSEEK name and a one-turn pass
    (`NEXTSEEK_TURN_PASS`: Django holds the login for the turn and revokes the pass when the turn ends),
-   the ops road (`NEXTSEEK_CC_OPS_ROAD`, `direct` or `sidecar`) and, on the sidecar road only, the sidecar
-   host/port, non-secret path mappings, the turn's stop time
+   the ops road (`NEXTSEEK_CC_OPS_ROAD`, `direct` or `sidecar`; on the sidecar road only, also the sidecar
+   host/port and the non-secret path mappings), the turn's stop time
    (`NEXTSEEK_CC_TURN_DEADLINE_EPOCH`, a number), and three non-secret model-call
    settings: `CLAUDE_CODE_MAX_RETRIES`, `API_TIMEOUT_MS` and
    `ANTHROPIC_DEFAULT_SONNET_MODEL` (a model id). The 16 forbidden shared-cred keys
