@@ -30,6 +30,7 @@ from django.core.management.base import BaseCommand, CommandError
 from NessieAI.cc import cc_staging
 from NessieAI.cc.cc_config import CCPaths
 from NessieAI.cc.cc_provision import build_user_dirs
+from nextseek_api.assistant.models_db import CCTurn
 
 
 class Command(BaseCommand):
@@ -41,8 +42,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser) -> None:
         parser.add_argument("--user-id", required=True, help="Django username (scratch subpath segment).")
         parser.add_argument("--staging-folder", required=True,
-                            help="The sidecar's drop folder name: the sha256 of the turn pass (64 hex). The pass "
-                                 "itself is gone after its turn, so the operator names the folder.")
+                            help="The sidecar's drop folder name: the sha256 of the turn pass (64 hex), which is "
+                                 "the turn's `pass_hash` in the CC turn table.")
         parser.add_argument("--project", required=True, help="Validated project dirname ({pid}-{slug}).")
 
     def handle(self, *args, **options) -> None:
@@ -56,6 +57,12 @@ class Command(BaseCommand):
             dirs = build_user_dirs(paths, project, user_id)
         except ValueError as exc:
             raise CommandError(f"invalid identity: {exc}") from exc
+
+        # The folder's owner is on record when its turn row is: never deliver it into another user's scratch. A folder
+        # with no row (older than the table, or rows purged) is the operator's call, as before.
+        turn = CCTurn.objects.filter(pass_hash=staging_folder).select_related("user").first()
+        if turn is not None and turn.user.get_username() != user_id:
+            raise CommandError("the staging folder belongs to another user")
 
         try:
             result = cc_staging.sweep_user_staging(

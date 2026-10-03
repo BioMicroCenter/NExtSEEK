@@ -1,7 +1,7 @@
 """Hermetic tests for the G7-11 Task 14 user-scoped sidecar staging sweep
 (``nextseek_api/cc_assistant/cc_staging.py``) + its management-command entrypoint.
 
-No Docker, no network, no DB (fakes + tmp dirs only). Grounds every layout fact
+No Docker, no network; the DB only for the command's owner lookup. Grounds every layout fact
 against the ported upstream contract at
 ``docker/ns-sidecar/app/staging.py`` (byte-identical to
 ``<source-checkout>/sidecar/app/staging.py`` @ a429f13):
@@ -564,6 +564,7 @@ def test_staging_root_for_derivation():
 # management command (recovery / Task 15 gate entrypoint) — SAME code path
 # --------------------------------------------------------------------------
 
+@pytest.mark.django_db  # the command looks the folder's owner up in the CC turn table (W3-2)
 def test_management_command_recovery_delivers_all(tmp_path, monkeypatch):
     from django.core.management import call_command
     from io import StringIO
