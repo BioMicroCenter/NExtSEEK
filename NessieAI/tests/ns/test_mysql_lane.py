@@ -6,15 +6,24 @@ marker skips these tests (NessieAI/tests/ns/conftest.py).
 """
 from __future__ import annotations
 
+import tempfile
 import threading
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.db import connection
 from django.test import TransactionTestCase
+from rest_framework.test import APIClient
 
+from chat_nextseek.orchestrator import _next_bundle_id
+from NessieAI.ns import granular
 from NessieAI.ns.turn_memory import MAX_OPS_IN_FLIGHT, release_op_slot, take_op_slot
+from nextseek_api.assistant import bundle_ids
 from nextseek_api.assistant.models_db import CCTurn, ChatSession, QueryTask
+from nextseek_api.assistant.session_adapter import DictSessionAdapter
 
 pytestmark = pytest.mark.mysql_lane
 
@@ -101,3 +110,64 @@ class OpSlotContentionTests(TransactionTestCase):
         self.assertGreater(sum(got), 0)
         self.assertLessEqual(peak[0], MAX_OPS_IN_FLIGHT)
         self.assertEqual(self.in_flight(), 0)
+
+
+BASE = "/nextseek_api/assistant"
+
+
+def _report_handler(args, config, session, write_gate, neo4j_exec, outputs_dir, **op_ctx):
+    path = Path(outputs_dir) / f"summary-{threading.get_ident()}.json"
+    path.write_text("{}")
+    return {"summary": {}, "saved_files": {"summary_json": str(path)}, "rows": {}}
+
+
+class BundleIdContentionTests(TransactionTestCase):
+    """Review focus 3 on a real database: one allocator, many writers at once, each on its own connection."""
+
+    databases = {"default"}
+
+    def setUp(self):
+        self.assertEqual(connection.vendor, "mysql")
+        self.user = User.objects.create_user("u1", password="p")
+        self.chat = ChatSession.objects.create(user=self.user)
+        outputs = tempfile.mkdtemp()
+        for patcher in (
+            patch("nextseek_api.services.assistant.UserInParticipatingProject.has_permission", return_value=True),
+            patch("nextseek_api.services.assistant._granular_chat_config", return_value=SimpleNamespace()),
+            patch("nextseek_api.services.assistant._granular_outputs_dir", return_value=outputs),
+            patch.dict(granular._HANDLERS, {"report": _report_handler}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_racing_allocations_hand_out_distinct_ids(self):
+        ids = race(WORKERS, lambda i: bundle_ids.allocate_bundle_id(self.chat.pk))
+        self.assertEqual(sorted(ids), list(range(1, WORKERS + 1)))
+        self.chat.refresh_from_db()
+        self.assertEqual(self.chat.extra_state[bundle_ids.BUNDLE_SEQ_KEY], WORKERS)
+
+    def test_racing_ns_turns_and_report_ops_keep_every_bundle(self):
+        """Half the workers are NS turns (load the chat, number a bundle, append it, save), half are report ops (the
+        artifact bundle under the row lock). No id is handed out twice and the merge loses no bundle."""
+        def worker(i):
+            if i % 2:
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                resp = client.post(f"{BASE}/report/", {"mode": "samples", "project": "p",
+                                                        "session_id": str(self.chat.session_id)}, format="json")
+                assert resp.status_code == 200, resp.content
+                return ("reporter", resp.json()["download"]["bundle_id"])
+            adapter = DictSessionAdapter(ChatSession.objects.get(pk=self.chat.pk))
+            bundle_id = _next_bundle_id(adapter)
+            adapter["results_history"] = [*adapter.get("results_history", []),
+                                          {"id": bundle_id, "mode": "new_search"}]
+            adapter.save()
+            return ("new_search", bundle_id)
+
+        made = race(WORKERS, worker)
+        ids = [bundle_id for _, bundle_id in made]
+        self.assertEqual(len(set(ids)), WORKERS, made)
+        self.chat.refresh_from_db()
+        kept = sorted((b["mode"], b["id"]) for b in self.chat.results_history)
+        self.assertEqual(kept, sorted(made))
+        self.assertEqual(self.chat.extra_state[bundle_ids.BUNDLE_SEQ_KEY], max(ids))
