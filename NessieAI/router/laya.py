@@ -66,7 +66,8 @@ def _load() -> dict | None:
         cfg = {
             "revision": str(cal["revision"]), "temperature": float(cal["temperature"]), "threshold": threshold,
             "prompt": opts["prompt"], "options": options,
-            "options_hash": laya_common.options_hash(options), "prompt_hash": laya_common.prompt_hash(),
+            # the whole options file, as build_options.py and fit_calibration.py hash it
+            "options_hash": laya_common.options_hash(opts), "prompt_hash": laya_common.prompt_hash(),
             "cal_options_hash": cal["options_hash"], "cal_prompt_hash": cal["prompt_hash"],
         }
     except Exception as exc:  # noqa: BLE001 - a bad file means off
