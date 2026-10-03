@@ -273,6 +273,29 @@ def test_a_file_of_the_same_name_is_never_overwritten(env, monkeypatch):
     assert out["saved_files"]["summary_xlsx"] == str(env / "nextseek-artifacts" / "5-summary_xlsx-summary.xlsx")
 
 
+def test_a_name_taken_after_the_check_is_never_overwritten(env, monkeypatch):
+    # A second op of the turn takes the free name between the check and the rename.
+    free_name = ac._free_name
+
+    def racing_free_name(*args):
+        path = free_name(*args)
+        path.write_bytes(b"racer")
+        return path
+
+    monkeypatch.setattr(ac, "_free_name", racing_free_name)
+    download = {"session_id": CHAT, "bundle_id": 5, "artifacts": [{"key": "summary_xlsx", "url": "unused"}]}
+    _serve(monkeypatch, _NExtSEEK({
+        f"{PREFIX}/report/": _ok("report", {"saved_files": {}}, download),
+        f"{PREFIX}/sessions/{CHAT}/bundles/5/artifacts/summary_xlsx/": _artifact(b"this op"),
+    }))
+    out = runner._dispatch_report(SimpleNamespace(mode="samples", project="p"))
+    folder = env / "nextseek-artifacts"
+    assert (folder / "summary.xlsx").read_bytes() == b"racer"
+    assert out["saved_files"]["summary_xlsx"] == str(folder / "5-summary_xlsx-summary.xlsx")
+    assert (folder / "5-summary_xlsx-summary.xlsx").read_bytes() == b"this op"
+    assert not list(folder.glob("*.part")) and not list(folder.glob(".*.part"))
+
+
 @pytest.mark.parametrize("download", [
     {"session_id": CHAT, "bundle_id": 3, "artifacts": [{"key": "../../x", "url": "unused"}]},
     {"session_id": "not-a-uuid", "bundle_id": 3, "artifacts": []},

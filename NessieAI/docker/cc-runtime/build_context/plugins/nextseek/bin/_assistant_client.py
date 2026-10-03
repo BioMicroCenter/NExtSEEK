@@ -293,7 +293,13 @@ class AssistantClient:
                 with open(part, "xb") as fh:
                     for chunk in response.iter_bytes():
                         fh.write(chunk)
-                os.replace(part, final)
+                # A link never replaces a file, so a name another op took after _free_name's check is kept.
+                try:
+                    os.link(part, final)
+                except FileExistsError:
+                    final = dest_dir / f"{bundle_id}-{artifact_key}-{final.name}"
+                    os.link(part, final)
+                part.unlink()
             except BaseException:
                 part.unlink(missing_ok=True)
                 raise
