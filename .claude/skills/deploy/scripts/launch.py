@@ -197,6 +197,8 @@ class BriefForm(Strict):
     nginx_change_expected: bool = False
     local_ruling: Optional[str] = None
     waivers: list[Waiver] = Field(default_factory=list)
+    laya_live_revision: Optional[str] = Field(
+        default=None, description="the laya revision the operator approved for live routing; null: live must be off")
     acknowledged_flags: list[Ack] = Field(default_factory=list)
     tag: Optional[str] = None
     start_utc: Optional[str] = None
@@ -476,13 +478,18 @@ PREFLIGHT_CHECK_IDS: set[str] = set()
 # =====================================================================================
 # 2. Preflight: the rendered read-only script, and the table it is read against
 # =====================================================================================
+# JevLevROUTING: on every instance (dev is where the posterior flag stuck). Values are stripped of quotes.
+LAYA_KV = ('s=$(grep -E "^NESSIE_LAYA_SHADOW=" docker/nextseek.env | cut -d= -f2 | tr -d \'"\'); '
+           'l=$(grep -E "^NESSIE_LAYA_LIVE=" docker/nextseek.env | cut -d= -f2 | tr -d \'"\'); '
+           'echo "KV laya_mode=shadow=${s:-unset} live=${l}"')
 PREFLIGHT_EXTRA = {
-    "dev": 'if [ -f /tmp/labs_db.json ]; then echo "KV labs_source=present"; else echo "KV labs_source=missing"; fi',
+    "dev": LAYA_KV + '\n' + 'if [ -f /tmp/labs_db.json ]; then echo "KV labs_source=present"; else echo "KV labs_source=missing"; fi',
     "prod": "\n".join([
         '[ -n "$E" ] && git diff --name-only HEAD.."$E" -- startup/seed/neo4j.cypher.gz startup/seed/seek_production.sql.gz | sed \'s/^/SEED_TOUCHED /\'',
         'for f in NessieAI/docker/bedrock-proxy/proxy-secret.env docker/seek-nginx.conf; do if [ -f "$f" ]; then echo "FILE present $f"; else echo "FILE missing $f"; fi; done',
         'if docker compose config -q >/dev/null 2>&1; then echo "KV compose_config=ok"; else echo "KV compose_config=bad"; fi',
         'v=$(grep -E "^NEXTSEEK_POSTERIOR_ROUTING_ENABLED=" docker/nextseek.env | cut -d= -f2); echo "KV posterior_routing=${v:-unset}"',
+        LAYA_KV,
     ]),
 }
 
@@ -492,6 +499,7 @@ PREFLIGHT_CHECK_IDS.update({
     "complete", "disk", "memory", "swap", "oom", "restarts", "busy", "tmux", "branch", "fetch",
     "expected", "origin_match", "ff", "dirty", "dirty_touched", "nextseek_env", "ci_env",
     "labs_source", "http", "seed_touched", "compose_files", "compose_config", "posterior_routing",
+    "laya_mode",
     "seek_worker_oom",
 })
 CI_ENV_KEYS = ("CI_SMOKE_USER", "CI_SMOKE_PASS", "CI_WRITE_USER", "CI_WRITE_PASS")
@@ -631,6 +639,13 @@ def judge_preflight(p: dict, brief: BriefForm, tag: str) -> list[dict]:
         row("labs_source", kv.get("labs_source", "unknown"), present,
             "/tmp/labs_db.json exists (an app rebuild drops the copied labs file)", warn=not needs)
     row("http", kv.get("http", "unknown"), kv.get("http") == "200", "the app answers 200 on 127.0.0.1:8000")
+    laya = kv.get("laya_mode", "unknown")
+    m = re.match(r"^shadow=(\S*) live=(\S*)$", laya)
+    shadow, live = (m.group(1), m.group(2)) if m else ("unset", "")  # absent reads as off
+    laya_ok = (shadow in ("0", "1", "unset") and live == "") or (
+        live != "" and live == brief.laya_live_revision)
+    row("laya_mode", laya, laya_ok, "laya shadow is 0, 1 or absent and live is empty; a live value passes only "
+        "when the brief's laya_live_revision names that revision")
     if inst.name == "prod":
         row("seed_touched", "; ".join(p["seed_touched"]) or "none", not p["seed_touched"],
             "the range does not touch the dirty production dumps")
