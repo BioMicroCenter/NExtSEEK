@@ -23,7 +23,7 @@ fi
 # shellcheck disable=SC1091
 . "$WORK/venv/bin/activate"
 python -c "import importlib.metadata as m,sys; sys.exit(0 if m.version('laya')=='$LAYA_VERSION' else 1)" >/dev/null 2>&1 \
-  || pip install "laya==$LAYA_VERSION" torch --extra-index-url https://download.pytorch.org/whl/cpu
+  || pip install "laya==$LAYA_VERSION" "torch==2.14.1" --extra-index-url https://download.pytorch.org/whl/cpu  # the sidecar lock's torch
 
 if [ "${LAYA_ALLOW_DOWNLOAD:-0}" != "1" ]; then
   export HF_HUB_OFFLINE=1
