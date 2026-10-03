@@ -16,6 +16,10 @@ NEXTSEEK_POSTERIOR_ROUTING_ENABLED = (
     (os.getenv("NEXTSEEK_POSTERIOR_ROUTING_ENABLED") or "").strip().lower()
     in ("1", "true", "yes", "on")
 )
+# Container-CC ops road (approach 1, piece 2): "direct", the default, sends the op tools straight to the assistant
+# endpoints with the turn pass; "sidecar" keeps the WebSocket sidecar for one release, as the rollback. Django puts
+# this value into every Container-CC agent's env (NessieAI/cc/ops_road.py is the one reader).
+NEXTSEEK_CC_OPS_ROAD = (os.getenv("NEXTSEEK_CC_OPS_ROAD") or "direct").strip().lower()
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 

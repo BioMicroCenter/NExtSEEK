@@ -40,6 +40,7 @@ from .attach import BridgeAttachSocket
 from .translate import MODEL_UNAVAILABLE_REASON, CCStreamTranslator
 from .cc_config import CCPaths
 from . import cc_transcript_store
+from .ops_road import DIRECT, ROAD_ENV, SIDECAR
 from NessieAI.cc import cc_session
 from NessieAI.cc import safe_fs
 
@@ -408,8 +409,11 @@ def build_agent_environment(
     path_mappings: Mapping[str, Any],
     chat_session_id: str | None = None,
     turn_deadline: float | None = None,
+    ops_road: str = DIRECT,
 ) -> dict[str, str]:
     """The COMPLETE env for the sandboxed Container-CC agent (OI-3).
+
+    ``ops_road`` (``ops_road.py``) is the road the op tools take; only the sidecar road gets the sidecar's address.
 
     SINGLE source of truth for the agent env — ``run_cc_turn`` and the
     containment canary both call this, so a secret can never sneak in via a
@@ -456,11 +460,13 @@ def build_agent_environment(
         rewritten = _rewrite_loopback_url(base)
         env["NEXTSEEK_BASE_URL"] = rewritten
         env["NEXTSEEK_URL"] = rewritten
-    # Step 2 (G7-11): the NS sidecar's compose service DNS name + WS port —
-    # the ONLY two keys the plugin's _sidecar_client.py needs (never a
-    # credential; per-request user Basic auth travels inside WS frames).
-    env["NEXTSEEK_SIDECAR_HOST"] = src.get("NEXTSEEK_SIDECAR_HOST", _DEFAULT_SIDECAR_HOST)
-    env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
+    # Approach 1, piece 2: the road the op tools take (ops_road.py; never a credential). Only the sidecar road needs
+    # the sidecar's compose service DNS name + WS port (_sidecar_client.py).
+    road = SIDECAR if str(ops_road or "").strip().lower() == SIDECAR else DIRECT
+    env[ROAD_ENV] = road
+    if road == SIDECAR:
+        env["NEXTSEEK_SIDECAR_HOST"] = src.get("NEXTSEEK_SIDECAR_HOST", _DEFAULT_SIDECAR_HOST)
+        env["NEXTSEEK_SIDECAR_PORT"] = src.get("NEXTSEEK_SIDECAR_PORT", _DEFAULT_SIDECAR_PORT)
     # D19: container->host path translation for artifact-location reporting.
     env["DMAC_PATH_MAPPINGS"] = json.dumps(path_mappings, separators=(",", ":"))
     # §4.C: the live chat session id for nextseek-recall/query — not a credential.
@@ -1440,11 +1446,15 @@ def run_cc_turn(
             logger.warning("cc: recording the turn deadline failed (run_id=%s)", run_id, exc_info=True)
     # OI-3: the COMPLETE agent env from the single builder: zero AWS/backend creds, no password; Bedrock only via
     # the auth-proxy, NExtSEEK only with the turn pass.
+    # Approach 1, piece 2: read the road once per turn, so the env and the sweep below always agree.
+    from .ops_road import ops_road as current_ops_road
+    road = current_ops_road()
     environment = build_agent_environment(
         source=os.environ, api_user=api_user, turn_pass=turn_pass,
         path_mappings=path_mappings,
         chat_session_id=chat_session_id,
         turn_deadline=turn_deadline,
+        ops_road=road,
     )
     # Spec piece 1: every scrub below takes its secrets from the login Django holds for this turn and the pass,
     # never from the container env, which holds no password.
@@ -1582,6 +1592,8 @@ def run_cc_turn(
         # revoke the pass before the sweep and the publish.
         _end_turn()
 
+        # Approach 1, piece 2: only the sidecar road stages downloads; on the direct road the tool downloads into its
+        # own scratch, so there is nothing to sweep. Strays stay for cc_sweep_staging.
         # G7-11 (Task 14): same-turn sidecar staging sweep. Mirrors upstream
         # ws.py:276-293 — sweep this user's ``.complete``-marked staging dirs
         # into their OWN ``{project}/{user}/scratch/nextseek-artifacts/`` subtree
@@ -1591,7 +1603,7 @@ def run_cc_turn(
         # limits the in-turn sweep to THIS turn's markers; older strays are left
         # for the ``cc_sweep_staging`` recovery entrypoint. Never fatal to the
         # turn (upstream _sweep_then_diff swallows sweep errors likewise).
-        if api_user and agent_gone:
+        if api_user and agent_gone and road == SIDECAR:
             try:
                 from . import cc_staging
                 cc_staging.sweep_user_staging(

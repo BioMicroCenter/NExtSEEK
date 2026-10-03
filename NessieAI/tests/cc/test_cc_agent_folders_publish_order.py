@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import docker as docker_mod
 import pytest
+from django.test import override_settings
 
 from NessieAI.cc import cc_engine, safe_fs
 from NessieAI.cc.cc_config import CCPaths
@@ -61,7 +62,8 @@ def _terminals(events):
 
 def test_the_sweep_and_the_publish_wait_for_the_agent_to_exit(tmp_path, monkeypatch):
     calls: list[str] = []
-    events = _turn(tmp_path, monkeypatch, FakeContainer(calls), calls)
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar"):
+        events = _turn(tmp_path, monkeypatch, FakeContainer(calls), calls)
     assert "publish" in calls and "sweep" in calls, calls
     exited = min(calls.index(name) for name in ("wait", "stop") if name in calls)
     assert exited < calls.index("sweep") < calls.index("publish"), calls
@@ -96,7 +98,8 @@ def test_a_container_docker_no_longer_knows_counts_as_gone(tmp_path, monkeypatch
 def test_a_failed_stop_is_followed_by_a_force_remove_and_a_confirm(tmp_path, monkeypatch):
     calls: list[str] = []
     container = FakeContainer(calls, stop_ok=False)
-    _turn(tmp_path, monkeypatch, container, calls)
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar"):
+        _turn(tmp_path, monkeypatch, container, calls)
     assert calls[:4] == ["stop", "remove", "wait", "sweep"] and "publish" in calls, calls
     assert container.wait_timeouts == [cc_engine._CONFIRM_EXIT_WAIT_S]
     assert 0 < cc_engine._CONFIRM_EXIT_WAIT_S < float("inf")
@@ -110,3 +113,19 @@ def test_nothing_is_published_when_the_agent_cannot_be_confirmed_gone(tmp_path, 
     assert not (tmp_path / "proj" / "alice" / "output" / "artifacts").exists()
     [(event, data)] = _terminals(events)
     assert event == "query_complete" and data["artifacts"] is None
+
+
+def test_on_the_sidecar_road_an_unconfirmed_exit_sweeps_nothing(tmp_path, monkeypatch):
+    """Approach 1, piece 2 on top of step 1: the sidecar road sweeps only once the agent is confirmed gone."""
+    calls: list[str] = []
+    container = FakeContainer(calls, wait_ok=False, stop_ok=False, remove_ok=False)
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar"):
+        _turn(tmp_path, monkeypatch, container, calls)
+    assert "sweep" not in calls and "publish" not in calls, calls
+
+
+def test_on_the_direct_road_a_confirmed_exit_publishes_and_sweeps_nothing(tmp_path, monkeypatch):
+    calls: list[str] = []
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="direct"):
+        _turn(tmp_path, monkeypatch, FakeContainer(calls), calls)
+    assert "publish" in calls and "sweep" not in calls, calls

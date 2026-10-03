@@ -252,9 +252,10 @@ def test_chat_session_id_absent_when_not_passed():
     assert "NEXTSEEK_CHAT_SESSION_ID" not in env
 
 
-def test_agent_env_exact_key_set():
+def test_agent_env_exact_key_set(monkeypatch):
     """OI-3: pin the COMPLETE env key set. Any future key addition must consciously edit this list. Spec piece 1:
     NEXTSEEK_TURN_PASS in, NEXTSEEK_PASSWORD and API_PASS out."""
+    monkeypatch.setattr(cc_engine, "_cc_classifier_model_id", lambda override="": "us.anthropic.x")
     env = cc_engine.build_agent_environment(
         source={"AWS_REGION": "us-east-1", "NEXTSEEK_INTERNAL_BASE_URL": "http://x:8000"},
         api_user="u", turn_pass="p", path_mappings={"a": 1},
@@ -264,7 +265,7 @@ def test_agent_env_exact_key_set():
         "CLAUDE_CODE_SKIP_BEDROCK_AUTH", "CLAUDE_CODE_ENABLE_AUTO_MODE",
         "NEXTSEEK_USERNAME", "API_USER", "NEXTSEEK_TURN_PASS",
         "AWS_REGION", "NEXTSEEK_BASE_URL", "NEXTSEEK_URL",
-        "NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT", "DMAC_PATH_MAPPINGS",
+        "NEXTSEEK_CC_OPS_ROAD", "DMAC_PATH_MAPPINGS",
         "NEXTSEEK_CHAT_SESSION_ID", "NEXTSEEK_CC_TURN_DEADLINE_EPOCH",
         "CLAUDE_CODE_MAX_RETRIES", "API_TIMEOUT_MS", "ANTHROPIC_DEFAULT_SONNET_MODEL",
     }
@@ -620,7 +621,7 @@ def test_rewrite_helper_leaves_remote_host():
 
 def test_agent_env_includes_sidecar_host_and_port_defaults():
     env = cc_engine.build_agent_environment(
-        source={}, api_user="d", turn_pass="p", path_mappings={},
+        source={}, api_user="d", turn_pass="p", path_mappings={}, ops_road="sidecar",
     )
     assert env["NEXTSEEK_SIDECAR_HOST"] == "nextseek-sidecar"
     assert env["NEXTSEEK_SIDECAR_PORT"] == "8765"
@@ -630,7 +631,7 @@ def test_agent_env_sidecar_host_and_port_overridable():
     env = cc_engine.build_agent_environment(
         source={"NEXTSEEK_SIDECAR_HOST": "other-sidecar-host",
                 "NEXTSEEK_SIDECAR_PORT": "9999"},
-        api_user="d", turn_pass="p", path_mappings={},
+        api_user="d", turn_pass="p", path_mappings={}, ops_road="sidecar",
     )
     assert env["NEXTSEEK_SIDECAR_HOST"] == "other-sidecar-host"
     assert env["NEXTSEEK_SIDECAR_PORT"] == "9999"
@@ -876,3 +877,26 @@ def test_cc_runner_available_network_missing_cites_compose(monkeypatch):
     assert "docker compose" in detail
     assert "NEXTSEEK_CC_NETWORK" in detail
 
+
+# --- approach 1, piece 2: the ops road -----------------------------------------------------------------------
+
+def _road_env(**kw):
+    return cc_engine.build_agent_environment(source={}, api_user="d", turn_pass="t", path_mappings={}, **kw)
+
+
+def test_the_direct_road_is_the_default_and_names_no_sidecar():
+    env = _road_env()
+    assert env["NEXTSEEK_CC_OPS_ROAD"] == "direct"
+    assert "NEXTSEEK_SIDECAR_HOST" not in env and "NEXTSEEK_SIDECAR_PORT" not in env
+
+
+def test_the_sidecar_road_adds_exactly_the_sidecar_address():
+    direct, sidecar = _road_env(ops_road="direct"), _road_env(ops_road="sidecar")
+    assert set(sidecar) - set(direct) == {"NEXTSEEK_SIDECAR_HOST", "NEXTSEEK_SIDECAR_PORT"}
+    assert sidecar["NEXTSEEK_CC_OPS_ROAD"] == "sidecar"
+
+
+@pytest.mark.parametrize("value, road", [("Sidecar ", "sidecar"), ("side-car", "direct"), ("", "direct"),
+                                         ("websocket", "direct")])
+def test_the_builder_normalises_the_road(value, road):
+    assert _road_env(ops_road=value)["NEXTSEEK_CC_OPS_ROAD"] == road

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import docker as docker_mod
+from django.test import override_settings
 from docker.errors import APIError, NotFound
 
 from NessieAI.cc import cc_engine
@@ -74,6 +75,7 @@ def _install_client(monkeypatch, container):
     return container
 
 
+@override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar")
 def test_run_cc_turn_streams_result_and_persists(tmp_path, monkeypatch):
     container = _FakeContainer()
     _install_client(monkeypatch, container)

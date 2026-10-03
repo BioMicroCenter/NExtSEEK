@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 
 import docker as docker_mod
+from django.test import override_settings
 
 from NessieAI.cc import cc_engine
 from NessieAI.cc.cc_config import CCPaths
@@ -192,7 +193,8 @@ def test_an_overrun_turn_sweeps_what_the_sidecar_staged_for_it(tmp_path, monkeyp
         (staged / req / "submission.xlsx").write_bytes(b"xlsx-bytes")
         (staged / f"{req}.complete").write_bytes(b"")
 
-    events = _run(tmp_path, monkeypatch, stage)
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar"):
+        events = _run(tmp_path, monkeypatch, stage)
 
     [(event, data)] = _terminals(events)
     assert event == "query_error" and data["reason"] == "exec_timeout"
@@ -277,3 +279,23 @@ def test_an_overrun_turn_with_nothing_said_carries_no_partial(tmp_path, monkeypa
 def test_the_limit_message_says_how_to_carry_on():
     """D5 keeps the limit where it is, so the message has to do the work."""
     assert "Say continue and I will carry on from where I got to." in TIMEOUT_TEXT
+
+
+def test_on_the_direct_road_nothing_staged_is_swept(tmp_path, monkeypatch):
+    """Approach 1, piece 2: on the direct road the tool downloads into its own scratch, so the turn sweeps nothing;
+    a stray from the sidecar road stays for the cc_sweep_staging recovery command."""
+    req = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    staged = tmp_path / "_staging" / hashlib.sha256(API_USER.encode()).hexdigest()
+
+    def stage():
+        (staged / req).mkdir(parents=True)
+        (staged / req / "submission.xlsx").write_bytes(b"xlsx-bytes")
+        (staged / f"{req}.complete").write_bytes(b"")
+
+    with override_settings(NEXTSEEK_CC_OPS_ROAD="direct"):
+        events = _run(tmp_path, monkeypatch, stage)
+
+    [(event, data)] = _terminals(events)
+    assert event == "query_error" and data["reason"] == "exec_timeout"
+    assert (staged / f"{req}.complete").exists()
+    assert not (_output(tmp_path) / "artifacts" / RUN_ID / "nextseek-artifacts").exists()

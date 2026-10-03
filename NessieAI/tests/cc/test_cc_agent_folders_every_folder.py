@@ -17,6 +17,7 @@ from pathlib import Path
 
 import docker as docker_mod
 import pytest
+from django.test import override_settings
 
 from NessieAI import paths
 from NessieAI.cc import cc_engine
@@ -70,6 +71,7 @@ def _agent_work(users: Path, canary: Canary):
     return work
 
 
+@override_settings(NEXTSEEK_CC_OPS_ROAD="sidecar")
 def test_a_turn_whose_agent_plants_links_everywhere_leaves_the_canary_alone(tmp_path, monkeypatch):
     canary = Canary(tmp_path)
     users = tmp_path / "users"
