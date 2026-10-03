@@ -223,7 +223,7 @@ def strip_unread_doc_links(narrative: str, read: set[str]) -> str:
     return _DOC_LINK.sub(lambda m: m[0] if m[2].lower() in read else m[1], narrative)
 
 
-# A number the model wrote: not part of a code, slug or UID ("TIS-230830ENG-1", "/docs/step-2/"), not a list marker.
+# A number the model wrote: not part of a code, slug or UID ("ZZZ-990101ABC-1", "/docs/step-2/"), not a list marker.
 _ANSWER_NUMBER = re.compile(r"(?<![\w.\-/#])\d[\d,]*(?:\.\d+)?(?![\w\-/]|\.\d)")
 _LIST_MARKER = re.compile(r"^(\s*)\d+[.)]\s", re.MULTILINE)
 _ANY_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
