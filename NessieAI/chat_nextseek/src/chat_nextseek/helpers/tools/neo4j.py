@@ -323,8 +323,16 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
     # An op's limit caps every statement (approach 1, piece 2): with no time left nothing is sent, and each
     # transaction below gets at most what is left when it starts. An NS turn has no deadline: 60 s, as before.
     base_timeout = float(timeout_s or QUERY_TIMEOUT_S)
-    if call_scope.time_left_for(base_timeout) is None:
+    left = call_scope.time_left_for(base_timeout)
+    if left is None:
         return failed(OUT_OF_TIME_REFUSED)
+    # Inside an op the driver neither retries nor waits to connect past what is left (graph_catalog.py's options);
+    # outside one (an NS turn) it keeps its defaults.
+    options = {} if call_scope.time_left_for(float("inf")) == float("inf") else {
+        "connection_timeout": left,
+        "connection_acquisition_timeout": left,
+        "max_transaction_retry_time": 0,
+    }
 
     def timed(work):
         left = call_scope.time_left_for(base_timeout)
@@ -338,11 +346,13 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
                 config.NEO4J_URI,
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
                 notifications_min_severity="OFF",
+                **options,
             )
         except TypeError:
             driver = GraphDatabase.driver(
                 config.NEO4J_URI,
                 auth=(config.NEO4J_USER, config.NEO4J_PASSWORD),
+                **options,
             )
         with driver.session(database=getattr(config, "NEO4J_DATABASE", "neo4j")) as db_session:
             if total_only:
@@ -376,6 +386,9 @@ def tool_neo4j_query(config: ChatConfig, cypher: str, parameters: dict | None = 
             if effective_limit is not None and len(records) >= effective_limit:
                 truncated = True
                 total = None
+            if truncated and call_scope.time_left_for(base_timeout) is None:
+                print("[DEBUG][GRAPHDB] Result hit its LIMIT; no time left for the total probe")
+            elif truncated:
                 try:
                     total = _probe_total(db_session, body, params, timed(_read_total))
                     print(f"[DEBUG][GRAPHDB] Result hit LIMIT {effective_limit}; true total = {total}")
