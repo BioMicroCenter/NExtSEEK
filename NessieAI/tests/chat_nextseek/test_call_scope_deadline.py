@@ -325,3 +325,28 @@ def test_the_short_agents_keep_their_move_inside_the_op(run, clock, agent, model
         clock.now += 25  # 30 s left: a first try of at most 10 s, then the move
         assert _call(_Config(), agent, model).mode == fallback
     assert windows == [(model, 10), (fallback, 20)]
+
+
+# --- approach 1, piece 2: the waits that are not model calls ---------------------------------------------------
+
+def test_a_wait_outside_any_scope_keeps_its_own_length():
+    assert call_scope.time_left_for(90.0) == 90.0
+
+
+def test_an_ns_turn_scope_has_no_deadline_so_nothing_is_cut():
+    with call_scope.scope():
+        assert call_scope.time_left_for(120.0) == 120.0
+
+
+def test_a_wait_inside_an_op_is_cut_to_the_time_left(clock):
+    with _op_scope(30.0):
+        assert call_scope.time_left_for(90.0) == 30.0
+        clock.now += 20.0
+        assert call_scope.time_left_for(90.0) == pytest.approx(10.0)
+        assert call_scope.time_left_for(5.0) == 5.0
+
+
+def test_no_wait_starts_with_two_seconds_or_less_left(clock):
+    with _op_scope(30.0):
+        clock.now += 28.0
+        assert call_scope.time_left_for(90.0) is None

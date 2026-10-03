@@ -23,7 +23,8 @@ whose primary and fallback both failed earlier fails at once without calling eit
   except for the agents whose budget says ``op_move_reserve=False`` (the graph agent and the report writer, whose
   move could not redo their work in that time), which get what is left; the moved call gets at most what is left;
   with ``DEADLINE_FLOOR_S`` or less left no call starts. An NS turn opens
-  its scope with no deadline, so nothing is cut.
+  its scope with no deadline, so nothing is cut. The waits that are not
+  model calls (Neo4j, Django's own REST calls) read it through ``time_left_for``.
 * Threads: marks and reads take a lock. Only the caller's thread marks (the wall-clock worker threads never touch the
   scope, so an abandoned call that answers late cannot). The aggregate op's parts run on pool threads and get this
   same object through ``contextvars.copy_context``.
@@ -36,7 +37,7 @@ import threading
 import time
 from typing import Iterator
 
-__all__ = ["CallScope", "current", "scope", "limit_current", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
+__all__ = ["CallScope", "current", "scope", "limit_current", "time_left_for", "MOVE_RESERVE_S", "MIN_FIRST_TRY_S", "DEADLINE_FLOOR_S"]
 
 _CURRENT: contextvars.ContextVar["CallScope | None"] = contextvars.ContextVar(
     "chat_nextseek_call_scope", default=None,
@@ -109,6 +110,22 @@ def limit_current(seconds: float) -> CallScope | None:
     if current_scope is not None:
         current_scope.limit(seconds)
     return current_scope
+
+
+def time_left_for(base_s: float) -> float | None:
+    """How long a wait may last now: ``base_s`` outside a deadline; inside one, ``base_s`` or what is left if that is
+    less; None when ``DEADLINE_FLOOR_S`` or less is left, and then nothing should start.
+
+    For the waits that are not model calls (a Neo4j statement, a REST call Django makes to itself): an op's limit caps
+    them too (approach 1, piece 2), so no request is still running after the op has answered.
+    """
+    current_scope = _CURRENT.get()
+    left = None if current_scope is None else current_scope.remaining()
+    if left is None:
+        return base_s
+    if left <= DEADLINE_FLOOR_S:
+        return None
+    return min(base_s, left)
 
 
 @contextlib.contextmanager
