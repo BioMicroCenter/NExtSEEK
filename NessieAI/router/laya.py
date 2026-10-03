@@ -61,11 +61,12 @@ def _load() -> dict | None:
         cal = json.loads(CALIBRATION_PATH.read_text())
         opts = json.loads(OPTIONS_PATH.read_text())
         options = {o["key"]: o["text"] for o in opts["options"]}
-        threshold = float(cal["threshold"])
-        if not 0.5 <= threshold <= 0.99 or cal["question_type"] != "choice":
+        threshold, temperature = float(cal["threshold"]), float(cal["temperature"])
+        if not 0.5 <= threshold <= 0.99 or not (math.isfinite(temperature) and temperature > 0) \
+                or cal["question_type"] != "choice":
             raise ValueError("calibration out of range")
         cfg = {
-            "revision": str(cal["revision"]), "temperature": float(cal["temperature"]), "threshold": threshold,
+            "revision": str(cal["revision"]), "temperature": temperature, "threshold": threshold,
             "prompt": opts["prompt"], "options": options,
             # the whole options file, as build_options.py and fit_calibration.py hash it
             "options_hash": laya_common.options_hash(opts), "prompt_hash": laya_common.prompt_hash(),

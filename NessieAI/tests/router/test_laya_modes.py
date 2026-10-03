@@ -54,6 +54,13 @@ def test_bad_files_mean_off_with_one_error(tmp_path, monkeypatch, caplog, kind):
     assert sum(r.levelname == "ERROR" for r in caplog.records) == 1
 
 
+@pytest.mark.parametrize("temperature", [0.0, -1.0, float("nan"), float("inf")])
+def test_a_temperature_that_is_not_finite_and_positive_means_off(tmp_path, monkeypatch, caplog, temperature):
+    laya = setup(tmp_path, monkeypatch, shadow="1", live=REV, temperature=temperature)
+    assert laya.mode() == "off" and laya.mode() == "off"
+    assert sum(r.levelname == "ERROR" for r in caplog.records) == 1
+
+
 def test_startup_info_line_once(tmp_path, monkeypatch, caplog):
     import logging
     caplog.set_level(logging.INFO)
