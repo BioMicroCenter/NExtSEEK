@@ -2014,7 +2014,8 @@ def run_query(
         current_agent = "parser"
         send_event("agent_started", {"agent": "parser", "mode": ""})
         _t0 = time.perf_counter()
-        plan = parser_agent(session, config, user_text, entity_result)
+        parser_decision: dict[str, Any] = {}
+        plan = parser_agent(session, config, user_text, entity_result, decision=parser_decision)
         print(f"[TIMING][PARSER] {time.perf_counter() - _t0:.2f}s")
         plan = ParserPlan.model_validate(fix_sample_endpoint(plan.model_dump()))
         plan = _clamp_lab_codes_to_entity(plan, entity_result)
@@ -2027,6 +2028,7 @@ def run_query(
         debug_payload: dict[str, Any] = {
             "entity_result": entity_result.model_dump(),
             "parser_plan": plan.model_dump(),
+            "parser_decision": parser_decision or None,  # raw/final mode, guardrails_changed, llm_ms; no question text
             "shortlist_sampletype_codes": shortlist_diag.get("sampletype_codes", []),
             "shortlist_assay_codes": shortlist_diag.get("assay_codes", []),
             "shortlist_diagnostics": shortlist_diag,
