@@ -6,6 +6,8 @@ default ceiling is 180 s). A client still waiting at that moment is killed along
 and the agent never gets to say what happened, so every wait an op makes on the server ends
 before it. The assistant client (nextseek-query's polling) and the sidecar client (every
 sidecar op, nextseek-graph among them) both take their budget from here.
+A model op with under MIN_USABLE_S usable is not started at all (``preflight``, piece 4);
+MIN_WAIT_S now applies only to the ops that call no model.
 """
 from __future__ import annotations
 
@@ -20,6 +22,36 @@ TURN_DEADLINE_ENV = "NEXTSEEK_CC_TURN_DEADLINE_EPOCH"
 TURN_DEADLINE_HEADROOM_S: float = 45.0
 # Never wait less than this, so an op issued late in a turn still gets one short chance.
 MIN_WAIT_S: float = 10.0
+# Piece 4: under this many seconds usable (deadline - now - TURN_DEADLINE_HEADROOM_S) a model op is not started. The
+# server makes the same check (NessieAI/ns/op_limits.MIN_USABLE_S, pinned equal by a test) and is the control.
+MIN_USABLE_S: float = 20.0
+# The header that tells the server this turn's deadline; the server lets it only shorten its own.
+DEADLINE_HEADER = "X-Nextseek-Deadline"
+
+
+def not_enough_time_message(tool: str) -> str:
+    """The refusal a model op gets with no usable time left (operator-approved wording, P03-T4+T12)."""
+    return (f"Not enough time left in this turn to run {tool}. Answer from what you already have and say what is "
+            "missing.")
+
+
+def preflight(tool: str, now: float) -> str | None:
+    """The refusal text when ``tool`` has under ``MIN_USABLE_S`` usable at ``now`` (Unix seconds), else None; None
+    too when the deadline is absent or unreadable (the server decides then)."""
+    left = seconds_left(now)
+    if left is None:
+        return None
+    return not_enough_time_message(tool) if left - TURN_DEADLINE_HEADROOM_S < MIN_USABLE_S else None
+
+
+def deadline_headers() -> dict[str, str]:
+    """``{DEADLINE_HEADER: <whole Unix seconds>}`` for this turn's deadline, or ``{}`` when absent or unreadable."""
+    raw = os.environ.get(TURN_DEADLINE_ENV, "").strip()
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return {}
+    return {DEADLINE_HEADER: str(int(deadline))} if math.isfinite(deadline) else {}
 
 
 def seconds_left(now: float) -> float | None:

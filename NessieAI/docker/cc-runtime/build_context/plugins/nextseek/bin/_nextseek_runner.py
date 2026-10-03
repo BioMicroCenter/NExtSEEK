@@ -53,6 +53,29 @@ def _err(code: str, message: str, exit_code: int, *, reason: str | None = None,
     sys.exit(exit_code)
 
 
+#: The ops whose server side calls a model, and the three that start an NS turn: the ones a turn's deadline can leave
+#: no time for (ruling 3). The server's list is NessieAI/ns/op_limits.MODEL_OPS; a test pins the two.
+_MODEL_AGENTS = frozenset({"entity", "parse", "graph", "aggregate", "api-read", "api-write", "generate-submission",
+                           "query", "plan", "pipeline"})
+_TOOL_NAMES = {"entity": "nextseek-entity-extract"}
+
+
+def _tool_name(agent: str) -> str:
+    return _TOOL_NAMES.get(agent, f"nextseek-{agent}")
+
+
+def _refuse_when_out_of_time(agent: str) -> None:
+    """Exit TIME_UP before a model op the turn has no usable time for (advice; the server's check is the control)."""
+    if agent not in _MODEL_AGENTS:
+        return
+    import time
+    from _turn_deadline import preflight
+    from _op_errors import EXIT
+    message = preflight(_tool_name(agent), time.time())
+    if message is not None:
+        _err("TIME_UP", message, EXIT["TIME_UP"])
+
+
 def _sanitize_env_quotes() -> None:
     """Strip matching outer quote characters from every env var.
 
@@ -550,6 +573,7 @@ def main() -> None:
     # See _sanitize_env_quotes docstring for the rationale (docker --env-file
     # / dotenv_values preserve surrounding quotes from .env literals).
     _sanitize_env_quotes()
+    _refuse_when_out_of_time(args.agent)
 
     # Important-2: enforce CONFIG_MISSING before any dispatch (matches the old
     # runner's _load_config guard). In dry-run mode the credentials are not

@@ -24,7 +24,7 @@ from _assistant_models import (
     SessionDetailResponse,
     TaskProgressResponse,
 )
-from _turn_deadline import MIN_WAIT_S, TURN_DEADLINE_ENV, TURN_DEADLINE_HEADROOM_S, wait_s
+from _turn_deadline import MIN_WAIT_S, TURN_DEADLINE_ENV, TURN_DEADLINE_HEADROOM_S, deadline_headers, wait_s
 
 # Sentinel string emitted when polling ends without a terminal event.
 # runner_ns._STREAM_ENDED_WITHOUT_TERMINAL must equal this value (drift-pinned in test_runner_ns.py).
@@ -110,8 +110,9 @@ class AssistantClient:
         return f"{self._base}/{self._prefix}/{suffix.lstrip('/')}"
 
     def _client(self, timeout: float | None = None) -> httpx.Client:
+        # Piece 4: every request carries this turn's deadline; the server lets it only shorten its own.
         return httpx.Client(auth=self._auth, timeout=self._request_timeout if timeout is None else timeout,
-                            transport=self._transport)
+                            transport=self._transport, headers=deadline_headers())
 
     def run_query(self, query: str, *, mode: str, session_id: str | None = None,
                   force_new: bool = False,
