@@ -95,6 +95,12 @@ services:
         limits:
           memory: "${NEXTSEEK_MEMORY:-16G}"
     memswap_limit: "${NEXTSEEK_MEMORY:-16G}"
+    # JevLevROUTING: the laya router sidecar is reachable only over the
+    # internal `laya-net`. No depends_on on it: it is off by default (profile
+    # `laya`) and the app reads a missing sidecar as "laya off" for the turn.
+    networks:
+      - default
+      - laya-net
 
   nextseek_nginx:
     image: nginx:latest
@@ -252,6 +258,44 @@ services:
       timeout: 8s
       retries: 6
       start_period: 20s
+
+  # laya router sidecar (JevLevROUTING, SPEC s10). Off by default: only
+  # `docker compose --profile laya up -d laya-router` starts it, so a plain
+  # `up -d` and `./startup.sh rebuild` never do. Internal network only, NO
+  # `ports:` (port rule), so no egress and no route from the per-turn CC agents.
+  # Its only secret is LAYA_API_KEY in docker/laya.env (never nextseek.env).
+  # The fine-tuned checkpoint is mounted read-only from the folder LAYA_REVISION
+  # names; no weights in the image. The wrapper never logs request bodies.
+  laya-router:
+    build:
+      context: ./docker/laya
+    image: nextseek-laya-router:latest
+    container_name: ${INSTANCE_PREFIX:-}laya-router
+    profiles: ["laya"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "${LAYA_CPUS:-4}"
+          memory: "${LAYA_MEMORY:-3500M}"
+    memswap_limit: "${LAYA_MEMORY:-3500M}"
+    env_file:
+      - ./docker/laya.env
+    environment:
+      LAYA_THREADS: "4"
+      HF_HUB_OFFLINE: "1"
+      LAYA_MODEL_DIR: /models
+      LAYA_REVISION: "${LAYA_REVISION:-unset}"
+    volumes:
+      - ./docker/laya/models/${LAYA_REVISION:-unset}:/models:ro,z
+    networks:
+      - laya-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status == 200 else 1)"]
+      interval: 15s
+      timeout: 6s
+      retries: 6
+      start_period: 90s
 
   db: # Database implementation, in this case MySQL
     image: mysql:8.0
@@ -450,6 +494,10 @@ services:
       - /opt/solr/server/solr/configsets/seek_config
 
 networks:
+  # JevLevROUTING: no gateway, so the laya sidecar has no egress. Members:
+  # laya-router and nextseek only.
+  laya-net:
+    internal: true
   # Container-CC segmented network (OI-3). Compose-managed but pinned to the
   # literal name `dmac-cc-net` (no project-name prefix) so it matches
   # cc_engine.DEFAULT_NETWORK / NEXTSEEK_CC_NETWORK exactly. Members: this

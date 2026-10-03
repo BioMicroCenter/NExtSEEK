@@ -303,3 +303,20 @@ def test_prod_overlay_without_url_override_keeps_internal_env(monkeypatch) -> No
     prod = constructions[1]
     assert "NEXTSEEK_BASE_URL" not in prod["config_map"]
     assert prod["env_internal"] == "http://127.0.0.1:8000"
+
+
+def test_laya_routing_defaults_are_off_in_template_and_example(tmp_path: Path) -> None:
+    """JevLevROUTING: shadow and live are OFF in every env template; a box
+    without these lines reads as off too (code defaults)."""
+    rendered = _render_real_template(tmp_path, port=8042)
+    example = (_REPO_ROOT / "docker" / "nextseek.env.example").read_text()
+    for text in (rendered, example):
+        assert 'NESSIE_LAYA_SHADOW="0"' in text.splitlines()
+        assert 'NESSIE_LAYA_LIVE=""' in text.splitlines()
+        assert 'LAYA_API_KEY="SET_IN_LOCAL_ENV"' in text.splitlines()
+
+
+def test_laya_env_and_models_are_gitignored() -> None:
+    lines = (_REPO_ROOT / ".gitignore").read_text().splitlines()
+    assert "docker/laya.env" in lines
+    assert "docker/laya/models/" in lines

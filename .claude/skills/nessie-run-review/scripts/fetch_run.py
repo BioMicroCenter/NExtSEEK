@@ -54,7 +54,7 @@ only the counts and the query are kept. `--raw` keeps everything.
 
 Money and models, per turn: `cost` is the engine's `total_cost_usd` and `router_cost`
 the router's `router_cost_usd` off the `route_decided` event, with their partial flags,
-`models_used`, `model_fallback`, `router_model` and `router_fallback`. `turn_cost` and
+`models_used`, `model_fallback`, `router_model`, `router_fallback`, `router_elapsed_s` and the laya block (`laya`, null when laya did not run). `turn_cost` and
 `turn_cost_partial` are those summed by the harness's own rule (`turn_cost.py`, found
 beside this script or in its checkout), and `fell_back` says whether any model of the
 turn fell back. When the manifest is on the instance, `case_costs.json` sums each case
@@ -186,7 +186,9 @@ q -e "SELECT JSON_OBJECT(
         'router_cost',         JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_usd'),'\$[0]'),
         'router_cost_partial', JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_cost_partial'),'\$[0]'),
         'router_model',        JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_model'),'\$[0]'),
-        'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]')
+        'router_fallback',     JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_fallback'),'\$[0]'),
+        'router_elapsed_s',    JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.router_elapsed_s'),'\$[0]'),
+        'laya',                JSON_EXTRACT(JSON_EXTRACT(progress,'\$[*].data.laya'),'\$[0]')
       ) FROM assistant_query_task t WHERE {where} ORDER BY t.id;"
 """
 

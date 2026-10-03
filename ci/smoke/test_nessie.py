@@ -175,6 +175,31 @@ def first_event(progress: list, name: str) -> dict | None:
     return None
 
 
+def laya_audit(records: list) -> tuple[str, list[str]]:
+    """(mode seen, problems) for the laya fast path across a lane's turns (JevLevROUTING, SPEC 6.2/6.3).
+
+    The lane runs on boxes with no live go, so a `live` or `audit` block, or a router_model starting
+    "laya:" (kept even when the pipeline guard or the CC fallback rebuilt the decision, so the ledger's
+    route_source alone misses it), is a failure. Either every routed turn carries a laya block or none
+    does: a mix means a broken shadow.
+    """
+    decided = [first_event(r.progress, "route_decided") for r in records]
+    decided = [d for d in decided if d is not None]
+    blocks = [d.get("laya") for d in decided]
+    problems: list[str] = []
+    seen = {b.get("mode") for b in blocks if isinstance(b, dict)}
+    for mode in sorted(seen & {"live", "audit"}):
+        problems.append(f"a turn's laya block has mode {mode!r}: no live go exists on this box")
+    if any(str(d.get("router_model") or "").startswith("laya:") for d in decided):
+        problems.append("a turn's router_model starts with 'laya:' on a box with no live go")
+    with_block = sum(1 for b in blocks if isinstance(b, dict))
+    if 0 < with_block < len(blocks):
+        problems.append(f"laya blocks on {with_block} of {len(blocks)} turns: some turns lack one (broken shadow)")
+    mode = "none" if with_block == 0 else ("mixed" if with_block < len(blocks) else
+                                           (next(iter(seen)) if len(seen) == 1 else "mixed"))
+    return mode, problems
+
+
 def route_decision(progress: list) -> tuple[str | None, str | None]:
     data = first_event(progress, "route_decided") or {}
     return data.get("route"), data.get("source")
@@ -1156,6 +1181,13 @@ def test_the_reopened_chat_shows_every_turn(chat_run, nessie_page):
                 timeout=30_000)
     _open_debug(page)
     page.keyboard.press("Escape")
+
+
+@turn
+def test_laya_stayed_off_or_shadow(chat_run):
+    mode, problems = laya_audit(chat_run)
+    print(f"Nessie lane laya mode seen: {mode}")  # the lane header line (shown with -s or -rP)
+    assert not problems, "; ".join(problems)
 
 
 @turn

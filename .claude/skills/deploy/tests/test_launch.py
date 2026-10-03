@@ -836,3 +836,39 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
 ])
 def test_proxy_and_sidecar_rebuild_only_for_their_build_inputs(path, images):
     assert rules.rule_for(path).images == images
+
+
+# --------------------------------------------------------------------------- laya_mode (JevLevROUTING)
+@pytest.mark.parametrize("inst", ["dev", "prod"])
+def test_the_laya_mode_kv_is_in_the_preflight_script_on_every_instance(tmp_path, capsys, inst):
+    code, out, d = make_brief(tmp_path / inst, capsys, instance=inst)
+    assert code == 0
+    code, out = run(["preflight-script", "--brief", str(d / "brief.json")], capsys)
+    assert "NESSIE_LAYA_SHADOW" in out.out and "NESSIE_LAYA_LIVE" in out.out and "KV laya_mode=" in out.out
+    p = tmp_path / inst / "pre.sh"
+    p.write_text(out.out)
+    assert subprocess.run(["bash", "-n", str(p)]).returncode == 0
+
+
+@pytest.mark.parametrize("mode", ["shadow=0 live=", "shadow=1 live=", "shadow=unset live=", "unknown"])
+def test_laya_mode_passes_for_off_shadow_or_absent(tmp_path, capsys, mode):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode))
+    assert code == 0, out.err
+    rows = {r["id"]: r for r in json.loads((d / "preflight.json").read_text())["checks"]}
+    assert rows["laya_mode"]["verdict"] == "ok"
+
+
+@pytest.mark.parametrize("mode", ["shadow=0 live=1", "shadow=1 live=true", "shadow=1 live=20261003-abcdef012345"])
+def test_laya_live_stops_unless_the_brief_names_that_revision(tmp_path, capsys, mode):
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode))
+    assert code == 5 and "- laya_mode:" in out.err
+
+
+def test_laya_live_passes_when_the_brief_names_the_revision(tmp_path, capsys):
+    mode = "shadow=1 live=20261003-abcdef012345"
+    code, out, d = preflight(tmp_path, capsys, good_preflight(laya_mode=mode),
+                             laya_live_revision="20261003-abcdef012345")
+    assert code == 0, out.err
+    code, out, d = preflight(tmp_path / "other", capsys, good_preflight(laya_mode=mode),
+                             laya_live_revision="20261004-000000000000")
+    assert code == 5 and "- laya_mode:" in out.err
