@@ -121,8 +121,11 @@ def test_the_pbmc_gbm_case_asserts_the_query_not_a_nonzero_count():
 
 def test_the_assay_case_asserts_the_real_total():
     v = _merged()["sys.show_me_all_assays_i_have_acce"]
-    assert _value(v, "api_result_meta.row_count", "gte") >= 300
-    assert _value(v, "last_reply", "mentions") == "473"  # production, re-keyed 2026-09-23
+    # R4, 2026-10-03: the REST-era row_count floor and the fixed 473 are gone (473 was one box's count; the catalog
+    # count is checked per instance in probes/probe-2026-10-03-r4-*.json). Either engine may answer.
+    fields = {(c.field, c.op) for t in v.turns for c in t.pass_criteria}
+    assert ("api_result_meta.row_count", "gte") not in fields and ("last_reply", "mentions") not in fields
+    assert _value(v, "parser_plan.mode", "matches_re") == "^(system_question|graph_query)$"
 
 
 def test_the_uid_lineage_repro_is_engine_agnostic_and_not_known_fail():
@@ -272,3 +275,21 @@ def test_every_such_case_still_asserts_real_criteria_on_another_turn():
         real = [c.field for t in merged[vid].turns for c in t.pass_criteria
                 if not _skipped_if_cc(c)]
         assert len(real) >= 4, f"{vid} asserts only {real}"
+
+
+def test_no_seed_turn_asserts_a_retired_rest_sample_search():
+    """R4: REST sample searches are retired (ruling 9), so a seed turn asserting new_search + api_ok is stale."""
+    for vid in ("green.mus_ndma", "pipeline.activation_rnaseq", "pipeline.end_to_end_emit",
+                "pipeline.selection_verdict_recorded"):
+        seed = _merged()[vid].turns[0]
+        by = {(c.field, c.op): c.value for c in seed.pass_criteria}
+        assert by[("parser_plan.mode", "eq")] == "graph_query", vid
+        assert ("api_ok", "true") not in by, vid
+
+
+def test_the_sop_case_asserts_the_graph_not_the_sops_endpoint():
+    """R4 ruling 9: an SOP list or search is a protocol question for the graph; sops/ is download only."""
+    by = {(c.field, c.op): c.value for c in _merged()["path.what_sops_are_on_file"].turns[0].pass_criteria}
+    assert by[("parser_plan.mode", "eq")] == "graph_query"
+    assert ("api_plan.endpoint", "eq") not in by
+    assert not any(f == "last_reply" and v == "\\b593\\b" for (f, _), v in by.items())

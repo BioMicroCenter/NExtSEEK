@@ -488,6 +488,8 @@ _RETIRED_PLUMBING_2026_09_23 = {
     for fam in json.loads(CORPUS.read_text(encoding="utf-8"))["families"].values()
     for v in fam["variants"]
     if "2026-09-23: REST-path plumbing criteria retired" in (v.get("_why") or "")
+    # R4, 2026-10-03: the seed turns that moved from a REST sample search to the graph search.
+    or "REST sample searches are retired" in (v.get("_why_r4") or "")
 }
 
 RETIRED_FLOOR = {

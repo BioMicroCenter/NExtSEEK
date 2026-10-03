@@ -150,7 +150,9 @@ def test_the_hand_written_annotations_survived_adoption():
     # that case keeps the provenance of the atlas case it replaces.
     # 2026-09-30 nf-core selection: `_why` 295 -> 297 and `_added_2026_09_30_selection` 2,
     # one each on the two new overlay variants.
-    assert counts == {"_why": 297, "_why_superseded_2026_08_03": 1,
+    # 2026-10-03 round 4: `_why_r4` 7, one dated line on each case re-keyed off the retired REST sample search,
+    # the REST-era assay and SOP numbers, or the investigations route.
+    assert counts == {"_why_r4": 7, "_why": 297, "_why_superseded_2026_08_03": 1,
                       "_added_2026_09_30_selection": 2,
                       "_added_2026_09_23_prod_researchers": 50,
                       "_deselected_2026_09_23_prod_researchers": 7,
