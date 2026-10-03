@@ -1443,11 +1443,20 @@ def _run_chip_click(*, config, session, user_text: str, accepted: dict[str, Any]
     return outcome
 
 
-#: What a non-admin is told when the only thing the scope refused is a read of the SampleType or Attribute catalog
-#: (U2.6, ruling 7 of round 4): never the sample-search fallback, which answers a different question.
+#: What a non-admin is told when the scope refused a read of the Attribute catalog (U2.6, ruling 7 of round 4; wording
+#: review W1): never the sample-search fallback, which answers a different question. A refused SampleType read alone
+#: is answered from the caller's own samples (MEMBER_TYPES_CYPHER) instead.
 CATALOG_SCOPE_REPLY = (
-    "I can't read the full list of sample types or attributes from the graph for your account. Ask what sample "
-    "types NExtSEEK has, or name one of your projects and ask which sample types it holds."
+    "I can't read the attribute catalog for your account. Ask about one sample type by name and I can list its "
+    "attributes."
+)
+#: Ruling 7, review F3: a member's "which sample types have samples" is answered from the samples in their own
+#: projects; the member scope wraps this statement like any other.
+MEMBER_TYPES_CYPHER = "MATCH (s:Sample) RETURN s.type AS type, count(*) AS samples ORDER BY samples DESC, type"
+MEMBER_TYPES_NOTE = (
+    "These are the sample types with samples in the caller's own projects, with their sample counts, not the catalog "
+    "of every type NExtSEEK defines. Say so, and say that asking what sample types NExtSEEK has gives the catalog's "
+    "full list."
 )
 _CATALOG_LABEL_REASON = re.compile(r"^the label (SampleType|Attribute)(?::(SampleType|Attribute))* may not be read")
 
@@ -1599,14 +1608,27 @@ def _execute_graph_turn(
     run = _run_graph_with_retries(config, user_text, entity_result, plan, agent_context, None,
                                   graph_plan=graph_plan)
     graph_plan, graph_result, attempts = run.graph_plan, run.graph_result, run.attempts
+    elapsed_ms = run.elapsed_ms
 
     debug_payload["graph_attempts"] = attempts
     debug_payload["graph_scope"] = graph_result.get("scope")
+    catalog_notes: list[str] = []
+    if (is_scope_refusal(graph_result) and _only_catalog_labels_refused(graph_result)
+            and not any("Attribute" in str(r) for r in graph_result["scope"].get("reasons") or ())):
+        debug_payload["graph_refusal"] = "scope refused the SampleType catalog; answered from the caller's own samples"
+        t_query = time.perf_counter()
+        graph_result = tool_neo4j_query(config, MEMBER_TYPES_CYPHER, {})
+        elapsed_ms = _ms_since(t_query)
+        attempts.append(_graph_attempt(MEMBER_TYPES_CYPHER, graph_result, "member_types", elapsed_ms=elapsed_ms))
+        graph_plan = graph_plan.model_copy(update={"cypher": MEMBER_TYPES_CYPHER, "parameters": {}})
+        debug_payload["graph_scope"] = graph_result.get("scope")
+        catalog_notes.append(MEMBER_TYPES_NOTE)
     if is_scope_refusal(graph_result):
-        if _only_catalog_labels_refused(graph_result):
+        if catalog_notes or _only_catalog_labels_refused(graph_result):
             debug_payload["graph_plan"] = graph_plan.model_dump()
             debug_payload["graph_result"] = {k: v for k, v in graph_result.items() if k != "data"}
-            debug_payload["graph_refusal"] = "scope refused a read of the SampleType or Attribute catalog"
+            debug_payload["graph_refusal"] = ("scope refused the SampleType catalog and the caller's own samples"
+                                              if catalog_notes else "scope refused a read of the Attribute catalog")
             session["last_debug"] = debug_payload
             send_event("search_complete", {"source": "neo4j", "ok": False, "count": None, "scope": "refused"})
             return _emit_query_complete(send_event, CATALOG_SCOPE_REPLY, debug_payload, None)
@@ -1615,7 +1637,7 @@ def _execute_graph_turn(
     # "converters" of which 57 were stored as Non-converter, 2026-09-23). The reviewer reads the result the turn
     # keeps; what it found goes to the debug panel, to the session (a later turn offers its suggestion), and on a
     # note or suggest to the chatter as one note.
-    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=run.elapsed_ms,
+    review = _review_graph_turn(config, user_text, graph_plan, graph_result, elapsed_ms=elapsed_ms,
                                 t_turn_start=t_total_start)
     debug_payload["graph_review"] = as_debug(review)
     session["_graph_review"] = debug_payload["graph_review"]
@@ -1623,7 +1645,7 @@ def _execute_graph_turn(
     # chatter is told the filter changed (a query note; the debug flag alone reached no
     # one). The note asks it to qualify what the result covers when that differs from the
     # question, and never to narrate the retry itself (2026-09-23 ruling, graph_retry.py).
-    query_notes: list[str] = list(uid_reply_notes)
+    query_notes: list[str] = list(uid_reply_notes) + catalog_notes
     if run.changed_answer:
         debug_payload["graph_retry_changed_answer"] = True
         query_notes.append(RETRY_CHANGED_ANSWER_NOTE)

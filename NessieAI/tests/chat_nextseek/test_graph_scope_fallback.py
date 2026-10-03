@@ -205,6 +205,7 @@ def test_a_refused_identity_never_reaches_the_scope():
 def _graph_turn(monkeypatch, tmp_path, plans, results):
     plan_iter, result_iter = iter(plans), iter(results)
     calls = {"agent": 0, "neo4j": 0, "chatter": 0}
+    cyphers: list = []
 
     def agent(config, user_text, entity_result, plan, retry_context=None, refine_context=None):
         calls["agent"] += 1
@@ -212,6 +213,7 @@ def _graph_turn(monkeypatch, tmp_path, plans, results):
 
     def neo4j(config, cypher, params=None):
         calls["neo4j"] += 1
+        cyphers.append(cypher)
         return next(result_iter)
 
     chatter_kwargs: list = []
@@ -240,7 +242,7 @@ def _graph_turn(monkeypatch, tmp_path, plans, results):
         t_total_start=time.perf_counter(),
     )
     return SimpleNamespace(out=out, debug=debug, calls=calls, written=written, events=events, session=session,
-                           chatter_kwargs=chatter_kwargs)
+                           chatter_kwargs=chatter_kwargs, cyphers=cyphers)
 
 
 def _plan(cypher):
@@ -505,7 +507,8 @@ def _refused_with(reasons, cypher=REFUSED_CYPHER):
 
 
 @pytest.mark.parametrize("cypher,label", [("MATCH (a:Attribute) RETURN a.title AS title", "Attribute"),
-                                          ("MATCH (t:SampleType) RETURN t.title AS title", "SampleType")])
+                                          ("MATCH (a:Attribute)<-[:HAS]-(t:SampleType) RETURN a.title AS title",
+                                           "SampleType:Attribute")])
 def test_a_refused_read_of_the_catalog_labels_ends_with_a_short_reply_not_the_sample_search(monkeypatch, tmp_path,
                                                                                              cypher, label):
     refused = _refused_with([f"line 1, column 8: the label {label} may not be read"], cypher)
@@ -515,8 +518,38 @@ def test_a_refused_read_of_the_catalog_labels_ends_with_a_short_reply_not_the_sa
     assert run.out["reply"] == orch.CATALOG_SCOPE_REPLY
     assert run.calls == {"agent": 1, "neo4j": 1, "chatter": 0}
     assert "graph_scope_fallback" not in run.debug and run.debug["graph_scope"]["decision"] == "refused"
-    for leak in ("Graph agent", "Cypher", "catalog", "Reason", "scope", "guard"):
+    # "the attribute catalog" is the reply's subject (review W1), so "catalog" is not an internal word here.
+    for leak in ("Graph agent", "Cypher", "Reason", "scope", "guard"):
         assert leak not in orch.CATALOG_SCOPE_REPLY
+
+
+TYPES_ROWS = [{"type": "TIS", "samples": 3}, {"type": "MUS", "samples": 1}]
+
+
+@pytest.mark.parametrize("cypher", ["MATCH (t:SampleType) RETURN t.title AS title",
+                                    "MATCH (t:SampleType)<-[:OF_TYPE]-(s:Sample) RETURN DISTINCT t.code AS code"])
+def test_a_refused_read_of_the_sample_type_catalog_is_answered_from_the_members_own_samples(monkeypatch, tmp_path,
+                                                                                            cypher):
+    """Review F3, ruling 7: "Which sample types have samples?" from a member gets the types in their own projects."""
+    refused = _refused_with(["line 1, column 8: the label SampleType may not be read"], cypher)
+    types = _proven(2, orch.MEMBER_TYPES_CYPHER, data=TYPES_ROWS)
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(cypher), _plan("NEVER")], [refused, types])
+
+    assert not isinstance(run.out, orch.GraphScopeFallback)
+    assert run.out["reply"] != orch.CATALOG_SCOPE_REPLY and run.out["reply"] == "graph reply"
+    assert run.cyphers == [cypher, orch.MEMBER_TYPES_CYPHER]
+    assert run.calls == {"agent": 1, "neo4j": 2, "chatter": 1}
+    notes = run.chatter_kwargs[0].get("query_notes") or []
+    assert orch.MEMBER_TYPES_NOTE in notes
+    assert run.debug["graph_refusal"] == "scope refused the SampleType catalog; answered from the caller's own samples"
+    assert [a["cypher"] for a in run.debug["graph_attempts"]] == [cypher, orch.MEMBER_TYPES_CYPHER]
+
+
+def test_the_members_own_sample_types_refused_too_ends_with_the_short_reply(monkeypatch, tmp_path):
+    cypher = "MATCH (t:SampleType) RETURN t.title AS title"
+    refused = _refused_with(["line 1, column 8: the label SampleType may not be read"], cypher)
+    run = _graph_turn(monkeypatch, tmp_path, [_plan(cypher)], [refused, _no_scope(orch.MEMBER_TYPES_CYPHER)])
+    assert run.out["reply"] == orch.CATALOG_SCOPE_REPLY and run.calls["chatter"] == 0
 
 
 @pytest.mark.parametrize("reasons", [
