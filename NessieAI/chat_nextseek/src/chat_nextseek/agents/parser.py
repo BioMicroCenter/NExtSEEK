@@ -808,7 +808,8 @@ def _route_by_kind(user_query: str, plan, config=None, resolved=None):
     1 a caller question -> system_question; 2 a catalog count -> system_question (1 and 2 are skipped when the plan
     names UIDs, labs or projects, except that "am I a member of <project>" keeps 1); 3 the which-attributes shape ->
     system_question for a caller who cannot see all projects, graph_query for one who can; 4 an endpoint not kept ->
-    by prefix; 5 sops/ and people/ with a condition -> graph (reporter for a project's SOPs).
+    by prefix; 5 sops/ with no named SOP and people/ with a condition other than a name -> graph (reporter for a
+    project's SOPs).
     """
     try:
         return _route_by_kind_steps(user_query, plan, config, resolved if resolved is not None else getattr(plan, "resolved", None))
@@ -862,8 +863,10 @@ def _route_by_kind_steps(user_query, plan, config, resolved):
                 return _to(plan, "reporter", "sent to reporter: the SOPs registered to a project are the project report's", report_mode="summary")
             return _to(plan, "graph_query", "sent to graph_query: SOPs are searched and listed on the graph; REST only downloads one named SOP")
         elif ep == PEOPLE_PATH:
-            extra_kw = [k for k in filters.keywords if set(re.findall(r"\w+", k.lower())) - _PEOPLE_NOUNS]
-            if filters.uids or filters.lab_codes or filters.sampletype_code or filters.assay_codes or extra_kw or projects:
+            # Keywords alone are names to find on the list, matched in code (review F8); anything else is a
+            # condition the list cannot hold.
+            if (filters.uids or filters.lab_codes or filters.sampletype_code or filters.assay_codes or projects
+                    or has_sample):
                 return _to(plan, "graph_query", "sent to graph_query: the people list cannot apply a condition")
     return plan
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 from typing import Any
+
+from pydantic import Field
 
 from ..config import ChatConfig
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
@@ -20,6 +23,14 @@ def _requires_request_body(method: str | None, schema: dict | None, enriched_ent
         return True
     req_schema = ((schema or {}).get("request_schemas") or {}).get(method)
     return bool(isinstance(req_schema, dict) and req_schema.get("required"))
+
+
+class KeptRequestPlan(APIRequestPlan):
+    """A request built in code. ``match_terms`` are the names a people request looks for, matched against the whole
+    list in code (``helpers.results._rest_list_flags``, review F8); never sent to the API, and not in the API
+    agent's output schema."""
+
+    match_terms: list[str] = Field(default_factory=list)
 
 
 _RETRIEVE_PATHS = ("/nextseek_api/samples/retrieve/", "/nextseek_api/admin/samples/retrieve/")
@@ -40,8 +51,12 @@ def _build_kept_request(endpoint: str, plan_dict: dict) -> APIRequestPlan | None
         return APIRequestPlan(endpoint=endpoint, method="POST", requestBody={"identifiers": uids},
                               queryParameters={}, notes="Built in code: the named UIDs.")
     if endpoint == _PEOPLE_PATH:
-        return APIRequestPlan(endpoint=endpoint, method="GET", requestBody={}, queryParameters={},
-                              notes="Built in code: the whole list.")
+        from .parser import _PEOPLE_NOUNS
+
+        words = (re.findall(r"\w+", str(k).lower()) for k in filters.get("keywords") or [])
+        terms = [" ".join(rest) for rest in ([w for w in ws if w not in _PEOPLE_NOUNS] for ws in words) if rest]
+        return KeptRequestPlan(endpoint=endpoint, method="GET", requestBody={}, queryParameters={},
+                               notes="Built in code: the whole list.", match_terms=terms)
     if endpoint == _SOPS_PATH:
         from .parser import sop_id_in
 

@@ -43,7 +43,7 @@
       "people",
       "user accounts"
     ],
-    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint. Not for the caller's own account or projects (system_question).",
+    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves, also for finding one person by name. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint. Not for the caller's own account or projects (system_question).",
     "example_intents": [
       "List the registered user accounts in the system"
     ]

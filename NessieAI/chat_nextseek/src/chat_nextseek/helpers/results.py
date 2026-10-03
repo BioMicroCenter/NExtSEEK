@@ -356,13 +356,23 @@ _SOPS_RECORD = "/nextseek_api/sops/"
 
 def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
     """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
-    the chatter gives the total and never "the first N"); ``download_links`` for one SOP record (the file it offers)."""
+    the chatter gives the total and never "the first N"), with ``match_terms`` + ``matching_rows`` when the request
+    looks for names; ``download_links`` for one SOP record (the file it offers)."""
     endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
     data = api_result.get("data") if isinstance(api_result, dict) else None
     if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
         rows = data.get("data") if isinstance(data, dict) else data
         if isinstance(rows, list):
-            return {"full_list_attached": True, "rows_returned": len(rows)}
+            flags = {"full_list_attached": True, "rows_returned": len(rows)}
+            terms = [str(t) for t in (api_plan or {}).get("match_terms") or [] if str(t).strip()]
+            if terms:
+                # Review F8: an account matches a term when its name holds every word of it, any case.
+                flags["match_terms"] = terms
+                flags["matching_rows"] = [
+                    {"id": row.get("id"), "title": title} for row in rows if isinstance(row, dict)
+                    for title in [str((row.get("attributes") or {}).get("title") or "")]
+                    if title and any(all(w in title.lower() for w in t.lower().split()) for t in terms)]
+            return flags
     elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
         record = data.get("data") if isinstance(data.get("data"), dict) else data
         links = _download_links(record)

@@ -156,7 +156,18 @@ def test_people_list_stays_but_a_condition_moves_it():
     p = plan(endpoint=PEOPLE, keywords=["registered users"])
     assert route("Who are the registered users?", p) is p
     assert route("Who are the users in Zeta?", plan(endpoint=PEOPLE, projects=["Zeta"])).mode == "graph_query"
-    assert route("Which users work on fixation?", plan(endpoint=PEOPLE, keywords=["fixation"])).mode == "graph_query"
+    assert route("Which users have samples in Zeta?", plan(endpoint=PEOPLE, keywords=["Zeta"])).mode == "graph_query"
+    # Keywords alone are names to match on the list (review F8); this one matches no account, and the reply says so.
+    p = plan(endpoint=PEOPLE, keywords=["fixation"])
+    assert route("Which users work on fixation?", p) is p
+
+
+@pytest.mark.parametrize("q,name", [("Is there a user called quill_j?", "quill_j"),
+                                    ("Find the researcher named Zeta", "Zeta")])
+def test_finding_a_person_by_name_stays_on_the_people_list(q, name):
+    """Review F8, ruling 9: REST is for finding people; the graph's Person nodes carry no names."""
+    p = plan(endpoint=PEOPLE, keywords=[name])
+    assert route(q, p) is p
 
 
 def test_retrieve_and_its_alias_stay():

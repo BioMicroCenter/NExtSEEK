@@ -81,6 +81,42 @@ def _people(n):
     return {"ok": True, "data": {"data": [{"id": str(i), "type": "people", "attributes": {"title": f"Quill {i}"}} for i in range(n)]}}
 
 
+@pytest.mark.parametrize("keywords,terms", [(["quill_j"], ["quill_j"]), (["user Jane Quill"], ["jane quill"]),
+                                            (["registered users"], [])])
+def test_the_people_request_carries_the_names_to_match(keywords, terms):
+    plan = build(PEOPLE, keywords=keywords)
+    assert (plan.endpoint, plan.method, plan.requestBody, plan.queryParameters) == (PEOPLE, "GET", {}, {})
+    assert plan.model_dump().get("match_terms", []) == terms
+
+
+ACCOUNTS = {"ok": True, "data": {"data": [{"id": "1", "attributes": {"title": "Quill, Jane"}},
+                                          {"id": "2", "attributes": {"title": "Zeta, Omar"}}]}}
+
+
+@pytest.mark.parametrize("terms,rows", [(["quill"], [{"id": "1", "title": "Quill, Jane"}]),
+                                        (["omar zeta"], [{"id": "2", "title": "Zeta, Omar"}]),
+                                        (["fixation"], [])])
+def test_the_people_list_marks_the_accounts_whose_name_matches(terms, rows):
+    """Review F8: the names are matched in code against the whole list, which stays attached."""
+    slim = slim_api_result_for_llm(ACCOUNTS, api_plan={"endpoint": PEOPLE, "match_terms": terms})
+    assert slim["matching_rows"] == rows and slim["match_terms"] == terms
+    assert slim["full_list_attached"] is True and slim["rows_returned"] == 2
+
+
+def test_the_people_list_with_no_names_to_match_has_no_matching_rows():
+    assert "matching_rows" not in slim_api_result_for_llm(ACCOUNTS, api_plan={"endpoint": PEOPLE})
+
+
+def test_the_chatter_answers_a_name_search_from_matching_rows():
+    from pathlib import Path
+
+    text = (Path(api_mod.__file__).resolve().parent.parent / "prompts" / "chatter_agent.txt").read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    assert ("**`matching_rows`** lists the registered accounts whose name contains what the user asked for "
+            "(`match_terms`). Answer with those rows.") in flat
+    assert flat.index("full_list_attached") < flat.index("matching_rows") < flat.index("`result_capped: true`")
+
+
 def test_a_people_list_is_flagged_full_with_its_total_whatever_the_preview():
     slim = slim_api_result_for_llm(_people(37), api_plan={"endpoint": PEOPLE})
     assert slim["full_list_attached"] is True and slim["rows_returned"] == 37
