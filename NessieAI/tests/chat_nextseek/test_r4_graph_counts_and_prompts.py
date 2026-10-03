@@ -45,6 +45,21 @@ def test_the_reviewer_is_quiet_when_rows_are_distinct_or_have_no_ids():
     assert "duplicate_rows" not in [c.name for c in _review([{"n": 5}]).checks if c.fired]
 
 
+def test_an_id_column_is_not_a_sample_id():
+    """Review F4: `st.id AS id` is a study id; three rows over two studies are three rows, not two samples."""
+    rows = [{"id": 7, "type": "TIS"}, {"id": 7, "type": "MUS"}, {"id": 9, "type": "TIS"}]
+    assert sample_ids(rows) is None
+    assert "duplicate_rows" not in [c.name for c in _review(rows).checks if c.fired]
+
+
+def test_uuid_rows_still_count_distinct_samples():
+    rows = [{"uuid": "ZZZ-990101ABC-1-PUB", "id": 7}, {"uuid": "ZZZ-990101ABC-1-PUB", "id": 8},
+            {"uuid": "YYY-990102DEF-2-PUB", "id": 7}]
+    assert sample_ids(rows) == ["ZZZ-990101ABC-1-PUB", "ZZZ-990101ABC-1-PUB", "YYY-990102DEF-2-PUB"]
+    review = _review(rows, total=2)
+    assert "3 rows for 2 distinct samples" in review.disclosure
+
+
 class _FakeSession:
     def execute_read(self, fn, cypher, params, is_admin):
         return [{"uuid": "ZZZ-1", "st": "S1"}, {"uuid": "ZZZ-1", "st": "S2"}, {"uuid": "ZZZ-2", "st": "S1"}], {}

@@ -126,7 +126,7 @@ class _Memo:
 
 
 #: The row columns that name a sample, in the order they are tried (round 4, U2.4).
-SAMPLE_ID_COLUMNS = ("uuid", "sample_uuid", "sample_id", "id")
+SAMPLE_ID_COLUMNS = ("uuid", "sample_uuid", "sample_id")  # never "id": a study, project or person has one too
 
 
 def sample_ids(rows) -> list | None:
