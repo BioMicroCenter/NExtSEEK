@@ -81,23 +81,32 @@ def _load() -> dict | None:
 
 
 def mode() -> str:
-    """``off`` | ``shadow`` | ``live``. Live needs the exact revision; posterior routing means off."""
+    """``off`` | ``shadow`` | ``live``. Live needs the exact revision and both hashes equal to the calibration's
+    (refused with one ERROR, then shadow or off); posterior routing means off; with neither env var set no file
+    is read."""
     from NessieAI.router import posterior_selector
     cfg = None
+    shadow = os.environ.get(SHADOW_ENV, "0").strip() == "1"
+    live = os.environ.get(LIVE_ENV, "").strip()
     if posterior_selector.posterior_routing_enabled():
         _once("posterior", logging.ERROR, "laya off: posterior routing is enabled")
         md = "off"
+    elif not (shadow or live):
+        md = "off"  # today's path: no calibration file until phase C, so no read and no ERROR
     elif (cfg := _load()) is None:
         md = "off"
     else:
-        live = os.environ.get(LIVE_ENV, "").strip()
-        if live and live == cfg["revision"]:
+        hashes_ok = (cfg["options_hash"], cfg["prompt_hash"]) == (cfg["cal_options_hash"], cfg["cal_prompt_hash"])
+        if live and live == cfg["revision"] and hashes_ok:
             md = "live"
         else:
-            if live:
+            if live and live != cfg["revision"]:
                 _once("live", logging.ERROR, "laya live refused: %s does not match revision %s", LIVE_ENV,
                       cfg["revision"])
-            md = "shadow" if os.environ.get(SHADOW_ENV, "0").strip() == "1" else "off"
+            elif live:
+                _once("live", logging.ERROR, "laya live refused: the options or prompt hash is not the "
+                      "calibration's (refit for revision %s)", cfg["revision"])
+            md = "shadow" if shadow else "off"
     _once("startup", logging.INFO, "laya routing mode=%s revision=%s options_hash=%s prompt_hash=%s", md,
           cfg and cfg["revision"], cfg and cfg["options_hash"], cfg and cfg["prompt_hash"])
     return md
@@ -152,7 +161,9 @@ def _call(cfg: dict, query: str, history, rec: dict) -> None:
     ranked = sorted(cal, key=cal.get, reverse=True)
     rec.update(calibrated=cal, route=ranked[0], calibrated_confidence=cal[ranked[0]],
                margin=cal[ranked[0]] - cal[ranked[1]])
-    if rec["revision"] != cfg["revision"]:
+    if (cfg["options_hash"], cfg["prompt_hash"]) != (cfg["cal_options_hash"], cfg["cal_prompt_hash"]):
+        rec["gate"] = "hash_mismatch"  # after the call, so shadow still records under new options
+    elif rec["revision"] != cfg["revision"]:
         rec["gate"] = "revision_mismatch"
     elif rec["truncated"]:
         rec["gate"] = "truncated"
@@ -169,9 +180,7 @@ def _call(cfg: dict, query: str, history, rec: dict) -> None:
 def _work(cfg: dict, query: str, history, rec: dict) -> None:
     t0 = time.monotonic()
     try:
-        if (cfg["options_hash"], cfg["prompt_hash"]) != (cfg["cal_options_hash"], cfg["cal_prompt_hash"]):
-            rec["gate"] = "hash_mismatch"
-        elif _non_latin(query):
+        if _non_latin(query):
             rec["gate"] = "non_latin"
         else:
             from NessieAI.router import followup

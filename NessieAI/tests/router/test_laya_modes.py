@@ -113,10 +113,30 @@ def test_a_nan_calibrated_confidence_never_clears_the_threshold(tmp_path, monkey
 
 
 @pytest.mark.parametrize("kw", [{"cal_options_hash": "x"}, {"cal_prompt_hash": "x"}])
-def test_hash_mismatch_gate_without_a_call(tmp_path, monkeypatch, kw):
-    laya = setup(tmp_path, monkeypatch, live=REV, **kw)
+@pytest.mark.parametrize("shadow,want", [("1", "shadow"), ("0", "off")])
+def test_a_hash_mismatch_refuses_live_with_one_error(tmp_path, monkeypatch, caplog, kw, shadow, want):
+    laya = setup(tmp_path, monkeypatch, shadow=shadow, live=REV, **kw)
+    assert laya.mode() == want and laya.mode() == want
+    errs = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errs) == 1 and "live refused" in errs[0].message
+
+
+@pytest.mark.parametrize("kw", [{"cal_options_hash": "x"}, {"cal_prompt_hash": "x"}])
+def test_shadow_under_a_hash_mismatch_still_calls_and_records(tmp_path, monkeypatch, kw):
+    laya = setup(tmp_path, monkeypatch, shadow="1", **kw)
     calls = fake_post(monkeypatch, reply())
-    assert _run(laya)["gate"] == "hash_mismatch" and calls == []
+    rec = _run(laya, md=laya.mode())
+    assert rec["mode"] == "shadow" and rec["gate"] == "hash_mismatch" and len(calls) == 1
+    assert rec["probabilities"]["container_cc"] == 0.97 and rec["route"] == "container_cc"
+
+
+def test_off_reads_no_file_and_logs_no_error(tmp_path, monkeypatch, caplog):
+    laya = setup(tmp_path, monkeypatch, write_files=False)
+    assert laya.mode() == "off"
+    monkeypatch.delenv("NESSIE_LAYA_SHADOW")
+    monkeypatch.delenv("NESSIE_LAYA_LIVE")
+    assert laya.mode() == "off"
+    assert [r for r in caplog.records if r.levelname == "ERROR"] == []
 
 
 @pytest.mark.parametrize("query", ["what is IL-1β", "样本"])

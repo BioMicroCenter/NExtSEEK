@@ -72,13 +72,14 @@ def test_live_gate_failure_runs_baml_once_with_same_input(tmp_path, monkeypatch,
 
 
 def test_live_hash_mismatch_nonlatin_followup_fall_through(tmp_path, monkeypatch, baml):
-    for kw, q, gate in [({"cal_prompt_hash": "x"}, "q", "hash_mismatch"), ({}, "样本", "non_latin"),
-                        ({"followup": "cc"}, "q", "followup_cc")]:
+    # a hash mismatch refuses live in mode(), so with shadow on the turn runs as shadow and still calls laya
+    for kw, q, gate, md in [({"cal_prompt_hash": "x", "shadow": "1"}, "q", "hash_mismatch", "shadow"),
+                            ({}, "样本", "non_latin", "live"), ({"followup": "cc"}, "q", "followup_cc", "live")]:
         baml.calls.clear()
         setup(tmp_path, monkeypatch, live=REV, **kw)
         fake_post(monkeypatch, reply())
         d = cc_router.decide(q, HIST)
-        assert d.source == "baml" and d.laya["gate"] == gate and len(baml.calls) == 1
+        assert d.source == "baml" and d.laya["gate"] == gate and d.laya["mode"] == md and len(baml.calls) == 1
 
 
 def test_missing_calibration_file_and_posterior_are_todays_path(tmp_path, monkeypatch, baml):
