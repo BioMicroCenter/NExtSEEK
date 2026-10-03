@@ -99,13 +99,19 @@ class RouteDecision:
 
 # The fields a policy rebuild of a decision must carry over from the router's decision.
 ROUTER_RECORD_FIELDS = ("router_model", "router_fallback", "router_cost_usd", "router_usage",
-                        "router_cost_partial")
+                        "router_cost_partial", "laya")
 
 
 def router_record(decision: RouteDecision) -> dict:
     """The router's record on ``decision`` (which model, what fell back, what it cost),
     for a decision the policy rebuilds from it."""
     return {name: getattr(decision, name, None) for name in ROUTER_RECORD_FIELDS}
+
+
+def laya_fields(decision) -> dict:
+    """The laya block for ``route_decided``: absent when laya was off for the turn."""
+    block = getattr(decision, "laya", None)
+    return {"laya": block} if block else {}
 
 
 def router_cost_fields(decision) -> dict:
