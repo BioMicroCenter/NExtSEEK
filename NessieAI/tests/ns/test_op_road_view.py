@@ -85,11 +85,20 @@ class LimitTests(TestCase):
     def test_too_little_time_is_time_up_and_no_op_runs(self):
         handler = MagicMock(return_value=ENTITY)
         with patch("nextseek_api.services.assistant.op_limit_s", return_value=10.0), \
+             patch("nextseek_api.services.assistant.turn_deadline_epoch", return_value=time.time() + 60), \
              patch.dict(granular._HANDLERS, {"entity": handler}):
             resp = self.client.post(f"{BASE}/entity/", {"query": "mice"}, format="json")
         self.assertEqual(resp.status_code, 408)
         self.assertEqual(resp.json()["code"], "TIME_UP")
         handler.assert_not_called()
+
+    def test_without_a_turn_deadline_nothing_is_time_up(self):
+        handler = MagicMock(return_value=ENTITY)
+        with patch("nextseek_api.services.assistant.op_limit_s", return_value=10.0), \
+             patch.dict(granular._HANDLERS, {"entity": handler}):
+            resp = self.client.post(f"{BASE}/entity/", {"query": "mice"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        handler.assert_called_once()
 
 
 class RefuseForPassTests(SimpleTestCase):

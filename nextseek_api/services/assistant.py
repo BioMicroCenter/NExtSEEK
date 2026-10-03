@@ -94,7 +94,8 @@ from nextseek_api.assistant.models_api import (
 )
 from NessieAI.ns.granular import OpBusyError, OpValidationError, run_op
 from NessieAI.ns.turn_memory import release_op_slot, take_op_slot
-from NessieAI.ns.op_limits import MIN_USABLE_S, SIDECAR_ROAD_CAP_S, op_limit_s
+from NessieAI.ns.op_limits import (DEADLINE_HEADER_META, MIN_USABLE_S, MODEL_OPS, NO_MODEL_FLOOR_S, SIDECAR_ROAD_CAP_S,
+                                   nested_deadline, op_limit_s, turn_deadline_epoch)
 from NessieAI.cc.ops_road import SIDECAR, ops_road
 from NessieAI.ns.write_gate import WriteBlockedError, build_gate, load_allowlist
 from nextseek_api.assistant.op_errors import HTTP_STATUS, failure_reason, op_error, validation_fields
@@ -736,6 +737,12 @@ class AssistantViewSet(viewsets.ViewSet):
 
         # The Container-CC turn behind a turn pass, or None for a browser or Basic caller.
         pass_turn = request.auth if is_turn_pass(request) else None
+        # Piece 4: a nested turn started with the turn pass runs under the Container-CC turn's deadline less the
+        # answer reserve; with no usable time left it is not started (and takes no slot).
+        nested_deadline_epoch, time_up = nested_deadline(pass_turn, request.META.get(DEADLINE_HEADER_META),
+                                                         time.time())
+        if time_up:
+            return op_error("TIME_UP", status=HTTP_STATUS["TIME_UP"])
 
         # Resolve session (same logic as /query/)
         if req.session_id:
@@ -813,6 +820,7 @@ class AssistantViewSet(viewsets.ViewSet):
                     resolved_session_id=resolved_session_id,
                     graph_scope=graph_scope,
                     parent_cc_turn=pass_turn,
+                    deadline_epoch=nested_deadline_epoch,
                 ),
                 daemon=True,
             )
@@ -1251,14 +1259,18 @@ class AssistantViewSet(viewsets.ViewSet):
         if refused is not None:
             return refused
 
-        # The op's limit (approach 1, piece 2): the table's value, capped by the turn's deadline once piece 4 passes
-        # it, and on the sidecar road by the sidecar's wait. With too little of it usable the op is refused before
-        # any model is called.
-        limit_s = op_limit_s(op, None, time.time())
+        # Piece 4: the limit is the table's value capped by the turn's own deadline (a X-Nextseek-Deadline header may
+        # only bring it forward), and on the sidecar road by the sidecar's wait. A model op with too little of it
+        # usable is refused before any slot is taken or model called; an op that calls no model is never refused and
+        # keeps a floor of NO_MODEL_FLOOR_S.
+        deadline = turn_deadline_epoch(turn, request.META.get(DEADLINE_HEADER_META))
+        limit_s = op_limit_s(op, deadline, time.time())
         if ops_road() == SIDECAR:
             limit_s = min(limit_s, SIDECAR_ROAD_CAP_S)
-        if limit_s < MIN_USABLE_S:
+        if op in MODEL_OPS and deadline is not None and limit_s < MIN_USABLE_S:
             return op_error("TIME_UP", status=HTTP_STATUS["TIME_UP"])
+        if op not in MODEL_OPS:
+            limit_s = max(limit_s, NO_MODEL_FLOOR_S)
 
         if turn is not None and not all(_request_login(request)):
             # The login held for the turn is gone: never run the op as the service login (plan 02's own guard).

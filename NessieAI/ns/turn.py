@@ -264,16 +264,20 @@ def run_sse_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pas
 
 
 def run_async_pipeline(*, adapter, chat_config, req, send_event, api_user, api_pass,
-                       chat_session, resolved_session_id, graph_scope=None, parent_cc_turn=None) -> None:
+                       chat_session, resolved_session_id, graph_scope=None, parent_cc_turn=None,
+                       deadline_epoch=None) -> None:
     """Pipeline body of the ``query/async`` endpoint, run on its daemon thread.
 
     Runs the orchestrator for ``req.mode`` (``plan``, ``pipeline`` or
     standard), turns an unhandled error into a ``query_error`` event, and
     saves the turn. Progress reaches the client only through ``send_event``.
     ``graph_scope`` is the caller's project scope (``_scope_kwargs``).
+    ``deadline_epoch``: a nested turn's Unix deadline (NessieAI/ns/op_limits.nested_deadline), or None.
     """
     tracked_send_event, error_state = _error_tracking_send_event(send_event)
     scope_kw = _scope_kwargs(graph_scope)
+    if deadline_epoch is not None:
+        scope_kw = {**scope_kw, "deadline_epoch": deadline_epoch}
     try:
         match getattr(req, "mode", "standard"):
             case "plan":

@@ -91,7 +91,7 @@ from .schemas.graph import GraphAgentPlan
 from .session import SessionState
 from .vocabulary import resolve_vocabulary, take as take_vocabulary
 from .tee import Tee
-from . import turn_spend
+from . import call_scope, turn_spend
 from .uid_links import link_sample_uids
 
 SendEvent = Callable[[str, dict[str, Any]], None]
@@ -427,6 +427,13 @@ def _emit_query_complete(
     return payload
 
 
+def _limit_turn(deadline_epoch: float | None) -> None:
+    """A nested turn started by a Container-CC turn answers inside it: its scope's deadline is ``deadline_epoch``
+    (Unix time, the Container-CC turn's deadline less the answer reserve). A turn of its own has none."""
+    if deadline_epoch is not None:
+        call_scope.limit_current(max(0.0, float(deadline_epoch) - time.time()))
+
+
 @turn_spend.collects_turn
 def run_pipeline_launch(
     session: SessionState | SessionStateProxy,
@@ -436,6 +443,7 @@ def run_pipeline_launch(
     *,
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """Deterministic CC → pipeline_agent bridge entry (query/async mode='pipeline').
 
@@ -446,12 +454,14 @@ def run_pipeline_launch(
 
     credentials — see _identity_gate. An incomplete per-request identity refuses
     the turn rather than launching a pipeline as the service account.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_pipeline_launch", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     if send_event:
@@ -1984,6 +1994,7 @@ def run_query(
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
     vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Shared query orchestrator for Streamlit, CLI, and async/SSE consumers.
@@ -2000,12 +2011,14 @@ def run_query(
     config's own scope stands (single-operator surfaces).
 
     vocabulary — the vocabulary pre-run (NessieAI/cc/prerun.py) or None; see _turn_vocabulary.
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
@@ -2915,6 +2928,7 @@ def run_query_plan(
     credentials: dict[str, str] | None = None,
     graph_scope: Any = _UNSET,
     vocabulary: Any = None,
+    deadline_epoch: float | None = None,
 ) -> dict[str, Any]:
     """
     Planner-based orchestrator: entity -> parser -> planner -> executor -> chatter -> evaluator.
@@ -2922,12 +2936,14 @@ def run_query_plan(
 
     credentials, graph_scope — same shallow-copy and identity-gate semantics as run_query.
     vocabulary — the vocabulary pre-run, or None (see _turn_vocabulary).
+    deadline_epoch -- set on a nested turn a Container-CC turn started; see _limit_turn.
     """
     config, identity_refusal = _identity_gate(
         session, config, credentials, send_event, entry_point="run_query_plan", graph_scope=graph_scope,
     )
     if identity_refusal is not None:
         return identity_refusal
+    _limit_turn(deadline_epoch)
 
     log_dir = _ensure_query_log_dir(session, config)
     artifact_store = ArtifactStore(log_dir)
