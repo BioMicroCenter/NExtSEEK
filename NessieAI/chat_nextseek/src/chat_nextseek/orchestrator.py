@@ -85,7 +85,7 @@ from .graph_retry import RETRY_CHANGED_ANSWER_NOTE, zero_row_retry_context
 from .helpers.lab_code import clamp_lab_codes, lab_near_miss_notes
 from .helpers.suggestions import accept, clean_rerun, pending_for, public_chip, suggestions_from_review
 from .helpers.tools.neo4j import is_scope_refusal
-from .helpers.uid_check import check_uids, uid_notes, uids_in
+from .helpers.uid_check import check_uids, plan_with_stored_uids, uid_notes, uids_in
 from .schemas import APIRequestPlan, EntityAgentOutput, ParserPlan, PlannerOutput, ReportWriterOutput
 from .schemas.graph import GraphAgentPlan
 from .session import SessionState
@@ -1530,6 +1530,7 @@ def _execute_graph_turn(
     turn_uids = uids_in(user_text, getattr(getattr(plan, "filters", None), "uids", None))
     uid_checks = check_uids(config, turn_uids, run=tool_neo4j_query) if turn_uids else []
     uid_agent_note, uid_reply_notes = uid_notes(uid_checks)
+    plan = plan_with_stored_uids(plan, uid_checks)  # R4: the parser's filters.uids carry the stored spelling
     if uid_agent_note:
         debug_payload["uid_checks"] = [{"asked": c.asked, "stored": c.stored} for c in uid_checks or []]
     agent_context = "\n\n".join(part for part in (refine_context, uid_agent_note) if part) or None
