@@ -166,12 +166,12 @@ def test_the_drop_folder_is_named_after_the_pass_not_the_username(tmp_path):
         staging = importlib.import_module("sidecar.app.staging")
         cfg = SimpleNamespace(staging_dir=str(tmp_path / "staging"))
         # A frame naming ANOTHER user, with its own pass, files under its own pass's folder.
-        turn = sc.contract.NsTurn(api_user="victim", turn_pass="pass-mine")
+        turn = sc.contract.NsTurn(api_user="other-user", turn_pass="pass-mine")
         staging.make_stage(cfg, turn, REQUEST_ID)("report", {"saved_files": {"k": str(src)}})
     own = tmp_path / "staging" / _folder_for(None, "pass-mine")
     assert (own / f"{REQUEST_ID}.complete").is_file()
     import hashlib
-    assert not (tmp_path / "staging" / hashlib.sha256(b"victim").hexdigest()).exists()
+    assert not (tmp_path / "staging" / hashlib.sha256(b"other-user").hexdigest()).exists()
 
 
 def test_a_turn_with_another_pass_never_sees_the_file(tmp_path):

@@ -438,7 +438,7 @@ def build_agent_environment(
     }
     # I-9, spec piece 1: the agent acts as the user through the one-turn pass Django issued for this turn
     # (sent as `Authorization: NextseekTurn`, answered only by TurnPassAuthentication). It never holds the user's
-    # password. The username is not secret: messages and the staging hash use it.
+    # password. The username is not secret: messages use it.
     if api_user:
         env["NEXTSEEK_USERNAME"] = api_user
         env["API_USER"] = api_user
@@ -1347,7 +1347,7 @@ def run_cc_turn(
     Always terminates with exactly one ``query_complete`` (structured ``artifacts``
     channel for deliverables, ``cc_raw_files`` for scratch/raw/) or ``query_error``.
 
-    ``api_user``/``api_pass`` are the login Django holds for the turn: the staging sweep's name and the scrub's
+    ``api_user``/``api_pass`` are the login Django holds for the turn: the scrub's
     secrets. The password never enters the container; ``turn_pass`` does (spec piece 1). ``on_deadline(epoch)`` is
     told the watchdog deadline once, before the spawn; ``on_turn_end()`` is called at most once, as soon as the
     container has stopped: right after ``_stop_and_confirm_exit`` on the normal and timed-out paths, else in the

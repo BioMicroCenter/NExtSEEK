@@ -6,8 +6,8 @@ against the ported upstream contract at
 ``docker/ns-sidecar/app/staging.py`` (byte-identical to
 ``<source-checkout>/sidecar/app/staging.py`` @ a429f13):
 
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}/<files>
-    {SIDECAR_STAGING_DIR}/{sha256(api_user)}/{request_id}.complete
+    {SIDECAR_STAGING_DIR}/{sha256(turn pass)}/{request_id}/<files>
+    {SIDECAR_STAGING_DIR}/{sha256(turn pass)}/{request_id}.complete
 
 Each locked invariant has a FIRING negative control (a test that goes RED under
 the forbidden mutation): fresh artifact surfaces same-turn, non-`.complete` not
@@ -36,12 +36,12 @@ PORTED_STAGING = paths.NS_SIDECAR_DIR / "app" / "staging.py"
 # helpers: build a sidecar-shaped staging tree under a fake dmac-cc-users mount
 # --------------------------------------------------------------------------
 
-def _stage(root: Path, api_user: str, request_id: str, files: dict[str, bytes],
+def _stage(root: Path, turn_pass: str, request_id: str, files: dict[str, bytes],
            *, complete: bool = True, marker_mtime: float | None = None) -> Path:
     """Write ``files`` (relpath -> bytes) under
-    ``{root}/_staging/{sha256(api_user)}/{request_id}/`` and (optionally) the
+    ``{root}/_staging/{sha256(turn pass)}/{request_id}/`` and (optionally) the
     sibling ``.complete`` marker — exactly the sidecar's layout."""
-    base = root / "_staging" / hashlib.sha256(api_user.encode()).hexdigest()
+    base = root / "_staging" / hashlib.sha256(turn_pass.encode()).hexdigest()
     req = base / request_id
     for rel, data in files.items():
         dst = req / rel
