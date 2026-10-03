@@ -1,0 +1,600 @@
+{
+  "_name": "probe-2026-10-03-r4-dev-routing - the routing smoke after round 4 is pushed to dev",
+  "_why": "About 12 questions on what round 4 touched directly: the three kept REST uses, an SOP list on the graph, catalog counts, a how-to first turn, caller identity, a follow-up that stays NS, a CC work request and a lab named like an entity. Roughly 12 turns, one cheap pass per login, PAID: needs the operator's go. Dev only.",
+  "_instance_warning": "Dev's numbers differ from production's. The two assay-kind numbers (75 with samples, 8 without) are dev's, measured for the 3 Oct review; re-pin them with pin_probe_truths.py on any other box. Every other expected value is a per-box check named in _by_box, not a number.",
+  "_run": "Run the file twice on the same box, once per login (cli --user/--password): cases tagged login:both on each login, login:member only on the NON-ADMIN login. Judge a case only on the login its tag names. Fill the FILL markers first (each is listed in _fill; replace every occurrence in a COPY with sed), keep the filled copy out of git: it holds real ids.",
+  "_fill": {
+    "LAB_IS_ENTITY": "a lab name from the lab catalog that is ALSO an investigation title or alias (or a project) on this box",
+    "SOP_TITLE": "any SOP title the login can see: the protocol_title of a DERIVED_FROM edge, or SELECT title FROM seek_production.sops LIMIT 1 for an admin",
+    "UID_IN_LOGIN_PROJECT": "a sample UID inside one of the LOGIN's projects (run once per login): MATCH (s:Sample) WHERE <login project id> IN s.project_ids RETURN s.uuid LIMIT 1"
+  },
+  "_by_box": "Numbers not pinned in a criterion are checked per box and login on the day from the same source the case's _why names (a REST row count, the box's context json, a scoped Cypher). Never copy a number from another box.",
+  "_measure": {
+    "r4d.assay_kinds_split": {
+      "locals": [
+        75,
+        8
+      ],
+      "mode": "each",
+      "cypher": [
+        "MATCH (a:Assay) WHERE EXISTS { (a)-[:INPUT_TO|OUTPUT_OF]-(:Sample) } RETURN count(a) AS n",
+        "MATCH (a:Assay) WHERE NOT EXISTS { (a)-[:INPUT_TO|OUTPUT_OF]-(:Sample) } RETURN count(a) AS n"
+      ]
+    }
+  },
+  "families": {
+    "retrieval_path_selection": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "retrieval_path_selection",
+          "id": "r4d.sops_list",
+          "name": "SOP list or search goes to the graph (ruling 9)",
+          "_why": "An SOP is the protocol recorded in sample metadata, so listing or searching them is a graph question; the sops endpoint is for downloading. Per box: the distinct protocol titles the login can see.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "What SOPs are on file?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "(?i)protocol"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(\\bfirst \\d+\\b))"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "^(?!/nextseek_api/sops/)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "retrieval_path_selection",
+          "id": "r4d.sop_download",
+          "name": "Downloading a named SOP is the kept REST use",
+          "_why": "REST is for finding people, downloading SOPs and retrieving samples by UID. The title is filled per box.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Give me the file for the SOP titled __FILL:SOP_TITLE__",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "/nextseek_api/sops/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "sample_retrieve": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "sample_retrieve",
+          "id": "r4d.retrieve_by_uid",
+          "name": "Retrieval by a named UID is the kept REST use",
+          "_why": "The UID is a sample inside the login's own projects, chosen per box (see _fill). total_samples from the endpoint is the per-box truth.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Pull up the full record for __FILL:UID_IN_LOGIN_PROJECT__",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "eq",
+                  "value": "/nextseek_api/samples/retrieve/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "mentions",
+                  "value": "__FILL:UID_IN_LOGIN_PROJECT__"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "person_lab_resolution": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "person_lab_resolution",
+          "id": "r4d.people_list",
+          "name": "People list stays on REST; no email-like text",
+          "_why": "Ruling 8. A non-admin sees only people in their own projects. Per box: the row count of people/ for that login.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Who are the researchers registered in NExtSEEK?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "eq",
+                  "value": "/nextseek_api/people/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*([\\w.+-]+@[\\w-]+\\.[\\w.]+))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "system_capability_question": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "system_capability_question",
+          "id": "r4d.catalog_raw_count",
+          "name": "A catalog count names what it counts",
+          "_why": "Per box: the Raw sample types in that box's runtime context/sampletypes_db.json (a catalog count, not a sample count).",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many Raw sample types are there?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "catalog|defined"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(\\bsamples? (have|has)\\b))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4d.howto_validate_first",
+          "name": "How-to question stays on NExtSEEK (ruling 6)",
+          "_why": "A 'how do I' turn with nothing supplied and no work asked for does not go to Container-CC.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How do I check my workbook before uploading it?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/docs/uploading/"
+                },
+                {
+                  "field": "route_source",
+                  "op": "matches_re",
+                  "value": "^(baml|howto)$"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4d.howto_download_spreadsheet",
+          "name": "Second how-to sibling: downloading found samples",
+          "_why": "Must not invent a prior result ('earlier results').",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Where can I download the samples I found as a spreadsheet?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "/docs/"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(earlier results))"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "family": "system_capability_question",
+          "id": "r4d.caller_projects",
+          "name": "Membership comes from the caller block, never /projects/",
+          "_why": "Ruling 2: caller identity is supplied by code from the session. Per box: the login's MySQL memberships.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:member"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Which projects am I a member of?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "system_question"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "api_plan.endpoint",
+                  "op": "matches_re",
+                  "value": "^(?!/nextseek_api/projects/)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "graph_traversal": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "graph_traversal",
+          "id": "r4d.assay_kinds_split",
+          "name": "Assay kinds with samples and with none come from the Assay EXISTS",
+          "_why": "A how-many over a catalog kind with a has/lacks predicate goes to the graph, never a REST list preview.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "How many assay kinds have samples, and how many have none?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "parser_plan.mode",
+                  "op": "eq",
+                  "value": "graph_query"
+                },
+                {
+                  "field": "neo4j_ok",
+                  "op": "true",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "graph_cypher",
+                  "op": "matches_re",
+                  "value": "Assay"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])75(?![\\w]|[.,]\\d|[-/]\\d)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?<![\\w.,/-])8(?![\\w]|[.,]\\d|[-/]\\d)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "followup_over_results": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "followup_over_results",
+          "id": "r4d.followup_stays_ns",
+          "name": "A follow-up count over found samples stays on NExtSEEK",
+          "_why": "Seed a search, then ask a count about it. Per box: the Cypher count over the seed set.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "seed",
+              "query": "Find mice treated with NDMA.",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            },
+            {
+              "label": "main",
+              "query": "How many of those are female?",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(couldn't build a search))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "artifact_delivery": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "artifact_delivery",
+          "id": "r4d.cc_work_request",
+          "name": "A work request stays with Container-CC",
+          "_why": "Ruling 6/8: files and exports are Container-CC work.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Make me a CSV of the NDMA mice with UID and sex",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "container_cc"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "nonempty",
+                  "value": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "project_summary_report": {
+      "description": "R4 smoke (dev)",
+      "variants": [
+        {
+          "family": "project_summary_report",
+          "id": "r4d.lab_named_like_investigation",
+          "name": "A lab named like an investigation scopes the report to it",
+          "_why": "U4.1. Per box: the lab name used must be a lab AND an investigation, project or alias there (see _fill). Footer says 'both a lab and the investigation (or project)'.",
+          "tags": [
+            "nessie",
+            "probe",
+            "full",
+            "login:both"
+          ],
+          "requires_env": [],
+          "turns": [
+            {
+              "label": "main",
+              "query": "Progress report for the __FILL:LAB_IS_ENTITY__ group in 2025",
+              "pass_criteria": [
+                {
+                  "field": "route",
+                  "op": "eq",
+                  "value": "nextseek_query"
+                },
+                {
+                  "field": "reporter_result.lab_project.kind",
+                  "op": "matches_re",
+                  "value": "^(project|investigation)$"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "both a lab and the (project|investigation)"
+                },
+                {
+                  "field": "last_reply",
+                  "op": "matches_re",
+                  "value": "(?is)\\A(?!.*(is not the name of a project))"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
