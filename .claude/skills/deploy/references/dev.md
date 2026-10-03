@@ -112,10 +112,12 @@ status file, unpacked into the launch folder).
 - **The refresh marker.** `.context_db_refresh` inside the container is fine if its mtime is
   AFTER the container's start; `facts.json` carries `checks.refresh_after_start`. False means it
   was baked into the image and labs stay empty for the UTC day: report it.
-- **The sidecar op check.** The runner's checks compare the running `SIDECAR_OPS` with the
-  repo's at HEAD (`CHECK sidecar_ops match|differ`); `differ` after a sidecar rebuild is a
-  finding, and without one it means the sidecar is stale (CC calls to a missing op fail
-  `VALIDATION: bad request`).
+- **The sidecar op check.** Since approach 1 (piece 2) the op tools take the sidecar only when the app's
+  `NEXTSEEK_CC_OPS_ROAD` says `sidecar` (`CHECK ops_road direct|sidecar`; a build without the switch counts as
+  `sidecar`). On the sidecar road the checks compare the running `SIDECAR_OPS` with the repo's at HEAD
+  (`CHECK sidecar_ops match|differ`): `differ` after a sidecar rebuild is a finding, and without one it means the
+  sidecar is stale (CC calls to a missing op fail `VALIDATION: bad request`). On the direct road the line reads
+  `CHECK sidecar_ops skipped` and a stale sidecar is not a finding.
 - **SEEK Puma workers bloat** (7 to 9 GB each, container 20 GiB and more). The runner restarts
   `seek` before a Nessie run when it is over 12 GiB.
 - **Dev numbers are not prod numbers.** Any numeric red on dev is arithmetic until the number is

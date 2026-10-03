@@ -836,3 +836,18 @@ def test_absent_instance_key_is_named(tmp_path, monkeypatch):
 ])
 def test_proxy_and_sidecar_rebuild_only_for_their_build_inputs(path, images):
     assert rules.rule_for(path).images == images
+
+
+def test_the_sidecar_op_check_applies_only_on_the_sidecar_road(tmp_path, capsys):
+    """Approach 1, piece 2: with NEXTSEEK_CC_OPS_ROAD=direct the op tools never touch the sidecar, so a stale sidecar
+    is not a finding; a build without the switch always used the sidecar."""
+    _, text = rendered_runner(tmp_path, capsys)
+    assert 'echo "CHECK ops_road $road"' in text
+    assert "test -f /app/NessieAI/cc/ops_road.py" in text
+    assert 'echo "CHECK sidecar_ops skipped"' in text
+    assert text.index('if [ "$road" = sidecar ]') < text.index('echo "CHECK sidecar_ops match"')
+
+
+def test_the_checks_parser_reads_the_road():
+    ck = L.parse_checks("CHECK ops_road direct\nCHECK sidecar_ops skipped\n")
+    assert (ck["ops_road"], ck["sidecar_ops"]) == ("direct", "skipped")
