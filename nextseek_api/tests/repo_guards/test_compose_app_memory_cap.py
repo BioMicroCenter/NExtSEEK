@@ -29,6 +29,7 @@ OTHER_CAPS = {
     "db": "${SEEK_DB_MEMORY:-2G}",
     "nextseek-sidecar": "${SIDECAR_MEMORY:-1G}",
 }
+LAYA_CAP = "${LAYA_MEMORY:-3500M}"
 
 
 def _service(name):
@@ -87,3 +88,49 @@ def test_every_long_lived_service_has_a_cap_and_cannot_swap_past_it():
         limits = service.get("deploy", {}).get("resources", {}).get("limits", {})
         assert limits.get("memory") == cap, f"{name} has no memory cap"
         assert service.get("memswap_limit") == cap, f"{name} may swap past its cap"
+
+
+def _compose():
+    return yaml.safe_load(COMPOSE.read_text())
+
+
+def test_laya_router_is_capped_and_cannot_swap_past_its_cap():
+    """Sidecar for the laya router (JevLevROUTING): 2.8 GB measured peak, so 3500M."""
+    service = _service("laya-router")
+    limits = service.get("deploy", {}).get("resources", {}).get("limits", {})
+    assert limits.get("memory") == LAYA_CAP
+    assert service.get("memswap_limit") == LAYA_CAP
+    assert limits.get("cpus") == "${LAYA_CPUS:-4}"
+    assert service["environment"]["LAYA_THREADS"] == "4"
+
+
+def test_laya_router_is_off_by_default_and_has_no_published_port():
+    service = _service("laya-router")
+    assert service.get("profiles") == ["laya"]
+    assert "ports" not in service
+    assert "expose" not in service or service["expose"] == ["8080"]
+    assert "laya-router" not in _nextseek()["depends_on"]
+
+
+def test_laya_router_sits_on_the_internal_laya_net_only():
+    """No egress: the user's text must not leave the box, and the per-turn CC
+    agents (dmac-cc-net) must not reach the sidecar."""
+    doc = _compose()
+    assert doc["networks"]["laya-net"]["internal"] is True
+    assert doc["services"]["laya-router"]["networks"] == ["laya-net"]
+    assert doc["services"]["nextseek"]["networks"] == ["default", "laya-net"]
+    for name, svc in doc["services"].items():
+        if name not in ("laya-router", "nextseek"):
+            assert "laya-net" not in (svc.get("networks") or []), name
+
+
+def test_laya_router_secrets_and_checkpoint():
+    """Own env file (only LAYA_API_KEY), never nextseek.env; checkpoint read-only, offline."""
+    service = _service("laya-router")
+    assert service["env_file"] == ["./docker/laya.env"] or service["env_file"] == "./docker/laya.env"
+    assert "nextseek.env" not in str(service)
+    assert service["environment"]["HF_HUB_OFFLINE"] == "1"
+    mounts = [v for v in service["volumes"] if isinstance(v, str)]
+    assert any(m.endswith(":/models:ro") or m.endswith(":/models:ro,z") for m in mounts)
+    assert service["restart"] == "unless-stopped"
+    assert "healthcheck" in service
