@@ -1834,6 +1834,10 @@ def _fulltext_problems(scan: _Scan, cypher: str, parameters) -> list[_Shape]:
 # holds 1,998,154. Lineage is DERIVED_FROM only (docs/superpowers/specs/2026-09-25-graph-assay-nodes-design.md
 # section 6.3).
 #
+# One pairing is allowed (round 4, ruling 1): when one of the samples is pinned by UID (`{uuid: $x}` or `s.uuid = $x`)
+# and the statement returns a distinct list or count (`RETURN DISTINCT`, `count(DISTINCT ..)`, `collect(DISTINCT ..)`),
+# the answer is bounded by that sample's own Assay. An unpinned pairing stays refused.
+#
 # `assay_join` refuses a statement in which, in one row scope, two distinct sample variables reach the same Assay
 # variable through INPUT_TO or OUTPUT_OF, however it is written: one pattern, comma-joined parts, separate MATCH or
 # OPTIONAL MATCH clauses, a variable carried by WITH (bare or aliased), an undirected or alternated relationship, an
@@ -1993,6 +1997,19 @@ def _with_carried(scan: _Scan, body_start: int, body_end: int, alive: dict, fres
     return carried
 
 
+_UID_PIN_RE = re.compile(r"\buuid\s*:\s*(?:\$\w+|'[^']*'|\"[^\"]*\")")
+_DISTINCT_RESULT_RE = re.compile(r"\bRETURN\s+DISTINCT\b|\b(?:count|collect)\s*\(\s*DISTINCT\b", re.IGNORECASE)
+
+
+def _uid_pinned(scan: _Scan, cypher: str, element: tuple) -> bool:
+    """A sample node pinned by UID equality: `(s {uuid: $x})`, or `s.uuid = $x` anywhere in the statement."""
+    m = _NODE_PATTERN_RE.match(scan.masked, element[0])
+    if m and m.group("props") and _UID_PIN_RE.search(cypher[m.start("props"):m.end("props")]):
+        return True
+    return bool(element[3]) and bool(re.search(
+        rf"(?<![\w.$]){re.escape(element[3])}\.uuid\s*=\s*(?:\$\w+|'|\")", cypher))
+
+
 def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     """assay_join: every Assay that two distinct samples reach in one row scope (the section comment has the rule)."""
     links = _assay_links(scan, cypher)
@@ -2105,10 +2122,16 @@ def _assay_join_problems(scan: _Scan, cypher: str) -> list[_Shape]:
     for key, local_samples in valued.items():
         if pairs.get(key):
             pairs[key] = {**pairs[key], **local_samples}
+    # ponytail: "distinct result" is read from the whole statement, not the scope; a RETURN DISTINCT in a subquery
+    # would also count. Tighten to the top-level RETURN if a counter-example shows up.
+    pinned = {keys.get(e[0], ("#node", e[0])) for e in _node_patterns(scan) if _uid_pinned(scan, cypher, e)}
+    distinct = bool(_DISTINCT_RESULT_RE.search(masked))
     problems = []
     for (_scope, a_key), samples in pairs.items():
         if len(samples) < 2:
             continue
+        if distinct and pinned & set(samples):
+            continue  # one sample named by UID: bounded by its own Assay (round 4, ruling 1)
         ordered = sorted(samples.values())
         names = [display for _, display in ordered]
         both = "both" if len(names) == 2 else "all"
@@ -2195,7 +2218,11 @@ def _shape_lines(shapes: list[_Shape]) -> list[str]:
             "one side with every sample on the other. Keep the lineage on DERIVED_FROM "
             "((child:Sample)-[:DERIVED_FROM]->(parent:Sample)), and test an assay on one sample at a time: "
             "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }. To count what went into and "
-            "what came out of one Assay, count each in its own COUNT { } subquery.")
+            "what came out of one Assay, count each in its own COUNT { } subquery. The one pairing that is allowed "
+            "starts from a sample the question names by UID: `MATCH (s:Sample {uuid: $uid})-[:INPUT_TO|OUTPUT_OF]->"
+            "(a:Assay)<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) RETURN DISTINCT o.uuid AS uuid` (or "
+            "`count(DISTINCT o)`), and for the same run add the shared seek_assay_ids id on the two edges. With no "
+            "sample named by UID, samples cannot be paired through an Assay.")
     return lines
 
 

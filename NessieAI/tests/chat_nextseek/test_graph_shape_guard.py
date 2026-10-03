@@ -791,6 +791,49 @@ def test_the_assay_join_repair_says_lineage_is_derived_from_and_how_to_ask_inste
     assert "Lineage is DERIVED_FROM only." in message
     assert "WHERE EXISTS { (s)-[:INPUT_TO]->(a) } OR EXISTS { (s)-[:OUTPUT_OF]->(a) }" in message
     assert "COUNT { } subquery" in message and message.endswith("answered from the graph.")
+    assert "named by UID" in message and "RETURN DISTINCT o.uuid" in message and "seek_assay_ids" in message
+
+
+# One sample named by UID bounds the pairing by its own Assay (round 4, ruling 1). Each shape runs for two made-up UIDs.
+UID_PAIRINGS = [
+    ("inline_pin_distinct_list", "MATCH (s:Sample {{uuid: '{uid}'}})-[:INPUT_TO|OUTPUT_OF]->(a:Assay)"
+                                 "<-[:INPUT_TO|OUTPUT_OF]-(o:Sample) RETURN DISTINCT o.uuid AS uuid"),
+    ("inline_pin_distinct_count", "MATCH (s:Sample {{uuid: $uid}})-[:OUTPUT_OF]->(a:Assay)<-[:OUTPUT_OF]-(o:Sample) "
+                                  "WHERE o.uuid <> s.uuid RETURN count(DISTINCT o) AS n"),
+    ("where_pin", "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) WHERE s.uuid = '{uid}' "
+                  "RETURN collect(DISTINCT o.uuid) AS uuids"),
+    ("same_run", "MATCH (s:Sample {{uuid: '{uid}'}})-[r1:OUTPUT_OF]->(a:Assay)<-[r2:OUTPUT_OF]-(o:Sample) "
+                 "WHERE any(i IN r1.seek_assay_ids WHERE i IN r2.seek_assay_ids) AND o <> s "
+                 "RETURN DISTINCT o.uuid AS uuid"),
+]
+UIDS = ["ZZZ-990101ABC-1-PUB", "QQQ-770202XYZ-2-PUB"]
+
+
+@pytest.mark.parametrize("uid", UIDS)
+@pytest.mark.parametrize("cypher", [c for _, c in UID_PAIRINGS], ids=[n for n, _ in UID_PAIRINGS])
+def test_samples_paired_through_an_assay_from_one_uid_named_sample_pass(cypher, uid):
+    assert "assay_join" not in kinds(cypher.format(uid=uid), {"uid": uid}), \
+        graph_mod.query_shape_problems(cypher.format(uid=uid), {"uid": uid})
+
+
+@pytest.mark.parametrize("cypher", [
+    # no UID: refused
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) RETURN DISTINCT o.uuid AS uuid",
+    # a UID but the rows are not distinct: refused
+    "MATCH (s:Sample {uuid: $uid})-[:OUTPUT_OF]->(a:Assay)<-[:OUTPUT_OF]-(o:Sample) RETURN o.uuid AS uuid",
+    # a UID list is not one named sample
+    "MATCH (s:Sample)-[:INPUT_TO]->(a:Assay)<-[:INPUT_TO]-(o:Sample) WHERE s.uuid IN $uids "
+    "RETURN DISTINCT o.uuid AS uuid",
+], ids=["no_uid", "uid_but_rows", "uid_list"])
+def test_pairings_without_a_uid_or_a_distinct_result_stay_refused(cypher):
+    assert "assay_join" in kinds(cypher, {"uid": "ZZZ-990101ABC-1-PUB", "uids": ["a", "b"]})
+
+
+def test_the_example_in_the_assay_join_repair_passes_the_guard():
+    message = _message(PAIRED)
+    example = message.split("`")[1]
+    assert example.startswith("MATCH (s:Sample {uuid: $uid})")
+    assert "assay_join" not in kinds(example, {"uid": "ZZZ-990101ABC-1-PUB"})
 
 
 def test_the_assay_join_refusal_names_the_assay():
