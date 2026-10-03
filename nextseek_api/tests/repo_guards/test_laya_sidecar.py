@@ -1,4 +1,4 @@
-"""The laya sidecar wrapper keeps the wire contract in scripts/laya/CONTRACT.md,
+"""The laya sidecar wrapper keeps the wire contract (docker/laya/serve_wrapper.py's docstring),
 checks the key, and never logs a request body (JevLevROUTING, SPEC s10, s11).
 
 A fake agent stands in for the model: no weights, no torch, no network.

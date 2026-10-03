@@ -1,6 +1,6 @@
 """Shared pure helpers for the laya router (JevLevROUTING). Owner: unit U3.
 
-Signatures fixed by PLAN section 0 (CONTRACT.md).
+Signatures fixed by PLAN section 0.
 No torch, no laya import in this file (SPEC test 13).
 """
 from __future__ import annotations

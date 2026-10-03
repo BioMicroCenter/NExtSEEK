@@ -1,6 +1,6 @@
 """Thin HTTP front for the laya router sidecar (JevLevROUTING, SPEC s10).
 
-Wire contract (scripts/laya/CONTRACT.md):
+Wire contract (pinned by NessieAI/tests/router/test_laya_integration.py, the real client against this wrapper):
   POST /route  Bearer key; {"state","question_id":"route","prompt","options":{key:text}}
                -> {"revision","probabilities","answer_confidence","state_tokens","truncated"}
   GET  /health -> {"revision"}   (open: it is a liveness probe and leaks nothing else)
