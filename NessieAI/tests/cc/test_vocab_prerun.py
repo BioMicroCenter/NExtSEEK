@@ -294,6 +294,24 @@ def test_a_failed_vocabulary_write_still_records_the_spend_and_a_failed_spend_wr
 
 
 @pytest.mark.django_db(transaction=True)
+def test_a_failed_strikes_write_in_the_hand_off_marks_the_cost_partial_and_keeps_the_rest(monkeypatch, fresh_pool):
+    monkeypatch.setattr(vocabulary_mod, "resolve_vocabulary", _paid_entity())
+    turn = _turn("mice")
+    p = prerun.start_prerun(None, CONFIG, "mice", skip=False)
+    p.result(10)
+    assert p.strikes, "the pre-run marked a failed model"
+
+    def boom(*a, **k):
+        raise RuntimeError("row gone")
+    monkeypatch.setattr(tm, "merge_strikes", boom)
+    assert prerun.hand_to_turn(p, turn, user_question="mice", store_early_plan=False).is_set()
+    row = CCTurn.objects.get(pk=turn.pk)
+    assert row.ops_cost_usd == Decimal(str(round(model_prices.call_cost(FLASH, USAGE).cost_usd, 6)))
+    assert row.ops_cost_partial is True, "a lost strikes write never reads complete"
+    assert tm.get_vocabulary(turn)["keywords"] == ["mice"], "the vocabulary write is independent of the lost one"
+
+
+@pytest.mark.django_db(transaction=True)
 def test_a_late_prerun_reaches_the_turn_from_its_pool_thread(monkeypatch, fresh_pool):
     release = threading.Event()
     entered: list = []
