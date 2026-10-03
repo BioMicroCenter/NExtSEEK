@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from decimal import Decimal
 
 import pytest
 from django.db import connection
 
 from chat_nextseek import call_scope
-from NessieAI.ns import aggregate
+from NessieAI.ns import aggregate, granular
 from NessieAI.ns import turn_memory as tm
 from NessieAI.tests.ns.test_mysql_lane import race
 from NessieAI.tests.ns.test_turn_ops import COST, Agents, _turn
@@ -56,6 +55,15 @@ def test_two_late_parts_finishing_together_settle_once_each_and_release_the_slot
     agents.on_graph = on_graph
     monkeypatch.setattr(aggregate, "op_deadline_s", lambda limit_s: 1.0)
     monkeypatch.setattr(aggregate, "MIN_REMAINING_S", 0.0)
+    settled = threading.Semaphore(0)  # one per late part, once its settlement and any slot release are done
+    part_done = granular._LateSettlement.part_done
+
+    def counted(self, part):
+        try:
+            part_done(self, part)
+        finally:
+            settled.release()
+    monkeypatch.setattr(granular._LateSettlement, "part_done", counted)
 
     waiter = threading.Thread(target=running.wait)  # the test is the third arrival: both parts are running
     waiter.start()
@@ -63,13 +71,13 @@ def test_two_late_parts_finishing_together_settle_once_each_and_release_the_slot
     waiter.join(10)
     assert {p["status"] for p in out["parts"]} == {"timed_out"}
     assert CCTurn.objects.get(pk=turn.pk).ops_in_flight == 1
+    assert tm.take_op_slot(turn), "a second op of the turn: one extra release would free its slot"
 
     release.set()
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and CCTurn.objects.get(pk=turn.pk).ops_in_flight != 0:
-        time.sleep(0.05)
+    assert settled.acquire(timeout=15) and settled.acquire(timeout=15), "both late parts settled"
 
     row = CCTurn.objects.get(pk=turn.pk)
-    assert row.ops_in_flight == 0, "released once, after the last part (never negative, never held)"
+    assert row.ops_in_flight == 1, "released once, by the last part: the second op's slot is still held"
+    tm.release_op_slot(turn)
     assert row.ops_cost_usd == 2 * ONE_OP, "each late part's spend exactly once"
     assert sorted(s[1] for s in tm.load_strikes(turn)) == ["late-part a", "late-part b"]
