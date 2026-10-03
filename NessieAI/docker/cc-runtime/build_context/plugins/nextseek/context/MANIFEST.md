@@ -5,9 +5,7 @@ truth for NExtSEEK vocabulary, schema, and endpoints. **Consult the file whose
 "consult when" matches your task BEFORE constructing an op call** — do not guess
 project/study names, sampletype codes, assays, or endpoints from memory.
 
-Note: `nextseek-entity-extract` runs automatically on every query (UserPromptSubmit
-hook) and injects resolved vocabulary into your context. These files are the
-authoritative source when you need more than the auto-resolution provides.
+Note: the NExtSEEK vocabulary for the user's question is resolved automatically on every query and injected into your context before you act (a UserPromptSubmit hook). These files are the authoritative source when you need more than the auto-resolution provides.
 
 | File | What it is | Consult when |
 |------|-----------|--------------|

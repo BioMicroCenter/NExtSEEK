@@ -46,6 +46,8 @@ largest module here and holds several concerns; read the part you need.
 | `cc_provision.py` | `build_user_dirs`, the one source of every directory a turn touches, and `resolve_user_project`, which resolves the caller's SEEK project with the caller's own credentials and fails closed |
 | `cc_staging.py` | `sweep_user_staging`, which moves sidecar-staged artifacts into the requesting user's own tree |
 | `safe_fs.py` | every file operation Django makes in a folder an agent or the sidecar can write (`cc-state`, `scratch`, `_staging`): no link followed, no path trusted, and a root must be a registered mount root or a Django folder above one |
+| `prerun.py` | the vocabulary pre-run: one per question beside the router, on a small pool (4 running, 4 waiting), handed to the NS turn or the Container-CC turn's row and `/data/turn` |
+| `ops_road.py` | which road the agent's op tools take, `direct` or `sidecar` (`NEXTSEEK_CC_OPS_ROAD`): one reader for the agent's env, the staging sweep and the op view's sidecar cap |
 | `step7_llm_cost_ledger.py` | records real token spend; armed by `nextseek_api/cc_assistant/apps.py` |
 | `op_registry/` | the inventory of the plugin commands the agent may call (`NessieAI/cc/op_registry/README.md`; below) |
 

@@ -142,13 +142,12 @@ if [ -x "$NS_SETUP" ]; then
   SETTINGS_FILE="$CLAUDE_HOME/settings.json" sh "$NS_SETUP" >/dev/null 2>&1 || true
 fi
 
-# Register the UserPromptSubmit hook that ALWAYS runs nextseek-entity-extract
-# before the agent acts (resolve vocabulary / expand abbreviations like GBM),
-# outside the agent's control. This is done in the user-level settings.json
-# because the headless `claude --print` runtime does NOT load local-plugin
+# Register the UserPromptSubmit hook that injects the turn's vocabulary (read from /data/turn, written by the host)
+# and the newest staged turn before the agent acts, outside the agent's control. This is done in the user-level
+# settings.json because the headless `claude --print` runtime does NOT load local-plugin
 # hooks/hooks.json — only skills/commands are auto-discovered from the plugin
 # symlink. Idempotent + fail-open: any error leaves settings untouched and never
-# blocks startup. Isolation preserved: the hook only re-invokes the existing bin.
+# blocks startup. Isolation preserved: the hook only reads read-only mounts.
 NS_SETTINGS="${ENTRYPOINT_CLAUDE_SETTINGS:-$CLAUDE_HOME/settings.json}"
 NS_HOOK="${ENTRYPOINT_NS_HOOK:-/app/plugins/nextseek/hooks/entity_preamble.sh}"
 if command -v jq >/dev/null 2>&1 && [ -x "$NS_HOOK" ]; then

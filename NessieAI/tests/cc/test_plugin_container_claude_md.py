@@ -131,6 +131,7 @@ def _every_agent_mount():
         project_dirname="42-px", user_id="alice", cc_state_key="S1", run_id="R1",
         transcripts_subpath="42-px/alice/_memory/S1/transcripts",
         previous_turns=True,
+        turn_files=True,
     )
 
 
