@@ -29,117 +29,9 @@
     }
   },
   {
-    "path": "/nextseek_api/assays/",
-    "method": "GET",
-    "description": "Retrieve all assays (experimental procedures) you have access to. Returns assay titles, types, technologies used, and IDs for linked studies, samples, and data files.",
-    "category": "assay_list",
-    "requires_uids": false,
-    "supports_free_text": false,
-    "primary_entities": [
-      "assays"
-    ],
-    "intent_patterns": [
-      "assays",
-      "procedures",
-      "what assays"
-    ],
-    "llm_hint": "Use for questions listing available assays or experimental procedures.",
-    "example_intents": [
-      "Show me all available assays",
-      "List every assay record in the catalog"
-    ]
-  },
-  {
-    "path": "/nextseek_api/sample-tree/{uid}/tree/",
-    "method": "GET",
-    "description": "Return the sample lineage (hierarchy) around a given sample UID. Includes all related samples above and below in the lineage and the parent–child relationships between them. Returns graph-friendly nodes/edges (ID, UUID, sample type, relationships). Use for lineage visualization or when the user wants to see the full derivation tree from a specific sample.",
-    "category": "sample_lineage",
-    "requires_uids": true,
-    "supports_free_text": false,
-    "primary_entities": [
-      "uids"
-    ],
-    "intent_patterns": [
-      "tree",
-      "lineage",
-      "derived from",
-      "came from",
-      "child of",
-      "descendants",
-      "ancestors"
-    ],
-    "llm_hint": "Use when the user explicitly asks to see or visualise the lineage TREE around one known UID. Requires a UID. A question about that lineage (what a sample was derived from, what came from it, how many of a type descend from it) is graph_query. For full metadata export of associated samples, use samples/retrieve/ instead.",
-    "example_intents": [
-      "Show me the lineage tree around SLD-230105ABC-12-PUB",
-      "Visualise the derivation tree of SLD-230105ABC-12-PUB"
-    ]
-  },
-  {
-    "path": "/nextseek_api/sample_types/",
-    "method": "GET",
-    "description": "Retrieve all sample type definitions available in the system. Returns a list of sample type schemas including titles, descriptions, and attribute configurations for categories like tissue samples, cell lines, animals, imaging data, and sequencing data.",
-    "category": "sampletype_list",
-    "requires_uids": false,
-    "supports_free_text": false,
-    "primary_entities": [
-      "sampletypes"
-    ],
-    "intent_patterns": [
-      "what types",
-      "sample types",
-      "categories",
-      "schemas"
-    ],
-    "llm_hint": "Use for questions about what sample types or schemas exist in the system.",
-    "example_intents": [
-      "What types of samples can I register?",
-      "Show me all available sample categories"
-    ]
-  },
-  {
-    "path": "/nextseek_api/investigations/",
-    "method": "GET",
-    "description": "List all investigations (research themes) you have access to. Returns titles, descriptions, and IDs for their child studies. Use when the user wants to enumerate available investigations at the SEEK level.",
-    "category": "investigation_list",
-    "requires_uids": false,
-    "supports_free_text": false,
-    "primary_entities": [
-      "investigations"
-    ],
-    "intent_patterns": [
-      "investigations",
-      "research topics",
-      "what investigations"
-    ],
-    "llm_hint": "Use when the user wants to list investigations at the SEEK platform level. For questions about which samples are IN an investigation or study, use graph_query instead.",
-    "example_intents": [
-      "Show me all ongoing investigations",
-      "What research topics are being studied?"
-    ]
-  },
-  {
-    "path": "/nextseek_api/projects/",
-    "method": "GET",
-    "description": "List all research projects you have access to. Returns project titles, descriptions, and IDs for related investigations and studies. Use when the user wants to enumerate available projects at the SEEK platform level.",
-    "category": "project_list",
-    "requires_uids": false,
-    "supports_free_text": false,
-    "primary_entities": [
-      "projects"
-    ],
-    "intent_patterns": [
-      "projects",
-      "what projects"
-    ],
-    "llm_hint": "Use when the user wants to list projects at the SEEK platform level. For structural questions about project contents (what samples, studies, etc.), use graph_query instead.",
-    "example_intents": [
-      "Show me all projects I am part of"
-    ]
-  },
-  {
     "path": "/nextseek_api/people/",
     "method": "GET",
-    "description": "List all registered researchers and users in the system. Returns names, email addresses, institutions, and IDs for associated projects and studies.",
+    "description": "List the registered SEEK user accounts. Returns each account's id and display name only, the whole list at once: no email, no projects, no filter.",
     "category": "person_list",
     "requires_uids": false,
     "supports_free_text": false,
@@ -151,7 +43,7 @@
       "people",
       "user accounts"
     ],
-    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint.",
+    "llm_hint": "Use only when the user wants the list of registered SEEK user accounts themselves. A person named in a sample question (a lab or PI, or the Scientist who made or handled samples) is sample metadata and is routed to graph_query, never to this endpoint. Not for the caller's own account or projects (system_question).",
     "example_intents": [
       "List the registered user accounts in the system"
     ]
@@ -159,7 +51,7 @@
   {
     "path": "/nextseek_api/sops/",
     "method": "GET",
-    "description": "List all standard operating procedures (protocols) you have access to. Returns protocol titles, descriptions, associated projects, and file attachment metadata.",
+    "description": "Download one named SOP: fetch the SOP record by its SEEK id (sops/{id}/), which carries the file attached to it. It is not a search or a list: the whole-list call returns ids and titles only and cannot filter, page or count.",
     "category": "sop_list",
     "requires_uids": false,
     "supports_free_text": false,
@@ -167,14 +59,14 @@
       "sops"
     ],
     "intent_patterns": [
-      "protocols",
-      "SOPs",
-      "procedures"
+      "download SOP",
+      "SOP file",
+      "protocol document"
     ],
-    "llm_hint": "Use when the user wants the LIST of protocol records themselves: what protocols are on file, their titles, descriptions and attachments. DO NOT USE WHEN the question filters, counts or analyses protocols -- which samples followed one, how many did, which protocol a sample used, protocols by keyword or lab. This endpoint cannot filter: it returns the whole list and the reply then has to admit it could not constrain it. Those questions are graph_query: the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes.",
+    "llm_hint": "Use ONLY when the user names one SOP by its id and wants its file (\"Download SOP 142\"). Every other SOP or protocol question is graph_query: listing SOPs, searching them by word, lab or project data, counting them, which samples used a protocol (the protocol is on the DERIVED_FROM edge as `protocol_title`, and samples carry protocol attributes). SOPs registered to a project are reporter.",
     "example_intents": [
-      "Show me all available protocols",
-      "What procedures are documented for sample collection?"
+      "Download SOP 142",
+      "Get the file attached to SOP 9001"
     ]
   }
 ]

@@ -1,7 +1,7 @@
 """The REST sample searches are retired: every sample question goes to the graph (routing review 6 and 6a, 2026-09-24).
 
-The NS API agent's catalog keeps eight endpoints. REST answers only what the graph does not hold: SEEK records
-(SOPs), downloads by UID (retrieve, sample-tree) and catalog lists. advanced_search, parents_by_child_types and
+The NS API agent's catalog keeps three endpoints (R4, ruling 9). REST answers only what the graph does not hold:
+downloads by UID (retrieve), the file of one SOP, and the user list. advanced_search, parents_by_child_types and
 graph_search leave the catalog the parser chooses from. graph_search's entry moves, unchanged, to
 ``scope_fallback_endpoints.json``: a graph question refused for its project scope is still answered through it, and
 the API agent still builds that request from its template.
@@ -68,16 +68,12 @@ RETRIEVE = "/nextseek_api/samples/retrieve/"
 RETRIEVE_ALIAS = "/nextseek_api/admin/samples/retrieve/"
 SOPS = "/nextseek_api/sops/"
 
-# The eight (method, path) pairs the operator approved on 2026-09-24.
+# The three (method, path) pairs left after round 4 (ruling 9); the 09-24 eight lost assays, sample_types,
+# investigations, projects and sample-tree (test_route_by_kind.py holds where those questions go).
 CATALOG_PAIRS = {
     ("POST", RETRIEVE),
-    ("GET", "/nextseek_api/sample-tree/{uid}/tree/"),
     ("GET", SOPS),
     ("GET", "/nextseek_api/people/"),
-    ("GET", "/nextseek_api/investigations/"),
-    ("GET", "/nextseek_api/projects/"),
-    ("GET", "/nextseek_api/assays/"),
-    ("GET", "/nextseek_api/sample_types/"),
 }
 CATALOG_PATHS = sorted(path for _, path in CATALOG_PAIRS)
 
@@ -117,10 +113,10 @@ def _fallback() -> list[dict]:
 # --------------------------------------------------------------------------- the catalog
 
 
-def test_the_catalog_holds_exactly_the_eight_approved_pairs():
+def test_the_catalog_holds_exactly_the_three_approved_pairs():
     rows = _catalog()
     pairs = [((r.get("method") or "").upper(), r.get("path")) for r in rows]
-    assert len(pairs) == 8, pairs
+    assert len(pairs) == 3, pairs
     assert set(pairs) == CATALOG_PAIRS
 
 
@@ -178,8 +174,8 @@ def test_the_note_never_names_a_retired_search():
     )
 
 
-@pytest.mark.parametrize("endpoint", [*CATALOG_PATHS, RETRIEVE_ALIAS])
-def test_a_new_search_on_a_catalog_endpoint_is_left_alone(endpoint):
+@pytest.mark.parametrize("endpoint", [RETRIEVE, RETRIEVE_ALIAS])
+def test_a_new_search_on_retrieve_is_left_alone(endpoint):
     """The old retrieve alias stays readable too, so saved chats replay."""
     plan = _plan(target_endpoint=endpoint)
     assert _route_retired_sample_search(None, plan) is plan
@@ -573,13 +569,17 @@ def test_a_failed_parse_for_graph_search_still_refuses_an_empty_body(monkeypatch
 
 
 def test_a_config_without_the_fallback_list_still_builds(monkeypatch):
-    """Existing stand-ins carry only MIN_API_ENDPOINTS; the lookup must not need the new attribute."""
+    """Existing stand-ins carry only MIN_API_ENDPOINTS; the lookup must not need the new attribute. (The kept endpoints
+    are built in code since round 4, so the model path is shown with a catalog entry of the test's own.)"""
+    entry = {"path": "/nextseek_api/zzz/", "method": "GET", "description": "a made-up list"}
     seen = _capture_api_messages(monkeypatch, APIRequestPlan(
-        endpoint=SOPS, method="GET", requestBody={}, queryParameters={}))
+        endpoint=entry["path"], method="GET", requestBody={}, queryParameters={}))
+    cfg = _ApiCfg(fallback=False)
+    cfg.MIN_API_ENDPOINTS = [entry]
 
-    plan = api_mod.api_agent_build_request(_ApiCfg(fallback=False), {"target_endpoint": SOPS, "filters": {}})
+    plan = api_mod.api_agent_build_request(cfg, {"target_endpoint": entry["path"], "filters": {}})
 
-    assert plan.endpoint == SOPS
+    assert plan.endpoint == entry["path"]
     assert "Enriched endpoint definition" in seen[0][1]["content"]
 
 
@@ -595,45 +595,7 @@ def test_the_config_loads_the_fallback_file_beside_the_catalog():
     assert cfg._load_json_list("scope_fallback_endpoints.json", "fallback API endpoints") == _fallback()
 
 
-# --------------------------------------------------------------------------- the guard: which attributes
-
-SAMPLETYPE_LIST = next(r["path"] for r in _catalog() if r.get("category") == "sampletype_list")
-
-
-@pytest.mark.parametrize("question", [
-    "Which sample attributes use a controlled vocabulary?",  # the counter-example
-    "Which attributes of the sample types are marked confidential?",
-    "Which fields on any sample type hold a date?",
-    "What attributes are required on every sample type?",
-])
-def test_which_attributes_of_the_sample_types_goes_to_the_graph(question):
-    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
-
-    out = _apply_parser_guardrails(question, plan)
-
-    assert out.mode == "graph_query" and out.target_endpoint is None
-    assert "Attribute catalog" in out.notes
-
-
-@pytest.mark.parametrize("question", [
-    "What fields does the Zorbex sample type have?",
-    "Which attributes does the Quillon sample type have?",
-])
-def test_a_question_about_one_types_attribute_list_names_no_property_and_stays_on_the_list_endpoint(question):
-    """No property after the attribute word: it asks for the type's list, which the list endpoint answers."""
-    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
-    assert _apply_parser_guardrails(question, plan) == plan
-
-
-def test_a_list_of_the_sample_types_stays_on_the_list_endpoint():
-    plan = _plan(target_endpoint=SAMPLETYPE_LIST)
-    assert _apply_parser_guardrails("What sample types can I register?", plan) == plan
-
-
-def test_a_which_attributes_question_on_another_endpoint_is_untouched():
-    plan = _plan(target_endpoint=SOPS)
-    out = _apply_parser_guardrails("Which sample attributes use a controlled vocabulary?", plan)
-    assert out.mode == "new_search" and out.target_endpoint == SOPS
+# The which-attributes guard moved into _route_by_kind: see test_route_by_kind.py.
 
 
 # --------------------------------------------------------------------------- the prompts
@@ -644,14 +606,15 @@ def test_the_parser_routing_core_names_no_retired_search():
     for name in ("advanced_search", "parents_by_child_types", "graph_search"):
         assert name not in core, name
     flat = " ".join(core.split())
-    assert "sample-tree is GET-per-UID. Use graph_query and put every UID in filters.uids." in flat
+    assert ('including "show me its tree", is graph_query: every UID in the reply links to its page, which draws the '
+            "tree. Put every UID in filters.uids.") in flat
     assert ("The catalog has no sample search: a sample-metadata question is graph_query, and so is a refine of "
             'a sample search an earlier turn ran on REST (set "refine_engine": "graph").') in flat
     assert "Do not reinterpret unscoped bulk export as an unfiltered sample search." in flat
     assert "That is lineage: use graph_query, which checks each required descendant type directly." in flat
     assert ("A question about WHICH attributes of the sample types have some property (required, a unit, a vocabulary, "
-            "a value type) is about the Attribute catalog on the graph: use graph_query. The sample type list endpoint "
-            "only lists the types.") in flat
+            "a value type) is about the Attribute catalog on the graph: use graph_query.") in flat
+    assert "sample type list endpoint" not in flat
 
 
 def test_the_api_prompt_drops_the_parents_by_child_types_block_and_keeps_the_graph_search_rules():

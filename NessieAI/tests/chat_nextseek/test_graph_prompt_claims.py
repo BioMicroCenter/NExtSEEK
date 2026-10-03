@@ -49,7 +49,10 @@ MIN_SCHEMA_PATH = PACKAGE / "context" / "min_graph_schema.json"
 # paper trigger reads s.DOI / s.PMID on the sample and st.DOI / st.PMID on a paper study, and the DOI rule says they
 # live on samples and on paper studies. Checked by replacing those two strings in the old frozen JSON, which then
 # equals the new one exactly; no other rule or trigger changed (was 0cf426479396...c19659e1251f).
-FROZEN_ROUTING_SHA256 = "1b36fed1561faece94488d85a8e80aba8e79a55ecaefb90ddec2551e0cd8f7b6"
+# Re-pinned a sixth time (round 4, unit B, reviewed by the judge): api_preferred_triggers shrink to retrieve, one SOP's
+# file and the user list; the assay rule points at the Assay node; two disambiguation rules (catalog counts and the
+# signed-in user go to the system agent) are added; the DOI rule says paper studies and MAY be samples.
+FROZEN_ROUTING_SHA256 = "f9352f09158ff6635565d137d7a2314516730c7ab5a41b24b2ffbbc58cf8e462"
 DESCRIPTIVE_RULE_PREFIX = "If the query filters or reports on a descriptive sample attribute"
 
 

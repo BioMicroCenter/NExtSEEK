@@ -345,7 +345,42 @@ def slim_api_result_for_llm(
     if preview_rows is None:
         preview_rows = _rows_actually_returned(slimmed)
     slimmed.update(build_result_disclosure(api_result, api_plan, preview_rows=preview_rows))
+    slimmed.update(_rest_list_flags(api_result, api_plan))
     return slimmed
+
+
+#: The two REST answers that are a single record or a whole list rather than a sample page (R4, U3b).
+_PEOPLE_LIST = "/nextseek_api/people/"
+_SOPS_RECORD = "/nextseek_api/sops/"
+
+
+def _rest_list_flags(api_result: dict, api_plan: dict | None) -> dict:
+    """``full_list_attached`` + ``rows_returned`` for the people list (the table under the reply holds every row, so
+    the chatter gives the total and never "the first N"); ``download_links`` for one SOP record (the file it offers)."""
+    endpoint = str((api_plan or {}).get("endpoint") or "").split("?", 1)[0]
+    data = api_result.get("data") if isinstance(api_result, dict) else None
+    if endpoint.rstrip("/") + "/" == _PEOPLE_LIST:
+        rows = data.get("data") if isinstance(data, dict) else data
+        if isinstance(rows, list):
+            return {"full_list_attached": True, "rows_returned": len(rows)}
+    elif endpoint.startswith(_SOPS_RECORD.rstrip("/") + "/") and isinstance(data, dict):
+        record = data.get("data") if isinstance(data.get("data"), dict) else data
+        links = _download_links(record)
+        return {"download_links": links} if links else {}
+    return {}
+
+
+def _download_links(record: dict) -> list[dict]:
+    """The file(s) an SOP record offers: each content blob's name and link, as the record states them."""
+    blobs = ((record.get("attributes") or {}).get("content_blobs")) or []
+    out = []
+    for blob in blobs if isinstance(blobs, list) else []:
+        if not isinstance(blob, dict):
+            continue
+        link = blob.get("link") or (blob.get("links") or {}).get("download") or (blob.get("links") or {}).get("self")
+        if link:
+            out.append({"file": blob.get("original_filename") or blob.get("title"), "link": link})
+    return out
 
 
 def _shrink_preview_to_budget(
