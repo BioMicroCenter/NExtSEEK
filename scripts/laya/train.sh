@@ -13,12 +13,12 @@ OUT=${2:?checkpoint dir (written once, never overwritten)}
 WORK=${LAYA_WORKSPACE:-$HOME/code/dmac/jevlev-train}
 LAYA_VERSION=0.3.25
 
-case "$(cd "$WORK" 2>/dev/null && pwd -P || echo "$WORK")" in
-  "$(git rev-parse --show-toplevel 2>/dev/null || echo /nonexistent)"*) echo "workspace must be outside the repo" >&2; exit 2;;
-esac
+mkdir -p "$WORK"
+if git -C "$WORK" rev-parse --show-toplevel >/dev/null 2>&1; then
+  echo "workspace $WORK is inside a git repo: it must be outside every git repo" >&2; exit 2
+fi
 [ -e "$OUT" ] && { echo "$OUT exists: a checkpoint folder is written once" >&2; exit 2; }
 
-mkdir -p "$WORK"
 [ -d "$WORK/venv" ] || python3 -m venv "$WORK/venv"
 # shellcheck disable=SC1091
 . "$WORK/venv/bin/activate"

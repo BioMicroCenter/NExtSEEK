@@ -1,5 +1,5 @@
 """Build the laya training view (SPEC s8). Code only; the output holds question text, so it is written OUTSIDE
-every git repo (the script refuses an output path inside this repo).
+every git repo (the script refuses an output path inside any git repo).
 
 Inputs (all read-only, none checked in):
   --turns PATH      a run's turns.json (list of {id, session, created, q, reply, route, src, status, attempted_route});
@@ -32,6 +32,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from NessieAI.router.laya_common import condense, norm_text_hash  # noqa: E402
 from NessieAI.router.router_context import build_history  # noqa: E402
 import split  # noqa: E402  (U4's module; tests stub its functions)
+from scripts.laya.draft_heldout import assert_outside_git  # noqa: E402
 
 ROUTES = ("nextseek_query", "container_cc", "unrelated")
 TEACHER_FIELD = {"baml": "route", "pipeline": "route", "cc_unavailable": "route",
@@ -184,8 +185,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
     out = pathlib.Path(a.out).expanduser().resolve()
-    if REPO in out.parents:
-        sys.exit("refusing to write question text inside the public repo; use the training workspace")
+    assert_outside_git(out)  # question text: outside every git repo, this public one and ccb alike
     rd = lambda p: json.loads(pathlib.Path(p).expanduser().read_text(encoding="utf-8"))  # noqa: E731
     turns = [t for p in a.turns for t in rd(p)]
     extra = [json.loads(ln) for ln in pathlib.Path(a.extra).expanduser().read_text().splitlines() if ln.strip()] if a.extra else []

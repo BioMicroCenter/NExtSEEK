@@ -158,5 +158,8 @@ def test_report_files_and_repo_guard(tmp_path):
     assert ev.main(["--finetune", str(f), "--calibration", str(c), "--out-dir", str(out)]) in (0,)
     assert json.loads((out / "report.json").read_text())["finetune"]["overall"]["n"] == 1
     assert "<h2>finetune</h2>" in (out / "report.html").read_text()
-    with pytest.raises(SystemExit, match="public repo"):
-        ev.main(["--finetune", str(f), "--calibration", str(c), "--out-dir", str(REPO / "x")])
+    other = tmp_path / "other"
+    (other / ".git").mkdir(parents=True)
+    for repo in (REPO, other):  # this repo, and any other git repo (ccb has a GitHub remote)
+        with pytest.raises(ValueError, match="inside a git repo"):
+            ev.main(["--finetune", str(f), "--calibration", str(c), "--out-dir", str(repo / "x")])

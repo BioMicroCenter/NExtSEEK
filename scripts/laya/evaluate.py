@@ -22,6 +22,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 from NessieAI.router import laya_common  # noqa: E402
+from scripts.laya.draft_heldout import assert_outside_git  # noqa: E402
 
 ROUTES = ("nextseek_query", "container_cc", "unrelated")
 BARS = {"agreement": 0.97, "fast_path": 0.60}
@@ -167,8 +168,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out-dir", required=True, help="outside every git repo: the report quotes slices of held-out rows")
     a = ap.parse_args(argv)
     out = pathlib.Path(a.out_dir).expanduser().resolve()
-    if REPO in [out, *out.parents]:
-        sys.exit("refusing to write a held-out report inside the public repo")
+    assert_outside_git(out)  # the report quotes held-out slices: outside every git repo
     rd = lambda p: [json.loads(ln) for ln in pathlib.Path(p).read_text().splitlines() if ln.strip()]  # noqa: E731
     cal = json.loads(pathlib.Path(a.calibration).read_text())
     rep = build_report(rd(a.finetune), cal, rd(a.zeroshot) if a.zeroshot else None)

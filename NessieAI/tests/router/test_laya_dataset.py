@@ -160,9 +160,13 @@ def test_extra_rows_are_synthetic_training_rows():
     assert (row["teacher_route"], row["family"], row["slice"]) == ("unrelated", "synthetic", "train")
 
 
-def test_cli_refuses_to_write_inside_the_repo(tmp_path):
-    with pytest.raises(SystemExit, match="public repo"):
-        bd.main(["--turns", "x", "--corpus", "x", "--manifest", "x", "--out", str(REPO / "rows.jsonl")])
+@pytest.mark.parametrize("where", ["this repo", "another repo"])
+def test_cli_refuses_to_write_inside_any_git_repo(tmp_path, where):
+    root = REPO if where == "this repo" else tmp_path / "other"
+    if where == "another repo":
+        (root / ".git").mkdir(parents=True)
+    with pytest.raises(ValueError, match="inside a git repo"):
+        bd.main(["--turns", "x", "--corpus", "x", "--manifest", "x", "--out", str(root / "rows.jsonl")])
 
 
 def test_cli_round_trip(tmp_path, monkeypatch):
