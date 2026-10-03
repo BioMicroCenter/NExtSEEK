@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -101,6 +102,7 @@ class OpSlotContentionTests(TransactionTestCase):
                 with lock:
                     holders[0] += 1
                     peak[0] = max(peak[0], holders[0])
+                time.sleep(0.005)  # hold the slot while counted, so an over-handed slot shows in the peak
                 with lock:
                     holders[0] -= 1
                 release_op_slot(self.turn)
