@@ -112,6 +112,7 @@ from NessieAI.ns.turn import (
     run_sse_pipeline,
 )
 from NessieAI.ns.artifacts import (
+    _discard_empty_dir,
     _granular_outputs_dir,
     _resolve_saved_path,
     _safe_artifact_path,
@@ -1263,27 +1264,34 @@ class AssistantViewSet(viewsets.ViewSet):
             # The login held for the turn is gone: never run the op as the service login (plan 02's own guard).
             return op_error("AUTH_FAILED", status=HTTP_STATUS["AUTH_FAILED"])
         chat_config = _granular_chat_config(request, req)
-        # parse, graph and aggregate all run parser_agent, which reads results_history
-        # off the session: build a (transient) session for them, else parser_agent
-        # crashes on None. Other ops don't touch the session.
-        session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
-        gate = build_gate(load_allowlist())
-        args = _granular_args(op, req)
-        # The artifact ops persist real files, so they need a writable run-root under an
-        # allowed artifact root.
-        outputs_dir = _granular_outputs_dir() if op in _ARTIFACT_OPS else None
         # A BaseException, so the except Exception below never sees it (F6). Imported here:
         # this module keeps chat_nextseek out of its module scope (see the note on imports).
         from chat_nextseek.llm_clients import LLMFatalError
 
+        outputs_dir = None
+        # Every failure from here on maps to a closed code (Task 4 Step 6), the bundle registration included.
         try:
+            # parse, graph and aggregate all run parser_agent, which reads results_history
+            # off the session: build a (transient) session for them, else parser_agent
+            # crashes on None. Other ops don't touch the session.
+            session = self._granular_session(request, req) if op in ("parse", "graph", "aggregate") else None
+            gate = build_gate(load_allowlist())
+            args = _granular_args(op, req)
+            # The artifact ops persist real files, so they need a writable run-root under an
+            # allowed artifact root.
+            outputs_dir = _granular_outputs_dir() if op in _ARTIFACT_OPS else None
             result = run_op(
                 op, args, config=chat_config, session=session,
                 write_gate=gate, outputs_dir=outputs_dir, limit_s=limit_s, turn=turn,
             )
+            # The artifact ops register a bundle so their files are fetchable over HTTP via
+            # download_artifact, and hand back the URLs.
+            download = self._register_artifact_bundle(request, req, op, result) if op in _ARTIFACT_OPS else None
         except OpBusyError:
+            _discard_empty_dir(outputs_dir)
             return op_error("BUSY", status=HTTP_STATUS["BUSY"])
         except OpValidationError as e:
+            _discard_empty_dir(outputs_dir)
             # The value the caller sent may be in the message: it goes to the log, never the reply.
             logger.info("granular op %s refused its arguments: %s", op, e)
             return op_error("VALIDATION", fields=[e.field_error()], status=HTTP_STATUS["VALIDATION"])
@@ -1297,10 +1305,8 @@ class AssistantViewSet(viewsets.ViewSet):
             return op_error("AGENT_FAILED", reason=failure_reason(e), status=HTTP_STATUS["AGENT_FAILED"])
 
         resp_body = {"op": op, "result": result}
-        # The artifact ops register a bundle so their files are fetchable over HTTP via
-        # download_artifact, and hand back the URLs.
-        if op in _ARTIFACT_OPS:
-            resp_body["download"] = self._register_artifact_bundle(request, req, op, result)
+        if download is not None:
+            resp_body["download"] = download
         return Response(resp_body, status=status.HTTP_200_OK)
 
     def _register_artifact_bundle(self, request, req, op: str, result) -> dict:

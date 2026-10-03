@@ -6,6 +6,7 @@ turn's chat; a turn's third op at once is BUSY. The op handlers are stand-ins: n
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import threading
 import time
@@ -121,10 +122,31 @@ class PassTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user("u1", password="p")
         self.chat, self.turn, self.raw = _live_pass(self.user)
-        _patch_common(self, tempfile.mkdtemp())
+        self.outputs = tempfile.mkdtemp()
+        _patch_common(self, self.outputs)
 
     def _post(self, op, body):
         return APIClient().post(f"{BASE}/{op}/", body, format="json", HTTP_AUTHORIZATION=f"NextseekTurn {self.raw}")
+
+    def test_a_failed_bundle_registration_is_agent_failed_not_a_500(self):
+        with patch("nextseek_api.services.assistant.run_op", return_value={"saved_files": {}}), \
+             patch("nextseek_api.assistant.bundle_ids.next_bundle_id_locked", side_effect=RuntimeError("lock wait")):
+            resp = self._post("report", {"mode": "samples", "project": "p"})
+        self.assertEqual(resp.status_code, 502)
+        self.assertEqual((resp.json()["code"], resp.json()["reason"]), ("AGENT_FAILED", "internal"))
+
+    def test_a_busy_artifact_op_leaves_no_folder(self):
+        CCTurn.objects.filter(pk=self.turn.pk).update(ops_in_flight=2)
+        resp = self._post("report", {"mode": "samples", "project": "p"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (429, "BUSY"))
+        self.assertFalse(os.path.isdir(self.outputs))
+
+    def test_a_refused_artifact_op_leaves_no_folder(self):
+        handler = MagicMock(side_effect=granular.OpValidationError("x", field="mode", error_type="invalid"))
+        with patch.dict(granular._HANDLERS, {"report": handler}):
+            resp = self._post("report", {"mode": "samples", "project": "p"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (422, "VALIDATION"))
+        self.assertFalse(os.path.isdir(self.outputs))
 
     def test_the_turn_and_its_limit_reach_run_op(self):
         with patch("nextseek_api.services.assistant.run_op", return_value=ENTITY) as run:
