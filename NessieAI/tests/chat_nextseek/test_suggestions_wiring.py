@@ -32,7 +32,6 @@ from NessieAI.tests.chat_nextseek.test_graph_review_wiring import (  # noqa: F40
     graph_turn_harness,
     install_graph_turn_stubs,
 )
-from nextseek_api.assistant.models_db import ChatSession
 from nextseek_api.assistant.session_adapter import DictSessionAdapter
 
 CREDS = {"api_user": "someone", "api_pass": "secret"}
@@ -65,8 +64,9 @@ def _dict_session():
 
 
 def _adapter_session():
-    """The request path's session: a ``DictSessionAdapter`` over an unsaved chat (its bundle ids are numbered in memory)."""
-    return DictSessionAdapter(ChatSession(results_history=[], last_debug={}, extra_state={}))
+    """The request path's session: a ``DictSessionAdapter`` over an unsaved chat (``_state.adding``: bundle ids are numbered in memory)."""
+    return DictSessionAdapter(SimpleNamespace(results_history=[], last_debug={}, extra_state={},
+                                              _state=SimpleNamespace(adding=True)))
 
 
 SESSIONS = [_dict_session, _adapter_session]
