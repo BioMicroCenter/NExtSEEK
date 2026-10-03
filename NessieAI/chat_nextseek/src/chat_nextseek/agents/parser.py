@@ -14,6 +14,7 @@ from ..config import ChatConfig
 from ..helpers import (
     build_recent_results_summary,
 )
+from ..helpers.query_scope import names_only_the_kind
 from ..llm_clients import LLMTimeoutError, model_traits
 from ..schemas.schema_helper import call_llm_structured, empty_output_problem
 from ..schemas import (
@@ -813,12 +814,31 @@ def _route_by_kind(user_query: str, plan, config=None, resolved=None):
     project's SOPs).
     """
     try:
-        return _route_by_kind_steps(user_query, plan, config, resolved if resolved is not None else getattr(plan, "resolved", None))
+        out = _route_by_kind_steps(user_query, plan, config, resolved if resolved is not None else getattr(plan, "resolved", None))
     except Exception as e:  # fail safe: never let the guard take the turn down, and never leave a bad REST call
         print(f"[DEBUG][PARSER] route-by-kind guard failed: {e!r}")
+        out = plan
         if plan.mode == "new_search" and plan.target_endpoint not in KEPT_REST:
-            return _to(plan, "graph_query", "sent to graph_query: the routing check failed")
+            out = _to(plan, "graph_query", "sent to graph_query: the routing check failed")
+    return _without_kind_keywords(out)
+
+
+def _without_kind_keywords(plan):
+    """A graph plan never filters on a word that names the kind being listed ("SOPs", "protocols", "researchers"):
+    such a keyword leaves its filters and its resolved keywords, so "What SOPs are on file?" lists every protocol
+    title (fix round 4.1). An unchanged plan is returned as the same object."""
+    if plan.mode != "graph_query":
         return plan
+    update = {}
+    for name in ("filters", "resolved"):  # a ParserCandidate has no resolved
+        holder = getattr(plan, name, None)
+        words = list(getattr(holder, "keywords", None) or [])
+        kept = [k for k in words if not names_only_the_kind(k)]
+        if kept != words:
+            update[name] = holder.model_copy(update={"keywords": kept})
+    if update:
+        print(f"[DEBUG][PARSER] kind words are not filters: kept {update.get('filters', plan.filters).keywords!r}")
+    return plan.model_copy(update=update) if update else plan
 
 
 def _route_by_kind_steps(user_query, plan, config, resolved):

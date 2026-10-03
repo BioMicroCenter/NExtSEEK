@@ -222,3 +222,42 @@ def test_the_catalog_holds_exactly_the_three_pairs():
 def test_a_title_with_dots_is_kept_whole(q, ref):
     """The dev smoke's title had dots in it; the title is read to a '?' or a sentence-ending period, not the first dot."""
     _kept_sop(route(q, plan(endpoint=SOPS)), ref)
+
+
+def _listed(q, mode="graph_query", endpoint=None, keywords=(), resolved=()):
+    p = ParserPlan(mode=mode, target_endpoint=endpoint, intent_summary="x", filters=ParserFilters(keywords=list(keywords)),
+                   resolved=EntityAgentOutput(keywords=list(resolved)))
+    return route(q, p)
+
+
+@pytest.mark.parametrize("q,keywords", [("What SOPs are on file?", ["SOPs"]), ("What SOPs are on file?", ["SOP"]),
+                                        ("Which protocols are recorded?", ["protocols"]),
+                                        ("List the SOP protocols", ["SOP protocols"])])
+def test_the_kind_being_listed_is_never_a_graph_filter(q, keywords):
+    """A word that names the kind being listed is not a filter term: the plan lists every protocol title."""
+    out = _listed(q, keywords=keywords, resolved=keywords)
+    assert out.mode == "graph_query" and out.filters.keywords == [] and out.resolved.keywords == []
+
+
+def test_the_kind_word_leaves_a_rerouted_sop_list_too():
+    out = _listed("What SOPs are on file?", mode="new_search", endpoint=SOPS, keywords=["SOP"], resolved=["SOP"])
+    assert (out.mode, out.filters.keywords, out.resolved.keywords) == ("graph_query", [], [])
+
+
+def test_a_real_term_next_to_the_kind_word_stays():
+    out = _listed("Which SOPs mention fixation?", keywords=["SOPs", "fixation"], resolved=["SOP", "fixation"])
+    assert (out.filters.keywords, out.resolved.keywords) == (["fixation"], ["fixation"])
+    p = ParserPlan(mode="graph_query", intent_summary="x", filters=ParserFilters(keywords=["fixation"]))
+    assert route("Which SOPs mention fixation?", p) is p
+
+
+def test_a_plan_mode_candidate_loses_the_kind_word_too():
+    mp = MultiParserPlan(intent_summary="x", candidates=[ParserCandidate(mode="graph_query", tool_query="x",
+                                                                         filters=ParserFilters(keywords=["protocols"]))])
+    assert _apply_multi_parser_guardrails("Which protocols are recorded?", mp, ADMIN).candidates[0].filters.keywords == []
+
+
+def test_the_graph_prompt_lists_sops_as_distinct_protocol_titles():
+    text = (CATALOG.parent.parent / "prompts" / "graph_agent.txt").read_text(encoding="utf-8")
+    assert ("Listing the SOPs or protocols on file is the distinct protocol titles, never a text filter on the word "
+            "SOP or protocol") in " ".join(text.split())

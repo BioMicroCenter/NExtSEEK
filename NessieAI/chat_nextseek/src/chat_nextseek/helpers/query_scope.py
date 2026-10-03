@@ -66,6 +66,18 @@ from typing import Any
 from ..graph_contract import schema
 from .lab_code import fold
 
+#: Words that name the KIND of record a question lists ("What SOPs are on file?", "Who are the researchers
+#: registered?"). Such a word is never a filter term (fix round 4.1).
+PEOPLE_KIND_WORDS = frozenset({"people", "person", "researcher", "researchers", "user", "users", "account", "accounts",
+                               "scientist", "scientists", "member", "members", "registered"})
+KIND_WORDS = PEOPLE_KIND_WORDS | {"sop", "sops", "protocol", "protocols"}
+
+
+def names_only_the_kind(term: object) -> bool:
+    """True when every word of ``term`` names the kind being listed ("SOPs", "registered users")."""
+    words = re.findall(r"\w+", str(term).lower())
+    return bool(words) and all(w in KIND_WORDS for w in words)
+
 #: One English phrase per endpoint, for the single sentence the reply may say about
 #: how the answer was obtained. Display only: nothing here routes, and the generic
 #: fallback is what an endpoint added later gets until someone writes it a phrase.
