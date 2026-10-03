@@ -108,12 +108,6 @@ def router_record(decision: RouteDecision) -> dict:
     return {name: getattr(decision, name, None) for name in ROUTER_RECORD_FIELDS}
 
 
-def laya_fields(decision) -> dict:
-    """The laya block for ``route_decided``: absent when laya was off for the turn."""
-    block = getattr(decision, "laya", None)
-    return {"laya": block} if block else {}
-
-
 def router_cost_fields(decision) -> dict:
     """The router's cost fields for ``route_decided``, or none at all when the decision
     was never routed (a forced turn makes no router call, and that is not a zero)."""
@@ -124,6 +118,9 @@ def router_cost_fields(decision) -> dict:
         "router_cost_usd": getattr(decision, "router_cost_usd", None),
         "router_cost_partial": bool(getattr(decision, "router_cost_partial", False)),
         "router_usage": usage,
+        # laya's record (JevLevROUTING SPEC s7), absent when laya was off for the turn. It rides
+        # this one spread because every routed decision has usage and test_router_cost pins one spread.
+        **({"laya": decision.laya} if getattr(decision, "laya", None) else {}),
     }
 
 

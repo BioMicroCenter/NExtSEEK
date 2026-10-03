@@ -23,16 +23,16 @@ def test_laya_is_a_router_record_field():
     assert cc_router.router_record(_d(laya={"mode": "shadow"}))["laya"] == {"mode": "shadow"}
 
 
-def test_laya_fields_absent_when_off_present_otherwise():
-    assert cc_router.laya_fields(_d()) == {}
-    assert cc_router.laya_fields(object()) == {}
-    assert cc_router.laya_fields(_d(laya={"mode": "shadow"})) == {"laya": {"mode": "shadow"}}
+def test_route_decided_fields_carry_laya_only_when_present():
+    base = {"router_usage": {}, "router_cost_usd": 0.0}
+    assert "laya" not in cc_router.router_cost_fields(_d(**base))
+    assert cc_router.router_cost_fields(_d(laya={"mode": "shadow"}, **base))["laya"] == {"mode": "shadow"}
 
 
-def test_route_decided_event_uses_laya_fields():
+def test_route_decided_event_still_has_one_spread():
     src = inspect.getsource(turn)
-    event = src[src.index('send_event("route_decided"'):]
-    assert "cc_router.laya_fields(decision)" in event.split("_record_ledger_row")[0]
+    event = src[src.index('send_event("route_decided"'):].split("_record_ledger_row")[0]
+    assert event.count("router_cost_fields(decision)") == 1
 
 
 def test_record_and_logs_hold_no_query_text(tmp_path, monkeypatch, caplog):

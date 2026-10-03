@@ -467,8 +467,6 @@ def start_task(request, req, *, force_cc: bool, chat_session, query_task,
                 # router_cost_partial and router_usage. Absent on a forced turn, which made
                 # no router call; present on every routed one, unrelated included.
                 **cc_router.router_cost_fields(decision),
-                # laya's record (JevLevROUTING): absent when laya is off.
-                **cc_router.laya_fields(decision),
             })
             _record_ledger_row(chat_session, decision, query_task=query_task)
 
