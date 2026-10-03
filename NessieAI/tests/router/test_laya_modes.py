@@ -6,6 +6,7 @@ import urllib.error
 
 import pytest
 
+from NessieAI.router import laya_common
 from NessieAI.tests.router._laya_support import REV, fake_post, reply, setup
 
 
@@ -87,6 +88,21 @@ def test_gate_reasons(tmp_path, monkeypatch, outcome, gate):
     laya = setup(tmp_path, monkeypatch, live=REV)
     fake_post(monkeypatch, outcome)
     assert _run(laya)["gate"] == gate
+
+
+@pytest.mark.parametrize("ns,cc,un", [(0.2, float("nan"), 0.1), (0.2, float("inf"), 0.1), (-0.5, 0.97, 0.01),
+                                      (0.0, 0.0, 0.0)])
+def test_non_finite_negative_or_all_zero_probabilities_are_bad_json(tmp_path, monkeypatch, ns, cc, un):
+    laya = setup(tmp_path, monkeypatch, live=REV)
+    fake_post(monkeypatch, reply(ns=ns, cc=cc, un=un))
+    assert _run(laya)["gate"] == "bad_json"
+
+
+def test_a_nan_calibrated_confidence_never_clears_the_threshold(tmp_path, monkeypatch):
+    laya = setup(tmp_path, monkeypatch, live=REV)
+    fake_post(monkeypatch, reply())
+    monkeypatch.setattr(laya_common, "apply_temperature", lambda probs, T: {k: float("nan") for k in probs})
+    assert _run(laya)["gate"] == "below_threshold"
 
 
 @pytest.mark.parametrize("kw", [{"cal_options_hash": "x"}, {"cal_prompt_hash": "x"}])

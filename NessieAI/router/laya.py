@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import socket
 import threading
@@ -141,6 +142,9 @@ def _call(cfg: dict, query: str, history, rec: dict) -> None:
     except (KeyError, TypeError, ValueError):
         rec["gate"] = "bad_json"
         return
+    if not (all(math.isfinite(v) and v >= 0 for v in probs.values()) and sum(probs.values()) > 0):
+        rec["gate"] = "bad_json"  # NaN, inf, negative or all zero: no ranking to trust
+        return
     cal = laya_common.apply_temperature(probs, cfg["temperature"])
     ranked = sorted(cal, key=cal.get, reverse=True)
     rec.update(calibrated=cal, route=ranked[0], calibrated_confidence=cal[ranked[0]],
@@ -153,7 +157,7 @@ def _call(cfg: dict, query: str, history, rec: dict) -> None:
         rec["gate"] = "too_many_tokens"
     elif rec["route"] == "unrelated":
         rec["gate"] = "unrelated"
-    elif rec["calibrated_confidence"] < cfg["threshold"]:
+    elif not rec["calibrated_confidence"] >= cfg["threshold"]:  # a NaN never clears it
         rec["gate"] = "below_threshold"
     else:
         rec["gate"] = "pass"

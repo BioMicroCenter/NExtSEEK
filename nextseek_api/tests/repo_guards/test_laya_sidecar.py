@@ -31,8 +31,8 @@ def _load():
 class FakeAgent:
     """Same shape as laya.Agent.system_one's reply for one choice question."""
 
-    def __init__(self, truncated=False, boom=False):
-        self.truncated, self.boom, self.calls = truncated, boom, []
+    def __init__(self, truncated=False, boom=False, nan=False):
+        self.truncated, self.boom, self.nan, self.calls = truncated, boom, nan, []
 
     def system_one(self, state, questions):
         self.calls.append((state, questions))
@@ -43,7 +43,7 @@ class FakeAgent:
         return {
             "model": "fake",
             "answers": {qid: {"type": "choice", "choice": keys[0],
-                              "probabilities": {k: 1.0 / len(keys) for k in keys},
+                              "probabilities": {k: float("nan") if self.nan else 1.0 / len(keys) for k in keys},
                               "answer_confidence": 0.9}},
             "usage": {"state_tokens": 42, "truncated": self.truncated},
         }
@@ -132,6 +132,12 @@ def test_a_model_failure_is_a_bare_500_and_never_echoes_or_logs_the_text(serve, 
     assert SECRET_TEXT not in json.dumps(out)
     assert SECRET_TEXT not in caplog.text
     assert "leaked" not in caplog.text
+
+
+@pytest.mark.parametrize("serve", [{"nan": True}], indirect=True)
+def test_a_non_finite_model_output_is_a_500_never_a_non_json_body(serve):
+    url, _ = serve
+    assert _call(url, "/route", BODY) == (500, {"error": "inference failed"})
 
 
 def test_a_good_request_logs_nothing_with_the_body(serve, caplog, capfd):

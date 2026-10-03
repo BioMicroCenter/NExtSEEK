@@ -48,7 +48,7 @@ def make_server(agent, revision: str, api_key: str, host: str, port: int) -> Thr
             pass
 
         def _send(self, code: int, obj: dict) -> None:
-            data = json.dumps(obj).encode()
+            data = json.dumps(obj, allow_nan=False).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -90,6 +90,7 @@ def make_server(agent, revision: str, api_key: str, host: str, port: int) -> Thr
                     "state_tokens": usage["state_tokens"],
                     "truncated": bool(usage["truncated"]),
                 }
+                json.dumps(reply, allow_nan=False)  # NaN or inf from the model: a 500, never a non-JSON body
             except Exception as exc:  # noqa: BLE001 -- type name only: the message can quote the state
                 log.error("inference failed: %s", type(exc).__name__)
                 return self._send(500, {"error": "inference failed"})
