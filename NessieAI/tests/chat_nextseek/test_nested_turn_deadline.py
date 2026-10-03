@@ -56,3 +56,25 @@ def test_a_nested_turn_stops_at_the_deadline(turn):
     seen, events = turn(deadline_epoch=time.time() - 1)
     assert seen["remaining"] <= 0
     assert any(ev == "query_error" and data.get("fatal") for ev, data in events)
+
+
+class _Stop(Exception):
+    """Raised by the stubbed first step: the scope has been read, nothing else may run."""
+
+
+@pytest.mark.parametrize("entry", ["run_query", "run_query_plan", "run_pipeline_launch"])
+def test_every_entry_point_limits_its_scope_before_its_first_step(monkeypatch, entry):
+    """_limit_turn runs right after the identity gate in all three entry points: their first step (the log dir)
+    already sees the deadline on the scope collects_turn opened. A no-op _limit_turn leaves remaining() None."""
+    seen: dict = {}
+
+    def first_step(session, config):
+        seen["remaining"] = call_scope.current().remaining()
+        raise _Stop
+
+    monkeypatch.setattr(orch, "_identity_gate", lambda session, config, *a, **k: (config, None))
+    monkeypatch.setattr(orch, "_ensure_query_log_dir", first_step)
+    with pytest.raises(_Stop):
+        getattr(orch, entry)({}, SimpleNamespace(), "q", lambda ev, data: None,
+                             credentials={"api_user": "u", "api_pass": "p"}, deadline_epoch=time.time() + 30)
+    assert seen["remaining"] == pytest.approx(30, abs=2)

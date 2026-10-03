@@ -143,3 +143,20 @@ class TestThroughThePass:
                 time.sleep(0.05)
         assert resp.status_code == 202
         assert seen["deadline_epoch"] == pytest.approx(deadline - op_limits.ANSWER_RESERVE_S, abs=1.0)
+
+
+@pytest.mark.parametrize("mode, entry", [
+    ("standard", "run_query"), ("plan", "run_query_plan"), ("pipeline", "run_pipeline_launch"),
+])
+def test_the_thread_body_hands_the_deadline_to_the_entry_point_it_runs(monkeypatch, mode, entry):
+    """run_async_pipeline forwards deadline_epoch to whichever orchestrator entry point req.mode selects."""
+    from NessieAI.ns import turn as ns_turn
+    seen: dict = {}
+    for name in ("run_query", "run_query_plan", "run_pipeline_launch"):
+        monkeypatch.setattr(ns_turn, name, lambda *a, _n=name, **kw: seen.setdefault(_n, kw))
+    monkeypatch.setattr(ns_turn, "_save_session_or_report", lambda *a, **k: None)
+    ns_turn.run_async_pipeline(adapter={}, chat_config=SimpleNamespace(), req=SimpleNamespace(query="q", mode=mode),
+                               send_event=lambda e, d: None, api_user="u", api_pass="p", chat_session=None,
+                               resolved_session_id="s", deadline_epoch=START + 30)
+    assert list(seen) == [entry]
+    assert seen[entry]["deadline_epoch"] == START + 30
