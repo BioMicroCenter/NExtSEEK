@@ -148,7 +148,10 @@ torch = [
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "dmac.settings"
-markers = ["host_only: source-tree/host-lane test; excluded from in-container runs"]
+markers = [
+    "host_only: source-tree/host-lane test; excluded from in-container runs",
+    "mysql_lane: needs lane M's real MySQL (lane_mysql); skipped unless DJANGO_SETTINGS_MODULE is dmac.test_settings_mysql",
+]
 
 [dependency-groups]
 dev = [

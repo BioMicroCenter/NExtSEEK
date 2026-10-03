@@ -28,6 +28,7 @@ There is no `conftest.py` at `NessieAI/tests/` itself; that keeps the harness ho
 | Lane | Runtime | Command | Where to run | Cost |
 |---|---|---|---|---|
 | Django AI suites | app image | "Django lane" block below, with one or more `NessieAI/tests/<area>` paths | host, throwaway container | free |
+| MySQL concurrency lane (lane M) | app image beside a throwaway MySQL 8.0 | "MySQL concurrency lane" block below | host, over a writable copy | free |
 | CC clean lane | live app container | "CC clean lane" block below | inside `nextseek`, which runs the baked image | free |
 | CC hermetic | host uv | "CC hermetic lane" block below | repo root | free |
 | Graph scope lane | app image beside a throwaway Neo4j | "Graph scope lane" block below | host, over an exported tree | free |
@@ -65,6 +66,7 @@ docker run --rm -i --network none -e LOG_DIR=/tmp/nextseek-logs \
 - `ns` and `api` need a writable copy of the checkout, mounted at `/src`, with `startup/dev/lane_local_settings.py` copied to `dmac/local_settings.py`, plus `-e GCP_API_KEY=dummy -e CATALOG_FILE=/src/NessieAI/chat_nextseek/agent_model_catalog.json`. `CATALOG_FILE` must match the mount: `startup/dev/run_full_test_lane.sh`, the script that drives this lane end to end, mounts its tree at `/work` and sets it to match.
 - `schema_rag` needs the embedding-model cache, provisioned once per checkout with `startup/dev/provision_embedding_model.sh`, and `-e HF_HUB_OFFLINE=1`. Its live module runs only with `RUN_SCHEMA_RAG_LIVE=1` and egress to fairdomhub.org.
 - `hibayes` has tests that need an external delivery directory or a migrated MySQL store; their MySQL lane script is archived under `NessieAI/history/plan018/`.
+- Tests marked `mysql_lane` (`NessieAI/tests/ns/test_mysql_lane.py`: the op slots and the chat's bundle ids raced on separate connections) run only under lane M: the Django lane's `ns` setup with `DJANGO_SETTINGS_MODULE=dmac.test_settings_mysql`, a throwaway MySQL 8.0 container (1 GB, on an internal Docker network, never the stack's database) reached through `LANE_MYSQL_HOST` and `LANE_MYSQL_PASSWORD`. The first run applies every migration (a few minutes); a failing migration is a defect, not a reason for `--nomigrations`. In every other lane `NessieAI/tests/ns/conftest.py` skips them. Run at most one lane M at a time (RAM).
 - CI runs these areas by name from `.github/workflows/ci-pytest.yml`, diffed against `ci/pytest-baseline.txt`.
 
 ### CC clean lane
