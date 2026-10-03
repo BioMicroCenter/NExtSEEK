@@ -1490,8 +1490,6 @@ def run_cc_turn(
 
     # Fail closed if any mount's backing subpath dir is still missing.
     _preflight_subpath_dirs(str(mount_root), mounts)
-    if vocabulary is not None and dirs.turn_subpath:
-        _write_turn_vocabulary(mount_root, dirs.turn_subpath, vocabulary)
 
     path_mappings = path_mappings_for(output_mnt=dirs.output_mnt,
                                       run_scratch_mnt=dirs.run_scratch_mnt)
@@ -1572,6 +1570,9 @@ def run_cc_turn(
     client = docker.from_env()
     container = None
     try:
+        # Inside the try: its finally removes the file, whatever fails before the container starts.
+        if vocabulary is not None and dirs.turn_subpath:
+            _write_turn_vocabulary(mount_root, dirs.turn_subpath, vocabulary)
         spawn_kwargs = _run_kwargs(
             image=image, command=command, environment=environment,
             mounts=mounts, run_id=run_id, user_id=user_id,

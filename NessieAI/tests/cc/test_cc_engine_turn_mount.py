@@ -106,3 +106,18 @@ def test_a_first_cc_turn_mounts_the_vocabulary_read_only_without_previous_turns(
 def test_no_vocabulary_no_turn_mount(tmp_path, monkeypatch):
     seen, _ = _run(tmp_path, monkeypatch, vocabulary=None)
     assert all(m["Target"] != "/data/turn" for m in seen["mounts"])
+
+
+def test_no_vocabulary_file_outlives_a_turn_that_fails_before_its_container_starts(tmp_path, monkeypatch):
+    def socket_down():
+        raise RuntimeError("socket down")
+    monkeypatch.setattr(docker_mod, "from_env", socket_down)
+
+    with pytest.raises(RuntimeError):
+        cc_engine.run_cc_turn(
+            query="how many mice", model_id="opus", send_event=lambda e, d: None, user_id="alice",
+            project_dirname="1-testproj", run_id=RUN_ID,
+            paths=CCPaths(users_volume="dmac-cc-users", user_root_mount=str(tmp_path)), vocabulary=VOCAB)
+
+    vocabulary_file = tmp_path / f"1-testproj/alice/_turn/{RUN_ID}" / cc_engine.VOCABULARY_FILE
+    assert not vocabulary_file.exists(), "written only inside the try whose finally removes it"
